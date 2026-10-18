@@ -825,10 +825,23 @@ Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
 urllib3 connections); a private endpoint needs the instance setting
-`push_allow_private_endpoints`. A refused send keeps the subscription. The
+`push_allow_private_endpoints`. A send refused by the guard keeps the subscription and does not count toward
+`MAX_CONSECUTIVE_FAILURES` (`_SendResult.refused`): it is a configuration state. The
 migration that adds it turns it on, with `push_private_endpoints_grandfathered`
 (one-time notice, cleared by a PATCH of either field), when a stored
-subscription is not a browser push service (FCM, Mozilla, WNS, Apple).
+subscription is not a browser push service (FCM, Mozilla, WNS, Apple). Migration
+104 refines it (097 is shipped, never edited): while the notice is pending it withdraws
+both flags unless an endpoint visibly targets a private network (non-global IP literal,
+dotless name, `.local`/`.lan`/`.home.arpa`/`.internal`/`.localdomain`; no DNS), so a public
+distributor such as ntfy.sh is not opted in. A restore of a backup whose settings lack
+`push_allow_private_endpoints` (pre-guard) applies the same rule to the restored
+subscriptions (`endpoint_looks_private`, `_regrandfather_private_push` in
+`app/services/backup.py`; migration 104 keeps a frozen copy, both with a listed set of
+networks, not `is_global`). When 104 withdraws the opt-in and a stored endpoint is a
+hostname it cannot place (split DNS, Tailscale `*.ts.net`), it sets
+`push_private_endpoints_review`: a persistent notice (excluded from backups) with a
+one-click re-enable, cleared by a PATCH of `push_allow_private_endpoints` or
+`push_private_endpoints_review: false`.
 
 The test routes (`POST /push/subscriptions/{id}/test`,
 `POST /settings/notification-destinations/test`) send to a destination the

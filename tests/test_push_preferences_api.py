@@ -193,3 +193,16 @@ async def test_grandfathered_notice_is_dismissed_or_cleared_by_a_choice(test_db,
     await AppSettingsRepository.update(push_private_endpoints_grandfathered=True)
     chosen = await client.patch("/api/settings", json={"push_allow_private_endpoints": True})
     assert chosen.json()["push_private_endpoints_grandfathered"] is False
+
+
+@pytest.mark.asyncio
+async def test_review_notice_is_dismissed_or_cleared_by_ticking_the_box(test_db, client):
+    await AppSettingsRepository.update(push_private_endpoints_review=True)
+    assert (await client.get("/api/settings")).json()["push_private_endpoints_review"] is True
+    dismissed = await client.patch("/api/settings", json={"push_private_endpoints_review": False})
+    assert dismissed.json()["push_private_endpoints_review"] is False
+
+    await AppSettingsRepository.update(push_private_endpoints_review=True)
+    ticked = await client.patch("/api/settings", json={"push_allow_private_endpoints": True})
+    assert ticked.json()["push_allow_private_endpoints"] is True
+    assert ticked.json()["push_private_endpoints_review"] is False

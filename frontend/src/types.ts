@@ -1522,6 +1522,8 @@ export interface AppSettings {
   push_allow_private_endpoints?: boolean;
   /** The upgrade turned push_allow_private_endpoints on: show a one-time notice. */
   push_private_endpoints_grandfathered?: boolean;
+  /** The upgrade switched the opt-in off for a hostname it cannot place: show a review notice. */
+  push_private_endpoints_review?: boolean;
   /** Seconds the radio may stay unreachable before radio_offline is sent (0 = at once). */
   radio_offline_grace_s?: number;
   /** Consent to the link and file sharing service. Off by default; never restored from a backup. */
@@ -1557,6 +1559,7 @@ export interface AppSettingsUpdate {
   auth_allowed_origins?: string[];
   push_allow_private_endpoints?: boolean;
   push_private_endpoints_grandfathered?: boolean;
+  push_private_endpoints_review?: boolean;
   radio_offline_grace_s?: number;
   share_enabled?: boolean;
   share_shorten_mode?: ShareShortenMode;

@@ -1012,6 +1012,44 @@ export function SettingsNotificationsSection({
             </Button>
           </div>
         )}
+        {appSettings?.push_private_endpoints_review === true && (
+          <div
+            className="flex flex-wrap items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.8125rem]"
+            role="status"
+          >
+            <p className="min-w-0 flex-1">{t('settings.notifications.pushReview')}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!onSaveAppSettings}
+              onClick={() => {
+                void onSaveAppSettings?.({ push_allow_private_endpoints: true }).catch(
+                  (err: unknown) =>
+                    toast.error(t('settings.notifications.pushAllowPrivateSaveFailed'), {
+                      description: formatApiError(err, t),
+                    })
+                );
+              }}
+            >
+              {t('settings.notifications.pushReviewEnable')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!onSaveAppSettings}
+              onClick={() => {
+                void onSaveAppSettings?.({ push_private_endpoints_review: false }).catch(
+                  (err: unknown) =>
+                    toast.error(t('settings.notifications.pushAllowPrivateSaveFailed'), {
+                      description: formatApiError(err, t),
+                    })
+                );
+              }}
+            >
+              {t('settings.notifications.pushReviewDismiss')}
+            </Button>
+          </div>
+        )}
         <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">
           <Checkbox
             id="push-allow-private-endpoints"

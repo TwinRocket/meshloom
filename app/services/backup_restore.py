@@ -700,7 +700,13 @@ async def _meshloom_step(run: _Run) -> None:
     run.result.settings_updated = result.settings_updated
     run.result.warnings.extend(result.warnings)
     if isinstance(doc, BackupExportV2) and doc.meshloom_extra is not None:
-        run.result.warnings.extend(await restore_meshloom_extra(doc.meshloom_extra))
+        has_opt_in = (
+            doc.settings is not None
+            and "push_allow_private_endpoints" in doc.settings.model_fields_set
+        )
+        run.result.warnings.extend(
+            await restore_meshloom_extra(doc.meshloom_extra, settings_have_push_opt_in=has_opt_in)
+        )
     if isinstance(doc, BackupExportV2) and doc.sections:
         run.result.warnings.extend(await restore_sections(doc.sections))
     run.set("meshloom", "done")

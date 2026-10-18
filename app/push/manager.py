@@ -476,6 +476,8 @@ class _SendResult:
     sub_id: str
     success: bool = False
     expired: bool = False
+    # Refused by the egress guard: a configuration state, not a delivery failure.
+    refused: bool = False
 
 
 class PushManager:
@@ -620,6 +622,8 @@ class PushManager:
         remove_ids: list[str] = []
         for r in results:
             if isinstance(r, _SendResult):
+                if r.refused:
+                    continue  # kept, and never counted toward the eviction threshold
                 if r.expired:
                     remove_ids.append(r.sub_id)
                 elif r.success:
@@ -650,7 +654,9 @@ class PushManager:
                 )
             result.success = True
         except EgressBlocked as e:
-            # Kept: the endpoint may become valid again (setting turned on, DNS).
+            # Kept and not counted as a failure: the endpoint becomes valid again
+            # when the setting is ticked or DNS changes.
+            result.refused = True
             logger.warning("Push send refused by the egress guard for %s: %s", sub_id, e.code)
         except WebPushException as e:
             status = getattr(e, "response", None)
