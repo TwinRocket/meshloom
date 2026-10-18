@@ -12,6 +12,9 @@ import {
 } from '../../utils/meshcoreOpenPayloads';
 import { renderTextWithMentions } from '../../utils/messageText';
 
+// Service links are rendered by the anchor linkifyText uses; exposed here with the other payloads.
+export { ShareLinkAnchor } from './ShareLinkAnchor';
+
 // Renders a MeshCore Open GIF payload, falling back to the raw text on load error.
 function GifPayload({ gifId, rawText }: { gifId: string; rawText: string }) {
   const { t } = useTranslation();

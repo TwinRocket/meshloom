@@ -405,6 +405,15 @@ key}`); they are not `Message.conversation_key`.
 - The pieces live in `components/message/richPayloads.tsx` (payload renderers) and
   `utils/messageText.tsx` (linkify, mentions, `RegionBadge`, `hasUnexpectedControlChars`).
   Links keep `noopener noreferrer` and the `https?://` + TLD rule.
+- Service links (the share hosts of `GET /api/share/status`, id grammar in
+  `utils/shareLinks.ts`) render through `components/message/ShareLinkAnchor.tsx`
+  (re-exported by `richPayloads.tsx`), which `linkifyText` uses for every URL. The
+  destination hint (`-> host`) comes from `GET /api/share/{id}/meta` on hover or
+  focus only, through `stores/shareMetaStore.ts` (one request per id, 10-minute
+  memory, negative entries kept). The store asks `/api/share/status` (local, no
+  egress) only for a URL shaped like a service link, and never requests a meta
+  when sharing is off. `utils/messagePreview.ts` previews a service link from the
+  text alone (`🔗 caption`).
 - `hasUnexpectedControlChars` flags C0 controls, DEL, bidi embeddings, overrides and
   isolates (U+202A-202E, U+2066-2069), ALM (U+061C), U+200B, U+2060 and U+FEFF. It does
   not flag LRM/RLM, ZWNJ or ZWJ (legitimate in RTL, Indic and emoji text). Its only caller

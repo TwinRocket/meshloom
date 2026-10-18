@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { ShareLinkAnchor } from '../components/message/ShareLinkAnchor';
 import { findLinkedChannelReferences } from './messageParser';
 
 // URL regex for linkifying plain text
@@ -81,17 +82,7 @@ export function linkifyText(
         )
       );
     }
-    parts.push(
-      <a
-        key={`${keyPrefix}-link-${keyIndex++}`}
-        href={match[0]}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-primary underline hover:text-primary/80"
-      >
-        {match[0]}
-      </a>
-    );
+    parts.push(<ShareLinkAnchor key={`${keyPrefix}-link-${keyIndex++}`} href={match[0]} />);
     lastIndex = match.index + match[0].length;
   }
 
