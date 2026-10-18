@@ -564,3 +564,45 @@ async def test_a_real_child_fetches_through_the_host(manager, tmp_path, net):  #
     assert json.loads(out[0]["ok"]["body"]) == {"t": 21}
     assert out[1] == {"error": "host_not_allowed", "params": None}
     assert net.hosts() == ["api.example.org"]
+
+
+BIG_FETCHER = """
+    import base64
+
+    import meshloom_plugin
+
+    def size(answer):
+        body = answer["body"]
+        raw = base64.b64decode(body) if answer.get("encoding") == "base64" else body.encode()
+        return {"len": len(raw), "truncated": answer["truncated"], "first": raw[:1].hex()}
+
+    async def on_message(params):
+        url = "https://api.example.org/big"
+        out = [size(await meshloom_plugin.host().call("http.fetch", {"url": url}))]
+        # The blocking call of the legacy bot shim gets a long answer too.
+        out.append(size(meshloom_plugin.host().call_sync("http.fetch", {"url": url})))
+        # The largest body a plugin may send (256 KiB) fits its request line.
+        posted = await meshloom_plugin.host().call(
+            "http.fetch", {"url": url, "method": "POST", "body": "x" * (256 * 1024)}
+        )
+        out.append(posted["status"])
+        return out
+"""
+
+
+async def test_a_real_child_gets_a_1_mib_answer_and_sends_a_256_kib_body(
+    manager,  # noqa: F811
+    tmp_path,
+    net,
+    monkeypatch,
+):
+    import tests.test_plugin_capabilities as capability_tests
+
+    net.handler = lambda r: httpx.Response(200, content=b"\xff" * (2 * 1024 * 1024))
+    monkeypatch.setattr(capability_tests, "PROBE", BIG_FETCHER)
+    inst = await probe(manager, tmp_path, "big", {"http": {"hosts": ["api.example.org"]}})
+    out = await run_test(manager, inst)
+    assert out == [{"len": 1024 * 1024, "truncated": True, "first": "ff"}] * 2 + [200]
+
+    assert net.requests[-1].method == "POST"
+    assert net.requests[-1].content == b"x" * http_capability.MAX_BODY_BYTES
