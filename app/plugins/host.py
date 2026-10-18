@@ -38,6 +38,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import sys
@@ -82,6 +83,18 @@ INSTANCE_CAP_MAX = 20
 _DROP_LOG_INTERVAL = 10.0
 # Requests a child may have pending at the host at once; past it: -32001.
 MAX_CHILD_REQUESTS = 32
+# What a test event may capture of its `messages.send` requests; past either
+# bound the child gets -32001 (`test_sends_truncated`) and the result says so.
+MAX_TEST_SENDS = 32
+MAX_TEST_SEND_BYTES = 64 * 1024
+# `last_error` is a stable code plus a short message the host writes; the full
+# detail (child text, paths) goes to the server log only.
+LAST_ERROR_MAX_CHARS = 200
+_DETAIL_LOG_MAX_CHARS = 2000
+_PATH_RE = re.compile(r"(?<![\w.])(?:/[^\s/:'\"]+)+/?")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,63}$")
+_RUNNER_CODE_RE = re.compile(r"^[a-z][a-z_]{0,39}$")
 
 
 @dataclass(frozen=True)
@@ -92,6 +105,8 @@ class Budgets:
     event_timeout: float = 30.0
     cancel_grace: float = 5.0
     shutdown_grace: float = 5.0
+    # The whole stop of one instance (shutdown message, grace, SIGTERM, SIGKILL, reap).
+    stop_timeout: float = 10.0
     backoff_initial: float = 1.0
     backoff_max: float = 60.0
     crash_loop_after: int = 5
@@ -148,6 +163,35 @@ class HostMethodError(Exception):
         super().__init__(message)
         self.code = code
         self.data = data
+
+
+def sanitize_error(text: str | None) -> str | None:
+    """`last_error` as WebSocket and health show it: no control characters, no
+    filesystem path, at most `LAST_ERROR_MAX_CHARS`."""
+    if text is None:
+        return None
+    text = _CONTROL_RE.sub(" ", text)
+    text = _PATH_RE.sub("<path>", text)
+    text = " ".join(text.split())
+    if len(text) > LAST_ERROR_MAX_CHARS:
+        text = text[: LAST_ERROR_MAX_CHARS - 1] + "\u2026"
+    return text
+
+
+def _identifier(value: Any, fallback: str = "Exception") -> str:
+    """A child-supplied name (an exception type) kept only when it is a short identifier."""
+    return value if isinstance(value, str) and _IDENTIFIER_RE.match(value) else fallback
+
+
+def _error_type(exc: RpcError) -> str:
+    data = exc.error.get("data")
+    return _identifier(data.get("type") if isinstance(data, dict) else None)
+
+
+def _detail(text: Any) -> str:
+    """Child-controlled text for the server log: one line, capped."""
+    line = " ".join(_CONTROL_RE.sub(" ", str(text)).split())
+    return line[:_DETAIL_LOG_MAX_CHARS]
 
 
 # --- platform -------------------------------------------------------------------
@@ -290,8 +334,15 @@ RequestHandler = Callable[[str, Any], Awaitable[Any]]
 class PluginProcess:
     """One child: spawn, JSON-RPC both ways, stderr capture, kill of its process group."""
 
-    def __init__(self, plugin_dir: Path, log: LogRing, on_request: RequestHandler):
+    def __init__(
+        self,
+        plugin_dir: Path,
+        log: LogRing,
+        on_request: RequestHandler,
+        write_timeout: float = 30.0,
+    ):
         self._plugin_dir = plugin_dir
+        self._write_timeout = write_timeout
         self._log = log
         self._on_request = on_request
         self._proc: asyncio.subprocess.Process | None = None
@@ -335,14 +386,14 @@ class PluginProcess:
     async def wait(self) -> None:
         await self._exited.wait()
 
-    def kill(self, reason: str) -> None:
-        """SIGKILL the child's process group (its own session). The first reason wins."""
+    def kill(self, reason: str, sig: int = signal.SIGKILL) -> None:
+        """Signal the child's process group (its own session). The first reason wins."""
         if self._proc is None or self._proc.returncode is not None:
             return
         if self.kill_reason is None:
             self.kill_reason = reason
         with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(self._proc.pid, signal.SIGKILL)
+            os.killpg(self._proc.pid, sig)
 
     def exit_reason(self) -> str:
         if self.kill_reason is not None:
@@ -353,16 +404,20 @@ class PluginProcess:
         if code < 0:
             sig = -code
             if sig == getattr(signal, "SIGXCPU", None):
-                return "CPU time limit reached (RLIMIT_CPU)"
+                return "cpu_rlimit: CPU time limit reached (RLIMIT_CPU)"
             with contextlib.suppress(ValueError):
-                return f"killed by {signal.Signals(sig).name}"
-            return f"killed by signal {sig}"
+                return f"killed: killed by {signal.Signals(sig).name}"
+            return f"killed: killed by signal {sig}"
         if code == 3 and self._log.runner_error is not None:
             err = self._log.runner_error
-            return f"start refused ({err['code']}): {err['message']}"
+            runner_code = err["code"] if _RUNNER_CODE_RE.match(err["code"]) else "unknown"
+            logger.warning(
+                "Plugin runner refused to start (%s): %s", runner_code, _detail(err["message"])
+            )
+            return f"start_refused: the runner refused to start ({runner_code})"
         if code == 2:
-            return "protocol violation (exit 2)"
-        return f"exited unexpectedly (code {code})"
+            return "protocol_violation: the plugin broke the protocol (exit 2)"
+        return f"crash: exited unexpectedly (code {code})"
 
     # Requests and notifications to the child.
 
@@ -391,12 +446,27 @@ class PluginProcess:
         finally:
             future.cancel()
 
-    async def notify(self, method: str, params: Any = None) -> None:
-        await self._write(rpc.encode(rpc.notification(method, params)))
+    async def notify(self, method: str, params: Any = None, timeout: float | None = None) -> None:
+        await self._write(rpc.encode(rpc.notification(method, params)), timeout)
 
-    async def _write(self, data: bytes) -> None:
+    async def _write(self, data: bytes, timeout: float | None = None) -> None:
+        """Write one line within `timeout` (default: the event budget).
+
+        A child that does not read its stdin fills the pipe: the write would wait
+        forever, so past the bound the child is killed (`stdin_blocked`) and the
+        caller gets `ProcessEnded`. A line is at most `rpc.MAX_MESSAGE_BYTES`.
+        """
         if not self.alive or self._proc is None or self._proc.stdin is None:
             raise ProcessEnded()
+        limit = self._write_timeout if timeout is None else timeout
+        try:
+            await asyncio.wait_for(self._write_locked(data), max(0.0, limit))
+        except TimeoutError:
+            self.kill(f"stdin_blocked: the plugin did not read its input within {limit:g} s")
+            raise ProcessEnded() from None
+
+    async def _write_locked(self, data: bytes) -> None:
+        assert self._proc is not None and self._proc.stdin is not None
         async with self._write_lock:
             try:
                 self._proc.stdin.write(data)
@@ -416,7 +486,7 @@ class PluginProcess:
             try:
                 lines = decoder.feed(data)
             except rpc.FramingError as exc:
-                self.kill(f"protocol violation: {exc}")
+                self.kill(f"protocol_violation: {exc}")
                 return
             for line in lines:
                 if line.strip():
@@ -484,22 +554,40 @@ class PluginProcess:
         with contextlib.suppress(ProcessEnded):
             await self._write(data)
 
-    async def shutdown(self, grace: float) -> None:
-        """`plugin.shutdown`, then wait up to `grace` for the exit, then kill."""
-        if self.alive:
-            with contextlib.suppress(ProcessEnded):
-                await asyncio.wait_for(self.notify("plugin.shutdown"), grace)
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._exited.wait(), grace)
-        await self.close("did not stop within the shutdown grace")
+    async def shutdown(self, timeout: float) -> None:
+        """End the child within `timeout`, whatever it does, and reap it.
 
-    async def close(self, reason: str = "stopped") -> None:
+        `plugin.shutdown` (a bounded write: a child that does not read its stdin
+        cannot hold it), a grace for the exit, SIGTERM, then SIGKILL of the
+        process group in `close()`, which always runs.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        try:
+            if self.alive:
+                with contextlib.suppress(ProcessEnded, TimeoutError):
+                    await self.notify("plugin.shutdown", timeout=min(1.0, timeout / 4))
+                with contextlib.suppress(TimeoutError):
+                    grace = max(0.0, (deadline - loop.time()) * 0.6)
+                    await asyncio.wait_for(self._exited.wait(), grace)
+            if self.alive:
+                self.kill("stopped: did not stop within the shutdown grace", signal.SIGTERM)
+                with contextlib.suppress(TimeoutError):
+                    rest = max(0.0, min(1.0, deadline - loop.time() - 1.0))
+                    await asyncio.wait_for(self._exited.wait(), rest)
+        finally:
+            await self.close("stopped", reap_timeout=max(1.0, deadline - loop.time()))
+
+    async def close(self, reason: str = "stopped", reap_timeout: float = 2.0) -> None:
         """Kill if still running, reap, stop the readers, remove the work directory."""
         if self._proc is not None:
             if self._proc.returncode is None:
+                # SIGKILL even when an earlier SIGTERM set the reason.
                 self.kill(reason)
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(self._proc.pid, signal.SIGKILL)
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(self._proc.wait(), 5.0)
+                await asyncio.wait_for(self._proc.wait(), reap_timeout)
         for task in [*self._readers, *self._tasks]:
             task.cancel()
         await asyncio.gather(*self._readers, *self._tasks, return_exceptions=True)
@@ -521,6 +609,8 @@ class _Event:
     test: bool = False
     result: asyncio.Future[Any] | None = None
     sends: list[dict[str, Any]] = field(default_factory=list)
+    sends_bytes: int = 0
+    truncated: bool = False
 
 
 class PluginInstance:
@@ -552,6 +642,7 @@ class PluginInstance:
         self._secrets: list[str] = []
         self._last_drop_log = -_DROP_LOG_INTERVAL
         self._drops_since_log = 0
+        self._last_error_log = -_DROP_LOG_INTERVAL
 
     # Public surface.
 
@@ -570,24 +661,32 @@ class PluginInstance:
     def launch(self) -> None:
         self._task = asyncio.create_task(self._supervise(), name=f"plugin:{self.instance_id}")
 
-    async def stop(self, grace: float) -> None:
+    async def stop(self, timeout: float) -> None:
+        """Stop within `timeout` in all cases: the child is ended and reaped, the task done."""
         self._stopping = True
         self._stop_requested.set()
         self._inbox_ready.set()
-        process = self._process
-        if process is not None:
-            await process.shutdown(grace)
-        if self._task is not None:
-            with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(asyncio.shield(self._task), grace)
-            if not self._task.done():
-                self._task.cancel()
-                await asyncio.gather(self._task, return_exceptions=True)
-        self._drop_all("instance stopped")
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        try:
+            process = self._process
+            if process is not None:
+                await process.shutdown(max(0.5, timeout - 1.5))
+        finally:
+            if self._task is not None:
+                with contextlib.suppress(Exception):
+                    rest = max(0.0, deadline - loop.time() - 1.0)
+                    await asyncio.wait_for(asyncio.shield(self._task), rest)
+                if not self._task.done():
+                    self.kill_now()
+                    self._task.cancel()
+                    await asyncio.wait({self._task}, timeout=1.0)
+            self.kill_now()
+            self._drop_all("instance stopped")
 
     def kill_now(self) -> None:
         if self._process is not None:
-            self._process.kill("server shutting down")
+            self._process.kill("stopped: server shutting down")
 
     def enqueue(self, event: _Event) -> bool:
         if self._stopping or self.status not in ("starting", "running"):
@@ -651,7 +750,12 @@ class PluginInstance:
 
     async def _run_once(self) -> str | None:
         """One child lifetime; returns why it ended, None after a requested stop."""
-        process = PluginProcess(self.plugin_dir, self.log, self._on_child_request)
+        process = PluginProcess(
+            self.plugin_dir,
+            self.log,
+            self._on_child_request,
+            write_timeout=self.budgets.event_timeout,
+        )
         self._process = process
         cpu_task: asyncio.Task[None] | None = None
         try:
@@ -659,7 +763,14 @@ class PluginInstance:
                 init_params = await self._init_params()
                 await process.start(self._params_line)
             except (OSError, ValueError) as exc:
-                return f"cannot start the plugin process: {type(exc).__name__}: {exc}"
+                logger.warning(
+                    "Plugin %s (%s) cannot start: %s: %s",
+                    self.label,
+                    self.instance_id,
+                    type(exc).__name__,
+                    _detail(self._scrub(str(exc))),
+                )
+                return f"start_failed: cannot start the plugin process ({type(exc).__name__})"
             except ProcessEnded:
                 return process.exit_reason()
             if self._stopping:
@@ -667,9 +778,12 @@ class PluginInstance:
             try:
                 await process.call("plugin.init", init_params, self.budgets.init_timeout)
             except TimeoutError:
-                process.kill(f"plugin.init did not answer within {self.budgets.init_timeout:g} s")
+                process.kill(
+                    f"init_timeout: plugin.init did not answer within {self.budgets.init_timeout:g} s"
+                )
             except RpcError as exc:
-                process.kill(f"plugin.init failed: {exc}")
+                self._log_child_error("plugin.init", exc)
+                process.kill(f"init_failed: plugin.init raised {_error_type(exc)}")
             except (ProcessEnded, ValueError):
                 pass
             if process.alive and not self._stopping:
@@ -749,6 +863,10 @@ class PluginInstance:
         if event.test:
             params["test"] = True
         self._in_flight[msg_id] = event
+        # The budget counts from the hand-off to the child: writing the event to a
+        # child that does not read its stdin uses it up too.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.budgets.event_timeout
         try:
             _id, future = await process.send_request(method, params, msg_id)
         except ProcessEnded:
@@ -761,30 +879,36 @@ class PluginInstance:
             return
         try:
             try:
-                value = await asyncio.wait_for(asyncio.shield(future), self.budgets.event_timeout)
+                rest = max(0.0, deadline - loop.time())
+                value = await asyncio.wait_for(asyncio.shield(future), rest)
             except TimeoutError:
                 with contextlib.suppress(ProcessEnded):
-                    await process.notify("event.cancel", {"id": msg_id})
+                    await process.notify(
+                        "event.cancel", {"id": msg_id}, timeout=self.budgets.cancel_grace
+                    )
                 try:
                     await asyncio.wait_for(future, self.budgets.cancel_grace)
                 except TimeoutError:
                     process.kill(
-                        f"{method} ran over {self.budgets.event_timeout:g} s and ignored "
-                        "event.cancel"
+                        f"event_cancel_ignored: {method} ran over "
+                        f"{self.budgets.event_timeout:g} s and ignored event.cancel"
                     )
                     self._drop([event], "process killed")
                     return
                 except RpcError:
                     pass
-                await self._set_error(f"{method} timed out after {self.budgets.event_timeout:g} s")
+                await self._set_error(
+                    f"event_timeout: {method} timed out after {self.budgets.event_timeout:g} s"
+                )
                 self._finish(event, error=PluginHostError("event_timeout", "the event timed out"))
                 return
         except ProcessEnded:
             self._drop([event], "process ended")
             return
         except RpcError as exc:
-            await self._set_error(f"{method}: {exc}")
-            self._finish(event, error=PluginHostError("handler_error", str(exc)))
+            self._log_child_error(method, exc)
+            await self._set_error(f"handler_error: {method} raised {_error_type(exc)}")
+            self._finish(event, error=PluginHostError("handler_error", _error_type(exc)))
             return
         finally:
             self._in_flight.pop(msg_id, None)
@@ -798,7 +922,9 @@ class PluginInstance:
         if error is not None:
             event.result.set_exception(error)
         else:
-            event.result.set_result({"result": value, "sends": event.sends})
+            event.result.set_result(
+                {"result": value, "sends": event.sends, "truncated": event.truncated}
+            )
 
     async def _on_child_request(self, method: str, params: Any) -> Any:
         event_id = params.get("event_id") if isinstance(params, dict) else None
@@ -812,7 +938,15 @@ class PluginInstance:
         if method == "messages.send" and event is not None and event.test:
             # A test event's sends are captured for the caller, never sent.
             assert isinstance(params, dict)
-            event.sends.append({k: v for k, v in params.items() if k != "event_id"})
+            send = {k: v for k, v in params.items() if k != "event_id"}
+            size = len(json.dumps(send, ensure_ascii=False).encode("utf-8"))
+            if len(event.sends) >= MAX_TEST_SENDS or event.sends_bytes + size > MAX_TEST_SEND_BYTES:
+                event.truncated = True
+                raise HostMethodError(
+                    rpc.OVERLOADED, "too many test sends", {"code": "test_sends_truncated"}
+                )
+            event.sends.append(send)
+            event.sends_bytes += size
             return {"captured": True}
         handler = self._manager.host_methods.get(method)
         if handler is None:
@@ -820,6 +954,22 @@ class PluginInstance:
         return await handler(self, params)
 
     # Counters and statuses.
+
+    def _log_child_error(self, method: str, exc: RpcError) -> None:
+        """The child's own error text goes to the server log (capped, scrubbed), at
+        most once per `_DROP_LOG_INTERVAL`; `last_error` only names its type."""
+        now = time.monotonic()
+        if now - self._last_error_log < _DROP_LOG_INTERVAL:
+            return
+        self._last_error_log = now
+        logger.warning(
+            "Plugin %s (%s): %s raised %s: %s",
+            self.label,
+            self.instance_id,
+            method,
+            _error_type(exc),
+            _detail(self._scrub(str(exc))),
+        )
 
     def _drop(self, events: list[_Event], why: str) -> None:
         if not events:
@@ -854,7 +1004,7 @@ class PluginInstance:
 
     async def _set_status(self, status: str, error: str | None = None) -> None:
         """Set the status and `last_error` (scrubbed of the instance's secrets), then fan out."""
-        error = self._scrub(error)
+        error = sanitize_error(self._scrub(error))
         if status == self.status and error == self.last_error:
             return
         self.status = status
@@ -985,7 +1135,7 @@ class PluginManager:
             instance = self._instances.pop(instance_id, None)
             if instance is None:
                 return
-            await instance.stop(self.budgets.shutdown_grace)
+            await instance.stop(self.budgets.stop_timeout)
             await instance._set_status(status, None)
 
     async def restart(self, instance_id: str) -> None:
@@ -1009,7 +1159,7 @@ class PluginManager:
         async with self._lock(instance_id):
             instance = self._instances.pop(instance_id, None)
             if instance is not None:
-                await instance.stop(self.budgets.shutdown_grace)
+                await instance.stop(self.budgets.stop_timeout)
         self._locks.pop(instance_id, None)
 
     async def start_all(self) -> None:
@@ -1026,15 +1176,22 @@ class PluginManager:
         self._instances.clear()
         if not instances:
             return
-        grace = min(self.budgets.shutdown_grace, timeout / 2)
-        stops = [asyncio.create_task(i.stop(grace)) for i in instances]
-        _done, pending = await asyncio.wait(stops, timeout=timeout - 1.0)
-        if pending:
+        budget = max(0.5, min(self.budgets.stop_timeout, timeout) - 1.0)
+        stops = [asyncio.create_task(i.stop(budget)) for i in instances]
+        done, pending = await asyncio.wait(stops, timeout=budget + 0.5)
+        failed = [t for t in done if not t.cancelled() and t.exception() is not None]
+        for task in failed:
+            logger.error("Stopping a plugin instance failed", exc_info=task.exception())
+        if pending or failed:
+            # Whatever did not stop cleanly is killed, its task cancelled and reaped.
             for instance in instances:
                 instance.kill_now()
-            await asyncio.wait(pending, timeout=1.0)
+                if instance._task is not None and not instance._task.done():
+                    instance._task.cancel()
             for task in pending:
                 task.cancel()
+            leftovers = [*pending, *(i._task for i in instances if i._task is not None)]
+            await asyncio.wait([t for t in leftovers if not t.done()] or stops, timeout=0.5)
 
     def _lock(self, instance_id: str) -> asyncio.Lock:
         return self._locks.setdefault(instance_id, asyncio.Lock())
@@ -1142,7 +1299,7 @@ class PluginManager:
             used = cpu - samples[0][1]
             if used > budgets.cpu_budget:
                 process.kill(
-                    f"CPU budget exceeded: {used:.1f} s of CPU in {budgets.cpu_window:g} s "
+                    f"cpu_budget: CPU budget exceeded: {used:.1f} s of CPU in {budgets.cpu_window:g} s "
                     f"(budget {budgets.cpu_budget:g} s)"
                 )
                 return

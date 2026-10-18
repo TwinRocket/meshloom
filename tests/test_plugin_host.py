@@ -7,6 +7,7 @@ value is enough, and the real `/proc` reader runs on Linux.
 """
 
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -113,6 +114,24 @@ PLUGINS = {
             return sorted(
                 r.error["code"] if isinstance(r, HostError) else r for r in results
             )
+    """,
+    "deaf": """
+        import time
+
+        def on_message(params):
+            time.sleep(120)
+    """,
+    "spammer": """
+        import meshloom_plugin
+
+        async def on_message(params):
+            for n in range(100):
+                try:
+                    await meshloom_plugin.host().call(
+                        "messages.send", {"event_id": params["event_id"], "text": "x" * 4000}
+                    )
+                except Exception:
+                    return n
     """,
     "sender": """
         import meshloom_plugin
@@ -310,7 +329,7 @@ async def test_a_child_killed_from_outside_restarts_with_backoff(manager, tmp_pa
 
     os.kill(pid, signal.SIGKILL)
     await wait_until(lambda: instance.status == "error", what="error")
-    assert instance.last_error == "killed by SIGKILL"
+    assert instance.last_error == "killed: killed by SIGKILL"
     await wait_until(lambda: instance.status == "running" and instance.pid != pid)
     assert instance.restarts == 1
     assert pid_gone(pid)
@@ -398,8 +417,8 @@ async def test_rlimit_cpu_is_set_in_the_child(test_db, tmp_path, statuses):
         mgr.dispatch("message", msg(0))
         await wait_until(lambda: instance.status == "error", timeout=20)
         assert instance.last_error in (
-            "CPU time limit reached (RLIMIT_CPU)",
-            "killed by SIGKILL",
+            "cpu_rlimit: CPU time limit reached (RLIMIT_CPU)",
+            "killed: killed by SIGKILL",
         )
     finally:
         await mgr.stop_all(5.0)
@@ -538,7 +557,11 @@ async def test_test_events_capture_sends(manager, tmp_path):
     instance_id = await create_instance(tmp_path / "plugins", "sender")
     await running(manager, instance_id)
     outcome = await manager.dispatch_test(instance_id, "message", {"text": "ping"})
-    assert outcome == {"result": "sent", "sends": [{"to": "reply", "text": "pong"}]}
+    assert outcome == {
+        "result": "sent",
+        "sends": [{"to": "reply", "text": "pong"}],
+        "truncated": False,
+    }
 
 
 async def test_test_event_sends_without_event_id_are_captured(manager, tmp_path):
@@ -600,7 +623,8 @@ async def test_unknown_host_method_is_refused_to_the_child(manager, tmp_path):
     instance_id = await create_instance(tmp_path / "plugins", "sender")
     instance = await running(manager, instance_id)
     manager.dispatch("message", msg(0))  # not a test event: no capability yet
-    await wait_until(lambda: "messages.send is not available" in (instance.last_error or ""))
+    await wait_until(lambda: (instance.last_error or "").startswith("handler_error"))
+    assert instance.last_error == "handler_error: event.message raised HostError"
     assert instance.status == "running"
 
 
@@ -634,7 +658,10 @@ async def test_stop_during_backoff_is_immediate(test_db, tmp_path, statuses):
     assert not instance.active
 
 
-async def test_status_changes_are_broadcast_stored_and_scrubbed(manager, tmp_path, statuses):
+async def test_status_changes_are_broadcast_stored_and_scrubbed(
+    manager, tmp_path, statuses, caplog
+):
+    caplog.set_level(logging.WARNING, logger="app.plugins.host")
     secret = "tok-9f8e7d6c5b4a"
     root = tmp_path / "plugins"
     write_plugin(root, "test.leak", "echo")
@@ -659,14 +686,19 @@ async def test_status_changes_are_broadcast_stored_and_scrubbed(manager, tmp_pat
     )
     instance = await running(manager, row["instance_id"])
     manager.dispatch("message", msg(secret))
-    await wait_until(lambda: "bad key" in (instance.last_error or ""))
+    await wait_until(lambda: instance.last_error is not None)
 
-    assert secret not in (instance.last_error or "")
+    # The child's text is never in last_error: only a code and the exception type.
+    assert instance.last_error == "handler_error: event.message raised ValueError"
     assert [s["status"] for s in statuses][:2] == ["starting", "running"]
     assert all(secret not in str(s) for s in statuses)
     stored = await PluginRepository.get(row["instance_id"])
     assert stored is not None and stored["status"] == "running"
-    assert "bad key ****" in (stored["last_error"] or "")
+    assert stored["last_error"] == instance.last_error
+    # The detail reaches the server log, scrubbed of the instance's secrets.
+    logged = [r.getMessage() for r in caplog.records if "raised ValueError" in r.getMessage()]
+    assert logged and "bad key ****" in logged[0]
+    assert all(secret not in r.getMessage() for r in caplog.records)
 
     fields = lifecycle.health_fields()
     assert fields["plugins_isolation"] == "none"
@@ -775,3 +807,140 @@ def test_the_lifespan_stops_plugins_before_the_fanout_modules():
     source = inspect.getsource(main._shutdown)
     assert source.index('("plugins", plugin_lifecycle.stop)') < source.index('("fanout modules"')
     assert "await plugin_lifecycle.start()" in inspect.getsource(main.lifespan)
+
+
+# --- children that do not read stdin, bounded captures, sanitized errors ---------
+
+
+def big_msg(n: int) -> dict[str, Any]:
+    """A message large enough that a few of them fill a pipe the child never reads."""
+    return msg(f"{n}" + "x" * 90_000)
+
+
+async def test_a_child_that_never_reads_stdin_is_stopped_and_reaped(manager, tmp_path):
+    instance_id = await create_instance(tmp_path / "plugins", "deaf")
+    instance = await running(manager, instance_id)
+    pid = instance.pid
+    assert pid is not None
+    for n in range(8):
+        manager.dispatch("message", big_msg(n))
+    await asyncio.sleep(0.3)
+
+    started = time.monotonic()
+    await manager.stop(instance_id)
+    assert time.monotonic() - started < FAST.stop_timeout
+    assert pid_gone(pid)
+    assert not instance.active
+    assert manager.get(instance_id) is None
+
+
+async def test_stop_all_reaps_a_child_that_never_reads_stdin(manager, tmp_path):
+    instance_id = await create_instance(tmp_path / "plugins", "deaf")
+    instance = await running(manager, instance_id)
+    pid = instance.pid
+    assert pid is not None
+    for n in range(8):
+        manager.dispatch("message", big_msg(n))
+    await asyncio.sleep(0.3)
+
+    started = time.monotonic()
+    await manager.stop_all(3.0)
+    assert time.monotonic() - started < 3.5
+    assert pid_gone(pid)
+    assert not instance.active
+
+
+async def test_a_full_stdin_uses_up_the_event_budget(test_db, tmp_path, statuses):
+    mgr = PluginManager(
+        replace(FAST, event_timeout=0.6, cancel_grace=0.3),
+        plugins_root=tmp_path / "plugins",
+        cpu_reader=None,
+        mem_total=lambda: 8 * 1024**3,
+    )
+    try:
+        instance_id = await create_instance(tmp_path / "plugins", "deaf")
+        instance = await running(mgr, instance_id)
+        pid = instance.pid
+        for n in range(8):
+            mgr.dispatch("message", big_msg(n))
+        await wait_until(lambda: instance.restarts >= 1, timeout=10, instance=instance)
+        assert pid is not None and pid_gone(pid)
+        assert instance.last_error is not None
+        assert instance.last_error.split(":")[0] in ("stdin_blocked", "event_cancel_ignored")
+    finally:
+        await mgr.stop_all(5.0)
+
+
+async def test_test_event_captures_are_bounded(manager, tmp_path):
+    instance_id = await create_instance(tmp_path / "plugins", "spammer")
+    await running(manager, instance_id)
+    outcome = await manager.dispatch_test(instance_id, "message", msg(0), timeout=10)
+    assert outcome["truncated"] is True
+    assert len(outcome["sends"]) == outcome["result"] <= host_module.MAX_TEST_SENDS
+    size = sum(len(json.dumps(s).encode()) for s in outcome["sends"])
+    assert size <= host_module.MAX_TEST_SEND_BYTES
+
+
+def test_sanitize_error_drops_paths_controls_and_length():
+    text = "start_failed: open /srv/meshloom/data/x.db failed\x1b[31m " + "y" * 500
+    clean = host_module.sanitize_error(text)
+    assert clean is not None
+    assert "/srv" not in clean and "\x1b" not in clean
+    assert "<path>" in clean
+    assert len(clean) <= host_module.LAST_ERROR_MAX_CHARS
+
+
+async def test_a_start_failure_names_no_path(manager, tmp_path, monkeypatch, caplog):
+    instance_id = await create_instance(tmp_path / "plugins", "echo")
+
+    def broken(_work_dir):
+        raise OSError(f"cannot open {tmp_path}/secret/place")
+
+    caplog.set_level(logging.WARNING, logger="app.plugins.host")
+    monkeypatch.setattr(host_module.PluginInstance, "_params_line", lambda self, w: broken(w))
+    await manager.start(instance_id)
+    instance = manager.get(instance_id)
+    assert instance is not None
+    await wait_until(lambda: instance.last_error is not None, instance=instance)
+    assert instance.last_error == "start_failed: cannot start the plugin process (OSError)"
+    assert any(str(tmp_path) in r.getMessage() for r in caplog.records)
+
+
+def test_health_hides_plugin_errors_below_send():
+    data = {"plugin_statuses": {"a": {"instance_id": "a", "status": "error", "last_error": "x"}}}
+    assert lifecycle.without_plugin_errors(data)["plugin_statuses"]["a"]["last_error"] is None
+    assert data["plugin_statuses"]["a"]["last_error"] == "x"
+    from app.auth.permissions import ROLE_PERMISSIONS, ws_event_permission
+
+    permission = ws_event_permission("plugin_status")
+    assert permission == lifecycle.PLUGIN_ERROR_PERMISSION
+    assert permission not in ROLE_PERMISSIONS["kiosk"]
+    assert permission not in ROLE_PERMISSIONS["viewer"]
+    assert permission in ROLE_PERMISSIONS["member"]
+
+
+async def test_websocket_health_hides_plugin_errors_from_a_viewer():
+    from types import SimpleNamespace
+
+    from app.websocket import WebSocketManager
+
+    manager = WebSocketManager()
+    sent: dict[str, list[str]] = {}
+
+    class FakeClient:
+        def __init__(self, role):
+            self.principal = SimpleNamespace(role=role, scopes=frozenset())
+
+    clients = {"viewer": FakeClient("viewer"), "member": FakeClient("member")}
+    manager.active_connections = clients  # type: ignore[assignment]
+    manager._enqueue = lambda client, message, event_type=None: sent.setdefault(  # type: ignore[method-assign]
+        client.principal.role, []
+    ).append(message)
+    payload = {
+        "plugin_statuses": {"a": {"instance_id": "a", "status": "error", "last_error": "boom"}}
+    }
+    manager.broadcast_nowait("health", payload)
+    assert "boom" in sent["member"][0]
+    assert "boom" not in sent["viewer"][0]
+    manager.broadcast_nowait("plugin_status", {"instance_id": "a", "last_error": "boom"})
+    assert len(sent["viewer"]) == 1 and len(sent["member"]) == 2

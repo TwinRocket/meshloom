@@ -649,14 +649,23 @@ must answer within 20 s. Then the status is `running`.
   total. At most `policy.MAX_CONCURRENT_HANDLERS` (8) events are in flight, so the
   queue builds on the host side and every in-flight event is running.
 - Every event carries `event_id` (its JSON-RPC id) in its params; a test event
-  also carries `test: true`. `dispatch_test()` returns `{"result", "sends"}`:
-  a child request `messages.send` naming the `event_id` of a test event (or
-  carrying no `event_id` while that test event is the only one in flight) is
-  captured there (answer `{"captured": true}`) and never sent.
-- An event gets 30 s; then the host sends `event.cancel {"id"}`. A handler that
-  stops within 5 s answers `-32800`: the instance keeps running and `last_error`
-  says it timed out. Otherwise the process group is killed (`SIGKILL`).
-- A handler error (`-32000`) sets `last_error` and the instance keeps running.
+  also carries `test: true`. `dispatch_test()` returns `{"result", "sends",
+  "truncated"}`: a child request `messages.send` naming the `event_id` of a test
+  event (or carrying no `event_id` while that test event is the only one in
+  flight) is captured there (answer `{"captured": true}`) and never sent. At most
+  `MAX_TEST_SENDS` (32) sends and `MAX_TEST_SEND_BYTES` (64 KiB of JSON) are
+  captured; past either, the child gets `-32001` with `data.code`
+  `test_sends_truncated` and `truncated` is true.
+- An event gets 30 s, counted from the moment the host starts writing it to the
+  child: every write to the child's stdin is bounded (`PluginProcess._write`, the
+  event budget by default), so a child that does not read its input cannot hold
+  the budget; past the bound its process group is killed (`stdin_blocked`). Once
+  the budget is spent the host sends `event.cancel {"id"}`. A handler that stops
+  within 5 s answers `-32800`: the instance keeps running and `last_error` says it
+  timed out. Otherwise the process group is killed (`SIGKILL`).
+- A handler error (`-32000`) sets `last_error` (`handler_error: event.<hook>
+  raised <ExceptionType>`) and the instance keeps running; the child's own message
+  goes to the server log only (scrubbed, capped, at most once per 10 s per instance).
 - Child requests go to `PluginManager.host_methods` (name to coroutine, filled
   by the capability tickets); an unknown method is `-32601`. A child has at most
   `MAX_CHILD_REQUESTS` (32) requests pending at the host; past that each one is
@@ -667,7 +676,7 @@ must answer within 20 s. Then the status is `running`.
 A child that exits, is killed from outside, breaks the framing, misses the init
 budget or is killed by a budget is a failure: everything pending (in flight or
 queued) is dropped and counted, never replayed; the status is `error` with the
-reason in `last_error` (scrubbed of the instance's secret values); the child is
+reason in `last_error`; the child is
 restarted after 1, 2, 4 ... 60 s. A run that handled an event or lived 60 s resets
 the consecutive count. Five consecutive failures: `crash_loop`, stored, no more
 restarts. `restart()` builds a new supervisor, so its count starts at zero. A stop
@@ -676,8 +685,18 @@ during the backoff pause ends it at once.
 CPU: on Linux the host samples `utime + stime` from `/proc/<pid>/stat` every
 5 s and kills a child that used more than 20 CPU-seconds in the last 60 s. The
 runner's hard `RLIMIT_CPU` (3600 s, `policy.DEFAULT_LIMITS`) is the portable
-backstop: the kernel ends the child (`SIGXCPU`, `last_error` "CPU time limit
-reached") and the restart starts a new process, so the count starts again.
+backstop: the kernel ends the child (`SIGXCPU`, `last_error` `cpu_rlimit`) and
+the restart starts a new process, so the count starts again.
+
+`last_error` is a stable code, a colon, then a short message the host writes:
+`start_failed`, `start_refused` (with the runner's typed code), `init_timeout`,
+`init_failed`, `event_timeout`, `event_cancel_ignored`, `handler_error`,
+`stdin_blocked`, `protocol_violation`, `cpu_budget`, `cpu_rlimit`, `killed`,
+`crash`, `stopped`. Nothing the child wrote reaches it beyond an exception type
+that is a short identifier; it is scrubbed of the instance's secret values, then
+`sanitize_error()` drops control characters and filesystem paths and caps it at
+`LAST_ERROR_MAX_CHARS` (200). Details (exception messages, the runner's message,
+`OSError` texts with paths) go to the server log only, capped at 2000 characters.
 
 ### Statuses
 
@@ -691,13 +710,23 @@ instance of the repository cache (stored status, `disabled` when not enabled),
 with live values for the running ones. Health carries `plugins_isolation`,
 `plugins_disabled_source` and `plugin_statuses`.
 
+Who sees errors: `plugin_status` needs the `send` permission (members and
+admins). `health` (REST and WebSocket) keeps the statuses for every signed-in
+principal, but a principal without `send` (kiosk, viewer) gets each `last_error`
+as `null` (`lifecycle.without_plugin_errors()`, `PLUGIN_ERROR_PERMISSION`).
+
 ### Shutdown
 
-`stop_all(timeout)`: `plugin.shutdown` to every child at once, a bounded wait
-(`min(5 s, timeout / 2)`), `SIGKILL` of the survivors' groups, and every child
-reaped, all within `timeout` (10 s from the lifespan). A stopped instance's
-pending events are dropped.
+Stopping one instance (`stop()`, `restart()`, `remove()`) is bounded as a whole
+by `Budgets.stop_timeout` (10 s): `plugin.shutdown` is written with a bounded
+write (at most 1 s: a child whose stdin is full cannot hold it), a grace for the
+exit, `SIGTERM` to the process group, then `SIGKILL` and the reap, which always
+run (`finally`), and the supervision task is cancelled if it is still running.
+`stop_all(timeout)` stops every instance at once within `timeout` (10 s from the
+lifespan); any instance whose stop is still pending or failed is killed, its task
+cancelled and its child reaped. A stopped instance's pending events are dropped.
 
 Tests: `tests/test_plugin_host.py` (real children; fixture plugins echo, sleep,
-ignore-cancel, crash, cpu-burn, ignore-shutdown, flood, sender; the `/proc` CPU test
+ignore-cancel, crash, cpu-burn, ignore-shutdown, flood, deaf (never reads its
+stdin), spammer, sender; the `/proc` CPU test
 runs on Linux only).

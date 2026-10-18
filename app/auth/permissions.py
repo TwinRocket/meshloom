@@ -189,9 +189,10 @@ WS_EVENT_PERMISSIONS: Mapping[str, Permission] = {
     "message_acked": "read",
     "message_deleted": "read",
     "radio_wifi": "admin",
-    # Same audience as the `plugin_statuses` of `health` for now; the plugin
-    # permissions (Store T34) may narrow both.
-    "plugin_status": "read",
+    # Carries `last_error`: members and admins only. `health` keeps the statuses
+    # for everyone but drops their `last_error` below this permission
+    # (`app/plugins/lifecycle.py`, `PLUGIN_ERROR_PERMISSION`).
+    "plugin_status": "send",
     "error": "read",
     "success": "read",
 }

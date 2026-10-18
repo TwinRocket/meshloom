@@ -4,7 +4,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from app.auth.permissions import public
+from app.auth.permissions import has_permission, public
 from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
@@ -294,4 +294,6 @@ async def healthcheck(request: Request) -> HealthResponse | MinimalHealthRespons
     if get_principal(request) is None:
         return MinimalHealthResponse()
     data = await build_health_data(radio_manager.is_connected, radio_manager.connection_info)
+    if not has_permission(get_principal(request), plugin_lifecycle.PLUGIN_ERROR_PERMISSION):
+        data = plugin_lifecycle.without_plugin_errors(data)
     return HealthResponse(**data)
