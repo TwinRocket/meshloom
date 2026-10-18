@@ -585,8 +585,8 @@ async def factory_reset_radio(
     request: RadioFactoryResetRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
 ) -> dict:
     """Erase the radio (identity, contacts, channels, settings) after name confirmation."""
-    async with audit.audited(actor, "factory_reset") as details:
-        return await _factory_reset_radio(request, details)
+    async with audit.audited(actor, "factory_reset") as scope:
+        return await _factory_reset_radio(request, scope.details)
 
 
 async def _factory_reset_radio(request: RadioFactoryResetRequest, details: dict) -> dict:
@@ -641,8 +641,8 @@ async def set_private_key(
     update: PrivateKeyUpdate, actor: audit.RequestActor = audit.SYSTEM_ACTOR
 ) -> dict:
     """Set the radio's private key. This is write-only."""
-    async with audit.audited(actor, "private_key.imported") as details:
-        return await _set_private_key(update, details)
+    async with audit.audited(actor, "private_key.imported") as scope:
+        return await _set_private_key(update, scope.details)
 
 
 async def _set_private_key(update: PrivateKeyUpdate, details: dict) -> dict:

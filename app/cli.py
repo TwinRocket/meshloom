@@ -169,7 +169,7 @@ async def _audit_refusal(args: argparse.Namespace, reason: str) -> None:
         _COMMAND_ACTIONS[args.command],
         "refused",
         actor=audit.CLI_ACTOR,
-        target=audit.username_target(username) if username else None,
+        target=await audit.typed_username_target(username) if username else None,
         details={"reason": reason},
     )
 

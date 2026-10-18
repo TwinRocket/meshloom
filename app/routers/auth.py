@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -58,7 +59,9 @@ from app.security import basic_compat_active, invalidate_basic_cache
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Audit log pages (``GET /auth/audit``).
+# Audit log pages (``GET /auth/audit``). ASCII digits only: ``str.isdigit()``
+# accepts "²", which ``int()`` refuses.
+_CURSOR = re.compile(r"[0-9]{1,19}")
 AUDIT_PAGE_DEFAULT = 100
 AUDIT_PAGE_MAX = 500
 
@@ -385,7 +388,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
             request,
             "login",
             "failure",
-            target=audit.username_target(body.username[:USERNAME_MAX_LENGTH]),
+            target=await audit.typed_username_target(body.username),
         )
         raise _error(401, "auth_invalid_credentials")
     principal = await _start_session(request, response, user)
@@ -611,7 +614,7 @@ async def get_audit(
     """The audit log, newest first, paged by cursor. Reading it writes no row."""
     before_id: int | None = None
     if cursor is not None:
-        if not cursor.isdigit() or not 0 < int(cursor) < 2**63:
+        if not _CURSOR.fullmatch(cursor) or not 0 < int(cursor) < 2**63:
             raise _error(400, "auth_audit_cursor_invalid")
         before_id = int(cursor)
     rows = await AuthAuditRepository.list_recent(limit=limit + 1, before_id=before_id)

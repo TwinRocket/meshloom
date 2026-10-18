@@ -128,9 +128,10 @@ and `auth_settings`.
 `app/auth/audit.py` is the one way server code writes `auth_audit` (the CLI
 too): `record(action, outcome, *, actor, target, details)`, `record_request()`
 (the actor of a FastAPI request) and the `audited(actor, action)` context
-manager (`success` when the block ends, `failure` with `details.status` on an
-`HTTPException`, `error` on any other exception, re-raised; a cancelled block
-writes nothing). Routes take the actor as a dependency,
+manager (`success` when the block ends; on an `HTTPException` `refused` for a
+403, `error` for a 5xx, `failure` otherwise, with `details.status`; `error` on
+any other exception; always re-raised; a cancelled block writes nothing; the
+block can set the target and add details through the yielded `AuditScope`). Routes take the actor as a dependency,
 `actor: audit.RequestActor = audit.SYSTEM_ACTOR`, so a direct call in a test
 needs no request. Writing never fails the action: a database error is logged
 (action and outcome) and swallowed; a `details` key the secret filter refuses is
@@ -140,26 +141,28 @@ logged at ERROR and the row is not written (a bug at the call site).
   server), `actor_token_id` (bearer tokens, later), `ip` (`client_ip()`), `via`
   (`lan`, `ingress`, `trusted`, `relay`, plus `cli` for `meshloom-admin` and
   `system` for the server on its own), `outcome` (`success`, `failure`,
-  `refused` for a CLI precondition, `delayed` for the login delays ticket,
-  `error`), `target` (`user:<id>` for a known account, `username:<name>` for a
-  typed name with no known match, `session:<id>`, `bot:<id>`,
+  `refused` for a 403 or a CLI precondition, `delayed` for the login delays ticket,
+  `error`), `target` (`user:<id>` for a known account, `username:unknown` for a
+  typed name that matches no account (`typed_username_target()`: the typed text
+  is never stored, so a password typed into the username field never reaches
+  the log), `session:<id>`, `bot:<id>`,
   `restore_job:<id>`, `auth_settings.<field>`).
 - **Actions** (`AuditAction`, a `Literal`, so pyright refuses a typo):
 
   | Action | Written by |
   |---|---|
   | `setup` | `POST /auth/setup` (`failure` + `details.reason` for a wrong code, `error` when first-run preparation failed) |
-  | `login`, `logout` | `POST /auth/login` (`failure`, target `username:<typed>`), `POST /auth/logout` |
+  | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`), `POST /auth/logout` |
   | `session.revoked` | `DELETE /auth/sessions[/{id}]`, `meshloom-admin revoke-sessions` |
   | `user.created` | ingress first visit, the 4.x Basic import (`system`), `meshloom-admin create-admin` |
   | `user.changed` | `PATCH /auth/me` display name, a Home Assistant rename |
   | `user.disabled`, `user.enabled`, `users.listed`, `setup_code.issued` | `meshloom-admin` |
   | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password), `meshloom-admin reset-password` |
   | `settings.changed` | `PATCH /auth/settings`, one row per field changed |
-  | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only (name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
+  | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only, refusals included (403 while bots are disabled: `refused`; name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
   | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
   | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
-  | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`) |
+  | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
 
   Reserved for the tickets that add their feature: `user.deleted` (user
   management), `token.created`, `token.revoked`, `pairing.used`,
@@ -173,7 +176,9 @@ logged at ERROR and the row is not written (a bug at the call site).
 - **Retention.** `purge_audit()` runs in the hourly housekeeping loop
   (`app/services/stale_contacts.py`) and deletes rows older than
   `auth_settings.audit_retention_days`, **366 days** by default (owner decision
-  Q-A14), changed through `PATCH /auth/settings`.
+  Q-A14), changed through `PATCH /auth/settings`. It deletes 1000 rows per
+  transaction (`AUDIT_PURGE_BATCH`), so a large retention drop never holds the
+  write lock for long.
 - Tests: `tests/test_auth_audit.py` (one row per event, the API, the purge, and a
   sweep that no row holds a password, the installation code, a session cookie or
   a private key typed in the flows).

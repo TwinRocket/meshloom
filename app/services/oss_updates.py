@@ -317,6 +317,14 @@ async def _maybe_auto_apply() -> None:
         await start_apply(kind, target=status["latest"])
     except UpdateApplyBusy:
         return
+    except Exception:
+        await audit.record(
+            "update.triggered",
+            "error",
+            actor=audit.SYSTEM_ACTOR,
+            details={"trigger": "auto", "target": status["latest"]},
+        )
+        raise
     await audit.record(
         "update.triggered",
         "success",

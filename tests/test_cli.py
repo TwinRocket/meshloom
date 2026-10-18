@@ -337,8 +337,8 @@ def test_refusals_and_list_users_are_audited(dbfile, stdin, capsys):
     rows = _query(dbfile, "SELECT action, outcome, target FROM auth_audit ORDER BY id")
     assert rows == [
         ("users.listed", "success", None),
-        ("user.disabled", "refused", "username:alice"),
-        ("user.disabled", "refused", "username:ghost"),
+        ("user.disabled", "refused", "user:1"),
+        ("user.disabled", "refused", "username:unknown"),
     ]
 
 

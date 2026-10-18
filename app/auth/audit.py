@@ -25,7 +25,7 @@ from typing import Annotated, Any, Literal, get_args
 from fastapi import Depends, HTTPException, Request
 
 from app.auth.principal import Principal, get_principal
-from app.repository.auth import AuthAuditRepository, AuthSettingsRepository
+from app.repository.auth import AuthAuditRepository, AuthSettingsRepository, UserRepository
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +138,20 @@ def user_target(user_id: int) -> str:
     return f"user:{user_id}"
 
 
-def username_target(username: str) -> str:
-    """A name typed by someone (a failed login, a refused CLI command): no
-    account is known to match it."""
-    return f"username:{username}"
+# The target of a typed name that matches no account. The typed text itself is
+# never stored: a password typed into the username field would stay a year.
+UNKNOWN_USERNAME_TARGET = "username:unknown"
+
+
+async def typed_username_target(username: str) -> str:
+    """The target for a name someone typed (a failed login, a refused CLI
+    command): ``user:<id>`` when it names an account (same normalisation as
+    sign-in), ``UNKNOWN_USERNAME_TARGET`` otherwise."""
+    try:
+        user = await UserRepository.get_by_username(username)
+    except Exception:
+        user = None
+    return user_target(user.id) if user is not None else UNKNOWN_USERNAME_TARGET
 
 
 async def record(
@@ -193,6 +203,21 @@ async def record_request(
     )
 
 
+@dataclass
+class AuditScope:
+    """What an ``audited()`` block may fill in before its row is written."""
+
+    target: str | None
+    details: dict[str, Any]
+
+
+def _http_outcome(status: int) -> AuditOutcome:
+    # 403: a rule stopped it (bots disabled, a role). Other 4xx: a check failed.
+    if status == 403:
+        return "refused"
+    return "error" if status >= 500 else "failure"
+
+
 @asynccontextmanager
 async def audited(
     actor: AuditActor,
@@ -200,27 +225,28 @@ async def audited(
     *,
     target: str | None = None,
     details: Mapping[str, Any] | None = None,
-) -> AsyncIterator[dict[str, Any]]:
+) -> AsyncIterator[AuditScope]:
     """Write one row for the action the block performs: ``success`` when it
-    ends normally, ``failure`` on an ``HTTPException`` (``details.status``),
-    ``error`` on any other exception, which is re-raised. The block may add
-    details to the yielded dict. A cancelled block writes nothing."""
-    extra: dict[str, Any] = dict(details or {})
+    ends normally; on an ``HTTPException`` ``refused`` (403), ``error`` (5xx)
+    or ``failure`` (other statuses), with ``details.status``; ``error`` on any
+    other exception. Exceptions are re-raised. The block may set the target and
+    add details through the yielded scope. A cancelled block writes nothing."""
+    scope = AuditScope(target=target, details=dict(details or {}))
     try:
-        yield extra
+        yield scope
     except HTTPException as exc:
         await record(
             action,
-            "failure",
+            _http_outcome(exc.status_code),
             actor=actor,
-            target=target,
-            details={**extra, "status": exc.status_code},
+            target=scope.target,
+            details={**scope.details, "status": exc.status_code},
         )
         raise
     except Exception:
-        await record(action, "error", actor=actor, target=target, details=extra)
+        await record(action, "error", actor=actor, target=scope.target, details=scope.details)
         raise
-    await record(action, "success", actor=actor, target=target, details=extra)
+    await record(action, "success", actor=actor, target=scope.target, details=scope.details)
 
 
 async def purge_audit(*, now: int | None = None) -> int:

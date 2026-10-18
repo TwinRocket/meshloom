@@ -181,8 +181,8 @@ async def refresh_updates() -> UpdateStatusResponse:
     dependencies=[Depends(require("admin"))],
 )
 async def apply_updates(actor: audit.RequestActor = audit.SYSTEM_ACTOR) -> UpdateStatusResponse:
-    async with audit.audited(actor, "update.triggered", details={"trigger": "manual"}) as details:
-        return await _apply_updates(details)
+    async with audit.audited(actor, "update.triggered", details={"trigger": "manual"}) as scope:
+        return await _apply_updates(scope.details)
 
 
 async def _apply_updates(details: dict) -> UpdateStatusResponse:

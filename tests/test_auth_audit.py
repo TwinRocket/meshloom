@@ -98,7 +98,7 @@ async def test_account_flow_writes_one_row_per_event_with_actor_via_and_outcome(
             assert row.actor_user_id is None
         else:
             assert row.actor_user_id == 1, row
-    assert rows[3].target == f"username:{ADMIN}"
+    assert rows[3].target == "user:1"  # the typed name matches the account
     assert rows[4].target == "user:1"
     assert rows[9].details == {"audit_retention_days": 400}
 
@@ -128,7 +128,7 @@ async def test_audit_api_pages_newest_first_with_an_opaque_cursor(client):
 
 
 @pytest.mark.usefixtures("test_db")
-@pytest.mark.parametrize("cursor", ["abc", "-1", "0", str(2**63)])
+@pytest.mark.parametrize("cursor", ["abc", "-1", "0", str(2**63), "²", "١٢", "1 ", "+1"])
 async def test_audit_api_refuses_a_bad_cursor(client, cursor):
     response = await client.get("/api/auth/audit", params={"cursor": cursor})
     assert response.status_code == 400
@@ -211,8 +211,8 @@ async def test_refused_factory_reset_and_key_import_write_a_failure_row(client):
     assert reset.status_code == key.status_code == 503
     rows = await _rows()
     assert _summary(rows) == [
-        ("factory_reset", "failure", "lan"),
-        ("private_key.imported", "failure", "lan"),
+        ("factory_reset", "error", "lan"),
+        ("private_key.imported", "error", "lan"),
     ]
     assert [row.details for row in rows] == [{"status": 503}, {"status": 503}]
 
@@ -244,19 +244,23 @@ async def test_v1_restore_writes_one_row(client):
 @pytest.mark.usefixtures("test_db")
 async def test_audited_maps_the_block_outcome():
     actor = audit.AuditActor(via="lan", user_id=7, ip="10.0.0.2")
-    async with audit.audited(actor, "factory_reset") as details:
-        details["identity"] = "abcdef"
+    async with audit.audited(actor, "factory_reset") as scope:
+        scope.details["identity"] = "abcdef"
     with pytest.raises(HTTPException):
         async with audit.audited(actor, "factory_reset"):
             raise HTTPException(status_code=422)
     with pytest.raises(RuntimeError):
         async with audit.audited(actor, "factory_reset"):
             raise RuntimeError("boom")
+    with pytest.raises(HTTPException):
+        async with audit.audited(actor, "factory_reset"):
+            raise HTTPException(status_code=403)
     rows = await _rows()
     assert [(row.outcome, row.details) for row in rows] == [
         ("success", {"identity": "abcdef"}),
         ("failure", {"status": 422}),
         ("error", {}),
+        ("refused", {"status": 403}),
     ]
     assert all((row.actor_user_id, row.ip, row.via) == (7, "10.0.0.2", "lan") for row in rows)
 
@@ -308,6 +312,88 @@ def test_vocabulary_covers_the_ticket_events():
     assert "delayed" in audit.AUDIT_OUTCOMES
 
 
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_a_failed_login_never_stores_an_unknown_typed_name():
+    await create_user()
+    async with make_client() as client:
+        # The password typed into the username field, then a wrong password.
+        await client.post("/api/auth/login", json={"username": PASSWORD, "password": "x" * 12})
+        await client.post(
+            "/api/auth/login", json={"username": f"  {ADMIN.upper()} ", "password": "x" * 12}
+        )
+    rows = await _rows()
+    assert [(row.action, row.outcome, row.target) for row in rows] == [
+        ("login", "failure", audit.UNKNOWN_USERNAME_TARGET),
+        ("login", "failure", "user:1"),
+    ]
+    assert all(PASSWORD not in json.dumps(row.model_dump()) for row in rows)
+
+
+@pytest.mark.usefixtures("test_db")
+async def test_refused_bot_edits_write_a_refused_row(client):
+    from app.fanout.manager import fanout_manager
+
+    created = await client.post(
+        "/api/fanout",
+        json={
+            "type": "bot",
+            "name": "Echo",
+            "config": {"code": "def bot(**kw):\n    return None\n"},
+        },
+    )
+    assert created.status_code == 200, created.text
+    bot_id = created.json()["id"]
+    with patch.object(fanout_manager, "get_bots_disabled_source", return_value="until_restart"):
+        assert (
+            await client.post("/api/fanout", json={"type": "bot", "name": "Other", "config": {}})
+        ).status_code == 403
+        assert (
+            await client.patch(f"/api/fanout/{bot_id}", json={"name": "Echo 2"})
+        ).status_code == 403
+    rows = await _rows()
+    assert [(row.action, row.outcome) for row in rows] == [
+        ("bot.created", "success"),
+        ("bot.created", "refused"),
+        ("bot.changed", "refused"),
+    ]
+    assert rows[1].details == {"name": "Other", "status": 403}
+    assert rows[2].target == f"bot:{bot_id}"
+
+
+@pytest.mark.usefixtures("test_db")
+async def test_a_failed_auto_update_writes_an_error_row(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.repository import AppSettingsRepository
+    from app.services import install_kind, oss_updates, update_apply
+
+    monkeypatch.setattr(
+        oss_updates, "get_update_status", lambda: {"update_available": True, "latest": "9.9.9"}
+    )
+    monkeypatch.setattr(install_kind, "detect_install_kind", lambda: ("deb", True))
+    monkeypatch.setattr(
+        AppSettingsRepository,
+        "get",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                auto_update=True,
+                auto_update_window_start="00:00",
+                auto_update_window_end="23:59",
+                auto_update_weekdays=[],
+            )
+        ),
+    )
+    monkeypatch.setattr(oss_updates, "in_window", lambda *args: True)
+    monkeypatch.setattr(update_apply, "expire_stale_applying_job", lambda: {})
+    monkeypatch.setattr(update_apply, "start_apply", AsyncMock(side_effect=OSError("helper")))
+    with pytest.raises(OSError):
+        await oss_updates._maybe_auto_apply()
+    [row] = await _rows()
+    assert (row.action, row.outcome, row.via) == ("update.triggered", "error", "system")
+    assert row.details == {"trigger": "auto", "target": "9.9.9"}
+
+
 # --- Retention purge --------------------------------------------------------------
 
 
@@ -322,6 +408,16 @@ async def test_purge_honours_the_retention_setting():
     await AuthSettingsRepository.update(audit_retention_days=30)
     assert await audit.purge_audit(now=now) == 1
     assert [row.ts for row in await _rows()] == [now - day]
+
+
+@pytest.mark.usefixtures("test_db")
+async def test_purge_deletes_in_bounded_batches():
+    now = int(time.time())
+    for _ in range(7):
+        await AuthAuditRepository.add("login", "success", ts=now - 400 * audit.SECONDS_PER_DAY)
+    await AuthAuditRepository.add("login", "success", ts=now)
+    assert await AuthAuditRepository.purge_older_than(now - 1, batch_size=3) == 7
+    assert len(await _rows()) == 1
 
 
 @pytest.mark.usefixtures("test_db")
