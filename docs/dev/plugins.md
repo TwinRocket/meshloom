@@ -1,7 +1,7 @@
 # Plugins
 
-Status: **format and validators only** (MSHL-175). There is no runtime, host or UI
-yet; later tickets add them. Like every doc here, this file may be wrong: the code
+Status: **format, validators and data model** (MSHL-175, MSHL-184). There is no
+runtime, host, API or UI yet; later tickets add them. Like every doc here, this file may be wrong: the code
 in `app/plugins/` wins.
 
 ## Package and manifest
@@ -147,6 +147,88 @@ T16), Python syntax of the entry.
 `specifier_invalid`, `version_not_comparable`, `manifest_too_large`,
 `manifest_not_json`, `config_schema_*`, `package_*`. The vectors list the ones the
 manifest can produce.
+
+## Data model
+
+Migration 103 adds three tables (columns in `docs/dev/database.md`) and
+`app_settings.store_online` (the Store egress consent, off; not in `AppSettings` until
+the Store client reads it). It is additive: the bots stay in `fanout_configs`,
+untouched, until the switch (Store T9) converts them, so no release has bots without
+a runtime.
+
+### Instances
+
+One row of `plugins` is one **instance**. A plugin (`plugin_id`, the manifest id)
+can be installed several times ("Weather for #paris", "Weather for #lyon"):
+
+- **Shared per `plugin_id`:** the code directory, so one version; updating a plugin
+  updates all its instances.
+- **Per instance (`instance_id`, a uuid):** `label`, `enabled`, `config`, the
+  secrets, `scope`, `granted_permissions`, `quotas`, `auto_update`, `status`,
+  `last_error`, `attention`, `sort_order`, and the KV store (`plugin_kv`).
+- A local plugin (`kind = local`) is its own instance; its code is in `source`.
+
+`status` is free text for now (`installed` by default); the runtime owns its states
+(`disabled`, `starting`, `running`, `error`, `crash_loop`, `needs_attention`,
+`incompatible`, `revoked`). `attention` is JSON or NULL: the caller's `type`
+(`migrated`, `review_permissions`, ...) plus, for a scan, the `reasons` and
+`http_hosts` of `AttentionReport.to_json()`.
+
+`app/repository/plugins.py`: `PluginRepository` (CRUD, an in-memory copy of the rows
+like `repository/fanout.py`) and `PluginKvRepository` (`get`, `set`, `delete`, `keys`,
+`usage_bytes`, values stored as JSON). `delete(instance_id, keep_data=True)` keeps the
+KV rows ("uninstall, keep data"); the secrets always go. The 5 MB KV quota is
+enforced by the `storage` capability, not here.
+
+### Secrets
+
+The values of the config schema's `"writeOnly": true` fields live in
+`plugin_secrets`, never in `plugins.config`. They follow the write-only pattern of
+`app/secret_fields.py`:
+
+- Every read (`get`, `get_all`, `get_enabled`, `get_by_plugin_id`, the result of
+  `create` and `update`) shows a stored secret as `********` (`REDACTED`) in
+  `config` and names it in `secret_fields`.
+- `config_for_init(instance_id)` is the only accessor with the clear values, for
+  the runtime's `plugin.init`. Never return it from a route, log it or export it.
+- Writes take a separate `secrets` mapping: a field omitted, `None` or `********`
+  keeps the stored value, `""` clears it, anything else replaces it. A secret field
+  echoed in `config` is dropped, so the mask is never stored.
+- At rest: in clear for now, like the repeater passwords. Once the Notifications
+  key file and its helper (`app/secret_store.py`, Notifications T32, AES-256-GCM)
+  exist, the repository encrypts through that helper, never a cipher of its own.
+- Never exported: no JSON backup section carries them (`BACKUP_COVERAGE` marks
+  `plugin_secrets` excluded), and the SQLite download empties the table
+  (`SNAPSHOT_EMPTIED_TABLES`). `plugins` and `plugin_kv` are excluded from the JSON
+  backup until the plugins API adds a section for them.
+
+### Attention scan
+
+`app/plugins/attention.py` `scan_source(source)` parses a local source with `ast`
+(nothing is imported or run) and returns an `AttentionReport`: `reasons`
+(`code`, `line`, `detail`, `informative`) and `http_hosts`. Reused by the switch
+(T9) and `dev check` (T4d).
+
+| Code | Detail | Informative |
+|---|---|---|
+| `import_not_allowed` | the module (`urllib.request`, `requests`) | no |
+| `threading` | `threading`, `_thread`, `concurrent.*`, `multiprocessing` | no |
+| `open_call`, `exec_call`, `eval_call`, `import_call` (`__import__`) | none | no |
+| `long_literal` | a string literal over 156 UTF-8 bytes (a DM's limit); docstrings excluded | no |
+| `print_call` | none (goes to the journal) | yes |
+| `module_state` | a module-level mutable (`dict`, `list`, `set`, ...) or `_bot_globals` (lost on restart) | yes |
+| `global_statement` | the names | yes |
+| `syntax_error` | none (the only reason then) | no |
+
+The import allowlist and denylist mirror `meshloom_plugin/policy.py` (MSHL-176);
+`tests/test_plugin_attention.py` compares them when that module is importable. A
+local source has no `vendor/`, so any other module is flagged. Relative imports
+(the plugin's own package) are allowed.
+
+`http_hosts` are the hosts of the `https://` literals, lowercased, without port or
+credentials, deduplicated in order, at most 20, kept only when the `http`
+permission accepts them (`check_host`; private names and IPs and `meshloom.app`
+are dropped). They **prefill** the `http` permission: the user still consents.
 
 ## Contract
 
