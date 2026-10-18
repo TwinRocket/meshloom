@@ -80,9 +80,8 @@ Un bot est du code Python que vous écrivez dans l’interface. Le serveur l’e
 **C’est de l’exécution de code arbitraire, par conception.** Le code tourne sur le serveur avec un accès complet à la machine. Toute personne qui peut ouvrir la page de Meshloom peut écrire et lancer du code. N’activez les bots que sur un réseau de confiance. Voir [Sécurité](/docs/deep/security/) et [Un réseau de confiance](/docs/trust/). Les bots sont désactivés au départ sur les installations faites avec le paquet Linux.
 
 ```python
-def bot(
-    sender_name, sender_key, message_text, is_dm, channel_key, channel_name, sender_timestamp, path
-):
+def bot(sender_name, sender_key, message_text, is_dm,
+        channel_key, channel_name, sender_timestamp, path):
     if "!echo" in message_text.lower():
         return f"[ECHO] {message_text}"
     return None

@@ -80,9 +80,8 @@ A bot is Python code you write in the interface. The server runs it each time a 
 **This is arbitrary code execution, by design.** The code runs on the server with full access to the machine. Anyone who can open the Meshloom page can write and run code. Only enable bots on a network you trust. See [Security](/en/docs/deep/security/) and [A trusted network](/en/docs/trust/). Bots start disabled on installations made from the Linux package.
 
 ```python
-def bot(
-    sender_name, sender_key, message_text, is_dm, channel_key, channel_name, sender_timestamp, path
-):
+def bot(sender_name, sender_key, message_text, is_dm,
+        channel_key, channel_name, sender_timestamp, path):
     if "!echo" in message_text.lower():
         return f"[ECHO] {message_text}"
     return None

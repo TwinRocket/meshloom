@@ -25,10 +25,8 @@ def dump_openapi(output_dir: Path) -> None:
     schema = app.openapi()
     out = output_dir / "openapi.json"
     out.write_text(json.dumps(schema, indent=2) + "\n")
-    print(
-        f"  openapi.json: {len(schema['paths'])} paths, "
-        f"{len(schema.get('components', {}).get('schemas', {}))} schemas"
-    )
+    print(f"  openapi.json: {len(schema['paths'])} paths, "
+          f"{len(schema.get('components', {}).get('schemas', {}))} schemas")
 
 
 def dump_ws_events(output_dir: Path) -> None:
@@ -45,8 +43,8 @@ def dump_ws_events(output_dir: Path) -> None:
     wrapper = {
         "$comment": (
             "Auto-generated from app/events.py. "
-            'Each WebSocket message is a JSON object: {"type": "<event_type>", "data": <payload>}. '
-            'The client also sends "ping" as plain text; the server replies {"type": "pong"}.'
+            "Each WebSocket message is a JSON object: {\"type\": \"<event_type>\", \"data\": <payload>}. "
+            "The client also sends \"ping\" as plain text; the server replies {\"type\": \"pong\"}."
         ),
         "events": events,
     }

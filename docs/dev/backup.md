@@ -228,7 +228,8 @@ These hold for every section; a restore function must keep them:
 from app.services.backup_sections import register_on_restore
 
 
-async def regenerate_remote_identity(source: str) -> None: ...  # "json" or "sqlite"
+async def regenerate_remote_identity(source: str) -> None:
+    ...  # "json" or "sqlite"
 
 
 register_on_restore("remote_identity", regenerate_remote_identity)
