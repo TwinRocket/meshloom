@@ -251,6 +251,21 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "access settings of this host (networks, proxies, URLs) and the setup code hash",
     ),
+    # Notification channels (MSHL-108). The channels and their rules get a backup
+    # section with the notification backup ticket; until then they are not in the
+    # JSON backup (the SQLite download carries them, secrets included, like
+    # ``notification_destinations``).
+    "app_settings.notification_rules": (
+        "excluded",
+        "notification rules: backup section with the notification backup ticket",
+    ),
+    "notification_channels": (
+        "excluded",
+        "notification channels: backup section with the notification backup ticket",
+    ),
+    "notification_deliveries": ("excluded", "delivery journal: runtime state"),
+    "notification_counters": ("excluded", "hourly send counters: runtime state"),
+    "notification_state": ("excluded", "dedup timestamps and outage state: runtime state"),
     # Plugins (docs/dev/plugins.md, "Data model"). The instances and their KV get a
     # backup section with the plugins API; the secrets never leave (emptied in the
     # SQLite download too).

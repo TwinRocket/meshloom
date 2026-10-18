@@ -178,6 +178,54 @@ CREATE TABLE IF NOT EXISTS fanout_configs (
     created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS notification_channels (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    preset TEXT,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    language TEXT NOT NULL DEFAULT 'auto',
+    config TEXT NOT NULL DEFAULT '{}',
+    secrets TEXT NOT NULL DEFAULT '{}',
+    allow_private_network INTEGER NOT NULL DEFAULT 0,
+    include_message_text TEXT NOT NULL DEFAULT 'always',
+    verify_tls INTEGER NOT NULL DEFAULT 1,
+    quiet_hours_exempt INTEGER NOT NULL DEFAULT 0,
+    rate_per_min INTEGER,
+    rate_per_hour INTEGER,
+    rate_per_day INTEGER,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    last_ok_at INTEGER,
+    last_error TEXT,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    paused_until INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    dedup_key TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_counters (
+    channel_id TEXT NOT NULL,
+    hour INTEGER NOT NULL,
+    sent INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (channel_id, hour)
+);
+
+CREATE TABLE IF NOT EXISTS notification_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    expires_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS repeater_telemetry_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     public_key TEXT NOT NULL,
@@ -371,6 +419,8 @@ CREATE TABLE IF NOT EXISTS webauthn_credentials (
 # required columns (e.g. sender_key, added by migration 25) before index
 # creation runs.
 SCHEMA_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
+    ON notification_deliveries(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup_null_safe
     ON messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))

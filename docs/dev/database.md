@@ -29,8 +29,10 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 104 (the value of
-  `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
+- Numbering is contiguous from 001, except a number reserved for a parallel lane (112 is
+  reserved while it is unmerged). The current head is 113 (the value of
+  `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`; tests count pending
+  migrations with `migrations_after()`, never `LATEST - n`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
   (deferred to the runner). A migration that cannot run in a transaction (`VACUUM`,
@@ -81,6 +83,9 @@ that was notified, NULL when none, written by `notifications/radio_watch.py`, ou
 `AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`;
 `notification_language`: `auto`, `fr` or `en`, the language of e-mail and Apprise
 notifications (migration 111, `app/notifications/AGENTS.md`);
+`notification_rules`: the JSON rules of the notification channels (migration 113, written by
+the import and, from the dispatcher ticket, by the rules API; outside `AppSettings` for now;
+shape in `app/notifications/AGENTS.md`);
 `share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
 (migration 102); `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
 never exported by a backup; `store_online`: the Store egress consent, off by default,
@@ -192,6 +197,34 @@ One row per fanout integration (MQTT, bots, webhooks, Apprise, SQS, map upload):
 PK `id` (text), `type`, `name`, `enabled`, `config` (JSON), `scope` (JSON),
 `sort_order`, `created_at`. `FanoutConfigRepository` (`fanout.py`), used by the fanout
 manager and its router. See `app/fanout/AGENTS.md`.
+
+### `notification_channels`
+
+One row per notification channel (migration 113): PK `id` (`builtin:push`,
+`legacy:email|webhook|apprise` from the import, else `<type>-<8 hex>`; an id is never
+reused), `type` (immutable: `web_push`, `email`, `webhook`, `apprise`), `preset`, `name`,
+`enabled`, `language` (`auto`, `fr`, `en`), `config` (JSON, public fields), `secrets`
+(JSON, plain text in this version, never returned by any read path),
+`allow_private_network`, `include_message_text`, `verify_tls`, `quiet_hours_exempt`,
+`rate_per_min`, `rate_per_hour`, `rate_per_day` (NULL: the type's default), `sort_order`,
+`created_at`, `last_ok_at`, `last_error`, `failure_count`, `paused_until`.
+`NotificationChannelRepository` (`notification_channels.py`).
+
+### `notification_deliveries`
+
+The delivery journal: `id`, `channel_id`, `event`, `dedup_key` (hashed), `status`, `error`,
+`attempts`, `created_at`. Never the text. At most 200 rows per channel (trimmed at each
+insert, and by the daily `prune_deliveries()`, which also drops a deleted channel's rows).
+Index `idx_notification_deliveries_channel`. `NotificationJournalRepository`.
+
+### `notification_counters`
+
+Successful sends per channel and hour: PK `(channel_id, hour)`, `sent`. Written in batches.
+
+### `notification_state`
+
+Small dedup state: PK `key`, `value`, `expires_at` (first-seen timestamps, per-day
+`channel_failed`, outage state). Expired rows are pruned.
 
 ### `push_subscriptions`
 
@@ -367,6 +400,7 @@ databases). The current set:
 | `idx_messages_feed_outgoing` | `messages(outgoing, received_at)` |
 | `idx_messages_feed_type_outgoing` | `messages(type, outgoing, received_at)` |
 | `idx_messages_unread_covering` | `messages(type, conversation_key, outgoing, received_at)` |
+| `idx_notification_deliveries_channel` | `notification_deliveries(channel_id, created_at)` |
 | `idx_plugins_plugin_id` | `plugins(plugin_id)` |
 | `idx_raw_packets_message_id` | `raw_packets(message_id)` |
 | `idx_raw_packets_payload_hash` | unique, `raw_packets(payload_hash)` |

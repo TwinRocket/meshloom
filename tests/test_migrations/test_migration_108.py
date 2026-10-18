@@ -6,7 +6,7 @@ import pytest
 from app.database import Database
 from app.migrations import get_version, run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION
+from .conftest import LATEST_SCHEMA_VERSION, migrations_after
 
 
 def _schema(path: str) -> tuple[str, str, str]:
@@ -40,7 +40,7 @@ async def test_fresh_and_migrated_databases_have_the_same_api_tokens_table(tmp_p
     conn = await aiosqlite.connect(migrated)
     try:
         await set_version(conn, 107)
-        assert await run_migrations(conn) == LATEST_SCHEMA_VERSION - 107
+        assert await run_migrations(conn) == migrations_after(107)
     finally:
         await conn.close()
 

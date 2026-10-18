@@ -3,7 +3,7 @@ import pytest
 
 from app.migrations import run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION
+from .conftest import migrations_after
 
 
 class TestMigration078:
@@ -22,7 +22,7 @@ class TestMigration078:
             await conn.commit()
 
             applied = await run_migrations(conn)
-            assert applied == LATEST_SCHEMA_VERSION - 77
+            assert applied == migrations_after(77)
 
             columns = {
                 row[1]

@@ -3,7 +3,7 @@ import pytest
 
 from app.migrations import run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION
+from .conftest import migrations_after
 
 
 class TestMigration075:
@@ -20,7 +20,7 @@ class TestMigration075:
             await conn.commit()
 
             applied = await run_migrations(conn)
-            assert applied == LATEST_SCHEMA_VERSION - 74
+            assert applied == migrations_after(74)
 
             cursor = await conn.execute("PRAGMA table_info(app_settings)")
             columns = {row[1] for row in await cursor.fetchall()}

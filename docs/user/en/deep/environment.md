@@ -86,6 +86,7 @@ The language of notifications is chosen in **Settings → Notifications** and st
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `notification_language` | `auto` | `auto`, `fr` or `en`. The language of e-mail and Apprise notifications; `auto` follows the browsers subscribed to push (English only with a strict majority of English browsers, a tie is French) |
+| `notification_rules` | `{}` | The notification rules (which channel receives which event, per-conversation exceptions). Written by the 4.18 to 5.0 import and by the notification channels; no screen edits it yet |
 
 ## Retired variables
 
@@ -126,7 +127,7 @@ You change these in the web interface. Nothing here is set through the environme
 | **Database** | `auto_decrypt_dm_on_advert` |
 | **Radio-App Management** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 of each at most), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alerts** | `telemetry_alert_rules` |
-| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (email and webhook) |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (email and webhook), `notification_rules`; the new tables `notification_channels`, `notification_deliveries`, `notification_counters` and `notification_state` |
 | **Updates** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
 | **Users & Access** | `public_urls` (**Public addresses**: the names Meshloom answers to from outside, declared by an administrator; no environment variable exists for them), `host_guard_mode` (observe or enforce) |
 | **Local Configuration** and **Navigation** | `ui_preferences`: theme, label of the instance, left rail; `auth_allowed_origins`: the other sites allowed to call the API (**Allowed origins**) |

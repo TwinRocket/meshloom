@@ -6,7 +6,7 @@ import pytest
 from app.database import Database
 from app.migrations import get_version, run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION
+from .conftest import LATEST_SCHEMA_VERSION, migrations_after
 
 TABLES = ("plugin_send_guard", "plugin_send_limits")
 
@@ -42,7 +42,7 @@ async def test_fresh_and_migrated_databases_have_the_same_guard_tables(tmp_path)
     conn = await aiosqlite.connect(migrated)
     try:
         await set_version(conn, 105)
-        assert await run_migrations(conn) == LATEST_SCHEMA_VERSION - 105
+        assert await run_migrations(conn) == migrations_after(105)
     finally:
         await conn.close()
 

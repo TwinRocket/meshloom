@@ -6,7 +6,7 @@ import aiosqlite
 import pytest
 
 from app.migrations import get_version, run_migrations, set_version
-from tests.test_migrations.conftest import LATEST_SCHEMA_VERSION
+from tests.test_migrations.conftest import LATEST_SCHEMA_VERSION, migrations_after
 
 DEFAULT_PUSH_DEFAULTS = {
     "new_contact": True,
@@ -35,7 +35,7 @@ class TestMigration071:
             await conn.commit()
 
             applied = await run_migrations(conn)
-            assert applied == LATEST_SCHEMA_VERSION - 70
+            assert applied == migrations_after(70)
             assert await get_version(conn) == LATEST_SCHEMA_VERSION
 
             columns = {
@@ -84,7 +84,7 @@ class TestMigration071:
             await conn.commit()
 
             applied = await run_migrations(conn)
-            assert applied == LATEST_SCHEMA_VERSION - 70
+            assert applied == migrations_after(70)
             assert await get_version(conn) == LATEST_SCHEMA_VERSION
 
             row = await (
