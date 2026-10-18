@@ -1,9 +1,9 @@
 # Plugins
 
 Status: **format, validators, data model, the child runtime, the SDK, the legacy
-bot shim and the supervisor** (MSHL-175, MSHL-184, MSHL-176, MSHL-177, MSHL-179).
-The server starts one supervised child per enabled instance; the OS isolation
-(MSHL-180), the host capabilities (`messages.send`, `storage.*`, `http.fetch`...)
+bot shim, the supervisor and the OS isolation** (MSHL-175, MSHL-184, MSHL-176,
+MSHL-177, MSHL-179, MSHL-180; isolation: `docs/dev/plugins-security.md`, "OS
+isolation"). The server starts one supervised child per enabled instance; the host capabilities (`messages.send`, `storage.*`, `http.fetch`...)
 and the API and UI are later tickets, and nothing installs a plugin yet. Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
@@ -355,8 +355,12 @@ the cwd, the script directory and `PYTHONPATH` from `sys.path`, so
 cadrage's first draft) skips `site` too: no site-packages on the path and no
 `.pth` file executed before the runner freezes the process. `<python>` is
 `sys.executable`. The supervisor creates the instance's private work directory
-with `prepare_work_dir()` (0700, owned by the server user, not a symlink) and
-spawns with `subprocess.Popen(runner_command(), stderr=..., **popen_kwargs(work_dir))`:
+with the isolation backend's `prepare_work_dir()` (`launch.prepare_work_dir()`:
+0700, owned by the server user, not a symlink; handed to `meshloom-plugin`
+under the `setuid` level) and spawns with the backend's `launch()`, which wraps
+`subprocess.Popen(runner_command(), stderr=..., **popen_kwargs(work_dir))`
+(bwrap prefixes the command, `setuid` adds `user`, `group`, `extra_groups=[]`
+and `umask`):
 `cwd=work_dir` (the only writable place), `env=runner_env()` (`LANG=C.UTF-8`,
 `PYTHONHASHSEED=random`), stdin and stdout as pipes (the RPC stream),
 `close_fds=True` with no `pass_fds`, `start_new_session=True` (a process group
@@ -469,8 +473,9 @@ ends (`host_closed`; an oversized line still ends the child with exit 2), and
 Tests: `tests/test_plugin_runner.py` (real subprocesses; standard library and
 pytest only, so it also runs with `uv run --no-project --python 3.13 --with
 pytest pytest --noconftest tests/test_plugin_runner.py`), the seed corpus in
-`tests/plugin_corpus/` (one directory per hostile plugin with its `case.json`;
-MSHL-191 consolidates it and runs it under each isolation level) and
+`tests/plugin_corpus/` (one directory per hostile plugin with its `case.json`,
+run under each isolation level this machine offers; MSHL-191 consolidates it),
+`tests/test_plugin_isolation.py` and
 `tests/test_plugin_packaging.py`.
 
 ## SDK (`meshloom_plugin.sdk`)
