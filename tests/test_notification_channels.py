@@ -332,3 +332,37 @@ class TestJournal:
         assert await Journal.state_get("first_seen:aa", now=60) is None
         await Journal.state_prune(now=60)
         assert await Journal.state_get("outage") == "x"
+
+
+class TestTransportDefaults:
+    @pytest.mark.asyncio
+    async def test_verify_tls_off_needs_the_private_network_flag(self, test_db):
+        body = {"type": "webhook", "name": "Hook", "verify_tls": False}
+        config = {"url": "https://hooks.example.org/x"}
+        with pytest.raises(ChannelError) as refused:
+            await Channels.create(ChannelCreate(**body, config=config))
+        assert refused.value.code == "verify_tls_requires_private_network"
+        channel = await Channels.create(
+            ChannelCreate(
+                **body, config={"url": "http://192.168.1.4/x"}, allow_private_network=True
+            )
+        )
+        assert channel.verify_tls is False
+        with pytest.raises(ChannelError):
+            await Channels.update(channel.id, ChannelUpdate(allow_private_network=False))
+        kept = await Channels.update(channel.id, ChannelUpdate(verify_tls=True))
+        assert kept.verify_tls is True
+
+    @pytest.mark.asyncio
+    async def test_email_text_policy_default_follows_the_smtp_host(self, test_db):
+        remote = await Channels.create(_email())
+        assert remote.include_message_text == "public_only"
+        local = await Channels.create(
+            ChannelCreate(
+                type="email",
+                name="Local",
+                config={"host": "192.168.1.5", "to": "me@example.org"},
+                allow_private_network=True,
+            )
+        )
+        assert local.include_message_text == "always"

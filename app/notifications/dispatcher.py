@@ -100,13 +100,13 @@ DeliveryStatus = Literal[
 
 
 def default_transport(channel: Channel) -> Transport | None:
+    from app.notifications.transports.apprise import AppriseTransport
+    from app.notifications.transports.email import EmailTransport
     from app.notifications.transports.legacy import (
         LegacyAppriseTransport,
         LegacyEmailTransport,
         LegacyWebhookTransport,
     )
-    from app.notifications.transports.apprise import AppriseTransport
-    from app.notifications.transports.email import EmailTransport
     from app.notifications.transports.web_push import WebPushTransport
     from app.notifications.transports.webhook import WebhookTransport
 
