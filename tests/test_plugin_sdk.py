@@ -300,7 +300,10 @@ def test_legacy_bot_without_the_http_permission_logs_a_readable_error(host) -> N
     assert h.call("event.message", {**MESSAGE, "message_text": "!w"})["result"] is None
     assert h.methods() == ["http.fetch"]
     logs = [n["params"]["message"] for n in h.notifications if n["method"] == "log"]
-    assert any("'http' permission is not granted" in m and "api.example.org" in m for m in logs)
+    expected = (
+        "Bot function execution failed: PermissionError: the 'http' permission is not granted "
+    )
+    assert any(m.startswith(expected + "to this bot for api.example.org: ") for m in logs)
 
 
 def test_legacy_storage_persists_through_the_host(host) -> None:

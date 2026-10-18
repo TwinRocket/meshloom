@@ -280,8 +280,10 @@ async def test_http_without_the_permission_logs_a_readable_error(host: FakeHost)
     assert await run_shim(HTTP_BOT, host) == []
     (level, message) = host.logs[-1]
     assert level == "error"
-    assert "'http' permission is not granted" in message
-    assert "api.example.org" in message
+    assert message.startswith(
+        "Bot function execution failed: PermissionError: the 'http' permission is not granted "
+        "to this bot for api.example.org: "
+    )
     assert "SECRET" not in message
 
 
@@ -290,7 +292,9 @@ async def test_http_host_not_allowed_names_the_host(host: FakeHost) -> None:
         {"code": -32010, "message": "x", "data": {"code": "host_not_allowed"}}
     )
     await run_shim(HTTP_BOT, host)
-    assert "api.example.org is not in the hosts" in host.logs[-1][1]
+    assert host.logs[-1][1].startswith(
+        "Bot function execution failed: PermissionError: api.example.org is not in the hosts"
+    )
 
 
 async def test_http_with_the_permission_goes_through_the_host(host: FakeHost) -> None:
