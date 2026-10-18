@@ -1,0 +1,54 @@
+{
+  "settings": {
+    "access": {
+      "tokens": {
+        "title": "Jetons d’API et d’appareil",
+        "help": "Un jeton permet à un script, un capteur Home Assistant ou une application mobile d’utiliser Meshloom sans votre mot de passe. Créez-en un par appareil, donnez-lui le moins de portées possible et révoquez-le quand vous cessez de l’utiliser.",
+        "ingressNotice": "Vous êtes connecté par Home Assistant. Les jetons ne fonctionnent pas à travers l’ingress de Home Assistant, qui connecte lui-même les utilisateurs : un appareil doit joindre Meshloom à sa propre adresse. Vous pouvez quand même créer ici les jetons de ces appareils.",
+        "none": "Aucun jeton pour l’instant.",
+        "add": "Créer un jeton",
+        "createTitle": "Créer un jeton",
+        "createHelp": "Le jeton appartient à votre compte et n’obtient jamais plus que ce que votre rôle permet.",
+        "name": "Nom",
+        "namePlaceholder": "capteur-ha",
+        "scopes": "Portées",
+        "scopesHelp": "Cochez seulement ce dont l’appareil a besoin. Seules les portées permises par votre rôle sont proposées.",
+        "scope": {
+          "read": "Canaux, contacts, paquets et carte.",
+          "read_private": "Messages directs.",
+          "send": "Envoyer des messages et modifier contacts et canaux.",
+          "repeater_admin": "Répéteurs et rooms.",
+          "admin": "Tout, réglages compris."
+        },
+        "expiry": "Expiration",
+        "expiryNever": "Jamais",
+        "expiryDays_one": "Dans {{count}} jour",
+        "expiryDays_other": "Dans {{count}} jours",
+        "expiryCustom": "À une date…",
+        "expiryDate": "Date d’expiration",
+        "create": "Créer",
+        "secretTitle": "Copiez votre jeton maintenant",
+        "secretHelp": "Le jeton « {{name}} » est créé.",
+        "secretWarning": "C’est la seule fois que ce jeton est affiché. Meshloom n’en garde qu’une empreinte et ne pourra plus le montrer : copiez-le maintenant et rangez-le en lieu sûr. Si vous le perdez, révoquez-le et créez-en un autre.",
+        "secretLabel": "Jeton",
+        "copy": "Copier",
+        "copied": "Copié",
+        "copyFailed": "Copie impossible. Sélectionnez le jeton et copiez-le à la main.",
+        "secretUsage": "Envoyez-le en « Authorization: Bearer <jeton> » à chaque requête.",
+        "secretDone": "Je l’ai copié",
+        "owner": "compte {{user}}",
+        "created": "créé {{when}}",
+        "lastUsed": "dernière utilisation {{when}}",
+        "neverUsed": "jamais utilisé",
+        "expires": "expire {{when}}",
+        "noExpiry": "sans expiration",
+        "expired": "Expiré",
+        "revoke": "Révoquer",
+        "revokeNamed": "Révoquer le jeton {{name}}",
+        "revoked": "Jeton révoqué.",
+        "revokeTitle": "Révoquer « {{name}} » ?",
+        "revokeHelp": "Le jeton cesse de fonctionner aussitôt et toute connexion ouverte avec lui est fermée. Cette action est irréversible."
+      }
+    }
+  }
+}
