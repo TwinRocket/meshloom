@@ -22,8 +22,12 @@ const ROLE_CAPABILITIES: Record<AuthRole, readonly Capability[]> = {
   admin: ALL,
 };
 
-/** Settings sections a non-admin account may open: its own browser's preferences. */
-const ACCOUNT_SETTINGS_SECTIONS: readonly SettingsSection[] = ['local'];
+/**
+ * Settings sections a non-admin account may open: its own browser's preferences, and its
+ * own profile and sessions (`own_account`). `access` shows the administrator parts only
+ * to an admin (`SettingsAccessSection`).
+ */
+const ACCOUNT_SETTINGS_SECTIONS: readonly SettingsSection[] = ['local', 'access'];
 
 export interface Capabilities {
   /** The role these were derived from; null when nobody is known (tests, previews). */

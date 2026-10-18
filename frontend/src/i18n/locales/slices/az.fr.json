@@ -1,0 +1,99 @@
+{
+  "settingsNav": {
+    "access": "Utilisateurs et accès"
+  },
+  "errors": {
+    "auth_user_not_found": "Cet utilisateur n'existe plus.",
+    "auth_username_taken": "Ce nom d'utilisateur est déjà pris.",
+    "auth_password_required": "Ce rôle demande un mot de passe initial.",
+    "auth_password_not_applicable": "Ce compte n'a pas de mot de passe : les comptes Home Assistant et kiosque se connectent autrement.",
+    "auth_trusted_proxies_invalid": "Ce n'est pas une adresse ou un réseau accepté pour les proxys de confiance.",
+    "access_rate_limited": "Trop de requêtes. Réessayez dans {{retry_after}} secondes.",
+    "access_unavailable": "Le serveur est occupé ou indisponible. Réessayez dans un instant."
+  },
+  "settings": {
+    "access": {
+      "save": "Enregistrer",
+      "cancel": "Annuler",
+      "roleHelp": {
+        "admin": "Administrateur : gère tout, y compris les utilisateurs et la radio.",
+        "member": "Membre : lit et envoie des messages, modifie contacts et canaux.",
+        "viewer": "Lecteur : lit les messages, y compris les messages directs, sans pouvoir en envoyer.",
+        "kiosk": "Kiosque : affichage mural en lecture seule, sans mot de passe ni messages directs."
+      },
+      "profile": {
+        "title": "Mon compte",
+        "summary": "Connecté en tant que {{username}} ({{role}}).",
+        "displayName": "Nom affiché",
+        "nameSaved": "Nom affiché enregistré.",
+        "passwordTitle": "Changer mon mot de passe",
+        "currentPassword": "Mot de passe actuel",
+        "newPassword": "Nouveau mot de passe",
+        "confirmPassword": "Confirmer le nouveau mot de passe",
+        "changePassword": "Changer le mot de passe",
+        "passwordChanged": "Mot de passe modifié.",
+        "noPassword": "Ce compte n'a pas de mot de passe ici : il se connecte autrement."
+      },
+      "sessions": {
+        "title": "Mes sessions",
+        "help": "Les appareils connectés à votre compte. Révoquez celui que vous n'utilisez plus ou que vous ne reconnaissez pas.",
+        "unknownDevice": "Appareil inconnu",
+        "current": "Cet appareil",
+        "lastSeen": "vu pour la dernière fois {{when}}",
+        "via": {
+          "lan": "réseau local",
+          "ingress": "Home Assistant",
+          "trusted": "proxy de confiance",
+          "relay": "relais"
+        },
+        "revoke": "Révoquer",
+        "revoked": "Session révoquée.",
+        "signOutOthers": "Déconnecter partout ailleurs",
+        "othersRevoked": "Vos autres sessions sont déconnectées."
+      },
+      "users": {
+        "title": "Utilisateurs",
+        "help": "Tous les comptes de ce Meshloom. Changer un rôle ou désactiver un compte déconnecte cet utilisateur partout.",
+        "provider": {
+          "local": "Local",
+          "ingress": "Home Assistant"
+        },
+        "you": "Vous",
+        "disabled": "Désactivé",
+        "mustChangeBadge": "Doit changer son mot de passe",
+        "role": "Rôle",
+        "roleOf": "Rôle de {{username}}",
+        "password": "Mot de passe",
+        "mustChange": "Demander un nouveau mot de passe à la prochaine connexion",
+        "add": "Ajouter un utilisateur",
+        "createTitle": "Ajouter un utilisateur",
+        "createHelp": "Un kiosque n'a pas de mot de passe. Les autres rôles demandent un mot de passe initial.",
+        "create": "Créer",
+        "created": "Utilisateur créé.",
+        "roleChanged": "Rôle modifié.",
+        "updated": "Utilisateur mis à jour.",
+        "disable": "Désactiver",
+        "enable": "Activer",
+        "reset": "Réinitialiser le mot de passe",
+        "resetTitle": "Réinitialiser le mot de passe de {{username}}",
+        "resetHelp": "L'utilisateur est déconnecté partout et se reconnecte avec ce mot de passe.",
+        "resetSubmit": "Réinitialiser",
+        "passwordReset": "Mot de passe réinitialisé.",
+        "revokeSessions": "Déconnecter partout",
+        "sessionsRevoked": "{{username}} est déconnecté partout.",
+        "delete": "Supprimer",
+        "deleteTitle": "Supprimer {{username}} ?",
+        "deleteHelp": "Le compte et ses sessions sont supprimés. Cette action est irréversible.",
+        "deleted": "{{username}} supprimé."
+      },
+      "ingress": {
+        "title": "Connexion Home Assistant",
+        "defaultRole": "Rôle d'un nouvel utilisateur Home Assistant",
+        "help": "S'applique à un utilisateur Home Assistant vu pour la première fois. Le tout premier est toujours administrateur.",
+        "saved": "Rôle par défaut enregistré.",
+        "proxiesPrefix": "Les proxys inverses de confiance se règlent dans",
+        "proxiesLink": "Configuration locale"
+      }
+    }
+  }
+}

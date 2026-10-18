@@ -1,0 +1,99 @@
+{
+  "settingsNav": {
+    "access": "Users & Access"
+  },
+  "errors": {
+    "auth_user_not_found": "This user no longer exists.",
+    "auth_username_taken": "This user name is already taken.",
+    "auth_password_required": "This role needs an initial password.",
+    "auth_password_not_applicable": "This account has no password: Home Assistant and kiosk accounts sign in another way.",
+    "auth_trusted_proxies_invalid": "Not an address or network the trusted proxies accept.",
+    "access_rate_limited": "Too many requests. Try again in {{retry_after}} seconds.",
+    "access_unavailable": "The server is busy or unavailable. Try again in a moment."
+  },
+  "settings": {
+    "access": {
+      "save": "Save",
+      "cancel": "Cancel",
+      "roleHelp": {
+        "admin": "Administrator: manages everything, including users and the radio.",
+        "member": "Member: reads and sends messages, edits contacts and channels.",
+        "viewer": "Viewer: reads messages, including direct messages, but cannot send.",
+        "kiosk": "Kiosk: read-only wall display with no password and no direct messages."
+      },
+      "profile": {
+        "title": "My account",
+        "summary": "Signed in as {{username}} ({{role}}).",
+        "displayName": "Display name",
+        "nameSaved": "Display name saved.",
+        "passwordTitle": "Change my password",
+        "currentPassword": "Current password",
+        "newPassword": "New password",
+        "confirmPassword": "Confirm the new password",
+        "changePassword": "Change password",
+        "passwordChanged": "Password changed.",
+        "noPassword": "This account has no password here: it signs in another way."
+      },
+      "sessions": {
+        "title": "My sessions",
+        "help": "The devices signed in to your account. Revoke one you no longer use or do not recognise.",
+        "unknownDevice": "Unknown device",
+        "current": "This device",
+        "lastSeen": "last seen {{when}}",
+        "via": {
+          "lan": "local network",
+          "ingress": "Home Assistant",
+          "trusted": "trusted proxy",
+          "relay": "relay"
+        },
+        "revoke": "Revoke",
+        "revoked": "Session revoked.",
+        "signOutOthers": "Sign out everywhere else",
+        "othersRevoked": "Signed out of your other sessions."
+      },
+      "users": {
+        "title": "Users",
+        "help": "Every account of this Meshloom. Changing a role or disabling an account signs that user out everywhere.",
+        "provider": {
+          "local": "Local",
+          "ingress": "Home Assistant"
+        },
+        "you": "You",
+        "disabled": "Disabled",
+        "mustChangeBadge": "Must change password",
+        "role": "Role",
+        "roleOf": "Role of {{username}}",
+        "password": "Password",
+        "mustChange": "Ask for a new password at the next sign-in",
+        "add": "Add a user",
+        "createTitle": "Add a user",
+        "createHelp": "A kiosk has no password. Other roles need an initial password.",
+        "create": "Create",
+        "created": "User created.",
+        "roleChanged": "Role changed.",
+        "updated": "User updated.",
+        "disable": "Disable",
+        "enable": "Enable",
+        "reset": "Reset password",
+        "resetTitle": "Reset the password of {{username}}",
+        "resetHelp": "The user is signed out everywhere and uses this password to sign in again.",
+        "resetSubmit": "Reset password",
+        "passwordReset": "Password reset.",
+        "revokeSessions": "Sign out everywhere",
+        "sessionsRevoked": "{{username}} is signed out everywhere.",
+        "delete": "Delete",
+        "deleteTitle": "Delete {{username}}?",
+        "deleteHelp": "The account and its sessions are removed. This cannot be undone.",
+        "deleted": "{{username}} deleted."
+      },
+      "ingress": {
+        "title": "Home Assistant sign-in",
+        "defaultRole": "Role of a new Home Assistant user",
+        "help": "Applies to a Home Assistant user seen for the first time. The very first one is always an administrator.",
+        "saved": "Default role saved.",
+        "proxiesPrefix": "Reverse proxies you trust are set in",
+        "proxiesLink": "Local configuration"
+      }
+    }
+  }
+}

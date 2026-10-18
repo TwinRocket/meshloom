@@ -28,7 +28,7 @@ Ce que chaque rôle voit dans l’interface suit ce tableau : les écrans qu’u
 | Messages directs | oui | oui | oui | non |
 | Zone de saisie, nouvelle conversation, épingle, favori, sourdine, suppression | oui | oui | non | non |
 | Volets répéteurs et salons, test du maillage | oui | non | non | non |
-| Réglages | toutes les sections | Configuration locale | Configuration locale | aucun |
+| Réglages | toutes les sections | Configuration locale, Utilisateurs et accès (son propre compte) | Configuration locale, Utilisateurs et accès (son propre compte) | aucun |
 | Langue et thème de ce navigateur | oui | oui | oui | oui, depuis le bouton de compte |
 
 Une action que le serveur refuse malgré tout (par exemple depuis une page restée ouverte avant un changement de rôle) affiche un seul message : « Ce compte n’a pas le droit de faire cela. »
@@ -37,7 +37,9 @@ Le premier administrateur, et le compte que Meshloom crée à partir de l’iden
 
 ## Gérer les comptes
 
-Pour l’instant, les administrateurs gèrent les comptes par l’API ; l’écran des **Réglages** arrive dans une version ultérieure.
+Les administrateurs gèrent les comptes dans **Réglages → Utilisateurs et accès**, ou par l’API. La page liste chaque compte avec son rôle et son mode de connexion (local ou Home Assistant), et propose, par compte : changer le rôle, désactiver ou réactiver, réinitialiser le mot de passe (l’utilisateur doit en choisir un nouveau à sa prochaine connexion, sauf si vous décochez), déconnecter partout, et supprimer. Vous ne pouvez pas modifier, désactiver ni supprimer votre propre compte depuis cette page, ce qui garantit qu’il reste un administrateur. Un kiosque n’a pas de mot de passe. Le rôle donné à un utilisateur Home Assistant vu pour la première fois se règle aussi là ; les proxys de confiance restent dans **Configuration locale**.
+
+Chaque utilisateur (sauf le kiosque) voit **Mon compte** et **Mes sessions** sur la même page : modifier son nom affiché et son mot de passe, voir les appareils connectés (navigateur, système, adresse, dernière activité), en révoquer un, ou se déconnecter partout ailleurs.
 
 | Requête | Ce qu’elle fait |
 |---|---|

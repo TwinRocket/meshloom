@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { lazy, Suspense, useState, useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AppSettings,
@@ -38,6 +38,10 @@ import { SettingsAboutSection } from './settings/SettingsAboutSection';
 import { SettingsUpdatesSection } from './settings/SettingsUpdatesSection';
 import { getSettingsHash } from '../utils/urlHash';
 import { useCapabilities } from '../auth/SessionProvider';
+
+const SettingsAccessSection = lazy(() =>
+  import('./settings/SettingsAccessSection').then((m) => ({ default: m.SettingsAccessSection }))
+);
 
 interface SettingsModalBaseProps {
   open: boolean;
@@ -154,6 +158,7 @@ export function SettingsModal(props: SettingsModalProps) {
     radio: false,
     proxy: false,
     local: false,
+    access: false,
     notifications: false,
     updates: false,
     community: false,
@@ -315,6 +320,17 @@ export function SettingsModal(props: SettingsModalProps) {
               }
               className={sectionContentClass}
             />
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('access') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('access')}
+          {isSectionVisible('access') && (
+            <Suspense fallback={null}>
+              <SettingsAccessSection className={sectionContentClass} />
+            </Suspense>
           )}
         </section>
       )}
