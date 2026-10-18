@@ -187,6 +187,8 @@ async def _reset_password(args: argparse.Namespace) -> int:
     user = await _find_user(args.username)
     if user.provider != "local":
         raise CliError(f"{user.username} signs in through {user.provider}: it has no password")
+    if user.role == "kiosk":
+        raise CliError(f"{user.username} is a kiosk account: it has no password")
     password = _read_password(args.stdin, user.username)
     await UserRepository.set_password_hash(
         user.id, hash_password(password), must_change_password=args.must_change

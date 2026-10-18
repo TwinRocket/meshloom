@@ -65,9 +65,38 @@ async def test_password_hash_is_nullable_and_never_on_the_user_model(test_db):
     assert (await UserRepository.get_credentials("kiosk")).password_hash is None  # type: ignore[union-attr]
     assert await UserRepository.get_credentials("nobody") is None
 
-    assert await UserRepository.set_password_hash(local.id, None, must_change_password=True)
+    assert await UserRepository.set_password_hash(local.id, None)
     updated = await UserRepository.get(local.id)
-    assert updated is not None and not updated.has_password and updated.must_change_password
+    assert updated is not None and not updated.has_password and not updated.must_change_password
+
+
+@pytest.mark.asyncio
+async def test_must_change_password_only_on_accounts_with_a_password_to_change(test_db):
+    from app.repository.auth import MustChangeNotApplicableError
+
+    kiosk = await UserRepository.create("wall", "kiosk")
+    ha = await UserRepository.create("ha", "member", provider="ingress", external_id="x1")
+    local = await UserRepository.create("dana", "member", password_hash=HASH)
+    for build in (
+        lambda: UserRepository.create("wall2", "kiosk", must_change_password=True),
+        lambda: UserRepository.create("nopw", "member", must_change_password=True),
+        lambda: UserRepository.update(kiosk.id, must_change_password=True),
+        lambda: UserRepository.update(ha.id, must_change_password=True),
+        lambda: UserRepository.set_password_hash(kiosk.id, HASH, must_change_password=True),
+        lambda: UserRepository.set_password_hash(ha.id, HASH, must_change_password=True),
+        lambda: UserRepository.set_password_hash(local.id, None, must_change_password=True),
+    ):
+        with pytest.raises(MustChangeNotApplicableError):
+            await build()
+    assert await UserRepository.get_by_username("wall2") is None
+    assert all(not u.must_change_password for u in await UserRepository.list_all())
+    kept = await UserRepository.get(kiosk.id)
+    assert kept is not None and not kept.has_password
+
+    # A flagged account that becomes a kiosk loses the flag.
+    assert await UserRepository.set_password_hash(local.id, HASH, must_change_password=True)
+    flagged = await UserRepository.update(local.id, role="kiosk")
+    assert flagged is not None and not flagged.must_change_password
 
 
 @pytest.mark.asyncio
@@ -77,13 +106,43 @@ async def test_update_and_admin_count(test_db):
     assert await UserRepository.count_enabled_admins() == 2
     changed = await UserRepository.update(other.id, disabled=True, display_name=" Ops ", now=99)
     assert changed is not None and changed.disabled and changed.display_name == "Ops"
-    assert changed.updated_at == 99
+    # Never backwards, and at least one second on: the known-device cookies key on it.
+    assert changed.updated_at == other.updated_at + 1
     assert await UserRepository.count_enabled_admins() == 1
     demoted = await UserRepository.update(admin.id, role="viewer")
     assert demoted is not None and demoted.role == "viewer"
     with pytest.raises(ValueError):
         await UserRepository.update(admin.id, role="root")  # type: ignore[arg-type]
     assert await UserRepository.update(12345, role="member") is None
+
+
+@pytest.mark.asyncio
+async def test_updated_at_moves_on_every_write_even_in_the_same_second(test_db):
+    user = await UserRepository.create("erin", "member", password_hash=HASH, now=500)
+    first = await UserRepository.update(user.id, display_name="E", now=500)
+    assert first is not None and first.updated_at == 501
+    assert await UserRepository.set_password_hash(user.id, HASH, now=500)
+    second = await UserRepository.get(user.id)
+    assert second is not None and second.updated_at == 502
+    later = await UserRepository.update(user.id, display_name="Erin", now=900)
+    assert later is not None and later.updated_at == 900
+
+
+@pytest.mark.asyncio
+async def test_keep_an_admin_refuses_and_rolls_back(test_db):
+    from app.repository.auth import LastAdminError
+
+    admin = await UserRepository.create("root", "admin")
+    for change in ({"role": "member"}, {"disabled": True}):
+        with pytest.raises(LastAdminError):
+            await UserRepository.update(admin.id, keep_an_admin=True, **change)  # type: ignore[arg-type]
+        kept = await UserRepository.get(admin.id)
+        assert kept is not None and kept.role == "admin" and not kept.disabled
+    with pytest.raises(LastAdminError):
+        await UserRepository.delete(admin.id, keep_an_admin=True)
+    assert await UserRepository.get(admin.id) is not None
+    # Without the flag (meshloom-admin disable-user --force) the change goes through.
+    assert (await UserRepository.update(admin.id, disabled=True)).disabled  # type: ignore[union-attr]
 
 
 @pytest.mark.asyncio

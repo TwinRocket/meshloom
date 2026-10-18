@@ -129,6 +129,15 @@ class InvalidUsernameError(ValueError):
     """Empty, too long, or containing control characters."""
 
 
+class LastAdminError(ValueError):
+    """The change would leave no enabled administrator (``auth_last_admin``)."""
+
+
+class MustChangeNotApplicableError(ValueError):
+    """``must_change_password`` on an account that has no password to change:
+    no password, a ``kiosk``, or a Home Assistant or system identity."""
+
+
 class AuthSettingsMissingError(RuntimeError):
     """The ``auth_settings`` row is gone: refuse to act on defaults (fail closed).
 
@@ -193,6 +202,41 @@ def _check_role(role: str) -> None:
         raise ValueError(f"unknown role: {role}")
 
 
+# Every write to an account moves ``updated_at`` forward by at least one
+# second, so the known-device cookies keyed on it (``app/auth/device_cookie.py``)
+# are invalidated even by a second write in the same second.
+_BUMP_UPDATED_AT = "updated_at = MAX(?, updated_at + 1)"
+
+
+# Only a local account outside ``kiosk`` with a password can be asked to
+# change it; anything else would be stuck behind the gate's forced change.
+_CAN_CHANGE_PASSWORD = "password_hash IS NOT NULL AND role != 'kiosk' AND provider = 'local'"
+
+
+async def _enforce_must_change(conn: aiosqlite.Connection, user_id: int, requested: bool) -> None:
+    """Refuse an explicit ``must_change_password`` the account cannot honour,
+    and drop a stale one (a role or password change made it inapplicable)."""
+    if requested:
+        async with conn.execute(
+            f"SELECT 1 FROM users WHERE id = ? AND {_CAN_CHANGE_PASSWORD}", (user_id,)
+        ) as cursor:
+            if await cursor.fetchone() is None:
+                raise MustChangeNotApplicableError("this account has no password to change")
+    await conn.execute(
+        "UPDATE users SET must_change_password = 0"
+        f" WHERE id = ? AND must_change_password = 1 AND NOT ({_CAN_CHANGE_PASSWORD})",
+        (user_id,),
+    )
+
+
+async def _count_enabled_admins(conn: aiosqlite.Connection) -> int:
+    async with conn.execute(
+        "SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0"
+    ) as cursor:
+        row = await cursor.fetchone()
+    return int(row[0]) if row else 0
+
+
 async def _fetch_user(conn: aiosqlite.Connection, user_id: int) -> User | None:
     async with conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)) as cursor:
         row = await cursor.fetchone()
@@ -240,6 +284,7 @@ class UserRepository:
                     ),
                 ) as cursor:
                     user_id = cursor.lastrowid
+                await _enforce_must_change(conn, int(user_id or 0), must_change_password)
                 user = await _fetch_user(conn, int(user_id or 0))
         except sqlite3.IntegrityError as exc:
             if "username_key" in str(exc):
@@ -309,11 +354,7 @@ class UserRepository:
     @staticmethod
     async def count_enabled_admins() -> int:
         async with db.readonly() as conn:
-            async with conn.execute(
-                "SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0"
-            ) as cursor:
-                row = await cursor.fetchone()
-        return int(row[0]) if row else 0
+            return await _count_enabled_admins(conn)
 
     @staticmethod
     async def update(
@@ -323,11 +364,17 @@ class UserRepository:
         role: Role | None = None,
         disabled: bool | None = None,
         must_change_password: bool | None = None,
+        clear_password: bool = False,
+        keep_an_admin: bool = False,
         now: int | None = None,
     ) -> User | None:
         """Change profile fields. Revoking sessions on a role change or a
-        disable is the caller's decision (``app.auth.sessions.revoke_user_sessions``,
-        which also closes their WebSockets)."""
+        disable is the caller's decision (``app.auth.sessions.sign_out_user``,
+        which also closes their WebSockets).
+
+        ``clear_password`` removes the password (a ``kiosk`` has none).
+        ``keep_an_admin`` refuses, in the same transaction, a change that
+        leaves no enabled administrator: ``LastAdminError``, nothing written."""
         updates: list[str] = []
         params: list[Any] = []
         if display_name is not None:
@@ -343,11 +390,16 @@ class UserRepository:
         if must_change_password is not None:
             updates.append("must_change_password = ?")
             params.append(int(must_change_password))
+        if clear_password:
+            updates.append("password_hash = NULL")
         async with db.tx() as conn:
             if updates:
-                updates.append("updated_at = ?")
+                updates.append(_BUMP_UPDATED_AT)
                 params.extend([_now(now), user_id])
                 await conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+                await _enforce_must_change(conn, user_id, bool(must_change_password))
+                if keep_an_admin and await _count_enabled_admins(conn) == 0:
+                    raise LastAdminError("the last enabled administrator must stay")
             return await _fetch_user(conn, user_id)
 
     @staticmethod
@@ -358,24 +410,33 @@ class UserRepository:
         must_change_password: bool = False,
         now: int | None = None,
     ) -> bool:
-        """Store a new hash (or None to remove the password). True if the user exists."""
+        """Store a new hash (or None to remove the password). True if the user exists.
+        ``must_change_password`` on an account that cannot honour it raises
+        ``MustChangeNotApplicableError`` (nothing written)."""
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = ?"
-                " WHERE id = ?",
+                "UPDATE users SET password_hash = ?, must_change_password = ?, "
+                f"{_BUMP_UPDATED_AT} WHERE id = ?",
                 (password_hash, int(must_change_password), _now(now), user_id),
             ) as cursor:
-                return cursor.rowcount > 0
+                found = cursor.rowcount > 0
+            if found:
+                await _enforce_must_change(conn, user_id, must_change_password)
+            return found
 
     @staticmethod
-    async def delete(user_id: int) -> bool:
-        """Delete a user; its sessions go with it (foreign key cascade)."""
+    async def delete(user_id: int, *, keep_an_admin: bool = False) -> bool:
+        """Delete a user; its sessions go with it (foreign key cascade).
+        ``keep_an_admin``: as for ``update()``."""
         async with db.tx() as conn:
             # Explicit, so the sessions go even on a connection without
             # PRAGMA foreign_keys (migration tests, scripts).
             await conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             async with conn.execute("DELETE FROM users WHERE id = ?", (user_id,)) as cursor:
-                return cursor.rowcount > 0
+                deleted = cursor.rowcount > 0
+            if deleted and keep_an_admin and await _count_enabled_admins(conn) == 0:
+                raise LastAdminError("the last enabled administrator must stay")
+            return deleted
 
 
 class AuthSessionRepository:
@@ -793,6 +854,29 @@ class AuthSettingsRepository:
         if row is None:
             raise AuthSettingsMissingError("auth_settings row missing")
         return row[0]
+
+    @staticmethod
+    async def ingress_admin_granted() -> bool:
+        """Whether a Home Assistant identity was already made ``admin`` as the
+        first one (migration 107). Never cleared: deleting that identity does
+        not make the next one ``admin`` again."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT ingress_admin_granted FROM auth_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            raise AuthSettingsMissingError("auth_settings row missing")
+        return bool(row[0])
+
+    @staticmethod
+    async def mark_ingress_admin_granted() -> None:
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE auth_settings SET ingress_admin_granted = 1 WHERE id = 1"
+            ) as cursor:
+                if cursor.rowcount != 1:
+                    raise AuthSettingsMissingError("auth_settings row missing")
 
     @staticmethod
     async def set_setup_code_hash(code_hash: str | None) -> None:

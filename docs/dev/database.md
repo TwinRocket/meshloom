@@ -233,7 +233,8 @@ secret reaches `AppSettings`: `trusted_networks` (JSON `[{cidr, user_id}]`),
 `trusted_proxies` (JSON CIDR list), `public_urls` (JSON), `host_guard_mode`
 (`observe`/`enforce`), `ingress_default_role` (`member`), `session_lifetime_days`
 (30), `audit_retention_days` (366), `basic_imported`, `setup_code_hash` (SHA-256 of
-the installation code). The CORS list stays `app_settings.auth_allowed_origins`.
+the installation code), `ingress_admin_granted` (migration 107: the first Home
+Assistant identity was made admin; never cleared). The CORS list stays `app_settings.auth_allowed_origins`.
 `AuthSettingsRepository` (`auth.py`).
 
 ### `plugins`
