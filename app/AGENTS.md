@@ -975,7 +975,7 @@ dotless name, `.local`/`.lan`/`.home.arpa`/`.internal`/`.localdomain`; no DNS), 
 distributor such as ntfy.sh is not opted in. A restore of a backup whose settings lack
 `push_allow_private_endpoints` (pre-guard) applies the same rule to the restored
 subscriptions (`endpoint_looks_private`, `_regrandfather_private_push` in
-`app/services/backup.py`; migration 104 keeps a frozen copy, both with a listed set of
+`app/services/backup.py`, which also clears `push_private_endpoints_review`; migration 104 keeps a frozen copy, both with a listed set of
 networks, not `is_global`). When 104 withdraws the opt-in and a stored endpoint is a
 hostname it cannot place (split DNS, Tailscale `*.ts.net`), it sets
 `push_private_endpoints_review`: a persistent notice (excluded from backups) with a
