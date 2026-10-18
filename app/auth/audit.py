@@ -78,6 +78,7 @@ AuditAction = Literal[
     "private_key.imported",
     "factory_reset",
     "update.triggered",
+    "notify.channel_changed",
     # Remote access (later)
     "remote.linked",
     "remote.enabled",

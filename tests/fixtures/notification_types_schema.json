@@ -1,0 +1,225 @@
+[
+  {
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 600,
+      "per_min": 60
+    },
+    "include_message_text_default": "always",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "description": "Web Push has no settings of its own: the browsers' subscriptions are the targets.",
+      "properties": {},
+      "title": "WebPushConfig",
+      "type": "object"
+    },
+    "singleton": true,
+    "type": "web_push"
+  },
+  {
+    "cloud": false,
+    "default_limits": {
+      "per_day": 200,
+      "per_hour": 60,
+      "per_min": 6
+    },
+    "include_message_text_default": "always",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cc": {
+          "default": "",
+          "help_key": "notifications.channels.help.email_to",
+          "label_key": "notifications.channels.fields.cc",
+          "maxLength": 2048,
+          "title": "Cc",
+          "type": "string"
+        },
+        "from": {
+          "default": "",
+          "label_key": "notifications.channels.fields.from",
+          "maxLength": 255,
+          "title": "From",
+          "type": "string"
+        },
+        "host": {
+          "default": "",
+          "label_key": "notifications.channels.fields.host",
+          "maxLength": 255,
+          "title": "Host",
+          "type": "string"
+        },
+        "mode": {
+          "default": "starttls",
+          "enum": [
+            "none",
+            "starttls",
+            "ssl"
+          ],
+          "label_key": "notifications.channels.fields.mode",
+          "title": "Mode",
+          "type": "string"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 1024,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "label_key": "notifications.channels.fields.password",
+          "title": "Password",
+          "writeOnly": true
+        },
+        "port": {
+          "default": 587,
+          "label_key": "notifications.channels.fields.port",
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "to": {
+          "default": "",
+          "help_key": "notifications.channels.help.email_to",
+          "label_key": "notifications.channels.fields.to",
+          "maxLength": 2048,
+          "title": "To",
+          "type": "string"
+        },
+        "user": {
+          "default": "",
+          "label_key": "notifications.channels.fields.user",
+          "maxLength": 255,
+          "title": "User",
+          "type": "string"
+        }
+      },
+      "title": "EmailConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "email"
+  },
+  {
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 600,
+      "per_min": 60
+    },
+    "include_message_text_default": "always",
+    "preset": false,
+    "quiet_hours_exempt_default": true,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "hmac_secret": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 1024,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "label_key": "notifications.channels.fields.hmac_secret",
+          "title": "Hmac Secret",
+          "writeOnly": true
+        },
+        "private_network_grandfathered": {
+          "default": false,
+          "hidden": true,
+          "readOnly": true,
+          "title": "Private Network Grandfathered",
+          "type": "boolean"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 2048,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.webhook_url",
+          "label_key": "notifications.channels.fields.url",
+          "title": "Url",
+          "writeOnly": true
+        }
+      },
+      "title": "WebhookConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "webhook"
+  },
+  {
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 300,
+      "per_min": 30
+    },
+    "include_message_text_default": "always",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "default": "text",
+          "enum": [
+            "text",
+            "markdown"
+          ],
+          "label_key": "notifications.channels.fields.format",
+          "title": "Format",
+          "type": "string"
+        },
+        "urls": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 8192,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.apprise_urls",
+          "label_key": "notifications.channels.fields.urls",
+          "title": "Urls",
+          "writeOnly": true
+        }
+      },
+      "title": "AppriseConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "apprise"
+  }
+]

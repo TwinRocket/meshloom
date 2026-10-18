@@ -39,7 +39,13 @@ export const AUDIT_FAMILIES = {
     'plugin.updated',
     'plugin.removed',
   ],
-  instance: ['backup.restored', 'private_key.imported', 'factory_reset', 'update.triggered'],
+  instance: [
+    'backup.restored',
+    'private_key.imported',
+    'factory_reset',
+    'update.triggered',
+    'notify.channel_changed',
+  ],
   remote: ['remote.linked', 'remote.enabled', 'remote.disabled'],
 } as const;
 

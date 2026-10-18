@@ -77,6 +77,15 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
         "description": "Browser Web Push subscriptions, per-device preferences, tests, and conversations.",
     },
     {
+        "name": "notifications",
+        "description": (
+            "Notification channels (secrets are write-only), rules and the global pause, "
+            "test sends (rate limited), the delivery journal and the event catalogue. "
+            "Admin only; a channel change arrives as a `notification_channel_changed` "
+            "WebSocket event."
+        ),
+    },
+    {
         "name": "fanout",
         "description": "MQTT, bots, webhooks, Apprise, SQS, Home Assistant, and map upload integrations.",
     },

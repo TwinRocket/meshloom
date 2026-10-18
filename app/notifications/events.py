@@ -35,6 +35,7 @@ EVENT_IDS: tuple[str, ...] = (
     "app.started",
     "app.update",
     "notify.destination_changed",
+    "notify.channel_changed",
     "notify.test",
 )
 
@@ -110,6 +111,13 @@ class AppUpdateData:
 @dataclass(frozen=True)
 class DestinationChangedData:
     kinds: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ChannelChangedData:
+    action: str = ""  # created | changed | enabled | disabled | deleted
+    channel_type: str = ""
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -277,6 +285,23 @@ class DestinationChangedEvent(NotificationEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
+class ChannelChangedEvent(NotificationEvent):
+    """``notify.channel_changed``: proof of modification of a channel (never its secrets)."""
+
+    data: ChannelChangedData
+
+    def to_payload(self) -> dict[str, Any]:
+        from app.notifications.render import CHANNEL_CHANGED_EVENT
+
+        return {
+            "event": CHANNEL_CHANGED_EVENT,
+            "action": self.data.action,
+            "channel_type": self.data.channel_type,
+            "name": self.data.name,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
 class TestEvent(NotificationEvent):
     """``notify.test``: the "send a test" button of a destination."""
 
@@ -423,8 +448,25 @@ def event_from_payload(
             data=AppUpdateData(current=_s(payload.get("current")), latest=latest),
             **common,
         )
-    from app.notifications.render import DESTINATION_CHANGED_EVENT
+    from app.notifications.render import CHANNEL_CHANGED_EVENT, DESTINATION_CHANGED_EVENT
 
+    if kind == CHANNEL_CHANGED_EVENT:
+        return ChannelChangedEvent(
+            event="notify.channel_changed",
+            dedup_key=dedup_hash(
+                "notify.channel_changed",
+                payload.get("action"),
+                payload.get("name"),
+                uuid.uuid4().hex,
+            ),
+            urgent=True,
+            data=ChannelChangedData(
+                action=_s(payload.get("action")),
+                channel_type=_s(payload.get("channel_type")),
+                name=_s(payload.get("name")),
+            ),
+            **common,
+        )
     if kind == DESTINATION_CHANGED_EVENT:
         kinds = tuple(str(k) for k in payload.get("kinds") or ())
         return DestinationChangedEvent(

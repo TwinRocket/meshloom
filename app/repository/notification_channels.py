@@ -91,7 +91,7 @@ def _split_config(entry: ChannelType, config: dict[str, Any]) -> tuple[dict, dic
         model = entry.config_model.model_validate(config)
     except ValidationError as exc:
         fields = sorted({".".join(str(p) for p in err["loc"]) for err in exc.errors()})
-        raise ChannelError("config_invalid", fields=fields) from None
+        raise ChannelError("invalid_config", fields=fields) from None
     dumped = model.model_dump(by_alias=True, mode="python")
     public: dict[str, Any] = {}
     secrets: dict[str, str] = {}
@@ -210,21 +210,32 @@ class NotificationChannelRepository:
         return _row_to_channel(row), secrets
 
     @staticmethod
-    async def create(body: ChannelCreate) -> Channel:
+    async def prepare(body: ChannelCreate) -> tuple[ChannelType, dict[str, Any], dict[str, str]]:
+        """Every check of a creation but the write: the type, the config (public and
+        secret parts), the required fields and the destination (egress guard). Also
+        what ``POST /channels/test`` runs, so a test and a save refuse the same things."""
         entry = get_type(body.type)
         public, secrets = _split_config(entry, body.config)
         missing = _required_missing(entry, public, secrets)
         if missing:
             raise ChannelError("config_required", fields=missing)
-        if entry.singleton_id is not None:
-            channel_id = entry.singleton_id
-        else:
-            channel_id = body.id or f"{entry.id}-{uuid.uuid4().hex[:8]}"
-            if is_builtin(channel_id) or ":" in channel_id:
-                raise ChannelError("channel_id_reserved")
         await _check_destination(
             entry, public, secrets, body.allow_private_network, body.verify_tls
         )
+        return entry, public, secrets
+
+    @staticmethod
+    async def create(body: ChannelCreate) -> Channel:
+        entry = get_type(body.type)
+        if entry.singleton_id is None:
+            candidate = body.id or f"{entry.id}-{uuid.uuid4().hex[:8]}"
+            if is_builtin(candidate) or ":" in candidate:
+                raise ChannelError("channel_id_reserved")
+        entry, public, secrets = await NotificationChannelRepository.prepare(body)
+        if entry.singleton_id is not None:
+            channel_id = entry.singleton_id
+        else:
+            channel_id = candidate
         # NULL rate columns mean "the type's default limits" (registry).
         async with db.tx() as conn:
             if await _fetch(conn, channel_id) is not None:
@@ -277,7 +288,7 @@ class NotificationChannelRepository:
     async def update(channel_id: str, patch: ChannelUpdate) -> Channel:
         found = await NotificationChannelRepository.get_for_send(channel_id)
         if found is None:
-            raise ChannelError("channel_not_found", 404)
+            raise ChannelError("channel_missing", 404)
         current, stored_secrets = found
         if patch.type is not None and patch.type != current.type:
             raise ChannelError("type_immutable")
@@ -375,10 +386,10 @@ class NotificationChannelRepository:
     async def delete(channel_id: str) -> None:
         """Delete a channel and every reference to it, in one transaction."""
         if is_builtin(channel_id):
-            raise ChannelError("channel_builtin")
+            raise ChannelError("builtin_channel", 403)
         async with db.tx() as conn:
             if await _fetch(conn, channel_id) is None:
-                raise ChannelError("channel_not_found", 404)
+                raise ChannelError("channel_missing", 404)
             await conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
             await conn.execute(
                 "DELETE FROM notification_deliveries WHERE channel_id = ?", (channel_id,)
@@ -398,6 +409,51 @@ class NotificationChannelRepository:
                 )
         invalidate_cache()
         _orphans_logged.discard(channel_id)
+
+    @staticmethod
+    async def mirror_legacy(built: list[dict[str, Any]], legacy_ids: tuple[str, ...]) -> None:
+        """Make the ``legacy:*`` channels match the 4.18.x destinations (``built``, in the
+        shape of migration 113's ``build_channels``): upsert the configured ones, keeping
+        what the user set on the channel itself, and delete the ones no longer configured."""
+        by_id = {c["id"]: c for c in built}
+        async with db.tx() as conn:
+            for channel_id, channel in by_id.items():
+                config, secrets = (
+                    json.dumps(channel["config"], sort_keys=True),
+                    json.dumps(channel["secrets"], sort_keys=True),
+                )
+                if await _fetch(conn, channel_id) is not None:
+                    await conn.execute(
+                        "UPDATE notification_channels SET config = ?, secrets = ?, "
+                        "allow_private_network = ? WHERE id = ?",
+                        (config, secrets, channel["allow_private_network"], channel_id),
+                    )
+                    continue
+                await conn.execute(
+                    """
+                    INSERT INTO notification_channels
+                        (id, type, name, enabled, language, config, secrets,
+                         allow_private_network, include_message_text, verify_tls,
+                         quiet_hours_exempt, sort_order, created_at)
+                    VALUES (?, ?, ?, 1, 'auto', ?, ?, ?, ?, 1, ?, ?, ?)
+                    """,
+                    (
+                        channel_id,
+                        channel["type"],
+                        channel["name"],
+                        config,
+                        secrets,
+                        channel["allow_private_network"],
+                        channel["include_message_text"],
+                        channel["quiet_hours_exempt"],
+                        channel["sort_order"],
+                        channel["created_at"],
+                    ),
+                )
+        invalidate_cache()
+        for channel_id in legacy_ids:
+            if channel_id not in by_id and await NotificationChannelRepository.get(channel_id):
+                await NotificationChannelRepository.delete(channel_id)
 
     @staticmethod
     async def record_result(channel_id: str, *, ok: bool, error: str | None = None) -> None:
@@ -427,6 +483,15 @@ class NotificationChannelRepository:
             ) as cursor:
                 row = await cursor.fetchone()
         return _loads(row[0]) if row else {}
+
+    @staticmethod
+    async def set_rules(rules: dict[str, Any]) -> None:
+        """Replace ``app_settings.notification_rules`` (the caller merged what it keeps)."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET notification_rules = ? WHERE id = 1",
+                (json.dumps(rules, sort_keys=True),),
+            )
 
     @staticmethod
     async def set_last_ok_at(channel_id: str, at: int) -> None:
@@ -555,12 +620,17 @@ class NotificationJournalRepository:
                 )
 
     @staticmethod
-    async def list_deliveries(channel_id: str, limit: int = DELIVERIES_PER_CHANNEL) -> list[dict]:
+    async def list_deliveries(
+        channel_id: str | None, limit: int = DELIVERIES_PER_CHANNEL
+    ) -> list[dict]:
+        """The journal, newest first: one channel, or every channel when ``None``."""
+        where = "WHERE channel_id = ? " if channel_id is not None else ""
+        params = (channel_id, limit) if channel_id is not None else (limit,)
         async with db.readonly() as conn:
             async with conn.execute(
                 "SELECT id, channel_id, event, dedup_key, status, error, attempts, created_at "
-                "FROM notification_deliveries WHERE channel_id = ? ORDER BY id DESC LIMIT ?",
-                (channel_id, limit),
+                f"FROM notification_deliveries {where}ORDER BY id DESC LIMIT ?",  # noqa: S608
+                params,
             ) as cursor:
                 return [dict(row) for row in await cursor.fetchall()]
 
@@ -600,6 +670,18 @@ class NotificationJournalRepository:
                 (channel_id, since_hour),
             ) as cursor:
                 return int((await cursor.fetchone())[0])  # type: ignore[index]
+
+    @staticmethod
+    async def hourly_counts(channel_id: str | None, since_hour: int) -> list[dict[str, Any]]:
+        """Hourly send counters from ``since_hour`` (one channel, or all), oldest first."""
+        query = "SELECT channel_id, hour, sent FROM notification_counters WHERE hour >= ?"
+        params: list[Any] = [since_hour]
+        if channel_id is not None:
+            query += " AND channel_id = ?"
+            params.append(channel_id)
+        async with db.readonly() as conn:
+            async with conn.execute(query + " ORDER BY hour", params) as cursor:
+                return [dict(row) for row in await cursor.fetchall()]
 
     @staticmethod
     async def prune_counters(before_hour: int) -> None:

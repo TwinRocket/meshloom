@@ -1,0 +1,709 @@
+"""The notifications REST API (``app/routers/notifications.py``): types, channels, rules,
+the journal, the test sends and the traces of a channel change."""
+
+import ipaddress
+import json
+import socket
+import time
+from pathlib import Path
+
+import pytest
+
+from app.auth.ws_events import WsEvent
+from app.notifications import api_support
+from app.notifications.channels import types_schema
+from app.notifications.transports.base import SendResult
+from app.notifications.transports.webhook import WebhookTransport
+from app.repository.auth import AuthAuditRepository
+
+SNAPSHOT = Path(__file__).parent / "fixtures" / "notification_types_schema.json"
+
+WEBHOOK_URL = "https://hooks.example.org/services/T0/B0/secret-token-1"
+SECRETS = ("secret-token-1", "hmac-secret-1", "smtp-pass-1", "AAAA-token-a")
+
+
+@pytest.fixture(autouse=True)
+def _public_dns(monkeypatch):
+    """Every host name resolves to one public address; IP literals resolve as themselves."""
+    real = socket.getaddrinfo
+
+    def fake(host, port, *args, **kwargs):
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            host = "93.184.216.34"
+        return real(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+
+
+REAL_WEBHOOK_SEND = WebhookTransport.send
+
+
+@pytest.fixture(autouse=True)
+def _offline(monkeypatch):
+    """No transport reaches the network: a change announces itself to the other channels."""
+
+    async def send(self, channel, rendered, event, secrets):
+        return SendResult("ok")
+
+    for module, name in (
+        ("webhook", "WebhookTransport"),
+        ("email", "EmailTransport"),
+        ("apprise", "AppriseTransport"),
+        ("web_push", "WebPushTransport"),
+    ):
+        monkeypatch.setattr(f"app.notifications.transports.{module}.{name}.send", send)
+
+
+@pytest.fixture
+def traces(monkeypatch):
+    """The WebSocket events and the notifications a channel change produces."""
+    emitted: list[dict] = []
+
+    def capture_ws(event_type, data, **kwargs):
+        emitted.append({"ws": event_type, "data": data, "kwargs": kwargs})
+
+    async def capture_emit(event, *, payload=None, targets=None):
+        emitted.append({"emit": payload, "targets": list(targets or [])})
+
+    monkeypatch.setattr("app.websocket.broadcast_event", capture_ws)
+    monkeypatch.setattr("app.notifications.dispatcher.emit", capture_emit)
+    return emitted
+
+
+def webhook(**extra):
+    config = {"url": WEBHOOK_URL, "hmac_secret": "hmac-secret-1"}
+    return {"type": "webhook", "name": "Hook", "config": config, **extra}
+
+
+def email(**config):
+    base = {"host": "smtp.example.org", "to": "me@example.org", "password": "smtp-pass-1"}
+    return {"type": "email", "name": "Mail", "config": {**base, **config}}
+
+
+def apprise(**extra):
+    return {
+        "type": "apprise",
+        "name": "Apprise",
+        "config": {"urls": "tgram://111111:AAAA-token-a/1001"},
+        **extra,
+    }
+
+
+def code_of(response):
+    return response.json()["detail"]["code"]
+
+
+def assert_no_secret(response):
+    for value in SECRETS:
+        assert value not in response.text
+
+
+async def create(client, payload):
+    response = await client.post("/api/notifications/channels", json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+# ── Types ───────────────────────────────────────────────────────────────
+
+
+def _kind(prop: dict) -> str:
+    """The field kind of a property in the shared form subset, or the reason it is not."""
+    options = [o for o in prop.get("anyOf", [prop]) if o.get("type") != "null"]
+    assert len(options) == 1, prop
+    option = options[0]
+    if "$ref" in option or "properties" in option or option.get("type") in ("object", "array"):
+        return "unsupported"
+    if option.get("writeOnly"):
+        return "secret"
+    if "enum" in option:
+        return "enum"
+    return option["type"]
+
+
+async def test_types_every_secret_field_is_write_only_and_kinds_stay_in_the_subset(test_db, client):
+    response = await client.get("/api/notifications/types")
+    assert response.status_code == 200
+    types = {entry["type"]: entry for entry in response.json()}
+    assert set(types) == {"web_push", "email", "webhook", "apprise"}
+    secret_names = {"email": {"password"}, "webhook": {"url", "hmac_secret"}, "apprise": {"urls"}}
+    for name, entry in types.items():
+        assert entry["preset"] is False
+        assert set(entry["default_limits"]) == {"per_min", "per_hour", "per_day"}
+        assert isinstance(entry["cloud"], bool)
+        assert isinstance(entry["quiet_hours_exempt_default"], bool)
+        kinds = {key: _kind(prop) for key, prop in entry["schema"]["properties"].items()}
+        assert "unsupported" not in kinds.values(), (name, kinds)
+        assert {k for k, v in kinds.items() if v == "secret"} == secret_names.get(name, set())
+        for key in secret_names.get(name, set()):
+            assert entry["schema"]["properties"][key]["writeOnly"] is True
+
+
+def test_types_schema_snapshot():
+    """An unintended change of a schema fails here; refresh the fixture on purpose."""
+    current = json.loads(json.dumps(types_schema(), sort_keys=True))
+    # Regenerate on purpose with: uv run python -c "import json; from app.notifications.channels
+    # import types_schema; print(json.dumps(types_schema(), indent=2, sort_keys=True))"
+    assert current == json.loads(SNAPSHOT.read_text())
+
+
+async def test_events_catalogue(test_db, client):
+    body = (await client.get("/api/notifications/events")).json()
+    ids = {e["id"]: e for e in body["events"]}
+    assert body["contract_version"] == 1
+    assert ids["radio.offline"]["urgent"] is True
+    assert ids["notify.channel_changed"]["locked_channels"] == ["builtin:push"]
+    assert ids["notify.test"]["configurable"] is False
+
+
+# ── Channels: CRUD, redaction, keep and clear ───────────────────────────
+
+
+async def test_the_default_database_has_the_builtin_push_channel(test_db, client):
+    channels = (await client.get("/api/notifications/channels")).json()
+    assert [c["id"] for c in channels] == ["builtin:push"]
+    assert channels[0]["deletable"] is False
+    assert channels[0]["status"]["status"] == "connected"
+
+
+@pytest.mark.parametrize(
+    ("payload", "secret_names"),
+    [
+        (webhook(), ["hmac_secret", "url"]),
+        (email(), ["password"]),
+        (apprise(), ["urls"]),
+    ],
+)
+async def test_create_get_list_redact_secrets(test_db, client, payload, secret_names):
+    created = await create(client, payload)
+    assert_no_secret(await client.get("/api/notifications/channels"))
+    assert created["secret_fields"] == secret_names
+    for name in secret_names:
+        assert created["config"][name] == "********"
+    fetched = await client.get(f"/api/notifications/channels/{created['id']}")
+    assert fetched.json() == created
+    assert_no_secret(fetched)
+    assert created["id"].startswith(payload["type"] + "-")
+    assert created["limits"]["per_min"] is not None
+
+
+async def test_create_returns_ids_and_defaults(test_db, client):
+    hook = await create(client, webhook())
+    assert hook["quiet_hours_exempt"] is True  # the registry default of a webhook
+    assert hook["include_message_text"] == "always"
+    mail = await create(client, email())
+    assert mail["include_message_text"] == "public_only"  # a public SMTP relay is a third party
+    assert mail["config"]["from"] == ""
+
+
+@pytest.mark.parametrize(
+    ("payload", "code"),
+    [
+        ({"type": "nope", "name": "x", "config": {}}, "channel_type_unknown"),
+        (email(port=70000), "invalid_config"),
+        (email(host=""), "config_required"),
+        (email(unknown_field="x"), "invalid_config"),
+        (webhook(config={"url": "ftp://example.org/x"}), "egress_scheme"),
+        (webhook(config={"url": "http://127.0.0.1:9/x"}), "egress_private_address"),
+        (webhook(config={"url": "http://192.168.1.20/x"}), "egress_private_address"),
+        (webhook(config={}), "config_required"),
+        (apprise(config={"urls": "file:///etc/passwd"}), None),
+    ],
+)
+async def test_create_refuses_with_a_code(test_db, client, payload, code):
+    response = await client.post("/api/notifications/channels", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == (code or detail["code"])
+    assert set(detail) == {"code", "params"}
+    assert "127.0.0.1" not in response.text and "192.168" not in response.text
+
+
+async def test_a_validation_error_does_not_echo_a_secret(test_db, client):
+    response = await client.post(
+        "/api/notifications/channels", json=email(port="not-a-number", password="smtp-pass-1")
+    )
+    assert response.status_code == 400
+    assert_no_secret(response)
+
+
+async def test_patch_keeps_secrets_unless_cleared(test_db, client):
+    created = await create(client, email())
+    cid = created["id"]
+    # Omitted, null and ******** keep the stored password.
+    for config in ({"to": "a@example.org"}, {"password": None}, {"password": "********"}):
+        response = await client.patch(f"/api/notifications/channels/{cid}", json={"config": config})
+        assert response.status_code == 200, response.text
+        assert response.json()["secret_fields"] == ["password"]
+    # An empty string clears it.
+    cleared = await client.patch(
+        f"/api/notifications/channels/{cid}", json={"config": {"password": ""}}
+    )
+    assert cleared.json()["secret_fields"] == []
+    assert cleared.json()["config"]["password"] == ""
+    # A new value replaces it.
+    replaced = await client.patch(
+        f"/api/notifications/channels/{cid}", json={"config": {"password": "smtp-pass-2"}}
+    )
+    assert replaced.json()["secret_fields"] == ["password"]
+    assert "smtp-pass-2" not in replaced.text
+
+
+async def test_patch_refuses_a_kept_secret_that_would_follow_a_destination_change(test_db, client):
+    created = await create(client, email())
+    response = await client.patch(
+        f"/api/notifications/channels/{created['id']}",
+        json={"config": {"host": "other.example.org"}},
+    )
+    assert response.status_code == 400
+    assert code_of(response) == "secret_required"
+
+
+async def test_patch_a_webhook_url_is_a_secret_destination(test_db, client):
+    created = await create(client, webhook())
+    kept = await client.patch(
+        f"/api/notifications/channels/{created['id']}", json={"name": "Renamed"}
+    )
+    assert kept.json()["name"] == "Renamed"
+    assert kept.json()["config"]["url"] == "********"
+    private = await client.patch(
+        f"/api/notifications/channels/{created['id']}",
+        json={"config": {"url": "http://10.0.0.5/x", "hmac_secret": "n"}},
+    )
+    assert private.status_code == 400 and code_of(private) == "egress_private_address"
+
+
+async def test_type_is_immutable_and_unknown_ids_are_missing(test_db, client):
+    created = await create(client, webhook())
+    response = await client.patch(
+        f"/api/notifications/channels/{created['id']}", json={"type": "email"}
+    )
+    assert response.status_code == 400 and code_of(response) == "type_immutable"
+    same = await client.patch(
+        f"/api/notifications/channels/{created['id']}", json={"type": "webhook"}
+    )
+    assert same.status_code == 200
+    for method in ("get", "patch", "delete"):
+        kwargs = {"json": {"name": "x"}} if method == "patch" else {}
+        response = await getattr(client, method)("/api/notifications/channels/nope-1", **kwargs)
+        assert response.status_code == 404 and code_of(response) == "channel_missing"
+    assert (await client.post("/api/notifications/channels/nope-1/test")).status_code == 404
+
+
+async def test_delete_cascades_and_the_builtin_cannot_be_deleted(test_db, client):
+    created = await create(client, webhook())
+    rules = await client.patch(
+        "/api/notifications/rules",
+        json={"events": {"message.dm": {"channels": ["builtin:push", created["id"]]}}},
+    )
+    assert created["id"] in rules.json()["events"]["message.dm"]["channels"]
+    deleted = await client.delete(f"/api/notifications/channels/{created['id']}")
+    assert deleted.json() == {"deleted": True}
+    after = (await client.get("/api/notifications/rules")).json()
+    assert created["id"] not in after["events"]["message.dm"]["channels"]
+    builtin = await client.delete("/api/notifications/channels/builtin:push")
+    assert builtin.status_code == 403 and code_of(builtin) == "builtin_channel"
+
+
+async def test_a_second_web_push_channel_is_refused(test_db, client):
+    response = await client.post(
+        "/api/notifications/channels", json={"type": "web_push", "name": "Push", "config": {}}
+    )
+    assert response.status_code == 409 and code_of(response) == "channel_exists"
+
+
+# ── Test sends ──────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def webhook_result(monkeypatch):
+    """Make the webhook transport answer ``SendResult(...)`` without any connection."""
+    calls: list[tuple] = []
+    answer = {"result": SendResult("ok")}
+
+    async def send(self, channel, rendered, event, secrets):
+        calls.append((channel.id, event.name, dict(secrets)))
+        return answer["result"]
+
+    monkeypatch.setattr("app.notifications.transports.webhook.WebhookTransport.send", send)
+    return answer, calls
+
+
+async def test_unsaved_test_persists_nothing_and_sends_through_the_transport(
+    test_db, client, webhook_result
+):
+    answer, calls = webhook_result
+    response = await client.post("/api/notifications/channels/test", json=webhook())
+    assert response.status_code == 200 and response.json() == {"status": "sent"}
+    assert calls and calls[0][1] == "notify.test"
+    assert calls[0][2]["url"] == WEBHOOK_URL  # the transport got the secret, the answer does not
+    assert [c["id"] for c in (await client.get("/api/notifications/channels")).json()] == [
+        "builtin:push"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("payload", "code"),
+    [
+        (webhook(config={"url": "http://127.0.0.1:9/x"}), "egress_private_address"),
+        (webhook(config={}), "config_required"),
+        (email(port=0), "invalid_config"),
+    ],
+)
+async def test_unsaved_test_returns_the_codes_of_a_save(test_db, client, payload, code):
+    tested = await client.post("/api/notifications/channels/test", json=payload)
+    saved = await client.post("/api/notifications/channels", json=payload)
+    assert tested.status_code == saved.status_code == 400
+    assert code_of(tested) == code_of(saved) == code
+
+
+async def test_saved_test_is_limited_to_one_per_five_seconds_per_channel(
+    test_db, client, webhook_result
+):
+    first = await create(client, webhook())
+    second = await create(client, webhook(name="Other"))
+    ok = await client.post(f"/api/notifications/channels/{first['id']}/test")
+    assert ok.status_code == 200
+    limited = await client.post(f"/api/notifications/channels/{first['id']}/test")
+    assert limited.status_code == 429 and code_of(limited) == "rate_limited"
+    assert limited.headers["Retry-After"] == "5"
+    # Another channel has its own budget; the budget comes back with time.
+    assert (
+        await client.post(f"/api/notifications/channels/{second['id']}/test")
+    ).status_code == 200
+    limiter = api_support._limiters[first["id"]]
+    limiter._level = 0
+    assert (await client.post(f"/api/notifications/channels/{first['id']}/test")).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("result", "status", "code"),
+    [
+        (SendResult("failed", error_code="http_401"), 502, "auth_failed"),
+        (SendResult("failed", error_code="http_403"), 502, "auth_failed"),
+        (SendResult("retry", error_code="service_error"), 502, "service_error"),
+        (SendResult("failed", error_code="http_404"), 502, "service_error"),
+        (SendResult("retry", error_code="timeout"), 504, "timeout"),
+        (SendResult("failed", error_code="tls_error"), 502, "tls_error"),
+        (SendResult("retry", error_code="rate_limited"), 429, "rate_limited"),
+        (SendResult("failed", error_code="egress_private_address"), 400, "egress_private_address"),
+        (SendResult("failed", error_code="not_configured"), 400, "invalid_config"),
+        (SendResult("failed", error_code="connect_error"), 502, "service_error"),
+        (SendResult("failed", error_code="line 1 (tgram://****): auth_failed"), 502, "auth_failed"),
+        (
+            SendResult("failed", error_code="weird text 10.0.0.1 hooks.example.org"),
+            502,
+            "service_error",
+        ),
+    ],
+)
+async def test_a_failed_test_is_coded_and_leaks_nothing(
+    test_db, client, webhook_result, result, status, code
+):
+    answer, _calls = webhook_result
+    created = await create(client, webhook())
+    answer["result"] = result
+    response = await client.post(f"/api/notifications/channels/{created['id']}/test")
+    assert response.status_code == status
+    assert response.json()["detail"] == {"code": code, "params": {}}
+    for leaked in ("hooks.example.org", "10.0.0.1", "secret-token-1"):
+        assert leaked not in response.text
+
+
+async def test_a_channel_that_now_points_at_a_private_address_is_refused_at_test(
+    test_db, client, monkeypatch
+):
+    created = await create(client, webhook())
+    monkeypatch.setattr(WebhookTransport, "send", REAL_WEBHOOK_SEND)
+    real = socket.getaddrinfo
+
+    def private(host, port, *args, **kwargs):
+        return real("10.1.2.3", port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", private)
+    response = await client.post(f"/api/notifications/channels/{created['id']}/test")
+    assert response.status_code == 400 and code_of(response) == "egress_private_address"
+    assert "10.1.2.3" not in response.text and "hooks.example.org" not in response.text
+    # The failure shows in the channel's status.
+    listed = {c["id"]: c for c in (await client.get("/api/notifications/channels")).json()}
+    assert listed[created["id"]]["status"]["status"] == "error"
+
+
+# ── channel_changed ─────────────────────────────────────────────────────
+
+
+async def test_create_emits_the_ws_event_the_audit_row_and_the_notification(
+    test_db, client, traces
+):
+    created = await create(client, webhook())
+    ws = next(t for t in traces if "ws" in t)
+    assert ws["ws"] is WsEvent.NOTIFICATION_CHANNEL_CHANGED
+    assert ws["data"] == {
+        "id": created["id"],
+        "action": "created",
+        "type": "webhook",
+        "name": "Hook",
+    }
+    assert ws["kwargs"] == {"realtime": False}
+    emitted = next(t for t in traces if "emit" in t)
+    assert emitted["emit"]["event"] == "notify.channel_changed"
+    assert emitted["emit"]["action"] == "created"
+    # builtin:push (it cannot be unchecked) and every other enabled channel by default; never
+    # the channel that changed.
+    assert emitted["targets"] == ["builtin:push"]
+    assert "secret-token-1" not in json.dumps(emitted)
+    audit = [
+        e for e in await AuthAuditRepository.list_recent() if e.action == "notify.channel_changed"
+    ]
+    assert len(audit) == 1
+    assert audit[0].target == f"notification_channel:{created['id']}"
+    assert audit[0].details["action"] == "created"
+    assert "secret-token-1" not in json.dumps(audit[0].details)
+
+
+async def test_channel_changed_follows_destination_changes_and_enable_toggles_only(
+    test_db, client, traces
+):
+    created = await create(client, webhook())
+    cid = created["id"]
+    traces.clear()
+    # A rename, a limit and a credential change are not a new destination.
+    for body in ({"name": "Renamed"}, {"rate_per_min": 5}, {"config": {"hmac_secret": "new"}}):
+        assert (
+            await client.patch(f"/api/notifications/channels/{cid}", json=body)
+        ).status_code == 200
+    assert traces == []
+    # A new URL is.
+    other = "https://hooks.example.org/services/other"
+    await client.patch(
+        f"/api/notifications/channels/{cid}", json={"config": {"url": other, "hmac_secret": "n"}}
+    )
+    assert [t["emit"]["action"] for t in traces if "emit" in t] == ["changed"]
+    traces.clear()
+    await client.patch(f"/api/notifications/channels/{cid}", json={"enabled": False})
+    await client.patch(f"/api/notifications/channels/{cid}", json={"enabled": True})
+    assert [t["emit"]["action"] for t in traces if "emit" in t] == ["disabled", "enabled"]
+
+
+async def test_channel_changed_honours_the_rule_and_never_drops_the_push(test_db, client, traces):
+    one = await create(client, webhook())
+    two = await create(client, webhook(name="Two"))
+    three = await create(client, webhook(name="Three"))
+    traces.clear()
+    await client.patch(f"/api/notifications/channels/{three['id']}", json={"enabled": False})
+    assert next(t for t in traces if "emit" in t)["targets"] == [
+        "builtin:push",
+        one["id"],
+        two["id"],
+    ]
+    patched = await client.patch(
+        "/api/notifications/rules",
+        json={"events": {"notify.channel_changed": {"channels": ["builtin:push", one["id"]]}}},
+    )
+    assert patched.status_code == 200
+    traces.clear()
+    await client.patch(f"/api/notifications/channels/{three['id']}", json={"enabled": True})
+    assert next(t for t in traces if "emit" in t)["targets"] == ["builtin:push", one["id"]]
+    refused = await client.patch(
+        "/api/notifications/rules",
+        json={"events": {"notify.channel_changed": {"channels": [one["id"]]}}},
+    )
+    assert refused.status_code == 403 and code_of(refused) == "builtin_channel"
+
+
+async def test_delete_announces_without_the_deleted_channel(test_db, client, traces):
+    created = await create(client, webhook())
+    traces.clear()
+    await client.delete(f"/api/notifications/channels/{created['id']}")
+    emitted = next(t for t in traces if "emit" in t)
+    assert emitted["emit"]["action"] == "deleted"
+    assert created["id"] not in emitted["targets"]
+
+
+def test_channel_changed_renders_in_both_languages():
+    from app.notifications.render import build_push_payload
+
+    payload = {
+        "event": "notify.channel_changed",
+        "action": "created",
+        "channel_type": "webhook",
+        "name": "Hook",
+    }
+    en = json.loads(build_push_payload(payload, "en"))
+    fr = json.loads(build_push_payload(payload, "fr"))
+    assert en["title"] == "Notification channel changed" and '"Hook" created' in en["body"]
+    assert fr["title"] == "Canal de notification modifié" and "« Hook » créé" in fr["body"]
+
+
+# ── Rules and the global pause ──────────────────────────────────────────
+
+
+async def test_rules_read_and_validation(test_db, client):
+    rules = (await client.get("/api/notifications/rules")).json()
+    assert rules["paused_until"] is None
+    assert rules["radio_offline_grace_s"] == 60
+    assert rules["mention_whole_word"] is False
+    assert rules["push_allow_private_endpoints"] is False
+    assert rules["host_timezone"]
+    assert "message.dm" in rules["events"]
+
+    for body, status, code in (
+        ({"events": {"message.dm": {"channels": ["ghost-1"]}}}, 400, "channel_missing"),
+        ({"events": {"not.an.event": {"always_deliver": True}}}, 400, "invalid_config"),
+        ({"events": {"notify.test": {"always_deliver": True}}}, 400, "invalid_config"),
+        ({"events": {"message.dm": {"contact_types": {"companion": []}}}}, 400, "invalid_config"),
+        ({"paused_until": int(time.time()) + 400 * 86400}, 400, "invalid_config"),
+    ):
+        response = await client.patch("/api/notifications/rules", json=body)
+        assert (response.status_code, code_of(response)) == (status, code), body
+    assert (
+        await client.patch("/api/notifications/rules", json={"radio_offline_grace_s": 99999})
+    ).status_code == 422
+
+
+async def test_rules_patch_events_and_settings(test_db, client):
+    hook = await create(client, webhook())
+    patched = await client.patch(
+        "/api/notifications/rules",
+        json={
+            "events": {
+                "message.dm": {"channels": ["builtin:push", hook["id"], hook["id"]]},
+                "radio.offline": {"always_deliver": True},
+                "contact.first_seen": {"contact_types": {"repeater": [hook["id"]]}},
+            },
+            "radio_offline_grace_s": 120,
+            "mention_whole_word": True,
+            "push_allow_private_endpoints": True,
+        },
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body["events"]["message.dm"]["channels"] == ["builtin:push", hook["id"]]
+    assert body["events"]["radio.offline"]["always_deliver"] is True
+    assert body["events"]["contact.first_seen"]["contact_types"]["repeater"] == [hook["id"]]
+    assert (body["radio_offline_grace_s"], body["mention_whole_word"]) == (120, True)
+    assert body["push_allow_private_endpoints"] is True
+
+
+async def test_conversation_exception_put_and_clear(test_db, client):
+    hook = await create(client, webhook())
+    key = "contact-" + "ab" * 32
+    put = await client.put(
+        f"/api/notifications/rules/conversations/{key}",
+        json={"channels": {hook["id"]: True, "builtin:push": False}},
+    )
+    assert put.status_code == 200
+    assert put.json()["conversations"][key] == {hook["id"]: True, "builtin:push": False}
+    cleared = await client.put(
+        f"/api/notifications/rules/conversations/{key}", json={"channels": None}
+    )
+    assert key not in cleared.json()["conversations"]
+    ghost = await client.put(
+        f"/api/notifications/rules/conversations/{key}", json={"channels": {"ghost-1": True}}
+    )
+    assert ghost.status_code == 400 and code_of(ghost) == "channel_missing"
+    bad_key = await client.put(
+        "/api/notifications/rules/conversations/not a key", json={"channels": None}
+    )
+    assert bad_key.status_code == 400 and code_of(bad_key) == "invalid_config"
+
+
+async def test_pause_suppresses_a_dm_and_lets_radio_offline_through(test_db, client, monkeypatch):
+    from app.notifications.dispatcher import Dispatcher
+    from app.notifications.events import event_from_payload
+
+    sent: list[str] = []
+
+    async def send(self, channel, rendered, event, secrets):
+        sent.append(event.name)
+        return SendResult("ok")
+
+    monkeypatch.setattr("app.notifications.transports.web_push.WebPushTransport.send", send)
+    ok = await client.patch(
+        "/api/notifications/rules",
+        json={
+            "events": {
+                "message.dm": {"channels": ["builtin:push"]},
+                "radio.offline": {"channels": ["builtin:push"]},
+            },
+            "paused_until": int(time.time()) + 3600,
+        },
+    )
+    assert ok.status_code == 200 and ok.json()["paused_until"] is not None
+    dispatcher = Dispatcher()
+    dm = event_from_payload(
+        {"type": "PRIV", "conversation_key": "ab" * 32, "text": "hi", "sender_name": "Al"}
+    )
+    offline = event_from_payload({"event": "radio_offline", "urgent": True})
+    assert dm is not None and offline is not None
+    await dispatcher.emit(dm)
+    await dispatcher.emit(offline)
+    await dispatcher.wait_idle()
+    assert sent == ["radio.offline"]
+    journal = (await client.get("/api/notifications/deliveries?channel=builtin:push")).json()
+    assert [(r["event"], r["status"]) for r in journal["deliveries"]] == [("message.dm", "paused")]
+    # Resuming lets a DM through again.
+    resumed = await client.patch("/api/notifications/rules", json={"paused_until": None})
+    assert resumed.json()["paused_until"] is None
+    sent.clear()
+    await dispatcher.emit(dm)
+    await dispatcher.wait_idle()
+    assert sent == ["message.dm"]
+
+
+# ── Journal ─────────────────────────────────────────────────────────────
+
+
+async def test_deliveries_filter_limit_and_counters(test_db, client):
+    from app.repository.notification_channels import NotificationJournalRepository as Journal
+
+    hook = await create(client, webhook())
+    for i in range(3):
+        await Journal.add_delivery(
+            hook["id"], "message.dm", status="failed", dedup_key=f"k{i}", error="x"
+        )
+    await Journal.add_delivery(
+        "builtin:push", "radio.offline", status="failed", dedup_key="z", error="x"
+    )
+    await Journal.add_sent(hook["id"], int(time.time()) // 3600, 4)
+    body = (await client.get(f"/api/notifications/deliveries?channel={hook['id']}&limit=2")).json()
+    assert len(body["deliveries"]) == 2
+    assert {r["channel_id"] for r in body["deliveries"]} == {hook["id"]}
+    assert body["counters"] == [
+        {"channel_id": hook["id"], "hour": int(time.time()) // 3600, "sent": 4}
+    ]
+    everything = (await client.get("/api/notifications/deliveries")).json()
+    assert len(everything["deliveries"]) == 4
+    assert (await client.get("/api/notifications/deliveries?channel=ghost")).status_code == 404
+    assert (await client.get("/api/notifications/deliveries?limit=0")).status_code == 422
+
+
+# ── Access ──────────────────────────────────────────────────────────────
+
+
+async def test_every_notifications_route_is_admin_only(test_db, client, sign_in_as):
+    routes = [
+        ("get", "/api/notifications/types", None),
+        ("get", "/api/notifications/events", None),
+        ("get", "/api/notifications/channels", None),
+        ("post", "/api/notifications/channels", webhook()),
+        ("post", "/api/notifications/channels/test", webhook()),
+        ("get", "/api/notifications/channels/builtin:push", None),
+        ("patch", "/api/notifications/channels/builtin:push", {"name": "x"}),
+        ("delete", "/api/notifications/channels/builtin:push", None),
+        ("post", "/api/notifications/channels/builtin:push/test", None),
+        ("get", "/api/notifications/rules", None),
+        ("patch", "/api/notifications/rules", {}),
+        ("put", "/api/notifications/rules/conversations/contact-ab", {"channels": None}),
+        ("get", "/api/notifications/deliveries", None),
+    ]
+    for role in ("member", "viewer", "kiosk"):
+        sign_in_as(role)
+        for method, path, body in routes:
+            kwargs = {"json": body} if body is not None else {}
+            response = await getattr(client, method)(path, **kwargs)
+            assert response.status_code == 403, (role, method, path)
+    sign_in_as("admin")
+    assert (await client.get("/api/notifications/channels")).status_code == 200

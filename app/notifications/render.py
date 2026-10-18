@@ -32,6 +32,7 @@ AppLanguage = Literal["fr", "en"]
 
 # Proof of modification: sent to every subscription, not configurable.
 DESTINATION_CHANGED_EVENT = "notify.destination_changed"
+CHANNEL_CHANGED_EVENT = "notify.channel_changed"
 
 
 def _first_seen_titles(data: dict, lang: str) -> tuple[str, str]:
@@ -314,6 +315,41 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
                 "title": title,
                 "body": body,
                 "tag": "meshcore-destination-changed",
+                "url_hash": "#settings/notifications",
+            }
+        )
+
+    if data.get("event") == CHANNEL_CHANGED_EVENT:
+        action = str(data.get("action") or "changed")
+        name = str(data.get("name") or "")
+        verbs = {
+            "en": {
+                "created": "created",
+                "changed": "modified",
+                "enabled": "enabled",
+                "disabled": "disabled",
+                "deleted": "deleted",
+            },
+            "fr": {
+                "created": "créé",
+                "changed": "modifié",
+                "enabled": "activé",
+                "disabled": "désactivé",
+                "deleted": "supprimé",
+            },
+        }[lang if lang == "en" else "fr"]
+        verb = verbs.get(action, verbs["changed"])
+        if lang == "en":
+            title = "Notification channel changed"
+            body = f'Channel "{name}" {verb}. If this was not you, check the settings.'
+        else:
+            title = "Canal de notification modifié"
+            body = f"Canal « {name} » {verb}. Si ce n'est pas vous, vérifiez les réglages."
+        return json.dumps(
+            {
+                "title": title,
+                "body": body,
+                "tag": "meshcore-channel-changed",
                 "url_hash": "#settings/notifications",
             }
         )

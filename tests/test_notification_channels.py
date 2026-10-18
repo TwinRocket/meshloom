@@ -120,7 +120,7 @@ class TestRepository:
         assert missing.value.code == "config_required" and missing.value.params["fields"] == ["to"]
         with pytest.raises(ChannelError) as invalid:
             await Channels.create(_email(port=70000))
-        assert invalid.value.code == "config_invalid"
+        assert invalid.value.code == "invalid_config"
         assert "smtp-pass-1" not in repr(invalid.value.params)
         with pytest.raises(ChannelError) as unknown:
             await Channels.create(ChannelCreate(type="telex", name="x"))
@@ -135,7 +135,7 @@ class TestRepository:
                     config={"url": "https://hooks.example.org/secret-token", "bogus": 1},
                 )
             )
-        assert exc.value.code == "config_invalid"
+        assert exc.value.code == "invalid_config"
         assert "secret-token" not in json.dumps(exc.value.detail())
 
     async def test_egress_guard_refuses_a_private_host_unless_allowed(self, test_db):
@@ -161,7 +161,7 @@ class TestRepository:
     async def test_builtin_push_cannot_be_deleted_or_retyped(self, test_db):
         with pytest.raises(ChannelError) as deletion:
             await Channels.delete("builtin:push")
-        assert deletion.value.code == "channel_builtin" and deletion.value.status == 400
+        assert deletion.value.code == "builtin_channel" and deletion.value.status == 403
         for new_type in ("email", "web_push"):
             if new_type == "web_push":
                 await Channels.update("builtin:push", ChannelUpdate(type="web_push", enabled=False))
