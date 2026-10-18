@@ -1,0 +1,11 @@
+{
+  "auth": {
+    "setup": {
+      "kioskBanner": {
+        "title": "Compte administrateur pas encore créé",
+        "body": "Depuis un téléphone ou un ordinateur sur le même réseau, ouvrez ce Meshloom et créez le compte administrateur. Code d’installation :",
+        "code": "Code d’installation {{code}}"
+      }
+    }
+  }
+}

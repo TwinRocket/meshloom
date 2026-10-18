@@ -11,6 +11,8 @@
 #   scripts/build/build_rpi_kiosk_image.sh --deb dist/meshloom_*_arm64.deb \
 #     [--output-dir dist] [--version 4.12.0]
 #
+# The image writes the host marker /var/lib/meshloom/kiosk; the first start of
+# the app then creates the `kiosk` account (role kiosk, no password).
 # Meshloom Community is an opt-in from the UI (Settings > Meshloom Community).
 
 set -euo pipefail
@@ -317,7 +319,11 @@ echo "[rpi-kiosk] Disk after mount:"
 df -h "$ROOTMNT"
 
 cp "$DEB" "$ROOTMNT/tmp/meshloom.deb"
-install -D -m 0755 "$RPI_DIR/meshloom-kiosk" "$ROOTMNT/usr/lib/meshloom/meshloom-kiosk"
+# The launcher (/usr/lib/meshloom/meshloom-kiosk) comes with the deb.
+# Host marker: the app creates the kiosk account and shows the installation
+# code only on a host that has it (app/services/kiosk.py). Same path as
+# pkg/nfpm/postinstall.sh, which writes it on images flashed before 5.0.0.
+install -D -m 0644 /dev/null "$ROOTMNT/var/lib/meshloom/kiosk"
 install -D -m 0755 "$RPI_DIR/meshloom-kiosk-setup" "$ROOTMNT/usr/lib/meshloom/meshloom-kiosk-setup"
 install -D -m 0644 "$RPI_DIR/meshloom-kiosk.desktop" \
     "$ROOTMNT/etc/xdg/autostart/meshloom-kiosk.desktop"

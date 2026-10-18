@@ -237,6 +237,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return (
       <SetupPage
         setupCodeRequired={session.setup_code_required}
+        kioskSetupCode={session.kiosk_setup_code}
         onDone={(next) => setState({ status: 'ready', session: next })}
       />
     );

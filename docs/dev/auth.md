@@ -820,3 +820,14 @@ curl -c jar -H 'Content-Type: application/json' \
   -d '{"username":"owner","password":"a long passphrase"}' http://HOST:8000/api/auth/login
 curl -b jar http://HOST:8000/api/auth/session
 ```
+
+## Kiosk host
+
+`/var/lib/meshloom/kiosk` (host flag, `app/AGENTS.md`, "Host flags") makes the
+first start create a `kiosk` account (`app/services/kiosk.py`, called from
+`prepare_first_run`) with no trusted-network rule. `UserRepository.any_exist()`
+(the meaning of "setup done" in `/auth/session`, `/auth/setup`, the gate and the
+ingress first-user rule) ignores `kiosk` accounts. On a kiosk host an
+installation code is issued even on a fresh database; `/auth/session` returns it
+as `kiosk_setup_code` only to a direct loopback peer carrying no proxy header
+while setup is open.

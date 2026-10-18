@@ -255,6 +255,7 @@ sed \
     -e "s|__NFPM_VERSION__|$VERSION|g" \
     -e "s|__STAGING__|$STAGING|g" \
     -e "s|__PKGDIR__|$PKGDIR|g" \
+    -e "s|__RPIDIR__|$REPO_ROOT/pkg/rpi|g" \
     "$PKGDIR/nfpm.yaml.tmpl" >"$CFG"
 
 echo "[nfpm] Packaging $ARCH $VERSION..."

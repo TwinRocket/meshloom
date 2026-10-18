@@ -1061,6 +1061,15 @@ service's body (`tests/test_test_route_error_oracles.py`).
 - `DELETE /messages/{id}` is local only.
 - Bots: create/patch answer 403 while bots are disabled (`MESHCORE_DISABLE_BOTS`).
 
+## Host flags (files)
+
+Provisioned by the host (image build, package scripts), never user settings and
+never in `docs/user/**` or the environment docs.
+
+| Flag | Effect |
+|---|---|
+| `/var/lib/meshloom/kiosk` | Raspberry Pi kiosk host (`services/kiosk.py`). Written by `scripts/build/build_rpi_kiosk_image.sh` and, on an image flashed before 5.0.0, by `pkg/nfpm/postinstall.sh` (it finds `/etc/xdg/autostart/meshloom-kiosk.desktop` or `/usr/lib/meshloom/meshloom-kiosk-setup`, installed by the image; the launcher is not a signal, the deb ships it). With it, `prepare_first_run` creates the `kiosk` account (role `kiosk`, provider `system`, no password, **no trusted-network rule**) when absent, issues the installation code even on a fresh database, and `GET /auth/session` returns it as `kiosk_setup_code` to a direct loopback request (no proxy header) while setup is open and the code is still the stored one. `UserRepository.any_exist()` ignores `kiosk` accounts so this account never closes setup. The launcher (`pkg/rpi/meshloom-kiosk`, shipped by the deb at `/usr/lib/meshloom/meshloom-kiosk`) probes `GET /api/auth/session`; the device-token bootstrap (T60) is not there yet (a `TODO(T60)` marks the hook). |
+
 ## Developer-only variables
 
 Not user settings: never document them in `docs/user/**`, the READMEs,

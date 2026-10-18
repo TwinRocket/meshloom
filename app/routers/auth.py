@@ -196,6 +196,8 @@ class AuthSessionResponse(BaseModel):
     # ``__Host-`` Secure one only then. A browser on https that reads false sits
     # behind a proxy Meshloom does not trust.
     secure: bool = False
+    # The installation code, for the kiosk screen alone (``app/services/kiosk.py``).
+    kiosk_setup_code: str | None = None
     user: SessionUser | None = None
     via: Via | None = None
     instance: InstanceInfo | None = None
@@ -285,6 +287,10 @@ async def _session_payload(
         auth_compat=AuthCompat(basic=await basic_compat_active()),
         secure=_secure(request),
     )
+    if setup_required:
+        from app.services.kiosk import displayed_setup_code
+
+        payload.kiosk_setup_code = await displayed_setup_code(request.scope, request.headers)
     if principal is not None:
         from app.version_info import get_app_build_info
 

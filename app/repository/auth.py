@@ -346,9 +346,14 @@ class UserRepository:
 
     @staticmethod
     async def any_exist() -> bool:
-        """Whether at least one account exists (setup is done)."""
+        """Whether setup is done: at least one account other than a ``kiosk`` one.
+
+        The kiosk image creates its ``kiosk`` account before any administrator
+        exists (``app/services/kiosk.py``); it has no password and must not
+        close the first-run setup.
+        """
         async with db.readonly() as conn:
-            async with conn.execute("SELECT 1 FROM users LIMIT 1") as cursor:
+            async with conn.execute("SELECT 1 FROM users WHERE role != 'kiosk' LIMIT 1") as cursor:
                 return await cursor.fetchone() is not None
 
     @staticmethod

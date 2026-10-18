@@ -14,7 +14,9 @@ At startup, while no account exists (``prepare_first_run``, called by the lifesp
   route (below) keeps a code that is already stored: it may be the one the
   CLI printed while the startup preparation was failing;
 - a database created by this start asks for no code: whoever installed it is
-  in front of it, the same trust as before accounts existed.
+  in front of it, the same trust as before accounts existed. On a kiosk host
+  (``app/services/kiosk.py``) a code is issued all the same, and the kiosk
+  screen shows it.
 
 **Fail closed.** Setup is refused (503 ``auth_setup_unavailable``) until
 ``prepare_first_run`` has succeeded in this process: when it fails at startup
@@ -71,8 +73,11 @@ _last_args: dict | None = None
 def reset_first_run_state() -> None:
     """Back to "never prepared" (tests, and a fresh process)."""
     global _existing_database, _last_args
+    from app.services.kiosk import remember_displayed_code
+
     _existing_database = None
     _last_args = None
+    remember_displayed_code(None)
 
 
 async def ensure_first_run_ready() -> None:
@@ -125,6 +130,13 @@ async def prepare_first_run(
     when one is already stored.
     """
     global _existing_database, _last_args
+    from app.services.kiosk import ensure_kiosk_user
+
+    try:
+        await ensure_kiosk_user()
+    except Exception:
+        # The screen only lacks its account; setup does not depend on it.
+        logger.exception("Failed to create the kiosk account")
     _last_args = {
         "existing_database": existing_database,
         "basic_username": basic_username,
@@ -148,7 +160,10 @@ async def _prepare(
     if basic_configured and await import_basic_credentials(basic_username, basic_password):
         await clear_setup_code()
         return
-    if not existing_database:
+    from app.services.kiosk import kiosk_host, remember_displayed_code
+
+    kiosk = kiosk_host()
+    if not existing_database and not kiosk:
         await clear_setup_code()
         logger.info("No account yet: open Meshloom to create the administrator")
         return
@@ -160,6 +175,8 @@ async def _prepare(
         )
         return
     code = await issue_setup_code()
+    if kiosk:
+        remember_displayed_code(code)
     logger.warning(
         "No account exists yet on this existing database. To create the administrator, "
         "open Meshloom and enter the installation code %s (valid until the next restart; "
