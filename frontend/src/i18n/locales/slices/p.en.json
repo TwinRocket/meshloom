@@ -13,11 +13,22 @@
         "help": "Off by default: Meshloom refuses a destination on your local network or on this machine, so a changed setting cannot turn the server into a probe of your network. Turn it on for Home Assistant, Gotify, ntfy, Node-RED or a script on your LAN. Cloud metadata addresses are always refused.",
         "grandfathered": "These integrations were set up before Meshloom checked destinations, so private network addresses stay allowed for them and they keep working: {{names}}. Untick \"Allow a destination on a private network\" in an integration if it points to a public service.",
         "grandfatheredDismiss": "Got it"
+      },
+      "secret": {
+        "kept": "Unchanged",
+        "clear": "Clear",
+        "keep": "Keep",
+        "cleared": "Removed on save",
+        "clearedHelp": "The stored secret is removed when you save. Type a new one, or click Keep."
+      },
+      "apprise": {
+        "urlsKept": "Unchanged ({{targets}}). Type new URLs to replace all of them."
       }
     },
     "fullRestore": {
       "warnings": {
-        "apprise_restored_disabled": "The Apprise integration {{value}} came back disabled: one of its URLs uses a service Meshloom no longer sends to, or a Telegram URL with no chat id. Edit its URLs before enabling it."
+        "apprise_restored_disabled": "The Apprise integration {{value}} came back disabled: one of its URLs uses a service Meshloom no longer sends to, or a Telegram URL with no chat id. Edit its URLs before enabling it.",
+        "private_network_restored_disabled": "The integration {{value}} came back disabled: it was allowed to reach a private network (LAN, this machine). Check its destination, then enable it."
       }
     }
   }

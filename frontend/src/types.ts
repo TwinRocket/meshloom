@@ -1634,6 +1634,8 @@ export interface BackupExport {
   channels: BackupChannel[];
   settings: AppSettings | null;
   groups: ContactGroup[];
+  /** Secrets written as `********` instead of their value, by path (v1 download). */
+  secret_omitted?: Record<string, boolean>;
 }
 
 export interface BackupRestoreResult {

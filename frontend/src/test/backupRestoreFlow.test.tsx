@@ -732,6 +732,7 @@ describe('BackupRestoreFlow', () => {
       'fanout_invalid:id:webhook',
       'bots_restored_disabled:B',
       'apprise_restored_disabled:A',
+      'private_network_restored_disabled:L',
       'push_kept_existing',
       'proxy_port_managed',
       'proxy_targets_transport',

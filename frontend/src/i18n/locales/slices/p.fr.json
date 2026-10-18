@@ -13,11 +13,22 @@
         "help": "Désactivé par défaut : Meshloom refuse une destination sur votre réseau local ou sur cette machine, pour qu'un réglage modifié ne fasse pas du serveur une sonde de votre réseau. Activez-le pour Home Assistant, Gotify, ntfy, Node-RED ou un script sur votre réseau local. Les adresses de métadonnées cloud sont toujours refusées.",
         "grandfathered": "Ces intégrations ont été configurées avant que Meshloom ne vérifie les destinations : les adresses de réseau privé restent autorisées pour elles et elles continuent de fonctionner : {{names}}. Décochez « Autoriser une destination sur un réseau privé » dans une intégration si elle pointe vers un service public.",
         "grandfatheredDismiss": "Compris"
+      },
+      "secret": {
+        "kept": "Inchangé",
+        "clear": "Effacer",
+        "keep": "Conserver",
+        "cleared": "Supprimé à l’enregistrement",
+        "clearedHelp": "Le secret enregistré sera supprimé à l’enregistrement. Saisissez-en un nouveau, ou cliquez sur Conserver."
+      },
+      "apprise": {
+        "urlsKept": "Inchangées ({{targets}}). Saisissez de nouvelles URL pour toutes les remplacer."
       }
     },
     "fullRestore": {
       "warnings": {
-        "apprise_restored_disabled": "L’intégration Apprise {{value}} revient désactivée : une de ses URL utilise un service vers lequel Meshloom n’envoie plus, ou une URL Telegram sans identifiant de discussion. Modifiez ses URL avant de l’activer."
+        "apprise_restored_disabled": "L’intégration Apprise {{value}} revient désactivée : une de ses URL utilise un service vers lequel Meshloom n’envoie plus, ou une URL Telegram sans identifiant de discussion. Modifiez ses URL avant de l’activer.",
+        "private_network_restored_disabled": "L’intégration {{value}} revient désactivée : elle avait le droit de joindre un réseau privé (LAN, cette machine). Vérifiez sa destination, puis activez-la."
       }
     }
   }
