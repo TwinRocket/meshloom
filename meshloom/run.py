@@ -45,7 +45,8 @@ RETIRED_PASS_THROUGH = {
 # ``X-Forwarded-For`` sent by any loopback caller (its default
 # ``forwarded_allow_ips`` is 127.0.0.1), so a bot or a webhook aimed at
 # 127.0.0.1:8000 could pass for the Supervisor and mint a Home Assistant
-# identity. The app reads proxy headers in one place (app/origin_policy.py).
+# identity. The app interprets forwarded headers in one place, from its trusted
+# proxies setting (app/middleware/proxy_headers.py).
 UVICORN_ARGV = [
     "uv",
     "run",

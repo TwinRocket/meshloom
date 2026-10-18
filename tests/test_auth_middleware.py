@@ -71,6 +71,7 @@ async def test_public_routes_answer_anonymously_and_minimally():
             "setup_code_required": False,
             "methods": {"password": True, "ingress": False},
             "auth_compat": {"basic": False},
+            "secure": False,
         }
         assert "instance" not in body and "version" not in session.text
         assert session.headers["cache-control"] == "no-store"
@@ -114,7 +115,8 @@ async def test_login_sets_a_plain_cookie_over_http_and_unlocks_the_api():
 
 @pytest.mark.parametrize(
     ("base_url", "headers"),
-    [("https://test", {}), ("http://test", {"X-Forwarded-Proto": "https"})],
+    # X-Forwarded-Proto counts only from a trusted proxy: tests/test_proxy_headers.py.
+    [("https://test", {}), ("https://test", {"X-Forwarded-Proto": "http"})],
 )
 async def test_https_requests_get_a_host_prefixed_secure_cookie(base_url, headers):
     await create_user()

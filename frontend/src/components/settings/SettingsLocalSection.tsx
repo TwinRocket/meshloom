@@ -73,6 +73,7 @@ import {
 import i18n from '../../i18n';
 import { SettingsGroupHeader } from './settingsPrimitives';
 import { AllowedOriginsSettings } from './AllowedOriginsSettings';
+import { TrustedProxiesSettings } from './TrustedProxiesSettings';
 
 export function SettingsLocalSection({
   serverLabel,
@@ -591,6 +592,8 @@ export function SettingsLocalSection({
         <>
           <Separator />
           <AllowedOriginsSettings origins={allowedOrigins ?? []} onSave={onSaveAllowedOrigins} />
+          <Separator />
+          <TrustedProxiesSettings />
         </>
       )}
     </div>

@@ -1,7 +1,12 @@
 import type { TFunction } from 'i18next';
 
 import { reportAuthRequired } from './auth/authEvents';
-import type { AuthLoginRequest, AuthSessionInfo, AuthSetupRequest } from './auth/types';
+import type {
+  AuthLoginRequest,
+  AuthSessionInfo,
+  AuthSettings,
+  AuthSetupRequest,
+} from './auth/types';
 import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
 
 import type {
@@ -269,6 +274,9 @@ export const api = {
   authLogin: (body: AuthLoginRequest) =>
     fetchJson<AuthSessionInfo>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   authLogout: () => fetchJson<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  getAuthSettings: () => fetchJson<AuthSettings>('/auth/settings', { cache: 'no-store' }),
+  patchAuthSettings: (patch: Partial<AuthSettings>) =>
+    fetchJson<AuthSettings>('/auth/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
 
   // Health
   getHealth: () => fetchJson<HealthStatus>('/health'),
