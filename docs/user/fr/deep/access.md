@@ -76,7 +76,7 @@ Les administrateurs le lisent par `GET /api/auth/audit`, du plus récent au plus
 
 | Commande | Effet |
 |---|---|
-| `meshloom-admin reset-password <utilisateur>` | Définit un nouveau mot de passe (demandé deux fois, ou une ligne sur l’entrée standard avec `--stdin`) et déconnecte l’utilisateur partout. `--must-change` en demande un autre à la prochaine connexion. |
+| `meshloom-admin reset-password <utilisateur>` | Définit un nouveau mot de passe (demandé deux fois, ou une ligne sur l’entrée standard avec `--stdin`) et déconnecte l’utilisateur partout. `--must-change` en demande un autre à la prochaine connexion. Refusé pour un compte `kiosk` ou Home Assistant, qui n’a pas de mot de passe. |
 | `meshloom-admin create-admin <utilisateur>` | Crée un administrateur. Mêmes options de mot de passe, plus `--display-name`. |
 | `meshloom-admin setup-code` | Émet un nouveau code d’installation et l’affiche (voir plus bas). |
 | `meshloom-admin list-users` | Liste les comptes : identifiant, rôle, fournisseur, actif ou désactivé, mot de passe défini ou non. `--json` pour les scripts. |

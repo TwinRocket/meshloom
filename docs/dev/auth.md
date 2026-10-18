@@ -272,7 +272,13 @@ and `websocket` scope:
    whatever the role, and a WebSocket upgrade is refused (1008). `GET
    /auth/session` says `user.must_change_password`, which the frontend turns
    into the change-password form (MSHL-54); a password change through `PATCH
-   /auth/me` clears the flag. Only an account with a password can carry it.
+   /auth/me` clears the flag. Only a local account outside `kiosk` with a
+   password can carry it, enforced by the repository: `create`, `update` and
+   `set_password_hash` raise `MustChangeNotApplicableError` (nothing written)
+   when asked to set it on another account, and drop a flag that a role or
+   password change made inapplicable, so no kiosk, Home Assistant or
+   password-less account is ever stuck behind this gate. `meshloom-admin
+   reset-password` refuses a kiosk account.
 
 Every answer under `/api/auth/` carries `Cache-Control: no-store`. The 401
 carries `WWW-Authenticate: Basic realm="Meshloom", charset="UTF-8"` only while

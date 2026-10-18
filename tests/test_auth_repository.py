@@ -65,9 +65,38 @@ async def test_password_hash_is_nullable_and_never_on_the_user_model(test_db):
     assert (await UserRepository.get_credentials("kiosk")).password_hash is None  # type: ignore[union-attr]
     assert await UserRepository.get_credentials("nobody") is None
 
-    assert await UserRepository.set_password_hash(local.id, None, must_change_password=True)
+    assert await UserRepository.set_password_hash(local.id, None)
     updated = await UserRepository.get(local.id)
-    assert updated is not None and not updated.has_password and updated.must_change_password
+    assert updated is not None and not updated.has_password and not updated.must_change_password
+
+
+@pytest.mark.asyncio
+async def test_must_change_password_only_on_accounts_with_a_password_to_change(test_db):
+    from app.repository.auth import MustChangeNotApplicableError
+
+    kiosk = await UserRepository.create("wall", "kiosk")
+    ha = await UserRepository.create("ha", "member", provider="ingress", external_id="x1")
+    local = await UserRepository.create("dana", "member", password_hash=HASH)
+    for build in (
+        lambda: UserRepository.create("wall2", "kiosk", must_change_password=True),
+        lambda: UserRepository.create("nopw", "member", must_change_password=True),
+        lambda: UserRepository.update(kiosk.id, must_change_password=True),
+        lambda: UserRepository.update(ha.id, must_change_password=True),
+        lambda: UserRepository.set_password_hash(kiosk.id, HASH, must_change_password=True),
+        lambda: UserRepository.set_password_hash(ha.id, HASH, must_change_password=True),
+        lambda: UserRepository.set_password_hash(local.id, None, must_change_password=True),
+    ):
+        with pytest.raises(MustChangeNotApplicableError):
+            await build()
+    assert await UserRepository.get_by_username("wall2") is None
+    assert all(not u.must_change_password for u in await UserRepository.list_all())
+    kept = await UserRepository.get(kiosk.id)
+    assert kept is not None and not kept.has_password
+
+    # A flagged account that becomes a kiosk loses the flag.
+    assert await UserRepository.set_password_hash(local.id, HASH, must_change_password=True)
+    flagged = await UserRepository.update(local.id, role="kiosk")
+    assert flagged is not None and not flagged.must_change_password
 
 
 @pytest.mark.asyncio

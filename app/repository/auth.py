@@ -133,6 +133,11 @@ class LastAdminError(ValueError):
     """The change would leave no enabled administrator (``auth_last_admin``)."""
 
 
+class MustChangeNotApplicableError(ValueError):
+    """``must_change_password`` on an account that has no password to change:
+    no password, a ``kiosk``, or a Home Assistant or system identity."""
+
+
 class AuthSettingsMissingError(RuntimeError):
     """The ``auth_settings`` row is gone: refuse to act on defaults (fail closed).
 
@@ -203,6 +208,27 @@ def _check_role(role: str) -> None:
 _BUMP_UPDATED_AT = "updated_at = MAX(?, updated_at + 1)"
 
 
+# Only a local account outside ``kiosk`` with a password can be asked to
+# change it; anything else would be stuck behind the gate's forced change.
+_CAN_CHANGE_PASSWORD = "password_hash IS NOT NULL AND role != 'kiosk' AND provider = 'local'"
+
+
+async def _enforce_must_change(conn: aiosqlite.Connection, user_id: int, requested: bool) -> None:
+    """Refuse an explicit ``must_change_password`` the account cannot honour,
+    and drop a stale one (a role or password change made it inapplicable)."""
+    if requested:
+        async with conn.execute(
+            f"SELECT 1 FROM users WHERE id = ? AND {_CAN_CHANGE_PASSWORD}", (user_id,)
+        ) as cursor:
+            if await cursor.fetchone() is None:
+                raise MustChangeNotApplicableError("this account has no password to change")
+    await conn.execute(
+        "UPDATE users SET must_change_password = 0"
+        f" WHERE id = ? AND must_change_password = 1 AND NOT ({_CAN_CHANGE_PASSWORD})",
+        (user_id,),
+    )
+
+
 async def _count_enabled_admins(conn: aiosqlite.Connection) -> int:
     async with conn.execute(
         "SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0"
@@ -258,6 +284,7 @@ class UserRepository:
                     ),
                 ) as cursor:
                     user_id = cursor.lastrowid
+                await _enforce_must_change(conn, int(user_id or 0), must_change_password)
                 user = await _fetch_user(conn, int(user_id or 0))
         except sqlite3.IntegrityError as exc:
             if "username_key" in str(exc):
@@ -370,6 +397,7 @@ class UserRepository:
                 updates.append(_BUMP_UPDATED_AT)
                 params.extend([_now(now), user_id])
                 await conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+                await _enforce_must_change(conn, user_id, bool(must_change_password))
                 if keep_an_admin and await _count_enabled_admins(conn) == 0:
                     raise LastAdminError("the last enabled administrator must stay")
             return await _fetch_user(conn, user_id)
@@ -382,14 +410,19 @@ class UserRepository:
         must_change_password: bool = False,
         now: int | None = None,
     ) -> bool:
-        """Store a new hash (or None to remove the password). True if the user exists."""
+        """Store a new hash (or None to remove the password). True if the user exists.
+        ``must_change_password`` on an account that cannot honour it raises
+        ``MustChangeNotApplicableError`` (nothing written)."""
         async with db.tx() as conn:
             async with conn.execute(
                 "UPDATE users SET password_hash = ?, must_change_password = ?, "
                 f"{_BUMP_UPDATED_AT} WHERE id = ?",
                 (password_hash, int(must_change_password), _now(now), user_id),
             ) as cursor:
-                return cursor.rowcount > 0
+                found = cursor.rowcount > 0
+            if found:
+                await _enforce_must_change(conn, user_id, must_change_password)
+            return found
 
     @staticmethod
     async def delete(user_id: int, *, keep_an_admin: bool = False) -> bool:

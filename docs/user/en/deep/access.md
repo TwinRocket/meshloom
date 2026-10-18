@@ -76,7 +76,7 @@ Administrators read it through `GET /api/auth/audit`, newest first, by pages; a 
 
 | Command | What it does |
 |---|---|
-| `meshloom-admin reset-password <user>` | Sets a new password (asked twice, or one line on standard input with `--stdin`) and signs the user out everywhere. `--must-change` asks for another at the next sign-in. |
+| `meshloom-admin reset-password <user>` | Sets a new password (asked twice, or one line on standard input with `--stdin`) and signs the user out everywhere. `--must-change` asks for another at the next sign-in. Refused for a `kiosk` or Home Assistant account, which has no password. |
 | `meshloom-admin create-admin <user>` | Creates an administrator. Same password options, plus `--display-name`. |
 | `meshloom-admin setup-code` | Issues a new installation code and prints it (see below). |
 | `meshloom-admin list-users` | Lists the accounts: id, role, provider, active or disabled, whether a password is set. `--json` for scripts. |
