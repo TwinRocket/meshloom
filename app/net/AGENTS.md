@@ -5,12 +5,15 @@ chose (SSRF). Like every agent doc here, check it against the code.
 
 ## Semantics (`egress_guard.py`)
 
-- `validate_destination(url, *, allow_private_network=False, schemes={http, https})`
+- `validate_destination(url, *, allow_private_network=False, schemes={http, https}, allowed_hosts=None)`
   parses the URL, resolves A/AAAA (`loop.getaddrinfo`) and returns a
   `ResolvedDestination` (scheme, host, port, validated IPs), or raises
   `EgressBlocked(code)` **before any connection**. Codes are stable and
   translated by the UI under `errors.<code>`: `egress_scheme` (bad scheme,
-  malformed URL or port), `egress_private_address`, `egress_unresolvable`.
+  malformed URL or port), `egress_private_address`, `egress_unresolvable`,
+  and for fixed-host callers `egress_host_not_allowed`,
+  `egress_too_many_redirects`, `egress_request_too_large`,
+  `egress_response_too_large` (see "Fixed-host callers").
   `egress_detail(code)` builds the coded HTTP detail (never a host, an IP or the URL).
 - Refused unless `allow_private_network`: loopback, `0.0.0.0/8`, private
   (10/8, 172.16/12, 192.168/16, fc00::/7, fec0::/10), CGNAT 100.64/10,
@@ -45,6 +48,66 @@ chose (SSRF). Like every agent doc here, check it against the code.
   ignores proxy variables and follows no redirect (`max_redirects = 0`).
 - `error_code(exc)` maps a failure to `timeout`, `tls_error`, `service_error`
   (HTTP status from the destination), `connect_error` or the `egress_*` code.
+- `PinnedClient.stream(method, ...)` is `request()` with the body left unread
+  (an async context manager; the response is closed on exit), for callers
+  that cap the body.
+
+## Fixed-host callers (allowlist, redirects, caps)
+
+For a caller that talks to a known set of hosts (the Store client, the plugin
+`http` capability). The rules above are unchanged and still apply to every hop.
+
+- `HostAllowlist.of("github.com", "objects.githubusercontent.com")` (or
+  `.parse(entries)`): exact hosts, `host` or `host:port`, an IP literal
+  allowed (`[v6]:port`, or a bare v6 without port), never a range. Entries are
+  normalised like the URL host (lowercase, IDNA2008 A-label, no trailing dot,
+  IP literal compressed). An entry without a port allows only the scheme's
+  default port (`github.com` does not allow `github.com:8443`). `*`, a CIDR,
+  a scheme, a path or user info raise `ValueError` when the list is built.
+  The list does not restrict the scheme: a fixed-host caller must also pass
+  `schemes=frozenset({"https"})`, or `http://github.com` is allowed too.
+- `validate_destination(..., allowed_hosts=...)` refuses a host outside the
+  list with `egress_host_not_allowed` **before the DNS lookup**; a listed host
+  still meets the address rules (private refused unless opted in, metadata
+  and documentation always).
+- `follow_checked_redirects(method, url, *, timeout, allowed_hosts=None,
+  allow_private_network=False, schemes=..., max_redirects=0,
+  max_request_bytes=None, max_response_bytes=None, total_timeout=None,
+  content=None, headers=None, header_filter=None, cross_origin_headers=(),
+  verify_tls=True)` returns a
+  `CheckedResponse` (status, headers, body, last hop URL, redirect count):
+  - every hop, the first included, goes through `validate_destination` with
+    the same allowlist, schemes and private rule, then a fresh pinned client
+    (no cookie jar from one hop to the next). `Location` is joined to the URL
+    the caller asked for, never the pinned IP URL; the fragment is dropped.
+    303 (and 301/302 after a POST) becomes a GET without body or
+    `Content-Type`; 307/308 keep both. Once a hop leaves the origin (scheme,
+    host, port), only `CROSS_ORIGIN_HEADERS` (`Accept`, `User-Agent`,
+    `Accept-Encoding`, `Content-Type`) and the names the caller lists in
+    `cross_origin_headers` follow it: `Authorization`, `X-Api-Key`,
+    `PRIVATE-TOKEN` and any other header are dropped.
+  - `max_redirects=0` (default) returns a redirect as is; one more redirect
+    than allowed raises `egress_too_many_redirects`.
+  - a body above `max_request_bytes` is refused before any DNS lookup
+    (`egress_request_too_large`). The response is refused unread when its
+    `Content-Length` is above `max_response_bytes`, and aborted (connection
+    closed) as soon as the streamed body passes it
+    (`egress_response_too_large`). The body is read raw, never decoded: the
+    request always sends `Accept-Encoding: identity` (set after the header
+    filter, a caller's own value is replaced) and an answer with any other
+    `Content-Encoding` is refused unread (`egress_response_encoding`), so a
+    small compressed body cannot inflate past the cap. A HEAD, 204 or 304
+    answer has no body: its `Content-Length` is not checked.
+  - `timeout` is httpx's per-operation timeout; `total_timeout` (seconds)
+    bounds the whole chain, so a server dripping bytes cannot hold the call
+    (raises `TimeoutError`, `error_code` gives `timeout`).
+  - caller headers pass `filter_request_headers`: `DROPPED_REQUEST_HEADERS`
+    (`Host`, `Content-Length`, `Transfer-Encoding`, `Cookie`, and the
+    hop-by-hop `Connection`, `Keep-Alive`, `Proxy-Authorization`,
+    `Proxy-Connection`, `TE`, `Trailer`, `Upgrade`) never reach the transport;
+    `header_filter(name, value)` may drop more, never restore one.
+- The existing consumers below keep `validate_destination` plus
+  `pinned_async_client` and never follow redirects; they did not change.
 
 ## Consumers
 
@@ -78,9 +141,17 @@ chose (SSRF). Like every agent doc here, check it against the code.
   lookup. An Apprise row whose URLs are refused here (a 4.18 file) is kept,
   disabled, with the warning `apprise_restored_disabled:<name>`
   (`prepare_refused_apprise_config`), as migration 100 keeps it.
-- Planned: Store plugins, Links & Files (breaker / share service), Access
-  (Web Push). New consumers call `validate_destination` and send through a
-  pinned client; never add an outbound path to a user-chosen URL around it.
+- Planned: the Store client (custom GitHub repositories: `github.com` and the
+  exact release-asset redirect hosts `objects.githubusercontent.com` and
+  `release-assets.githubusercontent.com`, both listed, HTTPS only
+  (`schemes=frozenset({"https"})`); later `store.meshloom.app`) and the plugin `http` capability (the
+  plugin's declared hosts, 10 s, 1 MB response, 256 KB body, redirects
+  re-validated to a declared host) both send through
+  `follow_checked_redirects` with a `HostAllowlist`. Also Links & Files
+  (breaker / share service) and Access (Web Push). New consumers call
+  `validate_destination` and send through a pinned client (or
+  `follow_checked_redirects`); never add an outbound path to a user-chosen URL
+  around it.
 
 ## Apprise (`apprise_urls.py`)
 
@@ -120,4 +191,5 @@ chose (SSRF). Like every agent doc here, check it against the code.
   plugin in neither list: on an Apprise bump, read the new plugin and classify
   it (refused unless reviewed).
 
-Tests: `tests/test_egress_guard.py`, `tests/test_apprise_urls.py`.
+Tests: `tests/test_egress_guard.py`, `tests/test_egress_guard_checked_fetch.py`
+(allowlist, redirect chains, caps, headers), `tests/test_apprise_urls.py`.

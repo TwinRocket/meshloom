@@ -3,6 +3,11 @@
     "egress_scheme": "The address must start with http:// or https://.",
     "egress_private_address": "This address is on a private network (LAN, this machine) or is a cloud metadata address. Allow private networks for this destination if it is yours; metadata addresses are always refused.",
     "egress_unresolvable": "The host name was not found. Check it, or type the IP address instead.",
+    "egress_host_not_allowed": "This host is not in the list of hosts allowed here.",
+    "egress_too_many_redirects": "The destination redirected too many times.",
+    "egress_request_too_large": "The request is larger than allowed.",
+    "egress_response_too_large": "The answer is larger than allowed.",
+    "egress_response_encoding": "The answer is compressed, which is not allowed here.",
     "timeout": "The destination did not answer in time.",
     "tls_error": "The secure (TLS) connection failed: check the certificate, or use http:// if the destination has no TLS.",
     "service_error": "The destination answered with HTTP error {{status}}."
