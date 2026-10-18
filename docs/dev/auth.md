@@ -4,8 +4,8 @@ Meshloom 5.0.0 makes login mandatory (LAN included) with four roles: `admin`,
 `member`, `viewer` and `kiosk`. This page covers the data layer (tables,
 password hashing, opaque tokens, the repository) and the auth core: the gate
 that resolves a principal for every request, the CSRF rule, the first-run
-setup with its installation code, and the `/api/auth/*` routes. The permission
-registry (per-route roles), the login UI, device tokens, ingress identities,
+setup with its installation code, and the `/api/auth/*` routes. The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`, "Session gate"). The permission
+registry (per-route roles), device tokens, ingress identities,
 trusted networks and 2FA come with later Access tickets. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
@@ -326,7 +326,7 @@ Login, setup, logout, password changes and session revocations write an
 
 ### Setting up without the UI
 
-Until the login page ships, a new instance is set up from a shell:
+The setup page does this in a browser; from a shell (scripts, tests) it is:
 
 ```bash
 curl -c jar -H 'Content-Type: application/json' \

@@ -1,0 +1,63 @@
+{
+  "errors": {
+    "auth_rate_limited": "Trop de tentatives. Réessayez dans {{retry_after}} secondes.",
+    "auth_host_rejected": "Requête refusée : cette adresse n'est pas une de celles auxquelles cette instance répond.",
+    "auth_last_admin": "C'est le dernier administrateur : gardez-en au moins un.",
+    "auth_ingress_unsupported": "Vos identifiants sont corrects, mais Meshloom ne peut pas encore vous garder connecté depuis Home Assistant. Ouvrez Meshloom sur sa propre adresse (http://<hôte>:8000) et connectez-vous là. Si vous créiez le compte, il existe maintenant.",
+    "auth_no_session": "La connexion n'a pas ouvert de session. Rechargez la page et réessayez."
+  },
+  "auth": {
+    "loading": "Chargement…",
+    "retry": "Réessayer",
+    "sessionLoadFailed": "Meshloom n'a pas pu joindre le serveur.",
+    "username": "Nom d'utilisateur",
+    "password": "Mot de passe",
+    "language": {
+      "fr": "Français",
+      "en": "English"
+    },
+    "role": {
+      "admin": "Administrateur",
+      "member": "Membre",
+      "viewer": "Lecteur",
+      "kiosk": "Kiosque"
+    },
+    "login": {
+      "title": "Connexion",
+      "description": "Connectez-vous pour utiliser ce Meshloom.",
+      "submit": "Se connecter",
+      "insecureContext": "Cette page n'est pas servie en HTTPS : votre mot de passe circule en clair sur le réseau. Ne l'utilisez que sur un réseau de confiance."
+    },
+    "relogin": {
+      "title": "Session terminée",
+      "body": "Votre session est terminée. Reconnectez-vous pour reprendre là où vous en étiez."
+    },
+    "setup": {
+      "title": "Créer le compte administrateur",
+      "description": "Ce Meshloom n'a pas encore de compte. Celui que vous créez ici peut tout gérer.",
+      "displayName": "Nom affiché (facultatif)",
+      "confirmPassword": "Confirmer le mot de passe",
+      "passwordMismatch": "Les deux mots de passe diffèrent.",
+      "passwordPolicy": "Au moins {{min_length}} caractères, différent du nom d'utilisateur. Quelques mots à la suite font un bon mot de passe.",
+      "strength": {
+        "tooShort": "Trop court",
+        "ok": "Acceptable",
+        "good": "Bon",
+        "strong": "Solide"
+      },
+      "code": "Code d'installation",
+      "codeHint": "Ce Meshloom contient déjà des données : il demande le code à 8 chiffres affiché à son démarrage. Où le trouver :",
+      "codeWhereDocker": "Docker : docker logs <conteneur>, cherchez « installation code ».",
+      "codeWhereSystemd": "Installation par paquet : journalctl -u meshloom.",
+      "codeWhereAddon": "Module Home Assistant : l'onglet Journal du module.",
+      "codeWhereCli": "Toute installation, pour un nouveau code : meshloom-admin setup-code sur l'hôte.",
+      "submit": "Créer le compte"
+    },
+    "userMenu": {
+      "open": "Compte de {{name}}",
+      "signOut": "Se déconnecter",
+      "ingressNote": "Home Assistant vous connecte : il n'y a pas de session Meshloom à terminer.",
+      "basicNote": "Ce navigateur se connecte avec des identifiants Basic enregistrés : il n'y a pas de session à terminer. Fermez le navigateur ou oubliez l'identifiant enregistré pour vous déconnecter."
+    }
+  }
+}

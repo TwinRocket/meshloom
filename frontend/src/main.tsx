@@ -10,6 +10,7 @@ import { applyFontScale, getSavedFontScale } from './utils/fontScale';
 import { migrateLegacyLocalStoragePrefix } from './utils/legacyStoragePrefix';
 import { initAppViewport } from './utils/appViewport';
 import { clearReloadFlag, installPreloadErrorHandler, reloadOnce } from './utils/chunkReload';
+import { SessionProvider } from './auth/SessionProvider';
 import { PushSubscriptionProvider } from './contexts/PushSubscriptionContext';
 
 migrateLegacyLocalStoragePrefix();
@@ -36,9 +37,11 @@ i18nReady.then(
   () => {
     createRoot(document.getElementById('root')!).render(
       <StrictMode>
-        <PushSubscriptionProvider>
-          <App />
-        </PushSubscriptionProvider>
+        <SessionProvider>
+          <PushSubscriptionProvider>
+            <App />
+          </PushSubscriptionProvider>
+        </SessionProvider>
       </StrictMode>
     );
     clearReloadFlag();

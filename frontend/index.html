@@ -64,14 +64,22 @@
           throw err;
         }));
       };
-      window.__prefetch = {
-        config: fetchJsonOrThrow('./api/radio/config'),
-        settings: fetchJsonOrThrow('./api/settings'),
-        channels: fetchJsonOrThrow('./api/channels'),
-        contacts: fetchJsonOrThrow('./api/contacts?limit=1000&offset=0'),
-        unreads: fetchJsonOrThrow('./api/read-state/unreads'),
-        undecryptedCount: fetchJsonOrThrow('./api/packets/undecrypted/count'),
-      };
+      // Nothing is fetched before the session is known: an anonymous visit (login or
+      // first-run page) would only collect 401s. Until the answer arrives the store is
+      // empty and takePrefetchOrFetch falls back to a live fetch.
+      window.__prefetch = {};
+      fetch('./api/auth/session', { cache: 'no-store' })
+        .then(function(response) { return response.ok ? response.json() : null; })
+        .then(function(session) {
+          if (!session || !session.authenticated) return;
+          window.__prefetch.config = fetchJsonOrThrow('./api/radio/config');
+          window.__prefetch.settings = fetchJsonOrThrow('./api/settings');
+          window.__prefetch.channels = fetchJsonOrThrow('./api/channels');
+          window.__prefetch.contacts = fetchJsonOrThrow('./api/contacts?limit=1000&offset=0');
+          window.__prefetch.unreads = fetchJsonOrThrow('./api/read-state/unreads');
+          window.__prefetch.undecryptedCount = fetchJsonOrThrow('./api/packets/undecrypted/count');
+        })
+        .catch(function() {});
     </script>
   </head>
   <body>
