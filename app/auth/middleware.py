@@ -27,7 +27,15 @@ scope it:
 
 4. while the account has ``must_change_password``, refuses every ``/api``
    route outside ``PASSWORD_CHANGE_ROUTES`` (403
-   ``auth_password_change_required``) and every WebSocket upgrade.
+   ``auth_password_change_required``) and every WebSocket upgrade;
+5. otherwise, while ``auth_settings.require_2fa_for_admins`` is on and the
+   principal is an admin with a password and no second factor (never under
+   ingress), refuses every ``/api`` route outside
+   ``SECOND_FACTOR_ENROLMENT_ROUTES`` (403 ``auth_2fa_enrolment_required``) and
+   every WebSocket upgrade. An unreadable setting counts as on (fail closed).
+
+``Authorization: Basic`` never signs in an account whose second factor is on:
+the header carries no code (``auth_invalid_credentials``).
 
 Which role may call which route is the permission registry's decision
 (``app/auth/permissions.py``), once a principal is known. The other paths
@@ -57,6 +65,7 @@ from app.auth.principal import Principal, Via, set_principal
 from app.auth.providers import ingress, trusted_network
 from app.auth.providers import token as token_provider
 from app.auth.providers.password import VerificationBusy
+from app.repository.auth import AuthSettingsRepository
 from app.security import (
     BASIC_CHALLENGE,
     authenticate_basic,
@@ -77,6 +86,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/auth/session"),
         ("POST", "/api/auth/setup"),
         ("POST", "/api/auth/login"),
+        ("POST", "/api/auth/login/2fa"),
         ("POST", "/api/auth/logout"),
     }
 )
@@ -90,6 +100,20 @@ PASSWORD_CHANGE_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/auth/logout"),
         ("GET", "/api/auth/me"),
         ("PATCH", "/api/auth/me"),
+    }
+)
+
+# All an admin who owes a second factor (``require_2fa_for_admins``) may call
+# until it is enrolled (``app/auth/totp.py``): anything else under ``/api`` is
+# 403 ``auth_2fa_enrolment_required``, and a WebSocket upgrade is refused.
+SECOND_FACTOR_ENROLMENT_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/auth/session"),
+        ("POST", "/api/auth/logout"),
+        ("GET", "/api/auth/me"),
+        ("GET", "/api/auth/2fa"),
+        ("POST", "/api/auth/2fa/enrol"),
+        ("POST", "/api/auth/2fa/confirm"),
     }
 )
 
@@ -120,6 +144,7 @@ _MESSAGES = {
     "auth_origin_rejected": "Cross-origin request refused",
     "auth_busy": "Too many sign-in checks at once: retry in a moment",
     "auth_password_change_required": "Change your password first",
+    "auth_2fa_enrolment_required": "Set up two-factor authentication first",
 }
 
 
@@ -129,6 +154,32 @@ def is_api_path(path: str) -> bool:
 
 def must_change_password(principal: Principal | None) -> bool:
     return principal is not None and principal.user.must_change_password
+
+
+def owes_second_factor_shape(principal: Principal | None) -> bool:
+    """An admin with a password and no enabled second factor, outside ingress
+    (Home Assistant already authenticated it). Kiosk accounts have no password."""
+    if principal is None or principal.via == "ingress" or principal.credential == "ingress":
+        return False
+    user = principal.user
+    return (
+        user.role == "admin"
+        and user.provider == "local"
+        and user.has_password
+        and user.totp_enabled_at is None
+    )
+
+
+async def second_factor_enrolment_required(principal: Principal | None) -> bool:
+    """Whether ``require_2fa_for_admins`` confines this principal to the
+    enrolment routes. An unreadable setting counts as on (fail closed)."""
+    if not owes_second_factor_shape(principal):
+        return False
+    try:
+        return await AuthSettingsRepository.require_2fa_for_admins()
+    except Exception:
+        logger.exception("Could not read require_2fa_for_admins: confining the admin")
+        return True
 
 
 def request_via(scope: Scope) -> Via:
@@ -210,7 +261,9 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
             except VerificationBusy:
                 result.busy = True
                 return result
-            if user is None:
+            if user is None or user.totp_enabled_at is not None:
+                # Basic carries no second factor: an account with one never
+                # signs in this way.
                 result.credential_failed = True
                 return result
             result.principal = Principal(user=user, via=via, credential="basic")
@@ -277,7 +330,9 @@ class AuthMiddleware:
 
         if scope["type"] == "websocket":
             if is_api_path(path) and (
-                result.principal is None or must_change_password(result.principal)
+                result.principal is None
+                or must_change_password(result.principal)
+                or await second_factor_enrolment_required(result.principal)
             ):
                 await self._refuse_websocket(receive, send)
                 return
@@ -321,6 +376,15 @@ class AuthMiddleware:
             and (method, path.rstrip("/") or "/") not in PASSWORD_CHANGE_ROUTES
         ):
             await self._respond(send, 403, "auth_password_change_required", path)
+            return
+
+        if (
+            is_api_path(path)
+            and not must_change_password(result.principal)
+            and (method, path.rstrip("/") or "/") not in SECOND_FACTOR_ENROLMENT_ROUTES
+            and await second_factor_enrolment_required(result.principal)
+        ):
+            await self._respond(send, 403, "auth_2fa_enrolment_required", path)
             return
 
         await self.app(

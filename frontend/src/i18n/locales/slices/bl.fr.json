@@ -1,0 +1,11 @@
+{
+  "errors": {
+    "auth_2fa_invalid": "Code invalide ou déjà utilisé.",
+    "auth_2fa_pending_invalid": "Cette connexion a expiré. Saisissez à nouveau votre mot de passe.",
+    "auth_2fa_already_enabled": "La double authentification est déjà activée.",
+    "auth_2fa_not_pending": "Commencez d'abord la configuration de la double authentification.",
+    "auth_2fa_not_enabled": "La double authentification est désactivée.",
+    "auth_2fa_not_applicable": "Ce compte n'a pas de mot de passe : les comptes Home Assistant et kiosque se connectent autrement.",
+    "auth_2fa_enrolment_required": "Configurez la double authentification avant de continuer : l'administrateur l'exige."
+  }
+}

@@ -10,6 +10,19 @@ export interface AuthUser {
   role: AuthRole;
   /** An administrator set the password: nothing else works until the user changes it. */
   must_change_password?: boolean;
+  /** The account's TOTP second factor is on. */
+  totp_enabled?: boolean;
+  /** `require_2fa_for_admins`: nothing but the 2FA enrolment routes work until it is set up. */
+  second_factor_enrolment_required?: boolean;
+}
+
+/** `POST /auth/login` for an account with a second factor: no session yet. */
+export interface SecondFactorChallenge {
+  /** Sent back with a code to `POST /auth/login/2fa`. */
+  pending_token: string;
+  methods: ('totp' | 'recovery')[];
+  /** Seconds before the password has to be entered again. */
+  expires_in: number;
 }
 
 /** `GET /auth/session`, and the answer of `POST /auth/login` and `POST /auth/setup`. */
@@ -26,6 +39,8 @@ export interface AuthSessionInfo {
   user?: AuthUser;
   via?: AuthVia;
   instance?: { name?: string; version: string };
+  /** `POST /auth/login` only: the password checked, a second factor is owed. */
+  second_factor?: SecondFactorChallenge;
 }
 
 /** `GET/PATCH /auth/settings` (admin): the access settings. */
@@ -46,6 +61,8 @@ export interface AuthSettings {
   host_guard_mode?: HostGuardMode;
   /** Host names the guard would refuse, since the last restart, newest first (read only). */
   rejected_hosts?: RejectedHost[];
+  /** Admins with a password and no second factor reach only the 2FA enrolment routes. */
+  require_2fa_for_admins?: boolean;
 }
 
 export type HostGuardMode = 'observe' | 'enforce';
@@ -116,6 +133,7 @@ export interface AuthMe {
   provider: string;
   has_password: boolean;
   must_change_password: boolean;
+  totp_enabled?: boolean;
   created_at: number;
 }
 

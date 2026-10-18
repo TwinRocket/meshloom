@@ -1,6 +1,6 @@
 ---
 title: Récupérer l’accès
-description: meshloom-admin, la commande qui réinitialise un mot de passe, crée un administrateur ou émet le code d’installation depuis la machine, pour chaque mode d’installation de Meshloom.
+description: Rôles, comptes, double authentification, jetons et meshloom-admin, la commande qui réinitialise un mot de passe, retire un second facteur perdu, crée un administrateur ou émet le code d’installation depuis la machine, pour chaque mode d’installation de Meshloom.
 level: deep
 order: 21
 ---
@@ -112,9 +112,30 @@ L’appareil envoie le jeton dans un en-tête, `Authorization: Bearer mlt_…`, 
 
 Les **portées** disent ce qu’un jeton peut faire : `read` (canaux, contacts, paquets, carte), `read_private` (messages directs), `send` (envoyer, modifier contacts et canaux), `repeater_admin` (répéteurs et rooms) et `admin` (tout). Un jeton n’obtient jamais plus que le rôle de son compte : un membre ne peut pas demander `repeater_admin` ni `admin` (`auth_token_scope`), et si un compte perd un rôle plus tard, ses jetons le perdent aussi. Un compte désactivé ou supprimé emporte ses jetons. Donnez à chaque jeton le moins de portées possible : un tableau de bord n’a besoin que de `read`.
 
+## La double authentification
+
+Tout compte qui a un mot de passe (sauf le kiosque et les utilisateurs Home Assistant) peut ajouter un second facteur : un code à 6 chiffres donné par une application d’authentification (TOTP, RFC 6238 : Aegis, 2FAS, Google Authenticator, un gestionnaire de mots de passe…). La connexion demande alors le mot de passe **et** le code du moment. C’est facultatif ; un administrateur peut l’exiger pour les administrateurs (plus bas). Il n’y a pas encore de page pour cela : passez par l’API en étant connecté.
+
+| Requête | Ce qu’elle fait |
+|---|---|
+| `POST /api/auth/2fa/enrol` | Commence la configuration : `{"password"}`. La réponse contient le secret et un lien `otpauth://` à scanner ou coller dans l’application, **cette seule fois** : aucune autre requête ne réaffiche le secret. |
+| `POST /api/auth/2fa/confirm` | L’active avec le premier code affiché par l’application : `{"code": "123456"}`. La réponse contient **dix codes de secours**, affichés une seule fois : imprimez-les ou gardez-les dans un gestionnaire de mots de passe. Vos autres navigateurs sont déconnectés. |
+| `GET /api/auth/2fa` | Indique si elle est active et combien de codes de secours restent. |
+| `POST /api/auth/2fa/recovery` | Dix nouveaux codes de secours (les anciens cessent de fonctionner) : `{"password", "code"}` avec un code de l’application. |
+| `POST /api/auth/2fa/disable` | La désactive : `{"password", "code"}`, un code de l’application ou un code de secours. |
+
+- **Se connecter.** Après un mot de passe correct, `POST /api/auth/login` répond `"authenticated": false` avec un `second_factor.pending_token` ; envoyez-le avec le code à `POST /api/auth/login/2fa` dans les 5 minutes pour obtenir la session. Un code de secours remplace le code de l’application, une fois chacun. Cinq mauvais codes, ou une modification du compte, obligent à recommencer avec le mot de passe.
+- **Un code ne sert qu’une fois.** Un code déjà utilisé, ou plus ancien, est refusé même s’il est encore affiché dans l’application : attendez le suivant.
+- **Les mauvais codes comptent comme de mauvais mots de passe**, avec les mêmes délais (plus haut).
+- **Scripts.** `Authorization: Basic` cesse de fonctionner pour un compte qui a un second facteur : utilisez un [jeton d’API](#les-jetons-dapi-et-dappareil).
+- **L’exiger pour les administrateurs.** `PATCH /api/auth/settings` avec `{"require_2fa_for_admins": true}` (désactivé par défaut). Un administrateur sans second facteur ne peut alors que le configurer (et se déconnecter) tant que ce n’est pas fait ; membres, lecteurs, kiosque et utilisateurs Home Assistant ne sont pas concernés. Recommandé quand Meshloom est joignable depuis Internet.
+- **Téléphone perdu.** Utilisez un code de secours. Sans code, un administrateur lance `meshloom-admin disable-2fa <utilisateur>` sur la machine (plus bas) ; l’utilisateur se connecte alors avec son seul mot de passe et la configure de nouveau.
+
+Le secret est gardé dans la base (chiffré au repos dans une version ultérieure). La sauvegarde complète le contient, avec les codes de secours (seulement leurs hachés), uniquement quand **Inclure les comptes** est coché ; le téléchargement de la base n’en garde aucun.
+
 ## Le journal d’audit
 
-Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, changés de rôle, désactivés, réactivés ou supprimés (refus compris, comme une tentative de rétrograder le dernier administrateur), changements de mot de passe, création du premier administrateur, changements des réglages d’accès, jetons créés et révoqués et utilisations d’un jeton révoqué ou expiré, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
+Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, changés de rôle, désactivés, réactivés ou supprimés (refus compris, comme une tentative de rétrograder le dernier administrateur), changements de mot de passe, double authentification activée ou désactivée, nouveaux codes de secours et connexions en attente de leur code, création du premier administrateur, changements des réglages d’accès, jetons créés et révoqués et utilisations d’un jeton révoqué ou expiré, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
 
 Chaque entrée garde l’heure, le compte qui a agi (aucun pour une connexion ratée ou la ligne de commande), l’adresse d’où il venait, la voie d’accès (réseau local, Home Assistant, ligne de commande, ou Meshloom lui-même pour une mise à jour automatique), ce qui a été visé et l’issue. Elle ne contient jamais de mot de passe, de code d’installation, de session, de clé ni le code d’un robot. Une connexion ratée ne nomme le compte que si le nom saisi correspond à un compte ; tout autre nom saisi est noté comme inconnu, si bien qu’un mot de passe tapé dans le champ du nom n’est pas gardé.
 
@@ -134,6 +155,7 @@ La sauvegarde complète (**Réglages → Base de données**) contient les compte
 | `meshloom-admin list-users` | Liste les comptes : identifiant, rôle, fournisseur, actif ou désactivé, mot de passe défini ou non. `--json` pour les scripts. |
 | `meshloom-admin disable-user <utilisateur>` | Bloque un utilisateur et le déconnecte. Refuse de désactiver le dernier administrateur actif sauf avec `--force`. |
 | `meshloom-admin enable-user <utilisateur>` | Autorise de nouveau un utilisateur désactivé à se connecter. |
+| `meshloom-admin disable-2fa <utilisateur>` | Retire la double authentification et les codes de secours d’un utilisateur (téléphone perdu). Il se connecte ensuite avec son seul mot de passe. |
 | `meshloom-admin revoke-sessions <utilisateur>` ou `--all` | Déconnecte un utilisateur, ou tout le monde. |
 | `meshloom-admin host-guard-observe` | Remet le [contrôle du Host](/docs/deep/https/#les-noms-auxquels-meshloom-répond) en mode observation, quand le mode strict refuse le seul nom par lequel vous atteignez Meshloom. |
 

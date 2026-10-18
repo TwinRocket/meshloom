@@ -75,6 +75,7 @@ from app.radio_sync import (
 )
 from app.routers import (
     auth,
+    auth_totp,
     channels,
     community,
     contact_groups,
@@ -493,6 +494,7 @@ async def log_server_errors(request: Request, call_next):
 # API routes - all prefixed with /api for production compatibility
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
+app.include_router(auth_totp.router, prefix="/api")
 app.include_router(debug.router, prefix="/api")
 app.include_router(fanout.router, prefix="/api")
 app.include_router(community.router, prefix="/api")
