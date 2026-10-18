@@ -135,6 +135,39 @@ describe('login second step', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(t('auth.secondFactor.expired'));
   });
 
+  it('keeps the expiry deadline when the language changes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.authLogin).mockResolvedValue({
+      ...anonymous,
+      second_factor: { ...challenge, expires_in: 60 },
+    });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(
+      <SessionProvider>
+        <div />
+      </SessionProvider>
+    );
+    await user.type(await screen.findByLabelText(t('auth.username')), 'root');
+    await user.type(screen.getByLabelText(t('auth.password')), 'correct horse battery');
+    await user.click(screen.getByRole('button', { name: t('auth.login.submit') }));
+    await screen.findByLabelText(t('auth.secondFactor.codeLabel'));
+    act(() => {
+      vi.advanceTimersByTime(40_000);
+    });
+    const language = i18n.language;
+    await act(async () => {
+      await i18n.changeLanguage(language.startsWith('fr') ? 'en' : 'fr');
+    });
+    act(() => {
+      vi.advanceTimersByTime(25_000);
+    });
+    try {
+      expect(await screen.findByLabelText(t('auth.password'))).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage(language);
+    }
+  });
+
   it('shows the rate limit with its delay', async () => {
     vi.spyOn(api, 'authLogin2fa').mockRejectedValue(
       new ApiError(
@@ -218,8 +251,8 @@ describe('AccessSecurityPanel', () => {
     await user.click(screen.getByRole('button', { name: t('auth.totp.start') }));
     expect(enrol).toHaveBeenCalledWith('correct horse battery');
 
-    expect(await screen.findByLabelText(t('auth.totp.manualKey'))).toHaveValue(enrolment.secret);
-    expect(screen.getByTestId('totp-qr').querySelector('svg')).not.toBeNull();
+    expect(await screen.findByText('JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('totp-qr').querySelector('svg')).not.toBeNull());
     await user.type(screen.getByLabelText(t('auth.totp.confirmCode')), '123456');
     await user.click(screen.getByRole('button', { name: t('auth.totp.confirm') }));
     expect(confirm).toHaveBeenCalledWith('123456');
@@ -252,7 +285,7 @@ describe('AccessSecurityPanel', () => {
     await user.type(await screen.findByLabelText(t('auth.totp.confirmCode')), '000000');
     await user.click(screen.getByRole('button', { name: t('auth.totp.confirm') }));
     expect(await screen.findByRole('alert')).toHaveTextContent(t('errors.auth_2fa_invalid'));
-    expect(screen.getByLabelText(t('auth.totp.manualKey'))).toBeInTheDocument();
+    expect(screen.getByText('JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
   });
 
   it('regenerates the recovery codes with the password and a code', async () => {

@@ -1,6 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { lazy, Suspense, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { QRCodeSVG } from 'qrcode.react';
 
 import { api } from '../api';
 import { Button } from '../components/ui/button';
@@ -9,6 +8,13 @@ import { Label } from '../components/ui/label';
 import { formatAccessError } from './accessErrors';
 import { RecoveryCodesView } from './RecoveryCodesView';
 import type { TotpEnrolment as Enrolment } from './types';
+
+const TotpQr = lazy(() => import('./TotpQr'));
+
+/** The key in groups of four, easier to read and to type by hand. */
+function groupKey(secret: string): string {
+  return secret.replace(/(.{4})/g, '$1 ').trim();
+}
 
 type Step =
   | { name: 'password' }
@@ -114,25 +120,20 @@ export function TotpEnrolment({
       <p className="text-sm text-muted-foreground">{t('auth.totp.scanHelp')}</p>
       <div className="flex justify-center">
         <div className="rounded-md bg-white p-3" data-testid="totp-qr">
-          <QRCodeSVG
-            value={enrolment.otpauth_uri}
-            size={176}
-            level="M"
-            title={t('auth.totp.qrTitle')}
-          />
+          <Suspense fallback={<div className="h-44 w-44" aria-hidden="true" />}>
+            <TotpQr uri={enrolment.otpauth_uri} title={t('auth.totp.qrTitle')} />
+          </Suspense>
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="totp-manual-key">{t('auth.totp.manualKey')}</Label>
-        <Input
+        <Label id="totp-manual-key-label">{t('auth.totp.manualKey')}</Label>
+        <code
           id="totp-manual-key"
-          readOnly
-          autoComplete="off"
-          spellCheck={false}
-          className="font-mono"
-          value={enrolment.secret}
-          onFocus={(event) => event.currentTarget.select()}
-        />
+          aria-labelledby="totp-manual-key-label"
+          className="block select-all break-all rounded-md border border-input bg-muted/40 px-3 py-2 font-mono text-sm"
+        >
+          {groupKey(enrolment.secret)}
+        </code>
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('auth.totp.manualHelp', { digits: enrolment.digits, period: enrolment.period })}
         </p>

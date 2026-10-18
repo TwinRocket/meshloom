@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api, ApiError, formatApiError, getApiErrorCode } from '../api';
@@ -27,17 +27,22 @@ export function SecondFactorStep({
   const [recovery, setRecovery] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The timer must not restart when the language (so `t`) changes.
+  const expiredText = useRef(t('auth.secondFactor.expired'));
+  useEffect(() => {
+    expiredText.current = t('auth.secondFactor.expired');
+  }, [t]);
   const canRecover = challenge.methods.includes('recovery');
 
   // The password step is only good for `expires_in` seconds: do not let the reader type
   // a code into a form the server already forgot.
   useEffect(() => {
     const timer = window.setTimeout(
-      () => onRestart(t('auth.secondFactor.expired')),
+      () => onRestart(expiredText.current),
       Math.max(1, challenge.expires_in) * 1000
     );
     return () => window.clearTimeout(timer);
-  }, [challenge, onRestart, t]);
+  }, [challenge, onRestart]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -105,7 +110,7 @@ export function SecondFactorStep({
         {canRecover && (
           <button
             type="button"
-            className="underline underline-offset-2 hover:text-primary"
+            className="text-foreground underline underline-offset-2 hover:text-primary"
             onClick={() => {
               setRecovery((value) => !value);
               setCode('');
@@ -117,7 +122,7 @@ export function SecondFactorStep({
         )}
         <button
           type="button"
-          className="underline underline-offset-2 hover:text-primary"
+          className="text-foreground underline underline-offset-2 hover:text-primary"
           onClick={() => onRestart()}
         >
           {t('auth.secondFactor.back')}
