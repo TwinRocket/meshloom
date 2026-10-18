@@ -130,7 +130,7 @@ _SERVICE_CODES: dict[str, str] = {
 # Service answers a read may cache as final (the contract never answers them
 # for a storage failure).
 _NEGATIVE_CODES = frozenset({"share_not_found", "share_gone"})
-_SCOPE_RE = re.compile(r"^[a-z_]{1,32}$")
+_SCOPE_RE = re.compile(r"[a-z_]{1,32}")
 
 
 class ShareError(HTTPException):
@@ -294,7 +294,7 @@ def _service_error(response: CheckedResponse, payload: dict[str, Any] | None) ->
     code = _SERVICE_CODES.get(service_code) if isinstance(service_code, str) else None
     if code is None or response.status_code >= 500:
         if isinstance(service_code, str):
-            shown = service_code if _SCOPE_RE.match(service_code) else "unknown"
+            shown = service_code if _SCOPE_RE.fullmatch(service_code) else "unknown"
             logger.warning("Share service answered %s %s", response.status_code, shown)
         else:
             logger.warning("Share service answered %s (not a JSON error)", response.status_code)
@@ -303,7 +303,7 @@ def _service_error(response: CheckedResponse, payload: dict[str, Any] | None) ->
         params: dict[str, Any] = {"retry_after": _retry_after(response)}
         if code == "share_quota_exceeded":
             scope = payload.get("scope") if payload is not None else None
-            params["scope"] = scope if isinstance(scope, str) and _SCOPE_RE.match(scope) else None
+            params["scope"] = scope if isinstance(scope, str) and _SCOPE_RE.fullmatch(scope) else None
         return ShareError(code, **params)
     return ShareError(code)
 

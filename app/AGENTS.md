@@ -137,7 +137,7 @@ Community guard.
   (`BANNED_HOLD_S`): later writes are refused locally (403 `share_banned`) with
   no request; reads stay open, as on the service. A restart or any change of a
   share setting (`AppSettingsRepository.update` calls
-  `note_share_settings_changed()`) ends it.
+  `note_share_settings_changed(enabled=...)`) ends it.
 - **Read protections.** Order in `share_request`: opt-in, ban (writes), negative
   cache, breaker cooling, read bucket, breaker trial, then the request.
   - Buckets: `aiolimiter.AsyncLimiter` per instance, `meta` 60 and `bytes` 20 per
