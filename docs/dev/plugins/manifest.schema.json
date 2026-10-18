@@ -1,0 +1,579 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Author": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Author",
+      "type": "object"
+    },
+    "Compat": {
+      "additionalProperties": false,
+      "properties": {
+        "meshloom": {
+          "maxLength": 100,
+          "title": "Meshloom",
+          "type": "string"
+        }
+      },
+      "required": [
+        "meshloom"
+      ],
+      "title": "Compat",
+      "type": "object"
+    },
+    "HttpParams": {
+      "additionalProperties": false,
+      "properties": {
+        "hosts": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Hosts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hosts"
+      ],
+      "title": "HttpParams",
+      "type": "object"
+    },
+    "MessagesReadParams": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "default": "public",
+          "enum": [
+            "public",
+            "all"
+          ],
+          "title": "Channels",
+          "type": "string"
+        },
+        "direct": {
+          "default": false,
+          "title": "Direct",
+          "type": "boolean"
+        },
+        "outgoing": {
+          "default": false,
+          "title": "Outgoing",
+          "type": "boolean"
+        }
+      },
+      "title": "MessagesReadParams",
+      "type": "object"
+    },
+    "MessagesSendParams": {
+      "additionalProperties": false,
+      "properties": {
+        "targets": {
+          "default": "reply",
+          "enum": [
+            "reply",
+            "scope",
+            "any"
+          ],
+          "title": "Targets",
+          "type": "string"
+        },
+        "per_hour": {
+          "anyOf": [
+            {
+              "maximum": 60,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Hour"
+        },
+        "per_day": {
+          "anyOf": [
+            {
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Day"
+        }
+      },
+      "title": "MessagesSendParams",
+      "type": "object"
+    },
+    "NoParams": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "NoParams",
+      "type": "object"
+    },
+    "Permissions": {
+      "additionalProperties": false,
+      "description": "The declared permissions: each key is a registry name, each value its parameters.",
+      "properties": {
+        "messages.read": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MessagesReadParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "messages.send": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MessagesSendParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "raw_packets.read": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NoParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "contacts.read": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NoParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "channels.read": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NoParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "telemetry.read": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NoParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "storage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NoParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "http": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NoParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "Permissions",
+      "type": "object"
+    },
+    "Privacy": {
+      "additionalProperties": false,
+      "properties": {
+        "sends_to_third_parties": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Sends To Third Parties",
+          "type": "array"
+        },
+        "stores_message_content": {
+          "title": "Stores Message Content",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sends_to_third_parties",
+        "stores_message_content"
+      ],
+      "title": "Privacy",
+      "type": "object"
+    },
+    "Runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "python",
+          "title": "Type",
+          "type": "string"
+        },
+        "api": {
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Api",
+          "type": "integer"
+        },
+        "python": {
+          "maxLength": 100,
+          "title": "Python",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "api",
+        "python"
+      ],
+      "title": "Runtime",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "manifest": {
+      "const": 1,
+      "title": "Manifest",
+      "type": "integer"
+    },
+    "id": {
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*\\.[a-z0-9]+(-[a-z0-9]+)*$",
+      "title": "Id",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "title": "Version",
+      "type": "string"
+    },
+    "name": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "maxProperties": 32,
+      "minProperties": 1,
+      "title": "Name",
+      "type": "object"
+    },
+    "summary": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "maxProperties": 32,
+      "minProperties": 1,
+      "title": "Summary",
+      "type": "object"
+    },
+    "authors": {
+      "items": {
+        "$ref": "#/$defs/Author"
+      },
+      "maxItems": 10,
+      "minItems": 1,
+      "title": "Authors",
+      "type": "array"
+    },
+    "license": {
+      "enum": [
+        "Apache-2.0",
+        "BSD-2-Clause",
+        "BSD-3-Clause",
+        "GPL-3.0-only",
+        "ISC",
+        "LGPL-3.0-only",
+        "MIT",
+        "MPL-2.0"
+      ],
+      "title": "License",
+      "type": "string"
+    },
+    "homepage": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Homepage"
+    },
+    "icon": {
+      "anyOf": [
+        {
+          "enum": [
+            "activity",
+            "antenna",
+            "battery",
+            "battery-charging",
+            "bell",
+            "book-open",
+            "bookmark",
+            "bot",
+            "calendar",
+            "camera",
+            "car",
+            "chart-bar",
+            "chart-line",
+            "circle-check",
+            "clock",
+            "cloud",
+            "cloud-rain",
+            "cloud-sun",
+            "code",
+            "compass",
+            "contact",
+            "database",
+            "dice-5",
+            "droplets",
+            "eye",
+            "file-text",
+            "flag",
+            "flame",
+            "gamepad-2",
+            "gauge",
+            "globe",
+            "hard-drive",
+            "hash",
+            "heart",
+            "house",
+            "image",
+            "inbox",
+            "key",
+            "languages",
+            "link",
+            "list",
+            "lock",
+            "mail",
+            "map",
+            "map-pin",
+            "megaphone",
+            "message-circle",
+            "message-square",
+            "moon",
+            "mountain",
+            "music",
+            "navigation",
+            "plane",
+            "plug",
+            "puzzle",
+            "radio",
+            "radio-tower",
+            "refresh-cw",
+            "repeat",
+            "rss",
+            "search",
+            "send",
+            "server",
+            "settings",
+            "share-2",
+            "shield",
+            "ship",
+            "signal",
+            "sliders-horizontal",
+            "smile",
+            "snowflake",
+            "sparkles",
+            "star",
+            "sun",
+            "tag",
+            "terminal",
+            "thermometer",
+            "timer",
+            "tree-pine",
+            "triangle-alert",
+            "truck",
+            "user",
+            "users",
+            "webhook",
+            "wifi",
+            "wind",
+            "workflow",
+            "wrench",
+            "zap"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Icon"
+    },
+    "categories": {
+      "items": {
+        "enum": [
+          "bot",
+          "utility",
+          "monitoring",
+          "integration",
+          "fun"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Categories",
+      "type": "array"
+    },
+    "runtime": {
+      "$ref": "#/$defs/Runtime"
+    },
+    "compat": {
+      "$ref": "#/$defs/Compat"
+    },
+    "entry": {
+      "maxLength": 200,
+      "title": "Entry",
+      "type": "string"
+    },
+    "hooks": {
+      "items": {
+        "enum": [
+          "message",
+          "raw_packet",
+          "contact",
+          "telemetry",
+          "health",
+          "timer"
+        ],
+        "type": "string"
+      },
+      "maxItems": 6,
+      "title": "Hooks",
+      "type": "array"
+    },
+    "permissions": {
+      "$ref": "#/$defs/Permissions"
+    },
+    "privacy": {
+      "$ref": "#/$defs/Privacy"
+    },
+    "config_schema": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Path of the config schema file, e.g. config.schema.json",
+      "title": "Config Schema"
+    },
+    "i18n": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "maxProperties": 32,
+      "title": "I18N",
+      "type": "object"
+    },
+    "readme": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "maxProperties": 32,
+      "minProperties": 1,
+      "title": "Readme",
+      "type": "object"
+    }
+  },
+  "required": [
+    "manifest",
+    "id",
+    "version",
+    "name",
+    "summary",
+    "authors",
+    "license",
+    "categories",
+    "runtime",
+    "compat",
+    "entry",
+    "hooks",
+    "permissions",
+    "privacy",
+    "readme"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}
