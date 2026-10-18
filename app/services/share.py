@@ -303,7 +303,9 @@ def _service_error(response: CheckedResponse, payload: dict[str, Any] | None) ->
         params: dict[str, Any] = {"retry_after": _retry_after(response)}
         if code == "share_quota_exceeded":
             scope = payload.get("scope") if payload is not None else None
-            params["scope"] = scope if isinstance(scope, str) and _SCOPE_RE.fullmatch(scope) else None
+            params["scope"] = (
+                scope if isinstance(scope, str) and _SCOPE_RE.fullmatch(scope) else None
+            )
         return ShareError(code, **params)
     return ShareError(code)
 
