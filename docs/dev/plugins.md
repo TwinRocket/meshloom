@@ -177,13 +177,24 @@ can be installed several times ("Weather for #paris", "Weather for #lyon"):
 `app/repository/plugins.py`: `PluginRepository` (CRUD, an in-memory copy of the rows
 like `repository/fanout.py`) and `PluginKvRepository` (`get`, `set`, `delete`, `keys`,
 `usage_bytes`, values stored as JSON). `delete(instance_id, keep_data=True)` keeps the
-KV rows ("uninstall, keep data"); the secrets always go. The 5 MB KV quota is
-enforced by the `storage` capability, not here.
+KV rows ("uninstall, keep data"); the secrets always go. Refusals are a
+`PluginStoreError` with a stable `code` and the field or key names, never a value.
+
+KV bounds (constants in `app/repository/plugins.py`; the `storage` capability
+enforces the same quota, the repository is the backstop):
+
+| Constant | Value | Refusal |
+|---|---|---|
+| `KV_MAX_KEY_BYTES` | 256 UTF-8 bytes; non-empty, no control, format, surrogate, private-use or unassigned character (Unicode category `C*`) | `kv_key_invalid` |
+| `KV_MAX_VALUE_BYTES` | 256 KiB of JSON (UTF-8) per entry; NaN and non-JSON values refused (`kv_value_invalid`) | `kv_value_too_large` |
+| `KV_QUOTA_BYTES` | 5 MiB per instance, keys plus values, a rewritten key counted at its new size | `kv_quota_exceeded` |
 
 ### Secrets
 
-The values of the config schema's `"writeOnly": true` fields live in
-`plugin_secrets`, never in `plugins.config`. They follow the write-only pattern of
+Which fields are secret comes from the instance's config schema, stored in
+`plugins.config_schema` (the plugin's validated `config.schema.json`), never from the
+caller: every `"writeOnly": true` field passed in `config` goes to `plugin_secrets`
+and never sits in `plugins.config`. They follow the write-only pattern of
 `app/secret_fields.py`:
 
 - Every read (`get`, `get_all`, `get_enabled`, `get_by_plugin_id`, the result of
@@ -191,9 +202,14 @@ The values of the config schema's `"writeOnly": true` fields live in
   `config` and names it in `secret_fields`.
 - `config_for_init(instance_id)` is the only accessor with the clear values, for
   the runtime's `plugin.init`. Never return it from a route, log it or export it.
-- Writes take a separate `secrets` mapping: a field omitted, `None` or `********`
-  keeps the stored value, `""` clears it, anything else replaces it. A secret field
-  echoed in `config` is dropped, so the mask is never stored.
+- Writes go through `config`: a secret field omitted, `None` or `********` keeps the
+  stored value, `""` clears it, any other string replaces it (a non-string is
+  `secret_not_string`). `********` for a field with no stored value (after a clear,
+  or at creation) is refused with `secret_required`: the mask is never stored as a
+  value, so it never reaches `plugin.init`.
+- `update(config_schema=...)` (a plugin update) moves the plain values of fields
+  that became secret into `plugin_secrets` and deletes the stored secrets the new
+  schema no longer declares.
 - At rest: in clear for now, like the repeater passwords. Once the Notifications
   key file and its helper (`app/secret_store.py`, Notifications T32, AES-256-GCM)
   exist, the repository encrypts through that helper, never a cipher of its own.
@@ -206,19 +222,27 @@ The values of the config schema's `"writeOnly": true` fields live in
 
 `app/plugins/attention.py` `scan_source(source)` parses a local source with `ast`
 (nothing is imported or run) and returns an `AttentionReport`: `reasons`
-(`code`, `line`, `detail`, `informative`) and `http_hosts`. Reused by the switch
-(T9) and `dev check` (T4d).
+(`code`, `line`, `detail`, `informative`), `http_hosts` and `truncated`. Reused by
+the switch (T9) and `dev check` (T4d). The reasons are a review aid, not an
+exhaustive list of what the sandbox refuses.
+
+It never raises on any `str`, so one hostile bot cannot abort a batch scan: a
+source over `MAX_SOURCE_BYTES` (1 MiB) is `source_too_large` without parsing; a
+`RecursionError` or `MemoryError` from the parser (deep `a+a+...`, `.b` or `()`
+chains) or more than `MAX_AST_NODES` (200 000) nodes is `too_complex`; the walk
+uses an explicit stack, never recursion. Each of these is the only reason then.
 
 | Code | Detail | Informative |
 |---|---|---|
 | `import_not_allowed` | the module (`urllib.request`, `requests`) | no |
 | `threading` | `threading`, `_thread`, `concurrent.*`, `multiprocessing` | no |
-| `open_call`, `exec_call`, `eval_call`, `import_call` (`__import__`) | none | no |
+| `open_call`, `exec_call`, `eval_call`, `compile_call`, `import_call` (`__import__`) | none | no |
+| `process_call` | `os.system`, `os.popen`, `os.fork`, `os.kill`, `os.exec*`, `os.spawn*`, `os.posix_spawn*`, any `subprocess.*` call | no |
 | `long_literal` | a string literal over 156 UTF-8 bytes (a DM's limit); docstrings excluded | no |
 | `print_call` | none (goes to the journal) | yes |
 | `module_state` | a module-level mutable (`dict`, `list`, `set`, ...) or `_bot_globals` (lost on restart) | yes |
 | `global_statement` | the names | yes |
-| `syntax_error` | none (the only reason then) | no |
+| `syntax_error`, `source_too_large`, `too_complex` | none (the only reason then) | no |
 
 The import allowlist and denylist mirror `meshloom_plugin/policy.py` (MSHL-176);
 `tests/test_plugin_attention.py` compares them when that module is importable. A
@@ -229,6 +253,9 @@ local source has no `vendor/`, so any other module is flagged. Relative imports
 credentials, deduplicated in order, at most 20, kept only when the `http`
 permission accepts them (`check_host`; private names and IPs and `meshloom.app`
 are dropped). They **prefill** the `http` permission: the user still consents.
+Extraction is bounded and linear: at most `MAX_URL_SCAN_BYTES` (256 KiB) of literal
+text searched and `MAX_URL_MATCHES` (1000) URLs examined, stopping at 20 hosts;
+`truncated` is true when a bound cut the search, so more hosts may exist.
 
 ## Contract
 
