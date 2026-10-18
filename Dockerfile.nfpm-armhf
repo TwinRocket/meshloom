@@ -41,6 +41,7 @@ ARG VERSION=0.0.0
 WORKDIR /src
 
 COPY app/ app/
+COPY meshloom_plugin/ meshloom_plugin/
 COPY frontend/dist frontend/dist
 COPY frontend/src/data/meshcoreChannels.snapshot.json \
     frontend/src/data/meshcoreChannels.snapshot.json

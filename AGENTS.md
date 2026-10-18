@@ -69,6 +69,8 @@ User docs: `docs/user/` (en, fr). Environment variables for users:
 ```
 meshloom/             the Home Assistant add-on (not a Python package): config.yaml, run.py,
                       Dockerfile FROM the GHCR image
+meshloom_plugin/      plugin child runtime (runner, RPC framing, import policy): stdlib only,
+                      shipped next to app/ (docs/dev/plugins.md, "Runner")
 pkg/keys/             public release key and its procedure (README.md)
 pkg/nfpm/             .deb/.rpm packaging, systemd units, root update helper apply-update
 scripts/quality/      all_quality.sh (the gate)
@@ -125,7 +127,7 @@ cd frontend && npm ci && npm run dev      # Vite on :5173, proxies /api to :8000
 
 `all_quality.sh` autofixes first (`ruff check --fix`, `ruff format`,
 `eslint --fix`, `prettier --write`), so it may leave edits behind: commit them.
-Then it runs `pyright app/`, `pytest tests/`, `vitest run`, `tsc` and `vite build`.
+Then it runs `pyright app/ meshloom_plugin/`, `pytest tests/`, `vitest run`, `tsc` and `vite build`.
 CI (`.github/workflows/all-quality.yml`, aggregate job `all-quality`) runs the
 same checks in check mode, so an unformatted file passes locally and fails in CI
 if you do not commit the autofix. Prettier checks every file under

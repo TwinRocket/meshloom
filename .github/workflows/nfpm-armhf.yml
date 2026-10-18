@@ -63,8 +63,8 @@ jobs:
 
       - name: Overlay tagged sources
         run: |
-          rm -rf app frontend
-          cp -a tag-src/app tag-src/frontend .
+          rm -rf app frontend meshloom_plugin
+          cp -a tag-src/app tag-src/frontend tag-src/meshloom_plugin .
           cp tag-src/pyproject.toml tag-src/uv.lock .
           [ -f tag-src/LICENSE.md ] && cp tag-src/LICENSE.md .
           [ -f tag-src/LICENSES.md ] && cp tag-src/LICENSES.md .

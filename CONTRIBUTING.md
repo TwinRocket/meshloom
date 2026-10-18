@@ -48,9 +48,9 @@ If you need targeted commands while iterating:
 
 ```bash
 # backend
-uv run ruff check app/ tests/ --fix
-uv run ruff format app/ tests/
-uv run pyright app/
+uv run ruff check app/ meshloom_plugin/ tests/ --fix
+uv run ruff format app/ meshloom_plugin/ tests/
+uv run pyright app/ meshloom_plugin/
 PYTHONPATH=. uv run pytest tests/ -v
 
 # frontend
