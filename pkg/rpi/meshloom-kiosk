@@ -34,14 +34,24 @@ if command -v flock >/dev/null 2>&1; then
     flock -n 9 || exit 0
 fi
 
+# GET /api/auth/session is public on 5.x and answers 200 whether or not an
+# account exists; /api/health is only {"ok": true} there. The fallback keeps a
+# 4.x server (no /api/auth) working.
+probe() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -sf -o /dev/null "$URL$1"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O /dev/null "$URL$1"
+    else
+        return 1
+    fi
+}
+
 wait_ready() {
     i=0
     while [ "$i" -lt 180 ]; do
-        if command -v curl >/dev/null 2>&1; then
-            curl -sf -o /dev/null "$URL/api/health" && return 0
-        elif command -v wget >/dev/null 2>&1; then
-            wget -q -O /dev/null "$URL/api/health" && return 0
-        fi
+        probe /api/auth/session && return 0
+        probe /api/health && return 0
         i=$((i + 1))
         sleep 1
     done
@@ -49,6 +59,11 @@ wait_ready() {
 }
 
 wait_ready
+
+# TODO(T60): device-token bootstrap. The `kiosk` account has no
+# password and no trusted-network rule, so until T60 lands the screen shows the
+# setup page (with the installation code) and then the login page. T60 reads
+# /var/lib/meshloom/kiosk.token here and passes a one-time bootstrap URL as "$URL".
 
 # Official Pi kiosk flags, plus --password-store=basic so the keyring
 # dialog does not block the first launch.

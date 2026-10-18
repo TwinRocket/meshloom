@@ -16,9 +16,12 @@ import { PASSWORD_MIN_LENGTH, noSessionReason, type AuthSessionInfo } from './ty
  */
 export function SetupPage({
   setupCodeRequired,
+  kioskSetupCode,
   onDone,
 }: {
   setupCodeRequired: boolean;
+  /** Set only on the kiosk screen: the code is shown there, nobody types on it. */
+  kioskSetupCode?: string;
   onDone: (session: AuthSessionInfo) => void;
 }) {
   const { t } = useTranslation();
@@ -67,6 +70,18 @@ export function SetupPage({
 
   return (
     <AuthLayout title={t('auth.setup.title')} description={t('auth.setup.description')}>
+      {kioskSetupCode && (
+        <div role="status" className="space-y-1 rounded-md border border-border bg-muted/50 p-3">
+          <p className="text-sm font-medium">{t('auth.setup.kioskBanner.title')}</p>
+          <p className="text-xs text-muted-foreground">{t('auth.setup.kioskBanner.body')}</p>
+          <p
+            className="text-center font-mono text-2xl tracking-widest"
+            aria-label={t('auth.setup.kioskBanner.code', { code: kioskSetupCode })}
+          >
+            {kioskSetupCode.replace(/^(\d{4})(\d{4})$/, '$1 $2')}
+          </p>
+        </div>
+      )}
       <form onSubmit={submit} className="space-y-4" noValidate>
         {setupCodeRequired && (
           <div className="space-y-1.5">

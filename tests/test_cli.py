@@ -371,3 +371,9 @@ def test_every_install_kind_ships_the_command():
     dockerfile = (ROOT / "Dockerfile").read_text()
     assert "dst: /usr/bin/meshloom-admin" in nfpm
     assert "pkg/nfpm/meshloom-admin /usr/local/bin/meshloom-admin" in dockerfile
+
+
+def test_setup_code_works_with_only_a_kiosk_account(dbfile, capsys):
+    _add_user(dbfile, "kiosk", "kiosk", None)
+    assert _query(dbfile, "SELECT count(*) FROM users") == [(1,)]
+    assert run(dbfile, "setup-code") == 0

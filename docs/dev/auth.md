@@ -820,3 +820,23 @@ curl -c jar -H 'Content-Type: application/json' \
   -d '{"username":"owner","password":"a long passphrase"}' http://HOST:8000/api/auth/login
 curl -b jar http://HOST:8000/api/auth/session
 ```
+
+## Kiosk host
+
+`/var/lib/meshloom/kiosk` (host flag, `app/AGENTS.md`, "Host flags") makes the
+first start create a `kiosk` account (`app/services/kiosk.py`, called from
+`prepare_first_run`) with no trusted-network rule. `UserRepository.any_exist()`
+(the meaning of "setup done" in `/auth/session`, `/auth/setup`, the gate and the
+ingress first-user rule) ignores `kiosk` accounts. On a kiosk host an
+installation code is issued even on a fresh database; `/auth/session` returns it
+as `kiosk_setup_code` only to a direct loopback peer carrying no proxy header
+while setup is open.
+
+The account is created when absent by username, at every start: a disabled
+`kiosk` account stays disabled, but one an administrator deleted comes back at
+the next restart of a kiosk host (harmless: no password, read-only). Remove the
+marker to stop that. The code is shown only after the trusted-network request
+checks (`rule_blocker`: not relayed or ingress, no trusted proxy, no proxy
+header, strict `Host`) with loopback allowed, and any error hides it.
+`meshloom-admin setup-code` works on a kiosk host (it tests `any_exist()`); the
+screen then stops showing the old code.

@@ -21,6 +21,8 @@ export interface AuthSessionInfo {
   auth_compat: { basic: boolean };
   /** Whether the server saw the request as https (a trusted proxy's `X-Forwarded-Proto`). */
   secure?: boolean;
+  /** The installation code, only for the kiosk screen (a direct loopback request, setup open). */
+  kiosk_setup_code?: string;
   user?: AuthUser;
   via?: AuthVia;
   instance?: { name?: string; version: string };

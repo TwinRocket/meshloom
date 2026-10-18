@@ -56,6 +56,12 @@ With no network at all, open `http://127.0.0.1:8000` on the Pi itself. Messaging
 
 Bots, which run code on the machine, are turned off on this image, like in every Linux package. See [A trusted network](/en/docs/trust/).
 
+## Kiosk image (screen on the wall)
+
+The kiosk image shows Meshloom full screen on a display plugged into the Pi, with a read-only `kiosk` account that has no password: it reads channel messages, never direct messages, and has no settings.
+
+On a new kiosk image, or on a kiosk image flashed before 5.0 once it has been updated, the screen first shows **Administrator account not created yet** with an installation code. From a phone or a computer on the same network, open `http://meshloom.local:8000`, type that code and create the administrator account. The screen itself then shows the sign-in page: the kiosk account has no password, so for now the wall screen stays on that page. Signing the screen in automatically comes later in 5.0, with device tokens. The code only appears on the Pi’s own screen; to get a new one, run `meshloom-admin setup-code` on the Pi.
+
 ## Update
 
 When the image (or any Linux package install) can update itself, **Settings > Updates** offers **Install now** and an optional automatic update. This only updates Meshloom, from the signed Meshloom repository, never the whole operating system. Images from 4.18 on are ready for this out of the box. On an older image, one `sudo apt update && sudo apt install meshloom` enables it.

@@ -119,6 +119,39 @@ describe('session gate', () => {
     expect(JSON.parse(String(post[1]!.body)).setup_code).toBe('1234 5678');
   });
 
+  it('shows the kiosk banner with the installation code when the server sends it', async () => {
+    stubFetch({
+      'GET /auth/session': () =>
+        jsonResponse({
+          ...base,
+          setup_required: true,
+          setup_code_required: true,
+          kiosk_setup_code: '12345678',
+        }),
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    expect(await screen.findByText(t('auth.setup.kioskBanner.title'))).toBeInTheDocument();
+    expect(screen.getByText('1234 5678')).toBeInTheDocument();
+  });
+
+  it('shows no kiosk banner without the code', async () => {
+    stubFetch({
+      'GET /auth/session': () =>
+        jsonResponse({ ...base, setup_required: true, setup_code_required: true }),
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    await screen.findByLabelText(t('auth.setup.code'));
+    expect(screen.queryByText(t('auth.setup.kioskBanner.title'))).not.toBeInTheDocument();
+  });
+
   it('keeps the setup button off until the password is long enough and confirmed', async () => {
     const user = userEvent.setup();
     stubFetch({ 'GET /auth/session': () => jsonResponse({ ...base, setup_required: true }) });

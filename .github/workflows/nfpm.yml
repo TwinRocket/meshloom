@@ -91,6 +91,15 @@ jobs:
           sudo useradd --system --no-create-home meshloom
           sudo /opt/meshloom/.venv/bin/meshloom-admin --help
 
+      # The kiosk launcher ships at the path images flashed before 5.0 use.
+      - name: Check the kiosk launcher in the amd64 package
+        run: |
+          deb="$(ls dist/meshloom_*_amd64.deb | head -n 1)"
+          dpkg-deb -c "$deb" | grep -E -- '^-rwxr-xr-x .* \./usr/lib/meshloom/meshloom-kiosk$'
+
+      - name: shellcheck the kiosk launcher and the maintainer script
+        run: shellcheck -e SC2174 pkg/rpi/meshloom-kiosk pkg/nfpm/postinstall.sh
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nfpm-amd64-pr

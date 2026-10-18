@@ -29,6 +29,12 @@ contents:
     dst: /usr/lib/meshloom/apply-update
     file_info:
       mode: 0755
+  # Kiosk launcher at the path images flashed before 5.0.0 already use; the
+  # image owns the autostart entry (pkg/rpi/meshloom-kiosk.desktop).
+  - src: __RPIDIR__/meshloom-kiosk
+    dst: /usr/lib/meshloom/meshloom-kiosk
+    file_info:
+      mode: 0755
   - src: __PKGDIR__/meshloom-update.service
     dst: /usr/lib/systemd/system/meshloom-update.service
     file_info:

@@ -1,0 +1,11 @@
+{
+  "auth": {
+    "setup": {
+      "kioskBanner": {
+        "title": "Administrator account not created yet",
+        "body": "From a phone or computer on the same network, open this Meshloom and create the administrator account. Installation code:",
+        "code": "Installation code {{code}}"
+      }
+    }
+  }
+}

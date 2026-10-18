@@ -56,6 +56,12 @@ Sans aucun réseau, ouvrez `http://127.0.0.1:8000` sur le Pi lui-même. La messa
 
 Les bots, qui exécutent du code sur la machine, sont désactivés sur cette image, comme dans tout paquet Linux. Voir [Un réseau de confiance](/docs/trust/).
 
+## Image kiosque (écran au mur)
+
+L’image kiosque affiche Meshloom en plein écran sur un écran branché au Pi, avec un compte `kiosk` en lecture seule et sans mot de passe : il lit les messages des canaux, jamais les messages directs, et n’a aucun réglage.
+
+Sur une image kiosque neuve, ou gravée avant la 5.0 une fois mise à jour, l’écran affiche d’abord **Compte administrateur pas encore créé** avec un code d’installation. Depuis un téléphone ou un ordinateur du même réseau, ouvrez `http://meshloom.local:8000`, saisissez ce code et créez le compte administrateur. L’écran du mur affiche ensuite la page de connexion : le compte kiosque n’a pas de mot de passe, l’écran reste donc sur cette page pour le moment. La connexion automatique de l’écran viendra plus tard dans la 5.0, avec les jetons d’appareil. Le code n’apparaît que sur l’écran du Pi ; pour en obtenir un nouveau, lancez `meshloom-admin setup-code` sur le Pi.
+
 ## Mettre à jour
 
 Quand l’image (ou toute installation par paquet Linux) sait se mettre à jour seule, **Réglages > Mises à jour** propose **Installer maintenant** et une mise à jour automatique facultative. Cela ne met à jour que Meshloom, depuis le dépôt Meshloom signé, jamais tout le système d’exploitation. Les images à partir de la 4.18 sont prêtes pour cela dès la sortie. Sur une image plus ancienne, un seul `sudo apt update && sudo apt install meshloom` l’active.

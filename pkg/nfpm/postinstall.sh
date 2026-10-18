@@ -114,6 +114,21 @@ EOF
 migrate_apt_source
 migrate_dnf_source
 
+# Kiosk image flashed before 5.0.0: the image, not the deb, installed the
+# autostart entry and the setup helper, so they identify it. The launcher is not
+# a signal here: the deb ships it, a plain install has it too. The marker is
+# read by the app (app/services/kiosk.py); never created on a plain install.
+mark_kiosk_host() {
+    [ -f /etc/xdg/autostart/meshloom-kiosk.desktop ] \
+        || [ -f /usr/lib/meshloom/meshloom-kiosk-setup ] || return 0
+    [ -e /var/lib/meshloom/kiosk ] && return 0
+    mkdir -p /var/lib/meshloom || return 0
+    : >/var/lib/meshloom/kiosk || return 0
+    chmod 0644 /var/lib/meshloom/kiosk || true
+    echo "==> Kiosk image detected: marked this host as a Meshloom kiosk."
+}
+mark_kiosk_host || true
+
 if command -v systemctl >/dev/null 2>&1; then
     # Works offline too (image builds, chroots): enable only writes the
     # wants/ symlink. Before 4.18 this ran only with systemd up, so baked
