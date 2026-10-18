@@ -558,7 +558,7 @@ async def test_recovery_codes_travel_with_the_accounts_only(backup_db, setup_stu
     assert len(before) == 2
     exported = await _export()
     section = exported["sections"][USERS_SECTION]
-    assert section["version"] == 2
+    assert section["version"] == 3
     bob = next(user for user in section["data"]["users"] if user["username"] == "bob")
     assert [code["used_at"] for code in bob["recovery_codes"]] == [None, 150]
 
@@ -607,3 +607,75 @@ async def test_recovery_codes_need_an_enabled_factor_and_an_affordable_hash(back
     job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
     assert RECOVERY_HASH not in json.dumps(job.model_dump(), default=str)
     assert len(await _recovery_codes(backup_db)) == 2  # the section was refused, nothing changed
+
+
+async def _passkeys(test_db) -> list[tuple]:
+    async with test_db.readonly() as conn:
+        async with conn.execute(
+            "SELECT user_id, credential_id, public_key, sign_count, transports, aaguid, name,"
+            " backup_eligible, backed_up, created_at, last_used_at"
+            " FROM webauthn_credentials ORDER BY id"
+        ) as cursor:
+            return [tuple(row) for row in await cursor.fetchall()]
+
+
+async def _seed_passkeys(test_db) -> None:
+    users = {user.username: user.id for user in await UserRepository.list_all()}
+    async with test_db.tx() as conn:
+        await conn.execute(
+            "INSERT INTO webauthn_credentials (user_id, credential_id, public_key, sign_count,"
+            " transports, aaguid, name, backup_eligible, backed_up, created_at, last_used_at)"
+            " VALUES (?, x'0a0b0c', x'a50102', 7, '[\"usb\"]', 'aa-guid', 'Key', 1, 0, 100, 200),"
+            " (?, x'0d0e0f', x'a50103', 0, '[]', '', 'Phone', 0, 0, 100, NULL)",
+            (users["Alice"], users["bob"]),
+        )
+
+
+@pytest.mark.asyncio
+async def test_passkeys_travel_with_the_accounts_only(backup_db, setup_stub):
+    await _seed_accounts(backup_db)
+    await _seed_passkeys(backup_db)
+    before = await _passkeys(backup_db)
+    exported = await _export()
+    section = exported["sections"][USERS_SECTION]
+    assert section["version"] == 3
+    alice = next(user for user in section["data"]["users"] if user["username"] == "Alice")
+    assert alice["passkeys"][0]["credential_id"] == "CgsM"
+    assert alice["passkeys"][0]["transports"] == ["usb"]
+
+    without = json.dumps(await _export(include_accounts=False))
+    assert "CgsM" not in without and "passkeys" not in without
+
+    async with backup_db.tx() as conn:
+        await conn.execute("DELETE FROM webauthn_credentials")
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    assert await _passkeys(backup_db) == before
+
+
+@pytest.mark.asyncio
+async def test_passkeys_restore_only_on_accounts_that_can_have_them(backup_db, setup_stub):
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    users = exported["sections"][USERS_SECTION]["data"]["users"]
+    passkey = {"credential_id": "AQID", "public_key": "pQEC", "name": "Key", "created_at": 1}
+    for user in users:
+        user["passkeys"] = [passkey]
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    # One credential id once; the Home Assistant identity gets none.
+    rows = await _passkeys(backup_db)
+    assert [row[0] for row in rows] == [next(u["id"] for u in users if u["username"] == "Alice")]
+
+    section = exported["sections"][USERS_SECTION]
+    section["version"] = 2
+    for user in section["data"]["users"]:
+        user.pop("passkeys")
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    assert await _passkeys(backup_db) == []
+
+    users[0]["passkeys"] = [{**passkey, "credential_id": "not base64!"}]
+    section["version"] = 3
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert f"section_failed:{USERS_SECTION}" in job.result.warnings

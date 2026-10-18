@@ -5,8 +5,9 @@ Rules (``docs/dev/backup.md``, "Accounts"):
 - **Export.** Every row of ``users``: username, display name, role, provider
   and external id, flags, the argon2id password hash and the TOTP material
   (secret, enable time, last counter, and since version 2 the account's
-  ``recovery_codes``: argon2id hashes with their creation and use times). The
-  section is ``sensitive``. The export
+  ``recovery_codes``: argon2id hashes with their creation and use times; since
+  version 3 its ``passkeys``: WebAuthn credential ids, public keys, counters
+  and names, base64url). The section is ``sensitive``. The export
   dialog's "Include accounts" box (``BackupExportRequest.include_accounts``,
   checked by default) leaves every name of ``ACCOUNT_SECTIONS`` out when unchecked.
   Sessions, pairing codes, the audit trail, ``auth_settings`` (with the setup code
@@ -21,6 +22,8 @@ Rules (``docs/dev/backup.md``, "Accounts"):
   everyone out. Rows follow the API's rules: a password hash, TOTP material or
   forced change only on a local account outside ``kiosk`` (stripped otherwise),
   recovery codes only with an enabled TOTP factor (a version 1 file has none),
+  passkeys only on a local account with a password outside ``kiosk`` (a
+  version 1 or 2 file has none; a credential id listed twice is dropped),
   a ``system`` account only as a kiosk, an argon2id hash only up to libsodium's
   MODERATE cost. Every login session is deleted and every socket of the old and
   new account ids is closed (ids may now name other people), ``updated_at``
@@ -38,10 +41,12 @@ Rules (``docs/dev/backup.md``, "Accounts"):
   only the rows whose owner exists after the accounts restore and whose
   scopes that owner's role grants (``api_token_dropped:<id>`` otherwise). A
   restore of ``users`` without this section leaves no token (the accounts'
-  rows cascade). Passkeys (T52) go inside the ``users`` section, as a new
-  ``version``, as the recovery codes (T50) did in version 2.
+  rows cascade). Passkeys (T52) came inside the ``users`` section in version
+  3, as the recovery codes (T50) did in version 2.
 """
 
+import base64
+import binascii
 import json
 import logging
 import re
@@ -72,7 +77,8 @@ logger = logging.getLogger(__name__)
 
 USERS_SECTION = "users"
 # 2: each user carries ``recovery_codes`` (TOTP, Access T50).
-USERS_SECTION_VERSION = 2
+# 3: each user carries ``passkeys`` (WebAuthn, Access T52).
+USERS_SECTION_VERSION = 3
 API_TOKENS_SECTION = "api_tokens"
 # Sections the "Include accounts" box covers.
 ACCOUNT_SECTIONS: tuple[str, ...] = (USERS_SECTION, API_TOKENS_SECTION)
@@ -88,6 +94,10 @@ _HASH_PARAMS = re.compile(r"^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=1\$[^$]+\$[^$]+
 _MAX_HASH_MEM_KIB = argon2id.MEMLIMIT_MODERATE // 1024
 _MAX_HASH_PASSES = argon2id.OPSLIMIT_MODERATE
 _MAX_RECOVERY_CODES = 64
+_MAX_PASSKEYS = 64
+# WebAuthn caps a credential id at 1023 bytes; a COSE public key is far smaller.
+_MAX_CREDENTIAL_ID_BYTES = 1023
+_MAX_PUBLIC_KEY_BYTES = 4096
 
 _USER_COLUMNS = (
     "id",
@@ -131,6 +141,49 @@ class BackupRecoveryCode(BaseModel):
         return self
 
 
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+_BASE64URL = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def _unb64url(text: str, limit: int, field: str) -> bytes:
+    if not _BASE64URL.fullmatch(text):
+        raise ValueError(f"{field} is not base64url")
+    try:
+        data = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+    except (binascii.Error, ValueError):
+        raise ValueError(f"{field} is not base64url") from None
+    if not data or len(data) > limit:
+        raise ValueError(f"{field} has a wrong length")
+    return data
+
+
+class BackupPasskey(BaseModel):
+    """One WebAuthn credential: a public key and a counter, never a secret."""
+
+    model_config = ConfigDict(hide_input_in_errors=True, extra="ignore")
+
+    credential_id: str = Field(max_length=2048)
+    public_key: str = Field(max_length=8192)
+    sign_count: int = Field(default=0, ge=0, le=2**32 - 1)
+    transports: list[str] = Field(default_factory=list, max_length=16)
+    aaguid: str = Field(default="", max_length=64)
+    name: str = Field(min_length=1, max_length=64)
+    backup_eligible: bool = False
+    backed_up: bool = False
+    created_at: int = Field(ge=0)
+    last_used_at: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _shapes(self) -> "BackupPasskey":
+        _unb64url(self.credential_id, _MAX_CREDENTIAL_ID_BYTES, "credential_id")
+        _unb64url(self.public_key, _MAX_PUBLIC_KEY_BYTES, "public_key")
+        self.transports = [item[:32] for item in self.transports if isinstance(item, str)]
+        return self
+
+
 class BackupUser(BaseModel):
     """One account as the file holds it. Unknown keys (a ``sessions`` list a
     file might carry) are dropped; the secrets never reach an error message."""
@@ -152,6 +205,7 @@ class BackupUser(BaseModel):
     recovery_codes: list[BackupRecoveryCode] = Field(
         default_factory=list, max_length=_MAX_RECOVERY_CODES
     )
+    passkeys: list[BackupPasskey] = Field(default_factory=list, max_length=_MAX_PASSKEYS)
     created_at: int = Field(ge=0)
     updated_at: int = Field(ge=0)
 
@@ -173,6 +227,8 @@ class BackupUser(BaseModel):
             _check_argon2id(self.password_hash.get_secret_value(), "password_hash")
         if self.password_hash is None:
             self.must_change_password = False
+            # A passkey adds a way in next to the password (``app/auth/webauthn.py``).
+            self.passkeys = []
         return self
 
     def can_sign_in_here(self, *, addon: bool) -> bool:
@@ -207,6 +263,12 @@ async def export_users() -> BackupSection | None:
             "SELECT user_id, code_hash, created_at, used_at FROM recovery_codes ORDER BY id"
         ) as cursor:
             code_rows = await cursor.fetchall()
+        async with conn.execute(
+            "SELECT user_id, credential_id, public_key, sign_count, transports, aaguid, name,"
+            " backup_eligible, backed_up, created_at, last_used_at"
+            " FROM webauthn_credentials ORDER BY id"
+        ) as cursor:
+            passkey_rows = await cursor.fetchall()
     if not rows:
         return None
     codes: dict[int, list[dict]] = {}
@@ -214,12 +276,33 @@ async def export_users() -> BackupSection | None:
         codes.setdefault(int(code_row[0]), []).append(
             {"code_hash": code_row[1], "created_at": code_row[2], "used_at": code_row[3]}
         )
+    passkeys: dict[int, list[dict]] = {}
+    for passkey_row in passkey_rows:
+        try:
+            transports = json.loads(passkey_row[4] or "[]")
+        except ValueError:
+            transports = []
+        passkeys.setdefault(int(passkey_row[0]), []).append(
+            {
+                "credential_id": _b64url(bytes(passkey_row[1])),
+                "public_key": _b64url(bytes(passkey_row[2])),
+                "sign_count": passkey_row[3],
+                "transports": transports if isinstance(transports, list) else [],
+                "aaguid": passkey_row[5],
+                "name": passkey_row[6],
+                "backup_eligible": bool(passkey_row[7]),
+                "backed_up": bool(passkey_row[8]),
+                "created_at": passkey_row[9],
+                "last_used_at": passkey_row[10],
+            }
+        )
     users = []
     for row in rows:
         user = {column: row[column] for column in _USER_COLUMNS}
         user["disabled"] = bool(user["disabled"])
         user["must_change_password"] = bool(user["must_change_password"])
         user["recovery_codes"] = codes.get(int(row["id"]), [])
+        user["passkeys"] = passkeys.get(int(row["id"]), [])
         users.append(user)
     return BackupSection(data={"users": users})
 
@@ -313,7 +396,9 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
     # Every session goes: an id kept from the file may now name another person.
     await conn.execute("DELETE FROM sessions")
     await conn.execute("DELETE FROM recovery_codes")
+    await conn.execute("DELETE FROM webauthn_credentials")
     await conn.execute("DELETE FROM users")
+    seen_credentials: set[bytes] = set()
     for user in data.users:
         name = normalize_username(user.username)
         await conn.execute(
@@ -346,6 +431,35 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
                 for code in user.recovery_codes
             ],
         )
+        passkey_rows = []
+        for passkey in user.passkeys:
+            credential_id = _unb64url(
+                passkey.credential_id, _MAX_CREDENTIAL_ID_BYTES, "credential_id"
+            )
+            if credential_id in seen_credentials:
+                continue
+            seen_credentials.add(credential_id)
+            passkey_rows.append(
+                (
+                    user.id,
+                    credential_id,
+                    _unb64url(passkey.public_key, _MAX_PUBLIC_KEY_BYTES, "public_key"),
+                    passkey.sign_count,
+                    json.dumps(passkey.transports),
+                    passkey.aaguid,
+                    passkey.name,
+                    int(passkey.backup_eligible),
+                    int(passkey.backed_up),
+                    passkey.created_at,
+                    passkey.last_used_at,
+                )
+            )
+        await conn.executemany(
+            "INSERT INTO webauthn_credentials (user_id, credential_id, public_key, sign_count,"
+            " transports, aaguid, name, backup_eligible, backed_up, created_at, last_used_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            passkey_rows,
+        )
     async with conn.execute(_USABLE_ADMIN_SQL, (int(addon),)) as cursor:
         row = await cursor.fetchone()
     if not row or int(row[0]) < 1:
@@ -371,8 +485,11 @@ register_backup_section(
     export_users,
     restore_users,
     description={
-        "en": "Accounts: usernames, roles, password hashes and two-factor secrets",
-        "fr": "Comptes : noms, rôles, hachés de mots de passe et secrets de double authentification",
+        "en": "Accounts: usernames, roles, password hashes, two-factor secrets and passkeys",
+        "fr": (
+            "Comptes : noms, rôles, hachés de mots de passe, secrets de double authentification"
+            " et passkeys"
+        ),
     },
     sensitive=True,
     version=USERS_SECTION_VERSION,
