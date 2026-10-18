@@ -478,9 +478,16 @@ class _SendResult:
     expired: bool = False
     # Refused by the egress guard: a configuration state, not a delivery failure.
     refused: bool = False
+    # Refused for good (``EgressBlocked.permanent``): no setting can lift it.
+    invalid: bool = False
 
 
 class PushManager:
+    def __init__(self) -> None:
+        # (subscription id, code) already logged at WARNING: a liftable refusal
+        # repeats on every dispatch until the setting or DNS changes.
+        self._refusals_logged: set[tuple[str, str]] = set()
+
     async def dispatch_message(self, data: dict) -> None:
         """Send push notifications for a message event to all devices."""
         # Don't notify for messages the operator just sent themselves
@@ -622,6 +629,9 @@ class PushManager:
         remove_ids: list[str] = []
         for r in results:
             if isinstance(r, _SendResult):
+                if r.invalid:
+                    remove_ids.append(r.sub_id)
+                    continue
                 if r.refused:
                     continue  # kept, and never counted toward the eviction threshold
                 if r.expired:
@@ -653,11 +663,22 @@ class PushManager:
                     allow_private_network=allow_private,
                 )
             result.success = True
+            self._refusals_logged = {k for k in self._refusals_logged if k[0] != sub_id}
         except EgressBlocked as e:
-            # Kept and not counted as a failure: the endpoint becomes valid again
-            # when the setting is ticked or DNS changes.
             result.refused = True
-            logger.warning("Push send refused by the egress guard for %s: %s", sub_id, e.code)
+            if e.permanent:
+                # A bad URL or an address forbidden whatever the setting: deleted.
+                result.invalid = True
+                logger.warning(
+                    "Push endpoint refused for good by the egress guard (%s), removing %s",
+                    e.code,
+                    sub_id,
+                )
+            elif (sub_id, e.code) not in self._refusals_logged:
+                # Kept and not counted as a failure: the endpoint becomes valid
+                # again when the setting is ticked or DNS changes. Logged once.
+                self._refusals_logged.add((sub_id, e.code))
+                logger.warning("Push send refused by the egress guard for %s: %s", sub_id, e.code)
         except WebPushException as e:
             status = getattr(e, "response", None)
             status_code = getattr(status, "status_code", 0) if status else 0
@@ -669,8 +690,9 @@ class PushManager:
                 logger.warning("Push send failed for %s: %s", sub_id, type(e).__name__)
         except TimeoutError:
             logger.warning("Push send timed out for %s", sub_id)
-        except Exception:
-            logger.debug("Push send error for %s", sub_id, exc_info=True)
+        except Exception as e:
+            # The type only: a requests error names the endpoint URL (its path is a secret).
+            logger.warning("Push send error for %s: %s", sub_id, type(e).__name__)
         return result
 
 
