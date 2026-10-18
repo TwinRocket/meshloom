@@ -19,7 +19,7 @@ You need [uv](https://docs.astral.sh/uv/) with Python 3.11 or later (CI tests 3.
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --no-proxy-headers
 ```
 
 Radio transport is configured in the web UI after startup (`app_settings.radio_transport`). An empty serial port means auto-detect. Do not set `MESHCORE_SERIAL_PORT` / `MESHCORE_TCP_HOST` / `MESHCORE_BLE_ADDRESS` to choose a transport: an existing database with no stored transport imports them once (upgrade path); a new database ignores them (`app/services/radio_transport.py`).

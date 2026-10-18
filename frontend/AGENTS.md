@@ -258,18 +258,21 @@ purpose.
   the page instead. A tab returning to the foreground re-asks the session.
 - **429.** `ApiError.retryAfter` comes from `Retry-After` or `params.retry_after`;
   `formatApiError` passes it as `{{retry_after}}` to `errors.auth_rate_limited`.
-- **Ingress.** A login or setup answer carrying `session_reason` (or `via: ingress`)
-  opened no session: `noSessionReason()` turns it into `errors.auth_ingress_unsupported`
-  on the form instead of mounting the app, which would loop on 401 (`docs/dev/auth.md`).
+- **Ingress.** Home Assistant signs ingress users in on every request (`via: ingress`,
+  no cookie): the app mounts straight away. An anonymous answer whose `methods` say
+  ingress only (`ingressOnly()`, `auth/types.ts`) renders `IngressSignInPage` instead
+  of the login or setup form (password login and setup answer 403 `auth_ingress_only`
+  there). Under ingress a 401 or a lost session on return to the foreground re-reads
+  the session instead of opening `ReloginDialog` (`docs/dev/auth.md`, "Ingress").
 - **Layout and prefetch.** `AuthLayout` scrolls itself (`h-dvh overflow-y-auto`, card
   `m-auto`): `body` is `overflow:hidden`. `index.html` starts its API prefetch only after
   `/api/auth/session` says authenticated, so the gate pages make no 401 requests.
 - **Sign out** with Basic credentials ends nothing; `signOut()` reports whether the
   session ended and the menu explains when it did not.
 - **Not done on purpose.** No "remember me" (the backend has one session lifetime),
-  no capabilities (the permission registry is a later ticket), no session under
-  ingress yet (`docs/dev/auth.md`).
-- Strings: slice `aa` (`auth.*`, plus the three error codes slice `x` lacks).
+  no capabilities (the permission registry is a later ticket).
+- Strings: slice `aa` (`auth.*`, plus the error codes slice `x` lacks), slice `ai`
+  (`auth.ingress.*`, `errors.auth_ingress_only`).
   Tests: `src/test/auth.test.tsx`.
 
 ### i18n

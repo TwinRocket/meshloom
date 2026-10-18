@@ -70,9 +70,7 @@ Avec `docker run`, utilisez `docker exec -it <conteneur> meshloom-admin reset-pa
 
 ### Add-on Home Assistant
 
-L’add-on n’a pas de comptes propres : Home Assistant vous connecte et Meshloom accepte la personne qui l’ouvre depuis la barre latérale. Si vous ne pouvez pas ouvrir Meshloom, rétablissez votre accès dans Home Assistant lui-même.
-
-**Limite connue de la pré-version 5.0 :** cette connexion par Home Assistant n’existe pas encore, et via la barre latérale Meshloom ne peut pas garder de session (aucun cookie n’y est posé, exprès : tous les add-ons partagent cette adresse). En attendant, exigé pour la 5.0.0, ouvrez l’add-on sur son propre port (8000) et connectez-vous là. La commande existe quand même pour le cas rare où elle serait utile. Elle s’exécute dans le conteneur de l’add-on et demande donc d’atteindre le Docker de l’hôte : l’add-on *Advanced SSH & Web Terminal* avec le **Mode protégé** désactivé.
+Par la barre latérale, c’est Home Assistant qui vous connecte : Meshloom accepte l’utilisateur Home Assistant qui l’ouvre, sans mot de passe propre. Le premier utilisateur Home Assistant qui ouvre Meshloom en devient l’administrateur, même si un administrateur Meshloom existe déjà (issu des options `basic_auth_*` de la 4.18 ou de `meshloom-admin`), pour que la barre latérale mène toujours à un administrateur ; les suivants reçoivent le rôle **Membre**. Seuls les administrateurs de Home Assistant voient le panneau Meshloom : ce sont donc des personnes qui administrent déjà votre Home Assistant. Si vous ne pouvez pas ouvrir Meshloom, rétablissez votre accès dans Home Assistant lui-même. Si vous avez donné un port d’hôte au port 8000 de l’add-on, cette adresse demande un compte Meshloom comme toute autre installation. La commande existe quand même pour le cas rare où elle serait utile. Elle s’exécute dans le conteneur de l’add-on et demande donc d’atteindre le Docker de l’hôte : l’add-on *Advanced SSH & Web Terminal* avec le **Mode protégé** désactivé.
 
 ```bash
 docker ps --format '{{.Names}}' | grep meshloom

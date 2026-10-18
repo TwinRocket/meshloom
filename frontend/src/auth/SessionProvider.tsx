@@ -12,10 +12,17 @@ import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../api';
 import { Button } from '../components/ui/button';
 import { onAuthRequired } from './authEvents';
+import { IngressSignInPage } from './IngressSignInPage';
 import { LoginPage } from './LoginPage';
 import { ReloginDialog } from './ReloginDialog';
 import { SetupPage } from './SetupPage';
-import type { AuthRole, AuthSessionInfo, AuthUser, AuthVia } from './types';
+import {
+  ingressOnly,
+  type AuthRole,
+  type AuthSessionInfo,
+  type AuthUser,
+  type AuthVia,
+} from './types';
 
 interface SessionValue {
   user: AuthUser | null;
@@ -86,20 +93,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [t]);
 
   const authenticated = state.status === 'ready' && state.session.authenticated;
+  // Home Assistant signs ingress users in on every request: there is no Meshloom
+  // session to renew, so a lost identity reloads the gate instead of asking a password.
+  const viaIngress = state.status === 'ready' && state.session.via === 'ingress';
 
   // A 401 on an app call: the session is gone (re-login dialog), or the instance has no
   // account at all (a wiped database: back to the setup page).
   useEffect(() => {
     if (!authenticated) return;
     return onAuthRequired((code) => {
-      if (code === 'auth_setup_required') {
+      if (code === 'auth_setup_required' || viaIngress) {
         setExpired(false);
         void load();
       } else {
         setExpired(true);
       }
     });
-  }, [authenticated, load]);
+  }, [authenticated, viaIngress, load]);
 
   // A reopened PWA is usually long past its session: ask on the way back instead of
   // letting the first thing the reader does be the thing that fails.
@@ -109,7 +119,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState !== 'visible') return;
       api.getAuthSession().then(
         (session) => {
-          if (!session.authenticated) setExpired(true);
+          if (session.authenticated) return;
+          if (viaIngress) setState({ status: 'ready', session });
+          else setExpired(true);
         },
         () => {
           // Unreachable server: not a lost session.
@@ -118,7 +130,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
     document.addEventListener('visibilitychange', check);
     return () => document.removeEventListener('visibilitychange', check);
-  }, [authenticated]);
+  }, [authenticated, viaIngress]);
 
   /** Resolves true when the session ended; false when the server still knows us. */
   const signOut = useCallback(async () => {
@@ -177,6 +189,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   const { session } = state;
+  if (!session.authenticated && ingressOnly(session)) {
+    return (
+      <IngressSignInPage
+        onRetry={() => {
+          setState({ status: 'loading' });
+          void load();
+        }}
+      />
+    );
+  }
   if (session.setup_required) {
     return (
       <SetupPage

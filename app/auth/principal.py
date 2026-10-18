@@ -14,15 +14,17 @@ from typing import Any, Literal
 from app.auth.models import Role, User
 
 # How the request reached the instance. ``lan`` is everything direct today;
-# ``ingress`` is the Home Assistant Supervisor (``app/auth/middleware.py``,
-# ``request_via``). ``trusted`` and ``relay`` come with later Access tickets.
+# ``ingress`` is the Home Assistant Supervisor (``app/auth/providers/ingress.py``,
+# ``request_via`` in ``app/auth/middleware.py``). ``trusted`` and ``relay`` come
+# with later Access tickets.
 Via = Literal["lan", "ingress", "trusted", "relay"]
 
-# Which credential proved the principal. ``session`` (the cookie) and ``basic``
-# are ambient: a browser replays them on its own, so unsafe methods need the
-# Origin rule. ``token`` (``Authorization: Bearer``) is not.
-CredentialKind = Literal["session", "basic", "token"]
-AMBIENT_CREDENTIALS: frozenset[str] = frozenset({"session", "basic"})
+# Which credential proved the principal. ``session`` (the cookie), ``basic``
+# and ``ingress`` (the Supervisor headers, which follow Home Assistant's own
+# ingress cookie) are ambient: a browser replays them on its own, so unsafe
+# methods need the Origin rule. ``token`` (``Authorization: Bearer``) is not.
+CredentialKind = Literal["session", "basic", "token", "ingress"]
+AMBIENT_CREDENTIALS: frozenset[str] = frozenset({"session", "basic", "ingress"})
 
 PRINCIPAL_STATE_KEY = "principal"
 

@@ -20,8 +20,6 @@ export interface AuthSessionInfo {
   user?: AuthUser;
   via?: AuthVia;
   instance?: { name?: string; version: string };
-  /** Set by login/setup when the credentials were right but no session was opened. */
-  session_reason?: string;
 }
 
 export interface AuthSetupRequest {
@@ -38,10 +36,15 @@ export interface AuthLoginRequest {
 
 /** Error code under `errors.` explaining a login or setup that opened no session. */
 export function noSessionReason(session: AuthSessionInfo): string | null {
-  if (session.session_reason) return session.session_reason;
-  // Belt and braces: an ingress answer that claims a session cannot be kept either.
-  if (session.via === 'ingress') return 'auth_ingress_unsupported';
   return session.authenticated ? null : 'auth_no_session';
+}
+
+/**
+ * Reached through Home Assistant ingress without a Home Assistant user: there is no
+ * password form there (no cookie can keep a session on Home Assistant's origin).
+ */
+export function ingressOnly(session: AuthSessionInfo): boolean {
+  return session.methods.ingress && !session.methods.password;
 }
 
 /** The shortest password the backend accepts (`password_policy_violation`). */

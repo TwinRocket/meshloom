@@ -23,19 +23,40 @@ OPTIONS_FILE = Path("/data/options.json")
 # Options whose value is passed straight through when it is not blank.
 PASS_THROUGH = {
     "log_level": "MESHCORE_LOG_LEVEL",
-    "basic_auth_username": "MESHCORE_BASIC_AUTH_USERNAME",
-    "basic_auth_password": "MESHCORE_BASIC_AUTH_PASSWORD",
 }
 
 # Deprecated options, still declared in the manifest for one release: the Supervisor
 # rewrites options.json from the schema at every start and drops undeclared keys, so
 # an option removed from the schema would never reach this file. The value is handed
 # on so Meshloom copies it into its database once (app/services/legacy_env_settings.py)
-# and never reads it again. ``vapid_subject`` now lives in Settings → Notifications.
-# Remove it here and from config.yaml in the next release.
+# and never reads it again. ``vapid_subject`` now lives in Settings → Notifications;
+# ``basic_auth_*`` become the administrator account once, when the database has
+# no account yet (app/auth/setup_code.py), since Home Assistant's own sign-in
+# identifies ingress users (app/auth/providers/ingress.py).
+# Remove them here and from config.yaml in the next release.
 RETIRED_PASS_THROUGH = {
     "vapid_subject": "MESHCORE_VAPID_SUBJECT",
+    "basic_auth_username": "MESHCORE_BASIC_AUTH_USERNAME",
+    "basic_auth_password": "MESHCORE_BASIC_AUTH_PASSWORD",
 }
+
+
+# ``--no-proxy-headers``: uvicorn would otherwise take the client address from
+# ``X-Forwarded-For`` sent by any loopback caller (its default
+# ``forwarded_allow_ips`` is 127.0.0.1), so a bot or a webhook aimed at
+# 127.0.0.1:8000 could pass for the Supervisor and mint a Home Assistant
+# identity. The app reads proxy headers in one place (app/origin_policy.py).
+UVICORN_ARGV = [
+    "uv",
+    "run",
+    "uvicorn",
+    "app.main:app",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "8000",
+    "--no-proxy-headers",
+]
 
 
 def read_options(path: Path = OPTIONS_FILE) -> dict[str, object]:
@@ -94,10 +115,7 @@ def main() -> None:
     proxy_port = environment.get("MESHCORE_RADIO_PROXY_PORT", "unset")
     print(f"Starting Meshloom on port 8000, radio proxy on {proxy_port}", file=sys.stderr)
 
-    os.execvp(
-        "uv",
-        ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
-    )
+    os.execvp("uv", UVICORN_ARGV)
 
 
 if __name__ == "__main__":

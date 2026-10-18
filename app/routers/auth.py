@@ -63,6 +63,7 @@ _MESSAGES = {
     "auth_session_not_found": "Session not found",
     "auth_setup_unavailable": "Setup is not available yet: check the server log and retry",
     "auth_busy": "Too many sign-in checks at once: retry in a moment",
+    "auth_ingress_only": "Home Assistant signs you in here: open Meshloom from its sidebar",
 }
 
 
@@ -141,10 +142,6 @@ class AuthSessionResponse(BaseModel):
     user: SessionUser | None = None
     via: Via | None = None
     instance: InstanceInfo | None = None
-    # Set when setup or login checked out but opened no session: why not.
-    # ``auth_ingress_unsupported``: through Home Assistant ingress no cookie is
-    # ever set, and the ingress identity provider is a later ticket.
-    session_reason: str | None = None
 
 
 class SetupRequest(BaseModel):
@@ -216,19 +213,17 @@ def _instance_name() -> str | None:
         return None
 
 
-async def _session_payload(
-    principal: Principal | None, *, opened: bool | None = None
-) -> AuthSessionResponse:
-    """The session state. ``opened=False``: credentials checked out but no
-    session was opened, so the caller is still anonymous and gets the reason."""
+async def _session_payload(principal: Principal | None, via: Via) -> AuthSessionResponse:
+    """The session state. Under ingress the only sign-in method is Home
+    Assistant's: no password form (no cookie could keep its session)."""
     setup_required = not await UserRepository.any_exist()
+    under_ingress = via == "ingress"
     payload = AuthSessionResponse(
         authenticated=principal is not None,
         setup_required=setup_required,
         setup_code_required=setup_required and await setup_code_required(),
-        methods=AuthMethods(),
+        methods=AuthMethods(password=not under_ingress, ingress=under_ingress),
         auth_compat=AuthCompat(basic=await basic_compat_active()),
-        session_reason="auth_ingress_unsupported" if opened is False else None,
     )
     if principal is not None:
         from app.version_info import get_app_build_info
@@ -242,11 +237,16 @@ async def _session_payload(
     return payload
 
 
-async def _start_session(request: Request, response: Response, user: User) -> Principal | None:
-    """Create a session and set its cookie. None under ingress: no cookie there."""
+def _refuse_under_ingress(request: Request) -> None:
+    """Setup and login open a cookie session, which ingress never has: Home
+    Assistant's identity is the way in there (``app/auth/providers/ingress.py``)."""
+    if _via(request) == "ingress":
+        raise _error(403, "auth_ingress_only")
+
+
+async def _start_session(request: Request, response: Response, user: User) -> Principal:
+    """Create a session and set its cookie (never under ingress: refused before)."""
     via = _via(request)
-    if via == "ingress":
-        return None
     issued = await sessions.issue_session(
         user,
         ip=client_ip(request.scope),
@@ -286,7 +286,7 @@ def _me(user: User) -> MeResponse:
 )
 async def get_session(request: Request) -> AuthSessionResponse:
     """Who is signed in, and what the login page needs. Public."""
-    return await _session_payload(get_principal(request))
+    return await _session_payload(get_principal(request), _via(request))
 
 
 @router.post(
@@ -296,7 +296,11 @@ async def get_session(request: Request) -> AuthSessionResponse:
     dependencies=[Depends(public())],
 )
 async def setup(body: SetupRequest, request: Request, response: Response) -> AuthSessionResponse:
-    """Create the first administrator. Public while no account exists, 409 after."""
+    """Create the first administrator. Public while no account exists, 409 after.
+
+    403 ``auth_ingress_only`` under ingress: the first Home Assistant user to
+    open the sidebar becomes the administrator there."""
+    _refuse_under_ingress(request)
     async with _setup_lock:
         if await UserRepository.any_exist():
             raise _error(409, "auth_setup_done")
@@ -326,7 +330,7 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
     await _audit("setup", "success", request, actor_user_id=user.id, target=f"user:{user.id}")
     logger.info("Administrator account %r created", user.username)
     principal = await _start_session(request, response, user)
-    return await _session_payload(principal, opened=principal is not None)
+    return await _session_payload(principal, _via(request))
 
 
 @router.post(
@@ -339,8 +343,10 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     """Check a username and password and open a session. Public.
 
     One generic 401 for an unknown name, a wrong password, a disabled account
-    and an account without a password (ingress, kiosk).
+    and an account without a password (ingress, kiosk). 403
+    ``auth_ingress_only`` under ingress, checked before any password work.
     """
+    _refuse_under_ingress(request)
     try:
         user = await authenticate(body.username, body.password.get_secret_value())
     except VerificationBusy:
@@ -350,7 +356,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
         raise _error(401, "auth_invalid_credentials")
     principal = await _start_session(request, response, user)
     await _audit("login", "success", request, actor_user_id=user.id)
-    return await _session_payload(principal, opened=principal is not None)
+    return await _session_payload(principal, _via(request))
 
 
 @router.post("/logout", response_model=OkResponse, dependencies=[Depends(public())])

@@ -117,7 +117,7 @@ The push notification contact is set in **Settings → Notifications**, and the 
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --no-proxy-headers
 ```
 
 `uv sync` creates the project's own `.venv`. Do not install these dependencies with `apt` or `dnf`. If `uv run uvicorn` stops with `ModuleNotFoundError: No module named 'meshcore'`, start here. See [Troubleshooting](/en/docs/deep/troubleshooting/).
@@ -134,7 +134,7 @@ The development server listens on `http://localhost:5173` and passes `/api` call
 
 ```bash
 cd frontend && npm install && npm run build && cd ..
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 The server serves `frontend/dist` if it exists, otherwise `frontend/prebuilt` (a ready-made interface that `scripts/setup/fetch_prebuilt_frontend.py` downloads). If neither exists, it only serves the API. Run the repository's quality checks from its root:

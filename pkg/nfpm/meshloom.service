@@ -10,7 +10,7 @@ User=meshloom
 Group=meshloom
 WorkingDirectory=/opt/meshloom
 EnvironmentFile=/etc/meshloom/meshloom.env
-ExecStart=/opt/meshloom/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/meshloom/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 Restart=on-failure
 RestartSec=5s
 

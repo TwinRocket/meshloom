@@ -122,7 +122,7 @@ tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-b
 
 ```bash
 uv sync                                   # backend deps (Python >= 3.11; CI: 3.11, 3.12, 3.14)
-uv run uvicorn app.main:app --reload      # backend on :8000
+uv run uvicorn app.main:app --reload --no-proxy-headers  # backend on :8000
 cd frontend && npm ci && npm run dev      # Vite on :5173, proxies /api to :8000 (Node 26)
 
 ./scripts/quality/all_quality.sh          # THE gate: must be green before any PR

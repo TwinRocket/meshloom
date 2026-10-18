@@ -43,7 +43,9 @@ This is a single shared login, not user accounts: one login for everyone, and wh
 
 It also **needs HTTPS**. Over plain HTTP, the user name and password travel unencrypted on every request. [HTTPS](/en/docs/deep/https/) explains how to set up a certificate, even a self-signed one.
 
-Meshloom 5.0 replaces this with mandatory accounts. When you update, this login becomes the administrator account. An instance that had no password asks you to create the administrator; if its database existed before the update, it also asks for an installation code printed in the server log, so that nobody else on the network can claim it first. Known limitation of the 5.0 pre-release: the Home Assistant add-on cannot keep you signed in through the sidebar yet; use its own port (8000) meanwhile.
+Meshloom 5.0 replaces this with mandatory accounts. When you update, this login becomes the administrator account. An instance that had no password asks you to create the administrator; if its database existed before the update, it also asks for an installation code printed in the server log, so that nobody else on the network can claim it first. The Home Assistant add-on asks for nothing through the sidebar: Home Assistant signs you in, and the first Home Assistant user to open Meshloom becomes its administrator.
+
+Under Home Assistant ingress, Meshloom trusts the identity Home Assistant's Supervisor gives it, as every add-on does: Home Assistant and its add-ons trust each other, so an add-on you would not trust with your Home Assistant should not run next to Meshloom either.
 
 ## In practice
 

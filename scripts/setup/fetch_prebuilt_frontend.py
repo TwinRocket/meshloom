@@ -96,7 +96,7 @@ def main() -> None:
     print()
     print(f"Done! Prebuilt frontend ({tag}) installed to frontend/prebuilt/")
     print("Start the server with:")
-    print("  uv run uvicorn app.main:app --host 0.0.0.0 --port 8000")
+    print("  uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers")
 
 
 if __name__ == "__main__":

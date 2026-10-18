@@ -139,17 +139,17 @@ async def test_https_requests_get_a_host_prefixed_secure_cookie(base_url, header
         assert (await client.get("/api/auth/me", headers=headers)).status_code == 200
 
 
-async def test_no_cookie_under_home_assistant_ingress(monkeypatch):
+async def test_no_password_session_under_home_assistant_ingress(monkeypatch):
+    """Ingress identities: tests/test_auth_ingress.py."""
     monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
     await create_user()
     async with make_client(client=("172.30.32.2", 40000)) as client:
-        response = await login(client)
+        response = await client.post(
+            "/api/auth/login", json={"username": ADMIN, "password": PASSWORD}
+        )
+        assert response.status_code == 403
+        assert _code(response) == "auth_ingress_only"
         assert set_cookie_headers(response) == []
-        body = response.json()
-        # Never "authenticated" when no session was opened: the real state and why.
-        assert body["authenticated"] is False
-        assert body["session_reason"] == "auth_ingress_unsupported"
-        assert "user" not in body
         assert await AuthSessionRepository.list_for_user(1) == []
         logout = await client.post("/api/auth/logout")
         assert set_cookie_headers(logout) == []

@@ -16,7 +16,7 @@ Définissez `MESHCORE_LOG_LEVEL=DEBUG`, puis redémarrez Meshloom.
 - **Depuis un dépôt cloné :**
 
 ```bash
-MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 ## Instantané de support

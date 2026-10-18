@@ -4,10 +4,12 @@ Replaces the 4.x ``BasicAuthMiddleware``. For each ``http`` and ``websocket``
 scope it:
 
 1. resolves the principal (``Principal``, ``app/auth/principal.py``) from, in
-   order, ``Authorization: Bearer`` (device tokens, a later Access ticket: no
-   token is valid yet), ``Authorization: Basic`` (the compatibility
-   credential, ``app/security.py``), then the session cookie
-   (``app/auth/sessions.py``), and stores it in ``scope["state"]``; when the
+   order, the Home Assistant identity on an ingress request
+   (``app/auth/providers/ingress.py``), ``Authorization: Bearer`` (device
+   tokens, a later Access ticket: no token is valid yet),
+   ``Authorization: Basic`` (the compatibility credential,
+   ``app/security.py``), then the session cookie (``app/auth/sessions.py``,
+   never under ingress), and stores it in ``scope["state"]``; when the
    argon2id queue is full (``VerificationBusy``) it answers 503 ``auth_busy``;
 2. applies the CSRF rule to unsafe methods (``origin_policy.unsafe_request_allowed``):
    403 ``auth_origin_rejected`` unless a bearer token resolved;
@@ -23,11 +25,12 @@ Which role may call which route is the permission registry's decision
 outside ``/api`` (the frontend) stay public: the login page must load.
 
 ``/api/auth/*`` answers carry ``Cache-Control: no-store``; a session whose
-expiry slid on this request gets its cookie again.
+expiry slid on this request gets its cookie again. An ingress answer never
+carries ``Set-Cookie``: any is dropped on the way out.
 
 The Basic challenge (``WWW-Authenticate``) is sent on 401 only while the
 instance came from 4.x Basic (``auth_settings.basic_imported``), so browsers
-that used the native dialog keep working.
+that used the native dialog keep working; never under ingress.
 """
 
 from __future__ import annotations
@@ -42,6 +45,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app import origin_policy
 from app.auth import sessions
 from app.auth.principal import Principal, Via, set_principal
+from app.auth.providers import ingress
 from app.auth.providers.password import VerificationBusy
 from app.security import (
     BASIC_CHALLENGE,
@@ -85,9 +89,6 @@ AUTHENTICATED_NON_API_PATHS: frozenset[str] = frozenset(
 
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
-# Home Assistant's Supervisor: every ingress request comes from this address.
-SUPERVISOR_IP = "172.30.32.2"
-
 WS_REFUSED_CLOSE_CODE = 1008
 
 _MESSAGES = {
@@ -104,13 +105,14 @@ def is_api_path(path: str) -> bool:
 
 
 def request_via(scope: Scope) -> Via:
-    """How the request reached the instance (``ingress`` or ``lan`` for now)."""
-    client = scope.get("client")
-    if client and client[0] == SUPERVISOR_IP:
-        from app.services.install_kind import detect_install_kind
-
-        if detect_install_kind()[0] == "addon":
-            return "ingress"
+    """How the request reached the instance: ``relay`` when the relay dispatched
+    it (``scope["state"]["via"]``, a later Access ticket), ``ingress`` for the
+    Supervisor's proxy (``ingress.is_ingress_request``), else ``lan``."""
+    state = scope.get("state")
+    if isinstance(state, dict) and state.get("via") == "relay":
+        return "relay"
+    if ingress.is_ingress_request(scope):
+        return "ingress"
     return "lan"
 
 
@@ -151,6 +153,15 @@ async def resolve_bearer_token(token: str, via: Via) -> Principal | None:
 async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Resolution:
     """Find the principal of a request, without deciding anything."""
     result = _Resolution()
+    if via == "ingress":
+        user = await ingress.resolve_ingress_user(headers, client_ip(scope))
+        if user is not None:
+            result.principal = Principal(user=user, via=via, credential="ingress")
+            return result
+        if headers.get(ingress.USER_ID_HEADER):
+            # The Supervisor named a user we cannot map (disabled, malformed).
+            result.credential_failed = True
+            return result
     authorization = headers.get("authorization")
     if authorization:
         scheme = authorization.split(" ", 1)[0].lower()
@@ -252,15 +263,24 @@ class AuthMiddleware:
                 code = "auth_invalid_credentials"
             else:
                 code = "auth_required"
-            await self._respond(send, 401, code, path, challenge=not result.bearer_sent)
+            # No Basic challenge under ingress: the browser would prompt for a
+            # password inside the Home Assistant panel.
+            challenge = not result.bearer_sent and via != "ingress"
+            await self._respond(send, 401, code, path, challenge=challenge)
             return
 
-        await self.app(scope, receive, self._wrap_send(send, path, result.refreshed_cookie))
+        await self.app(
+            scope,
+            receive,
+            self._wrap_send(send, path, result.refreshed_cookie, no_cookie=via == "ingress"),
+        )
 
     @staticmethod
-    def _wrap_send(send: Send, path: str, refreshed_cookie: str | None) -> Send:
+    def _wrap_send(
+        send: Send, path: str, refreshed_cookie: str | None, *, no_cookie: bool = False
+    ) -> Send:
         no_store = path.startswith(AUTH_PREFIX)
-        if not no_store and refreshed_cookie is None:
+        if not no_store and refreshed_cookie is None and not no_cookie:
             return send
 
         async def wrapped(message: Message) -> None:
@@ -269,8 +289,11 @@ class AuthMiddleware:
                 if no_store:
                     raw = [(k, v) for k, v in raw if k.lower() != b"cache-control"]
                     raw.append((b"cache-control", b"no-store"))
+                if no_cookie:
+                    # Under ingress the origin is Home Assistant's, shared by every add-on.
+                    raw = [(k, v) for k, v in raw if k.lower() != b"set-cookie"]
                 already_sets_cookie = any(k.lower() == b"set-cookie" for k, _ in raw)
-                if refreshed_cookie is not None and not already_sets_cookie:
+                if refreshed_cookie is not None and not already_sets_cookie and not no_cookie:
                     raw.append((b"set-cookie", refreshed_cookie.encode("latin-1")))
                 message = {**message, "headers": raw}
             await send(message)
