@@ -7,6 +7,7 @@ import {
   Info,
   UsersRound,
   Link2,
+  Puzzle,
   MonitorCog,
   RadioTower,
   RefreshCw,
@@ -30,6 +31,7 @@ export type SettingsSection =
   | 'alerts'
   | 'database'
   | 'fanout'
+  | 'extensions'
   | 'statistics'
   | 'navigation'
   | 'about';
@@ -44,6 +46,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'community',
   'share',
   'fanout',
+  'extensions',
   'radio-app',
   'alerts',
   'database',
@@ -66,6 +69,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   alerts: 'settingsNav.alerts',
   database: 'settingsNav.database',
   fanout: 'settingsNav.fanout',
+  extensions: 'settingsNav.extensions',
   navigation: 'settingsNav.navigation',
   statistics: 'settingsNav.statistics',
   about: 'settingsNav.about',
@@ -84,6 +88,7 @@ export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   alerts: TriangleAlert,
   database: Database,
   fanout: Share2,
+  extensions: Puzzle,
   navigation: PanelLeft,
   statistics: BarChart3,
   about: Info,

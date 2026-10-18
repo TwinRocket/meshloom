@@ -147,6 +147,7 @@ class BundledPluginView(BaseModel):
     categories: list[str]
     hooks: list[str]
     permissions: dict[str, Any]
+    privacy: dict[str, Any]
     config_schema: dict[str, Any]
     instances: int
 
@@ -503,6 +504,7 @@ async def list_bundled() -> list[BundledPluginView]:
                 categories=list(manifest.categories),
                 hooks=list(manifest.hooks),
                 permissions=manifest.permissions.declared(),
+                privacy=manifest.privacy.model_dump(mode="json"),
                 config_schema=bundled.config_schema,
                 instances=counts.get(plugin_id, 0),
             )

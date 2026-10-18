@@ -1,0 +1,197 @@
+{
+  "settingsNav": {
+    "extensions": "Extensions"
+  },
+  "settings": {
+    "extensions": {
+      "title": "Extensions",
+      "intro": "Les extensions sont de petits programmes qui tournent à côté de Meshloom, chacun dans son processus isolé, et ne font que ce que vous leur autorisez.",
+      "loading": "Chargement des extensions…",
+      "empty": "Aucune extension installée. Ajoutez une extension fournie pour commencer.",
+      "cancel": "Annuler",
+      "enabled": "Activée",
+      "openDetails": "Ouvrir le détail de {{name}}",
+      "enableToggle": "Activer {{name}}",
+      "moveUp": "Monter {{name}}",
+      "moveDown": "Descendre {{name}}",
+      "bundled": "Fournie",
+      "tabs": {
+        "installed": "Installées",
+        "store": "Store",
+        "updates": "Mises à jour",
+        "storeSoon": "Le Store n'est pas encore disponible.",
+        "updatesSoon": "Les mises à jour ne sont pas encore disponibles."
+      },
+      "kind": {
+        "bundled": "Fournie",
+        "store": "Store",
+        "custom": "Personnalisée",
+        "local": "Locale"
+      },
+      "status": {
+        "installed": "Installée",
+        "disabled": "Désactivée",
+        "starting": "Démarrage",
+        "running": "En marche",
+        "error": "Erreur",
+        "crash_loop": "Plante en boucle",
+        "needs_attention": "À examiner",
+        "incompatible": "Incompatible",
+        "revoked": "Révoquée"
+      },
+      "attention": {
+        "config_required": {
+          "badge": "Réglages requis",
+          "text": "Cette extension a besoin de réglages avant de démarrer. Elle reste arrêtée tant qu'ils ne sont pas remplis."
+        },
+        "review_permissions": {
+          "badge": "Permissions à revoir",
+          "text": "Cette extension demande d'autres permissions qu'avant. Relisez-les ci-dessous, puis acceptez pour la démarrer."
+        },
+        "consent_required": {
+          "badge": "Consentement requis",
+          "text": "Cette extension a besoin de votre accord pour les permissions ci-dessous avant de démarrer."
+        },
+        "migrated": {
+          "badge": "Migrée",
+          "text": "Cette extension vient d'un bot converti. Relisez ce qu'elle peut faire ci-dessous, puis acceptez pour la démarrer."
+        },
+        "other": {
+          "badge": "À examiner",
+          "text": "Cette extension attend votre examen avant de pouvoir démarrer."
+        }
+      },
+      "blocked": {
+        "revoked": "Cette extension a été révoquée et ne peut pas démarrer. Désinstallez-la.",
+        "incompatible": "Cette extension n'est pas compatible avec cette version de Meshloom et ne peut pas démarrer. Désinstallez-la ou attendez une mise à jour."
+      },
+      "enableBlocked": {
+        "frozen": "Ne peut pas être activée",
+        "config_required": "Réglages requis d'abord",
+        "review": "Ouvrez-la pour l'examiner et l'accepter"
+      },
+      "isolation": {
+        "title": "Niveau d'isolation",
+        "level": {
+          "bwrap": "Bac à sable (bubblewrap)",
+          "setuid": "Compte séparé",
+          "none": "Crochets seulement",
+          "unknown": "Pas encore connu"
+        },
+        "explain": {
+          "bwrap": "Chaque extension tourne dans un bac à sable qui ne voit que son propre code, aucun autre fichier de ce serveur.",
+          "setuid": "Chaque extension tourne sous un compte système dédié qui ne peut pas lire les fichiers de Meshloom.",
+          "none": "Aucune isolation du système d'exploitation n'est disponible ici : les règles propres à Meshloom arrêtent les erreurs honnêtes mais pas une extension hostile, qui pourrait lire la base de données et les fichiers. N'installez que des extensions de confiance.",
+          "unknown": "Le niveau d'isolation est indiqué dès que le serveur a démarré le système d'extensions."
+        }
+      },
+      "disabled": {
+        "env": "Les extensions sont désactivées par l'hôte de ce serveur. Vous pouvez les consulter et les désinstaller, mais pas les modifier ni les démarrer.",
+        "platform": "Les extensions ne sont pas disponibles sur cette plateforme. Vous pouvez les consulter et les désinstaller, mais pas les modifier ni les démarrer.",
+        "isolation": "Les extensions sont arrêtées car l'isolation dont elles ont besoin n'a pas pu être mise en place. Vous pouvez les consulter et les désinstaller, mais pas les modifier ni les démarrer.",
+        "drawer": "Les extensions sont désactivées sur ce serveur : rien ne peut être modifié ni démarré ici."
+      },
+      "add": {
+        "button": "Ajouter une extension fournie",
+        "title": "Ajouter une extension fournie",
+        "intro": "Ces extensions sont livrées avec Meshloom et s'installent sans accès à Internet.",
+        "none": "Aucune extension fournie dans cette version.",
+        "instances": "{{count}} déjà installée(s)",
+        "consentTitle": "Autoriser {{name}} ?",
+        "consentIntro": "Cette extension pourra faire ce qui suit. Vous pourrez réduire ces permissions plus tard.",
+        "accept": "Je comprends ce que cette extension peut faire et je l'autorise.",
+        "back": "Retour",
+        "install": "Installer",
+        "installed": "{{name}} est installée."
+      },
+      "privacy": {
+        "title": "Déclaration de confidentialité",
+        "sends": "Envoie des données à : {{hosts}}.",
+        "sendsNone": "N'envoie rien à des tiers.",
+        "stores": "Conserve le contenu des messages.",
+        "storesNone": "Ne conserve pas le contenu des messages."
+      },
+      "scope": {
+        "all": "Toutes les conversations",
+        "none": "Aucun message",
+        "only": "Seulement les conversations que je choisis",
+        "except": "Toutes les conversations sauf celles que je choisis",
+        "channels": "Canaux",
+        "contacts": "Contacts"
+      },
+      "drawer": {
+        "statusTitle": "État",
+        "summary": "Message d'état",
+        "lastError": "Dernière erreur",
+        "restarts": "Redémarrages",
+        "dropped": "Événements perdus",
+        "permissionsTitle": "Permissions",
+        "permissionsHint": "Décochez une permission pour la retirer. On ne peut pas donner plus que ce que l'extension déclare.",
+        "scopeTitle": "Messages qu'elle peut lire",
+        "quotasTitle": "Limites d'envoi",
+        "quotasHint": "Vous ne pouvez que baisser ces limites, jamais les relever au-dessus de ce que l'extension demande.",
+        "perHour": "Messages par heure",
+        "perDay": "Messages par jour",
+        "quotaInvalid": "Saisissez des nombres entiers de 1 à {{hour}} par heure et de 1 à {{day}} par jour.",
+        "save": "Enregistrer",
+        "saved": "Modifications enregistrées.",
+        "acceptAndEnable": "Accepter et activer",
+        "accepted": "Acceptée et activée.",
+        "restart": "Redémarrer",
+        "restarted": "Redémarrée.",
+        "copyDiagnostic": "Copier le diagnostic",
+        "diagnosticCopied": "Diagnostic copié.",
+        "uninstall": "Désinstaller",
+        "uninstalled": "Extension désinstallée."
+      },
+      "config": {
+        "title": "Réglages",
+        "none": "Cette extension n'a pas de réglages.",
+        "unset": "Non défini",
+        "secretSet": "Secret défini",
+        "secretUnset": "Secret non défini",
+        "required": "(obligatoire)",
+        "placeholder": "La modification de ces réglages arrivera dans une prochaine mise à jour. Les valeurs secrètes ne sont jamais affichées."
+      },
+      "logs": {
+        "title": "Journal",
+        "empty": "Rien dans le journal pour l'instant.",
+        "failed": "Le journal n'a pas pu être lu.",
+        "truncated": "Seules les lignes les plus récentes sont affichées."
+      },
+      "uninstall": {
+        "title": "Désinstaller {{name}} ?",
+        "text": "L'extension s'arrête et ses réglages et secrets sont supprimés.",
+        "keepData": "Garder les données qu'elle a stockées (une réinstallation les retrouvera).",
+        "confirm": "Désinstaller"
+      },
+      "migration": {
+        "title": "Vos bots ont été convertis en extensions",
+        "text": "Examinez chaque extension convertie avant de la démarrer : elle ne tourne qu'une fois que vous avez accepté ce qu'elle peut faire.",
+        "acknowledge": "Compris"
+      }
+    }
+  },
+  "errors": {
+    "plugins_disabled": "Les extensions sont désactivées sur ce serveur.",
+    "plugin_not_found": "Cette extension n'existe plus.",
+    "plugin_not_bundled": "Cette extension n'est pas fournie avec cette version de Meshloom.",
+    "plugin_disabled": "Cette extension est désactivée.",
+    "plugin_revoked": "Cette extension a été révoquée et ne peut pas démarrer.",
+    "plugin_incompatible": "Cette extension n'est pas compatible avec cette version de Meshloom et ne peut pas démarrer.",
+    "attention_required": "Cette extension doit être examinée et acceptée avant de démarrer.",
+    "config_required": "Cette extension a besoin de réglages avant de démarrer.",
+    "config_invalid": "Certains réglages de cette extension ne sont pas valides.",
+    "config_value_invalid": "Un réglage de cette extension a une valeur invalide.",
+    "consent_required": "Vous devez autoriser toutes les permissions demandées par cette extension.",
+    "permission_exceeds_manifest": "Cela accorde plus que ce que l'extension déclare.",
+    "package_invalid": "Le paquet de l'extension n'est pas valide.",
+    "manifest_invalid": "La description de l'extension n'est pas valide.",
+    "install_failed": "L'extension n'a pas pu être installée.",
+    "instance_cap_reached": "Trop d'extensions tournent. Désactivez-en une d'abord.",
+    "instance_not_running": "Cette extension ne tourne pas.",
+    "quota_invalid": "Une limite d'envoi est hors plage. Elle ne peut que baisser.",
+    "scope_invalid": "La sélection de conversations n'est pas valide.",
+    "secret_required": "Une valeur secrète est manquante."
+  }
+}

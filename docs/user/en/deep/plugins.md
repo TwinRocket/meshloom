@@ -87,3 +87,11 @@ Neither of the above is available, so only Meshloom's own guards inside the plug
 Look for `Plugin isolation` in the server log at startup, or open `/api/health` while signed in and read `plugins_isolation`: `bwrap`, `setuid` or `none`. After installing bubblewrap, restart Meshloom so it checks again.
 
 Escaping these walls is a security bug: report it as described in the project's security policy. Plugins you install are still code you choose to trust; the walls limit what a mistake or a bad update can reach.
+
+## Settings → Extensions (draft)
+
+Administrators manage plugins in **Settings → Extensions** (the interface calls them extensions). The top of the page shows the isolation level in force and what it means. The **Installed** tab lists each copy with its status, a badge when it needs attention (settings required, permissions to review, consent needed), whether it is bundled, an on/off switch and arrows to reorder. **Store** and **Updates** are placeholders for now.
+
+- **Add a bundled extension** shows what it may do in plain words, the servers it talks to and its privacy declaration. When it can read private messages (direct messages or every channel) and reach the internet, a warning says it can send your private messages to those servers. Nothing is installed until you tick the box and confirm.
+- A **revoked** or **incompatible** extension cannot be turned on. One that needs a review stays off until you open it and choose **Accept and enable**.
+- The detail drawer lets you untick permissions, choose the conversations it may read, lower its sending limits (never above what it asks for), read its log, restart it, **copy a diagnostic** for a bug report (no setting values, no secrets) and uninstall it, keeping its stored data or not. Secret settings are never shown. Editing an extension's own settings arrives later.

@@ -367,6 +367,28 @@ purpose.
   (`auth.ingress.*`, `errors.auth_ingress_only`).
   Tests: `src/test/auth.test.tsx`.
 
+### Extensions section (`components/settings/extensions/`)
+
+Settings → Extensions (section id `extensions`, `SettingsExtensionsSection.tsx`, admin only
+through `canOpenSettingsSection`; icon `Puzzle`). Over `/api/plugins` (`api.getPlugins`,
+`getBundledPlugins`, `installPlugin`, `patchPlugin`, `restartPlugin`, `getPluginLogs`,
+`getPluginDiagnostic`, `deletePlugin`; types in `extensions/pluginsTypes.ts`, `PluginInstance`
+stays in `types.ts`). It reads `health` (`plugins_isolation`, `plugins_disabled_source`) and
+reloads the list whenever `health.plugin_statuses` changes (the server announces `plugin_status`
+and a health refresh follows, so no extra WebSocket handler). Rules: `enableBlock()`
+(`pluginsShared.ts`) keeps `revoked`/`incompatible` from being enabled (the toggle is disabled
+and `toggle()` refuses too); `needs_attention` for a reason other than `config_required` is
+enabled only through the drawer's **Accept and enable** (resends `granted_permissions`, then
+`enabled: true`); config is read-only and secret fields show only "set / not set" (the API
+returns `********`, never shown); with `plugins_disabled_source` set every write is off but
+Uninstall. The consent (`AddBundledDialog`) grants exactly the declared permissions and shows
+`plugins.permissions.http.private_messages_warning` when `messages.read` (direct or all channels)
+meets `http`. `ScopeEditor` is a small own editor (not the fanout `ScopeSelector`, which is private
+to `SettingsFanoutSection.tsx`). Quotas: only `messages.send` per hour/day, lowered only.
+`MigrationBanner` is ready for the bot-migration health warning (Store T9) and not mounted yet.
+Strings: slice `cc` (`settings.extensions.*`, `errors.*` plugin codes) and slice `al`
+(permissions in plain words). Tests: `src/test/pluginsSection.test.tsx`.
+
 ### Share API (`api.ts`)
 
 `api.getShareStatus()` (no egress), `api.shortenLink(url)` and
