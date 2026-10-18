@@ -34,6 +34,8 @@ interface FeedControlRowProps {
   /** The twin row is in the list, so the "Paired" badge can scroll to it. */
   pairedAvailable: boolean;
   highlighted: boolean;
+  /** Display mode: not focusable, no inspector, no click. */
+  readOnly?: boolean;
   measureRef?: Ref<HTMLDivElement>;
   index: number;
   offset: number;
@@ -55,6 +57,7 @@ export const FeedControlRow = memo(function FeedControlRow({
   actions,
   pairedAvailable,
   highlighted,
+  readOnly = false,
   measureRef,
   index,
   offset,
@@ -70,11 +73,13 @@ export const FeedControlRow = memo(function FeedControlRow({
       ref={measureRef}
       data-index={index}
       role="listitem"
-      tabIndex={0}
-      aria-label={t('controlJournal.openInspector')}
+      tabIndex={readOnly ? undefined : 0}
+      aria-label={readOnly ? undefined : t('controlJournal.openInspector')}
       data-testid={`feed-control-row-${entry.journalType}`}
       className={cn(
-        'absolute left-0 top-0 w-full cursor-pointer border-b border-border/50 py-2 text-sm hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        'absolute left-0 top-0 w-full border-b border-border/50 py-2 text-sm',
+        !readOnly &&
+          'cursor-pointer hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         highlighted && 'bg-primary/10'
       )}
       style={{ transform: `translateY(${offset}px)` }}
