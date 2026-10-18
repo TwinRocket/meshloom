@@ -5,7 +5,9 @@ proxy, and the browser's address and scheme only arrive in headers that anyone
 can send. They are believed only when the peer is listed in
 ``auth_settings.trusted_proxies`` (Settings → Local Configuration → Trusted
 proxies, ``PATCH /api/auth/settings``): addresses or CIDRs, **empty by
-default**, loopback not trusted implicitly. From a listed peer:
+default**, loopback not trusted implicitly. List the proxy's own address (a
+``/32`` or ``/128``), never a Docker network or its gateway: a client reaching
+a published port can arrive from the gateway and would forge the headers. From a listed peer:
 
 - ``scope["client"]`` becomes the rightmost address of ``X-Forwarded-For``
   that is not itself a trusted proxy (each proxy appends the address it saw,
@@ -59,17 +61,41 @@ PEER_STATE_KEY = "peer"
 _current: tuple[str, ...] = ()
 
 
+# The widest network accepted: anything wider trusts whole swaths of clients
+# (``0.0.0.0/1`` + ``128.0.0.0/1`` would be ``/0`` in two entries).
+MIN_PREFIX = {4: 8, 6: 16}
+
+_MAPPED = ipaddress.ip_network("::ffff:0:0/96")
+
+
 def normalize_proxy(raw: str) -> str:
     """An address or CIDR in canonical network form (``10.0.0.1`` → ``10.0.0.1/32``).
 
-    Raises ``ValueError`` for anything else, and for a network that covers a
-    whole address family: trusting every peer would let any client pick its
-    own address.
+    Raises ``ValueError`` for anything else, for a network wider than
+    ``MIN_PREFIX`` (trusting that many peers lets their clients pick their own
+    address), and for an IPv4-mapped IPv6 entry: list the IPv4 address, which
+    also covers its mapped form (``_trusted_hosts``).
     """
     network = ipaddress.ip_network(raw.strip(), strict=False)
-    if network.prefixlen == 0:
-        raise ValueError("a trusted proxy cannot cover every address")
+    if network.prefixlen < MIN_PREFIX[network.version]:
+        raise ValueError("a trusted proxy network is too wide")
+    if network.version == 6 and network.subnet_of(_MAPPED):  # type: ignore[arg-type]
+        raise ValueError("list the IPv4 address instead of its IPv4-mapped form")
     return str(network)
+
+
+def _trusted_hosts(proxies: Iterable[str]) -> list[str]:
+    """The list handed to uvicorn: each IPv4 entry plus its IPv4-mapped form,
+    so a dual-stack listener (``--host ::``) that sees ``::ffff:10.0.0.2``
+    matches ``10.0.0.2``."""
+    hosts: list[str] = []
+    for proxy in proxies:
+        hosts.append(proxy)
+        network = ipaddress.ip_network(proxy)
+        if network.version == 4:
+            mapped = ipaddress.ip_address(f"::ffff:{network.network_address}")
+            hosts.append(f"{mapped}/{96 + network.prefixlen}")
+    return hosts
 
 
 def normalize_proxies(raw_proxies: Iterable[str]) -> list[str]:
@@ -162,7 +188,7 @@ class TrustedProxyHeadersMiddleware:
         proxies = current()
         if self._inner is None or proxies != self._proxies:
             # An empty list trusts no peer at all (uvicorn's default would be loopback).
-            self._inner = ProxyHeadersMiddleware(self.app, trusted_hosts=list(proxies))  # type: ignore[arg-type]
+            self._inner = ProxyHeadersMiddleware(self.app, trusted_hosts=_trusted_hosts(proxies))  # type: ignore[arg-type]
             self._proxies = proxies
         return self._inner
 

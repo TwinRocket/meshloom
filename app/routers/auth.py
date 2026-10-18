@@ -67,7 +67,9 @@ _MESSAGES = {
     "auth_setup_unavailable": "Setup is not available yet: check the server log and retry",
     "auth_busy": "Too many sign-in checks at once: retry in a moment",
     "auth_ingress_only": "Home Assistant signs you in here: open Meshloom from its sidebar",
-    "auth_trusted_proxies_invalid": "Not an address or network, or too many trusted proxies",
+    "auth_trusted_proxies_invalid": (
+        "Not an address or network, a network wider than /8 or /16, or too many trusted proxies"
+    ),
 }
 
 
@@ -143,6 +145,11 @@ class AuthSessionResponse(BaseModel):
     setup_code_required: bool
     methods: AuthMethods
     auth_compat: AuthCompat
+    # Whether the server saw this request as https (``scope["scheme"]``, from a
+    # trusted proxy's X-Forwarded-Proto behind one): the session cookie is the
+    # ``__Host-`` Secure one only then. A browser on https that reads false sits
+    # behind a proxy Meshloom does not trust.
+    secure: bool = False
     user: SessionUser | None = None
     via: Via | None = None
     instance: InstanceInfo | None = None
@@ -217,7 +224,9 @@ def _instance_name() -> str | None:
         return None
 
 
-async def _session_payload(principal: Principal | None, via: Via) -> AuthSessionResponse:
+async def _session_payload(
+    principal: Principal | None, via: Via, request: Request
+) -> AuthSessionResponse:
     """The session state. Under ingress the only sign-in method is Home
     Assistant's: no password form (no cookie could keep its session)."""
     setup_required = not await UserRepository.any_exist()
@@ -228,6 +237,7 @@ async def _session_payload(principal: Principal | None, via: Via) -> AuthSession
         setup_code_required=setup_required and await setup_code_required(),
         methods=AuthMethods(password=not under_ingress, ingress=under_ingress),
         auth_compat=AuthCompat(basic=await basic_compat_active()),
+        secure=_secure(request),
     )
     if principal is not None:
         from app.version_info import get_app_build_info
@@ -290,7 +300,7 @@ def _me(user: User) -> MeResponse:
 )
 async def get_session(request: Request) -> AuthSessionResponse:
     """Who is signed in, and what the login page needs. Public."""
-    return await _session_payload(get_principal(request), _via(request))
+    return await _session_payload(get_principal(request), _via(request), request)
 
 
 @router.post(
@@ -334,7 +344,7 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
     await _audit("setup", "success", request, actor_user_id=user.id, target=f"user:{user.id}")
     logger.info("Administrator account %r created", user.username)
     principal = await _start_session(request, response, user)
-    return await _session_payload(principal, _via(request))
+    return await _session_payload(principal, _via(request), request)
 
 
 @router.post(
@@ -360,7 +370,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
         raise _error(401, "auth_invalid_credentials")
     principal = await _start_session(request, response, user)
     await _audit("login", "success", request, actor_user_id=user.id)
-    return await _session_payload(principal, _via(request))
+    return await _session_payload(principal, _via(request), request)
 
 
 @router.post("/logout", response_model=OkResponse, dependencies=[Depends(public())])

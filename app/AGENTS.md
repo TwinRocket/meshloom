@@ -49,7 +49,8 @@ and the OpenAPI page (`/docs`), not a table here.
   `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from
   `auth_settings.trusted_proxies` (Settings → Local Configuration → Trusted
   proxies, `GET/PATCH /api/auth/settings`, admin; empty by default, loopback not
-  implied, `/0` refused). It rewrites `scope["client"]` (rightmost untrusted
+  implied, wider than `/8`/`/16` refused; recommend the proxy's own address,
+  never a Docker network or gateway). It rewrites `scope["client"]` (rightmost untrusted
   `X-Forwarded-For` entry) and `scope["scheme"]` for a listed peer only;
   everything else (`client_ip()`, `request_is_secure()`, audit, sessions) reads
   the scope. `peer_address(scope)` keeps the TCP peer (the ingress check uses it).

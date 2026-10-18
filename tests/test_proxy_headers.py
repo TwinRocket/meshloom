@@ -109,9 +109,17 @@ class TestTrustedPeers:
         assert seen["client"] == ("6.6.6.6", 0)
 
     async def test_ipv6_proxy_and_client(self):
-        trust("fd00::/8")
-        seen = await run_scope("fd00::1", {"X-Forwarded-For": "[2001:db8::7]:4711"})
+        trust("fd00:1::/64")
+        seen = await run_scope("fd00:1::1", {"X-Forwarded-For": "[2001:db8::7]:4711"})
         assert seen["client"] == ("2001:db8::7", 4711)
+
+    async def test_an_ipv4_entry_matches_its_mapped_peer(self):
+        """A dual-stack listener (``--host ::``) sees IPv4 peers as ``::ffff:a.b.c.d``."""
+        trust("10.0.0.2")
+        seen = await run_scope("::ffff:10.0.0.2", {"X-Forwarded-For": "203.0.113.7"})
+        assert seen["client"] == ("203.0.113.7", 0)
+        other = await run_scope("::ffff:10.0.0.3", {"X-Forwarded-For": "203.0.113.7"})
+        assert other["client"] == ("::ffff:10.0.0.3", 50000)
 
     async def test_websocket_becomes_wss(self):
         trust("127.0.0.1")
@@ -152,7 +160,23 @@ class TestNormalisation:
         assert normalize_proxy("10.1.2.3/8") == "10.0.0.0/8"
         assert normalize_proxy("::1") == "::1/128"
 
-    @pytest.mark.parametrize("raw", ["0.0.0.0/0", "::/0", "*", "proxy.lan", "10.0.0.0/33", ""])
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "0.0.0.0/0",
+            "::/0",
+            "0.0.0.0/1",
+            "10.0.0.0/7",
+            "::/1",
+            "fd00::/8",
+            "::ffff:10.0.0.1",
+            "::ffff:0:0/96",
+            "*",
+            "proxy.lan",
+            "10.0.0.0/33",
+            "",
+        ],
+    )
     def test_refused(self, raw):
         with pytest.raises(ValueError):
             normalize_proxy(raw)
@@ -279,11 +303,11 @@ class TestSettingsRoute:
     async def test_read_and_write(self, client):
         assert (await client.get("/api/auth/settings")).json() == {"trusted_proxies": []}
         response = await client.patch(
-            "/api/auth/settings", json={"trusted_proxies": [" 10.0.0.1 ", "fd00::/8", ""]}
+            "/api/auth/settings", json={"trusted_proxies": [" 10.0.0.1 ", "fd00:1::/64", ""]}
         )
         assert response.status_code == 200
-        assert response.json() == {"trusted_proxies": ["10.0.0.1/32", "fd00::/8"]}
-        assert proxy_headers.current() == ("10.0.0.1/32", "fd00::/8")
+        assert response.json() == {"trusted_proxies": ["10.0.0.1/32", "fd00:1::/64"]}
+        assert proxy_headers.current() == ("10.0.0.1/32", "fd00:1::/64")
         rows = await AuthAuditRepository.list_recent(limit=1)
         assert rows[0].action == "settings_change"
         assert rows[0].target == "auth_settings.trusted_proxies"
@@ -334,3 +358,17 @@ def test_every_documented_or_scripted_uvicorn_command_disables_proxy_headers():
             if "uvicorn app.main:app" in compact and "--no-proxy-headers" not in line:
                 offenders.append(f"{path}:{number}")
     assert offenders == []
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+@pytest.mark.parametrize(("base_url", "secure"), [("http://test", False), ("https://test", True)])
+async def test_session_says_whether_the_server_saw_https(base_url, secure):
+    """The frontend compares it with ``location.protocol`` to spot an untrusted proxy."""
+    from app.main import app
+
+    await create_user()
+    async with _client(app, base_url, ("127.0.0.1", 50000)) as client:
+        # An unlisted proxy's X-Forwarded-Proto changes nothing.
+        body = (await client.get("/api/auth/session", headers=FORWARDED)).json()
+    assert body["secure"] is secure
