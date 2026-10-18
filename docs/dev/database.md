@@ -207,8 +207,11 @@ names that differ only by case clash), `display_name`, `password_hash` (argon2id
 encoded string, NULL for ingress and kiosk identities), `role`
 (`admin`/`member`/`viewer`/`kiosk`, CHECK), `provider` (`local`/`ingress`/`system`,
 CHECK), `external_id` (unique per provider), `disabled`, `must_change_password`,
-`totp_secret`, `totp_enabled_at`, `totp_last_counter` (unused until 2FA),
-`created_at`, `updated_at`. `UserRepository` (`auth.py`).
+`totp_secret` (base32, set at enrolment, kept pending until the first code),
+`totp_enabled_at` (NULL: no second factor), `totp_last_counter` (last accepted
+30 s step: a code for it or an earlier one is refused), `created_at`,
+`updated_at`. `UserRepository`, `TotpRepository` (`auth.py`); TOTP rules in
+`app/auth/totp.py`.
 
 ### `sessions`
 
@@ -230,6 +233,16 @@ stored), `scopes` (JSON list of permissions, within the owner's role),
 per user. Revoked and expired rows stay, so a later use is audited.
 `ApiTokenRepository` (`auth.py`).
 
+### `recovery_codes`
+
+TOTP recovery codes (migration 109, `app/auth/totp.py`, `docs/dev/auth.md`,
+"Second factor"): PK `id`, `user_id` (FK `users(id)`, cascade), `code_hash`
+(argon2id of the code; the code is never stored), `created_at`, `used_at`
+(NULL until spent; a code works once). Ten per enrolment, replaced together
+by a regeneration, deleted when the factor is removed. In the JSON full backup
+only inside the `users` section; emptied in the database download.
+`TotpRepository` (`auth.py`).
+
 ### `auth_audit`
 
 Audit trail (`app/auth/audit.py`, `docs/dev/auth.md`, "Audit log"): PK `id`, `ts`, `actor_user_id`, `actor_token_id`
@@ -246,7 +259,9 @@ secret reaches `AppSettings`: `trusted_networks` (JSON `[{cidr, user_id}]`),
 (`observe`/`enforce`), `ingress_default_role` (`member`), `session_lifetime_days`
 (30), `audit_retention_days` (366), `basic_imported`, `setup_code_hash` (SHA-256 of
 the installation code), `ingress_admin_granted` (migration 107: the first Home
-Assistant identity was made admin; never cleared). The CORS list stays `app_settings.auth_allowed_origins`.
+Assistant identity was made admin; never cleared), `require_2fa_for_admins`
+(migration 109, off: admins with a password and no second factor reach only the
+enrolment routes). The CORS list stays `app_settings.auth_allowed_origins`.
 `AuthSettingsRepository` (`auth.py`).
 
 ### `plugins`
@@ -304,8 +319,8 @@ default; a value above the default reads as the default. `PluginSendGuardReposit
 All foreign keys point at `contacts(public_key)` (children: advert paths, name
 history, both telemetry histories, pane cache, alert state, group members, all
 `ON DELETE CASCADE`), at `contact_groups(id)` (members, cascade) or at
-`messages(id)` (`raw_packets.message_id`, `SET NULL`), plus `sessions.user_id` and
-`api_tokens.user_id` on `users(id)` (cascade). `messages.conversation_key`
+`messages(id)` (`raw_packets.message_id`, `SET NULL`), plus `sessions.user_id`,
+`api_tokens.user_id` and `recovery_codes.user_id` on `users(id)` (cascade). `messages.conversation_key`
 and `messages.sender_key` are plain text, not foreign keys: a message outlives its
 contact or channel. Enforcement requires `PRAGMA foreign_keys = ON`, which
 `Database` sets after migrations (migration 049 rebuilt the tables with cascades).
@@ -323,6 +338,7 @@ databases). The current set:
 | `idx_contact_name_history_key` | `contact_name_history(public_key, last_seen DESC)` |
 | `idx_contact_telemetry_pk_ts` | `contact_telemetry_history(public_key, timestamp)` |
 | `idx_auth_audit_ts` | `auth_audit(ts)` |
+| `idx_recovery_codes_user` | `recovery_codes(user_id)` |
 | `idx_contacts_type_last_seen` | `contacts(type, last_seen)` |
 | `idx_messages_chan_unattributed_sender` | `messages(sender_name)` where `CHAN` and `sender_key IS NULL` |
 | `idx_messages_dedup_null_safe` | unique, `messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))` where `CHAN` |

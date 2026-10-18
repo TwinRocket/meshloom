@@ -33,6 +33,8 @@ dependencies = [
     "dbus-fast>=3.1; sys_platform == 'linux'",
     # Plugin config.schema.json validation (app/plugins/config_schema.py); pulls rpds-py.
     "jsonschema>=4.26,<5",
+    # TOTP second factor, RFC 6238 (app/auth/totp.py).
+    "pyotp>=2.9,<3",
 ]
 
 [tool.pytest.ini_options]

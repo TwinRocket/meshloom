@@ -117,6 +117,9 @@ class AuthSettings(BaseModel):
     )
     basic_imported: bool = False
     setup_code_set: bool = False
+    # Admins with a password and no second factor reach only the enrolment
+    # routes until they enrol (``app/auth/totp.py``). Off by default (Q16).
+    require_2fa_for_admins: bool = False
 
     @field_validator("trusted_proxies")
     @classmethod
