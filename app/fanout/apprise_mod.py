@@ -14,6 +14,7 @@ from app.net.apprise_urls import (
     validate_apprise_urls,
 )
 from app.path_utils import split_path_hex
+from app.secret_fields import config_secret_values, scrub_error
 
 logger = logging.getLogger(__name__)
 
@@ -276,19 +277,23 @@ class AppriseModule(FanoutModule):
                 )
             except Exception as exc:
                 last_exc = exc
+                # The exception may quote a URL and its token (/api/debug
+                # returns recent log lines): scrubbed like the status.
                 logger.warning(
                     "Apprise send error for module %s (attempt %d/%d): %s",
                     self.config_id,
                     attempt + 1,
                     _MAX_SEND_ATTEMPTS,
-                    exc,
+                    scrub_error(str(exc), config_secret_values("apprise", self.config)),
                 )
             if attempt < _MAX_SEND_ATTEMPTS - 1:
                 await asyncio.sleep(_RETRY_DELAY_S)
 
         # All attempts exhausted
         if last_exc is not None:
-            self._set_last_error(str(last_exc))
+            self._set_last_error(
+                scrub_error(str(last_exc), config_secret_values("apprise", self.config))
+            )
         else:
             self._set_last_error("Apprise notify returned failure")
 

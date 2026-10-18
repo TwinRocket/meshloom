@@ -309,7 +309,13 @@ class TestFanoutRoutes:
         assert caught.value.detail["code"] == "apprise_chat_id_required"
 
         cfg = await _create("apprise", {"urls": "tgram://123:ABC/456"})
-        assert cfg["config"]["urls"] == "tgram://123:ABC/456"
+        # Write-only: the answer never holds the token (app/secret_fields.py).
+        assert cfg["config"]["urls"] == "********"
+        from app.repository.fanout import FanoutConfigRepository
+
+        stored = await FanoutConfigRepository.get(cfg["id"])
+        assert stored is not None
+        assert stored["config"]["urls"] == "tgram://123:ABC/456"
 
     @pytest.mark.asyncio
     async def test_sqs_endpoint_and_map_upload_api_are_checked(self, test_db):

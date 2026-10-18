@@ -141,9 +141,10 @@ async def test_bots_come_back_disabled(backup_db, proxy_spy, monkeypatch):
     monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", False)
     started = AsyncMock()
     monkeypatch.setattr(fanout_manager, "_start_module", started)
-    warnings = await restore_meshloom_extra(
-        MeshloomExtra(fanout_configs=[bot(), webhook(enabled=True)])
+    public_hook = webhook(
+        enabled=True, config={"url": "https://example.org/hook", "allow_private_network": False}
     )
+    warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot(), public_hook]))
     assert "bots_restored_disabled:Greeter" in warnings
     stored = {cfg["id"]: cfg for cfg in await FanoutConfigRepository.get_all()}
     assert stored["bot-1"]["enabled"] is False

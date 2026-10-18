@@ -26,6 +26,7 @@ from app.repository.contact_telemetry import ContactTelemetryRepository
 from app.repository.repeater_telemetry import RepeaterTelemetryRepository
 from app.repository.settings import AppSettingsRepository
 from app.repository.telemetry_alert_state import TelemetryAlertStateRepository
+from app.secret_fields import NOTIFICATION_SECRET_KEYS, REDACTED, redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ RULE_GPS_LOST = "gps_lost"
 DEFAULT_BATTERY_VOLTS_MIN = 3.5
 DEFAULT_NOISE_FLOOR_MAX_DBM = -90.0
 DEFAULT_MISSES_BEFORE_ALERT = 2
-REDACTED_SECRET = "********"
+REDACTED_SECRET = REDACTED
 BATTERY_REARM_MARGIN_V = 0.2
 NOISE_REARM_MARGIN_DB = 3.0
 MISSES_MIN = 1
@@ -629,11 +630,12 @@ def merge_notification_destinations(
 
 
 def redact_notification_destinations(dest: NotificationDestinations) -> NotificationDestinations:
+    """The API and JSON-backup form: each secret ``********`` when set, else ``""``."""
     dumped = dest.model_dump(by_alias=True)
-    email = dumped.setdefault("email", {})
-    webhook = dumped.setdefault("webhook", {})
-    email["password"] = REDACTED_SECRET if email.get("password") else ""
-    webhook["hmac_secret"] = REDACTED_SECRET if webhook.get("hmac_secret") else ""
+    for kind, keys in NOTIFICATION_SECRET_KEYS.items():
+        section = dumped.get(kind)
+        if isinstance(section, dict):
+            dumped[kind] = redact_secrets(section, keys)
     return NotificationDestinations.model_validate(dumped)
 
 

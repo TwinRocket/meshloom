@@ -265,7 +265,37 @@ def _channel_to_backup(channel) -> BackupChannel:
     )
 
 
-async def export_json() -> BackupExport:
+def _omit_settings_secrets(settings: AppSettings) -> tuple[AppSettings, dict[str, bool]]:
+    """The settings with every notification secret ``********`` (``app/secret_fields.py``),
+    and the paths of the secrets that were set (``secret_omitted``)."""
+    from app.secret_fields import NOTIFICATION_SECRET_KEYS
+    from app.telemetry_alerts import redact_notification_destinations
+
+    dumped = settings.notification_destinations.model_dump(by_alias=True)
+    omitted = {
+        f"settings.notification_destinations.{kind}.{key}": True
+        for kind, keys in NOTIFICATION_SECRET_KEYS.items()
+        for key in keys
+        if isinstance(dumped.get(kind), dict) and dumped[kind].get(key)
+    }
+    redacted = settings.model_copy(
+        update={
+            "notification_destinations": redact_notification_destinations(
+                settings.notification_destinations
+            )
+        }
+    )
+    return redacted, omitted
+
+
+async def export_json(*, include_secrets: bool = False) -> BackupExport:
+    """The ``meshloom-backup-v1`` document.
+
+    Without ``include_secrets`` (the download, ``GET /settings/backup/json``)
+    the SMTP password and the webhook secret read ``********`` and
+    ``secret_omitted`` names them; restoring the file keeps the stored ones.
+    The full backup passes ``include_secrets=True``.
+    """
     contacts = await ContactRepository.get_all(limit=100_000)
     channels = await ChannelRepository.get_all()
     settings = await AppSettingsRepository.get()
@@ -274,12 +304,16 @@ async def export_json() -> BackupExport:
         key: dict(flags)
         for key, flags in (await AppSettingsRepository.get_push_conversation_overrides()).items()
     }
+    secret_omitted: dict[str, bool] = {}
+    if not include_secrets:
+        settings, secret_omitted = _omit_settings_secrets(settings)
     export = BackupExport(
         format=BACKUP_FORMAT,
         exported_at=int(time.time()),
         contacts=[_contact_to_backup(c) for c in contacts],
         channels=[_channel_to_backup(c) for c in channels],
         settings=settings,
+        secret_omitted=secret_omitted,
         groups=groups,
         push_defaults=dict(await AppSettingsRepository.get_push_defaults()),
         push_conversation_overrides=exported_overrides,
@@ -719,7 +753,7 @@ async def export_backup_v2(*, encrypted: bool = False) -> BackupExportV2:
     from app.services.radio_runtime import radio_runtime
     from app.version_info import get_app_build_info
 
-    base = await export_json()
+    base = await export_json(include_secrets=True)
     extra = await export_meshloom_extra()
     warnings: list[str] = []
     identity: BackupIdentity | None = None
@@ -793,7 +827,12 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
 
     from app.fanout.manager import fanout_manager, is_reserved_fanout_id
     from app.repository.fanout import FanoutConfigRepository
-    from app.routers.fanout import prepare_fanout_config, prepare_refused_apprise_config
+    from app.routers.fanout import (
+        allows_private_network,
+        prepare_fanout_config,
+        prepare_refused_apprise_config,
+    )
+    from app.secret_fields import merge_secrets
 
     written: list[str] = []
     restored_bots: list[str] = []
@@ -806,10 +845,19 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
         if entry.type == "bot" and fanout_manager.bots_disabled_effective():
             warnings.append(f"bots_disabled:{label}")
             continue
+        existing = await FanoutConfigRepository.get(entry.id)
+        if existing is not None and existing["type"] != entry.type:
+            warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
+            continue
+        # A secret written as ******** (a file from an older JSON export, or
+        # one edited by hand) keeps the stored value, else reads as unset.
+        file_config = merge_secrets(
+            entry.type, existing["config"] if existing is not None else None, entry.config
+        )
         refused_apprise = False
         try:
             config, scope = prepare_fanout_config(
-                entry.type, entry.config, entry.scope, restored=True
+                entry.type, file_config, entry.scope, restored=True
             )
         except HTTPException as exc:
             # A coded Apprise refusal (a scheme no longer allowed, a Telegram
@@ -818,17 +866,18 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
             if entry.type != "apprise" or not isinstance(exc.detail, dict):
                 warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
                 continue
-            config, scope = prepare_refused_apprise_config(entry.config, entry.scope)
+            config, scope = prepare_refused_apprise_config(file_config, entry.scope)
             refused_apprise = True
             warnings.append(f"apprise_restored_disabled:{label}")
         # A bot runs code through exec() once enabled, and a backup file may
         # come from someone else: restored disabled, the user enables it.
         enabled = entry.enabled and entry.type != "bot" and not refused_apprise
-        existing = await FanoutConfigRepository.get(entry.id)
+        # A LAN opt-in granted on another host would let this file reach this
+        # host's network at once: restored disabled, the user re-enables it.
+        if enabled and allows_private_network(entry.type, config):
+            enabled = False
+            warnings.append(f"private_network_restored_disabled:{label}")
         if existing is not None:
-            if existing["type"] != entry.type:
-                warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
-                continue
             await FanoutConfigRepository.update(
                 entry.id,
                 name=entry.name or existing["name"],
