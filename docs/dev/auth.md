@@ -437,7 +437,7 @@ prompt inside the Home Assistant panel).
 `GET /settings/view` (`read`, so every role including `kiosk`) is the one readable
 settings route: `AppSettingsView` in `app/models.py` is an allowlist of display
 settings (`ui_preferences`, blocked keys and names, regions, unread markers,
-`directory_available`), and `contact-` keys of `last_message_times` are dropped
+`directory_available`), and only `channel-` keys of `last_message_times` are kept
 below `read_private`. `GET /settings` stays `admin`. A setting reaches the other
 roles only by being added to that model (`tests/test_settings_view.py`).
 

@@ -377,14 +377,14 @@ async def get_settings_view(request: Request) -> AppSettingsView:
     """The non-sensitive settings the interface loads at startup, for every role.
 
     ``GET /api/settings`` stays administrator-only; this is its allowlisted slice
-    (``AppSettingsView``). A caller without ``read_private`` (the kiosk) gets no
-    ``contact-`` key in ``last_message_times``: those name direct conversations.
+    (``AppSettingsView``). A caller without ``read_private`` (the kiosk) gets only
+    ``channel-`` keys in ``last_message_times`` (the others name direct conversations).
     """
     settings = await _settings_response()
     last_message_times = settings.last_message_times
     if not can_read_private(request):
         last_message_times = {
-            key: ts for key, ts in last_message_times.items() if not key.startswith("contact-")
+            key: ts for key, ts in last_message_times.items() if key.startswith("channel-")
         }
     return AppSettingsView(
         ui_preferences=settings.ui_preferences,

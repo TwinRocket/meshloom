@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { api, formatApiError } from '../api';
+import { api, ApiError, formatApiError } from '../api';
 import { takePrefetchOrFetch } from '../prefetch';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
@@ -72,7 +72,7 @@ function settingsFromView(view: AppSettingsView): AppSettings {
 export function useAppSettings() {
   // `GET /api/settings` is administrator-only: the other roles read the allowlisted
   // `GET /api/settings/view` (theme, blocked lists, regions) and cannot write settings.
-  const { isAdmin } = useCapabilities();
+  const { isAdmin, canSend } = useCapabilities();
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
   // One-time migration guard
@@ -242,7 +242,8 @@ export function useAppSettings() {
   // Legacy favorites migration: if pre-server-side favorites exist in
   // localStorage, toggle each one via the existing API and clear the key.
   useEffect(() => {
-    if (!appSettings || hasMigratedRef.current) return;
+    // Toggling a favourite needs `send`; another role keeps its local list untouched.
+    if (!appSettings || !canSend || hasMigratedRef.current) return;
     hasMigratedRef.current = true;
 
     const FAVORITES_KEY = 'meshloom-favorites';
@@ -257,20 +258,23 @@ export function useAppSettings() {
 
     const migrate = async () => {
       let migrated = 0;
+      let refused = false;
       for (const f of localFavorites) {
         try {
           await api.toggleFavorite(f.type, f.id);
           migrated++;
-        } catch {
-          // Entity may have been deleted; skip and continue
+        } catch (err) {
+          // Entity may have been deleted; skip and continue. A refusal is not that:
+          // keep the local list.
+          if (err instanceof ApiError && err.status === 403) refused = true;
         }
       }
-      localStorage.removeItem(FAVORITES_KEY);
+      if (!refused) localStorage.removeItem(FAVORITES_KEY);
       // Reload so contacts/channels pick up the new favorite flags
       if (migrated > 0) window.location.reload();
     };
     migrate();
-  }, [appSettings]);
+  }, [appSettings, canSend]);
 
   return {
     appSettings,

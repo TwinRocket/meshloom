@@ -289,7 +289,8 @@ purpose.
   to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool
   that calls a refused route goes in `TOOL_CAPABILITY` (`navDestinations.ts`). A hook that
   loads at startup must not call an admin-only route for another role (members, viewers and
-  kiosks read `/settings/view` through `useAppSettings`, which cannot save, and skip `/settings`, `/radio/config`, `/updates`, `/community`, `/push/preferences`,
+  kiosks read `/settings/view` through `useAppSettings`, which cannot save, and skip
+  `/settings`, `/radio/config`, `/updates`, `/community`, `/push/preferences`,
   the Wi-Fi state; the kiosk also skips the mark-read calls, `read_private`); the kiosk gets
   no contact row, no Direct chip and no settings door.
 - **Forced password change.** `GET /auth/session` `user.must_change_password` (or a 403
