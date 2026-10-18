@@ -6,7 +6,11 @@ package next to it. These tests read the real build files.
 """
 
 import re
+import subprocess
+import textwrap
 from pathlib import Path
+
+import pytest
 
 from app.plugins import launch
 
@@ -57,10 +61,40 @@ def test_armhf_build_image_copies_the_package_next_to_app() -> None:
     assert '"meshloom_plugin/**"' in workflow
 
 
-def test_armhf_overlay_takes_the_package_from_the_tag() -> None:
+def _overlay_script() -> str:
     workflow = (ROOT / ".github/workflows/nfpm-armhf.yml").read_text()
-    assert "rm -rf app frontend meshloom_plugin" in workflow
-    assert "cp -a tag-src/app tag-src/frontend tag-src/meshloom_plugin ." in workflow
+    match = re.search(
+        r"- name: Overlay tagged sources\n\s+run: \|\n((?:          .*\n|\n)+)", workflow
+    )
+    assert match, "overlay step not found"
+    return textwrap.dedent(match.group(1))
+
+
+@pytest.mark.parametrize("tag_has_package", [True, False], ids=["5.x-tag", "pre-5.0-tag"])
+def test_armhf_overlay_runs_for_old_and_new_tags(tmp_path: Path, tag_has_package: bool) -> None:
+    # The recipe comes from the default branch and rebuilds any tag: a tag older
+    # than 5.0 has no meshloom_plugin/, and the overlay must still leave one for
+    # Dockerfile.nfpm-armhf's COPY and copy_project_files.
+    tag = tmp_path / "tag-src"
+    for name in ("app", "frontend"):
+        (tag / name).mkdir(parents=True)
+        (tag / name / "marker").write_text(name)
+    if tag_has_package:
+        (tag / "meshloom_plugin").mkdir()
+        (tag / "meshloom_plugin" / "runner.py").write_text("# tag runner\n")
+    for name in ("pyproject.toml", "uv.lock", "LICENSE.md"):
+        (tag / name).write_text(name)
+    (tmp_path / "meshloom_plugin").mkdir()
+    (tmp_path / "meshloom_plugin" / "runner.py").write_text("# default-branch runner\n")
+    subprocess.run(["bash", "-e", "-c", _overlay_script()], cwd=tmp_path, check=True)
+    assert not tag.exists()
+    assert (tmp_path / "meshloom_plugin").is_dir()
+    runner = tmp_path / "meshloom_plugin" / "runner.py"
+    if tag_has_package:
+        assert runner.read_text() == "# tag runner\n"
+    else:
+        # Never the default branch's runner inside an old package: an empty dir.
+        assert list((tmp_path / "meshloom_plugin").iterdir()) == []
 
 
 def test_upgrade_matrix_image_carries_the_package() -> None:
