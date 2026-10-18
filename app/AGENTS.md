@@ -69,6 +69,14 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 102 adds the share settings to `app_settings` (`share_enabled`,
+  `share_shorten_mode`, `share_preview_policy`, `share_instance_seed`). Fresh databases get
+  them from the migration, not from `SCHEMA_TABLES` (later columns are all added that
+  way). `share_instance_seed` is outside `AppSettings`, read and written only through
+  `AppSettingsRepository.get_share_seed()/set_share_seed()`; the `*_seed` rule of
+  `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
+  the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
+  behaviours are restored.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
