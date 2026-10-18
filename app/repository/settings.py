@@ -848,7 +848,7 @@ class AppSettingsRepository:
         ):
             from app.services.share import note_share_settings_changed
 
-            note_share_settings_changed()
+            note_share_settings_changed(enabled=result.share_enabled)
         if destinations_before is not None:
             from app.notify import notify_destination_changed
 

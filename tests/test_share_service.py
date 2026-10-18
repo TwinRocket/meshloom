@@ -235,6 +235,43 @@ class TestRequestShape:
         assert all("authorization" not in r.headers for r in recorder.requests)
         assert recorder.requests[1].headers["accept"] == "application/octet-stream"
 
+    @pytest.mark.parametrize(
+        ("content_type", "ok"),
+        [
+            ("image/png", True),
+            ("image/webp", True),
+            ("IMAGE/JPEG; charset=binary", True),
+            ("application/octet-stream", True),
+            ("text/html; charset=utf-8", False),
+            ("image/svg+xml", False),
+            ("application/json", False),
+            (None, False),
+        ],
+    )
+    async def test_object_types(self, share_on, monkeypatch, content_type, ok):
+        headers = {"Content-Type": content_type} if content_type else {}
+        Recorder(monkeypatch, lambda request: httpx.Response(200, content=b"x", headers=headers))
+        if ok:
+            assert (await fetch_object("AbCdEfG")).content == b"x"
+        else:
+            assert (await _raises(fetch_object("AbCdEfG"))).code == "share_unavailable"
+
+    def test_service_code_is_sanitized_in_logs(self, caplog):
+        response = httpx.Response(401, headers={"Content-Type": "application/json"})
+        checked = share.CheckedResponse(
+            status_code=401,
+            headers=response.headers,
+            content=b"",
+            url="https://meshl.ink/",
+            redirects=0,
+        )
+        with caplog.at_level("WARNING", logger="app.services.share"):
+            share._service_error(checked, {"code": "token_replayed"})
+            share._service_error(checked, {"code": "evil\nINJECTED line"})
+        assert "token_replayed" in caplog.text
+        assert "INJECTED" not in caplog.text
+        assert "unknown" in caplog.text
+
     async def test_timeouts_and_pinning(self, share_on, monkeypatch):
         recorder = Recorder(monkeypatch, lambda request: json_response(201, LINK))
         await create_link(URL)

@@ -11,6 +11,7 @@ instance seed, a channel key or the radio private key (the DM secret).
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 
@@ -141,3 +142,107 @@ class TestShareOn:
                     assert secret not in text
         finally:
             keystore.clear_keys()
+
+
+class SlowServer:
+    """An ``httpx.AsyncClient`` whose server takes the request, then never answers."""
+
+    def __init__(self, monkeypatch) -> None:
+        self.requests: list[httpx.Request] = []
+        self.started = asyncio.Event()
+        outer = self
+
+        async def hang(request: httpx.Request) -> httpx.Response:
+            outer.requests.append(request)
+            outer.started.set()
+            await asyncio.sleep(3600)
+            raise AssertionError("unreachable")
+
+        class Slow(_RealAsyncClient):
+            def __init__(self, **kwargs):
+                kwargs["transport"] = httpx.MockTransport(hang)
+                super().__init__(**kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", Slow)
+
+
+class TestTurningOffCutsInFlight:
+    @pytest.mark.parametrize("name", ["create_link", "get_meta", "fetch_object"])
+    async def test_request_in_flight_is_cut(self, test_db, monkeypatch, name):
+        await AppSettingsRepository.update(share_enabled=True)
+        Dns(monkeypatch)
+        server = SlowServer(monkeypatch)
+        call = asyncio.ensure_future(SERVICE_CALLS[name]())
+        await asyncio.wait_for(server.started.wait(), 5)
+        await AppSettingsRepository.update(share_enabled=False)
+        with pytest.raises(ShareError) as info:
+            await asyncio.wait_for(call, 2)
+        assert info.value.code == "share_disabled"
+        assert share._state.inflight == set()
+        # The cut is not a service failure.
+        assert share.share_breaker().failures == 0
+        for other in SERVICE_CALLS.values():
+            with pytest.raises(ShareError):
+                await other()
+        assert len(server.requests) == 1
+
+    async def test_other_settings_do_not_cut(self, test_db, monkeypatch):
+        await AppSettingsRepository.update(share_enabled=True)
+        Dns(monkeypatch)
+        server = SlowServer(monkeypatch)
+        call = asyncio.ensure_future(share.get_meta("AbCdEfG"))
+        await asyncio.wait_for(server.started.wait(), 5)
+        await AppSettingsRepository.update(share_preview_policy="never")
+        await asyncio.sleep(0.05)
+        assert not call.done()
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+
+    async def test_caller_cancellation_stays_a_cancellation(self, test_db, monkeypatch):
+        await AppSettingsRepository.update(share_enabled=True)
+        Dns(monkeypatch)
+        server = SlowServer(monkeypatch)
+        call = asyncio.ensure_future(share.get_meta("AbCdEfG"))
+        await asyncio.wait_for(server.started.wait(), 5)
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+        assert share._state.inflight == set()
+
+    async def test_off_and_on_during_minting_sends_nothing(self, test_db, monkeypatch):
+        """Turned off (then on again) while the token is minted: the old request never leaves."""
+        await AppSettingsRepository.update(share_enabled=True)
+        Dns(monkeypatch)
+        recorder = Recorder(monkeypatch, _answer)
+        real_mint = share.mint_share_jwt
+
+        async def mint_then_toggle(binding: str) -> str:
+            token = await real_mint(binding)
+            await AppSettingsRepository.update(share_enabled=False)
+            await AppSettingsRepository.update(share_enabled=True)
+            return token
+
+        monkeypatch.setattr(share, "mint_share_jwt", mint_then_toggle)
+        with pytest.raises(ShareError) as info:
+            await share.create_link("https://example.com/a")
+        assert info.value.code == "share_disabled"
+        assert recorder.requests == []
+
+    async def test_answer_from_before_the_cut_is_never_used(self, test_db, monkeypatch):
+        """The answer arrives, but sharing was turned off while it was on its way."""
+        await AppSettingsRepository.update(share_enabled=True)
+        Dns(monkeypatch)
+        real_follow = share.follow_checked_redirects
+
+        async def answer_after_cut(*args, **kwargs):
+            response = await real_follow(*args, **kwargs)
+            # Off without the cancel reaching this task (it is already done).
+            share._state.generation += 1
+            return response
+
+        Recorder(monkeypatch, _answer)
+        monkeypatch.setattr(share, "follow_checked_redirects", answer_after_cut)
+        with pytest.raises(ShareError) as info:
+            await share.get_meta("AbCdEfG")
+        assert info.value.code == "share_disabled"

@@ -40,6 +40,7 @@ Never log a token, a request body or a response body. Tests:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -81,6 +82,11 @@ SHARE_TOTAL_TIMEOUT_S = 100.0
 # Response caps: JSON answers are small; files are at most 10 MiB (contract).
 MAX_JSON_RESPONSE_BYTES = 64 * 1024
 MAX_OBJECT_RESPONSE_BYTES = 11 * 1024 * 1024
+# What GET /{id} may answer as bytes: the image types the contract serves,
+# and raw bytes (an encrypted object). Never text/html or anything else.
+OBJECT_CONTENT_TYPES = frozenset(
+    {"image/jpeg", "image/png", "image/gif", "image/webp", "application/octet-stream"}
+)
 
 BREAKER_FAILURE_THRESHOLD = 3
 BREAKER_OPEN_SECONDS = 300.0
@@ -189,6 +195,10 @@ class _State:
             NEGATIVE_CACHE_SIZE
         )
         self.banned_until: float | None = None
+        # Bumped when sharing is turned off: a request that passed the opt-in
+        # check before must not leave, and its answer must not be used.
+        self.generation = 0
+        self.inflight: set[asyncio.Future[CheckedResponse]] = set()
 
 
 _state = _State(time.monotonic)
@@ -241,9 +251,22 @@ def _note_banned() -> None:
         )
 
 
-def note_share_settings_changed() -> None:
-    """A share setting changed (a user action or a restore): end the banned state."""
+def note_share_settings_changed(*, enabled: bool) -> None:
+    """A share setting changed (a user action or a restore): end the banned state.
+
+    With sharing now off, every request in flight is cancelled at once (its
+    caller gets ``share_disabled``) and none started before leaves afterwards.
+    """
     _state.banned_until = None
+    if not enabled:
+        _state.generation += 1
+        for task in list(_state.inflight):
+            task.cancel()
+
+
+def _check_generation(generation: int) -> None:
+    if generation != _state.generation:
+        raise ShareError("share_disabled")
 
 
 # Requests -------------------------------------------------------------------
@@ -271,7 +294,8 @@ def _service_error(response: CheckedResponse, payload: dict[str, Any] | None) ->
     code = _SERVICE_CODES.get(service_code) if isinstance(service_code, str) else None
     if code is None or response.status_code >= 500:
         if isinstance(service_code, str):
-            logger.warning("Share service answered %s %s", response.status_code, service_code[:32])
+            shown = service_code if _SCOPE_RE.match(service_code) else "unknown"
+            logger.warning("Share service answered %s %s", response.status_code, shown)
         else:
             logger.warning("Share service answered %s (not a JSON error)", response.status_code)
         return ShareError("share_unavailable")
@@ -300,9 +324,11 @@ async def share_request(
     read, which carries no token). ``read`` names the read bucket and enables
     the negative cache.
     """
+    generation = _state.generation
     state = await share_egress_state()
     if state is None:
         raise ShareError("share_disabled")
+    _check_generation(generation)
     if binding is not None and share_banned():
         raise ShareError("share_banned")
     cache_key = f"{method.upper()} {path}"
@@ -334,17 +360,37 @@ async def share_request(
         if json_body is not None:
             content = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json"
-        response = await follow_checked_redirects(
-            method,
-            f"https://{state.host}{path}",
-            timeout=SHARE_TIMEOUT,
-            total_timeout=SHARE_TOTAL_TIMEOUT_S,
-            allowed_hosts=HostAllowlist.of(state.host),
-            schemes=frozenset({"https"}),
-            max_response_bytes=max_response_bytes,
-            content=content,
-            headers=headers,
+        # Read again after the awaits above: an opt-out may have landed meanwhile.
+        _check_generation(generation)
+        send = asyncio.ensure_future(
+            follow_checked_redirects(
+                method,
+                f"https://{state.host}{path}",
+                timeout=SHARE_TIMEOUT,
+                total_timeout=SHARE_TOTAL_TIMEOUT_S,
+                allowed_hosts=HostAllowlist.of(state.host),
+                schemes=frozenset({"https"}),
+                max_response_bytes=max_response_bytes,
+                content=content,
+                headers=headers,
+            )
         )
+        _state.inflight.add(send)
+        try:
+            response = await send
+        except asyncio.CancelledError:
+            current = asyncio.current_task()
+            if send.cancelled() and (current is None or current.cancelling() == 0):
+                # Cancelled by the opt-out, not by our caller.
+                raise ShareError("share_disabled") from None
+            raise
+        finally:
+            _state.inflight.discard(send)
+        # Never use an answer from before an opt-out.
+        _check_generation(generation)
+    except ShareError:
+        breaker.release_trial()
+        raise
     except (httpx.HTTPError, EgressBlocked, TimeoutError, OSError) as exc:
         breaker.record_failure()
         logger.warning("Share service %s failed: %s", method.upper(), error_code(exc))
@@ -417,7 +463,11 @@ async def fetch_object(share_id: str) -> ShareObject:
         accept="application/octet-stream",
         max_response_bytes=MAX_OBJECT_RESPONSE_BYTES,
     )
-    content_type = response.headers.get("content-type", "application/octet-stream")
+    content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+    if content_type not in OBJECT_CONTENT_TYPES:
+        # An edge page, a challenge or the HTML image page is never the object.
+        logger.warning("Share service answered an object of an unexpected type")
+        raise ShareError("share_unavailable")
     return ShareObject(content=response.content, content_type=content_type)
 
 

@@ -102,6 +102,13 @@ Community guard.
 - **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled`;
   `share_request()` checks it first and answers 403 `share_disabled` with no
   DNS lookup and no connection.
+- **Turning it off cuts at once** (as Community does). `AppSettingsRepository.update`
+  calls `note_share_settings_changed(enabled=...)`; with sharing now off it bumps
+  `_state.generation` and cancels every send in `_state.inflight`, whose caller
+  gets `share_disabled` (a caller's own cancellation stays a `CancelledError`;
+  neither counts against the breaker). `share_request` checks the generation
+  after the opt-in read, again after minting the token (right before the send)
+  and once the answer arrived: an answer from before the cut is never used.
 - **Egress.** Every request goes through `follow_checked_redirects`
   (`app/net/egress_guard.py`) with `HostAllowlist.of(SHARE_HOST)`, HTTPS only, no
   redirect followed, the answer capped (64 KiB JSON, 11 MiB bytes) and pinned to
@@ -121,7 +128,11 @@ Community guard.
   redirect, an unexpected body) is 502 `share_unavailable`. **Any answer that is
   not `application/json`** (a Cloudflare 1027 page, a challenge, an HTML 404) is
   `share_unavailable`, whatever its status. An id outside the grammar is a local
-  404 `share_not_found`.
+  404 `share_not_found`. `fetch_object` accepts only `OBJECT_CONTENT_TYPES`
+  (`image/jpeg`, `image/png`, `image/gif`, `image/webp`,
+  `application/octet-stream`); a 2xx of any other type (`text/html`, SVG) is
+  `share_unavailable`. A service code is logged only when it matches
+  `^[a-z_]{1,32}$` ("unknown" otherwise).
 - **Banned.** A 403 `banned` holds a banned state in memory for 12 h
   (`BANNED_HOLD_S`): later writes are refused locally (403 `share_banned`) with
   no request; reads stay open, as on the service. A restart or any change of a
