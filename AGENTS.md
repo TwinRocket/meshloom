@@ -101,6 +101,11 @@ tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-b
   call path around it. The few bounded exceptions and the "waiting for a
   position" level are in `app/AGENTS.md`. The radio's position leaves only in
   the IATA bind and the on-click IATA suggestion.
+- **Share egress.** Sharing off (`share_enabled`, the default) means no
+  connection at all to the share service. Every request goes through
+  `share_request()` in `app/services/share.py` (`share_egress_state()`, then the
+  egress guard with `SHARE_HOST` as the only allowed host), never a separate path;
+  `tests/test_share_off_no_egress.py` sweeps it (`app/AGENTS.md`).
 - **User-chosen destinations.** The notification webhook, Web Push, their
   test routes and the fanout outputs (webhook, Apprise, SQS, map upload) go
   through the egress guard (`app/net/egress_guard.py`, see `app/net/AGENTS.md`):
@@ -108,9 +113,9 @@ tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-b
   the client allows it (not Apprise, not boto3). Apprise URLs also pass the
   scheme allowlist of `app/net/apprise_urls.py`. A new outbound path to a
   user-chosen URL must use the guard. A caller with a fixed set of hosts (the
-  Store client, the plugin `http` capability) passes a `HostAllowlist` and
-  sends through `follow_checked_redirects` (each redirect hop re-validated,
-  bodies capped while streaming).
+  Store client, the plugin `http` capability, the share service client) passes
+  a `HostAllowlist` and sends through `follow_checked_redirects` (each redirect
+  hop re-validated, bodies capped while streaming).
 
 ## Commands
 

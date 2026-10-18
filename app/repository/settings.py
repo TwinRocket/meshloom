@@ -841,6 +841,14 @@ class AppSettingsRepository:
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
         origin_policy.apply(result)
+        if (
+            share_enabled is not None
+            or share_shorten_mode is not None
+            or share_preview_policy is not None
+        ):
+            from app.services.share import note_share_settings_changed
+
+            note_share_settings_changed()
         if destinations_before is not None:
             from app.notify import notify_destination_changed
 
