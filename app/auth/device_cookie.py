@@ -12,7 +12,7 @@ fast it sends.
   ``device id`` is 128 random bits (the key of the per-device failure count),
   ``generation`` the account's ``users.updated_at``, which every write to the
   account moves (a password change from ``PATCH /api/auth/me`` or the CLI, a
-  rehash, disabling or enabling it, a rename), so each of them invalidates
+  rehash, a role change, disabling or enabling it, a rename), so each of them invalidates
   every cookie of that user (nothing derived from the password is put in the
   cookie), and ``mac`` an HMAC-SHA256 over the rest. The account must also be
   enabled when the cookie is checked. ``updated_at`` has one-second

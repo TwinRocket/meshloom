@@ -32,7 +32,7 @@ Les mauvais mots de passe ralentissent les tentatives suivantes ; ils ne verroui
 
 Une adresse IPv6 compte pour son bloc /64 : un foyer ou un serveur dispose en général d’un bloc entier et pourrait sinon changer d’adresse à chaque tentative.
 
-**Votre propre navigateur entre toujours.** Après une connexion, Meshloom reconnaît le navigateur grâce à un cookie dédié (pendant 180 jours, pour le dernier compte connecté dessus). Avec ce cookie, le bon mot de passe passe aussitôt, quoi que d’autres envoient et d’où qu’ils l’envoient. Un navigateur qui se trompe 5 fois de mot de passe en 15 minutes perd ce passe-droit et suit les règles ci-dessus. Changer le mot de passe, désactiver le compte ou redémarrer Meshloom oublie les navigateurs : la connexion réussie suivante le fait reconnaître de nouveau.
+**Votre propre navigateur entre toujours.** Après une connexion, Meshloom reconnaît le navigateur grâce à un cookie dédié (pendant 180 jours, pour le dernier compte connecté dessus). Avec ce cookie, le bon mot de passe passe aussitôt, quoi que d’autres envoient et d’où qu’ils l’envoient. Un navigateur qui se trompe 5 fois de mot de passe perd ce passe-droit et suit les règles ci-dessus ; ses erreurs sont oubliées après 15 minutes sans nouvelle erreur, ou à sa prochaine connexion réussie. Changer le mot de passe, le rôle ou le nom du compte, le désactiver, ou redémarrer Meshloom oublie les navigateurs : la connexion réussie suivante le fait reconnaître de nouveau.
 
 Depuis un navigateur que Meshloom ne connaît pas encore (nouvel appareil, cookie effacé, après un redémarrage) :
 

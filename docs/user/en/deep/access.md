@@ -32,7 +32,7 @@ Wrong passwords slow the next attempts down; they never lock an account.
 
 An IPv6 address counts by its /64 block: one home or server usually holds a whole block and could otherwise change address at each attempt.
 
-**Your own browser always gets in.** After you sign in, Meshloom remembers the browser with a cookie of its own (for 180 days, for the last account that signed in on it). With that cookie, the right password gets in at once, whatever anyone else sends from anywhere. A browser that types the wrong password 5 times in 15 minutes loses that pass and follows the rules above. Changing the password, disabling the account or restarting Meshloom forgets the browsers: the next successful sign-in remembers it again.
+**Your own browser always gets in.** After you sign in, Meshloom remembers the browser with a cookie of its own (for 180 days, for the last account that signed in on it). With that cookie, the right password gets in at once, whatever anyone else sends from anywhere. A browser that types the wrong password 5 times loses that pass and follows the rules above; its mistakes are forgotten after 15 minutes without a new one, or at its next successful sign-in. Changing the account's password, role or name, disabling it, or restarting Meshloom forgets the browsers: the next successful sign-in remembers it again.
 
 From a browser Meshloom does not know yet (a new device, a cleared cookie, after a restart):
 

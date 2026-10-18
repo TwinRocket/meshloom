@@ -42,7 +42,8 @@ gets a log line (once per peer) pointing to the Trusted proxies setting.
 **Known devices.** A browser that signed in successfully carries a signed
 known-device cookie (``app/auth/device_cookie.py``). An attempt for that
 username with a valid one skips all three rules while its device has fewer
-than ``DEVICE_MAX_FAILURES`` failures in ``FORGET_AFTER_S``, so a guesser,
+than ``DEVICE_MAX_FAILURES`` failures (the count is dropped ``FORGET_AFTER_S``
+after the device's last failure, or on a success), so a guesser,
 however fast and wherever it sits, cannot keep the owner's own browser out.
 A device that fails that often loses the bypass and follows the ordinary
 rules. An unknown browser on a shared address competes for the one slot a

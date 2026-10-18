@@ -581,8 +581,17 @@ async def test_device_cookie_refused_when_forged_expired_for_another_user_or_sta
     device_cookie_clock += 5
     await UserRepository.update(owner.id, disabled=True)
     assert await device_cookie.known_device(device_cookie.parse(fresh), ADMIN) is None
-    # A restart (new key).
+    # A role change.
+    device_cookie_clock += 5
     await UserRepository.update(owner.id, disabled=False)
+    before_role = device_cookie.issue(
+        owner.id, (await UserRepository.get(owner.id)).updated_at, "dev1"
+    )
+    assert await device_cookie.known_device(device_cookie.parse(before_role), ADMIN) == "dev1"
+    device_cookie_clock += 5
+    await UserRepository.update(owner.id, role="member")
+    assert await device_cookie.known_device(device_cookie.parse(before_role), ADMIN) is None
+    # A restart (new key).
     device_cookie.reset_device_secret()
     assert device_cookie.parse(fresh) is None
 
@@ -597,3 +606,31 @@ async def test_route_device_cookie_attributes(clock):
     attributes = [part.strip() for part in cookie.split(";")]
     assert attributes[0].startswith("__Secure-meshloom_device=")
     assert {"Path=/api/auth", "HttpOnly", "SameSite=Strict", "Secure"} <= set(attributes)
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_route_known_device_with_a_wrong_password_is_refused_and_counted(clock, hash_calls):
+    """A known-device cookie skips the delays, never the password check: a wrong
+    password is a 401 and spends the device's budget."""
+    from app.auth import device_cookie
+
+    await create_user()
+    async with make_client() as owner:
+        first = await owner.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
+        assert first.status_code == 200
+        cookie = device_cookie.parse(owner.cookies.get(device_cookie.PLAIN_COOKIE_NAME))
+        assert cookie is not None
+        checks_before = len(hash_calls)
+
+        wrong = await owner.post("/api/auth/login", json=_login(ADMIN, "wrong password"))
+        assert wrong.status_code == 401
+        assert wrong.json()["detail"]["code"] == "auth_invalid_credentials"
+        assert len(hash_calls) == checks_before + 1
+        assert ratelimit.login_limiter._devices[cookie.device_id].failures == 1
+
+        for _ in range(DEVICE_MAX_FAILURES - 1):
+            assert (
+                await owner.post("/api/auth/login", json=_login(ADMIN, "wrong password"))
+            ).status_code == 401
+        assert not ratelimit.login_limiter.known_device_trusted(cookie.device_id)

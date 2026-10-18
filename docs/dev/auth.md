@@ -572,14 +572,15 @@ and none by IP alone behind Docker:
   over https): `v1.<user id>.<issued at>.<device id>.<generation>.<HMAC-SHA256>`,
   `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, 180 days. `generation` is
   the account's `users.updated_at`, moved by every write to the account
-  (password change from the route or the CLI, rehash, disable, enable, rename),
+  (password change from the route or the CLI, rehash, role change, disable, enable, rename),
   so each invalidates the user's cookies; nothing derived from the password
   goes in the cookie (CodeQL flags a hash of the password hash, rightly). One-second
   resolution: a change in the same second as the previous write does not move
   it. The account must be enabled at check time. A login for that username with a valid cookie skips
   all three rules while its device id has fewer than `DEVICE_MAX_FAILURES` (5)
-  failures within 15 minutes; past that it follows the ordinary rules until
-  the count is forgotten or a login succeeds. The HMAC key is random per
+  failures; the count is dropped 15 minutes after the device's last failure
+  (not a sliding 15-minute window: failures 14 minutes apart keep adding up)
+  or at its next successful login, and past 5 it follows the ordinary rules. The HMAC key is random per
   process: after a restart every browser is unknown until its next successful
   login (persisting the key needs a column: follow-up). One cookie per
   browser, for the last user who signed in on it. Never under ingress.
