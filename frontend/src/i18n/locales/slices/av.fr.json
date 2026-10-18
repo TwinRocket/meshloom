@@ -1,0 +1,9 @@
+{
+  "chat": {
+    "shorten": "Raccourcir",
+    "shortening": "Raccourcissement…",
+    "shortenFailed": "Impossible de raccourcir le lien",
+    "shortenUndo": "Annuler",
+    "linkShortened": "Lien raccourci : {{before}} → {{after}} octets"
+  }
+}
