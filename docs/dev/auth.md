@@ -13,8 +13,9 @@ device tokens" (the tokens page is
 `frontend/src/components/settings/AccessTokensPanel.tsx`), the TOTP second
 factor in "Second factor (TOTP)" (its pages: `frontend/src/auth/TotpEnrolment.tsx`,
 `SecondFactorStep.tsx`, `RecoveryCodesView.tsx`, `EnrolmentRequiredPage.tsx` and
-`frontend/src/components/settings/AccessSecurityPanel.tsx`). Pairing and passkeys come with later Access
-tickets. Like every doc here
+`frontend/src/components/settings/AccessSecurityPanel.tsx`), passkeys in
+"Passkeys" (server side; their pages come with MSHL-96). Pairing comes with a later
+Access ticket. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
 
@@ -46,8 +47,9 @@ works on the same tables.
 | Security headers (HSTS over https, no-store, Permissions-Policy) | `app/middleware/security_headers.py`, `tests/test_security_headers.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | TOTP second factor (codes, replay rule, recovery codes, pending logins) | `app/auth/totp.py`, routes in `app/routers/auth_totp.py`, `tests/test_auth_totp.py` |
+| Passkeys (WebAuthn: RP id rules, ceremonies, counter) | `app/auth/webauthn.py` (py_webauthn), routes in `app/routers/auth_webauthn.py`, `app/migrations/_110_webauthn_credentials.py`, `tests/test_auth_webauthn.py` (py_webauthn's vectors in `tests/fixtures/webauthn_vectors.json`, a software authenticator in `tests/webauthn_authenticator.py`) |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_auth_totp.py`, `tests/test_migrations/test_migration_109.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_auth_totp.py`, `tests/test_migrations/test_migration_109.py`, `tests/test_auth_webauthn.py`, `tests/test_migrations/test_migration_110.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -227,7 +229,8 @@ logged at ERROR and the row is not written (a bug at the call site).
 The accounts travel in the `users` section of the full backup
 (`app/services/backup_accounts.py`, `docs/dev/backup.md`, "Accounts"): hashes
 and TOTP material included (the secret, the replay counter and, since section
-version 2, the recovery code hashes), behind the export's **Include accounts** box
+version 2, the recovery code hashes; since version 3 the passkeys, public keys
+and counters), behind the export's **Include accounts** box
 (checked by default); a restore never leaves the instance without an enabled
 admin. The API tokens travel in their own `api_tokens` section (hashes,
 scopes, expiry; never a secret, the database holds none), behind the same box
@@ -240,7 +243,9 @@ stays in the SQLite download (IPs, usernames). The SQLite download
 not their secrets: `prepare_sqlite_snapshot()` sets `users.password_hash`,
 `users.totp_secret` and `auth_settings.setup_code_hash` to NULL and empties
 `sessions` and `recovery_codes` in the copy, under `secure_delete`. A restored snapshot therefore
-has accounts that cannot log in with a password until an admin reset.
+has accounts that cannot log in with a password until an admin reset. The
+passkeys (`webauthn_credentials`) stay in the copy: they are public keys, and
+they only work on an instance that answers on the same RP id.
 
 ## The gate
 
@@ -325,8 +330,9 @@ referrer, framing) stay in `app/main.py`; there is no CSP beyond
 `tests/test_security_headers.py`.
 
 Public routes (`PUBLIC_ROUTES`): `GET /api/health`, `GET /api/auth/session`,
-`POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/logout`,
-`GET /api/auth/kiosk-session` ("Kiosk device token").
+`POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/login/2fa`,
+`POST /api/auth/webauthn/login/options`, `POST /api/auth/webauthn/login/verify`,
+`POST /api/auth/logout`, `GET /api/auth/kiosk-session` ("Kiosk device token").
 
 **Tests.** `tests/conftest.py` signs every app request in as an admin
 (`_auth_as_admin`, it replaces `middleware.resolve`), so route tests need no
@@ -931,6 +937,82 @@ Access T50, owner decision Q-A16 (optional for users) and lead decision Q16
   database download, and in the JSON backup only inside the `users` section
   ("Include accounts").
 
+## Passkeys
+
+Access T52, owner decision Q-A16 (optional, HTTPS only). `app/auth/webauthn.py`
+on **py_webauthn** (ceremonies, attestation parsing, COSE keys; no CBOR or
+signature code here), routes in `app/routers/auth_webauthn.py`, storage in
+`webauthn_credentials` (migration 110) through `PasskeyRepository`.
+
+- **Who.** A `local` account with a password, outside `kiosk`
+  (`webauthn.applicable`). The account's passkeys are managed from a session only:
+  a token, Basic, a trusted network rule or ingress gets 403
+  `auth_passkey_not_applicable`. A passkey adds a way in next to the password and
+  never replaces it, so removing the last one locks nobody out.
+- **Relying party** (`relying_party_for`). WebAuthn needs a secure context and
+  a domain name. The RP id is the request's `Host` (lowercase, no port) when it
+  is: `localhost` (a secure context over http too; origin = the request's scheme
+  and port); the host of a declared public address (`auth_settings.public_urls`,
+  "Host guard") on an https request (`scope["scheme"]`, so behind a TLS
+  terminator only a trusted proxy's `X-Forwarded-Proto` makes it https); or the
+  Remote hostname (`host_guard.remote_hostnames()`) through the relay
+  (`via = relay`) or over https. The expected origins are the declared addresses
+  of that host (`https://host[:port]`) and, for the Remote hostname,
+  `https://<host>`. Everything else is refused with 400 `auth_passkey_unsupported`
+  and `params.reason`: `ingress` (Home Assistant), `insecure` (plain http
+  outside `localhost`), `host` (an IP literal, a `.local` or other undeclared
+  name, the relay without a Remote hostname). An unreadable setting refuses too
+  (fail closed). `GET /auth/session` says `methods.passkey` exactly when this
+  resolves for the request, so it is false on `http://<LAN IP>` and true through
+  the relay.
+- **Ceremonies** (`Ceremonies`, in memory). Each options call stores a 32-byte
+  challenge for 5 minutes (`CEREMONY_TTL_S`, 1024 at most, oldest dropped) with
+  its purpose, RP id, account and binding: the session id for a registration,
+  the pending token's SHA-256 and the client (`totp.client_binding`) for a
+  second factor, the client for a passwordless sign-in. The verify call finds it
+  by the challenge inside `clientDataJSON` and removes it before any check: a
+  challenge is used once, right or wrong, and only by the session or client it
+  was issued to. A restart forgets them.
+- **Policy.** Registration: `attestation: none`, resident key preferred, user
+  verification preferred, the account's passkeys in `excludeCredentials`, the
+  user handle `user_handle()` (SHA-256 of the account id and creation time,
+  never the name), at most 20 passkeys (`MAX_PASSKEYS_PER_USER`). Passwordless
+  sign-in: empty `allowCredentials` (discoverable credentials), user
+  verification **required**. Second factor: the account's passkeys, user
+  verification preferred. A `userHandle` in an assertion must be the owner's.
+- **Counter.** py_webauthn refuses an assertion whose counter is not greater
+  than the stored one when either is non-zero (a cloned authenticator or a
+  replay: audited as `passkey_sign_count_not_increased`); the new value is
+  stored with a conditional `UPDATE` (`record_use`), so two concurrent uses of
+  one assertion cannot both pass. Synced passkeys that always report 0 stay at 0.
+- **Re-authentication.** `register/options` and `DELETE /credentials/{id}` need
+  the current password, checked like `PATCH /auth/me` (login delays, argon2id
+  queue): a stolen session cannot add a way in, or remove one, without it.
+- **Sign-in.** An assertion is checked under the login delays keyed on the
+  client's address and the **owner's** name: a failure (bad signature, origin,
+  RP id, no user verification, counter) is `record_failure`, so password, code
+  and passkey failures share one budget; an unknown credential id writes a
+  `login` `failure` row (`passkey_unknown`). `POST /auth/webauthn/login/options`
+  is also limited to 20 a minute per address (`OptionsLimiter`, 429
+  `auth_rate_limited`). A passwordless sign-in opens the session at once, also
+  for an account with TOTP (a passkey with user verification is already two
+  factors); the `login` row says `details.method = passkey`.
+- **Second factor.** A passkey never makes the password ask for more: an
+  account without TOTP still signs in with its password alone (on plain http a
+  passkey could not be used). With TOTP on, `POST /auth/login` lists `passkey` in
+  `second_factor.methods` when the account has one and the request can run a
+  ceremony; `POST /auth/webauthn/login/options` with the `pending_token` (not
+  consumed) returns options for the account's passkeys, and `POST
+  /auth/login/2fa` with `{pending_token, passkey}` (instead of `code`) checks the
+  assertion under the pending-login rules: a failure counts as a wrong code
+  (401 `auth_2fa_invalid`), the token is bound to its client and voided after
+  five. `require_2fa_for_admins` still asks for TOTP (a follow-up may count a
+  passkey).
+- **Recovery on the host.** `meshloom-admin remove-passkeys <username>` deletes
+  every passkey of the account and writes a `passkey.removed` row (`via = cli`).
+- **Audit.** `passkey.added`, `passkey.removed` (details: `passkey_id`), and
+  `login` rows. Never a challenge, a credential, a key or a pending token.
+
 ## First run and the installation code
 
 `prepare_first_run()` (`app/auth/setup_code.py`) runs in the lifespan, while
@@ -985,15 +1067,21 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}, secure}` (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey}, auth_compat: {basic}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
-| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"], expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
-| `POST /auth/login/2fa` | public | `{pending_token, code}`: the second step ("Second factor (TOTP)"). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
+| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
+| `POST /auth/login/2fa` | public | `{pending_token, code}` or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
 | `GET /auth/sessions` | own account (not `kiosk`) | The user's active sessions, newest first, `current` marks this one |
 | `DELETE /auth/sessions` | own account (not `kiosk`) | Revokes all the user's sessions except this one: `{revoked}` |
 | `DELETE /auth/sessions/{id}` | own account (not `kiosk`) | Revokes one of the user's sessions; 404 `auth_session_not_found` for anyone else's |
 | `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, totp_enabled, created_at` |
+| `POST /auth/webauthn/register/options` | own account, session only | `{password}`: creation options (`navigator.credentials.create`, browser JSON). 400 `auth_passkey_unsupported`, 403 `auth_passkey_not_applicable`, `auth_invalid_credentials`, 409 `auth_passkey_limit`, 429 |
+| `POST /auth/webauthn/register/verify` | own account, session only | `{credential, name (1-64)}`: stores the passkey, answers it like the list. 400 `auth_passkey_invalid` (challenge unknown, used, from another session, wrong origin or RP id), 409 `auth_passkey_exists`, `auth_passkey_limit` |
+| `GET /auth/webauthn/credentials` | own account | `[{id, name, created_at, last_used_at, transports, aaguid, backup_eligible, backed_up}]`; never a key or credential id |
+| `DELETE /auth/webauthn/credentials/{id}` | own account, session only | `{password}`. 403 `auth_invalid_credentials`, 404 `auth_passkey_not_found` (also someone else's) |
+| `POST /auth/webauthn/login/options` | public, 20/min per address | `{}`: passwordless options (discoverable, user verification required); `{pending_token}`: second-factor options for that pending login (401 `auth_2fa_pending_invalid`, 404 `auth_passkey_not_found`). 400 `auth_passkey_unsupported`, 403 `auth_ingress_only`, 429 |
+| `POST /auth/webauthn/login/verify` | public | `{credential}` for passwordless options of this client: opens the session, answers like `GET /auth/session`. 401 `auth_passkey_invalid`, 429 `auth_rate_limited` |
 | `GET /auth/2fa` | own account (not `kiosk`) | `{enabled, pending, recovery_codes_left, enrolment_required}`; never the secret |
 | `POST /auth/2fa/enrol` | own account (not `kiosk`) | `{password}` (checked like `PATCH /auth/me`'s current password). Stores a new pending secret and answers `{secret, otpauth_uri, issuer, digits, period}`, the only time the secret leaves. 403 `auth_2fa_not_applicable` (no password, ingress, kiosk), 409 `auth_2fa_already_enabled` |
 | `POST /auth/2fa/confirm` | own account (not `kiosk`) | `{code}`: the first valid code turns the factor on and answers `{recovery_codes}` (ten, shown once); signs the account out everywhere else. 400 `auth_2fa_invalid`, 409 `auth_2fa_not_pending`, `auth_2fa_already_enabled` |

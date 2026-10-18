@@ -64,6 +64,14 @@ and the OpenAPI page (`/docs`), not a table here.
   issued only after the second factor; Basic never signs in an account that has one;
   `require_2fa_for_admins` confines an admin without one to the enrolment routes (the
   gate, fail closed). Details: `docs/dev/auth.md`, "Second factor (TOTP)".
+- `auth/webauthn.py` is passkeys on **py_webauthn** (the `webauthn` dependency, with
+  `cbor2`, `pyasn1`, `pyOpenSSL`; `cryptography` was already there): the RP id is the
+  request's host only for `localhost`, a declared public address over https, or the
+  Remote hostname (relay or https), else 400 `auth_passkey_unsupported`; challenges in
+  memory, single use, 5 min, bound to the session, the pending login or the client;
+  user verification required for the passwordless sign-in; counter checked and stored
+  conditionally. Routes `routers/auth_webauthn.py`; a passkey is also a second factor
+  at `POST /api/auth/login/2fa` when TOTP is on. Details: `docs/dev/auth.md`, "Passkeys".
 - `middleware/host_guard.py` is the `Host` guard (docs/dev/auth.md, "Host guard"):
   `host_allowed` is the one rule (trusted-network auto-login calls it directly and
   stays strict in both modes); `HostGuardMiddleware` (inside the proxy-headers
@@ -282,6 +290,8 @@ Community guard.
   the action shared with the API, such as `password.changed`; outcome `refused` for a refusal).
 - `disable-2fa <user>` removes a lost TOTP factor and its recovery codes (`totp.disabled`
   row); it refuses a database the server has not migrated to 109 yet.
+- `remove-passkeys <user>` removes every passkey of the account (`passkey.removed` row);
+  it refuses a database the server has not migrated to 110 yet.
 - Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
   new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
 - Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
@@ -358,6 +368,11 @@ run as root).
   `auth_settings.require_2fa_for_admins` (off; a later column, so from the migration
   only). The TOTP columns of `users` came with 101. Rules: `docs/dev/auth.md`,
   "Second factor (TOTP)".
+- Migration 110 adds `webauthn_credentials` (passkeys: credential id, COSE public key,
+  counter, transports, AAGUID, name, backup flags; DDL and `idx_webauthn_credentials_user`
+  also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by
+  `tests/test_migrations/test_migration_110.py`). It travels inside the `users` backup
+  section (version 3). Rules: `docs/dev/auth.md`, "Passkeys".
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or

@@ -8,6 +8,7 @@ Run it on the machine (or in the container) that holds the database::
     meshloom-admin list-users
     meshloom-admin disable-user alice
     meshloom-admin disable-2fa alice
+    meshloom-admin remove-passkeys alice
     meshloom-admin revoke-sessions --all
     meshloom-admin host-guard-observe
 
@@ -50,6 +51,7 @@ from app.repository.auth import (
     AuthSettingsMissingError,
     AuthSettingsRepository,
     InvalidUsernameError,
+    PasskeyRepository,
     TotpRepository,
     UsernameTakenError,
     UserRepository,
@@ -67,6 +69,7 @@ _COMMAND_ACTIONS: dict[str, audit.AuditAction] = {
     "revoke-sessions": "session.revoked",
     "host-guard-observe": "settings.changed",
     "disable-2fa": "totp.disabled",
+    "remove-passkeys": "passkey.removed",
 }
 
 # Same floor as the setup form (cadrage P1); the full policy (common-password
@@ -318,6 +321,24 @@ async def _disable_2fa(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _remove_passkeys(args: argparse.Namespace) -> int:
+    """The recovery path of lost passkeys: removes every passkey of the account.
+    Its password keeps working; sessions stay."""
+    if not await _has_table("webauthn_credentials"):
+        raise CliError(
+            "this database has no webauthn_credentials table: start Meshloom once on this "
+            "version so it migrates the database, then retry"
+        )
+    user = await _find_user(args.username)
+    removed = await PasskeyRepository.delete_all_for_user(user.id)
+    if not removed:
+        print(f"{user.username} has no passkey.")
+        return 0
+    await _audit(args, audit.user_target(user.id), username=user.username, removed=removed)
+    print(f"{removed} passkey(s) of {user.username} removed.")
+    return 0
+
+
 async def _has_table(name: str) -> bool:
     async with db.readonly() as conn:
         async with conn.execute(
@@ -382,6 +403,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Awaitable[int]]] = {
     "revoke-sessions": _revoke_sessions,
     "host-guard-observe": _host_guard_observe,
     "disable-2fa": _disable_2fa,
+    "remove-passkeys": _remove_passkeys,
 }
 
 
@@ -437,6 +459,9 @@ def build_parser() -> argparse.ArgumentParser:
         "disable-2fa",
         "remove a user's two-factor authentication and recovery codes (lost authenticator)",
     )
+    cmd.add_argument("username")
+
+    cmd = add("remove-passkeys", "remove every passkey of a user (lost or stolen device)")
     cmd.add_argument("username")
 
     add(

@@ -1,0 +1,10 @@
+{
+  "errors": {
+    "auth_passkey_unsupported": "Les passkeys demandent le https sur une adresse publique déclarée, Meshloom Remote ou localhost.",
+    "auth_passkey_not_applicable": "Les passkeys sont réservées aux comptes avec mot de passe, connectés depuis un navigateur.",
+    "auth_passkey_invalid": "La passkey n’a pas pu être vérifiée. Réessayez.",
+    "auth_passkey_not_found": "Passkey introuvable.",
+    "auth_passkey_exists": "Cette passkey est déjà enregistrée.",
+    "auth_passkey_limit": "Ce compte a trop de passkeys. Retirez-en une d’abord."
+  }
+}

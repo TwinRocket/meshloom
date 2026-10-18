@@ -147,9 +147,32 @@ Signed in through Home Assistant, or with an account that has no Meshloom passwo
 
 The secret is kept in the database (encrypted at rest in a later version). The full backup carries it, with the recovery codes (only their hashes), only when **Include accounts** is checked; the database download leaves both out.
 
+## Passkeys
+
+A passkey signs you in with your phone, your computer or a security key (fingerprint, face or PIN on the device) instead of typing your password. It is optional, and your password keeps working.
+
+Passkeys need a secure connection with a name: Meshloom offers them only on **https** through an address declared in **Settings → Users & Access → Public addresses** (behind a reverse proxy, list it in **Trusted proxies** too so Meshloom sees the https: [Behind a reverse proxy](#behind-a-reverse-proxy)), through Meshloom Remote, or on `http://localhost`. Over plain `http://` on the local network (an IP address or a `.local` name), and through Home Assistant, they are not available: browsers refuse them there. A passkey works only on the address it was created on.
+
+The screens to add and use passkeys come with a later version; the API is ready (accounts with a password, not the kiosk or Home Assistant users):
+
+| Request | What it does |
+|---|---|
+| `POST /api/auth/webauthn/register/options` | `{"password"}`: the options to pass to `navigator.credentials.create()`. |
+| `POST /api/auth/webauthn/register/verify` | `{"credential", "name"}`: the browser's answer and a name for the passkey. Valid 5 minutes, once, from the same session. |
+| `GET /api/auth/webauthn/credentials` | Your passkeys: name, creation, last use. |
+| `DELETE /api/auth/webauthn/credentials/<id>` | `{"password"}`: removes one. Your password still signs you in. |
+| `POST /api/auth/webauthn/login/options` | `{}`: the options for `navigator.credentials.get()` to sign in without a password (the device must check it is you). |
+| `POST /api/auth/webauthn/login/verify` | `{"credential"}`: the browser's answer; opens the session. |
+
+- **As a second factor.** With [two-factor authentication](#two-factor-authentication) on, a passkey can replace the code after the password: `POST /api/auth/login` lists `passkey` in `second_factor.methods`, `POST /api/auth/webauthn/login/options` with `{"pending_token"}` gives the options, and `POST /api/auth/login/2fa` takes `{"pending_token", "passkey"}`. Without two-factor authentication, a passkey changes nothing to signing in with the password.
+- **Failures count like wrong passwords**, with the same delays. Each challenge works once and expires after 5 minutes. A passkey whose counter goes back (a sign of a copied security key) is refused.
+- **Lost device.** Sign in with your password and remove its passkey. An administrator can remove all of a user's passkeys on the machine with `meshloom-admin remove-passkeys <user>` (below).
+
+Meshloom stores only the public part of each passkey. The full backup carries them only when **Include accounts** is checked; the database download keeps them.
+
 ## Audit log
 
-Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, two-factor authentication turned on or off, new recovery codes and sign-ins waiting for their code, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
+Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, two-factor authentication turned on or off, new recovery codes and sign-ins waiting for their code, passkeys added or removed, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
 
 Each entry holds the time, the account that acted (none for a failed sign-in or the command line), the address it came from, the way in (local network, Home Assistant, command line, or Meshloom itself for an automatic update), what was acted on and how it ended. It never holds a password, an installation code, a session, a key or a bot's code. A failed sign-in names the account only when the typed name matches one; any other typed name is recorded as unknown, so a password typed into the name field is not kept.
 
@@ -157,7 +180,7 @@ Administrators read it in **Settings → Users & Access → Audit log** (hidden 
 
 ## Backup and restore
 
-The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes and two-factor secrets, and the API tokens (only their fingerprints, so devices keep working after a restore), never the sessions or the audit log. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
+The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes, two-factor secrets and passkeys, and the API tokens (only their fingerprints, so devices keep working after a restore), never the sessions or the audit log. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
 
 ## Commands
 
@@ -170,6 +193,7 @@ The full backup (**Settings → Database**) carries the accounts when **Include 
 | `meshloom-admin disable-user <user>` | Blocks a user and signs it out. Refuses the last active administrator unless you add `--force`. |
 | `meshloom-admin enable-user <user>` | Lets a disabled user sign in again. |
 | `meshloom-admin disable-2fa <user>` | Removes a user's two-factor authentication and recovery codes (lost phone). The user then signs in with the password alone. |
+| `meshloom-admin remove-passkeys <user>` | Removes all of a user's passkeys (lost or stolen device). The password keeps working. |
 | `meshloom-admin revoke-sessions <user>` or `--all` | Signs one user, or everyone, out. |
 | `meshloom-admin host-guard-observe` | Switches the [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) back to observation mode, for when strict mode refuses the only name you can reach Meshloom by. |
 
