@@ -28,6 +28,24 @@ and the OpenAPI page (`/docs`), not a table here.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
 
+## Process hardening
+
+`services/hardening.py` `set_not_dumpable()` calls `prctl(PR_SET_DUMPABLE, 0)`
+through `ctypes`; it is the first line of the lifespan, before the database
+opens. Linux only: elsewhere it does nothing, and a failure is logged at
+warning and never stops startup. With the flag at 0, `/proc/<pid>/environ` and
+`/proc/<pid>/mem` are unreadable by every non-root process (the Basic auth
+credentials, the radio private key held by `keystore.py`), and no core dump is
+written. Side effects: `py-spy dump`, `gdb -p` and `strace -p` on the server
+need root (`sudo`); a same-uid debugger gets "permission denied". There is no
+switch to turn it off (no environment variable on purpose): to debug, start the
+server under the debugger (`py-spy record -- uv run uvicorn ...`) or run the
+tool as root. It is inherited by child processes (`fork`) but reset by `execve`
+of any normal program, so the bots' `exec` and the other helpers the server
+launches are not hardened. The flag protects against other non-root programs
+only: it does nothing against root (the default Docker image and the HA add-on
+run as root).
+
 ## Migrations
 
 - One file per version: `app/migrations/_NNN_description.py`, discovered by numeric

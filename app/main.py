@@ -92,6 +92,7 @@ from app.routers import (
     ws,
 )
 from app.security import add_optional_basic_auth_middleware
+from app.services.hardening import set_not_dumpable
 from app.services.hashtag_catalogue import (
     start_hashtag_catalogue_polling,
     stop_hashtag_catalogue_polling,
@@ -154,6 +155,7 @@ async def _connect_radio_on_startup() -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage database and radio connection lifecycle."""
+    set_not_dumpable()
     db_path = Path(server_settings.database_path)
     file_existed = db_path.is_file() and db_path.stat().st_size > 0
 

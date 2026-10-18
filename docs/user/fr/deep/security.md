@@ -49,6 +49,8 @@ La clé peut toujours être relue par quiconque atteint l’interface : `GET /ap
 
 L’import d’une clé (**Définir la clé privée**, en écriture seule) n’affiche jamais la clé. Une clé qui ne correspond pas à la radio à laquelle la base est liée est refusée tant que vous n’avez pas confirmé le changement d’identité (voir [Premier lancement](/docs/first-run/)).
 
+Sous Linux, le serveur se marque aussi comme non « dumpable » au démarrage : un autre programme lancé par le même utilisateur ne peut pas lire sa mémoire ni son environnement (où se trouve l’identifiant d’accès Basic). En contrepartie, le serveur n’écrit aucun core dump, et les outils de débogage comme `py-spy` ou `gdb` demandent `sudo` pour s’y attacher. Cela protège contre les autres programmes non root et ne fait rien contre root ; l’image Docker par défaut et l’add-on Home Assistant tournent en root, donc la protection compte surtout pour les paquets deb/rpm et les installations qui tournent sous un utilisateur dédié.
+
 ## Proxy radio
 
 **Réglages > Proxy** permet à Meshloom de se comporter comme une radio sur le réseau, pour qu’une application mobile ou un second Meshloom utilise votre radio à travers lui. Il est désactivé par défaut. Le protocole qu’il parle n’a aucune authentification, et l’accès Basic ne le couvre pas. Ne l’activez que sur un réseau de confiance.
