@@ -634,6 +634,9 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   `secret_dropped_destination_changed:email.password` (or
   `webhook.hmac_secret`). The fanout configs follow the same rules
   (`app/fanout/AGENTS.md`, "Secrets").
+- Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
+  fixed-host callers (Store client, plugin `http` capability: host allowlist,
+  redirects re-validated hop by hop, streaming size caps).
 - The system webhook goes through the egress guard (`app/net/AGENTS.md`): checked
   at save and before each send, then sent pinned to a validated IP. Its LAN
   opt-in is `notification_destinations.webhook.allow_private_network`; a

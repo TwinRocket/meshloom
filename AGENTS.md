@@ -97,7 +97,10 @@ tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-b
   validated before any connection, then sent pinned to a validated IP where
   the client allows it (not Apprise, not boto3). Apprise URLs also pass the
   scheme allowlist of `app/net/apprise_urls.py`. A new outbound path to a
-  user-chosen URL must use the guard.
+  user-chosen URL must use the guard. A caller with a fixed set of hosts (the
+  Store client, the plugin `http` capability) passes a `HostAllowlist` and
+  sends through `follow_checked_redirects` (each redirect hop re-validated,
+  bodies capped while streaming).
 
 ## Commands
 
