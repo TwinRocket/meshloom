@@ -36,6 +36,7 @@ works on the same tables.
 | Installation code, first run | `app/auth/setup_code.py` |
 | CSRF rule, https detection, `X-Forwarded-Host` for same-origin | `app/origin_policy.py` |
 | Trusted proxies (the one interpreter of `X-Forwarded-For`/`-Proto`) | `app/middleware/proxy_headers.py`, `tests/test_proxy_headers.py` |
+| Security headers (HSTS over https, no-store, Permissions-Policy) | `app/middleware/security_headers.py`, `tests/test_security_headers.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
 | Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_cli.py` |
@@ -290,6 +291,21 @@ Every answer under `/api/auth/` carries `Cache-Control: no-store`. The 401
 carries `WWW-Authenticate: Basic realm="Meshloom", charset="UTF-8"` only while
 the instance came from 4.x Basic (`auth_settings.basic_imported`), so a
 browser that used the native dialog keeps working; never on `/api/auth/*`.
+
+`app/middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the
+proxy-headers middleware so it reads the rewritten scheme) adds three headers.
+`Strict-Transport-Security: max-age=31536000` only when the scheme is
+`https`/`wss` and `request_via()` is `lan` (never ingress or relay; no
+`includeSubDomains`, no `preload`). `Cache-Control: no-store` on `/api/auth/*`
+and `/api/remote/*` (a second net: the auth gate already sets it) and on the
+explicit `NO_STORE_PATHS` list of routes returning secrets (radio private key,
+backups, channels, push subscriptions, debug); a test fails when a typed GET route
+with a key/secret/password field is missing from it. The headers also reach an
+unhandled 500, written by this middleware before Starlette's. `Permissions-Policy:
+camera=(), microphone=(), geolocation=(self)`. The static headers (nosniff,
+referrer, framing) stay in `app/main.py`; there is no CSP beyond
+`frame-ancestors` (maps, WebGPU and inline styles would break).
+`tests/test_security_headers.py`.
 
 Public routes (`PUBLIC_ROUTES`): `GET /api/health`, `GET /api/auth/session`,
 `POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/logout`.
