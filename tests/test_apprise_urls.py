@@ -276,7 +276,9 @@ class TestFanoutRoutes:
         cfg = await _create(
             "webhook", {"url": "http://127.0.0.1:1880/hook", "allow_private_network": True}
         )
-        assert cfg["config"]["url"] == "http://127.0.0.1:1880/hook"
+        # Write-only (MSHL-275): the scheme and host only.
+        assert cfg["config"]["url"] == "********"
+        assert cfg["config"]["url_redacted"] == "http://127.0.0.1:1880/****"
 
     @pytest.mark.asyncio
     async def test_new_rows_default_to_false_and_are_not_grandfathered(self, test_db):

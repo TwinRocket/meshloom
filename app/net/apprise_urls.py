@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from ipaddress import ip_address
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -435,6 +436,51 @@ async def validate_apprise_urls(
     return validated
 
 
+# A host name ``redact_url`` may show: letters, digits, dots and hyphens.
+_SHOWABLE_HOST_RE = re.compile(r"^[a-z0-9.-]+$")
+
+
+def _showable_host(host: str) -> bool:
+    """A DNS name or an IP literal: ``urlsplit().hostname`` keeps other
+    characters (``host;token=abc``), which may be part of a token."""
+    if _SHOWABLE_HOST_RE.match(host):
+        return True
+    try:
+        ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def redact_url(url: str) -> str:
+    """Scheme and host only of a URL that names its host: ``https://****@host:8080/****``.
+
+    The user, password, path, query and fragment may hold a token (a webhook
+    URL often does), so they are masked. A host that is neither a DNS name nor
+    an IP literal is masked too (``https://****``). Used for the webhook URLs
+    and the ``user_host`` Apprise schemes.
+    """
+    line = url.strip()
+    scheme = _scheme_of(line)
+    if not scheme:
+        return "****"
+    try:
+        parts = urlsplit(line)
+        host = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        return f"{scheme}://****"
+    if not host or not _showable_host(host):
+        return f"{scheme}://****"
+    netloc = f"[{host}]" if ":" in host else host
+    if port:
+        netloc = f"{netloc}:{port}"
+    if parts.username or parts.password:
+        netloc = f"****@{netloc}"
+    rest = "/****" if (parts.path.strip("/") or parts.query or parts.fragment) else ""
+    return f"{scheme}://{netloc}{rest}"
+
+
 def redact_apprise_url(url: str) -> str:
     """Scheme and host only, for logs and errors: ``json://user:****@host:8080/****``.
 
@@ -447,44 +493,29 @@ def redact_apprise_url(url: str) -> str:
         return "****"
     if ALLOWED_SCHEMES.get(scheme) != "user_host":
         return f"{scheme}://****"
-    try:
-        parts = urlsplit(url.strip())
-        host = parts.hostname or ""
-        port = parts.port
-    except ValueError:
-        return f"{scheme}://****"
-    if not host:
-        return f"{scheme}://****"
-    netloc = f"[{host}]" if ":" in host else host
-    if port:
-        netloc = f"{netloc}:{port}"
-    if parts.username or parts.password:
-        netloc = f"****@{netloc}"
-    rest = "/****" if (parts.path.strip("/") or parts.query or parts.fragment) else ""
-    return f"{scheme}://{netloc}{rest}"
+    return redact_url(url)
 
 
 _TOKEN_SPLIT = re.compile(r"[/:@?&=#,;]+")
 
 
-def apprise_url_secret_parts(url: str) -> list[str]:
-    """The parts of an Apprise URL an error text must not show.
+def url_secret_parts(url: str) -> list[str]:
+    """The parts of a URL that names its host that an error text must not show.
 
-    The host and port of a ``user_host`` scheme stay readable (as in
-    ``redact_apprise_url``); its user, password, path segments and query
-    values are masked. For any other scheme everything after ``://`` is a
-    token (``tgram://123:ABC/456`` gives ``123:ABC/456``, ``123``, ``ABC``,
-    ``456``).
+    The host and port stay readable (as in ``redact_url``); the user,
+    password, path segments, query values and fragment are masked, except a
+    part the host name already shows (``api`` in ``https://api.example.com/api``):
+    scrubbing it would mask the host too. A URL with no readable host is a
+    token as a whole, with its pieces.
     """
     line = url.strip()
-    scheme = _scheme_of(line)
     rest = line.split("://", 1)[-1]
     try:
-        parts = urlsplit(line) if ALLOWED_SCHEMES.get(scheme) == "user_host" else None
-        hostname = parts.hostname if parts is not None else None
+        parts = urlsplit(line)
+        hostname = parts.hostname
     except ValueError:
-        parts, hostname = None, None
-    if parts is None or not hostname:
+        hostname = None
+    if not hostname or not _showable_host(hostname):
         return [rest, *_TOKEN_SPLIT.split(rest)]
     secrets: list[str] = []
     userinfo = parts.netloc.rpartition("@")[0] if "@" in parts.netloc else ""
@@ -495,4 +526,20 @@ def apprise_url_secret_parts(url: str) -> list[str]:
         key, sep, value = item.partition("=")
         secrets.append(value if sep else key)
     secrets.append(parts.fragment)
-    return [secret for secret in secrets if secret]
+    host = hostname.lower()
+    return [secret for secret in secrets if secret and secret.lower() not in host]
+
+
+def apprise_url_secret_parts(url: str) -> list[str]:
+    """The parts of an Apprise URL an error text must not show.
+
+    The host and port of a ``user_host`` scheme stay readable
+    (``url_secret_parts``). For any other scheme everything after ``://`` is a
+    token (``tgram://123:ABC/456`` gives ``123:ABC/456``, ``123``, ``ABC``,
+    ``456``).
+    """
+    line = url.strip()
+    if ALLOWED_SCHEMES.get(_scheme_of(line)) == "user_host":
+        return url_secret_parts(line)
+    rest = line.split("://", 1)[-1]
+    return [rest, *_TOKEN_SPLIT.split(rest)]

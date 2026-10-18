@@ -713,12 +713,18 @@ function SecretInput({
   id,
   value,
   placeholder,
+  keptPlaceholder,
+  type = 'password',
   destinationChanged = false,
   onChange,
 }: {
   id: string;
   value: unknown;
   placeholder?: string;
+  /** Shown instead of "Unchanged" while the stored secret is kept. */
+  keptPlaceholder?: string;
+  /** 'url' for a secret URL, which is also its own destination. */
+  type?: 'password' | 'url';
   /** The destination was edited: a kept secret would be refused (400 secret_required). */
   destinationChanged?: boolean;
   onChange: (value: string) => void;
@@ -734,8 +740,8 @@ function SecretInput({
       <div className="flex items-center gap-2">
         <Input
           id={id}
-          type="password"
-          autoComplete="new-password"
+          type={type}
+          autoComplete={type === 'password' ? 'new-password' : 'off'}
           value={kept ? '' : current}
           required={required}
           aria-invalid={required || undefined}
@@ -743,7 +749,7 @@ function SecretInput({
             required
               ? t('settings.fanout.secret.required')
               : kept
-                ? t('settings.fanout.secret.kept')
+                ? (keptPlaceholder ?? t('settings.fanout.secret.kept'))
                 : cleared
                   ? t('settings.fanout.secret.cleared')
                   : placeholder
@@ -3034,6 +3040,12 @@ function WebhookConfigEditor({
 }) {
   const destinationChanged = useDestinationChanged('webhook', config);
   const headersStr = JSON.stringify(config.headers ?? {}, null, 2);
+  // Stored header values read SECRET_REDACTED (names stay in clear): kept on save.
+  const headersKept =
+    typeof config.headers === 'object' &&
+    config.headers !== null &&
+    Object.values(config.headers).some((value) => value === SECRET_REDACTED);
+  const urlRedacted = typeof config.url_redacted === 'string' ? config.url_redacted : '';
   const [headersText, setHeadersText] = useState(headersStr);
   const [headersError, setHeadersError] = useState<string | null>(null);
   const { t } = useTranslation();
@@ -3059,12 +3071,13 @@ function WebhookConfigEditor({
 
       <div className="space-y-2">
         <Label htmlFor="fanout-webhook-url">{t('settings.fanout.webhook.url')}</Label>
-        <Input
+        <SecretInput
           id="fanout-webhook-url"
           type="url"
           placeholder="https://example.com/webhook"
-          value={(config.url as string) || ''}
-          onChange={(e) => onChange({ ...config, url: e.target.value })}
+          keptPlaceholder={t('settings.fanout.webhook.urlKept', { url: urlRedacted })}
+          value={config.url}
+          onChange={(url) => onChange({ ...config, url })}
         />
       </div>
 
@@ -3133,8 +3146,19 @@ function WebhookConfigEditor({
           value={headersText}
           onChange={(e) => handleHeadersChange(e.target.value)}
           placeholder='{"Authorization": "Bearer ..."}'
+          aria-invalid={(headersKept && destinationChanged) || undefined}
         />
         {headersError && <p className="text-xs text-destructive">{headersError}</p>}
+        {headersKept &&
+          (destinationChanged ? (
+            <p className="text-[0.8125rem] text-destructive">
+              {t('settings.fanout.webhook.headersRequiredAfterDestination')}
+            </p>
+          ) : (
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.fanout.webhook.headersKept')}
+            </p>
+          ))}
       </div>
 
       <Separator />
@@ -3218,11 +3242,11 @@ function SqsConfigEditor({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="fanout-sqs-access-key">{t('settings.fanout.sqs.accessKey')}</Label>
-          <Input
+          <SecretInput
             id="fanout-sqs-access-key"
-            type="text"
-            value={(config.access_key_id as string) || ''}
-            onChange={(e) => onChange({ ...config, access_key_id: e.target.value })}
+            destinationChanged={destinationChanged}
+            value={config.access_key_id}
+            onChange={(access_key_id) => onChange({ ...config, access_key_id })}
           />
         </div>
         <div className="space-y-2">
@@ -3872,7 +3896,7 @@ export function SettingsFanoutSection({
                           <div className="break-all">
                             {t('settings.fanout.list.url')}{' '}
                             <code>
-                              {((cfg.config as Record<string, unknown>).url as string) ||
+                              {((cfg.config as Record<string, unknown>).url_redacted as string) ||
                                 t('settings.fanout.list.notSet')}
                             </code>
                           </div>

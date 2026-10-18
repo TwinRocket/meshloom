@@ -1352,8 +1352,12 @@ class NotificationEmailDest(BaseModel):
 
 
 class NotificationWebhookDest(BaseModel):
+    # Write-only, like hmac_secret: a webhook URL often carries its token.
     url: str = ""
     hmac_secret: str = ""
+    # Scheme and host of the stored URL, set only on the API form
+    # (present_notification_destinations); never stored.
+    url_redacted: str | None = Field(default=None, exclude_if=lambda v: v is None)
     # Egress guard opt-in (app/net/egress_guard.py): a LAN or loopback target.
     # A webhook saved before the guard existed reads as allowed and grandfathered
     # (coerce_notification_destinations); the UI shows a one-time banner then.

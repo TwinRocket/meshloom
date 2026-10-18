@@ -333,11 +333,11 @@ def _build_schedule(
 
 async def _present_settings(settings: AppSettings) -> AppSettings:
     from app.services.directory import annotate_directory_available
-    from app.telemetry_alerts import redact_notification_destinations
+    from app.telemetry_alerts import present_notification_destinations
 
     redacted = settings.model_copy(
         update={
-            "notification_destinations": redact_notification_destinations(
+            "notification_destinations": present_notification_destinations(
                 settings.notification_destinations
             )
         }

@@ -17,6 +17,13 @@ function tf(key: string, options?: Record<string, unknown>) {
   return i18n.t(`settings.fanout.${key}`, options);
 }
 
+/** A paragraph by its copy: French text reaches the DOM with a no-break space before ":". */
+function byCopy(text: string) {
+  const wanted = text.replace(/\s/g, ' ');
+  return (_: string, element: Element | null) =>
+    element?.tagName === 'P' && (element.textContent ?? '').replace(/\s/g, ' ') === wanted;
+}
+
 // Mock the api module
 vi.mock('../api', () => ({
   api: {
@@ -1478,13 +1485,18 @@ describe('SettingsFanoutSection', () => {
     ).toBeInTheDocument();
   });
 
-  it('webhook list shows destination URL', async () => {
+  it('webhook list shows the redacted destination URL', async () => {
     const config: FanoutConfig = {
       id: 'wh-1',
       type: 'webhook',
       name: 'Webhook Feed',
       enabled: true,
-      config: { url: 'https://example.com/hook', method: 'POST', headers: {} },
+      config: {
+        url: '********',
+        url_redacted: 'https://example.com/****',
+        method: 'POST',
+        headers: {},
+      },
       scope: { messages: 'all', raw_packets: 'none' },
       sort_order: 0,
       created_at: 1000,
@@ -1495,7 +1507,8 @@ describe('SettingsFanoutSection', () => {
     const group = await screen.findByRole('group', {
       name: tf('list.integrationAria', { name: 'Webhook Feed' }),
     });
-    expect(within(group).getByText('https://example.com/hook')).toBeInTheDocument();
+    expect(within(group).getByText('https://example.com/****')).toBeInTheDocument();
+    expect(within(group).queryByText('********')).not.toBeInTheDocument();
   });
 
   it('apprise list shows compact target summary', async () => {
@@ -1613,6 +1626,95 @@ describe('SettingsFanoutSection', () => {
       fireEvent.change(input, { target: { value: 'n3w' } });
       expect(input.required).toBe(false);
       expect(screen.queryByText(tf('secret.requiredAfterDestination'))).not.toBeInTheDocument();
+    });
+
+    describe('webhook URL and headers, SQS access key (MSHL-275)', () => {
+      const storedHook: FanoutConfig = {
+        ...webhookConfig,
+        config: {
+          url: '********',
+          url_redacted: 'https://hooks.example.org/****',
+          method: 'POST',
+          headers: { Authorization: '********', 'X-Plain': '' },
+        },
+      };
+
+      async function openStoredHook() {
+        mockedApi.getFanoutConfigs.mockResolvedValue([storedHook]);
+        mockedApi.updateFanoutConfig.mockResolvedValue(storedHook);
+        renderSection();
+        const group = await screen.findByRole('group', {
+          name: tf('list.integrationAria', { name: 'Test Hook' }),
+        });
+        fireEvent.click(within(group).getByRole('button', { name: tf('list.edit') }));
+        return (await screen.findByLabelText(tf('webhook.url'))) as HTMLInputElement;
+      }
+
+      async function savedConfig() {
+        fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+        await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+        const [, body] = mockedApi.updateFanoutConfig.mock.calls[0];
+        return body.config as Record<string, unknown>;
+      }
+
+      it('shows a stored URL by its host and sends the sentinels back', async () => {
+        const url = await openStoredHook();
+        expect(url.value).toBe('');
+        expect(url.placeholder).toBe(
+          tf('webhook.urlKept', { url: 'https://hooks.example.org/****' })
+        );
+        expect(screen.getByText(byCopy(tf('webhook.headersKept')))).toBeInTheDocument();
+        const config = await savedConfig();
+        expect(config.url).toBe('********');
+        expect(config.headers).toEqual({ Authorization: '********', 'X-Plain': '' });
+      });
+
+      it('asks for the header values again after a URL change', async () => {
+        const url = await openStoredHook();
+        fireEvent.change(url, { target: { value: 'https://other.example.org/hook' } });
+        expect(
+          screen.getByText(byCopy(tf('webhook.headersRequiredAfterDestination')))
+        ).toBeInTheDocument();
+        const headers = screen.getByLabelText(tf('webhook.extraHeaders'));
+        expect(headers.getAttribute('aria-invalid')).toBe('true');
+        fireEvent.change(headers, { target: { value: '{"Authorization": "Bearer new"}' } });
+        expect(
+          screen.queryByText(byCopy(tf('webhook.headersRequiredAfterDestination')))
+        ).not.toBeInTheDocument();
+        const config = await savedConfig();
+        expect(config.url).toBe('https://other.example.org/hook');
+        expect(config.headers).toEqual({ Authorization: 'Bearer new' });
+      });
+
+      it('keeps a stored SQS access key id unless a new one is typed', async () => {
+        const queue: FanoutConfig = {
+          id: 'sqs-1',
+          type: 'sqs',
+          name: 'Queue Feed',
+          enabled: true,
+          config: {
+            queue_url: 'https://sqs.us-east-1.amazonaws.com/1/q',
+            region_name: 'us-east-1',
+            access_key_id: '********',
+            secret_access_key: '********',
+          },
+          scope: { messages: 'all', raw_packets: 'none' },
+          sort_order: 0,
+          created_at: 1000,
+        };
+        mockedApi.getFanoutConfigs.mockResolvedValue([queue]);
+        mockedApi.updateFanoutConfig.mockResolvedValue(queue);
+        renderSection();
+        const group = await screen.findByRole('group', {
+          name: tf('list.integrationAria', { name: 'Queue Feed' }),
+        });
+        fireEvent.click(within(group).getByRole('button', { name: tf('list.edit') }));
+        const key = (await screen.findByLabelText(tf('sqs.accessKey'))) as HTMLInputElement;
+        expect(key.value).toBe('');
+        expect(key.placeholder).toBe(tf('secret.kept'));
+        const config = await savedConfig();
+        expect(config.access_key_id).toBe('********');
+      });
     });
 
     it('keeps redacted Apprise URLs unless new ones are typed', async () => {

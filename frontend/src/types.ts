@@ -1035,8 +1035,11 @@ export interface NotificationEmailDest {
 }
 
 export interface NotificationWebhookDest {
+  /** Write-only, like ``hmac_secret``: ``********`` when set (the URL often holds a token). */
   url: string;
   hmac_secret: string;
+  /** Scheme and host of the stored URL (``https://host/****``), on API reads only. */
+  url_redacted?: string;
   /** Egress guard opt-in: a destination on the LAN or localhost. */
   allow_private_network: boolean;
   /** Set for a webhook saved before the guard existed: shows a one-time banner. */
@@ -1332,6 +1335,7 @@ export function resolveNotificationDestinations(
     webhook: {
       url: typeof webhook?.url === 'string' ? webhook.url : '',
       hmac_secret: typeof webhook?.hmac_secret === 'string' ? webhook.hmac_secret : '',
+      ...(typeof webhook?.url_redacted === 'string' ? { url_redacted: webhook.url_redacted } : {}),
       allow_private_network: webhook?.allow_private_network === true,
       private_network_grandfathered: webhook?.private_network_grandfathered === true,
     },
@@ -1371,6 +1375,7 @@ export function buildNotificationDestinationsPatch(
   const current = stored ?? DEFAULT_NOTIFICATION_DESTINATIONS;
   const emailPassword = secretForPatch(draft.email.password, current.email.password);
   const hmacSecret = secretForPatch(draft.webhook.hmac_secret, current.webhook.hmac_secret);
+  const webhookUrl = secretForPatch(draft.webhook.url, current.webhook.url);
   const appriseUrls = secretForPatch(draft.apprise.urls, current.apprise.urls);
   return {
     email: {
@@ -1383,7 +1388,7 @@ export function buildNotificationDestinationsPatch(
       ...(emailPassword !== undefined ? { password: emailPassword } : {}),
     },
     webhook: {
-      url: draft.webhook.url,
+      ...(webhookUrl !== undefined ? { url: webhookUrl } : {}),
       allow_private_network: draft.webhook.allow_private_network,
       ...(hmacSecret !== undefined ? { hmac_secret: hmacSecret } : {}),
       ...(draft.webhook.private_network_grandfathered !==
