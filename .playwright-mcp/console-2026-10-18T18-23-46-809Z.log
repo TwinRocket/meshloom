@@ -1,5 +1,0 @@
-[      45ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ http://localhost:5199/site.webmanifest:0
-[     381ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5199/node_modules/.vite/deps/react-dom_client.js?v=4e5bfdc3:15804
-[     602ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ http://localhost:5199/site.webmanifest:0
-[     624ms] [VERBOSE] [DOM] Password forms should have (optionally hidden) username fields for accessibility: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5199/:0
-[    7040ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5199/@vite/client:1082
