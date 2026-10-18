@@ -1,4 +1,5 @@
 import type { Message } from '../../types';
+import type { FeedItem } from './feedDays';
 
 /** `localStorage` key of the per-browser "where was I" mark (prefix matters under HA ingress). */
 export const FEED_LAST_SEEN_STORAGE_KEY = 'meshloom-feed-last-seen';
@@ -57,6 +58,25 @@ export function firstRowAfterMark(
     if (row.historical === true) continue;
     if (row.received_at > mark.at || (row.received_at === mark.at && row.id > mark.id)) {
       return row.id;
+    }
+  }
+  return null;
+}
+
+/**
+ * The mark for a reader who may have scrolled up: the last message row whose top edge is
+ * above `bottom` (the viewport's bottom edge, in content coordinates). Rows below it were
+ * never reached and stay "new" next time. `starts[i]` is the offset of `items[i]`.
+ */
+export function lastReachedMark(
+  items: readonly FeedItem[],
+  starts: readonly number[],
+  bottom: number
+): FeedLastSeen | null {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.kind === 'row' && (starts[i] ?? Infinity) < bottom) {
+      return { at: item.row.received_at, id: item.row.id };
     }
   }
   return null;

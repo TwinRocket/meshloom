@@ -674,6 +674,24 @@ describe('FeedView live merge', () => {
     });
   });
 
+  it('does not mark rows the reader never scrolled to', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
+    const view = renderFeed();
+    const scroller = await findScroller();
+    mockGeometry(scroller, { scrollHeight: 1000, clientHeight: 100 });
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    await screen.findByRole('button', { name: i18n.t('feed.follow') });
+    await act(async () => {
+      recordFeedMessage(msg(4));
+      recordFeedMessage(msg(5));
+      await Promise.resolve();
+    });
+    view.unmount();
+    const mark = JSON.parse(localStorage.getItem(FEED_LAST_SEEN_STORAGE_KEY) ?? 'null');
+    expect(mark.id).toBeLessThan(4);
+  });
+
   it('keeps working when localStorage throws', async () => {
     mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
     const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {

@@ -65,6 +65,78 @@ is untouched until the Control preset folds it in.
   window (`FEED_MAX_ROWS`, 2000) holds. The virtualizer follows the `MessageList`
   invariants below (`scrollMargin`, string sentinel keys, zero-height fallback).
   A prepended page keeps the reader's position by the growth of `scrollHeight`.
+- **Navigation type.** `'feed'` is in `ConversationType` (`types.ts`), with the optional
+  `feedPreset?: 'control'` on `Conversation`. `components/feed/feedConversation.ts` holds
+  `isFeedConversation()` and `makeFeedConversation()`.
+- **Filters: one evaluator.** `utils/feedFilters.ts` holds `FeedFilters`, the defaults
+  (muted and pending hidden, DMs shown) and `rowPassesFilters(row, filters, channels,
+nowSec)`, the only place that decides whether a row shows: REST rows and WebSocket rows
+  alike, so add a filter there and nowhere else. `isChannelMuted` mirrors the backend's
+  `effective_channel_muted` (`muted && (muted_until == null || muted_until > now)`); the
+  view re-reads the clock once a minute (an expired timed mute reappears) and the
+  `channels` prop changes on every `channel` frame, so both re-evaluate in place. A
+  `CHAN` row of a deleted channel and every `PRIV` row ignore mute and pending.
+  `src/test/fixtures/feedFilters.json` drives the evaluator in `feedFilters.test.ts` and,
+  for the `server` cases, `tests/test_messages_feed_filters.py` against the route.
+- **Which filters are server-side, and why.** Only `type` (Channels/Direct messages) and
+  `outgoing` (Received/Sent) are sent to `GET /api/messages` (`filtersToQuery`), so a
+  hidden kind is not fetched at all. Changing one empties the store (`clearFeedRows`:
+  its cursor belongs to the old query) and reloads the first page after a 250 ms
+  debounce; both chips of a pair off is an empty state and sends nothing. Muted and
+  pending stay client-side (a timed mute changes with the clock, and a server-side
+  version needs the NULL-safe join of T22). The price is hollow pages:
+  `fillHiddenPages` fetches the next page while fewer than `FEED_MIN_VISIBLE` (20) rows
+  show, at most `FEED_MAX_PAGES_PER_GESTURE` (5) pages per gesture (mount, filter
+  change, scroll to the top, ticking Muted/Pending).
+- **Storage.** `localStorage` `meshloom-feed-filters` (the prefix matters under HA ingress,
+  where `localStorage` is on HA's origin). Read and written in `try/catch`; absent,
+  corrupted or blocked storage means the defaults, silently. Two tabs have two stores and
+  one `localStorage`: a filter changed in one tab reaches the other on reload only.
+- **Rows.** `FeedMessageRow` (memoized) shows the name, bidi-isolated sender with the
+  abbreviated key as `title`, time on `received_at`, `RegionBadge`, a _sent_ marker, and
+  the body through `MessageBody` (`remoteMedia={false}` for a pending channel; Open
+  reactions whose target is not loaded render as `ReactionPayload`). Names
+  (`feedNames.ts`): channel/contact by key from the client's lists, then the WebSocket
+  frame's `channel_name` / `sender_name`, then the abbreviated key. Day separators
+  (`feedDays.ts`) are virtualized items of their own; labels use `Intl` only.
+- **Row actions** (`FeedMessageRow` is the list item). Click or Enter on the row calls
+  `onNavigateToMessage` (the search payload; `targetMessageId` highlights it); the
+  channel/contact name calls `onSelectConversation` (bottom of the conversation);
+  the sender is a button for `feedContactKey(row)` (full 64-hex `sender_key`, or the
+  PRIV `conversation_key`) and plain text otherwise. `FeedRowMenu` (`...`, long press,
+  right click, ContextMenu / Shift+F10) mirrors `MessageActionMenu`; *Copy text* is
+  absent when `navigator.clipboard` is undefined (HTTP on the LAN). A view rendered
+  without the three callbacks is read-only. No reply, react or resend. Tests:
+  `src/test/feedRowActions.test.tsx`.
+- **Live merge.** A live row goes through `recordFeedMessage`, sorted by `(received_at, id)`
+  wherever it lands (a `historical` row sits in the middle and is never counted as new). A row
+  older than the first held row while `hasOlder` is true is not stored: as the new oldest row
+  it would hide the gap from the `before` cursor; the page that covers it returns it, and
+  `maxKnownId()` (a high-water mark, so also those rows) keeps reconciliation from asking
+  again. Acks, deletions and `contact_resolved` renames edit rows in place (`applyFeedAck`,
+  `removeFeedMessage`, `renameFeedConversation`); channel renames reach the view as the
+  `channels` prop. No scroll jump: the view remembers the item at the top of the viewport
+  (`feedScroll.ts`, `pickAnchor`) and after each change moves `scrollTop` by
+  `scrollShiftForAnchor` (not while following). A new outgoing row re-pins a reader who scrolled
+  up, a historical one never does.
+- **Reconnect policy.** `reconcileFeed()` (`feedHistory.ts`, store level: runs with the view
+  unmounted, no-op until the feed was opened) fetches
+  `GET /api/messages?since_id=<maxKnownId>&limit=1000` with the `type`/`outgoing` of the last
+  first-page load, on `onReconnect` and on a `success` toast with code
+  `historical_decrypt_complete` (or `_rooms`), merging with `mergeReconciledRows` and repeating
+  while a page is full, at most 5 pages; then `resetFeedForRefetch()` empties the store and
+  bumps `epoch`, which makes the view fetch the newest page. Overlapping calls run once more
+  after the current one; failures are logged and retried at the next trigger. An answer to a
+  query that changed meanwhile (compared by value) is dropped. Not caught up: deletions and
+  acks made while the socket was down (reload the page).
+- **Last-visit mark.** `localStorage` `meshloom-feed-last-seen` = `{at, id}` of the newest row
+  the reader has reached: the last row when following, otherwise the last row at or above the
+  bottom edge of the viewport (rows that arrived below it, never scrolled to, stay "new").
+  Written on `visibilitychange` to hidden and on unmount (`feedLastSeen.ts`; storage errors are
+  ignored). On open the mark is read once; when the first page is in, a "New since your last
+  visit" item (`feedDays.ts`, kind `new`) precedes the first non-historical row strictly after
+  it. Absent without a mark or when nothing is newer, and it does not move for later live rows.
+  If the mark is older than the first 200-row page, the separator lands on the first loaded row.
 - jsdom measures no layout: `src/test/feedView.test.tsx` fakes the scroller geometry.
   Virtualization and the single scroller need a check in a real browser.
 

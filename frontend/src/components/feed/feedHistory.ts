@@ -23,6 +23,7 @@ export const FEED_RECONCILE_MAX_PAGES = 5;
 // The server-side part of the filters the store was last loaded with: reconciliation must
 // ask the same question, or it would merge rows the chips hide from the store.
 let serverQuery: FeedQuery = {};
+let serverQueryKey = '{}';
 let reconciling: Promise<void> | null = null;
 let reconcileAgain = false;
 
@@ -39,7 +40,10 @@ export async function loadFeedPage(
   signal?: AbortSignal,
   query: FeedQuery = {}
 ): Promise<void> {
-  if (!cursor) serverQuery = query;
+  if (!cursor) {
+    serverQuery = query;
+    serverQueryKey = JSON.stringify(query);
+  }
   const rows = await api.getMessages(
     {
       limit: FEED_PAGE_SIZE,
@@ -117,6 +121,7 @@ async function reconcileOnce(): Promise<void> {
   // Nothing loaded yet: the view's own first fetch covers it.
   if (sinceId < 1) return;
   const query = serverQuery;
+  const queryKey = serverQueryKey;
   for (let page = 0; page < FEED_RECONCILE_MAX_PAGES; page++) {
     const rows = await api.getMessages({
       since_id: sinceId,
@@ -124,7 +129,7 @@ async function reconcileOnce(): Promise<void> {
       ...query,
     });
     // The filters changed (store emptied) while the request was in flight: stale answer.
-    if (query !== serverQuery) return;
+    if (queryKey !== serverQueryKey) return;
     mergeReconciledRows(rows);
     if (rows.length < FEED_RECONCILE_PAGE_SIZE) return;
     sinceId = Math.max(sinceId, ...rows.map((row) => row.id));

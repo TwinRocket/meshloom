@@ -17,6 +17,7 @@ import {
 import {
   FEED_LAST_SEEN_STORAGE_KEY,
   firstRowAfterMark,
+  lastReachedMark,
   lastSeenOf,
   loadFeedLastSeen,
   saveFeedLastSeen,
@@ -103,6 +104,15 @@ describe('last-visit mark', () => {
     expect(lastSeenOf([])).toBeNull();
     saveFeedLastSeen({ at: 300, id: 3 });
     expect(loadFeedLastSeen()).toEqual({ at: 300, id: 3 });
+  });
+
+  it('marks only the last row the reader reached when scrolled up', () => {
+    const items = buildFeedItems(rows);
+    // day, row1, row2, row3 at 0, 30, 90, 150
+    const starts = [0, 30, 90, 150];
+    expect(lastReachedMark(items, starts, 100)).toEqual({ at: 200, id: 2 });
+    expect(lastReachedMark(items, starts, 1000)).toEqual({ at: 300, id: 3 });
+    expect(lastReachedMark(items, starts, 10)).toBeNull();
   });
 
   it('tolerates corrupted and blocked storage', () => {
@@ -192,6 +202,32 @@ describe('reconcileFeed', () => {
     expect(mocks.getMessages).toHaveBeenCalledTimes(1 + FEED_RECONCILE_MAX_PAGES);
     expect(ids()).toEqual([]);
     expect(getFeedSnapshot().epoch).toBe(epoch + 1);
+  });
+
+  it('keeps an in-flight answer when the first page is reloaded with the same filters', async () => {
+    await seed();
+    let release: (rows: Message[]) => void = () => {};
+    mocks.getMessages.mockReturnValueOnce(new Promise<Message[]>((r) => (release = r)));
+    const pending = reconcileFeed();
+    mocks.getMessages.mockResolvedValueOnce([msg(10, 1000), msg(9, 900)]);
+    await loadFeedPage(null, undefined, { type: 'CHAN' });
+    release([msg(11, 1100)]);
+    await pending;
+    await flush();
+    expect(ids()).toContain(11);
+  });
+
+  it('drops an in-flight answer when the filters changed meanwhile', async () => {
+    await seed();
+    let release: (rows: Message[]) => void = () => {};
+    mocks.getMessages.mockReturnValueOnce(new Promise<Message[]>((r) => (release = r)));
+    const pending = reconcileFeed();
+    mocks.getMessages.mockResolvedValueOnce([msg(10, 1000)]);
+    await loadFeedPage(null, undefined, { type: 'PRIV' });
+    release([msg(11, 1100)]);
+    await pending;
+    await flush();
+    expect(ids()).not.toContain(11);
   });
 
   it('survives a failed request and runs overlapping calls once more', async () => {
