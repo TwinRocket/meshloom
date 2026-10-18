@@ -244,7 +244,10 @@ purpose.
 - `main.tsx` wraps `App` in `SessionProvider`, which reads `GET /api/auth/session`
   before anything else mounts, so nothing loads before the server knows who calls.
   `setup_required` renders `SetupPage` (the installation-code field only when
-  `setup_code_required`, with where to find it per install kind), an anonymous
+  `setup_code_required`, with where to find it per install kind; on the kiosk screen,
+  `kiosk_setup_code` set, it re-reads the session every 5 s and opens the app once an
+  administrator exists, the screen's own `kiosk` session coming from the launcher's device
+  token, `docs/dev/auth.md` "Kiosk device token"), an anonymous
   visit renders `LoginPage` (warns when `!window.isSecureContext`), and a signed-in
   answer (including Basic credentials that already authenticate) renders the app
   with no wall. `useSession()` gives `user`, `role`, `via`, `signOut` (a null user

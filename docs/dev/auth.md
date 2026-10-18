@@ -167,9 +167,9 @@ logged at ERROR and the row is not written (a bug at the call site).
   | Action | Written by |
   |---|---|
   | `setup` | `POST /auth/setup` (`failure` + `details.reason` for a wrong code, `error` when first-run preparation failed) |
-  | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`), `POST /auth/logout` |
+  | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`), `POST /auth/logout`, `GET /auth/kiosk-session` (`details.method = "kiosk_token"`, `reason` on failure) |
   | `token.created`, `token.revoked` | `POST /auth/tokens` (`details.scopes`, `expires_at`, `origin`), `DELETE /auth/tokens/{id}` (`details.owner` when an admin revokes someone else's); refusals too, outcome `failure` (`refused` for a 403) with `details = {reason, status}` (`token_scope`, `token_expiry_invalid`, `token_limit`, `token_not_found`, `forbidden`) |
-  | `token.used` | A refused use of a token that exists (outcome `failure`, `details.reason` `revoked`, `expired`, `owner_disabled`, `ingress`, `scopes_invalid`), at most once a minute per token; successful uses only move `last_used_at` |
+  | `token.used` | A refused use of a token that exists (outcome `failure`, `details.reason` `revoked`, `expired`, `owner_disabled`, `ingress`, `scopes_invalid`), at most once a minute per token; successful uses only move `last_used_at`. A refused `POST /auth/kiosk-bootstrap` (outcome `refused`, `details.route = "kiosk_bootstrap"`) |
   | `session.revoked` | `DELETE /auth/sessions[/{id}]`, `DELETE /auth/users/{id}/sessions` (`details.scope = all`), `meshloom-admin revoke-sessions` |
   | `user.created` | `POST /auth/users` (`details.role`, `must_change`), ingress first visit, the 4.x Basic import (`system`), `meshloom-admin create-admin` |
   | `user.changed` | `PATCH /auth/me` display name, a Home Assistant rename, `PATCH /auth/users/{id}` (`details.fields`; `role` and `previous_role` for a role change; `password_removed` when the role became `kiosk`; `sessions_revoked`) |
@@ -315,7 +315,8 @@ referrer, framing) stay in `app/main.py`; there is no CSP beyond
 `tests/test_security_headers.py`.
 
 Public routes (`PUBLIC_ROUTES`): `GET /api/health`, `GET /api/auth/session`,
-`POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/logout`.
+`POST /api/auth/setup`, `POST /api/auth/login`, `POST /api/auth/logout`,
+`GET /api/auth/kiosk-session` ("Kiosk device token").
 
 **Tests.** `tests/conftest.py` signs every app request in as an admin
 (`_auth_as_admin`, it replaces `middleware.resolve`), so route tests need no
@@ -663,7 +664,7 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
 ## API and device tokens
 
 One token per device or script (meshenger, a Home Assistant sensor, the
-kiosk later), revocable alone, attached to a local account (cadrage O4, ADR
+kiosk screen), revocable alone, attached to a local account (cadrage O4, ADR
 001 E1). Code: `app/auth/providers/token.py` (rules in its header),
 `app/routers/auth_tokens.py` (routes above), `ApiTokenRepository`
 (`app/repository/auth.py`), table `api_tokens` (migration 108,
@@ -695,7 +696,8 @@ kiosk later), revocable alone, attached to a local account (cadrage O4, ADR
   direct message and no `admin` frame.
 - **Who holds tokens.** `member` and `admin` (`TOKEN_ROLES`, cadrage §4.2);
   `viewer` and `kiosk` get 403 `auth_forbidden` on the routes. The kiosk's
-  token is written by the host (T60), not through the API.
+  token is written by the server on the kiosk host, never through the API
+  ("Kiosk device token").
 - **Refusals.** Unknown, revoked, expired, an owner disabled or deleted (its
   rows cascade), a request through Home Assistant ingress (the Supervisor
   serves one shared origin and signs the user in itself; a device talks to the
@@ -913,6 +915,8 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `GET /auth/tokens` | own account, `member` or `admin` (403 `auth_forbidden` otherwise; never a token) | Live tokens, newest first: `{id, name, scopes, created_at, last_used_at, expires_at, origin, user_id, username}`, the caller's own, every user's for an admin. Never the secret or the hash |
 | `POST /auth/tokens` | same | 201. `{name (1-64), scopes (1-5 of read, read_private, send, repeater_admin, admin), expires_at?}` (Unix seconds, null never). Answers the row plus `token` (`mlt_…`), the only time it is shown. 400 `auth_token_scope` (`params.scope`) for a scope the caller's role does not grant, 400 `auth_token_expiry_invalid` for an expiry not in the future, 409 `auth_token_limit` (`params.max`, 100 live tokens per user) |
 | `DELETE /auth/tokens/{id}` | same | 204. Revokes the token (the caller's own; any for an admin) and closes its sockets at once. 404 `auth_token_not_found` for an unknown, revoked or someone else's token |
+| `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
+| `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
 | `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
 | `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). One `settings.changed` row per field |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
@@ -954,6 +958,113 @@ checks (`rule_blocker`: not relayed or ingress, no trusted proxy, no proxy
 header, strict `Host`) with loopback allowed, and any error hides it.
 `meshloom-admin setup-code` works on a kiosk host (it tests `any_exist()`); the
 screen then stops showing the old code.
+
+### Kiosk device token
+
+The launcher never signs in through a trusted-network rule (lead decision
+2026-10-17: no `127.0.0.1 → kiosk` seed). Code: `app/services/kiosk.py` (rules
+in its header), `app/routers/auth_kiosk.py`, `pkg/rpi/meshloom-kiosk`,
+`pkg/nfpm/postinstall.sh` (`provision_kiosk_token_dir`).
+
+- **Provisioning.** `prepare_first_run` calls `ensure_kiosk_token()` after
+  `ensure_kiosk_user()`, at every start of a kiosk host. It keeps exactly one
+  live token of the system `kiosk` account: scope `read` (the role has no
+  `read_private`, so the token can never read a direct message), no expiry,
+  origin `pairing` (a device token nobody typed; a dedicated origin would need a
+  migration), name `Kiosk screen`. The secret goes to
+  `/var/lib/meshloom-kiosk/kiosk.token` (`0640`), written atomically (temporary
+  file, `fsync`, rename). When the file does not hold that one live token
+  (missing, edited, revoked, a restore), every live token of the account is
+  revoked and a new one written: `token.created` and `token.revoked` audit rows,
+  `via = system`, `details.reason = "kiosk_rotation"` on the revocations. A
+  write that fails revokes the new token (fail closed). Nothing logs the secret.
+- **The directory.** The service runs as `meshloom` and `/var/lib/meshloom` is
+  `0750`, so the token lives in its own directory, created by the package on a
+  kiosk host only: `meshloom:meshloom-kiosk`, mode `2750` (setgid: the file
+  gets the group with no `chgrp`, and `meshloom` need not be in the group).
+  `meshloom.service` lists it as an optional `ReadWritePaths=-…`. The package
+  adds uid 1000 (the desktop user, as `meshloom-kiosk-setup` assumes) to the
+  group; the new `meshloom-kiosk-setup` does too, after Imager creates that user.
+  The server refuses to write unless it owns the directory, it is a real
+  directory (not a link) and others have no access; it then logs a warning and
+  the screen shows the sign-in page.
+- **Rotation and revocation.** An admin sees the token in
+  **API and device tokens** (owner `kiosk`). `DELETE /auth/tokens/{id}` of the
+  kiosk's token calls `ensure_kiosk_token()` at once: a new secret in the file,
+  picked up at the launcher's next start (each Chromium start asks a new code).
+  The sessions already opened with the old one stay until they expire or are
+  revoked; to sign the screen out, disable the `kiosk` account (`sign_out_user`
+  closes its sessions and sockets, and the token is refused as
+  `owner_disabled`).
+- **Bootstrap.** `POST /auth/kiosk-bootstrap` (`read`) needs a bearer token of
+  the system `kiosk` account (`credential == "token"`; a session or another
+  account's token is refused), a kiosk host and a direct loopback request
+  (`direct_loopback_request`: the `rule_blocker` checks with loopback allowed:
+  no relay or ingress, no trusted proxy, no proxy header, strict `Host`). Any
+  refusal is one 403 `auth_kiosk_bootstrap_refused` plus a `token.used`
+  `refused` row with `details.reason` (`not_kiosk_host`, `not_a_token`,
+  `not_kiosk_account`, `not_loopback`). The answer is `{path, expires_in}`:
+  `/api/auth/kiosk-session?code=<43 characters>`, a code of 256 bits held in
+  memory (by its SHA-256) for 60 s, single use, at most 8 pending (the oldest
+  goes).
+- **Exchange.** `GET /auth/kiosk-session?code=` is in `PUBLIC_ROUTES`. On a
+  kiosk host and a direct loopback request, a pending code of an enabled
+  `kiosk` account is spent and a normal session issued (`issue_session`, the
+  cookie of `docs/dev/auth.md` "Sessions and the cookie", sliding lifetime).
+  Every answer is a 303 to `/` with `Referrer-Policy: no-referrer` (and
+  `no-store`, as every `/api/auth` answer); only a success sets the cookie. A
+  `login` row records it, `details.method = "kiosk_token"`, with `reason`
+  (`not_kiosk_host`, `not_loopback`, `invalid_code`, `account_unavailable`) on
+  failure. The code is spent before the account check: one try per code.
+- **Setup.** The bootstrap works while no administrator exists (the `kiosk`
+  account is a principal; `any_exist()` ignores it), so the screen holds a
+  kiosk session behind the setup page and its installation code. `SetupPage`
+  re-reads `GET /auth/session` every 5 s while it shows the kiosk code, and
+  opens the app once an administrator exists.
+- **Launcher.** `pkg/rpi/meshloom-kiosk` reads the file (or through
+  `sg meshloom-kiosk` when the session started before the group was added),
+  accepts only `mlt_[A-Za-z0-9_-]+`, and hands the header to curl through its
+  config on stdin (`printf` is a builtin): the token is never in an argv
+  (`ps`), a URL or a log. It accepts only a returned path of the expected form
+  and opens Chromium on it, else the plain URL (fail closed: the setup or
+  sign-in page). Tests: `tests/test_kiosk_token.py` (also runs the launcher's
+  functions against fake `curl` and checks shellcheck).
+
+**Images flashed before 5.0.0** (T11 path). The 4.18 image installed the
+launcher, `meshloom-kiosk-setup` and the autostart entry itself; the 5.0 deb
+replaces the launcher at the same path, its `postinstall` writes the marker,
+creates the group and directory and adds uid 1000 to the group; the next server
+start creates the `kiosk` account and its token. The running 4.18 launcher
+keeps its old code until the desktop session restarts, so the screen signs in
+after the next reboot (the user docs say so). No rule migration: no release
+ever seeded a trusted-network rule.
+
+**Upgrade check, simulated (2026-10-18).** A Debian 12 container with the
+4.18.2 image layout (uid 1000 `pi`, the 4.18.2 launcher, setup helper and
+autostart entry, a database created by the 4.18.2 server), then this branch's
+launcher, app and `postinstall.sh`, the real server and the real launcher with
+Chromium replaced by a `curl` script: marker written, `meshloom-kiosk` group with
+`pi`, directory `drwxr-s--- meshloom meshloom-kiosk`, token `-rw-r-----
+meshloom meshloom-kiosk`, readable by `pi` and not by `nobody`, absent from the
+server log and from `ps` while the browser ran; with no administrator the
+screen got a `kiosk` session and the setup page's code; after setup the next
+start opened a `kiosk` session (`/api/channels` 200, `/api/settings` 403); a
+bootstrap from the container's LAN address answered 403; `trusted_networks`
+stayed empty.
+
+**Manual check on a real image (to record before 5.0.0).** Not run yet; record
+the result here.
+
+1. Flash the 4.18.2 kiosk image, let it start, then update it to a 5.0 build
+   (Settings, or `apt`): after a reboot the screen shows the setup page with the
+   installation code, in a `kiosk` session.
+2. Create the administrator from a phone: within a few seconds the wall screen
+   opens the app as `kiosk` (channels, no direct messages, no settings door).
+3. Reboot: the screen opens the app again with no setup or sign-in page.
+4. `ps -ef | grep -c mlt_` on the Pi stays 0 while Chromium runs.
+5. Revoke **Kiosk screen** in the tokens list: `/var/lib/meshloom-kiosk/kiosk.token`
+   changes at once; after a reboot the screen still signs in.
+6. Repeat 2–4 with a kiosk image built from this branch.
 
 ## Host guard
 
