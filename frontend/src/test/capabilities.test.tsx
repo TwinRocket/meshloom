@@ -1,9 +1,9 @@
 import React from 'react';
-import { render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 import { capabilitiesFor, UNRESTRICTED, visibleSettingsSections } from '../auth/capabilities';
 import { forbiddenIsToasted, reportForbidden } from '../auth/authEvents';
 import { SessionProvider, useCapabilities } from '../auth/SessionProvider';
@@ -342,6 +342,54 @@ describe('conversation pane', () => {
   );
 });
 
+describe('legacy favourites migration', () => {
+  const view = {
+    ui_preferences: { theme: '', nav_rail: [] },
+    last_message_times: {},
+    flood_scope: '',
+    known_regions: [],
+    blocked_keys: [],
+    blocked_names: [],
+    directory_available: false,
+  };
+
+  beforeEach(() => {
+    localStorage.setItem('meshloom-favorites', JSON.stringify([{ type: 'channel', id: 'C1' }]));
+  });
+  afterEach(() => {
+    localStorage.removeItem('meshloom-favorites');
+    vi.restoreAllMocks();
+  });
+
+  it.each(['viewer', 'kiosk'] as const)(
+    'does not toggle favourites, nor wipe the local list, as the %s role',
+    async (role) => {
+      vi.spyOn(api, 'getSettingsView').mockResolvedValue(view);
+      const toggle = vi.spyOn(api, 'toggleFavorite').mockResolvedValue({} as never);
+      const { result } = await hookAs(role, () => useAppSettings());
+      await act(async () => {
+        await result.current.fetchAppSettings();
+      });
+      expect(toggle).not.toHaveBeenCalled();
+      expect(localStorage.getItem('meshloom-favorites')).not.toBeNull();
+    }
+  );
+
+  it('keeps the local list when the server refuses the toggle', async () => {
+    vi.spyOn(api, 'getSettingsView').mockResolvedValue(view);
+    const toggle = vi
+      .spyOn(api, 'toggleFavorite')
+      .mockRejectedValue(new ApiError('forbidden', 403));
+    const { result } = await hookAs('member', () => useAppSettings());
+    await act(async () => {
+      await result.current.fetchAppSettings();
+    });
+    await waitFor(() => expect(toggle).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(localStorage.getItem('meshloom-favorites')).not.toBeNull();
+  });
+});
+
 describe('startup calls', () => {
   const adminOnly = () => [
     vi.spyOn(api, 'getSettings').mockResolvedValue({} as never),
@@ -368,6 +416,33 @@ describe('startup calls', () => {
       await result.current.settings.fetchAppSettings();
       await result.current.radio.fetchConfig();
       for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['member', 'viewer', 'kiosk'] as const)(
+    'reads the readable settings view as the %s role, and cannot save settings',
+    async (role) => {
+      const view = vi.spyOn(api, 'getSettingsView').mockResolvedValue({
+        ui_preferences: { theme: 'dark', nav_rail: [] },
+        last_message_times: {},
+        flood_scope: '',
+        known_regions: [],
+        blocked_keys: ['ab'],
+        blocked_names: ['spam'],
+        directory_available: false,
+      });
+      const update = vi.spyOn(api, 'updateSettings').mockResolvedValue({} as never);
+      const { result } = await hookAs(role, () => useAppSettings());
+      await act(async () => {
+        await result.current.fetchAppSettings();
+      });
+      expect(view).toHaveBeenCalled();
+      expect(result.current.appSettings?.blocked_keys).toEqual(['ab']);
+      expect(result.current.appSettings?.blocked_names).toEqual(['spam']);
+      await act(async () => {
+        await result.current.handleSaveAppSettings({ flood_scope: 'x' });
+      });
+      expect(update).not.toHaveBeenCalled();
     }
   );
 

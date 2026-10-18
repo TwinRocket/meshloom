@@ -1450,6 +1450,30 @@ class NotificationDestinationsUpdate(BaseModel):
     apprise: NotificationAppriseDestUpdate | None = None
 
 
+class AppSettingsView(BaseModel):
+    """The slice of ``AppSettings`` every role may read (``GET /api/settings/view``).
+
+    An allowlist: a field added to ``AppSettings`` reaches the other roles only by
+    being added here. Display preferences, the blocked lists and the region names
+    the interface decorates with; no credential, destination, radio workaround or
+    other administration setting (``tests/test_settings_view.py`` pins the set).
+    """
+
+    ui_preferences: UiPreferences = Field(default_factory=UiPreferences)
+    last_message_times: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Conversation state keys to last message timestamps; the direct-message "
+            "keys are left out below the read_private permission"
+        ),
+    )
+    flood_scope: str = ""
+    known_regions: list[str] = Field(default_factory=list)
+    blocked_keys: list[str] = Field(default_factory=list)
+    blocked_names: list[str] = Field(default_factory=list)
+    directory_available: bool = False
+
+
 class AppSettings(BaseModel):
     """Application settings stored in the database."""
 

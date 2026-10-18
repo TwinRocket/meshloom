@@ -72,11 +72,14 @@
         .then(function(response) { return response.ok ? response.json() : null; })
         .then(function(session) {
           if (!session || !session.authenticated) return;
-          // The radio configuration and the app settings answer administrators only;
-          // asking as another role would only collect 403s.
+          // The radio configuration and the full app settings answer administrators only;
+          // asking as another role would only collect 403s. The other roles read the
+          // allowlisted slice (`/api/settings/view`, open to every role).
           if (session.user && session.user.role === 'admin') {
             window.__prefetch.config = fetchJsonOrThrow('./api/radio/config');
             window.__prefetch.settings = fetchJsonOrThrow('./api/settings');
+          } else {
+            window.__prefetch.settings = fetchJsonOrThrow('./api/settings/view');
           }
           window.__prefetch.channels = fetchJsonOrThrow('./api/channels');
           window.__prefetch.contacts = fetchJsonOrThrow('./api/contacts?limit=1000&offset=0');
