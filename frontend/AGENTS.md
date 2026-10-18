@@ -128,6 +128,14 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   absent when `navigator.clipboard` is undefined (HTTP on the LAN). A view rendered
   without the three callbacks is read-only. No reply, react or resend. Tests:
   `src/test/feedRowActions.test.tsx`.
+- **Capabilities, not roles.** `FeedView` reads `useCapabilities().canReadPrivate` (`read_private`),
+  never a role name. Without it: no Direct messages chip (`FeedFilterChips` `showDirect`), filters
+  loaded through `withoutPrivate` (URL `types=priv` and a stored `priv` are overridden in memory;
+  the stored `priv` is written back as it was, and a mount alone writes nothing), so `filtersToQuery`
+  sends `type=CHAN`; `feedStore` drops a `PRIV` row on insert (`setFeedAcceptsPrivate`); a 403 on the
+  first page is `feed.forbidden` in the empty state, not the error panel. Control, muted and pending
+  stay as the server returns them. The feed implements no access rule. Tests:
+  `feedView.test.tsx` ("without read_private").
 - **Live merge.** A live row goes through `recordFeedMessage`, sorted by `(received_at, id)`
   wherever it lands (a `historical` row sits in the middle and is never counted as new). A row
   older than the first held row while `hasOlder` is true is not stored: as the new oldest row

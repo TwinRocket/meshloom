@@ -96,8 +96,19 @@ function insertionIndex(msg: Message): number {
   return lo;
 }
 
+/**
+ * Whether direct messages may enter the store (`read_private`). The server never sends one
+ * to a session without it; this is the defensive drop for a frame that reaches the client anyway.
+ */
+let acceptsPrivate = true;
+
+export function setFeedAcceptsPrivate(accepts: boolean): void {
+  acceptsPrivate = accepts;
+}
+
 function insert(msg: Message): boolean {
   if (ids.has(msg.id)) return false;
+  if (msg.type === 'PRIV' && !acceptsPrivate) return false;
   const index = insertionIndex(msg);
   if (index === working.length) working.push(msg);
   else working.splice(index, 0, msg);
@@ -293,6 +304,7 @@ export function clearFeedRows(): void {
 /** Full reset, including the lazy-attach flag. Used by tests to isolate cases. */
 export function resetFeedStore(): void {
   active = false;
+  acceptsPrivate = true;
   working = [];
   ids.clear();
   controlWorking = [];
