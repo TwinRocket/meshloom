@@ -916,13 +916,15 @@ async def _run_restore(run: _Run) -> None:
                 step.code = "internal_error"
         run.job.state = "failed"
     finally:
+        # The result before any await: the job's state is already final, so a
+        # poller must never see it without its result.
+        run.result.steps = [step.model_copy() for step in run.job.steps]
+        run.result.warnings = list(dict.fromkeys(run.result.warnings))
+        run.job.result = run.result
         if _restore_wrote(run):
             from app.services.backup_sections import run_on_restore_hooks
 
             await run_on_restore_hooks("json")
-        run.result.steps = [step.model_copy() for step in run.job.steps]
-        run.result.warnings = list(dict.fromkeys(run.result.warnings))
-        run.job.result = run.result
         run.job.finished_at = int(time.time())
         run.doc = None  # type: ignore[assignment]  # drop the secrets now
         _set_running(None)
