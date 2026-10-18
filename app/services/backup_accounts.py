@@ -4,7 +4,9 @@ Rules (``docs/dev/backup.md``, "Accounts"):
 
 - **Export.** Every row of ``users``: username, display name, role, provider
   and external id, flags, the argon2id password hash and the TOTP material
-  (secret, enable time, last counter). The section is ``sensitive``. The export
+  (secret, enable time, last counter, and since version 2 the account's
+  ``recovery_codes``: argon2id hashes with their creation and use times). The
+  section is ``sensitive``. The export
   dialog's "Include accounts" box (``BackupExportRequest.include_accounts``,
   checked by default) leaves every name of ``ACCOUNT_SECTIONS`` out when unchecked.
   Sessions, pairing codes, the audit trail, ``auth_settings`` (with the setup code
@@ -18,6 +20,7 @@ Rules (``docs/dev/backup.md``, "Accounts"):
   their tokens (the ``api_tokens`` section is skipped): a restore never locks
   everyone out. Rows follow the API's rules: a password hash, TOTP material or
   forced change only on a local account outside ``kiosk`` (stripped otherwise),
+  recovery codes only with an enabled TOTP factor (a version 1 file has none),
   a ``system`` account only as a kiosk, an argon2id hash only up to libsodium's
   MODERATE cost. Every login session is deleted and every socket of the old and
   new account ids is closed (ids may now name other people), ``updated_at``
@@ -35,8 +38,8 @@ Rules (``docs/dev/backup.md``, "Accounts"):
   only the rows whose owner exists after the accounts restore and whose
   scopes that owner's role grants (``api_token_dropped:<id>`` otherwise). A
   restore of ``users`` without this section leaves no token (the accounts'
-  rows cascade). Passkeys and recovery codes (T50, T52) go inside the
-  ``users`` section, as a new ``version``.
+  rows cascade). Passkeys (T52) go inside the ``users`` section, as a new
+  ``version``, as the recovery codes (T50) did in version 2.
 """
 
 import json
@@ -68,6 +71,8 @@ from app.services.backup_sections import (
 logger = logging.getLogger(__name__)
 
 USERS_SECTION = "users"
+# 2: each user carries ``recovery_codes`` (TOTP, Access T50).
+USERS_SECTION_VERSION = 2
 API_TOKENS_SECTION = "api_tokens"
 # Sections the "Include accounts" box covers.
 ACCOUNT_SECTIONS: tuple[str, ...] = (USERS_SECTION, API_TOKENS_SECTION)
@@ -82,6 +87,7 @@ _MAX_SECRET_LENGTH = 1024
 _HASH_PARAMS = re.compile(r"^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=1\$[^$]+\$[^$]+$")
 _MAX_HASH_MEM_KIB = argon2id.MEMLIMIT_MODERATE // 1024
 _MAX_HASH_PASSES = argon2id.OPSLIMIT_MODERATE
+_MAX_RECOVERY_CODES = 64
 
 _USER_COLUMNS = (
     "id",
@@ -99,6 +105,30 @@ _USER_COLUMNS = (
     "created_at",
     "updated_at",
 )
+
+
+def _check_argon2id(value: str, field: str) -> None:
+    match = _HASH_PARAMS.match(value)
+    if match is None:
+        raise ValueError(f"{field} is not an argon2id hash")
+    mem_kib, passes = (int(group) for group in match.groups())
+    if mem_kib > _MAX_HASH_MEM_KIB or passes > _MAX_HASH_PASSES:
+        raise ValueError(f"{field} parameters are too costly")
+
+
+class BackupRecoveryCode(BaseModel):
+    """One TOTP recovery code: its argon2id hash, never the code."""
+
+    model_config = ConfigDict(hide_input_in_errors=True, extra="ignore")
+
+    code_hash: SecretStr = Field(max_length=_MAX_SECRET_LENGTH)
+    created_at: int = Field(ge=0)
+    used_at: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _hash_shape(self) -> "BackupRecoveryCode":
+        _check_argon2id(self.code_hash.get_secret_value(), "code_hash")
+        return self
 
 
 class BackupUser(BaseModel):
@@ -119,6 +149,9 @@ class BackupUser(BaseModel):
     totp_secret: SecretStr | None = Field(default=None, max_length=_MAX_SECRET_LENGTH)
     totp_enabled_at: int | None = None
     totp_last_counter: int | None = None
+    recovery_codes: list[BackupRecoveryCode] = Field(
+        default_factory=list, max_length=_MAX_RECOVERY_CODES
+    )
     created_at: int = Field(ge=0)
     updated_at: int = Field(ge=0)
 
@@ -134,13 +167,10 @@ class BackupUser(BaseModel):
             self.totp_secret = None
             self.totp_enabled_at = None
             self.totp_last_counter = None
+        if self.totp_enabled_at is None or self.totp_secret is None:
+            self.recovery_codes = []
         if self.password_hash is not None:
-            match = _HASH_PARAMS.match(self.password_hash.get_secret_value())
-            if match is None:
-                raise ValueError("password_hash is not an argon2id hash")
-            mem_kib, passes = (int(group) for group in match.groups())
-            if mem_kib > _MAX_HASH_MEM_KIB or passes > _MAX_HASH_PASSES:
-                raise ValueError("password_hash parameters are too costly")
+            _check_argon2id(self.password_hash.get_secret_value(), "password_hash")
         if self.password_hash is None:
             self.must_change_password = False
         return self
@@ -173,13 +203,23 @@ async def export_users() -> BackupSection | None:
             f"SELECT {', '.join(_USER_COLUMNS)} FROM users ORDER BY id"
         ) as cursor:
             rows = await cursor.fetchall()
+        async with conn.execute(
+            "SELECT user_id, code_hash, created_at, used_at FROM recovery_codes ORDER BY id"
+        ) as cursor:
+            code_rows = await cursor.fetchall()
     if not rows:
         return None
+    codes: dict[int, list[dict]] = {}
+    for code_row in code_rows:
+        codes.setdefault(int(code_row[0]), []).append(
+            {"code_hash": code_row[1], "created_at": code_row[2], "used_at": code_row[3]}
+        )
     users = []
     for row in rows:
         user = {column: row[column] for column in _USER_COLUMNS}
         user["disabled"] = bool(user["disabled"])
         user["must_change_password"] = bool(user["must_change_password"])
+        user["recovery_codes"] = codes.get(int(row["id"]), [])
         users.append(user)
     return BackupSection(data={"users": users})
 
@@ -272,6 +312,7 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
     now = int(time.time())
     # Every session goes: an id kept from the file may now name another person.
     await conn.execute("DELETE FROM sessions")
+    await conn.execute("DELETE FROM recovery_codes")
     await conn.execute("DELETE FROM users")
     for user in data.users:
         name = normalize_username(user.username)
@@ -296,6 +337,14 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
                 max(now, user.updated_at + 1, updated_before.get(user.id, -1) + 1),
                 username_key(name),
             ),
+        )
+        await conn.executemany(
+            "INSERT INTO recovery_codes (user_id, code_hash, created_at, used_at)"
+            " VALUES (?, ?, ?, ?)",
+            [
+                (user.id, code.code_hash.get_secret_value(), code.created_at, code.used_at)
+                for code in user.recovery_codes
+            ],
         )
     async with conn.execute(_USABLE_ADMIN_SQL, (int(addon),)) as cursor:
         row = await cursor.fetchone()
@@ -326,6 +375,7 @@ register_backup_section(
         "fr": "Comptes : noms, rôles, hachés de mots de passe et secrets de double authentification",
     },
     sensitive=True,
+    version=USERS_SECTION_VERSION,
 )
 register_on_restore("accounts", _reload_access_state)
 

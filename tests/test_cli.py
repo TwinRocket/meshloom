@@ -407,3 +407,50 @@ def test_host_guard_observe_resets_the_mode_and_is_audited(dbfile, capsys):
     assert ("settings.changed", "auth_settings.host_guard_mode", "cli") in rows
     assert run(dbfile, "host-guard-observe") == 0
     assert "already" in capsys.readouterr().out
+
+
+def test_disable_2fa_removes_the_factor_and_writes_an_audit_row(dbfile, capsys):
+    _add_user(dbfile, "alice")
+    uid = _query(dbfile, "SELECT id FROM users")[0][0]
+    conn = sqlite3.connect(dbfile)
+    conn.execute(
+        "UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP', totp_enabled_at = 1,"
+        " totp_last_counter = 9 WHERE id = ?",
+        (uid,),
+    )
+    conn.executemany(
+        "INSERT INTO recovery_codes (user_id, code_hash, created_at) VALUES (?, ?, 1)",
+        [(uid, f"hash-{i}") for i in range(3)],
+    )
+    conn.commit()
+    conn.close()
+
+    assert run(dbfile, "disable-2fa", "ALICE") == 0
+    assert _query(dbfile, "SELECT totp_secret, totp_enabled_at, totp_last_counter FROM users") == [
+        (None, None, None)
+    ]
+    assert _query(dbfile, "SELECT COUNT(*) FROM recovery_codes") == [(0,)]
+    assert _query(dbfile, "SELECT action, outcome, via, target FROM auth_audit") == [
+        ("totp.disabled", "success", "cli", f"user:{uid}")
+    ]
+    assert "removed" in capsys.readouterr().out
+
+    # Nothing left to remove: no change, no row.
+    assert run(dbfile, "disable-2fa", "alice") == 0
+    assert "no second factor" in capsys.readouterr().out
+    assert len(_query(dbfile, "SELECT 1 FROM auth_audit")) == 1
+
+
+def test_disable_2fa_refuses_an_unknown_user_and_an_unmigrated_database(dbfile, capsys):
+    assert run(dbfile, "disable-2fa", "nobody") == 1
+    assert "no such user" in capsys.readouterr().err
+    assert _query(dbfile, "SELECT action, outcome FROM auth_audit") == [
+        ("totp.disabled", "refused")
+    ]
+    conn = sqlite3.connect(dbfile)
+    conn.execute("DROP TABLE recovery_codes")
+    conn.commit()
+    conn.close()
+    _add_user(dbfile, "alice")
+    assert run(dbfile, "disable-2fa", "alice") == 1
+    assert "recovery_codes" in capsys.readouterr().err

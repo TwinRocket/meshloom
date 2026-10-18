@@ -1093,6 +1093,7 @@ dependencies = [
     { name = "pycryptodome" },
     { name = "pydantic-settings" },
     { name = "pynacl" },
+    { name = "pyotp" },
     { name = "pywebpush" },
     { name = "tenacity" },
     { name = "uvicorn", extra = ["standard"] },
@@ -1129,6 +1130,7 @@ requires-dist = [
     { name = "pycryptodome", specifier = ">=3.20.0,<4" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pynacl", specifier = ">=1.5.0" },
+    { name = "pyotp", specifier = ">=2.9,<3" },
     { name = "pywebpush", specifier = ">=0.14.0" },
     { name = "tenacity", specifier = ">=9.2.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
@@ -1815,6 +1817,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/95/9a/0bf4c9342949cf64a4781be35bf4cf37416e99b45e88c47604e208e11ba9/pyobjc_framework_libdispatch-12.2.2-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:74cea0ec7803147496c8b7b62e7ad1b9eda525aa692d8856464cec489951aa5d", size = 15987, upload-time = "2026-08-11T19:37:31.115Z" },
     { url = "https://files.pythonhosted.org/packages/fc/13/24d9a179b1ecfab1aee6fc6e1090890121c6163f33e16965620a468504bb/pyobjc_framework_libdispatch-12.2.2-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:436828e39577ec9a889c59efa1e8a85fa0ba43af5069060a67dfead1df029ea4", size = 15724, upload-time = "2026-08-11T19:37:32.016Z" },
     { url = "https://files.pythonhosted.org/packages/f2/5e/b0edf8f0dc908437ff2359655d0cf6749839fb39944137855cbaf882bd9c/pyobjc_framework_libdispatch-12.2.2-cp315-cp315t-macosx_10_15_universal2.whl", hash = "sha256:b64b150207552b67caf1061e013ae6a1989aef34a18f36d9a3a455c51cd210c2", size = 16011, upload-time = "2026-08-11T19:37:32.795Z" },
+]
+
+[[package]]
+name = "pyotp"
+version = "2.10.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2d/c6/c5d96a86fd0bf6fa1bbb5c5c341ff3208638b692727a683c8289068d9a11/pyotp-2.10.0.tar.gz", hash = "sha256:d01e9703443616b03c57c700b5cbffd56a1f929c1b0f8f03131bc78c1fca9d3f", size = 18625, upload-time = "2026-06-14T03:48:49.221Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/33/7b83bde70eddaaaaef487751a9c3a5cc0c0be54620ded0e120ebdc401ff9/pyotp-2.10.0-py3-none-any.whl", hash = "sha256:1df2f6a1bcc3bb0716172a5215ddc2f8c7c7fd26a13df9927d52e1746934836c", size = 13768, upload-time = "2026-06-14T03:48:47.831Z" },
 ]
 
 [[package]]

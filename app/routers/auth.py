@@ -28,8 +28,8 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from app.auth import audit, device_cookie, ratelimit, sessions
-from app.auth.middleware import client_ip
+from app.auth import audit, device_cookie, ratelimit, sessions, totp
+from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import (
     MAX_AUDIT_RETENTION_DAYS,
     MIN_AUDIT_RETENTION_DAYS,
@@ -133,6 +133,14 @@ _MESSAGES = {
     "auth_trusted_network_overlaps_gateway": (
         "A trusted network covers the Docker gateway while a public address is configured"
     ),
+    "auth_2fa_invalid": "Invalid or already used code",
+    "auth_2fa_pending_invalid": "This sign-in expired: enter your password again",
+    "auth_2fa_already_enabled": "Two-factor authentication is already on",
+    "auth_2fa_not_pending": "Start the two-factor setup first",
+    "auth_2fa_not_enabled": "Two-factor authentication is off",
+    "auth_2fa_not_applicable": (
+        "This account has no password: Home Assistant and kiosk accounts sign in another way"
+    ),
 }
 
 
@@ -188,6 +196,20 @@ class SessionUser(BaseModel):
     # True after an admin set the password: every other route answers 403
     # ``auth_password_change_required`` until ``PATCH /auth/me`` changes it.
     must_change_password: bool = False
+    # Whether the account's TOTP second factor is on.
+    totp_enabled: bool = False
+    # ``require_2fa_for_admins`` and no second factor yet: every other route
+    # answers 403 ``auth_2fa_enrolment_required`` until ``/auth/2fa/confirm``.
+    second_factor_enrolment_required: bool = False
+
+
+class SecondFactorChallenge(BaseModel):
+    """The password checked; ``POST /auth/login/2fa`` with this token and a code
+    opens the session (``app/auth/totp.py``)."""
+
+    pending_token: str
+    methods: list[Literal["totp", "recovery"]]
+    expires_in: int
 
 
 class InstanceInfo(BaseModel):
@@ -214,6 +236,8 @@ class AuthSessionResponse(BaseModel):
     user: SessionUser | None = None
     via: Via | None = None
     instance: InstanceInfo | None = None
+    # ``POST /auth/login`` only, for an account with a second factor (no session yet).
+    second_factor: SecondFactorChallenge | None = None
 
 
 class SetupRequest(BaseModel):
@@ -255,6 +279,7 @@ class MeResponse(BaseModel):
     provider: str
     has_password: bool
     must_change_password: bool
+    totp_enabled: bool = False
     created_at: int
 
 
@@ -314,6 +339,8 @@ async def _session_payload(
             display_name=user.display_name,
             role=user.role,
             must_change_password=user.must_change_password,
+            totp_enabled=user.totp_enabled_at is not None,
+            second_factor_enrolment_required=await second_factor_enrolment_required(principal),
         )
         payload.via = principal.via
         payload.instance = InstanceInfo(name=_instance_name(), version=get_app_build_info().version)
@@ -366,23 +393,32 @@ def _me(user: User) -> MeResponse:
         provider=user.provider,
         has_password=user.has_password,
         must_change_password=user.must_change_password,
+        totp_enabled=user.totp_enabled_at is not None,
         created_at=user.created_at,
     )
 
 
 async def _check_current_password(
-    request: Request, user: User, current_password: SecretStr | None
+    request: Request,
+    user: User,
+    current_password: SecretStr | None,
+    action: audit.AuditAction = "password.changed",
+    *,
+    record_success: bool = True,
 ) -> None:
     """The current password of a self-service change, checked like a login:
     the login delays first (keyed on the client's address and the account's
     name, ``app/auth/ratelimit.py``), then the bounded argon2id queue (503
-    ``auth_busy``). A stolen session cannot guess it faster than the login page."""
+    ``auth_busy``). A stolen session cannot guess it faster than the login page.
+    Refusals are audited under ``action``. With ``record_success=False`` (a code
+    check follows) a right password does not clear the login delays: the caller
+    records the success once the whole check passed."""
     current = current_password.get_secret_value() if current_password else ""
     target = audit.user_target(user.id)
     if not current:
         await audit.record_request(
             request,
-            "password.changed",
+            action,
             "failure",
             target=target,
             details={"reason": "current_password_invalid"},
@@ -396,7 +432,7 @@ async def _check_current_password(
         if delayed.first:
             await audit.record_request(
                 request,
-                "password.changed",
+                action,
                 "refused" if delayed.reason == "ip" else "delayed",
                 target=target,
                 details={"reason": delayed.reason, "retry_after": delayed.retry_after_s},
@@ -415,13 +451,14 @@ async def _check_current_password(
         await limiter.record_failure(address, user.username)
         await audit.record_request(
             request,
-            "password.changed",
+            action,
             "failure",
             target=target,
             details={"reason": "current_password_invalid"},
         )
         raise _error(403, "auth_invalid_credentials")
-    limiter.record_success(address, user.username)
+    if record_success:
+        limiter.record_success(address, user.username)
 
 
 # --- Routes -------------------------------------------------------------------
@@ -546,6 +583,8 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
             target=await audit.typed_username_target(body.username),
         )
         raise _error(401, "auth_invalid_credentials")
+    if user.totp_enabled_at is not None:
+        return await _second_factor_challenge(request, user)
     limiter.record_success(address, body.username, device)
     principal = await _start_session(request, response, user)
     await _remember_device(
@@ -555,6 +594,31 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
         request, "login", "success", principal=principal, target=audit.user_target(user.id)
     )
     return await _session_payload(principal, _via(request), request)
+
+
+async def _second_factor_challenge(request: Request, user: User) -> AuthSessionResponse:
+    """A password that checked for an account with a second factor: no session
+    and no limiter success yet (a wrong code counts as a failed login), only a
+    pending-login token for ``POST /auth/login/2fa`` (``app/auth/totp.py``)."""
+    # Read again: a rehash on this login moved updated_at after ``user`` was read.
+    current = await UserRepository.get(user.id)
+    if current is None:
+        raise _error(401, "auth_invalid_credentials")
+    token = totp.pending_logins.issue(
+        current.id,
+        current.updated_at,
+        totp.client_binding(client_ip(request.scope), request.headers.get("user-agent")),
+    )
+    await audit.record_request(
+        request, "login", "pending", target=audit.user_target(user.id), details={"factor": "totp"}
+    )
+    payload = await _session_payload(None, _via(request), request)
+    payload.second_factor = SecondFactorChallenge(
+        pending_token=token,
+        methods=["totp", "recovery"],
+        expires_in=int(totp.PENDING_TTL_S),
+    )
+    return payload
 
 
 @router.post("/logout", response_model=OkResponse, dependencies=[Depends(public())])
@@ -744,6 +808,12 @@ class AuthSettingsView(BaseModel):
             "while a public address is configured."
         )
     )
+    require_2fa_for_admins: bool = Field(
+        description=(
+            "Admins with a password and no second factor reach only the two-factor "
+            "enrolment routes until they enrol. Off by default; never applies under ingress."
+        )
+    )
 
 
 class TrustedNetworkRuleIn(BaseModel):
@@ -762,6 +832,7 @@ class AuthSettingsPatch(BaseModel):
     ingress_default_role: Role | None = None
     public_urls: list[str] | None = Field(default=None, max_length=host_guard.MAX_PUBLIC_URLS * 4)
     host_guard_mode: HostGuardMode | None = None
+    require_2fa_for_admins: bool | None = None
 
 
 def _plugins_isolation_reduced() -> bool:
@@ -814,6 +885,7 @@ async def _settings_view(settings: AuthSettings) -> AuthSettingsView:
         host_guard_mode=settings.host_guard_mode,
         rejected_hosts=host_guard.rejected_hosts(),
         security_notices=await _security_notices(settings),
+        require_2fa_for_admins=settings.require_2fa_for_admins,
     )
 
 
@@ -910,6 +982,7 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         ingress_default_role=body.ingress_default_role,
         public_urls=public_urls,
         host_guard_mode=body.host_guard_mode,
+        require_2fa_for_admins=body.require_2fa_for_admins,
     )
     if trusted_proxies is not None:
         logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))
@@ -963,6 +1036,14 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             "success",
             target="auth_settings.host_guard_mode",
             details={"host_guard_mode": settings.host_guard_mode},
+        )
+    if body.require_2fa_for_admins is not None:
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.require_2fa_for_admins",
+            details={"require_2fa_for_admins": settings.require_2fa_for_admins},
         )
     return await _settings_view(settings)
 

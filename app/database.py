@@ -338,6 +338,16 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     origin TEXT NOT NULL DEFAULT 'ui' CHECK (origin IN ('ui', 'pairing')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+-- TOTP recovery codes (migration 109, docs/dev/auth.md). Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS recovery_codes (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    code_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    used_at INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
 """
 
 # Indexes are created after migrations so that legacy databases have all
@@ -382,6 +392,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_auth_audit_ts ON auth_audit(ts);
+CREATE INDEX IF NOT EXISTS idx_recovery_codes_user ON recovery_codes(user_id);
 CREATE INDEX IF NOT EXISTS idx_plugins_plugin_id ON plugins(plugin_id);
 """
 

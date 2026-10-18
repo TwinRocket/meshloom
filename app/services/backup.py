@@ -237,6 +237,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "users": ("excluded", "the users backup section (services/backup_accounts.py)"),
     "sessions": ("excluded", "login sessions, never exported"),
     "api_tokens": ("excluded", "the api_tokens backup section (services/backup_accounts.py)"),
+    "recovery_codes": (
+        "excluded",
+        "TOTP recovery code hashes: inside the users backup section (services/backup_accounts.py)",
+    ),
     "auth_audit": ("excluded", "audit trail: not in the JSON backup, kept in the SQLite download"),
     "auth_settings": (
         "excluded",

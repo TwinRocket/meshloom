@@ -369,7 +369,8 @@ SNAPSHOT_SCRUBBED_COLUMNS: tuple[str, ...] = ("radio_ble_pin", "radio_previous_t
 SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = ("share_enabled", "store_online")
 
 # Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets and
-# the setup code hash are set to NULL, and the sessions are deleted. The plugin
+# the setup code hash are set to NULL, and the sessions and TOTP recovery codes
+# are deleted. The plugin
 # config secrets (docs/dev/plugins.md) are deleted too: a restored instance asks
 # for them again. A restored
 # snapshot keeps the accounts but none can log in with a password: recovery
@@ -378,7 +379,7 @@ SNAPSHOT_SCRUBBED_AUTH_COLUMNS: dict[str, tuple[str, ...]] = {
     "users": ("password_hash", "totp_secret"),
     "auth_settings": ("setup_code_hash",),
 }
-SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = ("sessions", "plugin_secrets")
+SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = ("sessions", "recovery_codes", "plugin_secrets")
 
 
 async def prepare_sqlite_snapshot(conn: aiosqlite.Connection, exported_at: int) -> list[str]:

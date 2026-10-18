@@ -7,6 +7,7 @@ Run it on the machine (or in the container) that holds the database::
     meshloom-admin setup-code
     meshloom-admin list-users
     meshloom-admin disable-user alice
+    meshloom-admin disable-2fa alice
     meshloom-admin revoke-sessions --all
     meshloom-admin host-guard-observe
 
@@ -49,6 +50,7 @@ from app.repository.auth import (
     AuthSettingsMissingError,
     AuthSettingsRepository,
     InvalidUsernameError,
+    TotpRepository,
     UsernameTakenError,
     UserRepository,
 )
@@ -64,6 +66,7 @@ _COMMAND_ACTIONS: dict[str, audit.AuditAction] = {
     "enable-user": "user.enabled",
     "revoke-sessions": "session.revoked",
     "host-guard-observe": "settings.changed",
+    "disable-2fa": "totp.disabled",
 }
 
 # Same floor as the setup form (cadrage P1); the full policy (common-password
@@ -298,6 +301,31 @@ async def _disable_user(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _disable_2fa(args: argparse.Namespace) -> int:
+    """The recovery path of a lost authenticator: removes the TOTP factor (or a
+    pending enrolment) and the recovery codes. Sessions stay."""
+    if not await _has_table("recovery_codes"):
+        raise CliError(
+            "this database has no recovery_codes table: start Meshloom once on this version "
+            "so it migrates the database, then retry"
+        )
+    user = await _find_user(args.username)
+    if not await TotpRepository.disable(user.id):
+        print(f"{user.username} has no second factor.")
+        return 0
+    await _audit(args, audit.user_target(user.id), username=user.username)
+    print(f"Second factor of {user.username} removed; it signs in with its password alone.")
+    return 0
+
+
+async def _has_table(name: str) -> bool:
+    async with db.readonly() as conn:
+        async with conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+
 async def _host_guard_observe(args: argparse.Namespace) -> int:
     """The recovery path of an enforced Host guard that rejects every name you can reach."""
     settings_row = await AuthSettingsRepository.get()
@@ -353,6 +381,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Awaitable[int]]] = {
     "enable-user": _enable_user,
     "revoke-sessions": _revoke_sessions,
     "host-guard-observe": _host_guard_observe,
+    "disable-2fa": _disable_2fa,
 }
 
 
@@ -402,6 +431,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     cmd = add("enable-user", "allow a disabled user to sign in again")
+    cmd.add_argument("username")
+
+    cmd = add(
+        "disable-2fa",
+        "remove a user's two-factor authentication and recovery codes (lost authenticator)",
+    )
     cmd.add_argument("username")
 
     add(

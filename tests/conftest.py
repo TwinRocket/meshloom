@@ -319,15 +319,18 @@ def _reset_auth_state():
     """No first-run preparation, empty Basic caches and no login delays at the start of each test."""
     from app.auth import setup_code
     from app.auth.ratelimit import reset_login_limiter
+    from app.auth.totp import reset_pending_logins
     from app.security import reset_basic_state
 
     setup_code.reset_first_run_state()
     reset_basic_state()
     reset_login_limiter()
+    reset_pending_logins()
     yield
     setup_code.reset_first_run_state()
     reset_basic_state()
     reset_login_limiter()
+    reset_pending_logins()
 
 
 @pytest.fixture(autouse=True)

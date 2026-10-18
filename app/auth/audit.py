@@ -57,6 +57,7 @@ AuditAction = Literal[
     "pairing.used",
     "totp.enrolled",
     "totp.disabled",
+    "totp.recovery_regenerated",
     "passkey.added",
     "passkey.removed",
     # Code that runs on the instance: bots today, plugins with the Store
@@ -87,7 +88,9 @@ AUDIT_ACTIONS: tuple[str, ...] = get_args(AuditAction)
 # attempt (``meshloom-admin``, a login refused per IP). ``delayed``: a login
 # refused while a delay runs (``app/auth/ratelimit.py``, one row per delay).
 # ``error``: the server failed.
-AuditOutcome = Literal["success", "failure", "refused", "delayed", "error"]
+# ``pending``: a password that checked for an account that still owes its
+# second factor (``POST /auth/login``, ``app/auth/totp.py``).
+AuditOutcome = Literal["success", "failure", "refused", "delayed", "error", "pending"]
 AUDIT_OUTCOMES: tuple[str, ...] = get_args(AuditOutcome)
 
 # The request ``via`` values (``app/auth/principal.py``) plus ``cli``
