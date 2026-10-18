@@ -105,7 +105,8 @@ and the OpenAPI page (`/docs`), not a table here.
   may ask and read is `plugins/capabilities/` (one module per capability, every
   method checked against the instance's effective permissions before any side
   effect, typed refusals) and `plugins/quotas.py` (per-instance send quotas in
-  `plugin_send_quota`, and `send_spacer`, the 2 s spacing of every automatic
+  `plugin_send_quota`, the host-side send guards in `plugin_send_guard` and
+  `plugin_send_limits` (`send_guard`), and `send_spacer`, the 2 s spacing of every automatic
   send, which `fanout/bot_exec.py` shares); `docs/dev/plugins.md`, "Capabilities". Host lock:
   `MESHCORE_DISABLE_PLUGINS`, a user variable (`docs/user/*/deep/environment.md`).
   Every artefact that copies `app/` copies
@@ -233,7 +234,9 @@ Community guard.
 - Tests: `tests/test_share_service.py` (errors, ban, breaker with an injected
   clock, buckets, negative cache, hanging server), `tests/test_share_off_no_egress.py`
   (off: no request, no DNS lookup; on: only `SHARE_HOST`, no seed, channel key
-  or radio private key in any request). Fakes: `tests/share_fakes.py`.
+  or radio private key in any request). Fakes: `tests/share_fakes.py`. User docs:
+  `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans and what is
+  not implemented yet must follow this section).
 
 ## Recovery CLI (`app/cli.py`)
 
@@ -309,6 +312,10 @@ run as root).
 - Migration 105 adds `plugin_send_quota` (the per-instance send counters of the
   plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
   `tests/test_migrations/test_migration_105.py`), excluded from backups.
+- Migration 106 adds `plugin_send_guard` and `plugin_send_limits` (the Meshloom-wide
+  budget, per-destination counters, loop-guard stamps and the user's lowered limits of
+  the plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
+  `tests/test_migrations/test_migration_106.py`), excluded from backups.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or

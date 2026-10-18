@@ -318,6 +318,12 @@ export interface PluginStatusEntry {
   restarts: number;
   /** The plugin's own one-line status (`status.set`), null when it set none. */
   summary?: string | null;
+  /** What the plugin send guards refused since start; absent or empty when nothing. */
+  send_guard?: {
+    total: number;
+    by_scope: Partial<Record<string, number>>;
+    last: { scope: string; at: number } | null;
+  };
 }
 
 export interface FanoutStatusEntry {

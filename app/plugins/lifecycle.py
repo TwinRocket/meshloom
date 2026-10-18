@@ -56,7 +56,9 @@ def without_plugin_errors(health: dict[str, Any]) -> dict[str, Any]:
     return {
         **health,
         "plugin_statuses": {
-            key: {**value, "last_error": None} if isinstance(value, dict) else value
+            key: {**value, "last_error": None, "send_guard": {}}
+            if isinstance(value, dict)
+            else value
             for key, value in statuses.items()
         },
     }

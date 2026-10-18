@@ -49,6 +49,9 @@ class PluginStatusResponse(BaseModel):
     last_error: str | None = None
     dropped_events: int = 0
     restarts: int = 0
+    # What the send guards refused since start (`total`, `by_scope`, `last`; `{}` when
+    # nothing); blanked for principals without `PLUGIN_ERROR_PERMISSION`.
+    send_guard: dict[str, Any] = Field(default_factory=dict)
 
 
 class NotificationLastError(BaseModel):

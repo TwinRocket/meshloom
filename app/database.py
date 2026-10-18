@@ -311,6 +311,19 @@ CREATE TABLE IF NOT EXISTS plugin_send_quota (
     count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (instance_id, period)
 );
+
+CREATE TABLE IF NOT EXISTS plugin_send_guard (
+    scope TEXT NOT NULL CHECK (scope IN ('instance', 'destination', 'cooldown', 'quiet')),
+    subject TEXT NOT NULL,
+    period_start INTEGER NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (scope, subject)
+);
+
+CREATE TABLE IF NOT EXISTS plugin_send_limits (
+    name TEXT PRIMARY KEY CHECK (name IN ('instance_per_hour', 'channel_per_hour', 'contact_per_hour')),
+    value INTEGER NOT NULL CHECK (value >= 1)
+);
 """
 
 # Indexes are created after migrations so that legacy databases have all

@@ -449,6 +449,27 @@ class TestCaps:
         assert len(produced) == 5
 
     @pytest.mark.asyncio
+    async def test_truncate_cuts_the_body_at_the_cap_and_stops_reading(self, monkeypatch):
+        Dns(monkeypatch, PUBLIC)
+        produced: list[int] = []
+        Transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200, headers={"Content-Length": "10000"}, content=_chunks(produced, 10)
+            ),
+        )
+        response = await follow_checked_redirects(
+            "GET",
+            "https://github.com/big",
+            max_response_bytes=4096,
+            truncate_response=True,
+            timeout=5,
+        )
+        assert response.truncated is True
+        assert len(response.content) == 4096
+        assert len(produced) == 5
+
+    @pytest.mark.asyncio
     async def test_declared_length_above_the_cap_is_refused_unread(self, monkeypatch):
         Dns(monkeypatch, PUBLIC)
         produced: list[int] = []

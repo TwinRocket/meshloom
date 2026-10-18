@@ -58,7 +58,7 @@ from typing import Any, Literal
 
 from app.message_limits import DM_HARD_LIMIT, channel_text_allowance
 from app.plugins import isolation, launch
-from app.plugins.quotas import effective_send_limits
+from app.plugins.quotas import effective_send_limits, send_guard
 from app.secret_fields import scrub_error
 from meshloom_plugin import policy, rpc
 
@@ -596,7 +596,7 @@ class PluginProcess:
             logger.exception("Plugin host method %s failed", method)
             response = rpc.error(msg_id, rpc.INTERNAL_ERROR, "host error")
         try:
-            data = rpc.encode(response)
+            data = rpc.encode(response, rpc.result_limit(method))
         except ValueError:
             data = rpc.encode(rpc.error(msg_id, rpc.INTERNAL_ERROR, "result too large"))
         await self._write_quietly(data)
@@ -777,6 +777,7 @@ class PluginInstance:
             "dropped_events": self.dropped_events,
             "restarts": self.restarts,
             "summary": self.summary,
+            "send_guard": send_guard.hits(self.instance_id),
         }
 
     # Capability state (`app/plugins/capabilities/`).
@@ -1332,6 +1333,7 @@ class PluginManager:
                 "dropped_events": 0,
                 "restarts": 0,
                 "summary": None,
+                "send_guard": send_guard.hits(instance_id),
             }
         for instance_id, instance in self._instances.items():
             result[instance_id] = instance.snapshot()
@@ -1389,6 +1391,7 @@ class PluginManager:
             if not message_visible(instance.permissions, instance.scope, params):
                 continue
             own = params["is_outgoing"] and origin == instance.instance_id
+            send_guard.note_inbound(instance.instance_id, params)
             instance.enqueue(_Event("message", {**params, "own_send": True} if own else params))
 
     def accepts(self, instance: PluginInstance, hook: str, data: dict[str, Any]) -> bool:

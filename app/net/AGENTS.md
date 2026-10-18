@@ -37,6 +37,11 @@ chose (SSRF). Like every agent doc here, check it against the code.
 
 ## Sending (IP pinning)
 
+- httpx logs every request at INFO (`HTTP Request: GET <url> ...`). Importing
+  the guard adds a filter to the `httpx` logger that drops the user info, query
+  and fragment of that URL (API keys, webhook tokens), for every httpx client of
+  the process.
+
 - httpx: `pinned_async_client(dest, *, verify_tls=True, timeout)` yields a
   client whose `request()`/`post()` connect to a validated IP
   (`https://<ip>:<port><path>`, `Host` = the original host[:port],
@@ -74,8 +79,9 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   allow_private_network=False, schemes=..., max_redirects=0,
   max_request_bytes=None, max_response_bytes=None, total_timeout=None,
   content=None, headers=None, header_filter=None, cross_origin_headers=(),
-  verify_tls=True)` returns a
-  `CheckedResponse` (status, headers, body, last hop URL, redirect count):
+  verify_tls=True, truncate_response=False)` returns a
+  `CheckedResponse` (status, headers, body, last hop URL, redirect count,
+  `truncated`):
   - every hop, the first included, goes through `validate_destination` with
     the same allowlist, schemes and private rule, then a fresh pinned client
     (no cookie jar from one hop to the next). `Location` is joined to the URL
@@ -92,7 +98,10 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
     (`egress_request_too_large`). The response is refused unread when its
     `Content-Length` is above `max_response_bytes`, and aborted (connection
     closed) as soon as the streamed body passes it
-    (`egress_response_too_large`). The body is read raw, never decoded: the
+    (`egress_response_too_large`). With `truncate_response=True` (the plugin
+    `http` capability) the body is cut at `max_response_bytes` instead, the rest
+    left unread, `truncated` set, and a larger `Content-Length` is not refused.
+    The body is read raw, never decoded: the
     request always sends `Accept-Encoding: identity` (set after the header
     filter, a caller's own value is replaced) and an answer with any other
     `Content-Encoding` is refused unread (`egress_response_encoding`), so a
