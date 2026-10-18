@@ -38,9 +38,12 @@ This file is a hypothesis: check it against the code.
   policy, the journal, the counters and `notification_statuses()` (see "Dispatcher").
 - `transports/`: `base.py` (`Transport.send(channel, rendered, event, secrets) ->
   SendResult(status, retry_after, error_code)`, `result_from_exception()` for httpx),
-  `web_push.py` (wraps `PushManager.dispatch_event`), `legacy.py` (`legacy:email`,
-  `legacy:webhook`, `legacy:apprise` through the `app/notify.py` send functions, until
-  their native transports, MSHL-110).
+  `web_push.py` (wraps `PushManager.dispatch_event`), `email.py`, `webhook.py`,
+  `apprise.py` (the native transports of the `email`, `webhook` and `apprise` channel types,
+  see "Native transports"), `legacy.py` (`legacy:email`, `legacy:webhook`,
+  `legacy:apprise` through the `app/notify.py` send functions, until MSHL-111/112 switch the
+  writers; `default_transport` gives a `legacy:*` id the legacy transport, any other channel its
+  native one).
 
 ## Channels (data model)
 
@@ -138,6 +141,34 @@ This file is a hypothesis: check it against the code.
 - **Tests.** `tests/test_notification_dispatcher.py` (marked `async_notifications`); every
   other test runs with `tests/conftest.py`'s `_settle_notifications`, which waits for the
   queues after each `emit` so a producer test can assert on the send.
+
+## Native transports
+
+- **Rendering.** The dispatcher passes `rendered=None`: each transport renders from
+  `event.payload` in `channel_language()` (the channel's own, `auto` = the instance's) and
+  under the channel's `include_message_text`.
+- **E-mail** (`email.py`). One ephemeral `mailto(s)://` Apprise URL per send (never stored,
+  password in `secret_scope`). `to` and `cc` are parsed by `parse_recipients` (newline, comma,
+  semicolon). Apprise's mailto plugin sends one message per recipient inside the URL and returns
+  one bool, so a refusal fails the delivery while others may be reached: `failed`, never retried.
+  A message whose text the policy withholds gets the subject "New message" and no `text` line.
+  SMTP runs in smtplib inside Apprise: the host is validated by the guard right before the send
+  but the connection is not pinned (documented residual). The default text policy of a new e-mail
+  channel is `public_only` when `email_is_cloud(config)` (host not clearly local).
+- **Webhook** (`webhook.py`). `body_bytes()` and `sign()` are the 4.18.x v1 body and signature,
+  byte for byte (golden `webhook_body`); `request_headers()` adds `X-Webhook-Id` (the event's
+  `dedup_key`, a body hash for a grouped summary) and `X-Webhook-Timestamp` (per attempt). The
+  signature does not cover the timestamp (v2, MSHL-137); the id and timestamp are unsigned, so no replay protection. `verify_signature()` is constant-time.
+  `app/notify.send_webhook_alert` (legacy) uses the same helpers.
+- **Apprise** (`apprise.py`). `apprise_medium.send_to_urls` sends each URL on its own (retries per
+  URL); any URL still failing makes the delivery `failed` with `line N (redacted url): code`,
+  never `retry`. Discord URLs get `avatar=False`; `verify_tls` maps to `verify_certificate`.
+- **TLS.** `verify_tls=false` is honoured only when every resolved address of the destination
+  is private (`tls_check_may_be_off`, webhook URL, SMTP host, each Apprise user-chosen host; a
+  fixed-host service never): else `verify_tls_requires_private_destination`, at create/update and
+  again at send. E-mail `mode=none` with a login is refused outside the private network
+  (`smtp_plaintext_auth_refused`, same two places). Cc addresses join the recipients (Apprise
+  copies a whole Cc on every per-recipient message).
 
 ## Contract, version 1
 

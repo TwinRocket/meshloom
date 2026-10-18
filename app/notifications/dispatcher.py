@@ -100,21 +100,31 @@ DeliveryStatus = Literal[
 
 
 def default_transport(channel: Channel) -> Transport | None:
+    from app.notifications.transports.apprise import AppriseTransport
+    from app.notifications.transports.email import EmailTransport
     from app.notifications.transports.legacy import (
         LegacyAppriseTransport,
         LegacyEmailTransport,
         LegacyWebhookTransport,
     )
     from app.notifications.transports.web_push import WebPushTransport
+    from app.notifications.transports.webhook import WebhookTransport
 
     if channel.type == "web_push":
         return WebPushTransport()
+    if channel.id not in LEGACY_CHANNEL_TYPES:
+        native = {
+            "email": EmailTransport,
+            "webhook": WebhookTransport,
+            "apprise": AppriseTransport,
+        }.get(channel.type)
+        if native:
+            return native()
     legacy = {
         "legacy:email": LegacyEmailTransport,
         "legacy:webhook": LegacyWebhookTransport,
         "legacy:apprise": LegacyAppriseTransport,
     }.get(channel.id)
-    # Channels of the other types get their native transport with MSHL-110.
     return legacy() if legacy else None
 
 
