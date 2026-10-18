@@ -1049,10 +1049,14 @@ async def _regrandfather_private_push(extra: MeshloomExtra) -> None:
     """A backup taken before the egress guard carries no ``push_allow_private_endpoints``:
     restored LAN subscriptions would be refused. Same rule as migration 097/104 and
     the webhook (``grandfather_legacy_webhook``): turn the opt-in on, flagged for the
-    one-time notice, only when a restored endpoint visibly targets a private network."""
+    one-time notice, only when a restored endpoint visibly targets a private network.
+    The opt-in is back on, so a pending ``push_private_endpoints_review`` (migration 104
+    withdrew it) no longer applies: cleared with it."""
     if any(endpoint_looks_private(sub.endpoint) for sub in extra.push_subscriptions):
         await AppSettingsRepository.update(
-            push_allow_private_endpoints=True, push_private_endpoints_grandfathered=True
+            push_allow_private_endpoints=True,
+            push_private_endpoints_grandfathered=True,
+            push_private_endpoints_review=False,
         )
 
 

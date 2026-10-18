@@ -189,6 +189,17 @@ async def test_pre_guard_backup_regrandfathers_a_lan_subscription(backup_db, rel
 
 
 @pytest.mark.asyncio
+async def test_regrandfather_clears_a_pending_review_notice(backup_db, reload_spy, proxy_spy):
+    await AppSettingsRepository.update(push_private_endpoints_review=True)
+    await restore_meshloom_extra(
+        _push_extra("http://192.168.1.20:8080/UP"), settings_have_push_opt_in=False
+    )
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is True
+    assert settings.push_private_endpoints_review is False
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("endpoint", ["https://ntfy.sh/up", "https://fcm.googleapis.com/x"])
 async def test_pre_guard_backup_leaves_public_endpoints_refused_by_default(
     backup_db, reload_spy, proxy_spy, endpoint
