@@ -235,8 +235,11 @@ Other server timestamps compared with `Date.now()`:
 
 Heavy surfaces (settings, cracker, search, info sheets, maps, Live, visualizer,
 repeater dashboard, raw feed) are loaded with `lazy()`. If an always-loaded module
-imports `recharts`, `leaflet`/`react-leaflet` or `qrcode.react` statically, they end
-up back in the entry chunk. `vite.config.ts` defines no manual vendor chunks on
+imports `recharts`, `leaflet`/`react-leaflet`, `qrcode.react` or
+`@simplewebauthn/browser` statically, they end up back in the entry chunk. The WebAuthn
+library is imported dynamically in `auth/passkeys.ts` and nowhere else (the login page
+decides whether to show its button with `passkeysSupported()`, the same test as the library's
+`browserSupportsWebAuthn()`, without loading it). `vite.config.ts` defines no manual vendor chunks on
 purpose.
 
 ### Session gate (`src/auth/`)
@@ -270,6 +273,17 @@ purpose.
   `RecoveryCodesView` (codes shown once, acknowledgement before "Done") are shared by that
   page and Settings → Users & Access → `AccessSecurityPanel` (hidden reason under ingress
   or without a password). i18n slice `bo`.
+- **Passkeys.** `auth/passkeys.ts` is the only importer of `@simplewebauthn/browser` (dynamic
+  `import()`, its own chunk; never import it statically). `LoginForm` shows "Sign in with a
+  passkey" only when `passkey` is true (`passkeyLoginAvailable(session)`: the server's
+  `methods.passkey` and `passkeysSupported()`), which `LoginPage` passes and `ReloginDialog` does
+  not; `SecondFactorStep` shows "Use a passkey" when the challenge lists `passkey`. The two
+  `/auth/webauthn/login/*` paths are in `AUTH_FORM_PATHS` (their 401 is a form error).
+  `passkeyCeremonyErrorKey` maps the library's errors (and the DOMException under `cause`) to
+  `auth.passkey.errors.*`; a cancelled prompt and a timeout are both `NotAllowedError`.
+  Settings → Users & Access → `AccessPasskeysPanel` lists, adds (password, plus a code when
+  TOTP is on; it warns that a recovery code is spent even if the prompt is abandoned) and removes
+  (password) passkeys. i18n slice `bq`.
 - **429.** `ApiError.retryAfter` comes from `Retry-After` or `params.retry_after`;
   `formatApiError` passes it as `{{retry_after}}` to `errors.auth_rate_limited`.
 - **Ingress.** Home Assistant signs ingress users in on every request (`via: ingress`,

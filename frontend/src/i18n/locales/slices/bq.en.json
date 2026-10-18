@@ -1,0 +1,43 @@
+{
+  "auth": {
+    "passkey": {
+      "or": "or",
+      "signIn": "Sign in with a passkey",
+      "useAsSecondFactor": "Use a passkey",
+      "insecureHint": "Passkeys are not available here: they need https on a declared address or localhost.",
+      "errors": {
+        "cancelled": "The passkey request was cancelled. Try again.",
+        "notAllowed": "The passkey request was cancelled, refused or timed out. Try again.",
+        "alreadyRegistered": "This device already has a passkey for this account.",
+        "failed": "The browser could not use a passkey here. Try again or use another method."
+      }
+    }
+  },
+  "settings": {
+    "access": {
+      "passkeys": {
+        "title": "Passkeys",
+        "help": "A passkey signs you in with your fingerprint, face or device PIN instead of your password. Your password keeps working. A passkey works only on the address it was created on.",
+        "ingress": "Passkeys do not apply under Home Assistant: Home Assistant already signed you in.",
+        "noPassword": "This account has no Meshloom password (it signs in another way), so it has no passkeys.",
+        "none": "No passkey yet.",
+        "unavailable": "Adding a passkey needs https on a declared public address, Meshloom Remote or localhost, in a browser that supports passkeys. Over plain http on the local network it is not available.",
+        "synced": "Synced",
+        "created": "Added {{date}}",
+        "lastUsed": "last used {{date}}",
+        "neverUsed": "never used",
+        "add": "Add a passkey",
+        "name": "Name",
+        "namePlaceholder": "For example: Laptop, Phone",
+        "codeHelp": "Enter a code from your authenticator app, or a recovery code. A recovery code is used up as soon as you submit it, even if you then cancel the passkey prompt: you would need another one to try again. A passkey replaces both your password and your code when signing in, which is why both are asked.",
+        "addSubmit": "Create the passkey",
+        "added": "Passkey added.",
+        "remove": "Remove the passkey {{name}}",
+        "removeButton": "Remove",
+        "removePassword": "Password to remove “{{name}}”",
+        "removeSubmit": "Remove the passkey",
+        "removed": "Passkey removed."
+      }
+    }
+  }
+}

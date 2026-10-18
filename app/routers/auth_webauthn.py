@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -53,6 +54,7 @@ from app.routers.auth import (
 )
 
 router = APIRouter(prefix="/auth/webauthn", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 # A browser's PublicKeyCredential JSON is a few hundred bytes to a few KiB.
 MAX_CREDENTIAL_JSON = 16 * 1024
@@ -350,6 +352,8 @@ async def login_options(body: LoginOptionsRequest, request: Request) -> dict[str
                 "login", rp.rp_id, None, webauthn.login_binding(client)
             )
         except webauthn.CeremoniesFull:
+            # Never a challenge, address or token: only that the table is full.
+            logger.warning("Passkey sign-in refused: the table of live challenges is full")
             raise _rate_limited(int(webauthn.CEREMONY_TTL_S)) from None
         return webauthn.authentication_options(rp, challenge, None, require_user_verification=True)
     token = body.pending_token.get_secret_value()

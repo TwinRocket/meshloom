@@ -20,6 +20,7 @@ import type {
   AuthSessionInfo,
   AuthSettings,
   AuthSetupRequest,
+  PasskeyRow,
   RecoveryCodes,
   TotpEnrolment,
   TotpStatus,
@@ -236,7 +237,14 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-const AUTH_FORM_PATHS = new Set(['/auth/login', '/auth/login/2fa', '/auth/setup']);
+const AUTH_FORM_PATHS = new Set([
+  '/auth/login',
+  '/auth/login/2fa',
+  '/auth/setup',
+  // The passkey sign-in answers its own 401 (a wrong assertion, an expired pending login).
+  '/auth/webauthn/login/options',
+  '/auth/webauthn/login/verify',
+]);
 
 /** Seconds from a `Retry-After` header (delta-seconds form), or null. */
 function retryAfterSeconds(header: string | null, detail: unknown): number | null {
@@ -308,8 +316,37 @@ export const api = {
   authLogin: (body: AuthLoginRequest) =>
     fetchJson<AuthSessionInfo>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   /** `POST /auth/login/2fa`: the second step, the pending token of the first and a code. */
-  authLogin2fa: (body: { pending_token: string; code: string }) =>
+  authLogin2fa: (
+    body: { pending_token: string; code: string } | { pending_token: string; passkey: object }
+  ) =>
     fetchJson<AuthSessionInfo>('/auth/login/2fa', { method: 'POST', body: JSON.stringify(body) }),
+  /** Passkeys (`/auth/webauthn/*`): options and answers are the browser's JSON, passed through. */
+  passkeyLoginOptions: (pending_token?: string) =>
+    fetchJson<object>('/auth/webauthn/login/options', {
+      method: 'POST',
+      body: JSON.stringify(pending_token ? { pending_token } : {}),
+    }),
+  passkeyLoginVerify: (credential: object) =>
+    fetchJson<AuthSessionInfo>('/auth/webauthn/login/verify', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    }),
+  passkeyRegisterOptions: (password: string, code?: string) =>
+    fetchJson<object>('/auth/webauthn/register/options', {
+      method: 'POST',
+      body: JSON.stringify(code ? { password, code } : { password }),
+    }),
+  passkeyRegisterVerify: (credential: object, name: string) =>
+    fetchJson<PasskeyRow>('/auth/webauthn/register/verify', {
+      method: 'POST',
+      body: JSON.stringify({ credential, name }),
+    }),
+  listPasskeys: () => fetchJson<PasskeyRow[]>('/auth/webauthn/credentials', { cache: 'no-store' }),
+  deletePasskey: (id: number, password: string) =>
+    fetchJson<{ ok: boolean }>(`/auth/webauthn/credentials/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    }),
   getTotpStatus: () => fetchJson<TotpStatus>('/auth/2fa', { cache: 'no-store' }),
   enrolTotp: (password: string) =>
     fetchJson<TotpEnrolment>('/auth/2fa/enrol', {
