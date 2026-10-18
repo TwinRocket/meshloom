@@ -10,6 +10,7 @@ import {
 import { RadioBatteryChip, RadioStatusChip } from './RadioStatusChip';
 import type { HealthStatus } from '../types';
 import { cn } from '../lib/utils';
+import { UserMenu } from '../auth/UserMenu';
 
 /**
  * Primary navigation for wide screens.
@@ -182,6 +183,7 @@ export function DesktopRail({
             )}
           </div>
         ))}
+        <UserMenu className={DOOR_CLASS} />
       </div>
     </nav>
   );

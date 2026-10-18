@@ -1,0 +1,57 @@
+{
+  "errors": {
+    "auth_rate_limited": "Too many attempts. Try again in {{retry_after}} seconds.",
+    "auth_host_rejected": "Request refused: this address is not one this instance answers to.",
+    "auth_last_admin": "This is the last administrator: keep at least one."
+  },
+  "auth": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "sessionLoadFailed": "Meshloom could not reach the server.",
+    "username": "User name",
+    "password": "Password",
+    "language": { "fr": "Français", "en": "English" },
+    "role": {
+      "admin": "Administrator",
+      "member": "Member",
+      "viewer": "Viewer",
+      "kiosk": "Kiosk"
+    },
+    "login": {
+      "title": "Sign in",
+      "description": "Sign in to use this Meshloom.",
+      "submit": "Sign in",
+      "insecureContext": "This page is not served over HTTPS: your password travels unencrypted on the network. Use it only on a network you trust."
+    },
+    "relogin": {
+      "title": "Session ended",
+      "body": "Your session has ended. Sign in again to carry on where you were."
+    },
+    "setup": {
+      "title": "Create the administrator account",
+      "description": "This Meshloom has no account yet. The one you create here can manage everything.",
+      "displayName": "Display name (optional)",
+      "confirmPassword": "Confirm the password",
+      "passwordMismatch": "The two passwords differ.",
+      "passwordPolicy": "At least {{min_length}} characters, different from the user name. A few words in a row make a good password.",
+      "strength": {
+        "tooShort": "Too short",
+        "ok": "Acceptable",
+        "good": "Good",
+        "strong": "Strong"
+      },
+      "code": "Installation code",
+      "codeHint": "This Meshloom already holds data, so it asks for the 8-digit code it printed at start-up. Find it here:",
+      "codeWhereDocker": "Docker: docker logs <container> and look for “installation code”.",
+      "codeWhereSystemd": "Package install: journalctl -u meshloom.",
+      "codeWhereAddon": "Home Assistant add-on: the Log tab of the add-on.",
+      "codeWhereCli": "Any install, a new code: meshloom-admin setup-code on the host.",
+      "submit": "Create the account"
+    },
+    "userMenu": {
+      "open": "Account of {{name}}",
+      "signOut": "Sign out",
+      "ingressNote": "Home Assistant signs you in: there is no Meshloom session to end."
+    }
+  }
+}

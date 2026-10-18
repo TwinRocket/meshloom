@@ -196,6 +196,31 @@ imports `recharts`, `leaflet`/`react-leaflet` or `qrcode.react` statically, they
 up back in the entry chunk. `vite.config.ts` defines no manual vendor chunks on
 purpose.
 
+### Session gate (`src/auth/`)
+
+- `main.tsx` wraps `App` in `SessionProvider`, which reads `GET /api/auth/session`
+  before anything else mounts, so nothing loads before the server knows who calls.
+  `setup_required` renders `SetupPage` (the installation-code field only when
+  `setup_code_required`, with where to find it per install kind), an anonymous
+  visit renders `LoginPage` (warns when `!window.isSecureContext`), and a signed-in
+  answer (including Basic credentials that already authenticate) renders the app
+  with no wall. `useSession()` gives `user`, `role`, `via`, `signOut` (a null user
+  outside a provider, so tests of other components need no provider). Auth types
+  live in `auth/types.ts`, not `types.ts`.
+- **401 handling.** `fetchJson` publishes a 401 on any call except `/auth/login` and
+  `/auth/setup` through `auth/authEvents.ts`. `auth_setup_required` re-reads the
+  session (back to the setup page); any other code mounts `ReloginDialog` over the
+  still-mounted app, so navigation state and drafts survive, and the WebSocket gets
+  `AUTH_RESTORED_EVENT` to reconnect at once. Signing in as another user reloads
+  the page instead. A tab returning to the foreground re-asks the session.
+- **429.** `ApiError.retryAfter` comes from `Retry-After` or `params.retry_after`;
+  `formatApiError` passes it as `{{retry_after}}` to `errors.auth_rate_limited`.
+- **Not done on purpose.** No "remember me" (the backend has one session lifetime),
+  no capabilities (the permission registry is a later ticket), no sign-out under
+  ingress (no Meshloom session exists there; `docs/dev/auth.md`).
+- Strings: slice `aa` (`auth.*`, plus the three error codes slice `x` lacks).
+  Tests: `src/test/auth.test.tsx`.
+
 ### i18n
 
 - `src/i18n/index.ts` loads only the active language. i18next `fallbackLng` is
