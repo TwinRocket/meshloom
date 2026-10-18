@@ -97,7 +97,7 @@ VIEW_FIELDS = {
     "blocked_names",
     "directory_available",
 }
-UI_PREFERENCES_FIELDS = {"nav_rail", "theme", "server_label"}
+UI_PREFERENCES_FIELDS = {"nav_rail", "theme", "start_view", "server_label"}
 SERVER_LABEL_FIELDS = {"text", "color", "size_px", "bold", "italic", "font"}
 
 

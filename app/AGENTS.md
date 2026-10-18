@@ -1160,6 +1160,15 @@ service's body (`tests/test_test_route_error_oracles.py`).
 
 ## Route behaviours that are easy to break
 
+- `ui_preferences` (`UiPreferences`, one JSON column, no migration per field): `nav_rail`,
+  `theme`, `start_view`, `server_label`. `start_view` is the tool hash fragment the app
+  opens on when the URL has no hash (empty = conversations). `PATCH /settings` answers 400
+  for a value outside `START_VIEW_IDS` (models.py); the model itself does not validate, so
+  a stale stored value cannot reset the other preferences. The frontend router applies it
+  (`useConversationRouter`) after hash and reopen-last; the kiosk role reads it through
+  `AppSettingsView` (pinned in `tests/test_settings_view.py`). A future `?query` (feed filters,
+  MSHL-154) must extend the validation here and `parseHashConversation`.
+
 - `GET /radio/private-key` is ungated (404 when the keystore is empty);
   `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` is retired (`RETIRED_ENV`).
 - `POST /radio/factory-reset` sends nothing unless `confirm_name` equals the radio name.

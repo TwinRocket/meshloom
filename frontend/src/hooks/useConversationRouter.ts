@@ -30,14 +30,13 @@ function testConversation(): Conversation {
   return { type: 'test', id: 'test', name: i18n.t('meshTest.title') };
 }
 
-function resolveConversationFromHash(
-  channels: Channel[],
-  contacts: Contact[],
+type ParsedHash = NonNullable<ReturnType<typeof parseHashConversation>>;
+
+/** The conversation a tool hash opens, or null for a data hash or a page that is not there. */
+function toolConversationFromParsed(
+  hashConv: ParsedHash,
   directoryEnabled: boolean
 ): Conversation | null {
-  const hashConv = parseHashConversation();
-  if (!hashConv) return null;
-
   switch (hashConv.type) {
     case 'raw':
       return { type: 'raw', id: 'raw', name: 'Raw Packet Feed' };
@@ -65,6 +64,35 @@ function resolveConversationFromHash(
     case 'test':
       // The page does not exist without Community, so neither does the hash.
       return directoryEnabled ? testConversation() : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * The page `ui_preferences.start_view` names, or null to keep today's behaviour: empty, not a
+ * tool, a page the instance lacks, or a tool the session's role may not use.
+ */
+function startViewConversation(
+  startView: string,
+  directoryEnabled: boolean,
+  allowed: (id: string) => boolean
+): Conversation | null {
+  if (!startView) return null;
+  const parsed = parseHashConversation(startView);
+  if (!parsed || !allowed(parsed.type)) return null;
+  return toolConversationFromParsed(parsed, directoryEnabled);
+}
+
+function resolveConversationFromHash(
+  channels: Channel[],
+  contacts: Contact[],
+  directoryEnabled: boolean
+): Conversation | null {
+  const hashConv = parseHashConversation();
+  if (!hashConv) return null;
+
+  switch (hashConv.type) {
     case 'channel': {
       const channel = resolveChannelFromHashToken(hashConv.name, channels);
       return channel ? { type: 'channel', id: channel.key, name: channel.name } : null;
@@ -80,7 +108,7 @@ function resolveConversationFromHash(
         : null;
     }
     default:
-      return null;
+      return toolConversationFromParsed(hashConv, directoryEnabled);
   }
 }
 
@@ -95,6 +123,10 @@ interface UseConversationRouterArgs {
   settingsLoaded: boolean;
   /** Community is configured, so the pages that need the directory exist. */
   directoryEnabled: boolean;
+  /** `ui_preferences.start_view`: a tool hash fragment, or empty for the conversations. */
+  startView?: string;
+  /** Whether the session's role may use a tool (the rail and Tools hide the others). */
+  toolAllowed?: (id: string) => boolean;
 }
 
 /**
@@ -115,6 +147,8 @@ export function useConversationRouter({
   pendingDeleteFallbackRef,
   settingsLoaded,
   directoryEnabled,
+  startView = '',
+  toolAllowed = () => true,
 }: UseConversationRouterArgs) {
   const [activeConversation, setActiveConversationState] = useState<Conversation | null>(null);
   const activeConversationRef = useRef<Conversation | null>(null);
@@ -128,6 +162,7 @@ export function useConversationRouter({
   const channelsRef = useRef(channels);
   const contactsRef = useRef(contacts);
   const directoryEnabledRef = useRef(directoryEnabled);
+  const toolAllowedRef = useRef(toolAllowed);
   // Latches once a conversation has been opened by the initial-load phases (or a
   // delete fallback). Owned here; other hooks flip it through
   // markDefaultConversationSet() so the ref is never mutated outside its owner.
@@ -147,6 +182,9 @@ export function useConversationRouter({
   useEffect(() => {
     directoryEnabledRef.current = directoryEnabled;
   }, [directoryEnabled]);
+  useEffect(() => {
+    toolAllowedRef.current = toolAllowed;
+  }, [toolAllowed]);
 
   const setActiveConversation = useCallback((conv: Conversation | null) => {
     hashSyncEnabledRef.current = true;
@@ -264,6 +302,22 @@ export function useConversationRouter({
       }
     }
 
+    // No hash and nothing to reopen: the start page, once settings have said which. Reopening
+    // applies only when this device opted in and has something stored; otherwise it must not
+    // shadow the start page. An empty start page falls through to today's default.
+    if (
+      !window.location.hash &&
+      !(getReopenLastConversationEnabled() && getLastViewedConversation())
+    ) {
+      if (!settingsLoaded) return;
+      const start = startViewConversation(startView, directoryEnabled, toolAllowedRef.current);
+      if (start) {
+        setActiveConversationState(start);
+        hasSetDefaultConversation.current = true;
+        return;
+      }
+    }
+
     if (channels.length === 0) return;
 
     // Handle channel hash (ID-first with legacy-name fallback)
@@ -325,6 +379,7 @@ export function useConversationRouter({
     getPublicChannelConversation,
     settingsLoaded,
     directoryEnabled,
+    startView,
   ]);
 
   // Community switched off while the radio test was open. The page is gone, so

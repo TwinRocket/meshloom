@@ -12,6 +12,7 @@ from app.models import (
     ContactUpsert,
     TelemetryAlertRuleOverride,
     TelemetryAlertRules,
+    UiPreferences,
 )
 from app.repository import AppSettingsRepository, ContactRepository
 from app.routers.settings import (
@@ -24,6 +25,31 @@ from app.routers.settings import (
     update_settings,
 )
 from app.services.flood_scope import FORCE_UNSCOPED_FRAME
+
+
+class TestStartView:
+    @pytest.mark.asyncio
+    async def test_defaults_to_the_conversations(self, test_db):
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == ""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", ["feed", "control", "map", "raw", ""])
+    async def test_known_tool_or_empty_is_stored(self, test_db, value):
+        result = await update_settings(
+            AppSettingsUpdate(ui_preferences=UiPreferences(start_view=value))
+        )
+        assert result.ui_preferences.start_view == value
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == value
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "value", ["nope", "Feed", "feed?display=1", "#feed", "channel/ABC", " feed", "settings"]
+    )
+    async def test_unknown_or_non_tool_value_is_refused(self, test_db, value):
+        with pytest.raises(HTTPException) as exc:
+            await update_settings(AppSettingsUpdate(ui_preferences=UiPreferences(start_view=value)))
+        assert exc.value.status_code == 400
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == ""
 
 
 class TestUpdateSettings:

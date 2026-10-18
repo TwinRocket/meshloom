@@ -17,6 +17,7 @@ from app.cors import normalize_origins
 from app.database import db
 from app.models import (
     CONTACT_TYPE_REPEATER,
+    START_VIEW_IDS,
     AppSettings,
     AppSettingsView,
     BackupExport,
@@ -409,6 +410,9 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     """
     kwargs = {}
     if update.ui_preferences is not None:
+        start_view = update.ui_preferences.start_view
+        if start_view and start_view not in START_VIEW_IDS:
+            raise HTTPException(status_code=400, detail="Unknown start page")
         kwargs["ui_preferences"] = update.ui_preferences
 
     if update.max_radio_contacts is not None:

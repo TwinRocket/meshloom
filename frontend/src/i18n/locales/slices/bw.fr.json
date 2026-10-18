@@ -1,0 +1,9 @@
+{
+  "settingsNavigation": {
+    "startPageTitle": "Page de démarrage",
+    "startPageHelp": "Là où Meshloom s'ouvre quand l'adresse n'a pas de partie #. Un lien vers une conversation ou un outil l'emporte toujours, tout comme « rouvrir la dernière vue » sur un appareil qui l'a activé. Posée par un administrateur, elle s'applique à toutes les sessions, écran de kiosque compris.",
+    "startPage": "Ouvrir sur",
+    "startPageConversations": "Conversations (par défaut)",
+    "startPageAdminOnly": "Seul un administrateur peut changer la page de démarrage."
+  }
+}

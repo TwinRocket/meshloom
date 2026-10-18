@@ -37,8 +37,12 @@ const SETTINGS_SECTIONS: SettingsSection[] = SETTINGS_SECTION_ORDER;
 
 // Parse URL hash to get conversation
 // (e.g., #channel/ABCDEF0123456789ABCDEF0123456789 or #contact/<64-char-pubkey>).
-export function parseHashConversation(): ParsedHashConversation | null {
-  const hash = window.location.hash.slice(1); // Remove leading #
+// `source` defaults to the current URL; the start page setting parses its stored fragment
+// with the same grammar.
+export function parseHashConversation(
+  source: string = window.location.hash.slice(1) // Remove leading #
+): ParsedHashConversation | null {
+  const hash = source;
   if (!hash) return null;
 
   if (hash === 'raw') {

@@ -1,0 +1,9 @@
+{
+  "settingsNavigation": {
+    "startPageTitle": "Start page",
+    "startPageHelp": "Where Meshloom opens when the address has no # part. A link to a conversation or a tool always wins, and so does \"reopen the last viewed\" on a device that turned it on. Set by an administrator, it applies to every session, including a kiosk screen.",
+    "startPage": "Open on",
+    "startPageConversations": "Conversations (default)",
+    "startPageAdminOnly": "Only an administrator can change the start page."
+  }
+}

@@ -66,6 +66,8 @@ L’écran se connecte avec un **jeton d’appareil** que Meshloom écrit sur le
 
 Sur une image kiosque gravée avant la 5.0, redémarrez le Pi une fois après la mise à jour : la session du bureau a alors accès au jeton et l’écran se connecte.
 
+Pour que l’écran du mur s’ouvre sur le Fil (ou sur un autre outil) après un redémarrage, un administrateur règle **Réglages → Navigation → Page de démarrage** : elle s’applique à toutes les sessions, compte kiosque compris, sans SSH. `MESHLOOM_KIOSK_URL` reste une variable d’amorçage du lanceur sur une image montée à la main ; une page de démarrage ne s’applique que si cette adresse n’a pas de partie `#`.
+
 ## Mettre à jour
 
 Quand l’image (ou toute installation par paquet Linux) sait se mettre à jour seule, **Réglages > Mises à jour** propose **Installer maintenant** et une mise à jour automatique facultative. Cela ne met à jour que Meshloom, depuis le dépôt Meshloom signé, jamais tout le système d’exploitation. Les images à partir de la 4.18 sont prêtes pour cela dès la sortie. Sur une image plus ancienne, un seul `sudo apt update && sudo apt install meshloom` l’active.

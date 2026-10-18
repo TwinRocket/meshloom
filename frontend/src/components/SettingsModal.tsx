@@ -490,11 +490,26 @@ export function SettingsModal(props: SettingsModalProps) {
             <div className={sectionContentClass}>
               <SettingsNavigationSection
                 order={appSettings?.ui_preferences?.nav_rail ?? []}
+                // Spread: the preferences live in one object, and rebuilding it from a
+                // few fields dropped the others (the start page, the server label).
                 onChange={(nav_rail) =>
                   void onSaveAppSettings({
                     ui_preferences: {
+                      ...appSettings?.ui_preferences,
                       nav_rail,
                       theme: appSettings?.ui_preferences?.theme ?? '',
+                    },
+                  })
+                }
+                startView={appSettings?.ui_preferences?.start_view ?? ''}
+                startViewReadOnly={!capabilities.isAdmin}
+                onStartViewChange={(start_view) =>
+                  void onSaveAppSettings({
+                    ui_preferences: {
+                      ...appSettings?.ui_preferences,
+                      nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                      theme: appSettings?.ui_preferences?.theme ?? '',
+                      start_view,
                     },
                   })
                 }
