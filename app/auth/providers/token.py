@@ -29,8 +29,9 @@ Rules (``docs/dev/auth.md``, "API and device tokens"; cadrage §4.2, §4.4):
 - **Last use.** ``last_used_at`` is written at most once a minute
   (``ApiTokenRepository.touch``).
 - **Revocation** (``revoke_token``) closes the token's WebSockets at once
-  (``ws_manager.close_tokens``, 1008); the manager's periodic recheck catches an
-  expiry, a disabled owner and a revocation from another process.
+  (``ws_manager.close_tokens``, 1008); a socket closes at its token's
+  ``expires_at`` too, and the manager's periodic recheck catches a disabled
+  owner and a revocation from another process.
 """
 
 from __future__ import annotations
@@ -183,7 +184,14 @@ async def resolve_token(
         except Exception:
             # A missed last-use write never refuses a valid token.
             logger.debug("Could not record the last use of a token", exc_info=True)
-    return Principal(user=user, via=via, credential="token", token_id=token.id, scopes=scopes)
+    return Principal(
+        user=user,
+        via=via,
+        credential="token",
+        token_id=token.id,
+        scopes=scopes,
+        token_expires_at=token.expires_at,
+    )
 
 
 def reset_failure_audit() -> None:

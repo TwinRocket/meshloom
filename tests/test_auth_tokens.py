@@ -472,3 +472,17 @@ async def test_websocket_events_are_scoped_for_token_principals_too():
     assert ws_module._view(WsEvent.MESSAGE, private, principal, "read") is None
     assert ws_module._view(WsEvent.MESSAGE, channel, principal, "read") == ws_module._FULL
     assert ws_module._view(WsEvent.RADIO_WIFI, {}, principal, "admin") is None
+
+
+async def test_a_token_socket_closes_when_the_token_expires():
+    user = await create_user()
+    now = int(time.time())
+    _, token = await token_provider.issue_token(user, "short", ["read"], expires_at=now + 1)
+    principal = await token_provider.resolve_token(token, "lan", None, now=now)
+    assert principal is not None and principal.token_expires_at == now + 1
+    socket = ManagedSocket()
+    await ws_manager.connect(socket.ws, principal)
+    try:
+        assert await socket.wait_closed(timeout=3.0) == REVOKED_CLOSE_CODE
+    finally:
+        await ws_manager.disconnect(socket.ws)

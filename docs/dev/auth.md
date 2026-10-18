@@ -221,7 +221,8 @@ and TOTP material included, behind the export's **Include accounts** box
 (checked by default); a restore never leaves the instance without an enabled
 admin. The API tokens travel in their own `api_tokens` section (hashes,
 scopes, expiry; never a secret, the database holds none), behind the same box
-and only with `users`. `auth_settings` is not in any JSON backup
+and only with `users`, in the same transaction (`restore_with`): accounts kept
+by `accounts_no_admin` keep their tokens and the file's are not restored. `auth_settings` is not in any JSON backup
 (machine-specific). `sessions` and
 the setup code are never exported; `auth_audit` is not in the JSON backup but
 stays in the SQLite download (IPs, usernames). The SQLite download
@@ -707,9 +708,10 @@ kiosk later), revocable alone, attached to a local account (cadrage O4, ADR
   for a revoked one.
 - **Revocation.** `DELETE /auth/tokens/{id}` (`revoke_token()`) revokes the row
   and closes its sockets at once (`ws_manager.close_tokens()`, 1008); the next
-  request with it is a 401. The periodic recheck ("Sessions and the cookie")
-  closes the sockets of a token that expired, was revoked from another process
-  or whose owner was disabled. A role change, a disable or a deletion of the
+  request with it is a 401. A token socket also closes at the token's
+  `expires_at` (a timer armed at connect, `Principal.token_expires_at`). The
+  periodic recheck ("Sessions and the cookie") closes the sockets of a token
+  revoked from another process or whose owner was disabled. A role change, a disable or a deletion of the
   owner goes through `sign_out_user()`, which closes its token sockets too.
   Revoked and expired rows are kept (a later use is audited); at most 100 live
   tokens per user.

@@ -40,6 +40,8 @@ class Principal:
     token_id: str | None = None
     # Token scopes (M3). Empty means the full rights of ``role``.
     scopes: frozenset[str] = frozenset()
+    # When the token expires (Unix seconds): its sockets close then.
+    token_expires_at: int | None = None
 
     @property
     def role(self) -> Role:
