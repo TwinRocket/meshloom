@@ -103,7 +103,7 @@ If you set an **HMAC secret**, Meshloom signs the body with HMAC-SHA256 and send
 
 ## Secrets
 
-Secrets are write-only: the Apprise addresses, the webhook HMAC secret, the MQTT passwords and the Amazon SQS secret key and session token are never shown again once saved. Their field stays empty with **Unchanged** in it: leave it empty to keep the stored secret, type a new one to replace it, or press **Clear** to remove it when you save (**Keep** cancels). The Apprise box shows the services and hosts of the stored addresses; typing in it replaces them all. A restored integration that was allowed to reach a private network comes back disabled, with a notice: check its address before enabling it.
+Secrets are write-only: the Apprise addresses, the webhook HMAC secret, the MQTT passwords and the Amazon SQS secret key and session token are never shown again once saved. Their field stays empty with **Unchanged** in it: leave it empty to keep the stored secret, type a new one to replace it, or press **Clear** to remove it when you save (**Keep** cancels). The Apprise box shows the services and hosts of the stored addresses; typing in it replaces them all. If you change where a secret goes (the webhook URL, the MQTT broker, its port or TLS, the SQS endpoint), the secret field becomes required: type the secret again, or clear it. A restore that points an integration somewhere else drops its secret and says so. The webhook URL, its headers and the Amazon SQS access key ID are not secrets: they are still shown in clear. A restored integration that was allowed to reach a private network comes back disabled, with a notice: check its address before enabling it.
 
 ## Destinations on your network
 

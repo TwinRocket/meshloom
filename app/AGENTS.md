@@ -440,7 +440,8 @@ be wrong, because historical decryption inserts old messages with new ids.
   row with a private-network opt-in (`allow_private_network`, a legacy row the
   restore grandfathers included) restored disabled
   (`private_network_restored_disabled:<name>`), a fanout secret sent as
-  `********` keeping the stored one (`merge_secrets`), VAPID keys and
+  `********` keeping the stored one (`merge_secrets`) unless its destination
+  moved (`secret_dropped_destination_changed:<name>`), VAPID keys and
   subscriptions only on a host with no subscriptions of its own, proxy through
   `services/radio_proxy_settings.py`), then in one companion CLI session: radio
   settings group by group (no clock sync per group, one at the end; a reboot
@@ -626,8 +627,13 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 - Secrets (SMTP password, webhook secret in `notification_destinations`,
   `NOTIFICATION_SECRET_KEYS` in `app/secret_fields.py`) are returned as
-  `********`; a PATCH that sends `********` back keeps the stored value. The
-  fanout configs follow the same rule (`app/fanout/AGENTS.md`, "Secrets").
+  `********`; a PATCH that sends `********` back keeps the stored value. A
+  kept secret never follows a destination change (`NOTIFICATION_DESTINATION_KEYS`:
+  email `host`/`port`/`mode`, webhook `url`): the PATCH answers 400
+  `secret_required`, and a v1 restore drops it with the warning
+  `secret_dropped_destination_changed:email.password` (or
+  `webhook.hmac_secret`). The fanout configs follow the same rules
+  (`app/fanout/AGENTS.md`, "Secrets").
 - The system webhook goes through the egress guard (`app/net/AGENTS.md`): checked
   at save and before each send, then sent pinned to a validated IP. Its LAN
   opt-in is `notification_destinations.webhook.allow_private_network`; a
