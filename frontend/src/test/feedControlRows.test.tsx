@@ -535,6 +535,26 @@ describe('feed control seeding', () => {
   });
 });
 
+describe('control rows in display mode', () => {
+  it('are not focusable and open nothing', async () => {
+    feedControl(packet(12), groupDataPacket(15));
+    renderFeed({ initialQuery: 'display=1', onSelectConversation: vi.fn() });
+    await rowsOf();
+    const rows = [
+      screen.getByTestId('feed-control-row-Request'),
+      screen.getByTestId('feed-control-row-GroupData'),
+    ];
+    for (const row of rows) {
+      expect(row.hasAttribute('tabindex')).toBe(false);
+      fireEvent.click(row);
+    }
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryAllByRole('button').map((b) => b.textContent)).toEqual([
+      i18n.t('feed.display.exit'),
+    ]);
+  });
+});
+
 describe('feed i18n', () => {
   const flatten = (obj: unknown, prefix = ''): string[] =>
     obj && typeof obj === 'object'

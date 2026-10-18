@@ -1,0 +1,10 @@
+{
+  "feed": {
+    "display": {
+      "enter": "Mode affichage",
+      "enterHint": "Gros caractères, sans menus, suit les derniers messages : pour un écran mural ou un kiosque. Les messages directs et les images ne sont pas affichés. Masquer les messages directs est un choix d'affichage, pas un contrôle d'accès : ce navigateur les reçoit toujours. C'est le rôle kiosque qui les bloque.",
+      "exit": "Quitter",
+      "clock": "Heure actuelle"
+    }
+  }
+}

@@ -209,12 +209,12 @@ describe('FeedView with a pinned query', () => {
 
   it('mirrors a filter change in the URL (replaceState) and in the last viewed feed', async () => {
     const push = vi.spyOn(window.history, 'pushState');
-    render(<FeedView initialQuery="display=1" contacts={[]} channels={[]} />);
+    render(<FeedView initialQuery="dir=in" contacts={[]} channels={[]} />);
     await waitFor(() => expect(mocks.getMessages).toHaveBeenCalled());
     const control = await screen.findByRole('button', { name: /control|contrôle/i });
     fireEvent.click(control);
     await waitFor(() => expect(window.location.hash).toMatch(/^#feed\?src=messages&/));
-    expect(window.location.hash).toContain('display=1');
+    expect(window.location.hash).toContain('dir=in');
     expect(window.location.hash).not.toMatch(HEX32);
     expect(getLastViewedConversation()?.feedQuery).toBe(window.location.hash.split('?')[1]);
     expect(push).not.toHaveBeenCalled();
