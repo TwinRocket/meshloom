@@ -501,6 +501,156 @@
       "valid": true
     },
     {
+      "name": "text-japanese-prolonged-sound-mark",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Weather",
+          "fa": "ラーメン サーバー 佐々木"
+        },
+        "summary": {
+          "en": "Forecast",
+          "hi": "ラーメン サーバー 佐々木"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "text-korean-and-chinese-with-latin",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Weather",
+          "fa": "한국어 中文 Tokyo東京"
+        },
+        "summary": {
+          "en": "Forecast",
+          "hi": "한국어 中文 Tokyo東京"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": true
+    },
+    {
       "name": "text-japanese-mixed-scripts",
       "origin": "third_party",
       "manifest": {
@@ -4360,6 +4510,806 @@
         {
           "code": "text_invalid",
           "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-invisible-soft-hyphen",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Wea­ther"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-invisible-combining-grapheme-joiner",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Wea͏ther"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-invisible-hangul-choseong-filler",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Weaᅟther"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-invisible-hangul-jungseong-filler",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Weaᅠther"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-invisible-hangul-filler",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Weaㅤther"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-invisible-halfwidth-hangul-filler",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Weaﾠther"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-invisible-braille-blank",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Wea⠀ther"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-invisible-bare-tag-character",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Wea󠁁ther"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-only-hangul-filler",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "ㅤ"
+        },
+        "summary": {
+          "en": "Answers !weather with the local forecast",
+          "fr": "Répond à !meteo avec la prévision locale"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "name"
+        }
+      ]
+    },
+    {
+      "name": "name-hidden-tag-text",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Weather",
+          "fr": "Météo"
+        },
+        "summary": {
+          "en": "Forecast󠁩󠁧󠁮󠁯󠁲󠁥"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "summary"
         }
       ]
     },
