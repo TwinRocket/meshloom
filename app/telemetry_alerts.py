@@ -33,6 +33,7 @@ from app.secret_fields import (
     SecretRequiredError,
     destination_changed,
     redact_secrets,
+    redacted_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -605,7 +606,8 @@ def merge_notification_destinations(
 
     A kept secret never follows a destination change (``NOTIFICATION_DESTINATION_KEYS``):
     raises ``SecretRequiredError`` naming ``email.password`` / ``webhook.hmac_secret``.
-    Apprise ``urls`` are the secret and the destination at once: ``********`` keeps them.
+    Apprise ``urls`` and the webhook ``url`` are the secret and the destination at
+    once: ``********`` keeps them.
     """
     if isinstance(incoming, Mapping):
         payload = dict(incoming)
@@ -646,7 +648,10 @@ def merge_notification_destinations(
                     continue
                 webhook["hmac_secret"] = value
                 hmac_kept = False
-            elif value is not None:
+            elif key == "url_redacted":
+                # Display-only (present_notification_destinations), never stored.
+                continue
+            elif value is not None and not (key == "url" and value == REDACTED_SECRET):
                 webhook[key] = value
         if destination_changed("webhook", previous_webhook, webhook, NOTIFICATION_DESTINATION_KEYS):
             # The banner was about the old destination.
@@ -670,13 +675,20 @@ def merge_notification_destinations(
 
 
 def redact_notification_destinations(dest: NotificationDestinations) -> NotificationDestinations:
-    """The API and JSON-backup form: each secret ``********`` when set, else ``""``."""
+    """The JSON-backup form: each secret ``********`` when set, else ``""``."""
     dumped = dest.model_dump(by_alias=True)
     for kind, keys in NOTIFICATION_SECRET_KEYS.items():
         section = dumped.get(kind)
         if isinstance(section, dict):
             dumped[kind] = redact_secrets(section, keys)
     return NotificationDestinations.model_validate(dumped)
+
+
+def present_notification_destinations(dest: NotificationDestinations) -> NotificationDestinations:
+    """The API form: secrets redacted, plus the webhook's ``url_redacted`` (scheme and host)."""
+    redacted = redact_notification_destinations(dest)
+    redacted.webhook.url_redacted = redacted_url(dest.webhook.url)
+    return redacted
 
 
 def catalog_metrics_from_snapshot(snapshot: Mapping[str, Any] | None) -> set[str]:

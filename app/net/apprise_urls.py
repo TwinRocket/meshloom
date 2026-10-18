@@ -435,20 +435,19 @@ async def validate_apprise_urls(
     return validated
 
 
-def redact_apprise_url(url: str) -> str:
-    """Scheme and host only, for logs and errors: ``json://user:****@host:8080/****``.
+def redact_url(url: str) -> str:
+    """Scheme and host only of a URL that names its host: ``https://****@host:8080/****``.
 
-    For a ``fixed_host`` scheme (or an unknown one) the part after ``://`` is a
-    token (``tgram://123:ABC/456``), so all of it is masked. The frontend's
-    ``censorAppriseUrl`` stays for display.
+    The user, password, path, query and fragment may hold a token (a webhook
+    URL often does), so they are masked. Used for the webhook URLs and the
+    ``user_host`` Apprise schemes.
     """
-    scheme = _scheme_of(url.strip())
+    line = url.strip()
+    scheme = _scheme_of(line)
     if not scheme:
         return "****"
-    if ALLOWED_SCHEMES.get(scheme) != "user_host":
-        return f"{scheme}://****"
     try:
-        parts = urlsplit(url.strip())
+        parts = urlsplit(line)
         host = parts.hostname or ""
         port = parts.port
     except ValueError:
@@ -464,27 +463,39 @@ def redact_apprise_url(url: str) -> str:
     return f"{scheme}://{netloc}{rest}"
 
 
+def redact_apprise_url(url: str) -> str:
+    """Scheme and host only, for logs and errors: ``json://user:****@host:8080/****``.
+
+    For a ``fixed_host`` scheme (or an unknown one) the part after ``://`` is a
+    token (``tgram://123:ABC/456``), so all of it is masked. The frontend's
+    ``censorAppriseUrl`` stays for display.
+    """
+    scheme = _scheme_of(url.strip())
+    if not scheme:
+        return "****"
+    if ALLOWED_SCHEMES.get(scheme) != "user_host":
+        return f"{scheme}://****"
+    return redact_url(url)
+
+
 _TOKEN_SPLIT = re.compile(r"[/:@?&=#,;]+")
 
 
-def apprise_url_secret_parts(url: str) -> list[str]:
-    """The parts of an Apprise URL an error text must not show.
+def url_secret_parts(url: str) -> list[str]:
+    """The parts of a URL that names its host that an error text must not show.
 
-    The host and port of a ``user_host`` scheme stay readable (as in
-    ``redact_apprise_url``); its user, password, path segments and query
-    values are masked. For any other scheme everything after ``://`` is a
-    token (``tgram://123:ABC/456`` gives ``123:ABC/456``, ``123``, ``ABC``,
-    ``456``).
+    The host and port stay readable (as in ``redact_url``); the user,
+    password, path segments, query values and fragment are masked. A URL with
+    no readable host is a token as a whole, with its pieces.
     """
     line = url.strip()
-    scheme = _scheme_of(line)
     rest = line.split("://", 1)[-1]
     try:
-        parts = urlsplit(line) if ALLOWED_SCHEMES.get(scheme) == "user_host" else None
-        hostname = parts.hostname if parts is not None else None
+        parts = urlsplit(line)
+        hostname = parts.hostname
     except ValueError:
-        parts, hostname = None, None
-    if parts is None or not hostname:
+        hostname = None
+    if not hostname:
         return [rest, *_TOKEN_SPLIT.split(rest)]
     secrets: list[str] = []
     userinfo = parts.netloc.rpartition("@")[0] if "@" in parts.netloc else ""
@@ -496,3 +507,18 @@ def apprise_url_secret_parts(url: str) -> list[str]:
         secrets.append(value if sep else key)
     secrets.append(parts.fragment)
     return [secret for secret in secrets if secret]
+
+
+def apprise_url_secret_parts(url: str) -> list[str]:
+    """The parts of an Apprise URL an error text must not show.
+
+    The host and port of a ``user_host`` scheme stay readable
+    (``url_secret_parts``). For any other scheme everything after ``://`` is a
+    token (``tgram://123:ABC/456`` gives ``123:ABC/456``, ``123``, ``ABC``,
+    ``456``).
+    """
+    line = url.strip()
+    if ALLOWED_SCHEMES.get(_scheme_of(line)) == "user_host":
+        return url_secret_parts(line)
+    rest = line.split("://", 1)[-1]
+    return [rest, *_TOKEN_SPLIT.split(rest)]
