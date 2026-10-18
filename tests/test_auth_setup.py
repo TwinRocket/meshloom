@@ -218,3 +218,44 @@ async def test_setup_through_ingress_is_refused(monkeypatch):
         assert _code(response) == "auth_ingress_only"
         assert set_cookie_headers(response) == []
     assert await UserRepository.list_all() == []
+
+
+async def test_the_setup_retry_keeps_a_code_issued_by_the_cli(monkeypatch):
+    """Startup preparation fails on an existing database, the operator runs
+    ``meshloom-admin setup-code`` and types that code: the route's retry must not
+    replace it with a new one (MSHL-288)."""
+    real_prepare = setup_code._prepare
+    monkeypatch.setattr(setup_code, "_prepare", _always_fail)
+    with pytest.raises(RuntimeError):
+        await setup_code.prepare_first_run(
+            existing_database=True, basic_username="", basic_password=""
+        )
+    monkeypatch.setattr(setup_code, "_prepare", real_prepare)
+    cli_code = await setup_code.issue_setup_code()
+    async with make_client() as client:
+        response = await client.post("/api/auth/setup", json=_setup_body(setup_code=cli_code))
+        assert response.status_code == 200, response.text
+
+
+async def test_the_setup_retry_issues_a_code_when_none_is_stored(monkeypatch):
+    real_prepare = setup_code._prepare
+    monkeypatch.setattr(setup_code, "_prepare", _always_fail)
+    with pytest.raises(RuntimeError):
+        await setup_code.prepare_first_run(
+            existing_database=True, basic_username="", basic_password=""
+        )
+    monkeypatch.setattr(setup_code, "_prepare", real_prepare)
+    issued: list[str] = []
+    real_issue = setup_code.issue_setup_code
+
+    async def recording_issue() -> str:
+        issued.append(await real_issue())
+        return issued[-1]
+
+    monkeypatch.setattr(setup_code, "issue_setup_code", recording_issue)
+    async with make_client() as client:
+        refused = await client.post("/api/auth/setup", json=_setup_body(setup_code="00000000"))
+        assert refused.status_code == 403
+        assert len(issued) == 1
+        response = await client.post("/api/auth/setup", json=_setup_body(setup_code=issued[0]))
+        assert response.status_code == 200, response.text
