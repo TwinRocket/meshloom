@@ -101,7 +101,7 @@ Meshloom ne fait aucune des deux étapes tant que l’horloge du serveur lui-mê
 
 ## `/docs` n’est pas cette documentation
 
-`http://localhost:8000/docs` est la documentation technique de l’API, générée par le serveur. La documentation utilisateur est ce site.
+`http://localhost:8000/docs` est la documentation technique de l’API, générée par le serveur. La documentation utilisateur est ce site. À partir de Meshloom 5.0, cette page demande d’être connecté.
 
 ## La page ne se charge pas mais l’API répond
 
