@@ -85,7 +85,9 @@ vi.mock('../components/VisualizerView', () => ({
 }));
 
 vi.mock('../components/feed/FeedView', () => ({
-  FeedView: () => <div data-testid="feed-view" />,
+  FeedView: ({ preset }: { preset?: string }) => (
+    <div data-testid="feed-view" data-preset={preset ?? ''} />
+  ),
 }));
 
 vi.mock('../components/LiveView', () => ({
@@ -714,23 +716,17 @@ describe('ConversationPane', () => {
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
   });
 
-  it('renders ControlJournalView without a pane-level packet subscription', () => {
-    const onOpenContactInfo = vi.fn();
-    const onSelectConversation = vi.fn();
+  it('renders the feed with the Control preset for a feed conversation carrying it', async () => {
     render(
       <ConversationPane
         {...createProps({
-          activeConversation: { type: 'control', id: 'control', name: 'Control journal' },
-          onOpenContactInfo,
-          onSelectConversation,
+          activeConversation: makeFeedConversation('Control', 'control'),
         })}
       />
     );
 
-    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('controlJournal.title'))).toBeInTheDocument();
+    expect(await screen.findByTestId('feed-view')).toHaveAttribute('data-preset', 'control');
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('raw-packet-list')).not.toBeInTheDocument();
     expect(screen.queryByTestId('message-input')).not.toBeInTheDocument();
   });
 });

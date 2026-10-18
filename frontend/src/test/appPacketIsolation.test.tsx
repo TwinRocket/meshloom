@@ -129,7 +129,7 @@ vi.mock('../utils/urlHash', () => ({
     const hash = window.location.hash.slice(1);
     if (hash === 'raw') return { type: 'raw', name: 'raw' };
     if (hash === 'live') return { type: 'live', name: 'live' };
-    if (hash === 'control') return { type: 'control', name: 'control' };
+    if (hash === 'control') return { type: 'feed', name: 'feed', feedPreset: 'control' };
     return null;
   },
   parseHashSettingsSection: () => null,
@@ -315,50 +315,5 @@ describe('overheard packets and the chat render path', () => {
     expect(screen.getByTestId('cracker-consumer').textContent).toBe('4');
     expect(screen.queryByText('AA1')).not.toBeInTheDocument();
     expect(screen.getByLabelText(i18n.t('rawPacket.heldAria', { count: 4 }))).toBeInTheDocument();
-  });
-
-  it('does not subscribe App ancestors when #control is open; journal will subscribe locally', async () => {
-    window.location.hash = '#control';
-
-    function OtherConsumers() {
-      const packets = useRawPackets();
-      return <div data-testid="control-sibling-consumer">{packets.length}</div>;
-    }
-
-    render(
-      <>
-        <OtherConsumers />
-        <App />
-      </>
-    );
-    await waitFor(() => {
-      expect(screen.getByTestId('control-journal')).toBeInTheDocument();
-    });
-    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
-
-    act(() => {
-      for (let i = 1; i <= 4; i += 1) {
-        recordRawPacket(createPacket({ id: i, observation_id: i, data: `cc${i}` }));
-      }
-    });
-
-    expect(getRawPackets()).toHaveLength(4);
-    expect(screen.getByTestId('control-sibling-consumer').textContent).toBe('4');
-    expect(screen.getByText(i18n.t('controlJournal.empty'))).toBeInTheDocument();
-
-    act(() => {
-      recordRawPacket(
-        createPacket({
-          id: 5,
-          observation_id: 5,
-          payload_type: 'Request',
-          data: `0100bbaaabb${'11'.repeat(16)}`,
-        })
-      );
-    });
-
-    expect(getRawPackets()).toHaveLength(5);
-    expect(screen.queryByText(i18n.t('controlJournal.empty'))).not.toBeInTheDocument();
-    expect(screen.getByTestId('control-journal-card-Request')).toBeInTheDocument();
   });
 });

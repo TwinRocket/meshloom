@@ -7,7 +7,8 @@ that resolves a principal for every request, the CSRF rule, the first-run
 setup with its installation code, and the `/api/auth/*` routes. The permission
 registry (per-route roles), the login UI, device tokens, ingress identities,
 trusted networks and 2FA come with later Access tickets. Like every doc here
-this is a hypothesis: the code wins.
+this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
+works on the same tables.
 
 ## Where things are
 
@@ -27,7 +28,8 @@ this is a hypothesis: the code wins.
 | Installation code, first run | `app/auth/setup_code.py` |
 | CSRF rule, https detection (the one reader of proxy headers) | `app/origin_policy.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py` |
+| Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.

@@ -82,7 +82,7 @@ La liste des conversations est découpée en sections : **Favoris**, **Canaux**,
 L’écran **Outils** (ou la barre d’icônes) ouvre :
 
 - **Flux de paquets** : tous les paquets que la radio entend, qu’ils soient déchiffrables ou non.
-- **Journal de contrôle** : requêtes, réponses et données de groupe, à part des conversations.
+- **Fil** : tous les messages et le trafic de contrôle (requêtes, réponses, données de groupe) dans une seule chronologie. Le préréglage **Contrôle** (`#control`) n’affiche que le trafic de contrôle.
 - **Live** : les paquets apparaissent sur une carte au fur et à mesure qu’ils sont entendus.
 - **Visualiseur mesh** : les chemins réellement empruntés par les paquets.
 - **Trace** : un test de route à travers des répéteurs choisis.

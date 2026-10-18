@@ -2,7 +2,6 @@ import { useTranslation } from 'react-i18next';
 import {
   Radio,
   List,
-  ScrollText,
   Waypoints,
   Waypoints as Trace,
   Crosshair,
@@ -13,7 +12,7 @@ import {
 } from 'lucide-react';
 import type { Conversation, HealthStatus } from '../types';
 import { RadioStatusChip } from './RadioStatusChip';
-import { makeFeedConversation } from './feed/feedConversation';
+import { makeFeedConversation, toolIdOf } from './feed/feedConversation';
 import { cn } from '../lib/utils';
 
 /**
@@ -26,16 +25,7 @@ import { cn } from '../lib/utils';
  */
 
 type ToolId =
-  | 'raw'
-  | 'feed'
-  | 'control'
-  | 'live'
-  | 'visualizer'
-  | 'trace'
-  | 'locate'
-  | 'search'
-  | 'discovered'
-  | 'test';
+  'raw' | 'feed' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered' | 'test';
 
 interface Props {
   onSelectConversation: (conversation: Conversation) => void;
@@ -63,12 +53,6 @@ const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeo
     labelKey: 'sidebar.feed',
     descriptionKey: 'toolsView.feedDescription',
     Icon: Newspaper,
-  },
-  {
-    id: 'control',
-    labelKey: 'sidebar.controlJournal',
-    descriptionKey: 'toolsView.controlDescription',
-    Icon: ScrollText,
   },
   {
     id: 'live',
@@ -152,8 +136,8 @@ export function ToolsView({
             <li key={id}>
               <button
                 type="button"
-                aria-current={activeConversation?.type === id ? 'page' : undefined}
-                className={cn(ROW_CLASS, activeConversation?.type === id && 'bg-accent/60')}
+                aria-current={toolIdOf(activeConversation) === id ? 'page' : undefined}
+                className={cn(ROW_CLASS, toolIdOf(activeConversation) === id && 'bg-accent/60')}
                 onClick={() =>
                   onSelectConversation(
                     id === 'feed'

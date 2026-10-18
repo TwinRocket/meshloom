@@ -141,7 +141,9 @@ vi.mock('../components/LiveView', () => ({
   LiveView: () => null,
 }));
 vi.mock('../components/feed/FeedView', () => ({
-  FeedView: () => <div data-testid="feed-view" />,
+  FeedView: ({ preset }: { preset?: string }) => (
+    <div data-testid="feed-view" data-preset={preset ?? ''} />
+  ),
 }));
 
 vi.mock('../components/CrackerPanel', () => ({
@@ -262,7 +264,7 @@ describe('App startup hash resolution', () => {
     expect(await screen.findByTestId('feed-view')).toBeInTheDocument();
   });
 
-  it('reopens the last viewed feed, and control keeps working beside it', async () => {
+  it('reopens the last viewed feed preset', async () => {
     setHash('');
     localStorage.setItem(REOPEN_LAST_CONVERSATION_KEY, '1');
     localStorage.setItem(
@@ -284,20 +286,30 @@ describe('App startup hash resolution', () => {
     );
   });
 
-  it('restores the control journal from the URL hash', async () => {
+  it('opens the feed with the Control preset from #control and keeps the hash', async () => {
     setHash('#control');
 
     render(<App />);
 
     await waitFor(() => {
       for (const node of screen.getAllByTestId('active-conversation')) {
-        expect(node.textContent).toMatch(/^control:control:/);
+        expect(node.textContent).toMatch(/^feed:feed:/);
       }
     });
-    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
+    expect(await screen.findByTestId('feed-view')).toHaveAttribute('data-preset', 'control');
+    expect(window.location.hash).toBe('#control');
   });
 
-  it('reopens the last viewed control journal even when channels are unavailable', async () => {
+  it('leaves #feed without a preset', async () => {
+    setHash('#feed');
+
+    render(<App />);
+
+    expect(await screen.findByTestId('feed-view')).toHaveAttribute('data-preset', '');
+    expect(window.location.hash).toBe('#feed');
+  });
+
+  it('reopens a 4.18.x stored control destination on the Control preset', async () => {
     setHash('');
     localStorage.setItem(REOPEN_LAST_CONVERSATION_KEY, '1');
     localStorage.setItem(
@@ -312,12 +324,10 @@ describe('App startup hash resolution', () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      for (const node of screen.getAllByTestId('active-conversation')) {
-        expect(node).toHaveTextContent('control:control:Control journal');
-      }
-    });
-    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
+    expect(await screen.findByTestId('feed-view')).toHaveAttribute('data-preset', 'control');
+    expect(getLastViewedConversation()).toEqual(
+      expect.objectContaining({ type: 'feed', feedPreset: 'control' })
+    );
   });
 
   it('drops the radio test without a reload when Community is turned off', async () => {

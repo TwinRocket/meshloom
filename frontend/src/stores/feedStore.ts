@@ -1,6 +1,9 @@
 import { useSyncExternalStore } from 'react';
 
-import type { Message, MessagePath } from '../types';
+import type { Message, MessagePath, RawPacket } from '../types';
+import { forgetControlDecode, isControlJournalPacket } from '../utils/controlJournal';
+import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
+import { getRawPackets } from './rawPacketStore';
 
 /**
  * The global message stream (the feed), kept outside React like `rawPacketStore`.
@@ -11,12 +14,17 @@ import type { Message, MessagePath } from '../types';
  * Two rules keep the cost near zero:
  * - Lazy attach: until `activateFeedStore()` (first feed mount) every record call is a
  *   flag check. Users who never open the feed pay nothing.
+ * - Control rows: the feed also keeps its own Request / Response / AnonRequest / GroupData
+ *   packets (bounded by `FEED_CONTROL_MAX`). They are fed by the same handler as
+ *   `rawPacketStore` but are NOT cleared on reconnect, which empties that store.
  * - Batched emits: mutations edit a private working array and one microtask publishes a
  *   fresh immutable snapshot and notifies once, so a historical-decryption burst is one
  *   render, not thousands.
  */
 
 export const FEED_MAX_ROWS = 2000;
+/** Control packets held (not packets of all types); the oldest are dropped first. */
+export const FEED_CONTROL_MAX = 500;
 
 export interface FeedAckExtras {
   packet_hash?: string | null;
@@ -25,6 +33,8 @@ export interface FeedAckExtras {
 
 export interface FeedSnapshot {
   rows: readonly Message[];
+  /** Control packets, oldest first by `(timestamp, observation key)`; survive a reconnect. */
+  controlPackets: readonly RawPacket[];
   /** True when rows older than the first one may exist on the server. */
   hasOlder: boolean;
   /** Bumped by `resetFeedForRefetch()`: the view must fetch the newest page again. */
@@ -35,12 +45,14 @@ let active = false;
 // Working copy, mutated in place; `snapshot.rows` is a frozen-by-convention copy of it.
 let working: Message[] = [];
 const ids = new Set<number>();
+let controlWorking: RawPacket[] = [];
+const controlKeys = new Set<string>();
 let hasOlder = true;
 let epoch = 0;
 // Highest id ever seen, held or not: a live row older than the window is not stored (the
 // next page returns it) but reconciliation must not ask for it again.
 let highWater = 0;
-let snapshot: FeedSnapshot = { rows: [], hasOlder: true, epoch: 0 };
+let snapshot: FeedSnapshot = { rows: [], controlPackets: [], hasOlder: true, epoch: 0 };
 let flushScheduled = false;
 const listeners = new Set<() => void>();
 
@@ -56,7 +68,7 @@ export const subscribeFeedStore = subscribe;
 
 function flush(): void {
   flushScheduled = false;
-  snapshot = { rows: [...working], hasOlder, epoch };
+  snapshot = { rows: [...working], controlPackets: [...controlWorking], hasOlder, epoch };
   for (const listener of listeners) {
     listener();
   }
@@ -103,9 +115,48 @@ function enforceCap(): void {
   hasOlder = true;
 }
 
-/** Attach the store; called at the first `FeedView` mount. Idempotent. */
+function compareControl(a: RawPacket, b: RawPacket): number {
+  return (
+    a.timestamp - b.timestamp ||
+    getRawPacketObservationKey(a).localeCompare(getRawPacketObservationKey(b))
+  );
+}
+
+function insertControl(packet: RawPacket): boolean {
+  const key = getRawPacketObservationKey(packet);
+  if (controlKeys.has(key)) return false;
+  let lo = 0;
+  let hi = controlWorking.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (compareControl(controlWorking[mid], packet) <= 0) lo = mid + 1;
+    else hi = mid;
+  }
+  controlWorking.splice(lo, 0, packet);
+  controlKeys.add(key);
+  const overflow = controlWorking.length - FEED_CONTROL_MAX;
+  if (overflow > 0) {
+    for (const dropped of controlWorking.splice(0, overflow)) {
+      const droppedKey = getRawPacketObservationKey(dropped);
+      controlKeys.delete(droppedKey);
+      forgetControlDecode(droppedKey);
+    }
+  }
+  return true;
+}
+
+/**
+ * Attach the store; called at the first `FeedView` mount. Idempotent. The control rows
+ * start from what `rawPacketStore` holds right now, so the feed does not open empty.
+ */
 export function activateFeedStore(): void {
+  if (active) return;
   active = true;
+  let seeded = false;
+  for (const packet of getRawPackets()) {
+    if (isControlJournalPacket(packet) && insertControl(packet)) seeded = true;
+  }
+  if (seeded) scheduleEmit();
 }
 
 export function isFeedStoreActive(): boolean {
@@ -130,6 +181,20 @@ export function recordFeedMessage(msg: Message): { added: boolean; historical: b
   enforceCap();
   scheduleEmit();
   return { added: true, historical };
+}
+
+/**
+ * Record one live raw packet if it is a control packet. Inactive store: one flag check.
+ * Deduped by observation key, so a packet seen again after a reconnect is not added twice.
+ */
+export function recordFeedControlPacket(packet: RawPacket): boolean {
+  if (!active) return false;
+  if (!isControlJournalPacket(packet)) return false;
+  const stamped =
+    packet.received_at_ms === undefined ? { ...packet, received_at_ms: Date.now() } : packet;
+  if (!insertControl(stamped)) return false;
+  scheduleEmit();
+  return true;
 }
 
 export function applyFeedAck(
@@ -213,8 +278,9 @@ export function resetFeedForRefetch(): void {
 }
 
 /**
- * Empty the store but keep it attached: a change of the server-side filters (`type`,
- * `outgoing`) reloads the first page, and the cursor must not cross the old query.
+ * Empty the messages but keep the store attached: a change of the server-side filters
+ * (`type`, `outgoing`) reloads the first page, and the cursor must not cross the old
+ * query. Control rows are not part of that query and stay.
  */
 export function clearFeedRows(): void {
   working = [];
@@ -229,10 +295,12 @@ export function resetFeedStore(): void {
   active = false;
   working = [];
   ids.clear();
+  controlWorking = [];
+  controlKeys.clear();
   highWater = 0;
   epoch = 0;
   hasOlder = true;
-  snapshot = { rows: [], hasOlder: true, epoch: 0 };
+  snapshot = { rows: [], controlPackets: [], hasOlder: true, epoch: 0 };
   flushScheduled = false;
   for (const listener of listeners) listener();
 }

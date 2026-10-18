@@ -42,9 +42,7 @@ function resolveConversationFromHash(
     case 'raw':
       return { type: 'raw', id: 'raw', name: 'Raw Packet Feed' };
     case 'feed':
-      return makeFeedConversation(i18n.t('sidebar.feed'));
-    case 'control':
-      return { type: 'control', id: 'control', name: i18n.t('sidebar.controlJournal') };
+      return makeFeedConversation(i18n.t('sidebar.feed'), hashConv.feedPreset);
     case 'map':
       return { type: 'map', id: 'map', name: 'Node Map', mapFocusKey: hashConv.mapFocusKey };
     case 'live':
@@ -176,16 +174,7 @@ export function useConversationRouter({
       return;
     }
     if (hashConv?.type === 'feed') {
-      setActiveConversationState(makeFeedConversation(i18n.t('sidebar.feed')));
-      hasSetDefaultConversation.current = true;
-      return;
-    }
-    if (hashConv?.type === 'control') {
-      setActiveConversationState({
-        type: 'control',
-        id: 'control',
-        name: i18n.t('sidebar.controlJournal'),
-      });
+      setActiveConversationState(makeFeedConversation(i18n.t('sidebar.feed'), hashConv.feedPreset));
       hasSetDefaultConversation.current = true;
       return;
     }
@@ -262,7 +251,6 @@ export function useConversationRouter({
         lastViewed &&
         (lastViewed.type === 'raw' ||
           isFeedConversation(lastViewed) ||
-          lastViewed.type === 'control' ||
           lastViewed.type === 'map' ||
           lastViewed.type === 'live' ||
           lastViewed.type === 'visualizer' ||

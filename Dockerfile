@@ -91,6 +91,10 @@ RUN mkdir -p /app/data
 # util-linux in the base image.
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
+# Recovery command (app/cli.py): `docker compose exec meshloom meshloom-admin ...`.
+# The same wrapper the deb/rpm package ships; it finds /app/.venv by itself.
+COPY --chmod=0755 pkg/nfpm/meshloom-admin /usr/local/bin/meshloom-admin
+
 # Last, because its value changes with every commit and an ENV layer invalidates
 # everything built after it. Declared any earlier, it rebuilt the dependency
 # layer on every push — which on armv7 means compiling eight C extensions under

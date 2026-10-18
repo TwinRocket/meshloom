@@ -13,7 +13,6 @@ interface ParsedHashConversation {
     | 'contact'
     | 'raw'
     | 'feed'
-    | 'control'
     | 'map'
     | 'live'
     | 'visualizer'
@@ -24,6 +23,8 @@ interface ParsedHashConversation {
     | 'test';
   /** Conversation identity token (channel key or contact public key, or legacy name token) */
   name: string;
+  /** For the feed: the preset it opens in (`#control`) */
+  feedPreset?: 'control';
   /** Optional human-readable label segment (ignored for identity resolution) */
   label?: string;
   /** For map view: public key prefix to focus on */
@@ -49,7 +50,8 @@ export function parseHashConversation(): ParsedHashConversation | null {
   }
 
   if (hash === 'control') {
-    return { type: 'control', name: 'control' };
+    // Kept for bookmarks and kiosk URLs: the Control page became a preset of the feed.
+    return { type: 'feed', name: 'feed', feedPreset: 'control' };
   }
 
   if (hash === 'map') {
@@ -242,8 +244,7 @@ export function getLocateHash(query?: string): string {
 export function getConversationHash(conv: Conversation | null): string {
   if (!conv) return '';
   if (conv.type === 'raw') return '#raw';
-  if (isFeedConversation(conv)) return '#feed';
-  if (conv.type === 'control') return '#control';
+  if (isFeedConversation(conv)) return conv.feedPreset === 'control' ? '#control' : '#feed';
   if (conv.type === 'map') {
     return conv.mapFocusKey ? getMapFocusHash(conv.mapFocusKey) : '#map';
   }

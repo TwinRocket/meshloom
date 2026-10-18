@@ -620,7 +620,6 @@ type ConversationType =
   | 'contact'
   | 'channel'
   | 'raw'
-  | 'control'
   | 'map'
   | 'live'
   | 'visualizer'
@@ -640,7 +639,7 @@ export interface Conversation {
   mapFocusKey?: string;
   /** For locate view: key, prefix, or search token */
   locateKey?: string;
-  /** For the feed view: preset folded into it (`#control`) */
+  /** For the feed view: preset folded into it (`#control`, the Control preset) */
   feedPreset?: 'control';
 }
 
@@ -1491,6 +1490,9 @@ export function normalizeTelemetryAlertCatalog(raw: unknown): TelemetryAlertCata
   return { metrics, latches, tracked };
 }
 
+export type ShareShortenMode = 'auto' | 'always' | 'never';
+export type SharePreviewPolicy = 'always' | 'private' | 'never';
+
 export interface AppSettings {
   ui_preferences: UiPreferences;
   max_radio_contacts: number;
@@ -1522,6 +1524,10 @@ export interface AppSettings {
   push_private_endpoints_grandfathered?: boolean;
   /** Seconds the radio may stay unreachable before radio_offline is sent (0 = at once). */
   radio_offline_grace_s?: number;
+  /** Consent to the link and file sharing service. Off by default; never restored from a backup. */
+  share_enabled?: boolean;
+  share_shorten_mode?: ShareShortenMode;
+  share_preview_policy?: SharePreviewPolicy;
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
@@ -1552,6 +1558,9 @@ export interface AppSettingsUpdate {
   push_allow_private_endpoints?: boolean;
   push_private_endpoints_grandfathered?: boolean;
   radio_offline_grace_s?: number;
+  share_enabled?: boolean;
+  share_shorten_mode?: ShareShortenMode;
+  share_preview_policy?: SharePreviewPolicy;
 }
 
 export interface DirectoryHopHit {

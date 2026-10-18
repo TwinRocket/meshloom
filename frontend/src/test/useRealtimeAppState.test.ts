@@ -117,6 +117,15 @@ function createRealtimeArgs(overrides: Partial<Parameters<typeof useRealtimeAppS
   };
 }
 
+const controlPacketFixture: RawPacket = {
+  ...rawPacketFixture,
+  id: 5,
+  observation_id: 5,
+  // Request, flood route: header 0x01, then a path length and an encrypted-looking body.
+  data: `0100bbaaaabb${'11'.repeat(16)}`,
+  payload_type: 'Request',
+};
+
 describe('useRealtimeAppState', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -689,6 +698,56 @@ describe('useRealtimeAppState', () => {
       });
       await flush();
       expect(getFeedSnapshot().rows).toHaveLength(0);
+    });
+  });
+
+  describe('feed control rows', () => {
+    it('records nothing while the feed store is inactive', () => {
+      const { args } = createRealtimeArgs();
+      const { result } = renderHook(() => useRealtimeAppState(args));
+      act(() => {
+        result.current.onRawPacket?.(controlPacketFixture);
+      });
+      expect(getRawPackets()).toHaveLength(1);
+      expect(getFeedSnapshot().controlPackets).toEqual([]);
+    });
+
+    it('feeds the same packet to the raw buffer and the feed, and ignores other types', async () => {
+      activateFeedStore();
+      const { args } = createRealtimeArgs();
+      const { result } = renderHook(() => useRealtimeAppState(args));
+      act(() => {
+        result.current.onRawPacket?.(controlPacketFixture);
+        result.current.onRawPacket?.(rawPacketFixture);
+      });
+      await Promise.resolve();
+      expect(getRawPackets()).toHaveLength(2);
+      expect(getFeedSnapshot().controlPackets.map((p) => p.id)).toEqual([5]);
+    });
+
+    it('clears the raw buffer on reconnect but keeps the control rows, without duplicating', async () => {
+      activateFeedStore();
+      const { args } = createRealtimeArgs();
+      const { result } = renderHook(() => useRealtimeAppState(args));
+      act(() => {
+        result.current.onRawPacket?.(controlPacketFixture);
+      });
+      await Promise.resolve();
+      expect(getFeedSnapshot().controlPackets).toHaveLength(1);
+
+      act(() => {
+        result.current.onReconnect?.();
+      });
+      await waitFor(() => expect(getRawPackets()).toEqual([]));
+      expect(getFeedSnapshot().controlPackets).toHaveLength(1);
+
+      // The same observation replayed after the reconnect is not a second row.
+      act(() => {
+        result.current.onRawPacket?.(controlPacketFixture);
+      });
+      await Promise.resolve();
+      expect(getRawPackets()).toHaveLength(1);
+      expect(getFeedSnapshot().controlPackets).toHaveLength(1);
     });
   });
 });
