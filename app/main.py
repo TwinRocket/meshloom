@@ -51,6 +51,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api_docs import API_DESCRIPTION, API_TAGS_METADATA, register_api_docs_routes
+from app.auth.middleware import AuthMiddleware
 from app.config import settings as server_settings
 from app.config import setup_logging
 from app.cors import AllowedOriginsCORSMiddleware
@@ -68,6 +69,7 @@ from app.radio_sync import (
     stop_telemetry_collect,
 )
 from app.routers import (
+    auth,
     channels,
     community,
     contact_groups,
@@ -91,7 +93,6 @@ from app.routers import (
     updates,
     ws,
 )
-from app.security import add_optional_basic_auth_middleware
 from app.services.hardening import set_not_dumpable
 from app.services.hashtag_catalogue import (
     start_hashtag_catalogue_polling,
@@ -222,6 +223,21 @@ async def lifespan(app: FastAPI):
     except Exception:
         # Same-origin only (the default) rather than block startup.
         logger.exception("Failed to load the allowed origins from app_settings")
+
+    # Accounts: import the retired Basic credentials, or issue the installation
+    # code on an existing database with no account yet (app/auth/setup_code.py).
+    from app.auth.setup_code import prepare_first_run
+
+    try:
+        await prepare_first_run(
+            existing_database=existing_database,
+            basic_username=server_settings.basic_auth_username,
+            basic_password=server_settings.basic_auth_password,
+        )
+    except Exception:
+        # Fail closed: setup answers 503 until a retry from the setup route succeeds
+        # (app/auth/setup_code.py), and every other route still needs an account.
+        logger.exception("Failed to prepare the first-run account setup")
 
     # Initialize VAPID keys for Web Push (generates on first run)
     from app.push.vapid import ensure_vapid_keys
@@ -375,7 +391,8 @@ app = FastAPI(
 )
 
 register_api_docs_routes(app)
-add_optional_basic_auth_middleware(app, server_settings)
+# Innermost: every route needs a principal except the public ones (app/auth/middleware.py).
+app.add_middleware(AuthMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 # Same-origin by default; Settings lists the other sites allowed (app/cors.py).
 app.add_middleware(AllowedOriginsCORSMiddleware)
@@ -446,6 +463,7 @@ async def log_server_errors(request: Request, call_next):
 
 # API routes - all prefixed with /api for production compatibility
 app.include_router(health.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
 app.include_router(debug.router, prefix="/api")
 app.include_router(fanout.router, prefix="/api")
 app.include_router(community.router, prefix="/api")

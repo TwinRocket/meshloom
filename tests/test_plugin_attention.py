@@ -138,10 +138,11 @@ def test_syntax_error_is_one_reason():
     assert _codes(report) == [("syntax_error", 1, None)]
 
 
-def test_lists_match_the_runner_policy_when_it_is_present():
-    policy = pytest.importorskip("meshloom_plugin.policy")
-    assert attention.ALLOWED_IMPORTS == policy.ALLOWED_IMPORTS
-    assert attention.DENIED_MODULES == policy.DENIED_MODULES
+def test_lists_are_the_runner_policy():
+    from meshloom_plugin import policy
+
+    assert attention.ALLOWED_IMPORTS is policy.ALLOWED_IMPORTS
+    assert attention.DENIED_MODULES is policy.DENIED_MODULES
 
 
 def test_process_and_compile_calls_are_flagged():

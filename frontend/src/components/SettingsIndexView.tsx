@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { UserMenu } from '../auth/UserMenu';
 import { ChevronRight, PanelLeftClose } from 'lucide-react';
 import {
   SETTINGS_SECTION_ICONS,
@@ -77,6 +78,7 @@ export function SettingsIndexView({
           updateAvailable={updateAvailable}
           className="ml-auto max-w-36 md:hidden"
         />
+        <UserMenu className="inline-flex shrink-0 items-center justify-center rounded-md md:hidden" />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">

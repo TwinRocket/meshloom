@@ -23,6 +23,18 @@ and the OpenAPI page (`/docs`), not a table here.
   with a path, even `/`, or `null` matches nothing. `cors.py` feeds the list to
   Starlette's `CORSMiddleware` (rebuilt when the list changes, `is_allowed_origin`
   overridden by the policy). Empty means same-origin only.
+- `auth/middleware.py` (`AuthMiddleware`) is the one gate for HTTP and the
+  WebSocket upgrade: it resolves the `Principal` (Basic compatibility
+  credential, then the session cookie; bearer tokens later), applies the CSRF
+  rule to unsafe methods (`origin_policy.unsafe_request_allowed`) and refuses
+  every `/api` route outside `PUBLIC_ROUTES` without a principal (401 coded;
+  a WebSocket is closed 1008 before `accept()`). A new public route goes in
+  `PUBLIC_ROUTES` and its route decides what an anonymous caller sees (see
+  `/api/health`). Read the principal with `app.auth.principal.get_principal`.
+  Route tests are signed in as an admin by `tests/conftest.py`; gate tests use
+  `@pytest.mark.real_auth`. Details: `docs/dev/auth.md`.
+- `origin_policy.py` is also the only reader of proxy headers
+  (`X-Forwarded-Host`, `X-Forwarded-Proto`); do not parse them anywhere else.
 - `routers/server_control.py` holds the repeater/room CLI helpers shared by the
   repeater and room routers.
 - `push/` is Web Push, separate from the fanout bus (`fanout/`, see `fanout/AGENTS.md`).
@@ -32,10 +44,17 @@ and the OpenAPI page (`/docs`), not a table here.
   `POST /tools/mesh-test`) stores no channel and no message.
 - `plugins/` is the plugin package format: manifest model, permission registry, config
   schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`),
-  plus the static attention scan of local sources (`plugins/attention.py`). The data
-  model is `repository/plugins.py` (instances, KV, write-only secrets: only
-  `config_for_init()` returns a secret in clear). No runtime yet. Change the contract
-  only through `scripts/build/export_plugin_contract.py`.
+  plus the static attention scan of local sources (`plugins/attention.py`, whose import
+  lists are `meshloom_plugin/policy.py`'s). The data model is `repository/plugins.py`
+  (instances, KV, write-only secrets: only `config_for_init()` returns a secret in
+  clear). Change the contract only through `scripts/build/export_plugin_contract.py`.
+  `plugins/launch.py` builds the launch contract of the plugin child, which runs
+  the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
+  `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`). Nothing
+  starts it yet (supervisor: MSHL-179). Every artefact that copies `app/` copies
+  `meshloom_plugin/` too (`Dockerfile`, `copy_project_files` in
+  `scripts/build/build_nfpm_packages.sh`, `Dockerfile.nfpm-armhf` and the armhf
+  tag overlay, the upgrade-matrix image); `tests/test_plugin_packaging.py` checks them.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
 
@@ -96,7 +115,7 @@ and the OpenAPI page (`/docs`), not a table here.
 through `ctypes`; it is the first line of the lifespan, before the database
 opens. Linux only: elsewhere it does nothing, and a failure is logged at
 warning and never stops startup. With the flag at 0, `/proc/<pid>/environ` and
-`/proc/<pid>/mem` are unreadable by every non-root process (the Basic auth
+`/proc/<pid>/mem` are unreadable by every non-root process (the retired Basic auth
 credentials, the radio private key held by `keystore.py`), and no core dump is
 written. Side effects: `py-spy dump`, `gdb -p` and `strace -p` on the server
 need root (`sudo`); a same-uid debugger gets "permission denied". There is no
@@ -595,6 +614,8 @@ floor, never the percentage alone, and do not remove the floor.
 
 ## WebSocket (server side)
 
+- **Account before accept.** `AuthMiddleware` closes an upgrade with no
+  principal (1008, HTTP 403) before the route runs.
 - **Origin before accept.** `routers/ws.py` calls `reject_foreign_origin()`
   (`app/websocket.py`) before `ws_manager.connect()`: an `Origin` whose host
   and port (missing port = the scheme's default) differ from both `Host` and

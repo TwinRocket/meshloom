@@ -35,6 +35,8 @@ MESHCORE_BASIC_AUTH_PASSWORD=...
 
 Définissez les deux ou aucune : le serveur refuse de démarrer avec une seule. L’accès Basic protège les pages, l’API et la connexion en direct (WebSocket). C’est un identifiant partagé unique, sans rôles. Sans HTTPS, le mot de passe circule en clair : associez-le à [HTTPS](/docs/deep/https/).
 
+À partir de Meshloom 5.0, la connexion est obligatoire et passe par des comptes. Au premier démarrage de la 5.0, ces deux variables deviennent le compte administrateur (même nom, même mot de passe), puis Meshloom ne les lit plus et journalise un avertissement tant qu’elles restent définies : retirez-les. Les scripts et capteurs Home Assistant qui envoient ce nom et ce mot de passe en Basic continuent de fonctionner jusqu’à la 5.2. Limite connue de la pré-version 5.0 : l’add-on Home Assistant ne peut pas encore vous garder connecté via la barre latérale ; ouvrez-le sur son propre port (8000) en attendant la connexion par Home Assistant, exigée pour la 5.0.0. Une page d’un autre site ne peut plus rien modifier avec votre connexion : Meshloom refuse les modifications qui viennent d’un autre site.
+
 ## Désactiver les bots
 
 `MESHCORE_DISABLE_BOTS=true` coupe le système de bots au démarrage. Aucun bot ne tourne, le serveur répond `403` à toute tentative de modifier les bots, et l’interface présente la fonction comme indisponible. Le paquet Linux le définit déjà dans `/etc/meshloom/meshloom.env`.

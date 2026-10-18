@@ -50,13 +50,13 @@ jobs:
         run: uv sync --dev
 
       - name: Backend lint
-        run: uv run ruff check app/ tests/
+        run: uv run ruff check app/ meshloom_plugin/ tests/
 
       - name: Backend format check
-        run: uv run ruff format --check app/ tests/
+        run: uv run ruff format --check app/ meshloom_plugin/ tests/
 
       - name: Backend typecheck
-        run: uv run pyright app/
+        run: uv run pyright app/ meshloom_plugin/
 
       - name: Backend tests
         run: PYTHONPATH=. uv run pytest tests/ -v

@@ -59,6 +59,11 @@ deliberate. These are documented and are not treated as vulnerabilities:
   turns them off; the Linux package does so by default.
 - **Basic auth is a single shared login.** It is an optional, coarse gate, and
   it sends the password in clear text unless you serve Meshloom over HTTPS.
+  On the 5.0 integration branch (`preversion-5`) login is mandatory: every
+  `/api` route needs an account, the Basic credentials are imported once as the
+  administrator, and unsafe requests from another site are refused
+  (`docs/dev/auth.md`). Over plain HTTP the session cookie and the password
+  still travel in clear text.
 - **The radio proxy has no authentication.** When turned on in
   **Settings > Proxy**, it listens on every interface, and Basic auth does not
   cover it.

@@ -1,5 +1,7 @@
 import type { TFunction } from 'i18next';
 
+import { reportAuthRequired } from './auth/authEvents';
+import type { AuthLoginRequest, AuthSessionInfo, AuthSetupRequest } from './auth/types';
 import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
 
 import type {
@@ -112,7 +114,9 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly detail: unknown = undefined
+    public readonly detail: unknown = undefined,
+    /** Seconds the server asked us to wait (429), from `Retry-After` or `params.retry_after`. */
+    public readonly retryAfter: number | null = null
   ) {
     super(message);
     this.name = 'ApiError';
@@ -142,7 +146,8 @@ export function formatApiError(err: unknown, t: TFunction): string {
     const parsed = getApiErrorCode(err.detail);
     if (parsed) {
       const key = `errors.${parsed.code}`;
-      const translated = t(key, parsed.params);
+      const retryAfter = err.retryAfter ?? undefined;
+      const translated = t(key, { retry_after: retryAfter, ...parsed.params });
       if (translated !== key) {
         return translated;
       }
@@ -181,9 +186,25 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     throw new ApiError('Authentication required', res.status);
   }
   if (!res.ok) {
-    throw await apiErrorFrom(res);
+    const error = await apiErrorFrom(res);
+    // The account is gone (expired session, or no account yet): the gate takes over.
+    // Login and setup answer their own 401, which is a form error and not a lost session.
+    if (error.status === 401 && !AUTH_FORM_PATHS.has(url)) {
+      reportAuthRequired(getApiErrorCode(error.detail)?.code ?? null);
+    }
+    throw error;
   }
   return res.json();
+}
+
+const AUTH_FORM_PATHS = new Set(['/auth/login', '/auth/setup']);
+
+/** Seconds from a `Retry-After` header (delta-seconds form), or null. */
+function retryAfterSeconds(header: string | null, detail: unknown): number | null {
+  const fromParams = Number(getApiErrorCode(detail)?.params.retry_after);
+  if (Number.isFinite(fromParams) && fromParams > 0) return Math.ceil(fromParams);
+  const fromHeader = header === null ? NaN : Number(header);
+  return Number.isFinite(fromHeader) && fromHeader > 0 ? Math.ceil(fromHeader) : null;
 }
 
 /** The ApiError for a failed response (FastAPI's {"detail": ...} unwrapped). */
@@ -204,7 +225,9 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   } catch {
     // Not JSON, use raw text
   }
-  return new ApiError(errorMessage, res.status, detail);
+  const retryAfter =
+    res.status === 429 ? retryAfterSeconds(res.headers?.get('Retry-After') ?? null, detail) : null;
+  return new ApiError(errorMessage, res.status, detail, retryAfter);
 }
 
 /** The file name a Content-Disposition header proposes (RFC 5987 first). */
@@ -239,6 +262,14 @@ interface DecryptResult {
 }
 
 export const api = {
+  // Auth (public routes: they answer before anyone is signed in)
+  getAuthSession: () => fetchJson<AuthSessionInfo>('/auth/session', { cache: 'no-store' }),
+  authSetup: (body: AuthSetupRequest) =>
+    fetchJson<AuthSessionInfo>('/auth/setup', { method: 'POST', body: JSON.stringify(body) }),
+  authLogin: (body: AuthLoginRequest) =>
+    fetchJson<AuthSessionInfo>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  authLogout: () => fetchJson<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+
   // Health
   getHealth: () => fetchJson<HealthStatus>('/health'),
   getUpdates: () => fetchJson<OssUpdateStatus>('/updates'),

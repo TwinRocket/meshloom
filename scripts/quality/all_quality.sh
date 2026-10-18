@@ -25,8 +25,8 @@ echo -e "${YELLOW}=== Phase 1: Lint & Format ===${NC}"
 
 echo -ne "${BLUE}[backend lint]${NC} "
 cd "$REPO_ROOT"
-uv run ruff check app/ tests/ --fix --quiet
-uv run ruff format app/ tests/ --quiet
+uv run ruff check app/ meshloom_plugin/ tests/ --fix --quiet
+uv run ruff format app/ meshloom_plugin/ tests/ --quiet
 echo -e "${GREEN}Passed!${NC}"
 
 echo -ne "${BLUE}[frontend lint]${NC} "
@@ -45,7 +45,7 @@ echo -e "${YELLOW}=== Phase 2: Typecheck, Tests & Build ===${NC}"
 echo -ne "${BLUE}[pyright]${NC} "
 cd "$REPO_ROOT"
 pyright_json="$(mktemp)"
-if uv run pyright app/ --outputjson >"$pyright_json"; then
+if uv run pyright app/ meshloom_plugin/ --outputjson >"$pyright_json"; then
     python3 -c "
 import json, sys
 with open(sys.argv[1]) as f:
@@ -54,7 +54,7 @@ s = d.get('summary', {})
 print(f\"{s.get('filesAnalyzed', 0)} files, {s.get('errorCount', 0)} errors\")
 " "$pyright_json"
 else
-    uv run pyright app/
+    uv run pyright app/ meshloom_plugin/
     rm -f "$pyright_json"
     exit 1
 fi

@@ -43,6 +43,7 @@ addopts = "-n auto --dist worksteal -m 'not slow'"
 markers = [
     "radio: opt-in bench against a live instance and its radio (docs/dev/radio-bench.md)",
     "slow: large-fixture timing tests, outside the quality gate (run with -m slow)",
+    "real_auth: keep the real auth gate (tests/conftest.py signs app requests in as an admin otherwise)",
 ]
 
 [tool.ruff]
@@ -68,12 +69,12 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["app", "meshloom_plugin"]
 
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
-include = ["app"]
+include = ["app", "meshloom_plugin"]
 exclude = ["references", ".venv", "tests"]
 reportMissingImports = true
 reportMissingTypeStubs = false

@@ -43,6 +43,8 @@ C’est un identifiant partagé unique, pas des comptes : un seul accès pour to
 
 Il **exige aussi HTTPS**. En HTTP simple, le nom d’utilisateur et le mot de passe circulent en clair à chaque requête. [HTTPS](/docs/deep/https/) explique comment mettre en place un certificat, même auto-signé.
 
+Meshloom 5.0 remplace cela par des comptes obligatoires. À la mise à jour, cet identifiant devient le compte administrateur. Une instance sans mot de passe vous demande de créer l’administrateur ; si sa base existait avant la mise à jour, elle demande aussi un code d’installation imprimé dans le journal du serveur, pour que personne d’autre sur le réseau ne puisse se l’approprier avant vous. Limite connue de la pré-version 5.0 : l’add-on Home Assistant ne peut pas encore vous garder connecté via la barre latérale ; utilisez son propre port (8000) en attendant.
+
 ## En pratique
 
 Quelques règles évitent la plupart des ennuis :

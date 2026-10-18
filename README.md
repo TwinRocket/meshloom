@@ -8,7 +8,7 @@ Web interface for a MeshCore companion radio: messages, contacts, and mesh obser
 
 Fork of [Jack Kingsman’s MeshCore web client](https://github.com/jkingsman/Remote-Terminal-for-MeshCore), via [Ian Langworth](https://github.com/statico/remoteterm-meshcore). Original copyright remains in [LICENSE.md](LICENSE.md).
 
-**Trusted network only.** There are no user accounts, and bots can run arbitrary Python. Optional HTTP Basic auth (`MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD`) is a coarse gate and needs HTTPS. Set `MESHCORE_DISABLE_BOTS=true` to turn bots off.
+**Trusted network only.** Up to 4.18 there are no user accounts, and bots can run arbitrary Python. Optional HTTP Basic auth (`MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD`) is a coarse gate and needs HTTPS; 5.0 makes accounts mandatory and imports that login as the administrator. Set `MESHCORE_DISABLE_BOTS=true` to turn bots off.
 
 Meshloom takes over radio contacts and channels. A poor fit if you swap radios and expect the device to keep its own favorites independently of the app.
 

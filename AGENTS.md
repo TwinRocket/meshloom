@@ -17,7 +17,7 @@ you work there:
 Developer reference, `docs/dev/`:
 
 - `database.md`: SQLite schema, migrations, indexes, retention.
-- `auth.md`: local accounts data model (users, sessions, audit, argon2id).
+- `auth.md`: local accounts (data model, argon2id, the auth gate, sessions, CSRF rule, setup code, `/api/auth` routes).
 - `backup.md`: full backup sections and restore hooks.
 - `community-client.md`: the Community client; `frontend-community.md`: its frontend state.
 - `releasing.md`: branches, images, the release chain.
@@ -45,14 +45,11 @@ User docs: `docs/user/` (en, fr). Environment variables for users:
   Refresh copies, never edit them to make a test pass.
 - **Out of scope until explicitly launched.** Do not start these, and do not "fix"
   them on the side:
-  - Access: accounts, login, credentials, Origin/Host checks, outside the
-    tickets of the Access epic (Jira MSHL-8, 5.0.0 work on `preversion-5`). CORS
-    is done (same-origin plus `auth_allowed_origins`, `app/cors.py`) and so is the
-    accounts data model (`docs/dev/auth.md`), which nothing enforces yet.
   - Plugins: a marketplace that will replace the bots' `exec`.
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
 
-  The current posture (CORS same-origin plus a user list, optional Basic auth only, bots
+  On `preversion-5` every `/api` route needs a signed-in account
+  (`app/auth/middleware.py`, `docs/dev/auth.md`); the rest of the posture (bots
   running `exec()`, an unauthenticated proxy) is described in `SECURITY.md`,
   "Known limits". It is a fact, not a recommendation.
 - **No environment variable for anything a user tunes.** Settings live in
@@ -69,6 +66,8 @@ User docs: `docs/user/` (en, fr). Environment variables for users:
 ```
 meshloom/             the Home Assistant add-on (not a Python package): config.yaml, run.py,
                       Dockerfile FROM the GHCR image
+meshloom_plugin/      plugin child runtime (runner, RPC framing, import policy): stdlib only,
+                      shipped next to app/ (docs/dev/plugins.md, "Runner")
 pkg/keys/             public release key and its procedure (README.md)
 pkg/nfpm/             .deb/.rpm packaging, systemd units, root update helper apply-update
 scripts/quality/      all_quality.sh (the gate)
@@ -125,7 +124,7 @@ cd frontend && npm ci && npm run dev      # Vite on :5173, proxies /api to :8000
 
 `all_quality.sh` autofixes first (`ruff check --fix`, `ruff format`,
 `eslint --fix`, `prettier --write`), so it may leave edits behind: commit them.
-Then it runs `pyright app/`, `pytest tests/`, `vitest run`, `tsc` and `vite build`.
+Then it runs `pyright app/ meshloom_plugin/`, `pytest tests/`, `vitest run`, `tsc` and `vite build`.
 CI (`.github/workflows/all-quality.yml`, aggregate job `all-quality`) runs the
 same checks in check mode, so an unformatted file passes locally and fails in CI
 if you do not commit the autofix. Prettier checks every file under

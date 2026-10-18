@@ -72,6 +72,8 @@ COPY pyproject.toml uv.lock ./
 
 # Copy application code
 COPY app/ ./app/
+# Plugin child runtime, a top-level package next to app/ (app/plugins/launch.py)
+COPY meshloom_plugin/ ./meshloom_plugin/
 
 # Layer-2 bundled hashtag names: same CC0 snapshot the backend loads
 # (repo path first, then this packaged copy next to meshcore_channels.py).

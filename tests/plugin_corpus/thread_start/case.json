@@ -1,0 +1,10 @@
+{
+  "description": "Starting a thread through _thread (kept in sys.modules, so the import guard is not involved): the audit hook refuses it on 3.12 and later. 3.11 emits no thread-start audit event.",
+  "events": [
+    {
+      "params": {},
+      "expect": {"error_type": "PermissionError"},
+      "open_path": {"python_below": "3.12", "note": "no thread-start audit event on 3.11 (follow-up under MSHL-180/MSHL-191)"}
+    }
+  ]
+}

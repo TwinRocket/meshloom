@@ -27,6 +27,8 @@ Un mot de passe compte au moins 12 caractères et n’est jamais lu sur la ligne
 
 Quand Meshloom est mis à jour depuis une version plus ancienne, le premier administrateur doit prouver qu’il a accès à la machine en saisissant un code d’installation. Meshloom ne garde qu’une empreinte du code, qui ne peut donc pas être réaffiché : `meshloom-admin setup-code` en fabrique un **nouveau** et le précédent cesse de fonctionner. La commande ne marche que tant qu’aucun compte n’existe ; ensuite, utilisez `create-admin` ou `reset-password`.
 
+Le code a 8 chiffres ; Meshloom en imprime aussi un nouveau dans son journal à chaque démarrage tant qu’aucun compte n’existe. Les espaces ou tirets saisis au milieu sont ignorés. Une installation neuve ne demande pas de code. Si Meshloom n’a pas pu préparer le premier démarrage (le journal le dit), la création de l’administrateur est refusée jusqu’à ce qu’il y arrive ; redémarrez Meshloom si cela dure.
+
 ## La commande pour chaque installation
 
 Remplacez `alice` par le nom du compte.
@@ -53,7 +55,9 @@ Avec `docker run`, utilisez `docker exec -it <conteneur> meshloom-admin reset-pa
 
 ### Add-on Home Assistant
 
-L’add-on n’a pas de comptes propres : Home Assistant vous connecte et Meshloom accepte la personne qui l’ouvre depuis la barre latérale. Si vous ne pouvez pas ouvrir Meshloom, rétablissez votre accès dans Home Assistant lui-même. La commande existe quand même pour le cas rare où elle serait utile. Elle s’exécute dans le conteneur de l’add-on et demande donc d’atteindre le Docker de l’hôte : l’add-on *Advanced SSH & Web Terminal* avec le **Mode protégé** désactivé.
+L’add-on n’a pas de comptes propres : Home Assistant vous connecte et Meshloom accepte la personne qui l’ouvre depuis la barre latérale. Si vous ne pouvez pas ouvrir Meshloom, rétablissez votre accès dans Home Assistant lui-même.
+
+**Limite connue de la pré-version 5.0 :** cette connexion par Home Assistant n’existe pas encore, et via la barre latérale Meshloom ne peut pas garder de session (aucun cookie n’y est posé, exprès : tous les add-ons partagent cette adresse). En attendant, exigé pour la 5.0.0, ouvrez l’add-on sur son propre port (8000) et connectez-vous là. La commande existe quand même pour le cas rare où elle serait utile. Elle s’exécute dans le conteneur de l’add-on et demande donc d’atteindre le Docker de l’hôte : l’add-on *Advanced SSH & Web Terminal* avec le **Mode protégé** désactivé.
 
 ```bash
 docker ps --format '{{.Names}}' | grep meshloom

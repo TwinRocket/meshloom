@@ -26,101 +26,12 @@ from pydantic_core import PydanticCustomError
 
 from app.message_limits import DM_HARD_LIMIT
 from app.plugins.permissions import check_host, is_meshloom_domain
+from meshloom_plugin import policy
 
-# Mirror of `ALLOWED_IMPORTS` / `DENIED_MODULES` in `meshloom_plugin/policy.py`
-# (MSHL-176): `tests/test_plugin_attention.py` compares them when that module is
-# importable. A local source has no `vendor/`, so any other name is flagged.
-ALLOWED_IMPORTS = frozenset(
-    {
-        "abc",
-        "array",
-        "asyncio",
-        "base64",
-        "binascii",
-        "bisect",
-        "calendar",
-        "cmath",
-        "codecs",
-        "collections",
-        "contextlib",
-        "contextvars",
-        "copy",
-        "dataclasses",
-        "datetime",
-        "decimal",
-        "difflib",
-        "enum",
-        "errno",
-        "fnmatch",
-        "fractions",
-        "functools",
-        "hashlib",
-        "heapq",
-        "hmac",
-        "html",
-        "io",
-        "itertools",
-        "json",
-        "keyword",
-        "logging",
-        "math",
-        "meshloom_plugin",
-        "numbers",
-        "operator",
-        "os",
-        "posixpath",
-        "pprint",
-        "random",
-        "re",
-        "reprlib",
-        "secrets",
-        "shlex",
-        "stat",
-        "statistics",
-        "string",
-        "struct",
-        "sys",
-        "textwrap",
-        "time",
-        "types",
-        "typing",
-        "unicodedata",
-        "urllib",
-        "urllib.parse",
-        "uuid",
-        "warnings",
-        "weakref",
-        "zlib",
-    }
-)
-DENIED_MODULES = frozenset(
-    {
-        "_ctypes",
-        "_multiprocessing",
-        "_posixshmem",
-        "_posixsubprocess",
-        "_socket",
-        "_sqlite3",
-        "_ssl",
-        "ctypes",
-        "ftplib",
-        "http",
-        "imaplib",
-        "logging.handlers",
-        "multiprocessing",
-        "poplib",
-        "pty",
-        "smtplib",
-        "socket",
-        "socketserver",
-        "sqlite3",
-        "ssl",
-        "subprocess",
-        "telnetlib",
-        "urllib.request",
-        "xmlrpc",
-    }
-)
+# The runner's own lists (MSHL-176), so the scan and the sandbox never drift. A
+# local source has no `vendor/`, so any other name is flagged.
+ALLOWED_IMPORTS = policy.ALLOWED_IMPORTS
+DENIED_MODULES = policy.DENIED_MODULES
 _THREAD_MODULES = frozenset({"threading", "_thread", "concurrent", "multiprocessing"})
 _FLAGGED_CALLS = {
     "open": "open_call",

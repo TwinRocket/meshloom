@@ -13,6 +13,19 @@ http://127.0.0.1:8000
 
 From another device on the same network, use the machine's IP address with port `8000`.
 
+## Create your account
+
+The first time you open Meshloom, before anything else, it asks you to create the administrator account. Choose a user name and a password of at least 12 characters (a few words in a row make a good one; it must differ from the user name and not be a common password), and optionally a display name. The language buttons under the form switch the interface.
+
+If this Meshloom already held data before it asked for accounts (an upgrade), the page also asks for the **installation code**: 8 digits that Meshloom prints in its log each time it starts while no account exists. Spaces and dashes in the code do not matter. To find it:
+
+- **Docker:** `docker logs <container>` and look for "installation code".
+- **Package install:** `journalctl -u meshloom`.
+- **Home Assistant add-on:** the **Log** tab of the add-on.
+- **Any install:** `meshloom-admin setup-code` on the host prints a new code.
+
+Afterwards Meshloom opens a login page to anyone who is not signed in. If a session ends while the page is open, a dialog asks for your password again and you resume where you were. Your name is in the account button (bottom of the side rail, or the top of **Settings** on a phone), which also has **Sign out**. On plain `http://` your password crosses the network unencrypted, which the login page points out: use HTTPS or a network you trust.
+
 ## Language of the interface
 
 The interface opens in French by default. To switch to English, open **Settings > Local Configuration** and change **Language**. The choice applies to this browser only. This guide uses the English names of buttons and menus.
