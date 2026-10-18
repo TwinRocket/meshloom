@@ -35,10 +35,10 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from app.auth import audit
 from app.auth.models import USERNAME_MAX_LENGTH, User
 from app.middleware.proxy_headers import peer_address
 from app.repository.auth import (
-    AuthAuditRepository,
     AuthSettingsRepository,
     InvalidUsernameError,
     UsernameTakenError,
@@ -160,18 +160,13 @@ async def _create(
 
             await clear_setup_code()
     logger.info("Home Assistant identity %r added as %s", user.username, user.role)
-    try:
-        await AuthAuditRepository.add(
-            "ingress_user_created",
-            "success",
-            actor_user_id=user.id,
-            target=f"user:{user.id}",
-            ip=ip,
-            via="ingress",
-            details={"role": user.role},
-        )
-    except Exception:
-        logger.warning("Could not write the auth audit row ingress_user_created")
+    await audit.record(
+        "user.created",
+        "success",
+        actor=audit.AuditActor(via="ingress", user_id=user.id, ip=ip),
+        target=audit.user_target(user.id),
+        details={"role": user.role, "provider": "ingress"},
+    )
     return user
 
 
@@ -192,6 +187,14 @@ async def resolve_ingress_user(headers: Mapping[str, str], ip: str | None) -> Us
             return None
     elif display_name and display_name != user.display_name:
         user = await UserRepository.update(user.id, display_name=display_name) or user
+        # Home Assistant renamed its user: the change came from there.
+        await audit.record(
+            "user.changed",
+            "success",
+            actor=audit.AuditActor(via="ingress", user_id=user.id, ip=ip),
+            target=audit.user_target(user.id),
+            details={"fields": ["display_name"], "source": "home_assistant"},
+        )
     if user.disabled:
         return None
     return user

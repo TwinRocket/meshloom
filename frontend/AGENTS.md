@@ -275,6 +275,14 @@ purpose.
   (`auth.ingress.*`, `errors.auth_ingress_only`).
   Tests: `src/test/auth.test.tsx`.
 
+### Share API (`api.ts`)
+
+`api.getShareStatus()` (no egress), `api.shortenLink(url)` and
+`api.getShareMeta(id)` call `/api/share/*`; types `ShareStatus`, `ShareLink`,
+`ShareMeta` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
+`share_disabled` answer means sharing is off). Call `getShareMeta` only on hover
+or focus, never on render. No UI uses them yet.
+
 ### i18n
 
 - `src/i18n/index.ts` loads only the active language. i18next `fallbackLng` is
@@ -397,6 +405,18 @@ key}`); they are not `Message.conversation_key`.
 - The pieces live in `components/message/richPayloads.tsx` (payload renderers) and
   `utils/messageText.tsx` (linkify, mentions, `RegionBadge`, `hasUnexpectedControlChars`).
   Links keep `noopener noreferrer` and the `https?://` + TLD rule.
+- Service links (the share hosts of `GET /api/share/status`, id grammar in
+  `utils/shareLinks.ts`) render through `components/message/ShareLinkAnchor.tsx`
+  (re-exported by `richPayloads.tsx`), which `linkifyText` uses for every URL. The
+  destination hint (`-> host`) comes from `GET /api/share/{id}/meta` on hover or
+  focus only, through `stores/shareMetaStore.ts` (one request per id, 10-minute
+  memory capped at 200 ids, negative entries kept; once fetched, the hint stays
+  visible for every instance of that id until the memory expires). The remote host
+  is never shown raw: `displayShareHost` strips control and bidi characters, shows
+  an IDN as punycode and cuts it, and the anchor renders it in a `<bdi dir=ltr>`. The store asks `/api/share/status` (local, no
+  egress) only for a URL shaped like a service link, and never requests a meta
+  when sharing is off. `utils/messagePreview.ts` previews a service link from the
+  text alone (`🔗 caption`).
 - `hasUnexpectedControlChars` flags C0 controls, DEL, bidi embeddings, overrides and
   isolates (U+202A-202E, U+2066-2069), ALM (U+061C), U+200B, U+2060 and U+FEFF. It does
   not flag LRM/RLM, ZWNJ or ZWJ (legitimate in RTL, Indic and emoji text). Its only caller

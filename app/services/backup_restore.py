@@ -16,6 +16,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from app.auth import audit
 from app.models import (
     BackupCounts,
     BackupEnvelope,
@@ -438,6 +439,8 @@ class RestoreOptions:
     replace_live_identity: bool = False
     wipe_history: bool = False
     expected_live_public_key: str | None = None
+    # Who asked: the job writes the ``backup.restored`` audit row when it ends.
+    actor: audit.AuditActor = audit.SYSTEM_ACTOR
 
 
 class _Run:
@@ -932,9 +935,20 @@ async def _run_restore(run: _Run) -> None:
 
             await run_on_restore_hooks("json")
         run.job.finished_at = int(time.time())
+        doc_format = getattr(run.doc, "format", None)
         run.doc = None  # type: ignore[assignment]  # drop the secrets now
         _set_running(None)
         run.job.state = state
+        await audit.record(
+            "backup.restored",
+            "success" if state == "done" else "failure",
+            actor=run.options.actor,
+            target=f"restore_job:{run.job.job_id}",
+            details={
+                "format": doc_format,
+                "steps": {step.step: step.status for step in run.job.steps},
+            },
+        )
 
 
 async def start_restore_backup_v2(

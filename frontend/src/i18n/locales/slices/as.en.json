@@ -1,0 +1,9 @@
+{
+  "messagePreview": {
+    "shareLink": "Link"
+  },
+  "shareLink": {
+    "title": "Short link",
+    "titleTo": "Short link to {{host}}"
+  }
+}

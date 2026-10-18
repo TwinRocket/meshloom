@@ -405,9 +405,11 @@ class TestReadBuckets:
         self, share_on, monkeypatch, frozen_loop
     ):
         recorder = Recorder(monkeypatch, lambda request: json_response(200, META))
-        for _ in range(60):
-            await get_meta("AbCdEfG")
-        error = await _raises(get_meta("AbCdEfG"))
+        # Distinct ids: a good answer is cached per id.
+        ids = [f"AbCdE{a}{b}" for a in "12345678" for b in "12345678"]
+        for share_id in ids[:60]:
+            await get_meta(share_id)
+        error = await _raises(get_meta(ids[60]))
         assert (error.status_code, error.code) == (429, "share_rate_limited")
         assert error.params == {"retry_after": 1, "scope": "local"}
         assert len(recorder.requests) == 60

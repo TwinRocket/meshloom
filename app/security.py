@@ -47,6 +47,7 @@ import secrets
 import time
 from dataclasses import dataclass
 
+from app.auth import audit
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH, hash_password_async
 from app.auth.providers.password import authenticate_with_hash
@@ -209,12 +210,19 @@ async def import_basic_credentials(username: str, password: str) -> bool:
         return False
     try:
         password_hash = await hash_password_async(password)
-        await UserRepository.create(username, "admin", password_hash=password_hash)
+        user = await UserRepository.create(username, "admin", password_hash=password_hash)
     except (InvalidUsernameError, ValueError) as exc:
         # The variables stay unused; the installation code path takes over.
         logger.error("Could not import MESHCORE_BASIC_AUTH_USERNAME as an account: %s", exc)
         return False
     await AuthSettingsRepository.update(basic_imported=True)
+    await audit.record(
+        "user.created",
+        "success",
+        actor=audit.SYSTEM_ACTOR,
+        target=audit.user_target(user.id),
+        details={"role": user.role, "source": "basic_import"},
+    )
     logger.warning(
         "Imported MESHCORE_BASIC_AUTH_USERNAME as the administrator account %r. "
         "Sign in with the same name and password.",

@@ -388,7 +388,7 @@ export interface HealthStatus {
   bots_disabled_source?: 'env' | 'until_restart' | null;
   /** Plugin host: isolation level, why it is off (null when on), and each instance. */
   plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
-  plugins_disabled_source?: 'env' | 'platform' | null;
+  plugins_disabled_source?: 'env' | 'platform' | 'isolation' | null;
   plugin_statuses?: Record<string, PluginStatusEntry>;
   basic_auth_enabled?: boolean;
   radio_proxy?: RadioProxyStatus | null;
@@ -1509,6 +1509,32 @@ export function normalizeTelemetryAlertCatalog(raw: unknown): TelemetryAlertCata
 
 export type ShareShortenMode = 'auto' | 'always' | 'never';
 export type SharePreviewPolicy = 'always' | 'private' | 'never';
+
+/** `GET /api/share/status`: makes no request to the share service. */
+export interface ShareStatus {
+  enabled: boolean;
+  host: string;
+  hosts: string[];
+  identity_ready: boolean;
+  dm_encryption_available: boolean;
+  banned: boolean;
+  shorten_mode: ShareShortenMode;
+  preview_policy: SharePreviewPolicy;
+}
+
+/** `POST /api/share/links` answer. */
+export interface ShareLink {
+  id: string;
+  url: string;
+  expires_at: number;
+}
+
+/** `GET /api/share/{id}/meta` answer (links). */
+export interface ShareMeta {
+  kind: string;
+  target_host: string | null;
+  expires_at: number | null;
+}
 
 export interface AppSettings {
   ui_preferences: UiPreferences;

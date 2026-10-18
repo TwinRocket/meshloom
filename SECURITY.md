@@ -27,6 +27,24 @@ Meshloom is maintained on a best-effort basis. As a guide, not a commitment:
 Only the latest release receives security fixes. Older versions are not
 patched: update to the latest release (see [Update](README.md#update)).
 
+## Plugin isolation
+
+Plugins (Meshloom 5) run in a child process behind an operating-system
+boundary: a bubblewrap sandbox on Linux, a dedicated `meshloom-plugin`
+account in the Docker image and the Home Assistant add-on
+(`docs/dev/plugins-security.md`, "OS isolation"). **A plugin that escapes that
+boundary is a vulnerability**: reading the database, the server's environment
+or memory, another plugin's memory, writing Meshloom's files, reaching the network under bubblewrap, or
+outliving its kill under bubblewrap. Report it as above. A bypass of the
+in-process guards alone (the audit hook, the import allowlist) is not one: they
+are documented as defence in depth, not as the boundary. The "hooks only" level
+(no bubblewrap and no dedicated account) is a known limit, logged at every
+start and reported in `/api/health`; so are the limits listed in that document
+for the dedicated account (plugins share one uid, so they can read each
+other's work directories and signal each other, but not each other's memory;
+the network, loopback and the unauthenticated radio proxy included, is not
+cut).
+
 ## Known limits, not vulnerabilities
 
 Meshloom is built for a trusted network, and some of its behaviour is
@@ -54,6 +72,13 @@ deliberate. These are documented and are not treated as vulnerabilities:
   re-validated when read: an entry written outside the API (SQL, a restore)
   that is a wildcard, `null`, or not a plain `http(s)` origin is ignored and
   logged.
+- **Share writes refuse requests marked cross-site.** On the 5.0 integration
+  branch, `POST /api/share/links` (and every later write under `/api/share`)
+  answers 403 `share_cross_site` when the browser sends `Sec-Fetch-Site:
+  cross-site`, so a page open on the LAN cannot publish under the instance
+  identity. A request without the header (curl, bots) passes; the route's
+  permission (`send`) still applies. It is defence in depth on top of the auth
+  gate and does not touch CORS.
 - **Bots run Python with no sandbox.** Anyone who can reach the interface can
   make the host run code while bots are enabled. `MESHCORE_DISABLE_BOTS=true`
   turns them off; the Linux package does so by default.

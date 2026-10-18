@@ -76,6 +76,16 @@ and the OpenAPI page (`/docs`), not a table here.
   `plugins/launch.py` builds the launch contract of the plugin child, which runs
   the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
   `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
+  `plugins/isolation/` is the OS boundary around each child (MSHL-180): one
+  backend per process, detected once and logged (`selection.py`: `setuid` as root
+  with the `meshloom-plugin` account, else `bwrap` if its self-test passes, else
+  `none`, "hooks only", with a warning); `startup()` applies the file model of
+  `permissions.py` under `setuid` (data dir `0711`, files `0600`, server umask
+  `077`); if it fails, `lifecycle.start()` fails closed (`fail_closed()`, health
+  `plugins_disabled_source: "isolation"`). The account is uid/gid 10002. bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  source and Docker data dirs live under it). Stdlib only, so
+  `tests/test_plugin_isolation.py` runs with `--noconftest` in the root container
+  job; details in `docs/dev/plugins-security.md`, "OS isolation".
   `plugins/host.py` supervises the children (one per enabled instance: budgets,
   bounded inbox, restarts, `crash_loop`, statuses); the app reaches it only
   through `plugins/lifecycle.py` (lifespan `start()`, the bounded `stop()`
@@ -195,6 +205,19 @@ Community guard.
   `SERVICE_CALLS` in `tests/test_share_off_no_egress.py` (the test finds them
   from the module and fails otherwise); `/api/share/*` routes are found from
   `app.routes` and swept too.
+- **Meta cache.** `get_meta` replays a good answer for `META_CACHE_S` (10 min,
+  256 ids), after the opt-in check; turning sharing off clears it.
+- **Routes (`routers/share.py`, prefix `/api/share`).** `GET /status` (`read`; no
+  egress: `enabled`, `host`, `hosts`, `identity_ready`, `dm_encryption_available`
+  = `keystore.has_private_key()`, `banned`, `shorten_mode`, `preview_policy`),
+  `POST /links` (`send`, i.e. member+; off answers `share_disabled` before
+  anything; the URL is checked locally: http/https, host, 2048 characters, no
+  whitespace), `GET /{id}/meta` (`read`, so a viewer or kiosk reads it; the id
+  is checked against the grammar before any call). Every write route depends on
+  `refuse_cross_site`: 403 `share_cross_site` when `Sec-Fetch-Site` is
+  `cross-site` (defence in depth: the auth gate already refuses unsafe
+  cross-origin requests that are not bearer-token ones). Tests:
+  `tests/test_share_routes.py`.
 - **Never log** a token, a request body or a response body: log lines carry the
   status, the service code (truncated) or `error_code(exc)` only.
 - Tests: `tests/test_share_service.py` (errors, ban, breaker with an injected
@@ -216,7 +239,8 @@ Community guard.
 - It opens the file itself (`mode=rw`, never created, no schema script, no migration:
   the server owns those) and attaches `app.database.db` to that connection, then uses the
   repositories of `app/repository/auth.py`. Changes are WAL commits, seen by a running
-  server on its next read. Every command writes an `auth_audit` row (`via = "cli"`; outcome `refused` for a refusal).
+  server on its next read. Every command writes one `auth_audit` row through `app/auth/audit.py` (`via = "cli"`,
+  the action shared with the API, such as `password.changed`; outcome `refused` for a refusal).
 - Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
   new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
 - Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full

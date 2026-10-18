@@ -90,8 +90,11 @@ describe('TrustedProxiesSettings', () => {
   });
 
   it('says an empty list trusts no proxy, then saves the canonical list', async () => {
-    const load = vi.fn(async () => ({ trusted_proxies: [] }));
-    const save = vi.fn(async () => ({ trusted_proxies: ['127.0.0.1/32'] }));
+    const load = vi.fn(async () => ({ trusted_proxies: [], audit_retention_days: 366 }));
+    const save = vi.fn(async () => ({
+      trusted_proxies: ['127.0.0.1/32'],
+      audit_retention_days: 366,
+    }));
     render(<TrustedProxiesSettings load={load} save={save} />);
 
     expect(await screen.findByText(i18n.t('settings.trustedProxies.none'))).toBeInTheDocument();
@@ -108,10 +111,10 @@ describe('TrustedProxiesSettings', () => {
   });
 
   it('refuses an invalid entry before sending anything', async () => {
-    const save = vi.fn(async () => ({ trusted_proxies: [] }));
+    const save = vi.fn(async () => ({ trusted_proxies: [], audit_retention_days: 366 }));
     render(
       <TrustedProxiesSettings
-        load={async () => ({ trusted_proxies: ['10.0.0.0/8'] })}
+        load={async () => ({ trusted_proxies: ['10.0.0.0/8'], audit_retention_days: 366 })}
         save={save}
       />
     );
@@ -124,7 +127,11 @@ describe('TrustedProxiesSettings', () => {
   });
 
   it('warns about a network or a Docker gateway without blocking the save', async () => {
-    render(<TrustedProxiesSettings load={async () => ({ trusted_proxies: [] })} />);
+    render(
+      <TrustedProxiesSettings
+        load={async () => ({ trusted_proxies: [], audit_retention_days: 366 })}
+      />
+    );
     const textarea = await screen.findByRole('textbox');
     fireEvent.change(textarea, { target: { value: '172.20.0.10' } });
     expect(screen.queryByTestId('trusted-proxies-risk')).toBeNull();
@@ -139,7 +146,12 @@ describe('TrustedProxiesSettings', () => {
     const save = vi.fn(async (): Promise<AuthSettings> => {
       throw new Error('nope');
     });
-    render(<TrustedProxiesSettings load={async () => ({ trusted_proxies: [] })} save={save} />);
+    render(
+      <TrustedProxiesSettings
+        load={async () => ({ trusted_proxies: [], audit_retention_days: 366 })}
+        save={save}
+      />
+    );
     fireEvent.change(await screen.findByRole('textbox'), { target: { value: '::1' } });
     fireEvent.click(saveButton());
     await waitFor(() => expect(mocks.toast.error).toHaveBeenCalled());
@@ -175,7 +187,9 @@ describe('TrustedProxiesSettings behind an untrusted https proxy', () => {
     );
     render(
       <SessionProvider>
-        <TrustedProxiesSettings load={async () => ({ trusted_proxies: [] })} />
+        <TrustedProxiesSettings
+          load={async () => ({ trusted_proxies: [], audit_retention_days: 366 })}
+        />
       </SessionProvider>
     );
     await screen.findByRole('textbox');

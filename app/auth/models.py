@@ -22,6 +22,10 @@ PROVIDERS: tuple[str, ...] = get_args(Provider)
 
 USERNAME_MAX_LENGTH = 64
 
+# ``auth_settings.audit_retention_days`` bounds (366 by default, Q-A14).
+MIN_AUDIT_RETENTION_DAYS = 1
+MAX_AUDIT_RETENTION_DAYS = 36500
+
 
 class User(BaseModel):
     id: int
@@ -91,7 +95,9 @@ class AuthSettings(BaseModel):
     host_guard_mode: HostGuardMode = "observe"
     ingress_default_role: Role = "member"
     session_lifetime_days: int = Field(default=30, ge=1, le=3650)
-    audit_retention_days: int = Field(default=366, ge=1, le=36500)
+    audit_retention_days: int = Field(
+        default=366, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
+    )
     basic_imported: bool = False
     setup_code_set: bool = False
 

@@ -4,7 +4,7 @@ A recorder replaces ``httpx.AsyncClient`` for the whole test (the egress guard's
 pinned clients are ``httpx.AsyncClient`` too). With ``share_enabled`` false, every
 network function of ``app.services.share`` (found from the module, so a new one
 must be added to ``SERVICE_CALLS``) and every ``/api/share/*`` route (found from
-``app.routes``; the routes land with later tickets) answers without any request.
+``app.routes``) answers without any request.
 With it on, requests go only to ``SHARE_HOST``, and none of them carries the
 instance seed, a channel key or the radio private key (the DM secret).
 """
