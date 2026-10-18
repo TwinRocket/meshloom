@@ -63,7 +63,12 @@ class TestPushNotificationSettingsRepo:
             )
         )
         defaults = await AppSettingsRepository.get_push_defaults()
-        assert defaults["telemetry_alert"] == {"push": False, "email": True, "webhook": True}
+        assert defaults["telemetry_alert"] == {
+            "push": False,
+            "email": True,
+            "webhook": True,
+            "apprise": False,
+        }
 
     @pytest.mark.asyncio
     async def test_set_override_true_false_none(self, test_db):

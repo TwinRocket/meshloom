@@ -7,6 +7,7 @@ import logging
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.fanout.base import FanoutModule, get_fanout_message_text
+from app.log_redaction import secret_scope
 from app.net.apprise_urls import (
     AppriseUrlRefused,
     ValidatedUrl,
@@ -15,6 +16,7 @@ from app.net.apprise_urls import (
 )
 from app.path_utils import split_path_hex
 from app.secret_fields import config_secret_values, scrub_error
+from app.services.message_filters import is_filtered
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +209,10 @@ class AppriseModule(FanoutModule):
         # want Meshloom-originated manual/bot sends mirrored to Apprise.
         if data.get("outgoing") and not self.config.get("include_outgoing", False):
             return
+        # Blocked senders and muted channels reach no person (MQTT, SQS and
+        # webhook outputs still get them: machine integrations).
+        if await is_filtered(data):
+            return
 
         urls = self.config.get("urls", "")
         if not urls or not urls.strip():
@@ -265,7 +271,9 @@ class AppriseModule(FanoutModule):
         last_exc: Exception | None = None
         for attempt in range(_MAX_SEND_ATTEMPTS):
             try:
-                success = await asyncio.to_thread(_send_sync, servers, body, markdown=markdown)
+                # Apprise logs request URLs at DEBUG: their tokens are masked meanwhile.
+                with secret_scope(*config_secret_values("apprise", self.config)):
+                    success = await asyncio.to_thread(_send_sync, servers, body, markdown=markdown)
                 if success:
                     self._set_last_error(None)
                     return

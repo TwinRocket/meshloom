@@ -25,7 +25,7 @@ export function conversationOverrideFlags(raw: unknown): ConversationMediaOverri
   if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>;
     const out: ConversationMediaOverride = {};
-    (['push', 'email', 'webhook'] as const).forEach((key) => {
+    (['push', 'email', 'webhook', 'apprise'] as const).forEach((key) => {
       if (key in obj && obj[key] != null) {
         out[key] = Boolean(obj[key]);
       }

@@ -11,7 +11,12 @@ const HASHTAG_KEY = 'cc'.repeat(16);
 const PRIVATE_CHAN_KEY = 'dd'.repeat(16);
 
 const ON: NotificationMediaFlags = { ...DEFAULT_NOTIFICATION_MEDIA };
-const PUSH_OFF: NotificationMediaFlags = { push: false, email: false, webhook: false };
+const PUSH_OFF: NotificationMediaFlags = {
+  push: false,
+  email: false,
+  webhook: false,
+  apprise: false,
+};
 
 const ALL_ON: PushDefaults = {
   new_contact: ON,
@@ -50,7 +55,7 @@ type PolicyCase = {
   overrides?: ConversationOverrides;
   isHashtag?: boolean;
   isPublic?: boolean;
-  channel?: 'push' | 'email' | 'webhook';
+  channel?: 'push' | 'email' | 'webhook' | 'apprise';
 };
 
 function policyCase(
@@ -156,7 +161,7 @@ const POLICY_CASES = [
     messageType: 'PRIV',
     defaults: {
       ...ALL_ON,
-      new_dm: { push: true, email: true, webhook: false },
+      new_dm: { push: true, email: true, webhook: false, apprise: false },
     },
     channel: 'email',
   }),
@@ -167,6 +172,56 @@ const POLICY_CASES = [
     isPublic: true,
     overrides: { [`channel-${PUBLIC_CHANNEL_KEY}`]: { email: true } },
     channel: 'email',
+  }),
+  policyCase('dm_apprise_follows_new_dm_matrix', {
+    expected: true,
+    stateKey: `contact-${DM_KEY}`,
+    messageType: 'PRIV',
+    defaults: {
+      ...ALL_ON,
+      new_dm: { push: true, email: false, webhook: false, apprise: true },
+    },
+    channel: 'apprise',
+  }),
+  policyCase('dm_apprise_off_by_default', {
+    expected: false,
+    stateKey: `contact-${DM_KEY}`,
+    messageType: 'PRIV',
+    channel: 'apprise',
+  }),
+  policyCase('dm_apprise_override_false_wins_over_matrix', {
+    expected: false,
+    stateKey: `contact-${DM_KEY}`,
+    messageType: 'PRIV',
+    defaults: {
+      ...ALL_ON,
+      new_dm: { push: true, email: false, webhook: false, apprise: true },
+    },
+    overrides: { [`contact-${DM_KEY}`]: { apprise: false } },
+    channel: 'apprise',
+  }),
+  policyCase('public_channel_never_reaches_apprise_without_override', {
+    expected: false,
+    stateKey: `channel-${PUBLIC_CHANNEL_KEY}`,
+    messageType: 'CHAN',
+    isPublic: true,
+    overrides: { [`channel-${PUBLIC_CHANNEL_KEY}`]: true },
+    channel: 'apprise',
+  }),
+  policyCase('hashtag_channel_never_reaches_apprise_without_override', {
+    expected: false,
+    stateKey: `channel-${HASHTAG_KEY}`,
+    messageType: 'CHAN',
+    isHashtag: true,
+    channel: 'apprise',
+  }),
+  policyCase('channel_apprise_override_enables_apprise', {
+    expected: true,
+    stateKey: `channel-${HASHTAG_KEY}`,
+    messageType: 'CHAN',
+    isHashtag: true,
+    overrides: { [`channel-${HASHTAG_KEY}`]: { apprise: true } },
+    channel: 'apprise',
   }),
 ] as const;
 

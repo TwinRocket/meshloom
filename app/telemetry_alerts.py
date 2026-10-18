@@ -377,6 +377,9 @@ def coerce_telemetry_alert_rules(raw: object) -> TelemetryAlertRules:
         webhook=(
             bool(channels_raw.get("webhook", False)) if isinstance(channels_raw, Mapping) else False
         ),
+        apprise=(
+            bool(channels_raw.get("apprise", False)) if isinstance(channels_raw, Mapping) else False
+        ),
     )
 
     rules = default_rule_specs()
@@ -602,6 +605,7 @@ def merge_notification_destinations(
 
     A kept secret never follows a destination change (``NOTIFICATION_DESTINATION_KEYS``):
     raises ``SecretRequiredError`` naming ``email.password`` / ``webhook.hmac_secret``.
+    Apprise ``urls`` are the secret and the destination at once: ``********`` keeps them.
     """
     if isinstance(incoming, Mapping):
         payload = dict(incoming)
@@ -650,6 +654,15 @@ def merge_notification_destinations(
             if hmac_kept and webhook.get("hmac_secret"):
                 refused.append("webhook.hmac_secret")
         merged["webhook"] = webhook
+
+    apprise_patch = payload.get("apprise")
+    if isinstance(apprise_patch, Mapping):
+        apprise = dict(merged.get("apprise") or {})
+        for key, value in apprise_patch.items():
+            if value is None or (key == "urls" and value == REDACTED_SECRET):
+                continue
+            apprise[key] = value
+        merged["apprise"] = apprise
 
     if refused:
         raise SecretRequiredError(refused)

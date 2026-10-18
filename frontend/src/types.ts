@@ -369,10 +369,19 @@ export interface HealthStatus {
   database_size_mb: number;
   oldest_undecrypted_timestamp: number | null;
   fanout_statuses: Record<string, FanoutStatusEntry>;
+  /** Each notification medium's last failure (Apprise: line and redacted URL). */
+  notification_statuses?: Record<string, { last_error: NotificationLastError | null }>;
   bots_disabled: boolean;
   bots_disabled_source?: 'env' | 'until_restart' | null;
   basic_auth_enabled?: boolean;
   radio_proxy?: RadioProxyStatus | null;
+}
+
+export interface NotificationLastError {
+  code: string;
+  at: number;
+  line?: number | null;
+  url?: string | null;
 }
 
 export interface FanoutConfig {
@@ -983,7 +992,9 @@ export interface UiPreferences {
 }
 
 export type TelemetryAlertOp = 'lt' | 'gt';
-export type NotificationDestinationChannel = 'email' | 'webhook';
+export type NotificationDestinationChannel = 'email' | 'webhook' | 'apprise';
+export type AppriseMessageText = 'always' | 'public_only' | 'never';
+export type AppriseFormat = 'text' | 'markdown';
 export type NotificationEmailMode = 'none' | 'starttls' | 'ssl';
 
 export interface TelemetryAlertRuleSpec {
@@ -1005,7 +1016,7 @@ export interface TelemetryAlertNodeOverride {
 
 /** Telemetry-alert v2 document persisted on GET/PATCH /api/settings. */
 export interface TelemetryAlertRules {
-  channels: { push: boolean; email: boolean; webhook: boolean };
+  channels: { push: boolean; email: boolean; webhook: boolean; apprise?: boolean };
   rules: Record<string, TelemetryAlertRuleSpec>;
   overrides: Record<string, TelemetryAlertNodeOverride>;
 }
@@ -1029,9 +1040,19 @@ export interface NotificationWebhookDest {
   private_network_grandfathered: boolean;
 }
 
+/** Apprise destination. ``urls`` (one per line) is write-only: ``********`` when set. */
+export interface NotificationAppriseDest {
+  urls: string;
+  /** Egress guard opt-in for the hosts the URLs name (ntfy, Gotify, Home Assistant). */
+  allow_private_network: boolean;
+  include_message_text: AppriseMessageText;
+  format: AppriseFormat;
+}
+
 export interface NotificationDestinations {
   email: NotificationEmailDest;
   webhook: NotificationWebhookDest;
+  apprise: NotificationAppriseDest;
 }
 
 /** PATCH omit/null keeps a secret; empty string clears it. */
@@ -1040,6 +1061,7 @@ export interface NotificationDestinationsUpdate {
   webhook?: Partial<Omit<NotificationWebhookDest, 'hmac_secret'>> & {
     hmac_secret?: string | null;
   };
+  apprise?: Partial<Omit<NotificationAppriseDest, 'urls'>> & { urls?: string | null };
 }
 
 export interface TelemetryAlertCatalogMetric {
@@ -1116,6 +1138,12 @@ export const DEFAULT_NOTIFICATION_DESTINATIONS: NotificationDestinations = {
     hmac_secret: '',
     allow_private_network: false,
     private_network_grandfathered: false,
+  },
+  apprise: {
+    urls: '',
+    allow_private_network: false,
+    include_message_text: 'public_only',
+    format: 'text',
   },
 };
 
@@ -1285,7 +1313,9 @@ export function resolveNotificationDestinations(
   const raw = asRecord(dest);
   const email = asRecord(raw?.email);
   const webhook = asRecord(raw?.webhook);
+  const apprise = asRecord(raw?.apprise);
   const mode = email?.mode;
+  const textPolicy = apprise?.include_message_text;
   return {
     email: {
       host: typeof email?.host === 'string' ? email.host : '',
@@ -1302,6 +1332,13 @@ export function resolveNotificationDestinations(
       allow_private_network: webhook?.allow_private_network === true,
       private_network_grandfathered: webhook?.private_network_grandfathered === true,
     },
+    apprise: {
+      urls: typeof apprise?.urls === 'string' ? apprise.urls : '',
+      allow_private_network: apprise?.allow_private_network === true,
+      include_message_text:
+        textPolicy === 'always' || textPolicy === 'never' ? textPolicy : 'public_only',
+      format: apprise?.format === 'markdown' ? 'markdown' : 'text',
+    },
   };
 }
 
@@ -1311,6 +1348,10 @@ export function isEmailDestinationReady(email: NotificationEmailDest | undefined
 
 export function isWebhookDestinationReady(webhook: NotificationWebhookDest | undefined): boolean {
   return Boolean(webhook?.url?.trim());
+}
+
+export function isAppriseDestinationReady(apprise: NotificationAppriseDest | undefined): boolean {
+  return Boolean(apprise?.urls?.trim());
 }
 
 function secretForPatch(draft: string, stored: string | undefined): string | undefined {
@@ -1327,6 +1368,7 @@ export function buildNotificationDestinationsPatch(
   const current = stored ?? DEFAULT_NOTIFICATION_DESTINATIONS;
   const emailPassword = secretForPatch(draft.email.password, current.email.password);
   const hmacSecret = secretForPatch(draft.webhook.hmac_secret, current.webhook.hmac_secret);
+  const appriseUrls = secretForPatch(draft.apprise.urls, current.apprise.urls);
   return {
     email: {
       host: draft.email.host,
@@ -1345,6 +1387,12 @@ export function buildNotificationDestinationsPatch(
       current.webhook.private_network_grandfathered
         ? { private_network_grandfathered: draft.webhook.private_network_grandfathered }
         : {}),
+    },
+    apprise: {
+      allow_private_network: draft.apprise.allow_private_network,
+      include_message_text: draft.apprise.include_message_text,
+      format: draft.apprise.format,
+      ...(appriseUrls !== undefined ? { urls: appriseUrls } : {}),
     },
   };
 }
@@ -2019,6 +2067,7 @@ export interface NotificationMediaFlags {
   push: boolean;
   email: boolean;
   webhook: boolean;
+  apprise: boolean;
 }
 
 export type NotificationMediaChannel = keyof NotificationMediaFlags;
@@ -2027,11 +2076,12 @@ export const DEFAULT_NOTIFICATION_MEDIA: NotificationMediaFlags = {
   push: true,
   email: false,
   webhook: false,
+  apprise: false,
 };
 
 export function resolveNotificationMedia(raw: unknown): NotificationMediaFlags {
   if (typeof raw === 'boolean') {
-    return { push: raw, email: false, webhook: false };
+    return { push: raw, email: false, webhook: false, apprise: false };
   }
   if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>;
@@ -2039,6 +2089,7 @@ export function resolveNotificationMedia(raw: unknown): NotificationMediaFlags {
       push: Boolean(obj.push),
       email: Boolean(obj.email),
       webhook: Boolean(obj.webhook),
+      apprise: Boolean(obj.apprise),
     };
   }
   return { ...DEFAULT_NOTIFICATION_MEDIA };

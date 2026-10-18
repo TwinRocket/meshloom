@@ -47,7 +47,7 @@ import {
   REOPEN_LAST_CONVERSATION_KEY,
 } from '../utils/lastViewedConversation';
 import { ApiError, api } from '../api';
-import { SECRET_REDACTED } from '../types';
+import { DEFAULT_NOTIFICATION_DESTINATIONS, SECRET_REDACTED } from '../types';
 import { toast } from '../components/ui/sonner';
 import { DISTANCE_UNIT_KEY } from '../utils/distanceUnits';
 import { SHOW_PATH_HOP_WIDTH_KEY } from '../utils/pathHopWidthPreference';
@@ -1278,6 +1278,52 @@ describe('SettingsModal', () => {
     expect(screen.getByText(i18n.t('settings.notifications.destinations'))).toBeInTheDocument();
   });
 
+  it('saves the Apprise destination without resending kept URLs', async () => {
+    const onSaveAppSettings = vi.fn(async () => {});
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'notifications',
+      onSaveAppSettings,
+      appSettings: {
+        ...baseSettings,
+        notification_destinations: {
+          ...DEFAULT_NOTIFICATION_DESTINATIONS,
+          apprise: { ...DEFAULT_NOTIFICATION_DESTINATIONS.apprise, urls: SECRET_REDACTED },
+        },
+      },
+    });
+
+    expect(
+      await screen.findByText(i18n.t('settings.notifications.appriseUrlsKept'))
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(i18n.t('settings.notifications.mediaApprise')).length
+    ).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText(i18n.t('settings.notifications.appriseText')), {
+      target: { value: 'never' },
+    });
+    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
+    const update = (onSaveAppSettings.mock.calls[0] as unknown[])[0] as {
+      notification_destinations: { apprise: Record<string, unknown> };
+    };
+    expect(update.notification_destinations.apprise).toEqual({
+      allow_private_network: false,
+      include_message_text: 'never',
+      format: 'text',
+    });
+
+    const urls = screen.getByLabelText(i18n.t('settings.notifications.appriseUrls'));
+    fireEvent.change(urls, { target: { value: '' } });
+    fireEvent.blur(urls);
+    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(2));
+    expect(onSaveAppSettings).toHaveBeenLastCalledWith({
+      notification_destinations: expect.objectContaining({
+        apprise: expect.objectContaining({ urls: '' }),
+      }),
+    });
+  });
+
   it('shows the grandfathered webhook banner and saves the private-network flags', async () => {
     const onSaveAppSettings = vi.fn(async () => {});
     renderModal({
@@ -1303,6 +1349,7 @@ describe('SettingsModal', () => {
             allow_private_network: true,
             private_network_grandfathered: true,
           },
+          apprise: DEFAULT_NOTIFICATION_DESTINATIONS.apprise,
         },
       },
     });
@@ -1433,6 +1480,7 @@ describe('SettingsModal', () => {
             allow_private_network: false,
             private_network_grandfathered: false,
           },
+          apprise: DEFAULT_NOTIFICATION_DESTINATIONS.apprise,
         },
       },
     });

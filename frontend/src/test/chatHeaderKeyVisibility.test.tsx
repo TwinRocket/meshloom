@@ -110,7 +110,7 @@ describe('ChatHeader key visibility', () => {
         {...baseProps}
         conversation={conversation}
         channels={[]}
-        notifyMediaEnabled={{ push: true, email: false, webhook: false }}
+        notifyMediaEnabled={{ push: true, email: false, webhook: false, apprise: false }}
         emailReady
         webhookReady
         onSetConversationMedia={onSetConversationMedia}
@@ -172,7 +172,7 @@ describe('ChatHeader key visibility', () => {
         conversation={conversation}
         channels={[]}
         contacts={[contact]}
-        notifyMediaEnabled={{ push: false, email: false, webhook: false }}
+        notifyMediaEnabled={{ push: false, email: false, webhook: false, apprise: false }}
         onSetConversationMedia={vi.fn()}
       />
     );
