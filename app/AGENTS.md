@@ -229,7 +229,8 @@ Community guard.
 - It opens the file itself (`mode=rw`, never created, no schema script, no migration:
   the server owns those) and attaches `app.database.db` to that connection, then uses the
   repositories of `app/repository/auth.py`. Changes are WAL commits, seen by a running
-  server on its next read. Every command writes an `auth_audit` row (`via = "cli"`; outcome `refused` for a refusal).
+  server on its next read. Every command writes one `auth_audit` row through `app/auth/audit.py` (`via = "cli"`,
+  the action shared with the API, such as `password.changed`; outcome `refused` for a refusal).
 - Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
   new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
 - Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full

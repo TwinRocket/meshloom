@@ -5,6 +5,8 @@
   undecrypted raw packets older than that many days, in short batches.
 - Session purge: deletes expired and revoked login sessions
   (``app/auth/sessions.py``, ``purge_sessions``); always on.
+- Audit purge: deletes audit rows older than ``auth_settings.audit_retention_days``
+  (``app/auth/audit.py``, ``purge_audit``); always on.
 - Bounded ``PRAGMA incremental_vacuum`` so freed pages go back to the OS.
 """
 
@@ -12,6 +14,7 @@ import asyncio
 import logging
 import time
 
+from app.auth.audit import purge_audit
 from app.auth.sessions import purge_sessions
 from app.repository import AppSettingsRepository, ContactRepository, RawPacketRepository
 
@@ -104,6 +107,7 @@ async def _stale_purge_loop() -> None:
             (purge_stale_contacts, "Stale contact purge"),
             (prune_raw_packets, "Raw packet retention"),
             (purge_sessions, "Session purge"),
+            (purge_audit, "Audit purge"),
             (reclaim_free_pages, "Incremental vacuum"),
         ):
             try:

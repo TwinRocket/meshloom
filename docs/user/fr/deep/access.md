@@ -26,6 +26,14 @@ Le premier administrateur, et le compte que Meshloom crée à partir de l’iden
 
 Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. N’indiquez que l’adresse du proxy lui-même, jamais un réseau Docker ni sa passerelle. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance).
 
+## Le journal d’audit
+
+Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, désactivés ou réactivés, changements de mot de passe, création du premier administrateur, changements des réglages d’accès, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
+
+Chaque entrée garde l’heure, le compte qui a agi (aucun pour une connexion ratée ou la ligne de commande), l’adresse d’où il venait, la voie d’accès (réseau local, Home Assistant, ligne de commande, ou Meshloom lui-même pour une mise à jour automatique), ce qui a été visé et l’issue. Elle ne contient jamais de mot de passe, de code d’installation, de session, de clé ni le code d’un robot. Une connexion ratée ne nomme le compte que si le nom saisi correspond à un compte ; tout autre nom saisi est noté comme inconnu, si bien qu’un mot de passe tapé dans le champ du nom n’est pas gardé.
+
+Les administrateurs le lisent par `GET /api/auth/audit`, du plus récent au plus ancien, par pages ; une visionneuse dans les Réglages viendra dans une version ultérieure. Les entrées sont gardées **366 jours**, puis supprimées par un nettoyage horaire ; un administrateur change cette durée avec `PATCH /api/auth/settings` et `{"audit_retention_days": <1 à 36500>}`. Le journal n’est pas dans les sauvegardes JSON ; le téléchargement de la base (**Réglages → Base de données**) le conserve.
+
 ## Les commandes
 
 | Commande | Effet |

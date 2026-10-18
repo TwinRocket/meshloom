@@ -37,13 +37,13 @@ from pathlib import Path
 
 import aiosqlite
 
+from app.auth import audit
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH, hash_password
 from app.auth.setup_code import issue_setup_code
 from app.config import settings
 from app.database import db
 from app.repository.auth import (
-    AuthAuditRepository,
     AuthSessionRepository,
     AuthSettingsMissingError,
     InvalidUsernameError,
@@ -51,8 +51,17 @@ from app.repository.auth import (
     UserRepository,
 )
 
-# The audit trail names who acted: the CLI has no account, only the host.
-AUDIT_VIA = "cli"
+# The audit trail names who acted: the CLI has no account, only the host
+# (``via = "cli"``). One action per command, shared with the API's events.
+_COMMAND_ACTIONS: dict[str, audit.AuditAction] = {
+    "reset-password": "password.changed",
+    "create-admin": "user.created",
+    "setup-code": "setup_code.issued",
+    "list-users": "users.listed",
+    "disable-user": "user.disabled",
+    "enable-user": "user.enabled",
+    "revoke-sessions": "session.revoked",
+}
 
 # Same floor as the setup form (cadrage P1); the full policy (common-password
 # list, differs from the username) lands with the login routes.
@@ -143,23 +152,26 @@ async def _find_user(username: str) -> User:
     return user
 
 
-async def _audit(action: str, target: str | None, **details: object) -> None:
-    await AuthAuditRepository.add(action, "ok", target=target, via=AUDIT_VIA, details=details)
+async def _audit(args: argparse.Namespace, target: str | None, **details: object) -> None:
+    await audit.record(
+        _COMMAND_ACTIONS[args.command],
+        "success",
+        actor=audit.CLI_ACTOR,
+        target=target,
+        details=details,
+    )
 
 
 async def _audit_refusal(args: argparse.Namespace, reason: str) -> None:
     """Record a refused command; the audit trail must not hide the refusal itself."""
-    target = getattr(args, "username", None)
-    try:
-        await AuthAuditRepository.add(
-            "cli." + args.command.replace("-", "_"),
-            "refused",
-            target=target,
-            via=AUDIT_VIA,
-            details={"reason": reason},
-        )
-    except (sqlite3.Error, ValueError):
-        pass
+    username = getattr(args, "username", None)
+    await audit.record(
+        _COMMAND_ACTIONS[args.command],
+        "refused",
+        actor=audit.CLI_ACTOR,
+        target=await audit.typed_username_target(username) if username else None,
+        details={"reason": reason},
+    )
 
 
 def _status(user: User) -> str:
@@ -180,7 +192,7 @@ async def _reset_password(args: argparse.Namespace) -> int:
         user.id, hash_password(password), must_change_password=args.must_change
     )
     revoked = len(await AuthSessionRepository.revoke_all_for_user(user.id))
-    await _audit("cli.reset_password", user.username, sessions_revoked=revoked)
+    await _audit(args, audit.user_target(user.id), username=user.username, sessions_revoked=revoked)
     print(f"Password of {user.username} reset; {revoked} session(s) signed out.")
     if user.disabled:
         print(f"Note: {user.username} is disabled. Enable it with: meshloom-admin enable-user")
@@ -207,7 +219,7 @@ async def _create_admin(args: argparse.Namespace) -> int:
         )
     except (InvalidUsernameError, UsernameTakenError) as exc:
         raise CliError(str(exc)) from None
-    await _audit("cli.create_admin", user.username, user_id=user.id)
+    await _audit(args, audit.user_target(user.id), username=user.username, role=user.role)
     print(f"Administrator {user.username} created (id {user.id}).")
     return 0
 
@@ -223,7 +235,7 @@ async def _setup_code(args: argparse.Namespace) -> int:
     # The same 8-digit code the server logs at startup (app/auth/setup_code.py),
     # the only form POST /api/auth/setup accepts.
     code = await issue_setup_code()
-    await _audit("cli.setup_code", None)
+    await _audit(args, None)
     print(code)
     print(
         "New installation code above; any earlier one no longer works.",
@@ -234,7 +246,7 @@ async def _setup_code(args: argparse.Namespace) -> int:
 
 async def _list_users(args: argparse.Namespace) -> int:
     users = await UserRepository.list_all()
-    await _audit("cli.list_users", None, count=len(users))
+    await _audit(args, None, count=len(users))
     if args.json:
         print(json.dumps([user.model_dump() for user in users], indent=2))
         return 0
@@ -274,7 +286,7 @@ async def _disable_user(args: argparse.Namespace) -> int:
         )
     await UserRepository.update(user.id, disabled=True)
     revoked = len(await AuthSessionRepository.revoke_all_for_user(user.id))
-    await _audit("cli.disable_user", user.username, sessions_revoked=revoked)
+    await _audit(args, audit.user_target(user.id), username=user.username, sessions_revoked=revoked)
     print(f"{user.username} disabled; {revoked} session(s) signed out.")
     return 0
 
@@ -285,7 +297,7 @@ async def _enable_user(args: argparse.Namespace) -> int:
         print(f"{user.username} is already active.")
         return 0
     await UserRepository.update(user.id, disabled=False)
-    await _audit("cli.enable_user", user.username)
+    await _audit(args, audit.user_target(user.id), username=user.username)
     print(f"{user.username} enabled.")
     return 0
 
@@ -299,7 +311,12 @@ async def _revoke_sessions(args: argparse.Namespace) -> int:
     for user in targets:
         revoked += len(await AuthSessionRepository.revoke_all_for_user(user.id))
     scope = "every user" if args.all else targets[0].username
-    await _audit("cli.revoke_sessions", None if args.all else scope, sessions_revoked=revoked)
+    await _audit(
+        args,
+        None if args.all else audit.user_target(targets[0].id),
+        scope="all" if args.all else "user",
+        count=revoked,
+    )
     print(f"{revoked} session(s) signed out ({scope}).")
     return 0
 
