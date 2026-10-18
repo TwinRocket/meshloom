@@ -115,3 +115,13 @@ def test_the_view_is_a_subset_of_the_settings():
 async def test_full_settings_stay_admin_only(seeded, sign_in_as, client, role):
     sign_in_as(role)
     assert (await client.get("/api/settings")).status_code == 403
+
+
+@pytest.mark.parametrize("role", ["admin", "member", "viewer", "kiosk"])
+async def test_every_role_reads_a_feed_query_start_page(test_db, sign_in_as, client, role):
+    """The kiosk screen has no settings: it reads the start page, filters included, here."""
+    start = "feed?src=messages,control&types=chan&dir=in&muted=1&display=1"
+    await AppSettingsRepository.update(ui_preferences=UiPreferences(start_view=start))
+    sign_in_as(role)
+    body = (await client.get("/api/settings/view")).json()
+    assert body["ui_preferences"]["start_view"] == start

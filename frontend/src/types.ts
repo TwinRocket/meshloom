@@ -664,6 +664,8 @@ export interface Conversation {
   locateKey?: string;
   /** For the feed view: preset folded into it (`#control`, the Control preset) */
   feedPreset?: 'control';
+  /** For the feed view: its filters as a canonical hash query, no `?` */
+  feedQuery?: string;
 }
 
 export type LocateSource = 'local' | 'corescope' | 'mixte';

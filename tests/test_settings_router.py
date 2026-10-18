@@ -43,13 +43,62 @@ class TestStartView:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "value", ["nope", "Feed", "feed?display=1", "#feed", "channel/ABC", " feed", "settings"]
+        "value",
+        [
+            "nope",
+            "Feed",
+            "#feed",
+            "channel/ABC",
+            " feed",
+            "settings",
+            "map?src=control",
+            "feed?",
+            "feed?bogus=1",
+            "feed?src=bogus",
+            "feed?src=control&src=messages",
+            "feed?muted=2",
+            "feed?node=" + "A" * 32,
+            "feed?node=" + "G" * 64,
+            "feed?channel=" + "A" * 32,
+            "feed?src=control%2Cmessages",
+            "feed?" + "src=control&" * 60,
+        ],
     )
     async def test_unknown_or_non_tool_value_is_refused(self, test_db, value):
         with pytest.raises(HTTPException) as exc:
             await update_settings(AppSettingsUpdate(ui_preferences=UiPreferences(start_view=value)))
         assert exc.value.status_code == 400
         assert (await AppSettingsRepository.get()).ui_preferences.start_view == ""
+
+
+class TestStartViewFeedQuery:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "feed?display=1",
+            "control?display=1",
+            "feed?src=messages,control,events&types=chan,priv&dir=in,out&muted=1&pending=0",
+            "feed?src=&types=chan",
+            "feed?node=" + "ab" * 32,
+            "feed?node=" + "AB" * 32 + "&display=1",
+        ],
+    )
+    async def test_feed_hash_grammar_is_stored(self, test_db, value):
+        result = await update_settings(
+            AppSettingsUpdate(ui_preferences=UiPreferences(start_view=value))
+        )
+        assert result.ui_preferences.start_view == value
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == value
+
+    @pytest.mark.asyncio
+    async def test_stale_invalid_query_reads_as_default(self, test_db):
+        await AppSettingsRepository.update(
+            ui_preferences=UiPreferences.model_construct(start_view="feed?bogus=1", theme="dark")
+        )
+        stored = (await AppSettingsRepository.get()).ui_preferences
+        assert stored.start_view == ""
+        assert stored.theme == "dark"
 
 
 class TestUpdateSettings:

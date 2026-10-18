@@ -1,5 +1,6 @@
 import type { Channel, Contact, Conversation } from '../types';
 import { isFeedConversation } from '../components/feed/feedConversation';
+import { canonicalFeedQuery } from './feedFilters';
 import { findPublicChannel, PUBLIC_CHANNEL_NAME } from './publicChannel';
 import { getContactDisplayName } from './pubkey';
 import {
@@ -25,6 +26,8 @@ interface ParsedHashConversation {
   name: string;
   /** For the feed: the preset it opens in (`#control`) */
   feedPreset?: 'control';
+  /** For the feed: its filters as a canonical hash query, no `?` (`src=control&display=1`) */
+  feedQuery?: string;
   /** Optional human-readable label segment (ignored for identity resolution) */
   label?: string;
   /** For map view: public key prefix to focus on */
@@ -56,6 +59,18 @@ export function parseHashConversation(
   if (hash === 'control') {
     // Kept for bookmarks and kiosk URLs: the Control page became a preset of the feed.
     return { type: 'feed', name: 'feed', feedPreset: 'control' };
+  }
+
+  // `#feed?src=...` and `#control?...`: the filters ride in the hash (see `parseFeedQuery`).
+  if (hash.startsWith('feed?') || hash.startsWith('control?')) {
+    const [base, query] = [hash.slice(0, hash.indexOf('?')), hash.slice(hash.indexOf('?') + 1)];
+    const feedQuery = canonicalFeedQuery(query);
+    return {
+      type: 'feed',
+      name: 'feed',
+      ...(base === 'control' && { feedPreset: 'control' as const }),
+      ...(feedQuery && { feedQuery }),
+    };
   }
 
   if (hash === 'map') {
@@ -244,11 +259,22 @@ export function getLocateHash(query?: string): string {
   return trimmed ? `#locate/${encodeURIComponent(trimmed)}` : '#locate';
 }
 
+export function getFeedHash(preset?: 'control', feedQuery?: string): string {
+  const base = preset === 'control' ? '#control' : '#feed';
+  return feedQuery ? `${base}?${feedQuery}` : base;
+}
+
+/** Mirror the feed's filters in the URL, without a history entry. */
+export function replaceFeedHash(preset: 'control' | undefined, feedQuery: string): void {
+  const hash = getFeedHash(preset, feedQuery);
+  if (hash !== window.location.hash) window.history.replaceState(null, '', hash);
+}
+
 // Generate URL hash from conversation
 export function getConversationHash(conv: Conversation | null): string {
   if (!conv) return '';
   if (conv.type === 'raw') return '#raw';
-  if (isFeedConversation(conv)) return conv.feedPreset === 'control' ? '#control' : '#feed';
+  if (isFeedConversation(conv)) return getFeedHash(conv.feedPreset, conv.feedQuery);
   if (conv.type === 'map') {
     return conv.mapFocusKey ? getMapFocusHash(conv.mapFocusKey) : '#map';
   }

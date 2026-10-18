@@ -22,8 +22,11 @@ import type { Channel, Contact, Conversation, Message, RawPacket } from '../../t
 import { buildJournalEntries, type JournalEntry } from '../../utils/controlJournal';
 import { formatNumber } from '../../utils/formatNumber';
 import {
+  applyFeedQuery,
   countHiddenRows,
   controlPreset,
+  feedQueryOf,
+  parseFeedQuery,
   filtersToQuery,
   hasEmptySelection,
   hasNoMessages,
@@ -36,7 +39,9 @@ import type { SearchNavigateTarget } from '../SearchView';
 import { RawPacketInspectorDialog } from '../RawPacketDetailModal';
 import { Button } from '../ui/button';
 import { ToolPaneHeader } from '../ToolPaneHeader';
-import { FEED_DOM_MAX } from './feedConversation';
+import { replaceFeedHash } from '../../utils/urlHash';
+import { saveLastViewedConversation } from '../../utils/lastViewedConversation';
+import { FEED_DOM_MAX, makeFeedConversation } from './feedConversation';
 import {
   countArrivedSince,
   countControlArrivedSince,
@@ -69,6 +74,10 @@ import { createFeedNameResolver } from './feedNames';
 interface FeedViewProps {
   /** Opens with the Control preset's filters, which are not persisted. */
   preset?: 'control';
+  /** The filters the URL hash pinned (`feedQuery`): laid over the stored ones when it opens. */
+  initialQuery?: string;
+  /** Reports the query of the filters in use (hash grammar, no `?`) after each change. */
+  onQueryChange?: (feedQuery: string) => void;
   contacts: Contact[];
   channels: Channel[];
   radioName?: string;
@@ -128,6 +137,8 @@ function useTimeFormatter(language: string) {
  */
 export function FeedView({
   preset,
+  initialQuery,
+  onQueryChange,
   contacts,
   channels,
   radioName,
@@ -142,9 +153,11 @@ export function FeedView({
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
+  // URL > localStorage > defaults, decided before the first request so one fetch is made.
   const [filters, setFilters] = useState<FeedFilters>(() =>
-    preset === 'control' ? controlPreset : loadFeedFilters()
+    applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), initialQuery)
   );
+  const [display] = useState(() => (initialQuery ? parseFeedQuery(initialQuery).display : false));
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -191,11 +204,51 @@ export function FeedView({
   tRef.current = t;
   channelsRef.current = channels;
 
-  // Preferences are per browser (`localStorage`); a second tab only sees them on reload.
-  // A preset's filters are not the reader's feed filters: they are never written back.
+  // The query this view last wrote or opened with. A different `initialQuery` is then a change
+  // from outside (back/forward, a pasted bookmark in the same tab) and replaces the filters.
+  const skipFirstSaveRef = useRef(Boolean(initialQuery));
+  const firstUrlSyncRef = useRef(true);
+  const ownQueryRef = useRef(initialQuery ?? '');
+  const onQueryChangeRef = useRef(onQueryChange);
+  onQueryChangeRef.current = onQueryChange;
   useEffect(() => {
+    const incoming = initialQuery ?? '';
+    if (incoming === ownQueryRef.current) return;
+    ownQueryRef.current = incoming;
+    // The URL already shows this state and the pinned filters are not the reader's choice.
+    skipFirstSaveRef.current = true;
+    firstUrlSyncRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the hash changed under the view: its filters follow the URL.
+    setFilters(applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), incoming));
+  }, [initialQuery, preset]);
+
+  // Preferences are per browser (`localStorage`); a second tab only sees them on reload.
+  // A preset's filters are not the reader's feed filters: they are never written back. Filters
+  // the URL pinned are not the reader's choice either: opening a bookmark must not replace what
+  // they remembered, so the first write is skipped when the URL named any (URL > storage).
+  useEffect(() => {
+    if (skipFirstSaveRef.current) {
+      skipFirstSaveRef.current = false;
+      return;
+    }
     if (!preset) saveFeedFilters(filters);
   }, [filters, preset]);
+
+  // The URL follows the filters (no history entry), so any state is bookmarkable. The first
+  // run only mirrors what the URL already pinned: a plain `#feed` is not rewritten.
+  useEffect(() => {
+    if (firstUrlSyncRef.current) {
+      firstUrlSyncRef.current = false;
+      return;
+    }
+    const feedQuery = feedQueryOf(filters, display);
+    ownQueryRef.current = feedQuery;
+    replaceFeedHash(preset, feedQuery);
+    saveLastViewedConversation(
+      makeFeedConversation(tRef.current('sidebar.feed'), preset, feedQuery)
+    );
+    onQueryChangeRef.current?.(feedQuery);
+  }, [filters, display, preset]);
 
   // Rows are re-evaluated once a minute so an expired timed mute reappears. A `channel`
   // frame reaches this view as a new `channels` prop, which the memo below depends on.
@@ -214,12 +267,16 @@ export function FeedView({
   // A stored node filters only while the facet that shows (and clears) it is on screen:
   // Control on and the node still among the threads. Otherwise it is ignored, never a
   // hidden filter the reader cannot see.
-  const activeNode =
-    filters.sources.control &&
-    filters.node &&
-    nodeSections.some((s) => s.nodes.some((n) => n.id === filters.node))
-      ? filters.node
-      : null;
+  // The match ignores case (a URL carries a lowercase key) and resolves to the thread's own id.
+  const activeNode = useMemo(() => {
+    if (!filters.sources.control || !filters.node) return null;
+    const wanted = filters.node.toLowerCase();
+    for (const section of nodeSections) {
+      const found = section.nodes.find((n) => n.id.toLowerCase() === wanted);
+      if (found) return found.id;
+    }
+    return null;
+  }, [filters.sources.control, filters.node, nodeSections]);
   const effective = useMemo<FeedFilters>(
     () => (activeNode === filters.node ? filters : { ...filters, node: activeNode }),
     [filters, activeNode]

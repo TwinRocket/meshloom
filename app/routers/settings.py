@@ -17,7 +17,6 @@ from app.cors import normalize_origins
 from app.database import db
 from app.models import (
     CONTACT_TYPE_REPEATER,
-    START_VIEW_IDS,
     AppSettings,
     AppSettingsView,
     BackupExport,
@@ -31,6 +30,7 @@ from app.models import (
     NotificationDestinationsUpdate,
     TelemetryAlertRules,
     UiPreferences,
+    is_valid_start_view,
 )
 from app.net.egress_guard import EgressBlocked, egress_detail, error_code, validate_destination
 from app.region_scope import normalize_region_scope
@@ -411,7 +411,7 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     kwargs = {}
     if update.ui_preferences is not None:
         start_view = update.ui_preferences.start_view
-        if start_view and start_view not in START_VIEW_IDS:
+        if start_view and not is_valid_start_view(start_view):
             raise HTTPException(status_code=400, detail="Unknown start page")
         kwargs["ui_preferences"] = update.ui_preferences
 
