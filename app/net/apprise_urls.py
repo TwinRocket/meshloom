@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from ipaddress import ip_address
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -435,12 +436,29 @@ async def validate_apprise_urls(
     return validated
 
 
+# A host name ``redact_url`` may show: letters, digits, dots and hyphens.
+_SHOWABLE_HOST_RE = re.compile(r"^[a-z0-9.-]+$")
+
+
+def _showable_host(host: str) -> bool:
+    """A DNS name or an IP literal: ``urlsplit().hostname`` keeps other
+    characters (``host;token=abc``), which may be part of a token."""
+    if _SHOWABLE_HOST_RE.match(host):
+        return True
+    try:
+        ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
 def redact_url(url: str) -> str:
     """Scheme and host only of a URL that names its host: ``https://****@host:8080/****``.
 
     The user, password, path, query and fragment may hold a token (a webhook
-    URL often does), so they are masked. Used for the webhook URLs and the
-    ``user_host`` Apprise schemes.
+    URL often does), so they are masked. A host that is neither a DNS name nor
+    an IP literal is masked too (``https://****``). Used for the webhook URLs
+    and the ``user_host`` Apprise schemes.
     """
     line = url.strip()
     scheme = _scheme_of(line)
@@ -452,7 +470,7 @@ def redact_url(url: str) -> str:
         port = parts.port
     except ValueError:
         return f"{scheme}://****"
-    if not host:
+    if not host or not _showable_host(host):
         return f"{scheme}://****"
     netloc = f"[{host}]" if ":" in host else host
     if port:
@@ -485,8 +503,10 @@ def url_secret_parts(url: str) -> list[str]:
     """The parts of a URL that names its host that an error text must not show.
 
     The host and port stay readable (as in ``redact_url``); the user,
-    password, path segments, query values and fragment are masked. A URL with
-    no readable host is a token as a whole, with its pieces.
+    password, path segments, query values and fragment are masked, except a
+    part the host name already shows (``api`` in ``https://api.example.com/api``):
+    scrubbing it would mask the host too. A URL with no readable host is a
+    token as a whole, with its pieces.
     """
     line = url.strip()
     rest = line.split("://", 1)[-1]
@@ -495,7 +515,7 @@ def url_secret_parts(url: str) -> list[str]:
         hostname = parts.hostname
     except ValueError:
         hostname = None
-    if not hostname:
+    if not hostname or not _showable_host(hostname):
         return [rest, *_TOKEN_SPLIT.split(rest)]
     secrets: list[str] = []
     userinfo = parts.netloc.rpartition("@")[0] if "@" in parts.netloc else ""
@@ -506,7 +526,8 @@ def url_secret_parts(url: str) -> list[str]:
         key, sep, value = item.partition("=")
         secrets.append(value if sep else key)
     secrets.append(parts.fragment)
-    return [secret for secret in secrets if secret]
+    host = hostname.lower()
+    return [secret for secret in secrets if secret and secret.lower() not in host]
 
 
 def apprise_url_secret_parts(url: str) -> list[str]:

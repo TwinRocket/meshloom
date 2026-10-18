@@ -821,3 +821,39 @@ async def test_legacy_v1_restore_with_a_clear_webhook_url(test_db, client):
     after = (await AppSettingsRepository.get()).notification_destinations
     assert after.webhook.url == "https://example.org/legacy"
     assert after.webhook.hmac_secret == "legacy-secret"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://hooks.example.org;token=SECRET123/x", "https://****"),
+        ("https://hooks.example.org%2Ftok/x", "https://****"),
+        (
+            "https://user:pw@hooks.example.org:8443/a?b=c",
+            "https://****@hooks.example.org:8443/****",
+        ),
+        ("http://[::1]:1880/hook", "http://[::1]:1880/****"),
+        ("http://192.168.1.10/hook", "http://192.168.1.10/****"),
+        ("https://HOOKS.Example.org", "https://hooks.example.org"),
+    ],
+)
+def test_redact_url_shows_only_a_valid_host(url, expected):
+    from app.net.apprise_urls import redact_url
+
+    assert redact_url(url) == expected
+    assert "secret123" not in redact_url(url).lower()
+
+
+def test_scrubbing_a_webhook_url_keeps_the_host_readable():
+    url = "https://api.example.com/api/webhooks/123/tok-9"
+    scrubbed = scrub_error(f"error {url}", config_secret_values("webhook", {"url": url}))
+    assert scrubbed is not None
+    assert re.search(r"https://api\.example\.com/", scrubbed)
+    assert "tok-9" not in scrubbed
+
+
+def test_a_host_with_non_host_characters_is_scrubbed_as_a_token():
+    url = "https://hooks.example.org;token=SECRET123/x"
+    scrubbed = scrub_error(f"error {url}", config_secret_values("webhook", {"url": url}))
+    assert scrubbed is not None
+    assert "SECRET123" not in scrubbed
