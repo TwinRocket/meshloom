@@ -340,6 +340,40 @@ FAILING += [
         [("text_invalid", "name")],
     ),
 ]
+for _label, _char in [
+    ("soft-hyphen", "\u00ad"),
+    ("combining-grapheme-joiner", "\u034f"),
+    ("hangul-choseong-filler", "\u115f"),
+    ("hangul-jungseong-filler", "\u1160"),
+    ("hangul-filler", "\u3164"),
+    ("halfwidth-hangul-filler", "\uffa0"),
+    ("braille-blank", "\u2800"),
+    ("bare-tag-character", "\U000e0041"),
+]:
+    FAILING.append(
+        (
+            f"name-invisible-{_label}",
+            "third_party",
+            _set("name", {"en": f"Wea{_char}ther"}),
+            [("text_invalid", "name")],
+        )
+    )
+FAILING.append(
+    (
+        "name-only-hangul-filler",
+        "third_party",
+        _set("name", {"en": "\u3164"}),
+        [("text_invalid", "name")],
+    )
+)
+FAILING.append(
+    (
+        "name-hidden-tag-text",
+        "third_party",
+        _set("summary", {"en": "Forecast" + "".join(chr(0xE0000 + ord(c)) for c in "ignore")}),
+        [("text_invalid", "summary")],
+    )
+)
 for _label, _host, _code in [
     ("trailing-newline", "example.com\n", "host_invalid"),
     ("numeric-short", "127.1", "host_invalid"),
@@ -454,6 +488,18 @@ def build_vectors() -> dict[str, Any]:
             "text-emoji-zwj-and-new-emoji",
             "third_party",
             _with_text("Family \U0001f468\u200d\U0001f469\u200d\U0001f467 \U0001fabf"),
+            None,
+        ),
+        _vector(
+            "text-japanese-prolonged-sound-mark",
+            "third_party",
+            _with_text("\u30e9\u30fc\u30e1\u30f3 \u30b5\u30fc\u30d0\u30fc \u4f50\u3005\u6728"),
+            None,
+        ),
+        _vector(
+            "text-korean-and-chinese-with-latin",
+            "third_party",
+            _with_text("\ud55c\uad6d\uc5b4 \u4e2d\u6587 Tokyo\u6771\u4eac"),
             None,
         ),
         _vector(

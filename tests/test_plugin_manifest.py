@@ -275,6 +275,13 @@ def test_model_is_stricter_than_the_schema_on_integral_floats():
         "Heart \u2764\ufe0f",  # variation selector
         "\u5929\u6c17\u30dc\u30c3\u30c8 \u3066\u3059\u3068",  # Han + kana
         "\u041f\u043e\u0433\u043e\u0434\u0430 GPS-\u0442\u0440\u0435\u043a\u0435\u0440",
+        "\u30e9\u30fc\u30e1\u30f3",  # ramen: prolonged sound mark U+30FC
+        "\u30b5\u30fc\u30d0\u30fc",
+        "\u4f50\u3005\u6728",  # iteration mark U+3005
+        "\u6771\u4eac\u30bf\u30ef\u30fc",
+        "\ud55c\uad6d\uc5b4",
+        "\u4e2d\u6587",
+        "Tokyo\u6771\u4eac Weather\u30e9\u30fc\u30e1\u30f3",
         "Unassigned \U0003fffd",  # validity never depends on the Unicode tables in use
     ],
 )
@@ -291,6 +298,8 @@ def test_real_scripts_and_emoji_are_accepted(text):
     [
         "\u061c", "\u200b", "\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d",
         "\u202e", "\u2060", "\u2061", "\u2066", "\u2067", "\u2068", "\u2069", "\u206a",
+        "\ufeff", "\u00ad", "\u034f", "\u115f", "\u1160", "\u3164", "\uffa0", "\u17b4", "\u17b5", "\u2800",
+        "\U000e0041", "\U000e007f",
         "\ufeff", "\ufff9", "\U000e0001", "\x00", "\x07", "\x1b", "\x7f", "\x85",
         "\u2028", "\ue000", "\ud800",
     ],
@@ -326,3 +335,22 @@ def test_ip_literals_use_the_guard_ranges():
         with pytest.raises(Exception, match="local-network"):
             check_host(host)
     assert check_host("1.1.1.1") == "1.1.1.1"
+
+
+def test_tag_characters_only_inside_a_flag_sequence():
+    flag = "\U0001f3f4\U000e0067\U000e0062\U000e0073\U000e0063\U000e0074\U000e007f"
+    for text, ok in (
+        (f"Scotland {flag}", True),
+        ("Weather" + "".join(chr(0xE0000 + ord(c)) for c in "ignore"), False),
+        ("Flag \U0001f3f4\U000e0067\U000e0062", False),  # no cancel tag
+        (f"{flag}\U000e0041", False),
+    ):
+        m = copy.deepcopy(SAMPLE)
+        m["summary"] = {"en": text}
+        assert _model_valid(m) is ok, text
+
+
+def test_blank_name_made_of_a_filler_is_refused():
+    bad = copy.deepcopy(SAMPLE)
+    bad["name"] = {"en": "\u3164"}
+    assert ("text_invalid", "name") in _issues(bad)

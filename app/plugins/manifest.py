@@ -35,6 +35,7 @@ from pydantic_core import PydanticCustomError
 from app.plugins.errors import PluginIssue, PluginValidationError, issues_from_pydantic
 from app.plugins.licenses import ACCEPTED_LICENSES
 from app.plugins.permissions import Host, Permissions, is_meshloom_domain
+from app.plugins.scripts import mixed_script_word
 
 MANIFEST_MAX_BYTES = 64 * 1024
 RESERVED_NAMESPACES = ("meshloom", "local")
@@ -107,12 +108,30 @@ def _https_url(value: str) -> str:
 # emoji tag sequences are allowed. Unassigned code points are NOT refused: validity
 # must not depend on the Unicode tables of the running Python.
 _FORBIDDEN_CHARS = frozenset(
-    {0x061C, 0x180E, 0x200B, 0x200E, 0x200F, 0x2060, 0xFEFF, 0xE0001}
+    {
+        0x00AD,  # soft hyphen
+        0x034F,  # combining grapheme joiner
+        0x061C,
+        0x115F,  # Hangul fillers: blank letters
+        0x1160,
+        0x17B4,  # Khmer inherent vowels, invisible
+        0x17B5,
+        0x180E,
+        0x200B,
+        0x200E,
+        0x200F,
+        0x2060,
+        0x2800,  # braille blank
+        0x3164,
+        0xFEFF,
+        0xFFA0,
+    }
     | set(range(0x202A, 0x202F))  # bidi embeddings and overrides
     | set(range(0x2061, 0x2065))  # invisible operators
     | set(range(0x2066, 0x206A))  # bidi isolates
     | set(range(0x206A, 0x2070))  # deprecated format controls
     | set(range(0xFFF9, 0xFFFC))  # interlinear annotation
+    | set(range(0xE0000, 0xE0080))  # tag characters, except in a flag sequence (below)
 )
 
 
@@ -120,44 +139,30 @@ def is_forbidden_char(char: str) -> bool:
     return ord(char) in _FORBIDDEN_CHARS or unicodedata.category(char) in ("Cc", "Cs", "Co")
 
 
+# Tag characters are only valid inside an emoji tag sequence (a flag): U+1F3F4, tags
+# U+E0020-E007E, then the cancel tag U+E007F. Anywhere else they are invisible text.
+_TAG_SEQUENCE_RE = re.compile("\U0001f3f4[\U000e0020-\U000e007e]+\U000e007f")
+
+
+def contains_forbidden(value: str) -> bool:
+    return any(map(is_forbidden_char, _TAG_SEQUENCE_RE.sub("", value)))
+
+
 def _text(value: str) -> str:
-    if _CONTROL_RE.search(value) or value != value.strip() or any(map(is_forbidden_char, value)):
+    if _CONTROL_RE.search(value) or value != value.strip() or contains_forbidden(value):
         raise PydanticCustomError(
             "text_invalid", "no control, bidi, zero-width or private-use characters"
         )
     return value
 
 
-_SCRIPT_GROUPS = {
-    "HIRAGANA": "CJK",
-    "KATAKANA": "CJK",
-    "HANGUL": "CJK",
-    "BOPOMOFO": "CJK",
-    "CJK": "CJK",
-}
-# Letters whose Unicode name does not start with a script name.
-_NO_SCRIPT = frozenset({"MODIFIER", "FEMININE", "MASCULINE", "MICRO"})
-
-
-def _word_scripts(word: str) -> set[str]:
-    scripts: set[str] = set()
-    for char in word:
-        first = unicodedata.name(char, "?").split(" ", 1)[0]
-        if first not in _NO_SCRIPT and first != "?":
-            scripts.add(_SCRIPT_GROUPS.get(first, first))
-    return scripts
-
-
 def _identity_text(value: str) -> str:
-    """Names shown as identities: also refuse a word mixing letters of two scripts
-    (`Meshloom` with a Cyrillic, Greek, Armenian or Cherokee look-alike). Compatibility
-    forms (fullwidth, mathematical) fold to plain letters first."""
+    """Names shown as identities: also refuse a word that fails the UTS #39 "Highly
+    Restrictive" script check (`Meshloom` with a Cyrillic, Greek, Armenian or Cherokee
+    look-alike). Compatibility forms (fullwidth, mathematical) fold to plain letters first."""
     _text(value)
-    for word in re.findall(r"[^\W\d_]+", unicodedata.normalize("NFKC", value)):
-        if len(_word_scripts(word)) > 1:
-            raise PydanticCustomError(
-                "name_homoglyph", "a word mixes letters from different scripts"
-            )
+    if mixed_script_word(value):
+        raise PydanticCustomError("name_homoglyph", "a word mixes letters from different scripts")
     return value
 
 

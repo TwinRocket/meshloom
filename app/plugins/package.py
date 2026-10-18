@@ -23,7 +23,7 @@ from app.plugins.manifest import (
     MANIFEST_MAX_BYTES,
     Manifest,
     Origin,
-    is_forbidden_char,
+    contains_forbidden,
     load_manifest_json,
 )
 
@@ -68,7 +68,7 @@ def _check_name(info: zipfile.ZipInfo) -> str:
     shown = name[:80]
     if not name or len(name) > MAX_NAME_LENGTH:
         raise _fail("package_unsafe_path", shown, "entry name is empty or too long")
-    if "\\" in name or any(map(is_forbidden_char, name)):
+    if "\\" in name or contains_forbidden(name):
         raise _fail(
             "package_unsafe_path",
             shown,
