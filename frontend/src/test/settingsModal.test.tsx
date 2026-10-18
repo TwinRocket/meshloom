@@ -1339,7 +1339,7 @@ describe('SettingsModal', () => {
             url: SECRET_REDACTED,
             hmac_secret: SECRET_REDACTED,
             url_redacted: 'https://hooks.example.org/****',
-          } as typeof DEFAULT_NOTIFICATION_DESTINATIONS.webhook,
+          },
         },
       },
     });
@@ -1357,10 +1357,20 @@ describe('SettingsModal', () => {
     fireEvent.blur(url);
     expect(onSaveAppSettings).not.toHaveBeenCalled();
 
+    // Another field saved: the kept URL and secret are not sent back.
+    fireEvent.click(screen.getByLabelText(i18n.t('settings.notifications.webhookAllowPrivate')));
+    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
+    const update = (onSaveAppSettings.mock.calls[0] as unknown[])[0] as {
+      notification_destinations: { webhook: Record<string, unknown> };
+    };
+    expect(update.notification_destinations.webhook).not.toHaveProperty('url');
+    expect(update.notification_destinations.webhook).not.toHaveProperty('hmac_secret');
+    expect(update.notification_destinations.webhook).not.toHaveProperty('url_redacted');
+
     fireEvent.click(
       screen.getByRole('button', { name: i18n.t('settings.notifications.webhookUrlClear') })
     );
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(2));
     expect(onSaveAppSettings).toHaveBeenLastCalledWith({
       notification_destinations: expect.objectContaining({
         webhook: expect.objectContaining({ url: '', hmac_secret: '' }),

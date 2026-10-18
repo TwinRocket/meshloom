@@ -168,9 +168,6 @@ function isValidVapidSubject(value: string): boolean {
   return false;
 }
 
-// TODO(MSHL-275): move url_redacted into NotificationWebhookDest (types.ts) once it is free.
-type WebhookDestWithRedactedUrl = NotificationDestinations['webhook'] & { url_redacted?: string };
-
 export function SettingsNotificationsSection({
   appSettings = null,
   onSaveAppSettings,
@@ -336,9 +333,7 @@ export function SettingsNotificationsSection({
 
   // The stored URL is write-only (SECRET_REDACTED); the API adds its scheme and host.
   const webhookUrlKept = destDraft.webhook.url === SECRET_REDACTED;
-  const webhookUrlRedacted =
-    (appSettings?.notification_destinations?.webhook as WebhookDestWithRedactedUrl | undefined)
-      ?.url_redacted ?? '';
+  const webhookUrlRedacted = savedDest.webhook.url_redacted ?? '';
 
   /** Clears the URL and its HMAC secret at once: a kept secret never follows a new URL. */
   const clearWebhookUrl = () => {
