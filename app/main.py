@@ -88,6 +88,7 @@ from app.routers import (
     locate,
     messages,
     packets,
+    plugins,
     push,
     radio,
     radio_wifi,
@@ -511,6 +512,7 @@ app.include_router(rooms.router, prefix="/api")
 app.include_router(channels.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")
 app.include_router(packets.router, prefix="/api")
+app.include_router(plugins.router, prefix="/api")
 app.include_router(read_state.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(share.router, prefix="/api")

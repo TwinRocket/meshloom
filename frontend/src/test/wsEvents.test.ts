@@ -177,6 +177,23 @@ describe('wsEvents', () => {
     });
   });
 
+  it('keeps the attention of a plugin_status event', () => {
+    const data = {
+      instance_id: 'i1',
+      plugin_id: 'meshloom.greeter',
+      label: 'Greeter',
+      status: 'needs_attention',
+      last_error: null,
+      dropped_events: 0,
+      restarts: 0,
+      attention: { type: 'config_required', fields: ['greeting'] },
+    };
+    expect(parseWsEvent(JSON.stringify({ type: 'plugin_status', data }))).toEqual({
+      type: 'plugin_status',
+      data,
+    });
+  });
+
   it('returns unknown events with rawType preserved', () => {
     const event = parseWsEvent(JSON.stringify({ type: 'mystery', data: { ok: true } }));
 

@@ -364,8 +364,11 @@ def _error_text(error: Any) -> str:
 
 
 def check_directory(
-    root: Path, *, origin: str = "third_party", strict: bool = False
+    root: Path, *, origin: str = "third_party", strict: bool = False, dry_run: bool = True
 ) -> CheckReport:
+    """The three stages. `dry_run=False` stops after the scan: nothing is executed,
+    which is what the server's `POST /api/plugins/{id}/check` runs (the dry run
+    uses `isolation: none`, development only)."""
     report = CheckReport()
     if not root.is_dir():
         report.errors.append(Finding("package", "not_a_directory", f"{root} is not a directory"))
@@ -375,7 +378,8 @@ def check_directory(
         return report
     manifest, py_files = staged
     _scan_stage(root, py_files, strict, report)
-    _dry_run(root, manifest, report)
+    if dry_run:
+        _dry_run(root, manifest, report)
     return report
 
 

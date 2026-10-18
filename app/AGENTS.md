@@ -1191,6 +1191,13 @@ service's body (`tests/test_test_route_error_oracles.py`).
 - `DELETE /channels/{key}`: the canonical Public channel cannot be deleted (400).
 - `DELETE /messages/{id}` is local only.
 - Bots: create/patch answer 403 while bots are disabled (`MESHCORE_DISABLE_BOTS`).
+- `/api/plugins` (`routers/plugins.py`, `docs/dev/plugins.md`, "API"): reads `send`, everything
+  else `admin`; a write is 403 `plugins_disabled` under the host lock. **Plugin secrets are
+  write-only**: never return `config_for_init()`; logs, diagnostic and `test` output go through
+  `_clean_line` (instance secrets, `redact_text`, 1000 characters). `test` is captured by the
+  host and must never reach `send_channel_message`/`send_direct_message`; `check` never runs
+  plugin code. `PATCH config` replaces the plain fields. A route that starts a process must go
+  through `plugin_manager` and `announce()` its status.
 
 ## Host flags (files)
 
