@@ -19,7 +19,6 @@
     "beginning": "Beginning of history",
     "loadError": "The feed could not be loaded: {{error}}",
     "loadOlderError": "Older messages could not be loaded: {{error}}",
-    "retry": "Retry",
-    "unknownConversation": "Unknown conversation"
+    "retry": "Retry"
   }
 }

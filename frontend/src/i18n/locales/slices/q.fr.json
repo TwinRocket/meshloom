@@ -19,7 +19,6 @@
     "beginning": "Début de l'historique",
     "loadError": "Impossible de charger le fil : {{error}}",
     "loadOlderError": "Impossible de charger les messages plus anciens : {{error}}",
-    "retry": "Réessayer",
-    "unknownConversation": "Conversation inconnue"
+    "retry": "Réessayer"
   }
 }
