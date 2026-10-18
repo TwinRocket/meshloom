@@ -508,7 +508,7 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             raise _error(400, "auth_trusted_proxies_invalid") from None
     settings = await AuthSettingsRepository.update(trusted_proxies=trusted_proxies)
     if trusted_proxies is not None:
-        logger.info("Trusted proxies set to %s", trusted_proxies)
+        logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))
         await _audit(
             "settings_change",
             "success",

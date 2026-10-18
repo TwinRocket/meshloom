@@ -87,20 +87,31 @@ def normalize_proxies(raw_proxies: Iterable[str]) -> list[str]:
 
 
 def valid_stored_proxies(stored: Iterable[str]) -> tuple[str, ...]:
-    """Keep the entries that pass the PATCH validation, drop and log the rest."""
+    """Keep the entries that pass the PATCH validation, drop the rest.
+
+    Only a count is logged: the entries come from the auth settings row, and
+    no value read from it reaches a log line.
+    """
     proxies: list[str] = []
+    invalid = over_limit = 0
     for raw in stored:
         try:
             proxy = normalize_proxy(raw)
-        except ValueError as exc:
-            logger.warning("Ignoring invalid trusted proxy %r: %s", raw, exc)
+        except ValueError:
+            invalid += 1
             continue
         if proxy in proxies:
             continue
         if len(proxies) >= MAX_TRUSTED_PROXIES:
-            logger.warning("Ignoring trusted proxy %r: over the %d limit", raw, MAX_TRUSTED_PROXIES)
+            over_limit += 1
             continue
         proxies.append(proxy)
+    if invalid:
+        logger.warning("Ignoring %d invalid trusted proxy entries", invalid)
+    if over_limit:
+        logger.warning(
+            "Ignoring %d trusted proxy entries over the %d limit", over_limit, MAX_TRUSTED_PROXIES
+        )
     return tuple(proxies)
 
 
