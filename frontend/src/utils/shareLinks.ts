@@ -56,8 +56,8 @@ export function splitShareLinkBody(
 
 const HOST_MAX = 253;
 // C0/DEL, ALM, ZWSP, bidi embeddings/overrides/isolates, word joiner, BOM.
-// eslint-disable-next-line no-control-regex
 const HOST_STRIP =
+  // eslint-disable-next-line no-control-regex
   /[\u0000-\u001F\u007F\u061C\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF\s]/g;
 
 /**
