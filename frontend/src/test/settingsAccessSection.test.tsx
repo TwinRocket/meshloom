@@ -67,6 +67,7 @@ function mockApi() {
   };
   vi.spyOn(api, 'getAuthMe').mockImplementation(async () => me);
   vi.spyOn(api, 'listAuthSessions').mockImplementation(async () => sessions);
+  vi.spyOn(api, 'listAuthTokens').mockResolvedValue([]);
   vi.spyOn(api, 'listAuthUsers').mockImplementation(async () => users);
   vi.spyOn(api, 'getAuthSettings').mockImplementation(async () => settings);
   vi.spyOn(api, 'getAuthAudit').mockResolvedValue({ entries: [], next_cursor: null });

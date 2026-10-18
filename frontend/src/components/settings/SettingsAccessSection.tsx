@@ -7,6 +7,7 @@ import { AccessIngressPanel } from './AccessIngressPanel';
 import { AccessProfilePanel } from './AccessProfilePanel';
 import { AccessPublicAddressesPanel } from './AccessPublicAddressesPanel';
 import { AccessSessionsPanel } from './AccessSessionsPanel';
+import { AccessTokensPanel } from './AccessTokensPanel';
 import {
   AccessSecurityNoticeBanner,
   AccessTrustedNetworksPanel,
@@ -27,6 +28,7 @@ export function SettingsAccessSection({ className }: { className?: string }) {
       {isAdmin && <AccessSecurityNoticeBanner notices={notices} />}
       {hasProfile && <AccessProfilePanel />}
       {hasProfile && <AccessSessionsPanel />}
+      {hasProfile && <AccessTokensPanel />}
       {isAdmin && <AccessUsersPanel />}
       {isAdmin && <AccessTrustedNetworksPanel onNotices={setNotices} />}
       {isAdmin && <AccessPublicAddressesPanel />}

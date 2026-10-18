@@ -287,12 +287,13 @@ purpose.
   `auditShared.ts`; rows virtualised with `@tanstack/react-virtual` in a fixed-height
   scroller; `details` is never shown). Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded
   `errors.auth_*`, the policy detail, and a generic line for an uncoded 429/503). Strings:
-  slice `az` (`settings.access.*`, `settingsNav.access`), audit strings in slice `ba`
+  slice `az` (`settings.access.*`, `settingsNav.access`), token strings in slice `bm`
+  (`settings.access.tokens.*`), audit strings in slice `ba`
   (`settings.access.audit.*`), trusted networks and the Access security notice in slice
   `bc` (`settings.access.trustedNetworks.*`, `settings.access.securityNotice.*`,
   `errors.auth_trusted_*`). `AccessTrustedNetworksPanel` edits the rules (a strong
   warning when one maps to an administrator); the notice banner at the top of the
-  section shows the server's `security_notices` and nothing else. Tests: `src/test/settingsAccessSection.test.tsx`,
+  section shows the server's `security_notices` and nothing else. `AccessTokensPanel` (`api.createAuthToken`/`listAuthTokens`/`revokeAuthToken`) is for `member` and `admin` only (`TOKEN_ROLES`), offers the role's own scopes (`tokenScopesForRole`), shows the secret once in a dialog that Escape and outside clicks cannot close, and under ingress adds a notice that tokens are refused there. Tests: `src/test/accessTokensPanel.test.tsx`, `src/test/settingsAccessSection.test.tsx`,
   `src/test/accessAuditPanel.test.tsx`, `src/test/accessTrustedNetworksPanel.test.tsx`. Add a settings section
   to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool
   that calls a refused route goes in `TOOL_CAPABILITY` (`navDestinations.ts`). A hook that

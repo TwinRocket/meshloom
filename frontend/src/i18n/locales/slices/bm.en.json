@@ -1,0 +1,54 @@
+{
+  "settings": {
+    "access": {
+      "tokens": {
+        "title": "API and device tokens",
+        "help": "A token lets a script, a Home Assistant sensor or a phone app use Meshloom without your password. Create one per device, give it the fewest scopes it needs and revoke it when you stop using it.",
+        "ingressNotice": "You are signed in through Home Assistant. Tokens do not work through Home Assistant's ingress, which signs users in itself: a device must reach Meshloom at its own address. You can still create tokens here for such devices.",
+        "none": "No token yet.",
+        "add": "Create a token",
+        "createTitle": "Create a token",
+        "createHelp": "The token belongs to your account and never gets more than your role allows.",
+        "name": "Name",
+        "namePlaceholder": "ha-sensor",
+        "scopes": "Scopes",
+        "scopesHelp": "Tick only what the device needs. Only the scopes your role allows are offered.",
+        "scope": {
+          "read": "Channels, contacts, packets and the map.",
+          "read_private": "Direct messages.",
+          "send": "Send messages and edit contacts and channels.",
+          "repeater_admin": "Repeaters and rooms.",
+          "admin": "Everything, settings included."
+        },
+        "expiry": "Expires",
+        "expiryNever": "Never",
+        "expiryDays_one": "In {{count}} day",
+        "expiryDays_other": "In {{count}} days",
+        "expiryCustom": "On a date…",
+        "expiryDate": "Expiry date",
+        "create": "Create",
+        "secretTitle": "Copy your token now",
+        "secretHelp": "The token “{{name}}” is created.",
+        "secretWarning": "This is the only time this token is shown. Meshloom keeps only a fingerprint of it and cannot show it again: copy it now and store it somewhere safe. If you lose it, revoke it and create another.",
+        "secretLabel": "Token",
+        "copy": "Copy",
+        "copied": "Copied",
+        "copyFailed": "Could not copy. Select the token and copy it by hand.",
+        "secretUsage": "Send it as “Authorization: Bearer <token>” on every request.",
+        "secretDone": "I have copied it",
+        "owner": "account {{user}}",
+        "created": "created {{when}}",
+        "lastUsed": "last used {{when}}",
+        "neverUsed": "never used",
+        "expires": "expires {{when}}",
+        "noExpiry": "no expiry",
+        "expired": "Expired",
+        "revoke": "Revoke",
+        "revokeNamed": "Revoke the token {{name}}",
+        "revoked": "Token revoked.",
+        "revokeTitle": "Revoke “{{name}}”?",
+        "revokeHelp": "The token stops working at once and any connection open with it is closed. This cannot be undone."
+      }
+    }
+  }
+}

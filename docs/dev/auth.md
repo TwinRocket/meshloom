@@ -9,8 +9,10 @@ registry (which role may call which route, and receive which WebSocket event).
 The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`,
 "Session gate"). Home Assistant ingress identities are in "Ingress" below,
 trusted networks in "Trusted networks", API and device tokens in "API and
-device tokens", the TOTP second factor in "Second factor (TOTP)". Pairing and
-passkeys come with later Access tickets. Like every doc here
+device tokens" (the tokens page is
+`frontend/src/components/settings/AccessTokensPanel.tsx`), the TOTP second
+factor in "Second factor (TOTP)". Pairing and passkeys come with later Access
+tickets. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
 

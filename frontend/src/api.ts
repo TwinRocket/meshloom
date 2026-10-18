@@ -10,6 +10,9 @@ import type {
   AuthLoginRequest,
   AuthMe,
   AuthSessionRow,
+  AuthTokenCreate,
+  AuthTokenCreated,
+  AuthTokenRow,
   AuthUserCreate,
   AuthUserPatch,
   AuthUserRow,
@@ -223,6 +226,8 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     }
     throw error;
   }
+  // 204 No Content (revoking a token) has no body to parse.
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
@@ -313,6 +318,12 @@ export const api = {
   /** Every session but the current one. */
   revokeOtherAuthSessions: () =>
     fetchJson<{ revoked: number }>('/auth/sessions', { method: 'DELETE' }),
+  // API and device tokens (own account; an admin lists everyone's)
+  listAuthTokens: () => fetchJson<AuthTokenRow[]>('/auth/tokens', { cache: 'no-store' }),
+  createAuthToken: (body: AuthTokenCreate) =>
+    fetchJson<AuthTokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify(body) }),
+  revokeAuthToken: (id: string) =>
+    fetchJson<void>(`/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Users (admin)
   listAuthUsers: () => fetchJson<AuthUserRow[]>('/auth/users', { cache: 'no-store' }),
   createAuthUser: (body: AuthUserCreate) =>
