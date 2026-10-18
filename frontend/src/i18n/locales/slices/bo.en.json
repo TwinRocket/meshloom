@@ -1,0 +1,70 @@
+{
+  "auth": {
+    "secondFactor": {
+      "help": "Enter the 6-digit code from your authenticator app.",
+      "codeLabel": "Authentication code",
+      "recoveryHelp": "Enter one of your recovery codes. Each one works once.",
+      "recoveryLabel": "Recovery code",
+      "submit": "Verify",
+      "useRecovery": "Use a recovery code",
+      "useApp": "Use the authenticator app",
+      "back": "Back to the password",
+      "expired": "This sign-in expired. Enter your password again."
+    },
+    "recoveryCodes": {
+      "title": "Recovery codes",
+      "warning": "Keep these codes somewhere safe, such as a password manager. They are shown only once and each works once, if you lose your authenticator app.",
+      "copy": "Copy",
+      "copied": "Recovery codes copied.",
+      "copyFailed": "Could not copy: select the codes and copy them by hand.",
+      "download": "Download",
+      "fileHeader": "Meshloom recovery codes. Each code works once. Keep this file private.",
+      "saved": "I have saved these codes",
+      "done": "Done"
+    },
+    "totp": {
+      "passwordHelp": "Confirm your password to set up two-factor authentication.",
+      "currentPassword": "Current password",
+      "start": "Continue",
+      "cancel": "Cancel",
+      "scanHelp": "Scan this QR code with an authenticator app, or enter the key by hand. The code is drawn in this browser; the key never leaves your Meshloom.",
+      "qrTitle": "Two-factor setup QR code",
+      "manualKey": "Setup key",
+      "manualHelp": "Time-based, {{digits}} digits, every {{period}} seconds.",
+      "confirmCode": "Code shown by the app",
+      "confirm": "Turn on",
+      "codeField": "Authentication code",
+      "codeOrRecovery": "An authenticator code or an unused recovery code.",
+      "codeOnly": "An authenticator code (a recovery code does not work here)."
+    },
+    "enrolmentRequired": {
+      "title": "Set up two-factor authentication",
+      "description": "The administrator requires two-factor authentication for administrators. Set it up to carry on."
+    }
+  },
+  "settings": {
+    "access": {
+      "security": {
+        "title": "Two-factor authentication",
+        "ingress": "Two-factor authentication does not apply under Home Assistant: Home Assistant already signed you in and handles your login security.",
+        "noPassword": "This account has no Meshloom password (it signs in another way), so it has no second factor.",
+        "on": "Two-factor authentication is on.",
+        "off": "Two-factor authentication is off. Add a second step to your sign-in with an authenticator app.",
+        "codesLeft_one": "{{count}} recovery code left.",
+        "codesLeft_other": "{{count}} recovery codes left.",
+        "pending": "A setup was started but not finished. Starting again replaces it.",
+        "enable": "Set up two-factor authentication",
+        "regenerate": "New recovery codes",
+        "regenerateSubmit": "Generate new codes",
+        "disable": "Turn off",
+        "disableSubmit": "Turn off two-factor authentication",
+        "disabled": "Two-factor authentication turned off.",
+        "require": "Require two-factor authentication for administrators",
+        "requireHelp": "An administrator with a password who has not set it up can do nothing but set it up. Members and viewers are not affected.",
+        "requireOwnFirst": "Set up your own second factor first, or you will be asked to as soon as you turn this on.",
+        "requireOn": "Administrators now need two-factor authentication.",
+        "requireOff": "Two-factor authentication is no longer required for administrators."
+      }
+    }
+  }
+}

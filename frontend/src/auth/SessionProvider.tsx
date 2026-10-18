@@ -15,11 +15,13 @@ import { toast } from '../components/ui/sonner';
 import {
   forbiddenIsToasted,
   onAuthRequired,
+  onEnrolmentRequired,
   onForbidden,
   onPasswordChangeRequired,
 } from './authEvents';
 import { ChangePasswordPage } from './ChangePasswordPage';
 import { capabilitiesFor, UNRESTRICTED, type Capabilities } from './capabilities';
+import { EnrolmentRequiredPage } from './EnrolmentRequiredPage';
 import { IngressSignInPage } from './IngressSignInPage';
 import { LoginPage } from './LoginPage';
 import { ReloginDialog } from './ReloginDialog';
@@ -83,6 +85,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [expired, setExpired] = useState(false);
   // Set by a 403 `auth_password_change_required` from any call, before the session says so.
   const [passwordChangeForced, setPasswordChangeForced] = useState(false);
+  // Same for `auth_2fa_enrolment_required`: `require_2fa_for_admins` was switched on mid-session.
+  const [enrolmentForced, setEnrolmentForced] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -132,6 +136,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authenticated) return;
     return onPasswordChangeRequired(() => setPasswordChangeForced(true));
+  }, [authenticated]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    return onEnrolmentRequired(() => setEnrolmentForced(true));
   }, [authenticated]);
 
   // A refused action is told once, in the reader's language, whatever the server's text.
@@ -266,11 +275,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // The session itself says so (a fresh load): nothing of the app is worth mounting.
   if (session.user?.must_change_password) return changePage;
 
+  const enrolmentPage = (
+    <EnrolmentRequiredPage
+      onEnrolled={() => {
+        void load().then(() => setEnrolmentForced(false));
+      }}
+      onSignOut={() => void signOut()}
+    />
+  );
+  // `require_2fa_for_admins`: the server refuses everything but the enrolment itself.
+  if (session.user?.second_factor_enrolment_required) return enrolmentPage;
+
   return (
     <SessionContext.Provider value={value}>
       {children}
       {passwordChangeForced && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-background">{changePage}</div>
+      )}
+      {enrolmentForced && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-background">{enrolmentPage}</div>
       )}
       {expired && (
         <ReloginDialog

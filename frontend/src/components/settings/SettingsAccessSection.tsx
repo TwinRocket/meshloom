@@ -6,6 +6,7 @@ import { AccessAuditPanel } from './AccessAuditPanel';
 import { AccessIngressPanel } from './AccessIngressPanel';
 import { AccessProfilePanel } from './AccessProfilePanel';
 import { AccessPublicAddressesPanel } from './AccessPublicAddressesPanel';
+import { AccessSecurityPanel } from './AccessSecurityPanel';
 import { AccessSessionsPanel } from './AccessSessionsPanel';
 import { AccessTokensPanel } from './AccessTokensPanel';
 import {
@@ -27,6 +28,7 @@ export function SettingsAccessSection({ className }: { className?: string }) {
     <div className={`space-y-4 ${className ?? ''}`}>
       {isAdmin && <AccessSecurityNoticeBanner notices={notices} />}
       {hasProfile && <AccessProfilePanel />}
+      {hasProfile && <AccessSecurityPanel />}
       {hasProfile && <AccessSessionsPanel />}
       {hasProfile && <AccessTokensPanel />}
       {isAdmin && <AccessUsersPanel />}

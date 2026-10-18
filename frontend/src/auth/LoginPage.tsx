@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TriangleAlert } from 'lucide-react';
 
@@ -7,7 +7,13 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
-import { behindUntrustedHttpsProxy, noSessionReason, type AuthSessionInfo } from './types';
+import { SecondFactorStep } from './SecondFactorStep';
+import {
+  behindUntrustedHttpsProxy,
+  noSessionReason,
+  type AuthSessionInfo,
+  type SecondFactorChallenge,
+} from './types';
 
 /** The sign-in form fields, shared with the re-login dialog. */
 export function LoginForm({
@@ -24,6 +30,14 @@ export function LoginForm({
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The password checked and the account owes a code: the second step replaces the form.
+  const [challenge, setChallenge] = useState<SecondFactorChallenge | null>(null);
+
+  const restart = useCallback((reason?: string) => {
+    setChallenge(null);
+    setBusy(false);
+    setError(reason ?? null);
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -32,6 +46,12 @@ export function LoginForm({
     setError(null);
     try {
       const session = await api.authLogin({ username: username.trim(), password });
+      if (!session.authenticated && session.second_factor) {
+        setChallenge(session.second_factor);
+        setPassword('');
+        setBusy(false);
+        return;
+      }
       const reason = noSessionReason(session);
       if (reason) {
         setError(t(`errors.${reason}`));
@@ -45,6 +65,10 @@ export function LoginForm({
       setPassword('');
       setBusy(false);
     }
+  }
+
+  if (challenge) {
+    return <SecondFactorStep challenge={challenge} onDone={onDone} onRestart={restart} />;
   }
 
   return (
