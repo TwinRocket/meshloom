@@ -1,12 +1,13 @@
 import { useCallback, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { TriangleAlert } from 'lucide-react';
+import { KeyRound, TriangleAlert } from 'lucide-react';
 
 import { api, formatApiError } from '../api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
+import { formatPasskeyError, passkeyLoginAvailable, signInWithPasskey } from './passkeys';
 import { SecondFactorStep } from './SecondFactorStep';
 import {
   behindUntrustedHttpsProxy,
@@ -19,10 +20,13 @@ import {
 export function LoginForm({
   initialUsername = '',
   autoFocusPassword = false,
+  passkey = false,
   onDone,
 }: {
   initialUsername?: string;
   autoFocusPassword?: boolean;
+  /** Offer "Sign in with a passkey" (the server and the browser both support it). */
+  passkey?: boolean;
   onDone: (session: AuthSessionInfo) => void;
 }) {
   const { t } = useTranslation();
@@ -67,6 +71,25 @@ export function LoginForm({
     }
   }
 
+  async function submitPasskey() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const session = await signInWithPasskey();
+      const reason = noSessionReason(session);
+      if (reason) {
+        setError(t(`errors.${reason}`));
+        setBusy(false);
+        return;
+      }
+      onDone(session);
+    } catch (err) {
+      setError(formatPasskeyError(err, t));
+      setBusy(false);
+    }
+  }
+
   if (challenge) {
     return <SecondFactorStep challenge={challenge} onDone={onDone} onRestart={restart} />;
   }
@@ -107,6 +130,25 @@ export function LoginForm({
       <Button type="submit" className="w-full" disabled={busy || !username.trim() || !password}>
         {t('auth.login.submit')}
       </Button>
+      {passkey && (
+        <>
+          <div className="flex items-center gap-3 text-xs text-muted-foreground" aria-hidden="true">
+            <span className="h-px flex-1 bg-border" />
+            {t('auth.passkey.or')}
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={busy}
+            onClick={() => void submitPasskey()}
+          >
+            <KeyRound className="mr-2 h-4 w-4" aria-hidden="true" />
+            {t('auth.passkey.signIn')}
+          </Button>
+        </>
+      )}
     </form>
   );
 }
@@ -138,10 +180,12 @@ export function LoginPage({
           className="flex gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground"
         >
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <p>{t('auth.login.insecureContext')}</p>
+          <p>
+            {t('auth.login.insecureContext')} {t('auth.passkey.insecureHint')}
+          </p>
         </div>
       )}
-      <LoginForm onDone={onDone} />
+      <LoginForm onDone={onDone} passkey={passkeyLoginAvailable(session)} />
     </AuthLayout>
   );
 }

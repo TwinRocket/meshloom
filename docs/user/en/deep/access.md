@@ -153,7 +153,17 @@ A passkey signs you in with your phone, your computer or a security key (fingerp
 
 Passkeys need a secure connection with a name: Meshloom offers them only on **https** through an address declared in **Settings → Users & Access → Public addresses** (behind a reverse proxy, list it in **Trusted proxies** too so Meshloom sees the https: [Behind a reverse proxy](#behind-a-reverse-proxy)), through Meshloom Remote, or on `http://localhost`. Over plain `http://` on the local network (an IP address or a `.local` name), and through Home Assistant, they are not available: browsers refuse them there. A passkey works only on the address it was created on.
 
-The screens to add and use passkeys come with a later version; the API is ready (accounts with a password, not the kiosk or Home Assistant users):
+### In the interface
+
+- **Add one.** Go to **Settings → Users & Access → Passkeys** and choose **Add a passkey**. Give it a name (for example *Laptop* or *Phone*), enter your password and, if two-factor authentication is on, a code from your authenticator app or a recovery code, then follow your browser's prompt (fingerprint, face, PIN or security key). The section lists each passkey with its name, when it was added and when it was last used. A recovery code is used up as soon as you submit the form, even if you then cancel the browser's prompt: you would need another one to try again.
+- **Sign in with one.** When the address supports passkeys and your browser does too, the sign-in page shows **Sign in with a passkey** under the password form. On a plain `http://` address the button is hidden and the page says why.
+- **As a second factor.** After the password, an account that has two-factor authentication on and at least one passkey sees **Use a passkey** next to the code field.
+- **Remove one.** Choose **Remove** next to it and enter your password. Your password keeps working.
+- If you cancel the browser's prompt, let it time out, or try to add a device that already has a passkey for your account, Meshloom says so and nothing changes. The section is not shown under Home Assistant, nor for accounts without a password, and says why.
+
+### API
+
+The same things through the API (accounts with a password, not the kiosk or Home Assistant users):
 
 | Request | What it does |
 |---|---|

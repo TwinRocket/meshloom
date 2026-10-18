@@ -14,7 +14,7 @@ device tokens" (the tokens page is
 factor in "Second factor (TOTP)" (its pages: `frontend/src/auth/TotpEnrolment.tsx`,
 `SecondFactorStep.tsx`, `RecoveryCodesView.tsx`, `EnrolmentRequiredPage.tsx` and
 `frontend/src/components/settings/AccessSecurityPanel.tsx`), passkeys in
-"Passkeys" (server side; their pages come with MSHL-96). Pairing comes with a later
+"Passkeys" (their pages: `frontend/src/auth/passkeys.ts`, the login button in `LoginPage.tsx`, `SecondFactorStep.tsx` and `frontend/src/components/settings/AccessPasskeysPanel.tsx`; `frontend/AGENTS.md`, "Session gate"). Pairing comes with a later
 Access ticket. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.

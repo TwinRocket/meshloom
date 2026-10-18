@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { KeyRound } from 'lucide-react';
 
 import { api, ApiError, formatApiError, getApiErrorCode } from '../api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { formatPasskeyError, passkeySecondFactor, passkeysSupported } from './passkeys';
 import type { AuthSessionInfo, SecondFactorChallenge } from './types';
 
 /**
@@ -33,6 +35,7 @@ export function SecondFactorStep({
     expiredText.current = t('auth.secondFactor.expired');
   }, [t]);
   const canRecover = challenge.methods.includes('recovery');
+  const canPasskey = challenge.methods.includes('passkey') && passkeysSupported();
 
   // The password step is only good for `expires_in` seconds: do not let the reader type
   // a code into a form the server already forgot.
@@ -43,6 +46,36 @@ export function SecondFactorStep({
     );
     return () => window.clearTimeout(timer);
   }, [challenge, onRestart]);
+
+  // A failure of the pending login itself sends the reader back to the password.
+  function failed(err: unknown) {
+    if (
+      err instanceof ApiError &&
+      getApiErrorCode(err.detail)?.code === 'auth_2fa_pending_invalid'
+    ) {
+      onRestart(formatApiError(err, t));
+      return;
+    }
+    setError(formatPasskeyError(err, t));
+    setBusy(false);
+  }
+
+  async function answerWithPasskey() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const session = await passkeySecondFactor(challenge.pending_token);
+      if (!session.authenticated) {
+        setError(t('errors.auth_no_session'));
+        setBusy(false);
+        return;
+      }
+      onDone(session);
+    } catch (err) {
+      failed(err);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -106,6 +139,18 @@ export function SecondFactorStep({
       <Button type="submit" className="w-full" disabled={busy || !code.trim()}>
         {t('auth.secondFactor.submit')}
       </Button>
+      {canPasskey && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={busy}
+          onClick={() => void answerWithPasskey()}
+        >
+          <KeyRound className="mr-2 h-4 w-4" aria-hidden="true" />
+          {t('auth.passkey.useAsSecondFactor')}
+        </Button>
+      )}
       <div className="flex flex-wrap justify-between gap-2 text-sm">
         {canRecover && (
           <button

@@ -775,8 +775,12 @@ async def test_options_go_through_the_login_limiter_and_a_full_table(public_addr
             webauthn, "CEREMONY_MAX_ENTRIES", {"login": 1, "register": 1, "second_factor": 1}
         )
         assert (await client.post("/api/auth/webauthn/login/options", json={})).status_code == 200
-        full = await client.post("/api/auth/webauthn/login/options", json={})
+        from unittest import mock
+
+        with mock.patch("app.routers.auth_webauthn.logger") as log:
+            full = await client.post("/api/auth/webauthn/login/options", json={})
         assert full.status_code == 429
+        log.warning.assert_called_once()
 
 
 async def test_listing_passkeys_needs_a_session(public_address, sign_in_as):

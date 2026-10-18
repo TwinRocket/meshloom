@@ -248,3 +248,16 @@ export interface AuthAuditPage {
   entries: AuthAuditEntry[];
   next_cursor: string | null;
 }
+
+/** One row of `GET /auth/webauthn/credentials`: a passkey of the caller, never a key. */
+export interface PasskeyRow {
+  id: number;
+  name: string;
+  created_at: number;
+  last_used_at: number | null;
+  transports: string[];
+  aaguid: string;
+  /** A synced (multi-device) credential. */
+  backup_eligible: boolean;
+  backed_up: boolean;
+}

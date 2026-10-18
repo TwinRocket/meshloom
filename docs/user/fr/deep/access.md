@@ -153,7 +153,17 @@ Une passkey vous connecte avec votre téléphone, votre ordinateur ou une clé d
 
 Les passkeys demandent une connexion sécurisée avec un nom : Meshloom ne les propose qu’en **https** par une adresse déclarée dans **Réglages → Utilisateurs et accès → Adresses publiques** (derrière un reverse-proxy, listez-le aussi dans **Proxies de confiance** pour que Meshloom voie le https : [Derrière un reverse-proxy](#derrière-un-reverse-proxy)), par Meshloom Remote, ou sur `http://localhost`. En simple `http://` sur le réseau local (une adresse IP ou un nom `.local`), et à travers Home Assistant, elles ne sont pas disponibles : les navigateurs les y refusent. Une passkey ne fonctionne que sur l’adresse où elle a été créée.
 
-Les écrans pour ajouter et utiliser les passkeys arrivent dans une version ultérieure ; l’API est prête (comptes avec mot de passe, pas le kiosque ni les utilisateurs Home Assistant) :
+### Dans l’interface
+
+- **En ajouter une.** Allez dans **Réglages → Utilisateurs et accès → Passkeys** et choisissez **Ajouter une passkey**. Donnez-lui un nom (par exemple *Portable* ou *Téléphone*), saisissez votre mot de passe et, si la double authentification est activée, un code de votre application d’authentification ou un code de secours, puis suivez la fenêtre de votre navigateur (empreinte, visage, code de l’appareil ou clé de sécurité). La section liste chaque passkey avec son nom, sa date d’ajout et sa dernière utilisation. Un code de secours est consommé dès que vous validez le formulaire, même si vous annulez ensuite la fenêtre du navigateur : il en faudrait un autre pour réessayer.
+- **Se connecter avec.** Quand l’adresse accepte les passkeys et que votre navigateur aussi, la page de connexion affiche **Se connecter avec une passkey** sous le formulaire du mot de passe. Sur une adresse en simple `http://`, le bouton est masqué et la page en donne la raison.
+- **Comme second facteur.** Après le mot de passe, un compte qui a la double authentification et au moins une passkey voit **Utiliser une passkey** à côté du champ du code.
+- **En retirer une.** Choisissez **Supprimer** à côté d’elle et saisissez votre mot de passe. Votre mot de passe continue de fonctionner.
+- Si vous annulez la fenêtre du navigateur, la laissez expirer, ou essayez d’ajouter un appareil qui a déjà une passkey pour votre compte, Meshloom le dit et rien ne change. La section n’apparaît pas sous Home Assistant, ni pour un compte sans mot de passe, et en donne la raison.
+
+### API
+
+Les mêmes choses par l’API (comptes avec mot de passe, pas le kiosque ni les utilisateurs Home Assistant) :
 
 | Requête | Ce qu’elle fait |
 |---|---|
