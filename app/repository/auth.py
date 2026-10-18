@@ -55,6 +55,7 @@ _SECRET_WORDS = frozenset(
         "apikey",
         "auth",
         "authorization",
+        "bearer",
         "code",
         "codes",
         "cookie",

@@ -299,6 +299,7 @@ async def test_a_new_session_is_never_its_own_eviction_victim(test_db):
         "radio_ble_pin",
         "api-key",
         "x_auth_token",
+        "bearer",
         "APIKey",
         "privatekey",
         "session_id",
