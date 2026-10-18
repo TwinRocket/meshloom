@@ -8,6 +8,12 @@ connects to one of the validated IPs (``pinned_async_client`` for httpx, the
 pinned urllib3 connections in ``app/push/send.py`` for pywebpush), so the DNS
 answer cannot change between the check and the send.
 
+Callers that talk to a fixed set of hosts (the Store client, the plugin
+``http`` capability) also pass a ``HostAllowlist`` and send through
+``follow_checked_redirects``: every redirect hop is validated again, the
+request and response bodies are capped (the response while it streams) and
+headers a caller must never set are dropped.
+
 Address classes are tested range by range. ``ipaddress.is_private`` and
 ``is_global`` changed between Python 3.11 and 3.13 (IPv4-mapped IPv6,
 100.64.0.0/10), so they are never used. See ``app/net/AGENTS.md``.
@@ -20,9 +26,9 @@ import ipaddress
 import logging
 import socket
 import ssl
-from collections.abc import AsyncIterator, Iterable, Mapping
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import httpx
@@ -30,7 +36,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
-EgressCode = Literal["egress_scheme", "egress_private_address", "egress_unresolvable"]
+EgressCode = Literal[
+    "egress_scheme",
+    "egress_private_address",
+    "egress_unresolvable",
+    "egress_host_not_allowed",
+    "egress_too_many_redirects",
+    "egress_request_too_large",
+    "egress_response_too_large",
+]
 
 DEFAULT_SCHEMES = frozenset({"http", "https"})
 
@@ -105,6 +119,10 @@ EGRESS_MESSAGES: dict[str, str] = {
     "egress_private_address": "The address is on a private network (LAN, localhost); "
     "allow private networks for this destination to use it",
     "egress_unresolvable": "The host name was not found; try typing the IP address instead",
+    "egress_host_not_allowed": "This host is not in the list of hosts allowed here",
+    "egress_too_many_redirects": "The destination redirected too many times",
+    "egress_request_too_large": "The request body is larger than allowed",
+    "egress_response_too_large": "The answer is larger than allowed",
 }
 
 
@@ -189,13 +207,22 @@ def check_addresses(ips: Iterable[IPAddress], *, allow_private_network: bool) ->
             raise EgressBlocked("egress_private_address")
 
 
+def _normal_host(host: str) -> str:
+    """One spelling per host: lowercase, no trailing dot, IP literals compressed."""
+    host = host.lower().rstrip(".")
+    try:
+        return str(ipaddress.ip_address(host))
+    except ValueError:
+        return host
+
+
 def _split(url: str, schemes: frozenset[str]) -> tuple[str, str, int]:
     try:
         parsed = httpx.URL(url.strip())
         scheme = parsed.scheme.lower()
         # The IDNA2008 A-label httpx also sends in Host, so DNS, SNI and Host
         # name the same host (getaddrinfo would apply IDNA 2003: faß -> fass).
-        host = parsed.raw_host.decode("ascii").lower().rstrip(".")
+        host = _normal_host(parsed.raw_host.decode("ascii"))
         port = parsed.port
     except Exception:
         raise EgressBlocked("egress_scheme") from None
@@ -208,6 +235,60 @@ def _split(url: str, schemes: frozenset[str]) -> tuple[str, str, int]:
     if not 0 < port < 65536:
         raise EgressBlocked("egress_scheme")
     return scheme, host, port
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+@dataclass(frozen=True)
+class HostAllowlist:
+    """Exact hosts a caller may reach: ``host`` or ``host:port``, never a range.
+
+    An entry is a host name (IDNA2008 A-label, like the URL host) or an IP
+    literal (``[v6]`` with a port). An entry without a port allows only the
+    default port of the URL's scheme. Wildcards, CIDR ranges, schemes, paths
+    and user info are refused with ``ValueError`` when the list is built.
+    """
+
+    entries: frozenset[tuple[str, int | None]] = field(default_factory=frozenset)
+
+    @classmethod
+    def of(cls, *entries: str) -> HostAllowlist:
+        return cls.parse(entries)
+
+    @classmethod
+    def parse(cls, entries: Iterable[str]) -> HostAllowlist:
+        parsed: set[tuple[str, int | None]] = set()
+        for entry in entries:
+            parsed.add(_parse_allowlist_entry(entry))
+        return cls(frozenset(parsed))
+
+    def allows(self, scheme: str, host: str, port: int) -> bool:
+        if (host, port) in self.entries:
+            return True
+        return (host, None) in self.entries and _DEFAULT_PORTS.get(scheme) == port
+
+
+def _parse_allowlist_entry(entry: str) -> tuple[str, int | None]:
+    raw = entry.strip()
+    if not raw or any(c in raw for c in "*/\\?#@ \t") or "://" in raw:
+        raise ValueError("allowlist entry must be an exact host or host:port")
+    try:
+        ipaddress.ip_address(raw)
+    except ValueError:
+        pass
+    else:
+        if ":" in raw:  # a bare IPv6 literal: no port
+            return _normal_host(raw), None
+    try:
+        url = httpx.URL(f"https://{raw}/")
+        host = _normal_host(url.raw_host.decode("ascii"))
+        port = url.port
+    except Exception:
+        raise ValueError("allowlist entry must be an exact host or host:port") from None
+    if not host or (port is not None and not 0 < port < 65536):
+        raise ValueError("allowlist entry must be an exact host or host:port")
+    return host, port
 
 
 async def _resolve(host: str, port: int) -> tuple[IPAddress, ...]:
@@ -238,12 +319,16 @@ async def validate_destination(
     *,
     allow_private_network: bool = False,
     schemes: frozenset[str] = DEFAULT_SCHEMES,
+    allowed_hosts: HostAllowlist | None = None,
 ) -> ResolvedDestination:
     """Check the scheme, resolve A/AAAA and refuse a forbidden address class.
 
-    Raises ``EgressBlocked`` before any connection is made.
+    With ``allowed_hosts``, a host outside the list is refused before the DNS
+    lookup. Raises ``EgressBlocked`` before any connection is made.
     """
     scheme, host, port = _split(url, schemes)
+    if allowed_hosts is not None and not allowed_hosts.allows(scheme, host, port):
+        raise EgressBlocked("egress_host_not_allowed")
     if host in _METADATA_HOSTS:
         raise EgressBlocked("egress_private_address")
     ips = await _resolve(host, port)
@@ -271,8 +356,7 @@ class PinnedClient:
         headers: Mapping[str, str] | None = None,
     ) -> httpx.Response:
         dest = self.destination
-        host_header = httpx.URL(dest.url).netloc.decode("ascii")
-        sent_headers = {**(headers or {}), "Host": host_header}
+        sent_headers = self._headers(headers)
         last: httpx.ConnectError | None = None
         # Like a dual-stack connect: the next validated address only when the
         # connection itself failed, never once the request may have been sent.
@@ -297,6 +381,45 @@ class PinnedClient:
     ) -> httpx.Response:
         return await self.request("POST", content=content, headers=headers)
 
+    @asynccontextmanager
+    async def stream(
+        self,
+        method: str,
+        *,
+        content: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> AsyncIterator[httpx.Response]:
+        """``request`` with the body left unread, for callers that cap it."""
+        dest = self.destination
+        sent_headers = self._headers(headers)
+        last: httpx.ConnectError | None = None
+        for ip in dest.ips:
+            request = self._client.build_request(
+                method,
+                pinned_url(dest, ip),
+                content=content,
+                headers=sent_headers,
+                extensions={"sni_hostname": dest.host},
+            )
+            try:
+                response = await self._client.send(request, stream=True)
+            except httpx.ConnectError as exc:
+                if is_tls_error(exc):
+                    raise
+                last = exc
+                continue
+            try:
+                yield response
+            finally:
+                await response.aclose()
+            return
+        assert last is not None
+        raise last
+
+    def _headers(self, headers: Mapping[str, str] | None) -> dict[str, str]:
+        host_header = httpx.URL(self.destination.url).netloc.decode("ascii")
+        return {**(headers or {}), "Host": host_header}
+
 
 @asynccontextmanager
 async def pinned_async_client(
@@ -314,6 +437,169 @@ async def pinned_async_client(
         follow_redirects=False, verify=verify_tls, timeout=timeout, trust_env=False
     ) as client:
         yield PinnedClient(client, dest)
+
+
+# Never taken from a caller of ``follow_checked_redirects``: httpx sets the
+# framing and Host itself, cookies are never sent, and hop-by-hop headers
+# belong to the connection, not to the caller.
+DROPPED_REQUEST_HEADERS = frozenset(
+    {
+        "host",
+        "content-length",
+        "transfer-encoding",
+        "cookie",
+        "connection",
+        "keep-alive",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "upgrade",
+    }
+)
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+
+def filter_request_headers(
+    headers: Mapping[str, str] | None,
+    header_filter: Callable[[str, str], bool] | None = None,
+) -> dict[str, str]:
+    """The caller's headers without ``DROPPED_REQUEST_HEADERS``.
+
+    ``header_filter(name, value)`` may drop more (False drops); it can never
+    bring a dropped header back.
+    """
+    kept: dict[str, str] = {}
+    for name, value in (headers or {}).items():
+        if name.lower() in DROPPED_REQUEST_HEADERS:
+            continue
+        if header_filter is not None and not header_filter(name, value):
+            continue
+        kept[name] = value
+    return kept
+
+
+@dataclass(frozen=True)
+class CheckedResponse:
+    """A response read under the caps. ``url`` is the last hop's URL, never an IP."""
+
+    status_code: int
+    headers: httpx.Headers
+    content: bytes
+    url: str
+    redirects: int
+
+
+async def follow_checked_redirects(
+    method: str,
+    url: str,
+    *,
+    timeout: httpx.Timeout | float,
+    allowed_hosts: HostAllowlist | None = None,
+    allow_private_network: bool = False,
+    schemes: frozenset[str] = DEFAULT_SCHEMES,
+    max_redirects: int = 0,
+    max_request_bytes: int | None = None,
+    max_response_bytes: int | None = None,
+    total_timeout: float | None = None,
+    content: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
+    header_filter: Callable[[str, str], bool] | None = None,
+    verify_tls: bool = True,
+) -> CheckedResponse:
+    """Send through the guard and follow redirects one validated hop at a time.
+
+    Every hop, the first included, goes through ``validate_destination`` with
+    the same allowlist, schemes and private-network rule, then a pinned
+    client. A body above ``max_request_bytes`` is refused before the first DNS
+    lookup; a response is aborted as soon as it declares or streams more than
+    ``max_response_bytes``. ``timeout`` applies per httpx operation,
+    ``total_timeout`` (seconds) to the whole chain, so a server dripping bytes
+    cannot hold the call open. With ``max_redirects=0`` a redirect is returned
+    as is; one more redirect than allowed raises ``egress_too_many_redirects``.
+    Cookies are never stored nor sent, and ``Authorization`` is dropped when a
+    hop leaves the origin. Raises ``EgressBlocked``, ``httpx`` transport errors
+    or ``TimeoutError``.
+    """
+    if max_request_bytes is not None and content is not None and len(content) > max_request_bytes:
+        raise EgressBlocked("egress_request_too_large")
+    sent_headers = filter_request_headers(headers, header_filter)
+    # The cap counts decoded bytes; asking for no compression keeps a small
+    # compressed chunk from inflating far past it before it is counted.
+    if not any(k.lower() == "accept-encoding" for k in sent_headers):
+        sent_headers["Accept-Encoding"] = "identity"
+    async with asyncio.timeout(total_timeout):
+        redirects = 0
+        while True:
+            dest = await validate_destination(
+                url,
+                allow_private_network=allow_private_network,
+                schemes=schemes,
+                allowed_hosts=allowed_hosts,
+            )
+            # A fresh client per hop: no cookie jar carried from one host to the next.
+            async with (
+                pinned_async_client(dest, verify_tls=verify_tls, timeout=timeout) as client,
+                client.stream(method, content=content, headers=sent_headers) as response,
+            ):
+                location = response.headers.get("location")
+                if response.status_code not in _REDIRECT_STATUSES or not location:
+                    body = await _read_capped(response, max_response_bytes)
+                    return CheckedResponse(
+                        status_code=response.status_code,
+                        headers=response.headers,
+                        content=body,
+                        url=dest.url,
+                        redirects=redirects,
+                    )
+                if max_redirects == 0:
+                    return CheckedResponse(
+                        status_code=response.status_code,
+                        headers=response.headers,
+                        content=b"",
+                        url=dest.url,
+                        redirects=0,
+                    )
+                status = response.status_code
+            redirects += 1
+            if redirects > max_redirects:
+                raise EgressBlocked("egress_too_many_redirects")
+            try:
+                # Against the URL the caller asked for, never the pinned IP URL.
+                next_url = httpx.URL(dest.url).join(location).copy_with(fragment=None)
+            except Exception:
+                raise EgressBlocked("egress_scheme") from None
+            if (status == 303 and method != "HEAD") or (status in (301, 302) and method == "POST"):
+                method, content = "GET", None
+                sent_headers = {
+                    k: v for k, v in sent_headers.items() if k.lower() != "content-type"
+                }
+            previous = httpx.URL(dest.url)
+            if (next_url.scheme, next_url.host, next_url.port) != (
+                previous.scheme,
+                previous.host,
+                previous.port,
+            ):
+                sent_headers = {
+                    k: v for k, v in sent_headers.items() if k.lower() != "authorization"
+                }
+            url = str(next_url)
+
+
+async def _read_capped(response: httpx.Response, limit: int | None) -> bytes:
+    """The body, aborted (connection closed) once it exceeds ``limit`` bytes."""
+    if limit is not None:
+        declared = response.headers.get("content-length")
+        if declared is not None and declared.strip().isdigit() and int(declared) > limit:
+            raise EgressBlocked("egress_response_too_large")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in response.aiter_bytes():
+        size += len(chunk)
+        if limit is not None and size > limit:
+            raise EgressBlocked("egress_response_too_large")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def is_tls_error(exc: BaseException) -> bool:
