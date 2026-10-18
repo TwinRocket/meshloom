@@ -273,6 +273,19 @@ async def _reset_radio_proxy_runtime():
 
 
 @pytest.fixture(autouse=True)
+def _reset_auth_state():
+    """No first-run preparation and empty Basic caches at the start of each test."""
+    from app.auth import setup_code
+    from app.security import reset_basic_state
+
+    setup_code.reset_first_run_state()
+    reset_basic_state()
+    yield
+    setup_code.reset_first_run_state()
+    reset_basic_state()
+
+
+@pytest.fixture(autouse=True)
 def _auth_as_admin(request, monkeypatch):
     """Sign every app request in as an admin, so route tests need no login.
 

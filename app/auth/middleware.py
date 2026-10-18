@@ -7,9 +7,10 @@ scope it:
    order, ``Authorization: Bearer`` (device tokens, a later Access ticket: no
    token is valid yet), ``Authorization: Basic`` (the compatibility
    credential, ``app/security.py``), then the session cookie
-   (``app/auth/sessions.py``), and stores it in ``scope["state"]``;
+   (``app/auth/sessions.py``), and stores it in ``scope["state"]``; when the
+   argon2id queue is full (``VerificationBusy``) it answers 503 ``auth_busy``;
 2. applies the CSRF rule to unsafe methods (``origin_policy.unsafe_request_allowed``):
-   403 ``auth_origin_rejected`` unless the request carries a bearer token;
+   403 ``auth_origin_rejected`` unless a bearer token resolved;
 3. refuses any ``/api`` route outside ``PUBLIC_ROUTES`` without a principal:
    401 ``auth_setup_required`` while no account exists, else 401
    ``auth_required`` (or ``auth_invalid_credentials`` when a credential was
@@ -40,6 +41,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app import origin_policy
 from app.auth import sessions
 from app.auth.principal import Principal, Via, set_principal
+from app.auth.providers.password import VerificationBusy
 from app.security import (
     BASIC_CHALLENGE,
     authenticate_basic,
@@ -76,6 +78,7 @@ _MESSAGES = {
     "auth_invalid_credentials": "Invalid credentials",
     "auth_setup_required": "No account exists yet: create the administrator first",
     "auth_origin_rejected": "Cross-origin request refused",
+    "auth_busy": "Too many sign-in checks at once: retry in a moment",
 }
 
 
@@ -110,13 +113,22 @@ async def users_exist() -> bool:
 
 
 class _Resolution:
-    __slots__ = ("principal", "bearer", "credential_failed", "refreshed_cookie")
+    __slots__ = ("principal", "bearer_sent", "credential_failed", "busy", "refreshed_cookie")
 
     def __init__(self) -> None:
         self.principal: Principal | None = None
-        self.bearer = False
+        # An ``Authorization: Bearer`` header was sent (valid or not).
+        self.bearer_sent = False
         self.credential_failed = False
+        # The argon2id queue was full: answer 503 ``auth_busy``.
+        self.busy = False
         self.refreshed_cookie: str | None = None
+
+
+async def resolve_bearer_token(token: str, via: Via) -> Principal | None:
+    """The principal of a device or API token. None until tokens exist (a later
+    Access ticket): no bearer token is valid yet."""
+    return None
 
 
 async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Resolution:
@@ -126,13 +138,22 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
     if authorization:
         scheme = authorization.split(" ", 1)[0].lower()
         if scheme == "bearer":
-            # Device and API tokens come with a later Access ticket: none is valid yet.
-            result.bearer = True
-            result.credential_failed = True
+            result.bearer_sent = True
+            token = authorization.split(" ", 1)[1].strip() if " " in authorization else ""
+            principal = await resolve_bearer_token(token, via) if token else None
+            if principal is None:
+                result.credential_failed = True
+            result.principal = principal
             return result
         if scheme == "basic":
             credentials = parse_basic_authorization(authorization)
-            user = await authenticate_basic(credentials) if credentials else None
+            try:
+                user = (
+                    await authenticate_basic(credentials, client_ip(scope)) if credentials else None
+                )
+            except VerificationBusy:
+                result.busy = True
+                return result
             if user is None:
                 result.credential_failed = True
                 return result
@@ -189,10 +210,16 @@ class AuthMiddleware:
             await self.app(scope, receive, send)
             return
 
+        if result.busy:
+            await self._respond(send, 503, "auth_busy", path)
+            return
+
         method = scope.get("method", "GET").upper()
+        # Only a bearer token that resolved exempts from the Origin rule.
+        token_principal = result.principal is not None and result.principal.credential == "token"
         if (
             method in UNSAFE_METHODS
-            and not result.bearer
+            and not token_principal
             and not origin_policy.unsafe_request_allowed(headers)
         ):
             await self._respond(send, 403, "auth_origin_rejected", path)
@@ -209,7 +236,7 @@ class AuthMiddleware:
                 code = "auth_invalid_credentials"
             else:
                 code = "auth_required"
-            await self._respond(send, 401, code, path, challenge=not result.bearer)
+            await self._respond(send, 401, code, path, challenge=not result.bearer_sent)
             return
 
         await self.app(scope, receive, self._wrap_send(send, path, result.refreshed_cookie))
@@ -251,6 +278,8 @@ class AuthMiddleware:
             and await basic_compat_active()
         ):
             headers.append((b"www-authenticate", BASIC_CHALLENGE.encode("latin-1")))
+        if status == 503:
+            headers.append((b"retry-after", b"1"))
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": body})
 

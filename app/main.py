@@ -235,7 +235,8 @@ async def lifespan(app: FastAPI):
             basic_password=server_settings.basic_auth_password,
         )
     except Exception:
-        # The gate stays closed (every route needs an account); only setup may lack its code.
+        # Fail closed: setup answers 503 until a retry from the setup route succeeds
+        # (app/auth/setup_code.py), and every other route still needs an account.
         logger.exception("Failed to prepare the first-run account setup")
 
     # Initialize VAPID keys for Web Push (generates on first run)

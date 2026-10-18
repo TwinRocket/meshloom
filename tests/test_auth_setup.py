@@ -86,6 +86,9 @@ async def test_each_start_replaces_the_code_and_an_account_clears_it():
 
 
 async def test_setup_applies_the_password_policy():
+    await setup_code.prepare_first_run(
+        existing_database=False, basic_username="", basic_password=""
+    )
     async with make_client() as client:
         short = await client.post("/api/auth/setup", json=_setup_body(password="short pass"))
         assert short.status_code == 400
@@ -147,3 +150,74 @@ async def test_login_refuses_accounts_without_a_password_and_unknown_names():
             assert response.status_code == 401
             assert _code(response) == "auth_invalid_credentials"
             assert set_cookie_headers(response) == []
+
+
+async def test_setup_is_refused_until_first_run_preparation_succeeded(monkeypatch):
+    calls = 0
+    real_prepare = setup_code._prepare
+
+    async def flaky(*args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("database is locked")
+        await real_prepare(*args)
+
+    monkeypatch.setattr(setup_code, "_prepare", flaky)
+    with pytest.raises(RuntimeError):
+        await setup_code.prepare_first_run(
+            existing_database=False, basic_username="", basic_password=""
+        )
+    async with make_client() as client:
+        # The setup route retries once; while it keeps failing, 503 and nothing created.
+        monkeypatch.setattr(setup_code, "_prepare", _always_fail)
+        refused = await client.post("/api/auth/setup", json=_setup_body())
+        assert refused.status_code == 503
+        assert _code(refused) == "auth_setup_unavailable"
+        assert await UserRepository.list_all() == []
+
+        # Once a retry succeeds, setup opens (fresh database: no code).
+        monkeypatch.setattr(setup_code, "_prepare", real_prepare)
+        response = await client.post("/api/auth/setup", json=_setup_body())
+        assert response.status_code == 200, response.text
+
+
+async def _always_fail(*args):
+    raise RuntimeError("database is locked")
+
+
+async def test_setup_is_refused_when_never_prepared():
+    async with make_client() as client:
+        response = await client.post("/api/auth/setup", json=_setup_body())
+    assert response.status_code == 503
+    assert _code(response) == "auth_setup_unavailable"
+
+
+async def test_existing_database_without_a_stored_code_never_opens_setup():
+    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.clear_setup_code()  # lost by hand or by a failed write
+    async with make_client() as client:
+        session = (await client.get("/api/auth/session")).json()
+        assert session["setup_code_required"] is True
+        for body in (_setup_body(), _setup_body(setup_code="12345678")):
+            response = await client.post("/api/auth/setup", json=body)
+            assert response.status_code == 503
+            assert _code(response) == "auth_setup_unavailable"
+    assert await UserRepository.list_all() == []
+
+
+async def test_setup_through_ingress_creates_the_admin_but_says_no_session_opened(monkeypatch):
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    await setup_code.prepare_first_run(
+        existing_database=False, basic_username="", basic_password=""
+    )
+    async with make_client(client=("172.30.32.2", 40000)) as client:
+        response = await client.post("/api/auth/setup", json=_setup_body())
+        assert response.status_code == 200, response.text
+        assert set_cookie_headers(response) == []
+        body = response.json()
+        assert body["authenticated"] is False
+        assert body["session_reason"] == "auth_ingress_unsupported"
+        assert body["setup_required"] is False
+        assert (await client.get("/api/contacts")).status_code == 401
+    assert [user.username for user in await UserRepository.list_all()] == [ADMIN]

@@ -10,6 +10,9 @@
     "auth_username_invalid": "This user name cannot be used.",
     "auth_origin_rejected": "Request refused: it came from another site. Add that site to Allowed origins if you trust it.",
     "auth_forbidden": "This account is not allowed to do that.",
-    "auth_session_not_found": "This session no longer exists."
+    "auth_session_not_found": "This session no longer exists.",
+    "auth_busy": "Too many sign-in attempts at once. Retry in a moment.",
+    "auth_setup_unavailable": "Account setup is not available yet. Check the server log, then retry.",
+    "auth_ingress_unsupported": "Signed in, but no session can be kept through the Home Assistant sidebar yet. Open Meshloom on its own address (port 8000)."
   }
 }
