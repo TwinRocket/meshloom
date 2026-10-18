@@ -19,7 +19,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+
+from starlette.types import Scope
 
 from app.auth.providers.trusted_network import rule_blocker
 from app.middleware import proxy_headers
@@ -54,7 +55,7 @@ def remember_displayed_code(code: str | None) -> None:
     _displayed_code = code
 
 
-async def displayed_setup_code(scope: Mapping[str, Any], headers: Mapping[str, str]) -> str | None:
+async def displayed_setup_code(scope: Scope, headers: Mapping[str, str]) -> str | None:
     """The installation code for the kiosk screen, or None (fail closed).
 
     Only on a kiosk host, only while the code issued at this start is still the
