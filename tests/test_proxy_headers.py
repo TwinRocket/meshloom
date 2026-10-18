@@ -301,11 +301,16 @@ class TestSettingsRoute:
     """``GET/PATCH /api/auth/settings`` (admin; conftest signs tests in as one)."""
 
     async def test_read_and_write(self, client):
-        assert (await client.get("/api/auth/settings")).json() == {
+        body = (await client.get("/api/auth/settings")).json()
+        # The test client's Host (``test``) is a name the guard observes.
+        rejected = body.pop("rejected_hosts")
+        assert [entry["host"] for entry in rejected] == ["test"]
+        assert body == {
             "trusted_proxies": [],
             "audit_retention_days": 366,
             "ingress_default_role": "member",
             "trusted_networks": [],
+            "host_guard_mode": "observe",
             "security_notices": [],
         }
         response = await client.patch(

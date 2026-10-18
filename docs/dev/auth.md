@@ -36,6 +36,7 @@ works on the same tables.
 | Installation code, first run | `app/auth/setup_code.py` |
 | CSRF rule, https detection, `X-Forwarded-Host` for same-origin | `app/origin_policy.py` |
 | Trusted proxies (the one interpreter of `X-Forwarded-For`/`-Proto`) | `app/middleware/proxy_headers.py`, `tests/test_proxy_headers.py` |
+| Host guard (`host_allowed`, observe/enforce middleware, observed names) | `app/middleware/host_guard.py`, `tests/test_host_guard.py` |
 | Security headers (HSTS over https, no-store, Permissions-Policy) | `app/middleware/security_headers.py`, `tests/test_security_headers.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
@@ -437,9 +438,10 @@ A rule never applies (`rule_blocker`, fail closed) when:
 - `Host` fails the strict guard (`host_allowed`): accepted are an IP literal,
   `localhost`, `*.local`, `*.home.arpa`, `*.lan`, `*.internal`, the machine's
   short name and FQDN, and the hosts of `auth_settings.public_urls`. This is the
-  cadrage's list, enforced for this provider from day one: DNS rebinding would
-  otherwise hand a principal to a page that holds no cookie at all. The general
-  `Host` guard (observe/enforce, rejected hosts) is a separate ticket.
+  cadrage's list, enforced for this provider from day one, whatever
+  `host_guard_mode` says: DNS rebinding would otherwise hand a principal to a
+  page that holds no cookie at all. The rule is `host_allowed` in
+  `app/middleware/host_guard.py`, shared with the general guard below.
 
 The account must exist, be enabled and have no pending password change. The
 longest matching prefix wins, then the first listed. Every auto-login writes one
@@ -856,3 +858,39 @@ checks (`rule_blocker`: not relayed or ingress, no trusted proxy, no proxy
 header, strict `Host`) with loopback allowed, and any error hides it.
 `meshloom-admin setup-code` works on a kiosk host (it tests `any_exist()`); the
 screen then stops showing the old code.
+
+## Host guard
+
+`app/middleware/host_guard.py` (MSHL-60) answers one question, "is this `Host` a
+name of this instance?" (`host_allowed`), for two callers with different
+strictness:
+
+- The trusted-network provider calls it directly and **always** refuses a
+  rejected host, in both modes (see "Trusted networks").
+- `HostGuardMiddleware` follows `auth_settings.host_guard_mode`. `observe` (the
+  5.0.0 default, so a reverse proxy name nobody declared yet keeps working
+  after an upgrade) passes the request, logs each new name once (warning) and
+  records it. `enforce` answers 421 `auth_host_rejected` (`detail.params.host`
+  names the host; the message says to declare it in Users & Access) and closes a
+  WebSocket upgrade with 1008. `enforce` becomes the default in 5.1 (decision
+  Q-A4).
+
+Accepted names: an IP literal, `localhost`, `*.local`, `*.home.arpa`, `*.lan`,
+`*.internal`, the machine's short name and `socket.getfqdn()`, the hosts of
+`auth_settings.public_urls`, and the Remote hostname
+(`host_guard.set_remote_hostname()`; the Remote client, T63, calls it when it
+learns the hostname). Exempt, whatever the mode: Home Assistant ingress
+(`ingress.is_ingress_request`: add-on and Supervisor peer) and requests tagged
+`scope["state"]["via"] == "relay"`. The middleware sits inside the
+trusted-proxy middleware (it needs the recorded TCP peer) and outside the auth
+gate; the header is read raw, never `X-Forwarded-Host`.
+
+What the settings screen (MSHL-65) reads: `GET /api/auth/settings` returns
+`host_guard_mode` and `rejected_hosts`, a list of `{host, count, first_seen,
+last_seen}`, newest first, at most 64 (`MAX_REJECTED_HOSTS`, least recently
+seen dropped). It lives in memory and is empty after a restart; only a
+well-formed name (ASCII, printable, 253 characters at most) is recorded.
+`host_guard.forget_rejected(name)` drops one once declared. Changing the mode
+or `public_urls` is not in `PATCH /api/auth/settings` yet: it goes through
+`AuthSettingsRepository.update(host_guard_mode=..., public_urls=...)`, which
+refreshes the guard (`host_guard.apply`).

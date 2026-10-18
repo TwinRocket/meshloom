@@ -61,8 +61,11 @@ deliberate. These are documented and are not treated as vulnerabilities:
   origins listed in **Settings > Local Configuration > Allowed origins** (empty
   by default), so another site cannot read API answers or send JSON requests.
   It can still send requests that need no preflight (a `POST` with no body)
-  without reading the answer. Nothing checks `Host` for the HTTP API either
-  (DNS rebinding).
+  without reading the answer. DNS rebinding: the `Host` header is checked in
+  observation mode in 5.0.0 (an unknown name is logged and let through, so an
+  upgrade behind a reverse proxy name keeps working; it will be refused by
+  default in 5.1), and always strictly before a trusted network signs anyone
+  in without a login.
   CORS and the WebSocket share one origin policy (`app/origin_policy.py`): the
   same list and the same parsing (lowercase, punycode host, default port
   dropped), so a listed site gets both the HTTP API and `/api/ws`.

@@ -46,6 +46,12 @@ services:
 
 The certificate mounts are read-only. `command` replaces the one built into the image, so it must contain the whole line, host and port included.
 
+## Host names Meshloom answers to
+
+A web page on someone else's domain can be re-pointed at your local network (DNS rebinding) and then talk to Meshloom under that domain's name. Meshloom therefore looks at the name in the browser's address (the `Host`) and knows these as its own: an IP address, `localhost`, names ending in `.local`, `.home.arpa`, `.lan` or `.internal`, this machine's name, a public address you declared, and the Meshloom Remote name.
+
+In 5.0.0 this is **observation only**: any other name (for example the DNS name of your reverse proxy) still works, Meshloom just notes it in its log and keeps a list of the names it saw. From 5.1 an unknown name will be refused with an error that names it, so declare your reverse proxy's public address before then. The one exception is already strict: a [trusted network](/en/docs/deep/access/#trusted-networks) never signs anyone in when the browser uses an unknown name.
+
 ## Trusted proxies
 
 Behind a reverse proxy, every request reaches Meshloom from the proxy's address. The visitor's own address and whether they used HTTPS only arrive in the `X-Forwarded-For` and `X-Forwarded-Proto` headers, which anyone can send. Meshloom believes them only from the addresses listed in **Settings → Local Configuration → Trusted proxies** (administrators only). The list is empty by default, and `127.0.0.1` is not trusted unless you add it.

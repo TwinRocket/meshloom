@@ -22,7 +22,8 @@ first that does not; anything unexpected also refuses, fail closed):
   (``LOOPBACK_ALLOWED_KINDS``): on a package, a source checkout or a container
   that may share the host's network, a local proxy or tunnel (``ssh -L`` adds
   no header at all) makes every internet visitor arrive from ``127.0.0.1``;
-- the ``Host`` header passes the strict guard (``host_allowed``): an IP
+- the ``Host`` header passes the strict guard (``host_allowed``, in
+  ``app/middleware/host_guard.py``, whatever ``host_guard_mode`` says): an IP
   literal, ``localhost``, a ``.local``/``.home.arpa``/``.lan``/``.internal``
   name, this machine's short or full name, or a declared public URL. Without
   it a DNS-rebinding page would get a principal with no cookie at all;
@@ -44,17 +45,15 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-import socket
 import time
 from collections.abc import Iterable, Mapping
-from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlsplit
 
 from app.auth import audit
 from app.auth.models import TrustedNetworkRule, User
 from app.middleware import proxy_headers
+from app.middleware.host_guard import host_allowed
 
 if TYPE_CHECKING:
     from app.auth.models import AuthSettings
@@ -90,9 +89,6 @@ LOOPBACK_ALLOWED_KINDS = frozenset({"addon"})
 # Install kinds that run in a container, where the default route's gateway is
 # the Docker bridge every published-port client may come from.
 CONTAINER_KINDS = frozenset({"compose", "container", "addon"})
-
-# Host names a public DNS name cannot be: a rebinding page never has them.
-LOCAL_HOST_SUFFIXES = (".local", ".home.arpa", ".lan", ".internal")
 
 ROUTE_TABLE = Path("/proc/net/route")
 
@@ -274,61 +270,6 @@ def matching_rule(
         ):
             best, best_prefix = rule, network.prefixlen
     return best
-
-
-@lru_cache(maxsize=1)
-def _machine_names() -> frozenset[str]:
-    names: set[str] = set()
-    for getter in (socket.gethostname, socket.getfqdn):
-        try:
-            name = getter().strip().rstrip(".").lower()
-        except OSError:
-            continue
-        if name:
-            names.add(name)
-            names.add(name.split(".", 1)[0])
-    return frozenset(names)
-
-
-def _public_hosts(public_urls: Iterable[str]) -> frozenset[str]:
-    hosts: set[str] = set()
-    for url in public_urls:
-        try:
-            host = urlsplit(url.strip()).hostname
-        except ValueError:
-            continue
-        if host:
-            hosts.add(host.rstrip(".").lower())
-    return frozenset(hosts)
-
-
-def _request_host(raw: str) -> str | None:
-    """The host part of a ``Host`` header, lowercase, without port or brackets."""
-    raw = raw.strip()
-    if not raw or any(char in raw for char in "/\\@?# \t"):
-        return None
-    try:
-        parsed = urlsplit(f"http://{raw}")
-        host = parsed.hostname
-        parsed.port  # noqa: B018 - raises ValueError on a malformed port
-    except ValueError:
-        return None
-    return host.rstrip(".").lower() if host else None
-
-
-def host_allowed(raw_host: str | None, public_urls: Iterable[str] = ()) -> bool:
-    """The strict ``Host`` guard of this provider (the cadrage's list, enforced)."""
-    host = _request_host(raw_host or "")
-    if not host:
-        return False
-    try:
-        ipaddress.ip_address(host)
-        return True
-    except ValueError:
-        pass
-    if host == "localhost" or host.endswith(LOCAL_HOST_SUFFIXES):
-        return True
-    return host in _machine_names() or host in _public_hosts(public_urls)
 
 
 def carries_proxy_headers(headers: Mapping[str, str]) -> bool:

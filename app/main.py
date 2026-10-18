@@ -62,6 +62,7 @@ from app.frontend_static import (
     register_frontend_missing_fallback,
 )
 from app.middleware import proxy_headers
+from app.middleware.host_guard import HostGuardMiddleware
 from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.radio import RadioDisconnectedError
@@ -418,6 +419,9 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(AllowedOriginsCORSMiddleware)
 # HSTS (https only, never ingress), no-store on auth routes, Permissions-Policy.
 app.add_middleware(SecurityHeadersMiddleware)
+# DNS-rebinding guard (observation mode by default): inside the proxy-headers
+# middleware, which records the TCP peer the ingress exemption reads.
+app.add_middleware(HostGuardMiddleware)
 # Outside the gate and CORS: the one interpreter of X-Forwarded-For/-Proto, from
 # the trusted proxies setting (app/middleware/proxy_headers.py).
 app.add_middleware(TrustedProxyHeadersMiddleware)
