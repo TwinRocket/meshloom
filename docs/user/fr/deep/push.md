@@ -13,7 +13,7 @@ Les mêmes règles peuvent aussi envoyer un **e-mail**, appeler un **webhook** o
 
 ## Ce qu’il vous faut
 
-**HTTPS.** Les navigateurs n’autorisent le composant d’arrière-plan qui reçoit les notifications (le service worker) que sur une page sécurisée. Un certificat fabriqué par vous peut convenir ; voir [HTTPS](/docs/deep/https/).
+**HTTPS.** Les navigateurs n’autorisent le composant d’arrière-plan qui reçoit les notifications (le service worker) que sur une page sécurisée. Un certificat fabriqué par vous peut convenir ; voir [HTTPS](/docs/deep/https/). Pour joindre Meshloom de l’extérieur avec un nom et un certificat que vous contrôlez, voir [Accès à distance par vos propres moyens](/fr/docs/deep/remote-self-hosted/).
 
 **Un accès à Internet depuis le serveur.** Les notifications passent par des services tenus par les éditeurs de navigateurs : Google (FCM), Mozilla ou Apple (APNs).
 

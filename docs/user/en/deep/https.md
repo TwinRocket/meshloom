@@ -140,6 +140,8 @@ When the browser reaches Meshloom directly over HTTPS, Meshloom adds `Strict-Tra
 
 Sign-in answers (`/api/auth/`) and the answers that carry secrets (the radio private key, backups, channel keys) carry `Cache-Control: no-store`, so no browser or proxy keeps them. A `Permissions-Policy` turns the camera and microphone off for the page and leaves the position button its location access.
 
+For a step-by-step setup with a Cloudflare Tunnel, Tailscale, WireGuard, Caddy, nginx or Traefik, see [Remote access on your own](/en/docs/deep/remote-self-hosted/).
+
 ## Reverse proxy under a subpath
 
 Meshloom can be served under a prefix such as `/meshcore/`, including through the Home Assistant sidebar. Addresses of assets, API and web manifest are all relative, so nothing else needs to be configured and no `X-Forwarded-*` header is required, except `X-Forwarded-Host` for the live connection when the proxy rewrites `Host` (see [WebSocket](#websocket)).
