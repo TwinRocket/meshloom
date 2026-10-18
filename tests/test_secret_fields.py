@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -102,7 +103,7 @@ def test_scrub_error_keeps_a_user_host_url_host_readable():
     secrets = config_secret_values("apprise", {"urls": url})
     scrubbed = scrub_error(f"could not reach {url}", secrets)
     assert scrubbed is not None
-    assert "hooks.example.org:8443" in scrubbed
+    assert re.search(r"hooks\.example\.org:8443/", scrubbed)
     for part in ("alice", "pw-123", "path-tok", "qval-9", "frag-7"):
         assert part not in scrubbed
 
