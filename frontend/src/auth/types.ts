@@ -34,7 +34,20 @@ export interface AuthSettings {
   audit_retention_days: number;
   /** Role of a Home Assistant user seen for the first time (the very first is always admin). */
   ingress_default_role: AuthRole;
+  /** Networks whose direct requests act as an account without a login. Empty by default. */
+  trusted_networks?: TrustedNetworkRule[];
+  /** The Access security notice, computed by the server (read only). */
+  security_notices?: AccessSecurityNotice[];
 }
+
+/** `cidr` → `user_id`: requests from that network act as that account (never through a proxy). */
+export interface TrustedNetworkRule {
+  cidr: string;
+  user_id: number;
+}
+
+export type AccessSecurityNotice =
+  'trusted_admin_reduced_plugin_isolation' | 'trusted_loopback_or_gateway_public';
 
 export interface AuthSetupRequest {
   username: string;

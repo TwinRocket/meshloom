@@ -7,8 +7,9 @@ that resolves a principal for every request, the CSRF rule, the first-run
 setup with its installation code, the `/api/auth/*` routes and the permission
 registry (which role may call which route, and receive which WebSocket event).
 The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`,
-"Session gate"). Home Assistant ingress identities are in "Ingress" below.
-Device tokens, trusted networks and 2FA come with later Access tickets. Like every doc here
+"Session gate"). Home Assistant ingress identities are in "Ingress" below,
+trusted networks in "Trusted networks". Device tokens and 2FA come with later
+Access tickets. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
 
@@ -28,6 +29,7 @@ works on the same tables.
 | Sessions and the cookie | `app/auth/sessions.py` |
 | Audit log (events, retention purge) | `app/auth/audit.py`, `tests/test_auth_audit.py` |
 | Username + password provider | `app/auth/providers/password.py` |
+| Trusted networks provider | `app/auth/providers/trusted_network.py`, `tests/test_auth_trusted_network.py` |
 | Login delays (per pair, per username, per IP; known devices) | `app/auth/ratelimit.py`, `app/auth/device_cookie.py`, `tests/test_auth_ratelimit.py` |
 | Home Assistant ingress provider | `app/auth/providers/ingress.py` |
 | `Authorization: Basic` compatibility, Basic import | `app/security.py` |
@@ -300,7 +302,9 @@ How the request reached the instance (`request_via`, `app/auth/middleware.py`).
 `relay` when the relay dispatched it (`scope["state"]["via"]`, set by the relay
 client of a later ticket); `ingress` when `MESHLOOM_INSTALL_KIND` is `addon`,
 the ASGI peer is the Supervisor (`SUPERVISOR_IP`, `172.30.32.2`) and the request
-was not relayed; `lan` otherwise. `trusted` comes with a later ticket. Under
+was not relayed; `lan` otherwise. A `lan` request that a trusted network rule
+signs in becomes `trusted` once resolved (`scope["auth_via"]`, the principal,
+the audit rows). Under
 ingress **no cookie is ever set or read**: the Home Assistant origin is shared
 by every add-on, so the gate drops any `Set-Cookie` from an ingress answer.
 
@@ -384,6 +388,57 @@ MSHL-279).** Not run yet; record the result here.
    prompt.
 8. Live updates through the sidebar, Nabu Casa and the Companion app (the
    WebSocket checks of MSHL-279).
+
+### Trusted networks
+
+`app/auth/providers/trusted_network.py`: Home Assistant's `trusted_networks`,
+closed whenever a proxy is in the loop. Rules are `auth_settings.trusted_networks`
+(`[{cidr, user_id}]`, migration 101, empty by default), kept in memory (read on
+first use, replaced by `AuthSettingsRepository.update()`). The gate asks the
+provider **last**: only when the request sent no `Authorization` header and no
+session cookie resolved (an expired cookie still gets the rule; a wrong Basic or
+Bearer credential never does). The principal is `via = "trusted"`, credential
+`trusted_network`, which is ambient: unsafe methods keep the Origin rule.
+
+A rule never applies (`rule_blocker`, fail closed) when:
+
+- `via` is not `lan` (relay, ingress) or anything tagged `scope["state"]["via"]`;
+- the TCP peer (`peer_address`, before the trusted-proxy rewrite) is a trusted
+  proxy, so a proxied request is never auto-signed in, whatever it forwards;
+- the request carries a header a proxy or tunnel adds (`PROXY_HEADERS`:
+  `X-Forwarded-For`, `-Proto`, `-Host`, `-Port`, `-Server`, `Forwarded`,
+  `X-Real-IP`, `CF-Connecting-IP`, `CF-Ray`, `True-Client-IP`, `X-Client-IP`,
+  `X-Cluster-Client-IP`, `Fastly-Client-IP`, `X-Original-Forwarded-For`, `Via`),
+  from any peer: a proxy nobody declared closes the rule;
+- the peer is loopback (IPv4-mapped forms included) and the install is not the
+  add-on (`LOOPBACK_ALLOWED_KINDS`): on a package, a source checkout or a container
+  that may share the host's network, a local proxy or `ssh -L` (no header at all)
+  brings every visitor from `127.0.0.1`;
+- `Host` fails the strict guard (`host_allowed`): accepted are an IP literal,
+  `localhost`, `*.local`, `*.home.arpa`, `*.lan`, `*.internal`, the machine's
+  short name and FQDN, and the hosts of `auth_settings.public_urls`. This is the
+  cadrage's list, enforced for this provider from day one: DNS rebinding would
+  otherwise hand a principal to a page that holds no cookie at all. The general
+  `Host` guard (observe/enforce, rejected hosts) is a separate ticket.
+
+The account must exist, be enabled and have no pending password change. The
+longest matching prefix wins, then the first listed. Every auto-login writes one
+`login` row (`via = trusted`, `details = {method: "trusted_network", cidr}`) at
+most once per client address, user and UTC day (in memory, `MAX_AUDITED`
+entries).
+
+`PATCH /api/auth/settings` validates the rules (`normalize_cidr`: not wider than
+`/8`/`/16`, no IPv4-mapped form, no duplicate network, at most 32, an existing
+enabled account) and refuses, with coded 400s, a rule that overlaps a trusted
+proxy (checked both ways: a new proxy overlapping a saved rule is refused too),
+one covering loopback where loopback is refused, and one covering the Docker
+default gateway (`docker_gateways()`, from `/proc/net/route` on a container
+install) while `public_urls` is set. `GET` adds `security_notices`, the Access
+security notice the UI shows at the top of Users & Access:
+`trusted_admin_reduced_plugin_isolation` (a rule maps to an enabled admin while
+plugins run with isolation `none`; an unreadable state counts as reduced) and
+`trusted_loopback_or_gateway_public` (a rule covers loopback or the gateway
+while `public_urls` is set). The Remote conditions come with Remote.
 
 ### Proxy headers
 
@@ -740,8 +795,8 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `DELETE /auth/users/{id}` | `admin` | Deletes the account and its sessions, closes its sockets. 409 `auth_last_admin`, 404 |
 | `POST /auth/users/{id}/password` | `admin` | `{password, must_change_password = true}`, password policy against the target's name. Local accounts outside `kiosk` only (400 `auth_password_not_applicable`). Signs the user out everywhere (the admin's own session stays when it is their account), forgets its known devices, drops its Basic cache entries |
 | `DELETE /auth/users/{id}/sessions` | `admin` | Signs the user out everywhere (sessions and sockets; the admin's own session stays): `{revoked}` |
-| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, audit_retention_days, ingress_default_role}` (canonical CIDRs; days, 366 by default; `member` by default) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). One `settings.changed` row per field |
+| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). One `settings.changed` row per field |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
 
 Every route above that changes something writes one audit row ("Audit log").

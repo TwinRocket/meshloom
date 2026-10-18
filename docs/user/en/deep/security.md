@@ -89,6 +89,10 @@ The notification webhook and Apprise URLs, Web Push and the fanout Webhook, Appr
 
 Some features need Internet access: [push notifications](/en/docs/deep/push/), and [Meshloom Community](/en/docs/deep/community/) when joined (raw-packet publishing, directory, sharing of hashtag channel names). Even with both off, Meshloom checks GitHub for new releases once every 6 hours (with Community on: every five minutes, with the Community mirror as a fallback). It keeps working if that check fails. When you leave Community, Meshloom sends it one last request to record the opt-out and delete your radio's position. After that, it is reached again only if Community surely did not receive that request and the status of your node could not be deleted from the broker at that moment (a single reconnect deletes it, a few tries at most within 24 hours, then nothing), or when you press **Retry** because Community did not confirm the opt-out (see [Meshloom Community](/en/docs/deep/community/#leaving)). Alert e-mails carry the Meshloom logo inside them, so opening one loads nothing from the Internet.
 
+## Trusted networks
+
+A trusted network rule signs a device in without a password (see [Recover access](/en/docs/deep/access/#trusted-networks)). It never applies through a reverse proxy, a tunnel, Meshloom Remote or Home Assistant ingress, nor from this machine's loopback outside the add-on, and only when the browser uses an IP address or a local name. Keep the list empty unless you need it, and never map a network to an administrator you would not hand the machine to.
+
 ## A reasonable posture
 
 - Keep Meshloom on a network where you know the users.

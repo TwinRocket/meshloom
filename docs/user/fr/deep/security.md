@@ -89,6 +89,10 @@ Le webhook et les URL Apprise de notification, le Web Push et les sorties fanout
 
 Certaines fonctions ont besoin d’Internet : les [notifications push](/docs/deep/push/) et, une fois rejoint, [Meshloom Community](/docs/deep/community/) (publication de paquets bruts, annuaire, partage des noms de canaux hashtag). Même sans les deux, Meshloom vérifie les nouvelles versions sur GitHub une fois toutes les 6 heures (avec Community activé : toutes les cinq minutes, avec le miroir Community en secours). Il continue de fonctionner si cette vérification échoue. Quand vous quittez Community, Meshloom lui envoie une dernière requête pour enregistrer la désinscription et supprimer la position de votre radio. Ensuite, Community n’est plus contacté que s’il n’a sûrement pas reçu cette requête et que l’état de votre nœud n’a pas pu être effacé du broker à ce moment-là (une reconnexion unique l’efface, en quelques essais au plus sur 24 heures, puis plus rien), ou quand vous appuyez sur **Réessayer** parce que Community n’a pas confirmé la désinscription (voir [Meshloom Community](/docs/deep/community/#quitter-community)). Les e-mails d’alerte contiennent le logo de Meshloom : en ouvrir un ne charge rien depuis Internet.
 
+## Les réseaux de confiance
+
+Une règle de réseau de confiance connecte un appareil sans mot de passe (voir [Récupérer l’accès](/docs/deep/access/#les-réseaux-de-confiance)). Elle ne s’applique jamais à travers un reverse-proxy, un tunnel, Meshloom Remote ou l’ingress de Home Assistant, ni depuis le loopback de cette machine hors de l’add-on, et seulement quand le navigateur utilise une adresse IP ou un nom local. Laissez la liste vide si vous n’en avez pas besoin, et n’associez jamais un réseau à un administrateur à qui vous ne confieriez pas la machine.
+
 ## Une posture raisonnable
 
 - Gardez Meshloom sur un réseau dont vous connaissez les utilisateurs.

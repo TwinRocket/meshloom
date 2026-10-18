@@ -85,6 +85,19 @@ Les délais sont gardés en mémoire et repartent de zéro au redémarrage de Me
 
 Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. N’indiquez que l’adresse du proxy lui-même, jamais un réseau Docker ni sa passerelle. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance).
 
+## Les réseaux de confiance
+
+Un administrateur peut laisser entrer sans identification les appareils d’un réseau choisi, dans **Réglages → Utilisateurs et accès → Réseaux de confiance** : chaque règle est un réseau (`192.168.1.50`, `192.168.1.0/24`) et le compte avec lequel ces appareils agissent. La liste est vide par défaut. Réservez-la à un appareil que vous maîtrisez, comme une tablette murale, avec le plus petit réseau (sa propre adresse) et le rôle le plus faible qui suffit (kiosque ou lecteur). Une connexion par une règle est notée dans le journal d’audit une fois par appareil et par jour.
+
+Une règle est **coupée dès qu’un proxy est dans la boucle**, car derrière un proxy ou un tunnel chaque visiteur, d’où qu’il vienne, arrive avec l’adresse du proxy :
+
+- une requête passée par un reverse-proxy ou un tunnel (elle porte `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `CF-Connecting-IP` ou un en-tête du même genre), ou venant d’une adresse listée dans les proxies de confiance, n’est jamais connectée par une règle ;
+- de même pour les requêtes passées par Meshloom Remote ou l’ingress de Home Assistant (Home Assistant connecte celles-ci lui-même) ;
+- une règle ne couvre jamais le loopback de cette machine (`127.0.0.1`, `::1`), sauf dans l’add-on Home Assistant : un proxy local ou un tunnel `ssh -L` y ferait arriver chaque visiteur ;
+- l’adresse dans le navigateur doit être une adresse IP, `localhost`, un nom local (`.local`, `.home.arpa`, `.lan`, `.internal`), le nom de cette machine ou une adresse publique que vous avez déclarée, pour qu’une page web ne puisse pas utiliser un nom à elle pour atteindre Meshloom avec ce compte.
+
+Meshloom refuse d’enregistrer une règle qui recoupe un proxy de confiance, une règle qui couvre le loopback hors de l’add-on et, tant qu’une adresse publique est configurée, une règle qui couvre la passerelle Docker. Les réglages avertissent en rouge quand une règle connecte un **administrateur** : toute personne sur ce réseau peut alors changer chaque réglage, compte et plugin. L’**avertissement de sécurité de l’accès**, en haut d’**Utilisateurs et accès**, signale une règle qui connecte un administrateur alors que les plugins tournent avec une isolation réduite, ou qui couvre le loopback ou la passerelle Docker alors qu’une adresse publique est configurée.
+
 ## Le journal d’audit
 
 Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, changés de rôle, désactivés, réactivés ou supprimés (refus compris, comme une tentative de rétrograder le dernier administrateur), changements de mot de passe, création du premier administrateur, changements des réglages d’accès, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.

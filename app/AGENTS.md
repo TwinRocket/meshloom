@@ -27,7 +27,9 @@ and the OpenAPI page (`/docs`), not a table here.
   WebSocket upgrade: it resolves the `Principal` (the Home Assistant ingress
   identity, `auth/providers/ingress.py`, only from the Supervisor address on
   the add-on; the Basic compatibility credential; then the session cookie,
-  never under ingress; bearer tokens later), applies the CSRF
+  never under ingress; last a trusted network rule, `auth/providers/trusted_network.py`,
+  never through any proxy, the relay, ingress or (outside the add-on) loopback,
+  with a strict `Host` guard; bearer tokens later), applies the CSRF
   rule to unsafe methods (`origin_policy.unsafe_request_allowed`) and refuses
   every `/api` route outside `PUBLIC_ROUTES` without a principal (401 coded;
   a WebSocket is closed 1008 before `accept()`). A new public route goes in

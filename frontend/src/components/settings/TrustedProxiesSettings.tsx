@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { api } from '../../api';
+import { api, formatApiError } from '../../api';
 import { useSession } from '../../auth/SessionProvider';
 import { behindUntrustedHttpsProxy, type AuthSettings } from '../../auth/types';
 import { Button } from '../ui/button';
@@ -146,7 +146,7 @@ export function TrustedProxiesSettings({
       toast.success(t('settings.trustedProxies.saved'));
     } catch (err) {
       toast.error(t('settings.trustedProxies.saveFailed'), {
-        description: err instanceof Error ? err.message : undefined,
+        description: formatApiError(err, t),
       });
     } finally {
       setSaving(false);
