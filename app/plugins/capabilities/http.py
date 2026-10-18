@@ -118,9 +118,6 @@ class HourlyQuota:
         self._windows[key] = (hour, count + 1)
         return None
 
-    def reset(self) -> None:
-        self._windows.clear()
-
 
 QUOTA = HourlyQuota(PER_HOUR)
 
