@@ -1,0 +1,18 @@
+{
+  "errors": {
+    "auth_required": "Connectez-vous pour continuer.",
+    "auth_setup_required": "Aucun compte n’existe encore : créez d’abord le compte administrateur.",
+    "auth_setup_done": "Le compte administrateur existe déjà. Connectez-vous.",
+    "auth_setup_code_invalid": "Code d’installation incorrect. Il figure dans le journal du serveur, ou lancez meshloom-admin setup-code sur la machine.",
+    "auth_invalid_credentials": "Nom d’utilisateur ou mot de passe incorrect.",
+    "auth_password_policy": "Ce mot de passe n’est pas accepté.",
+    "auth_password_policyDetail": "Utilisez au moins {{min_length}} caractères, différents du nom d’utilisateur et hors des mots de passe courants.",
+    "auth_username_invalid": "Ce nom d’utilisateur ne peut pas être utilisé.",
+    "auth_origin_rejected": "Requête refusée : elle venait d’un autre site. Ajoutez ce site aux origines autorisées si vous lui faites confiance.",
+    "auth_forbidden": "Ce compte n’a pas le droit de faire cela.",
+    "auth_session_not_found": "Cette session n’existe plus.",
+    "auth_busy": "Trop de tentatives de connexion en même temps. Réessayez dans un instant.",
+    "auth_setup_unavailable": "La création du compte n’est pas encore disponible. Consultez le journal du serveur, puis réessayez.",
+    "auth_ingress_unsupported": "Identifiants acceptés, mais aucune session ne peut encore être gardée via la barre latérale de Home Assistant. Ouvrez Meshloom à sa propre adresse (port 8000)."
+  }
+}

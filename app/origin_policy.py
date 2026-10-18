@@ -1,4 +1,9 @@
-"""One origin policy for CORS (``app/cors.py``) and the WebSocket upgrade (``app/websocket.py``).
+"""One origin policy for CORS (``app/cors.py``), the WebSocket upgrade (``app/websocket.py``)
+and the CSRF rule of the auth middleware (``app/auth/middleware.py``).
+
+It is also the one place that reads proxy headers: ``X-Forwarded-Host`` for
+same-origin, ``X-Forwarded-Proto`` for the cookie flavour
+(``request_is_secure``). Nothing else in the app interprets them.
 
 Both rules read the same allowlist, ``app_settings.auth_allowed_origins``
 (Settings → Local Configuration → Allowed origins, ``PATCH /api/settings``),
@@ -173,6 +178,51 @@ def websocket_origin_allowed(headers: Mapping[str, str]) -> bool:
     if origin is None:
         return False
     return same_origin(origin, headers) or origin.serialize() in _current
+
+
+# Sec-Fetch-Site values a browser sends for a request this site made itself
+# ("same-origin") or that the user started (typed URL, bookmark: "none").
+_SAFE_FETCH_SITES = frozenset({"same-origin", "none"})
+
+
+def unsafe_request_allowed(headers: Mapping[str, str]) -> bool:
+    """The CSRF rule for a POST/PUT/PATCH/DELETE (``app/auth/middleware.py``).
+
+    The algorithm of Go's ``net/http.CrossOriginProtection``, plus the allowlist:
+
+    1. ``Sec-Fetch-Site: same-origin`` or ``none``: allowed.
+    2. No ``Sec-Fetch-Site`` and no ``Origin``: not a browser (curl, scripts,
+       Home Assistant sensors), allowed. Every browser sends ``Origin`` on a
+       cross-origin unsafe request.
+    3. Otherwise ``Origin`` must be listed or same-origin (``same_origin``:
+       ``Host`` or the first ``X-Forwarded-Host``, as for the WebSocket).
+       ``Origin: null``, a missing ``Origin`` with a cross-site
+       ``Sec-Fetch-Site``, or an unusable value are refused.
+    """
+    fetch_site = (headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site in _SAFE_FETCH_SITES:
+        return True
+    raw = headers.get("origin")
+    if raw is None:
+        return not fetch_site
+    origin = parse_request_origin(raw)
+    if origin is None:
+        return False
+    return origin.serialize() in _current or same_origin(origin, headers)
+
+
+def request_is_secure(scope_scheme: str, headers: Mapping[str, str]) -> bool:
+    """Whether the browser reached this instance over https.
+
+    The ASGI scheme (``https``/``wss``), or the first ``X-Forwarded-Proto``
+    from a TLS terminator. Read from any peer: it only picks the session
+    cookie's flavour (``__Host-`` and ``Secure``), and a client that lies about
+    it only gets a cookie its own browser refuses. Nothing grants access from it.
+    """
+    if scope_scheme in ("https", "wss"):
+        return True
+    forwarded = headers.get("x-forwarded-proto")
+    return bool(forwarded) and forwarded.split(",", 1)[0].strip().lower() == "https"
 
 
 def _valid_stored_origins(stored: list[str]) -> tuple[str, ...]:

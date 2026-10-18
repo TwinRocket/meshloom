@@ -1,9 +1,10 @@
 import os
 from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
 from app.notify import notification_statuses
@@ -253,8 +254,21 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
     }
 
 
-@router.get("/health", response_model=HealthResponse)
-async def healthcheck() -> HealthResponse:
-    """Check if the API is running and if the radio is connected."""
+class MinimalHealthResponse(BaseModel):
+    """What an anonymous caller gets: the process answers, nothing else."""
+
+    ok: bool = True
+
+
+@router.get("/health", response_model=HealthResponse | MinimalHealthResponse)
+async def healthcheck(request: Request) -> HealthResponse | MinimalHealthResponse:
+    """Check if the API is running and if the radio is connected.
+
+    Public, for probes (Uptime Kuma, Home Assistant REST sensors, Docker, the
+    kiosk launcher): an anonymous caller gets only ``{"ok": true}``, the details
+    need a signed-in principal (``app/auth/middleware.py``).
+    """
+    if get_principal(request) is None:
+        return MinimalHealthResponse()
     data = await build_health_data(radio_manager.is_connected, radio_manager.connection_info)
     return HealthResponse(**data)

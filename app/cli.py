@@ -39,14 +39,13 @@ import aiosqlite
 
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH, hash_password
-from app.auth.tokens import hash_token, new_token
+from app.auth.setup_code import issue_setup_code
 from app.config import settings
 from app.database import db
 from app.repository.auth import (
     AuthAuditRepository,
     AuthSessionRepository,
     AuthSettingsMissingError,
-    AuthSettingsRepository,
     InvalidUsernameError,
     UsernameTakenError,
     UserRepository,
@@ -221,8 +220,9 @@ async def _setup_code(args: argparse.Namespace) -> int:
             "the installation code only matters while no account exists, and one does: "
             "use create-admin or reset-password instead"
         )
-    code = new_token()
-    await AuthSettingsRepository.set_setup_code_hash(hash_token(code))
+    # The same 8-digit code the server logs at startup (app/auth/setup_code.py),
+    # the only form POST /api/auth/setup accepts.
+    code = await issue_setup_code()
     await _audit("cli.setup_code", None)
     print(code)
     print(

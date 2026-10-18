@@ -27,6 +27,8 @@ Passwords are at least 12 characters and are never taken from the command line, 
 
 When Meshloom is updated from an older version, the first administrator must prove they have access to the machine by typing an installation code. Meshloom stores only a fingerprint of the code, so it cannot be shown again: `meshloom-admin setup-code` makes a **new** one and the previous code stops working. The command only works while no account exists; afterwards use `create-admin` or `reset-password`.
 
+The code has 8 digits; Meshloom also prints a new one in its log at each start while no account exists. Spaces or dashes typed inside it are ignored. A fresh installation asks for no code. If Meshloom could not prepare the first start (the log says so), creating the administrator is refused until it can; restart Meshloom if it lasts.
+
 ## The command for each installation
 
 Replace `alice` with the account name.
@@ -53,7 +55,9 @@ With `docker run`, use `docker exec -it <container> meshloom-admin reset-passwor
 
 ### Home Assistant add-on
 
-The add-on does not use accounts of its own: Home Assistant signs you in and Meshloom accepts the person who opens it from the sidebar. If you cannot open Meshloom, fix your access in Home Assistant itself. The command still exists for the rare case where you need it. It runs in the add-on's container, so it needs a way to reach the host's Docker: the *Advanced SSH & Web Terminal* add-on with **Protection mode** turned off.
+The add-on does not use accounts of its own: Home Assistant signs you in and Meshloom accepts the person who opens it from the sidebar. If you cannot open Meshloom, fix your access in Home Assistant itself.
+
+**Known limitation of the 5.0 pre-release:** that Home Assistant sign-in is not there yet, and through the sidebar Meshloom cannot keep a session (no cookie is set there, on purpose: every add-on shares that address). Until it arrives, which 5.0.0 requires, open the add-on on its own port (8000) and sign in there. The command still exists for the rare case where you need it. It runs in the add-on's container, so it needs a way to reach the host's Docker: the *Advanced SSH & Web Terminal* add-on with **Protection mode** turned off.
 
 ```bash
 docker ps --format '{{.Names}}' | grep meshloom
