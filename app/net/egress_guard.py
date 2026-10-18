@@ -35,6 +35,26 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
+class _HttpxUrlRedaction(logging.Filter):
+    """httpx logs every request URL at INFO (``HTTP Request: GET <url> ...``):
+    keep its scheme, host, port and path, never its user info, query or
+    fragment, where API keys and webhook tokens sit."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                arg.copy_with(username=None, password=None, query=None, fragment=None)
+                if isinstance(arg, httpx.URL)
+                else arg
+                for arg in record.args
+            )
+        return True
+
+
+# Once per process, at import: every guarded request goes through httpx here.
+logging.getLogger("httpx").addFilter(_HttpxUrlRedaction())
+
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 EgressCode = Literal[
     "egress_scheme",
@@ -500,6 +520,7 @@ class CheckedResponse:
     content: bytes
     url: str
     redirects: int
+    truncated: bool = False
 
 
 async def follow_checked_redirects(
@@ -519,6 +540,7 @@ async def follow_checked_redirects(
     header_filter: Callable[[str, str], bool] | None = None,
     cross_origin_headers: Iterable[str] = (),
     verify_tls: bool = True,
+    truncate_response: bool = False,
 ) -> CheckedResponse:
     """Send through the guard and follow redirects one validated hop at a time.
 
@@ -528,7 +550,9 @@ async def follow_checked_redirects(
     lookup; a response is aborted as soon as it declares or streams more than
     ``max_response_bytes``. ``timeout`` applies per httpx operation,
     ``total_timeout`` (seconds) to the whole chain, so a server dripping bytes
-    cannot hold the call open. With ``max_redirects=0`` a redirect is returned
+    cannot hold the call open. With ``truncate_response`` a body past
+    ``max_response_bytes`` is cut there instead (``truncated``), the rest
+    left unread. With ``max_redirects=0`` a redirect is returned
     as is; one more redirect than allowed raises ``egress_too_many_redirects``.
     The request always asks for ``Accept-Encoding: identity`` (a caller's own
     value is replaced) and a compressed answer is refused
@@ -565,13 +589,16 @@ async def follow_checked_redirects(
             ):
                 location = response.headers.get("location")
                 if response.status_code not in _REDIRECT_STATUSES or not location:
-                    body = await _read_capped(response, method, max_response_bytes)
+                    body, truncated = await _read_capped(
+                        response, method, max_response_bytes, truncate=truncate_response
+                    )
                     return CheckedResponse(
                         status_code=response.status_code,
                         headers=response.headers,
                         content=body,
                         url=dest.url,
                         redirects=redirects,
+                        truncated=truncated,
                     )
                 if max_redirects == 0:
                     return CheckedResponse(
@@ -607,30 +634,37 @@ async def follow_checked_redirects(
             url = str(next_url)
 
 
-async def _read_capped(response: httpx.Response, method: str, limit: int | None) -> bytes:
-    """The raw body, aborted (connection closed) once it exceeds ``limit`` bytes.
+async def _read_capped(
+    response: httpx.Response, method: str, limit: int | None, *, truncate: bool = False
+) -> tuple[bytes, bool]:
+    """The raw body, aborted (connection closed) once it exceeds ``limit`` bytes,
+    and whether it was cut: with ``truncate`` the first ``limit`` bytes are kept
+    instead of raising ``egress_response_too_large``.
 
     Never decoded: a ``Content-Encoding`` other than ``identity`` is refused.
     A HEAD, 204 or 304 answer has no body, so its ``Content-Length`` (the
     size of the resource) is not checked against the cap.
     """
     if method.upper() == "HEAD" or response.status_code in _BODYLESS_STATUSES:
-        return b""
+        return b"", False
     encodings = response.headers.get("content-encoding", "").split(",")
     if any(e.strip().lower() not in ("", "identity") for e in encodings):
         raise EgressBlocked("egress_response_encoding")
-    if limit is not None:
+    if limit is not None and not truncate:
         declared = response.headers.get("content-length")
         if declared is not None and declared.strip().isdigit() and int(declared) > limit:
             raise EgressBlocked("egress_response_too_large")
     chunks: list[bytes] = []
     size = 0
     async for chunk in response.aiter_raw():
+        if limit is not None and size + len(chunk) > limit:
+            if not truncate:
+                raise EgressBlocked("egress_response_too_large")
+            chunks.append(chunk[: limit - size])
+            return b"".join(chunks), True
         size += len(chunk)
-        if limit is not None and size > limit:
-            raise EgressBlocked("egress_response_too_large")
         chunks.append(chunk)
-    return b"".join(chunks)
+    return b"".join(chunks), False
 
 
 def is_tls_error(exc: BaseException) -> bool:

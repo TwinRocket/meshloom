@@ -596,7 +596,7 @@ class PluginProcess:
             logger.exception("Plugin host method %s failed", method)
             response = rpc.error(msg_id, rpc.INTERNAL_ERROR, "host error")
         try:
-            data = rpc.encode(response)
+            data = rpc.encode(response, rpc.result_limit(method))
         except ValueError:
             data = rpc.encode(rpc.error(msg_id, rpc.INTERNAL_ERROR, "result too large"))
         await self._write_quietly(data)

@@ -33,6 +33,9 @@ REFUSAL_CODES = (
     "message_too_long",
     "send_failed",
     "quota_unavailable",
+    "host_not_allowed",
+    "https_required",
+    "fetch_failed",
     "invalid_params",
 )
 
