@@ -9,12 +9,14 @@ from app.auth import ratelimit
 from app.auth.models import AuthSettings
 from app.auth.providers import password as provider
 from app.auth.ratelimit import (
+    DEVICE_MAX_FAILURES,
     FORGET_AFTER_S,
     IP_MAX_FAILURES,
     MAX_KEYS,
     PAIR_FREE_FAILURES,
     PAIR_MAX_DELAY_S,
     SWEEP_INTERVAL_S,
+    USERNAME_FREE_FAILURES,
     USERNAME_INTERVAL_S,
     LoginDelayed,
     LoginLimiter,
@@ -195,38 +197,85 @@ async def test_docker_with_a_trusted_proxy_keys_the_forwarded_client(kind):
 
 async def test_a_slow_guesser_on_the_docker_gateway_never_locks_the_owner_out():
     """Review r1 scenario: compose, no trusted proxy, one wrong guess a minute from
-    the gateway for an hour. The owner, on the same address, waits at most a second."""
+    the gateway for an hour. The owner, on the same address and without a known
+    device, never meets more than the one-second username slot (no pair delay)."""
     clock = FakeClock()
     limiter = make_limiter(clock, kind="compose")
     gateway = scope("172.17.0.1")
     longest = 0.0
     for _ in range(60):
         await fail(limiter, limiter.address_key(gateway), "admin")
-        owner = limiter.address_key(gateway)
         try:
-            limiter.check(owner, "admin")
+            limiter.check(limiter.address_key(gateway), "admin")
         except LoginDelayed as delayed:
             assert delayed.reason == "username"
             longest = max(longest, delayed.retry_after)
             clock.advance(delayed.retry_after)
-            limiter.check(owner, "admin")
-        limiter.record_success(owner, "admin")
+            limiter.check(limiter.address_key(gateway), "admin")
         clock.advance(60)
     assert longest <= USERNAME_INTERVAL_S
 
 
-def test_an_undeclared_proxy_puts_its_clients_on_no_address():
-    limiter = make_limiter(FakeClock())
+async def _checked_guesses(limiter: LoginLimiter, clock: FakeClock, request_scope: dict) -> int:
+    """One wrong guess every 0.5 s for 10 minutes: how many reach the password check."""
+    checked = 0
+    for _ in range(1200):
+        address = limiter.address_key(request_scope)
+        try:
+            limiter.check(address, "admin")
+        except LoginDelayed:
+            pass
+        else:
+            checked += 1
+            await limiter.record_failure(address, "admin")
+        clock.advance(0.5)
+    return checked
+
+
+async def test_forwarding_headers_from_an_untrusted_peer_do_not_reduce_protection(caplog):
+    """Review r2: a LAN client adding X-Forwarded-For used to switch the address
+    rules off for itself. Headers never decide the shared-address mode."""
     proxy_headers.reset()
-    # A local or LAN proxy Meshloom does not trust, forwarding a client address.
-    assert limiter.address_key(scope("127.0.0.1", forwarded=True)) is None
-    assert limiter.address_key(scope("192.168.1.10", forwarded=True)) is None
-    assert limiter.address_key(scope("100.64.0.9", forwarded=True)) is None
-    # A global peer is a client of its own, whatever header it sends (203.0.113.0/24,
-    # a documentation range, is not global for ipaddress).
-    assert limiter.address_key(scope("8.8.4.4", forwarded=True)) == "8.8.4.4"
-    # No forwarding header: the peer is the client, LAN or not.
-    assert limiter.address_key(scope("192.168.1.10")) == "192.168.1.10"
+    plain_clock, forged_clock = FakeClock(), FakeClock()
+    plain = await _checked_guesses(make_limiter(plain_clock), plain_clock, scope("192.168.1.66"))
+    forged_limiter = make_limiter(forged_clock)
+    with caplog.at_level("WARNING", logger="app.auth.ratelimit"):
+        forged = await _checked_guesses(
+            forged_limiter, forged_clock, scope("192.168.1.66", forwarded=True)
+        )
+    assert forged == plain
+    assert forged_limiter.address_key(scope("192.168.1.66", forwarded=True)) == "192.168.1.66"
+    hints = [r for r in caplog.records if "not a trusted proxy" in r.getMessage()]
+    assert len(hints) == 1  # once per peer
+
+
+# --- Known devices -------------------------------------------------------------------
+
+
+async def test_a_known_device_skips_the_username_slot_under_a_flood():
+    clock = FakeClock()
+    limiter = make_limiter(clock, kind="compose")
+    for _ in range(USERNAME_FREE_FAILURES):
+        await fail(limiter, None, "admin")
+    limiter.check(None, "admin")  # the attacker takes the slot
+    with pytest.raises(LoginDelayed):
+        limiter.check(None, "admin")
+    limiter.check(None, "admin", "owner-device")
+    limiter.record_success(None, "admin", "owner-device")
+
+
+async def test_a_device_that_keeps_failing_loses_its_bypass():
+    clock = FakeClock()
+    limiter = make_limiter(clock)
+    for _ in range(DEVICE_MAX_FAILURES):
+        limiter.check("192.0.2.1", "admin", "stolen")
+        await limiter.record_failure("192.0.2.1", "admin", "stolen")
+    assert not limiter.known_device_trusted("stolen")
+    with pytest.raises(LoginDelayed):
+        limiter.check("192.0.2.1", "admin", "stolen")
+    clock.advance(FORGET_AFTER_S + SWEEP_INTERVAL_S)
+    limiter.check("192.0.2.9", "nobody")  # sweep
+    assert limiter.known_device_trusted("stolen")
 
 
 def test_a_declared_proxy_keys_the_forwarded_client():
@@ -460,3 +509,92 @@ async def test_route_on_a_shared_address_lets_the_owner_in_within_a_second(monke
             clock.advance(USERNAME_INTERVAL_S)
             ok = await client.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
         assert ok.status_code == 200, ok.text
+
+
+# --- Known-device cookie through the route --------------------------------------------
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_route_known_device_gets_in_every_time_under_a_flood_from_the_shared_address(
+    monkeypatch,
+):
+    """Review r2 PoC: compose, no trusted proxy, an attacker sends 20 attempts a
+    second on admin from the gateway; the owner's known browser tries every 5 s."""
+    clock = FakeClock()
+    monkeypatch.setattr(ratelimit, "login_limiter", make_limiter(clock, kind="compose"))
+    await create_user()
+    gateway = ("172.17.0.1", 50000)
+    async with make_client(client=gateway) as owner, make_client(client=gateway) as attacker:
+        first = await owner.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
+        assert first.status_code == 200
+        assert any(c.startswith("meshloom_device=") for c in first.headers.get_list("set-cookie"))
+        owner_ok = attacker_checked = 0
+        for tick in range(600):  # 30 s at 20 attempts a second
+            guess = await attacker.post("/api/auth/login", json=_login(ADMIN, f"guess {tick}"))
+            assert guess.status_code in (401, 429)
+            attacker_checked += guess.status_code == 401
+            if tick % 100 == 0:
+                mine = await owner.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
+                assert mine.status_code == 200, mine.text
+                owner_ok += 1
+            clock.advance(0.05)
+    assert owner_ok == 6
+    # The attacker gets about one checked guess a second, no more.
+    assert attacker_checked <= USERNAME_FREE_FAILURES + 31
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_device_cookie_refused_when_forged_expired_for_another_user_or_stale(monkeypatch):
+    from app.auth import device_cookie
+    from app.auth.passwords import hash_password_async
+    from app.repository.auth import UserRepository
+
+    owner = await create_user()
+    other = await create_user("someone", PASSWORD, "member")
+    owner_hash = (await UserRepository.get_credentials(ADMIN)).password_hash.get_secret_value()
+    value = device_cookie.issue(owner.id, owner_hash, "dev1")
+
+    assert await device_cookie.known_device(device_cookie.parse(value), ADMIN) == "dev1"
+    # Forged: any change to the signed part, or a cookie signed with another key.
+    tampered = value.replace(".dev1.", ".dev2.")
+    assert device_cookie.parse(tampered) is None
+    assert device_cookie.parse(value[:-1] + ("0" if value[-1] != "0" else "1")) is None
+    # Another user's name.
+    assert await device_cookie.known_device(device_cookie.parse(value), "someone") is None
+    assert other.id != owner.id
+    # Expired.
+    real_time = device_cookie.time.time
+    monkeypatch.setattr(
+        device_cookie.time, "time", lambda: real_time() + device_cookie.DEVICE_COOKIE_TTL_S + 1
+    )
+    assert device_cookie.parse(value) is None
+    monkeypatch.setattr(device_cookie.time, "time", real_time)
+    # After a password change (the generation moves).
+    await UserRepository.set_password_hash(owner.id, await hash_password_async("another long pass"))
+    assert await device_cookie.known_device(device_cookie.parse(value), ADMIN) is None
+    # A disabled account.
+    fresh = device_cookie.issue(
+        owner.id,
+        (await UserRepository.get_credentials(ADMIN)).password_hash.get_secret_value(),
+        "dev1",
+    )
+    await UserRepository.update(owner.id, disabled=True)
+    assert await device_cookie.known_device(device_cookie.parse(fresh), ADMIN) is None
+    # A restart (new key).
+    await UserRepository.update(owner.id, disabled=False)
+    device_cookie.reset_device_secret()
+    assert device_cookie.parse(fresh) is None
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_route_device_cookie_attributes(clock):
+    await create_user()
+    async with make_client(base_url="https://test") as client:
+        ok = await client.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
+    [cookie] = [c for c in ok.headers.get_list("set-cookie") if "meshloom_device" in c]
+    attributes = [part.strip() for part in cookie.split(";")]
+    assert attributes[0].startswith("__Secure-meshloom_device=")
+    assert {"Path=/api/auth", "HttpOnly", "SameSite=Strict", "Secure"} <= set(attributes)

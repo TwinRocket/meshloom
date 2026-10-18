@@ -28,7 +28,7 @@ works on the same tables.
 | Sessions and the cookie | `app/auth/sessions.py` |
 | Audit log (events, retention purge) | `app/auth/audit.py`, `tests/test_auth_audit.py` |
 | Username + password provider | `app/auth/providers/password.py` |
-| Login delays (per pair, per username, per IP) | `app/auth/ratelimit.py`, `tests/test_auth_ratelimit.py` |
+| Login delays (per pair, per username, per IP; known devices) | `app/auth/ratelimit.py`, `app/auth/device_cookie.py`, `tests/test_auth_ratelimit.py` |
 | Home Assistant ingress provider | `app/auth/providers/ingress.py` |
 | `Authorization: Basic` compatibility, Basic import | `app/security.py` |
 | Installation code, first run | `app/auth/setup_code.py` |
@@ -558,23 +558,38 @@ and none by IP alone behind Docker:
   peer, or what a trusted proxy forwarded, "Proxy headers"; via the relay,
   later, the address in the frame), IPv4 as is, IPv6 by its `/64` (a host
   usually holds a whole /64 and could rotate inside it; an IPv4-mapped address
-  is its IPv4). **None** when the address does not identify a client: the pair
-  and per-IP rules are then skipped and only the username rule applies:
-  - `install_kind` `compose` or `container` with `auth_settings.trusted_proxies`
-    empty (read live): every client may arrive from the Docker gateway;
-  - `X-Forwarded-For`, `X-Real-IP` or `Forwarded` present from a peer that is
-    not a trusted proxy and whose address is not global (loopback, private,
-    CGNAT): an undeclared reverse proxy, all its clients on one address. Only
-    the headers' presence is read; `proxy_headers.py` stays their one interpreter.
-
-  Otherwise one guesser sharing the owner's address would delay the owner by up
-  to a minute per attempt (review r1 of #217). Guarantee per deployment: with a
-  client address of its own (package, source, a declared trusted proxy, a
-  direct LAN client) all three rules apply and the owner, on another address,
-  only meets the one-second username slot; on a shared address the owner waits
-  at most one second behind a slow guesser. Under a flood on one name from many
-  addresses, the owner competes for that one slot a second in both cases.
-- **Memory.** Pair and username entries go `FORGET_AFTER_S` (15 min) after
+  is its IPv4). **None**, so the pair and per-IP rules are skipped and only the
+  username rule applies, only when the configuration says clients share one
+  address: `install_kind` `compose` or `container` with
+  `auth_settings.trusted_proxies` empty (read live). Request headers never
+  decide it: `X-Forwarded-For`, `X-Real-IP` or `Forwarded` from a peer that is
+  not a trusted proxy is ignored (the peer is the client, as everywhere) and
+  logs a warning once per peer pointing to Trusted proxies, next to the login
+  page's untrusted-proxy hint (#210). A LAN client adding the header gains
+  nothing (review r2 of #217, tested).
+- **Known devices** (`app/auth/device_cookie.py`, OWASP "device cookie"). A
+  successful password login sets `meshloom_device` (`__Secure-meshloom_device`
+  over https): `v1.<user id>.<issued at>.<device id>.<generation>.<HMAC-SHA256>`,
+  `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, 180 days. `generation` is
+  the first 16 hex of SHA-256 over the stored password hash, so any password
+  change (route, CLI, rehash) invalidates the user's cookies; the account must
+  be enabled at check time. A login for that username with a valid cookie skips
+  all three rules while its device id has fewer than `DEVICE_MAX_FAILURES` (5)
+  failures within 15 minutes; past that it follows the ordinary rules until
+  the count is forgotten or a login succeeds. The HMAC key is random per
+  process: after a restart every browser is unknown until its next successful
+  login (persisting the key needs a column: follow-up). One cookie per
+  browser, for the last user who signed in on it. Never under ingress.
+- **Guarantees.** A known browser of the account always gets in with the
+  right password, whatever a guesser does from any address. An unknown
+  browser: on a per-address deployment (package, source, add-on port, a
+  declared trusted proxy) it meets only the one-second username slot unless it
+  shares the guesser's address (then the pair and per-IP rules apply to both);
+  on a shared address (Docker without a trusted proxy) it competes with every
+  guesser for one attempt a second, so a fast guesser can keep it out; behind
+  an undeclared reverse proxy every visitor is the proxy's address, so the
+  pair and per-IP rules apply to all of them together until it is listed.
+- **Memory.** Pair, username and device entries go `FORGET_AFTER_S` (15 min) after
   their last failure once no delay runs; an IP bucket goes once it has leaked
   empty. A sweep runs at most once a minute from `check()`; each table holds
   at most 4096 keys (the least recently failed goes). Restarting empties it.
@@ -585,9 +600,10 @@ and none by IP alone behind Docker:
   aiolimiter in place of the loop's time, so the tests use a fake clock.
 - **Not covered.** Concurrent attempts on one pair can each pass `check()`
   before the first failure is recorded (bounded by the argon2id queue of 10).
-  Under a sustained flood on one name from many addresses (or many /64s), the
-  owner competes for the one slot a second; the per-IP rule and the relay's
-  edge lock answer that, not a lock on the name.
+  Without a known device, under a sustained flood on one name from many
+  addresses (or many /64s, or one shared address), the owner competes for the
+  one slot a second; the per-IP rule and the relay's edge lock answer that,
+  not a lock on the name.
 
 ## First run and the installation code
 

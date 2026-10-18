@@ -31,22 +31,25 @@ whole /64 and could rotate inside it). Usernames are compared by
 
 **Shared addresses.** The pair and per-IP rules apply only when the address
 identifies a client. ``address_key()`` returns None, and only the username
-rule applies, when:
+rule applies, when the configuration says clients share one address: the
+install kind is ``compose`` or ``container`` and no trusted proxy is set
+(``auth_settings.trusted_proxies``, read live), since behind Docker's userland
+proxy every client may arrive from the gateway address. Request headers never
+decide it: ``X-Forwarded-For`` (or ``X-Real-IP``, ``Forwarded``) from a peer
+that is not a trusted proxy is ignored, the peer is the client, and the admin
+gets a log line (once per peer) pointing to the Trusted proxies setting.
 
-- the install kind is ``compose`` or ``container`` and no trusted proxy is set
-  (``auth_settings.trusted_proxies``): behind Docker's userland proxy every
-  client may arrive from the gateway address;
-- the request carries ``X-Forwarded-For``, ``X-Real-IP`` or ``Forwarded`` from
-  a peer that is not a trusted proxy and whose address is not global (loopback,
-  private, shared): a reverse proxy Meshloom was not told about, whose clients
-  all share its address.
+**Known devices.** A browser that signed in successfully carries a signed
+known-device cookie (``app/auth/device_cookie.py``). An attempt for that
+username with a valid one skips all three rules while its device has fewer
+than ``DEVICE_MAX_FAILURES`` failures in ``FORGET_AFTER_S``, so a guesser,
+however fast and wherever it sits, cannot keep the owner's own browser out.
+A device that fails that often loses the bypass and follows the ordinary
+rules. An unknown browser on a shared address competes for the one slot a
+second; on a per-address deployment it only meets that slot under a flood
+from many addresses.
 
-Otherwise one guesser on that shared address would delay the owner by up to a
-minute per attempt, a lockout in all but name. On a shared address the owner
-waits at most ``USERNAME_INTERVAL_S`` behind a slow guesser, and competes for
-that slot under a flood.
-
-**Bounded memory.** A pair or username entry is dropped ``FORGET_AFTER_S``
+**Bounded memory.** A pair, username or device entry is dropped ``FORGET_AFTER_S``
 after its last failure once no delay runs; an IP bucket is dropped once it
 has leaked empty. A sweep runs at most every ``SWEEP_INTERVAL_S``, and each
 table holds at most ``MAX_KEYS`` entries (the least recently failed goes).
@@ -66,6 +69,7 @@ bounds that burst.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import math
 import time
 from collections.abc import Callable, Mapping
@@ -77,6 +81,8 @@ from aiolimiter import AsyncLimiter
 
 from app.repository.auth import InvalidUsernameError, username_key
 
+logger = logging.getLogger(__name__)
+
 PAIR_FREE_FAILURES = 5
 PAIR_MAX_DELAY_S = 60.0
 USERNAME_FREE_FAILURES = 5
@@ -86,6 +92,11 @@ IP_WINDOW_S = 900.0
 FORGET_AFTER_S = 900.0
 SWEEP_INTERVAL_S = 60.0
 MAX_KEYS = 4096
+# Failures after which a known device loses its bypass (until FORGET_AFTER_S
+# without a failure, or a success through the ordinary rules).
+DEVICE_MAX_FAILURES = 5
+# Untrusted peers sending forwarding headers that were logged once.
+_MAX_HINTS = 64
 
 # Install kinds where every client may share the Docker gateway address.
 _SHARED_ADDRESS_KINDS = frozenset({"compose", "container"})
@@ -221,6 +232,8 @@ class LoginLimiter:
         self._pairs: dict[tuple[str, str], _Counter] = {}
         self._names: dict[str, _Counter] = {}
         self._ips: dict[str, _FailureWindow] = {}
+        self._devices: dict[str, _Counter] = {}
+        self._hinted_peers: set[str] = set()
         self._last_sweep = clock()
 
     def address_rules_active(self) -> bool:
@@ -239,24 +252,47 @@ class LoginLimiter:
         client = scope.get("client")
         if not client or not client[0]:
             return None
+        peer = proxy_headers.peer_address(scope)
         if _carries_forwarding_headers(scope) and not _is_trusted_proxy(
-            proxy_headers.peer_address(scope), proxy_headers.current()
+            peer, proxy_headers.current()
         ):
-            peer = _parse_address(proxy_headers.peer_address(scope))
-            if peer is None or not peer.is_global:
-                # A proxy Meshloom was not told about: all its clients share its address.
-                return None
+            # The headers are ignored (the peer is the client): only the admin is told.
+            self._hint_untrusted_proxy(peer)
         return client_address_key(client[0])
 
-    def check(self, address: str | None, username: str) -> None:
+    def _hint_untrusted_proxy(self, peer: str | None) -> None:
+        if peer is None or peer in self._hinted_peers or len(self._hinted_peers) >= _MAX_HINTS:
+            return
+        self._hinted_peers.add(peer)
+        logger.warning(
+            "Sign-in attempts from %s carry forwarding headers, but it is not a trusted "
+            "proxy: every client behind it counts as %s for the login delays. If it is "
+            "your reverse proxy, list it in Settings > Local Configuration > Trusted proxies.",
+            peer,
+            peer,
+        )
+
+    def known_device_trusted(self, device: str | None) -> bool:
+        """Whether a known device still has its bypass (fewer than
+        ``DEVICE_MAX_FAILURES`` recent failures)."""
+        if device is None:
+            return False
+        entry = self._devices.get(device)
+        return entry is None or entry.failures < DEVICE_MAX_FAILURES
+
+    def check(self, address: str | None, username: str, device: str | None = None) -> None:
         """Raise ``LoginDelayed`` unless this attempt may be checked now.
 
         ``address`` comes from ``address_key()``: None applies the username rule only.
-        Takes the username's slot when it is slowed down, so call it once per attempt.
+        ``device`` is a known-device id (``app/auth/device_cookie.py``): while it
+        has its budget, no rule applies to it. Takes the username's slot when it
+        is slowed down, so call it once per attempt.
         """
         now = self._clock()
         self._maybe_sweep(now)
         name = _name_key(username)
+        if self.known_device_trusted(device):
+            return
 
         if address is not None:
             window = self._ips.get(address)
@@ -276,10 +312,16 @@ class LoginLimiter:
                 raise LoginDelayed("username", slowed.blocked_until - now, first)
             slowed.blocked_until = now + USERNAME_INTERVAL_S
 
-    async def record_failure(self, address: str | None, username: str) -> None:
+    async def record_failure(
+        self, address: str | None, username: str, device: str | None = None
+    ) -> None:
         """A wrong password (or unknown name) for this attempt."""
         now = self._clock()
         name = _name_key(username)
+
+        if device is not None:
+            spent = self._touch(self._devices, device, now)
+            spent.failures += 1
 
         slowed = self._touch(self._names, name, now)
         slowed.failures += 1
@@ -303,10 +345,13 @@ class LoginLimiter:
         if window.has_capacity():
             await window.acquire()
 
-    def record_success(self, address: str | None, username: str) -> None:
-        """The right password: forget the pair (the username and IP counts stay)."""
+    def record_success(self, address: str | None, username: str, device: str | None = None) -> None:
+        """The right password: forget the pair and the device's failures (the
+        username and IP counts stay)."""
         if address is not None:
             self._pairs.pop((address, _name_key(username)), None)
+        if device is not None:
+            self._devices.pop(device, None)
 
     def _touch(self, table: dict[Any, _Counter], key: Any, now: float) -> _Counter:
         """The entry for ``key``, moved to the end (most recent failure last)."""
@@ -334,6 +379,7 @@ class LoginLimiter:
         now = self._clock() if now is None else now
         self._drop_forgotten(self._pairs, now)
         self._drop_forgotten(self._names, now)
+        self._drop_forgotten(self._devices, now)
         for address in [address for address, window in self._ips.items() if window.is_empty()]:
             del self._ips[address]
 

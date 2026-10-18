@@ -48,8 +48,10 @@ and the OpenAPI page (`/docs`), not a table here.
   argon2id check: progressive delay per (address, username), one attempt a second
   per slowed username, hard refusal per address past 100 failures in 15 minutes.
   Addresses are keyed IPv4 /32, IPv6 /64; on a shared address (`compose`/`container`
-  without a trusted proxy, or forwarding headers from an undeclared non-global
-  proxy) only the username rule applies. No lockout by name. 429
+  without a trusted proxy: configuration only, never a request header) only the
+  username rule applies. A signed known-device cookie (`auth/device_cookie.py`,
+  set on a successful login) skips the rules with a per-device failure budget.
+  No lockout by name. 429
   `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
   every table bounded (`docs/dev/auth.md`, "Login delays").
 - `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth

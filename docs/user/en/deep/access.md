@@ -27,15 +27,18 @@ The first administrator, and the account Meshloom creates from the Basic auth lo
 Wrong passwords slow the next attempts down; they never lock an account.
 
 - **From one address, for one account:** the first 5 wrong passwords cost nothing. After that, the next attempt waits 1 second, then 2, 4, 8 and so on, up to 1 minute. Meanwhile the sign-in page says how many seconds to wait. Once the wait is over the right password works, and it clears the delay.
-- **For one account, from anywhere:** after 5 wrong passwords, the account takes at most one attempt per second, whoever sends it. Someone guessing at `admin` slowly cannot keep you out: you get in at most a second later. Someone flooding `admin` from many addresses gets one try a second, and your attempt competes with theirs for that second.
+- **For one account, from anywhere:** after 5 wrong passwords, the account takes at most one attempt per second, whoever sends it. Someone flooding `admin` gets one try a second, and a browser Meshloom does not know competes with them for that second (see below).
 - **From one address, for any account:** past 100 wrong passwords in 15 minutes, that address is refused until its count goes down (one more attempt every 9 seconds).
 
 An IPv6 address counts by its /64 block: one home or server usually holds a whole block and could otherwise change address at each attempt.
 
-**When every visitor shares one address**, the first and last rules are off and only the per-account rule applies, so a guesser on that address can never delay you by more than a second. That is the case:
+**Your own browser always gets in.** After you sign in, Meshloom remembers the browser with a cookie of its own (for 180 days, for the last account that signed in on it). With that cookie, the right password gets in at once, whatever anyone else sends from anywhere. A browser that types the wrong password 5 times in 15 minutes loses that pass and follows the rules above. Changing the password, disabling the account or restarting Meshloom forgets the browsers: the next successful sign-in remembers it again.
 
-- on a Docker install (Compose or a plain container) with no trusted proxy set: visitors can all arrive from Docker's own address;
-- behind a reverse proxy on this machine or your network that is not listed in **Trusted proxies**: all its visitors arrive from the proxy's address. List it to get the per-address rules back.
+From a browser Meshloom does not know yet (a new device, a cleared cookie, after a restart):
+
+- **On a Docker install (Compose or a plain container) with no trusted proxy set**, every visitor can arrive from Docker's own address, so the first and last rules are off and only the per-account rule applies. A guesser on the same address competes with you for the one attempt a second: one sending many attempts a second can keep you out until you use a browser Meshloom knows, or list your reverse proxy in **Trusted proxies**.
+- **Behind a reverse proxy that is not listed in Trusted proxies**, every visitor counts as the proxy's address, so one guesser's delays apply to everyone behind it. List the proxy. Meshloom logs a warning naming it.
+- **Otherwise**, each visitor has their own address and a guesser elsewhere only makes you wait up to a second.
 
 The delays live in memory and start again empty when Meshloom restarts. A delay is written to the audit log once, not for each refused attempt.
 

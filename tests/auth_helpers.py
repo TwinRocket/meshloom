@@ -41,4 +41,6 @@ async def login(client: httpx.AsyncClient, username: str = ADMIN, password: str 
 
 
 def set_cookie_headers(response: httpx.Response) -> list[str]:
-    return response.headers.get_list("set-cookie")
+    """The ``Set-Cookie`` headers other than the known-device cookie
+    (``app/auth/device_cookie.py``, tested in ``tests/test_auth_ratelimit.py``)."""
+    return [c for c in response.headers.get_list("set-cookie") if "meshloom_device=" not in c]
