@@ -1,0 +1,13 @@
+{
+  "errors": {
+    "auth_ingress_only": "Ici, c'est Home Assistant qui vous connecte : ouvrez Meshloom depuis la barre latérale de Home Assistant en étant connecté à Home Assistant."
+  },
+  "auth": {
+    "ingress": {
+      "title": "Connexion par Home Assistant",
+      "body": "Cette page est servie par Home Assistant, qui vous connecte à Meshloom : il n'y a pas de mot de passe Meshloom à saisir ici. Connectez-vous à Home Assistant, puis ouvrez Meshloom depuis sa barre latérale.",
+      "disabled": "Si vous êtes déjà connecté à Home Assistant, un administrateur Meshloom a peut-être désactivé votre compte.",
+      "retry": "Réessayer"
+    }
+  }
+}

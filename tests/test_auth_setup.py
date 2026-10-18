@@ -206,18 +206,15 @@ async def test_existing_database_without_a_stored_code_never_opens_setup():
     assert await UserRepository.list_all() == []
 
 
-async def test_setup_through_ingress_creates_the_admin_but_says_no_session_opened(monkeypatch):
+async def test_setup_through_ingress_is_refused(monkeypatch):
+    """Home Assistant creates the administrator there (tests/test_auth_ingress.py)."""
     monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
     await setup_code.prepare_first_run(
         existing_database=False, basic_username="", basic_password=""
     )
     async with make_client(client=("172.30.32.2", 40000)) as client:
         response = await client.post("/api/auth/setup", json=_setup_body())
-        assert response.status_code == 200, response.text
+        assert response.status_code == 403
+        assert _code(response) == "auth_ingress_only"
         assert set_cookie_headers(response) == []
-        body = response.json()
-        assert body["authenticated"] is False
-        assert body["session_reason"] == "auth_ingress_unsupported"
-        assert body["setup_required"] is False
-        assert (await client.get("/api/contacts")).status_code == 401
-    assert [user.username for user in await UserRepository.list_all()] == [ADMIN]
+    assert await UserRepository.list_all() == []

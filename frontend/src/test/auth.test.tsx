@@ -362,59 +362,61 @@ describe('review fixes', () => {
     expect(screen.getByRole('button', { name: t('auth.setup.submit') })).toBeInTheDocument();
   });
 
-  const ingressAnswer = () =>
-    jsonResponse({
-      ...base,
-      via: 'ingress',
-      session_reason: 'auth_ingress_unsupported',
-    });
+  const ingressAnonymous: AuthSessionInfo = {
+    ...base,
+    methods: { password: false, ingress: true },
+  };
+  const ingressSignedIn: AuthSessionInfo = {
+    ...signedIn,
+    methods: { password: false, ingress: true },
+    via: 'ingress',
+  };
 
-  it('explains the Home Assistant ingress gap on login instead of mounting the app', async () => {
-    const user = userEvent.setup();
-    const fetchFn = stubFetch({
-      'GET /auth/session': () => jsonResponse(base),
-      'POST /auth/login': ingressAnswer,
-    });
+  it('mounts the app straight away for a Home Assistant user through ingress', async () => {
+    const fetchFn = stubFetch({ 'GET /auth/session': () => jsonResponse(ingressSignedIn) });
     render(
       <SessionProvider>
         <Probe />
       </SessionProvider>
     );
-    await screen.findByRole('heading', { name: t('auth.login.title') });
-    await user.type(screen.getByLabelText(t('auth.username')), 'owner');
-    await user.type(screen.getByLabelText(t('auth.password')), 'pw');
-    await user.click(screen.getByRole('button', { name: t('auth.login.submit') }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      t('errors.auth_ingress_unsupported')
+    expect(await screen.findByTestId('app')).toHaveTextContent('Olive');
+    expect(screen.queryByLabelText(t('auth.password'))).toBeNull();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends an anonymous ingress visit to Home Assistant, not to a password form', async () => {
+    const user = userEvent.setup();
+    let session = { ...ingressAnonymous, setup_required: true };
+    const fetchFn = stubFetch({ 'GET /auth/session': () => jsonResponse(session) });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
     );
+    await screen.findByRole('heading', { name: t('auth.ingress.title') });
+    expect(screen.queryByLabelText(t('auth.password'))).toBeNull();
+    expect(screen.queryByRole('heading', { name: t('auth.setup.title') })).toBeNull();
     expect(screen.queryByTestId('app')).toBeNull();
-    // No loop: one session read, one login.
+
+    session = ingressSignedIn;
+    await user.click(screen.getByRole('button', { name: t('auth.ingress.retry') }));
+    await screen.findByTestId('app');
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
-  it('explains the ingress gap after setup too', async () => {
-    const user = userEvent.setup();
-    stubFetch({
-      'GET /auth/session': () => jsonResponse({ ...base, setup_required: true }),
-      'POST /auth/setup': ingressAnswer,
-    });
+  it('reloads the gate instead of asking a password when ingress loses the user', async () => {
+    let session: AuthSessionInfo = ingressSignedIn;
+    stubFetch({ 'GET /auth/session': () => jsonResponse(session) });
     render(
       <SessionProvider>
         <Probe />
       </SessionProvider>
     );
-    await screen.findByLabelText(t('auth.username'));
-    await user.type(screen.getByLabelText(t('auth.username')), 'owner');
-    await user.type(screen.getByLabelText(t('auth.password')), 'correct horse battery');
-    await user.type(
-      screen.getByLabelText(t('auth.setup.confirmPassword')),
-      'correct horse battery'
-    );
-    await user.click(screen.getByRole('button', { name: t('auth.setup.submit') }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      t('errors.auth_ingress_unsupported')
-    );
-    expect(screen.queryByTestId('app')).toBeNull();
+    await screen.findByTestId('app');
+    session = ingressAnonymous;
+    act(() => reportAuthRequired('auth_required'));
+    await screen.findByRole('heading', { name: t('auth.ingress.title') });
+    expect(screen.queryByTestId('relogin-dialog')).toBeNull();
   });
 
   it('says so when Sign out cannot end a Basic session, and frees the button', async () => {

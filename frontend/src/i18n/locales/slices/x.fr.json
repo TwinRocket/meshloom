@@ -12,7 +12,6 @@
     "auth_forbidden": "Ce compte n’a pas le droit de faire cela.",
     "auth_session_not_found": "Cette session n’existe plus.",
     "auth_busy": "Trop de tentatives de connexion en même temps. Réessayez dans un instant.",
-    "auth_setup_unavailable": "La création du compte n’est pas encore disponible. Consultez le journal du serveur, puis réessayez.",
-    "auth_ingress_unsupported": "Identifiants acceptés, mais aucune session ne peut encore être gardée via la barre latérale de Home Assistant. Ouvrez Meshloom à sa propre adresse (port 8000)."
+    "auth_setup_unavailable": "La création du compte n’est pas encore disponible. Consultez le journal du serveur, puis réessayez."
   }
 }
