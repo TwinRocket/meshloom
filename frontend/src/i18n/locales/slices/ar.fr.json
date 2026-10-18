@@ -8,6 +8,7 @@
       "loading": "Chargement de l'état du partage…",
       "intro": "Raccourcissez les liens longs et partagez des fichiers grâce au service de partage de Meshloom. C'est facultatif et désactivé tant que vous ne l'activez pas : tant qu'il est désactivé, ce Meshloom ne contacte jamais le service. Votre navigateur ne le contacte pas non plus : tout passe par ce serveur.",
       "enable": "Activer le partage de liens et de fichiers",
+      "unreachable": "Le service de partage ne répond pas pour le moment : ses conditions ne peuvent pas être lues et le partage ne peut pas être activé. Réessayez plus tard.",
       "enableHelp": "L'activer vous demande de lire et d'accepter les conditions.",
       "status": {
         "yes": "oui",

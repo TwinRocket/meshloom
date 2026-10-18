@@ -23,12 +23,20 @@ import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { SettingsGroupHeader } from './settingsPrimitives';
 
-const TERMS_URL = 'https://meshl.ink/terms';
-const PRIVACY_URL = 'https://meshl.ink/privacy';
-
 const SHORTEN_MODES: ShareShortenMode[] = ['auto', 'always', 'never'];
 const PREVIEW_POLICIES: SharePreviewPolicy[] = ['always', 'private', 'never'];
 
+/**
+ * The legal pages are static pages of the share service itself (`/terms`, `/privacy`,
+ * `/legal`, `?lang=` picks the language), so they sit on the host the share client
+ * writes to: `status.host`, never a second hardcoded host.
+ */
+function legalUrl(host: string, page: 'terms' | 'privacy' | 'legal', language: string): string {
+  const lang = language.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  return `https://${host}/${page}?lang=${lang}`;
+}
+
+// Same `/{lang}/docs/deep/<page>/` pattern as the relative links inside docs/user.
 function securityDocUrl(language: string): string {
   const lang = language.toLowerCase().startsWith('fr') ? 'fr' : 'en';
   return `https://meshloom.app/${lang}/docs/deep/security/`;
@@ -53,11 +61,13 @@ function ExternalLink({ href, children }: { href: string; children?: React.React
  * Cancelling, closing or leaving the box unticked changes nothing.
  */
 function ShareConsentDialog({
+  status,
   open,
   busy,
   onOpenChange,
   onConfirm,
 }: {
+  status: ShareStatus;
   open: boolean;
   busy: boolean;
   onOpenChange: (open: boolean) => void;
@@ -74,8 +84,8 @@ function ShareConsentDialog({
   }
 
   const links = {
-    terms: <ExternalLink href={TERMS_URL} />,
-    privacy: <ExternalLink href={PRIVACY_URL} />,
+    terms: <ExternalLink href={legalUrl(status.host, 'terms', i18n.language)} />,
+    privacy: <ExternalLink href={legalUrl(status.host, 'privacy', i18n.language)} />,
     security: <ExternalLink href={securityDocUrl(i18n.language)} />,
   };
 
@@ -119,6 +129,15 @@ function ShareConsentDialog({
             <Trans i18nKey="settings.share.consent.accept" components={links} />
           </Label>
         </div>
+        {status.unreachable && (
+          <p
+            role="alert"
+            data-testid="share-consent-unreachable"
+            className="text-[0.8125rem] text-destructive"
+          >
+            {t('settings.share.unreachable')}
+          </p>
+        )}
         <DialogFooter className="gap-2 sm:gap-0">
           <Button
             type="button"
@@ -128,7 +147,11 @@ function ShareConsentDialog({
           >
             {t('settings.share.consent.cancel')}
           </Button>
-          <Button type="button" onClick={onConfirm} disabled={!accepted || busy}>
+          <Button
+            type="button"
+            onClick={onConfirm}
+            disabled={!accepted || busy || status.unreachable}
+          >
             {t('settings.share.consent.confirm')}
           </Button>
         </DialogFooter>
@@ -214,6 +237,10 @@ export function SettingsShareSection({
     );
   }
 
+  // The terms live on the service: while it does not answer they cannot be read, so
+  // sharing cannot be turned on (turning it off stays possible).
+  const blockedByService = status.unreachable && !status.enabled;
+
   const handleToggle = (next: boolean) => {
     // Enabling always goes through the consent; disabling needs none.
     if (next) setConsentOpen(true);
@@ -239,7 +266,7 @@ export function SettingsShareSection({
           id="share-enabled"
           checked={status.enabled}
           onCheckedChange={(value) => handleToggle(value === true)}
-          disabled={busy}
+          disabled={busy || blockedByService}
         />
         <div className="space-y-0.5">
           <Label htmlFor="share-enabled" className="text-[0.8125rem] font-medium">
@@ -248,6 +275,12 @@ export function SettingsShareSection({
           <p className="text-[0.8125rem] text-muted-foreground">{t('settings.share.enableHelp')}</p>
         </div>
       </div>
+
+      {blockedByService && (
+        <p data-testid="share-unreachable" className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.share.unreachable')}
+        </p>
+      )}
 
       <Separator />
 
@@ -300,6 +333,7 @@ export function SettingsShareSection({
       </fieldset>
 
       <ShareConsentDialog
+        status={status}
         open={consentOpen}
         busy={busy}
         onOpenChange={setConsentOpen}

@@ -287,12 +287,17 @@ or focus, never on render.
 `share`, after Community in `settingsConstants.ts`) shows the status line, the
 enable checkbox, and the shorten-mode and preview-policy radios. Enabling always
 opens the consent dialog (`ShareConsentDialog`): what leaves when sending and
-reading, who, retention, links to `https://meshl.ink/terms`, `/privacy` and the
-published `security` doc, and a required terms checkbox; `PATCH /api/settings`
+reading, who, retention, links to the share service's own `/terms` and `/privacy`
+pages (host from `status.host`, never hardcoded; `?lang=`) and the published
+`security` doc, and a required terms checkbox; `PATCH /api/settings`
 `{share_enabled: true}` is sent only on confirm, and cancelling, closing or an
 unticked box leaves it off. Turning it off needs no consent. The status comes from
 `stores/shareStatusStore.ts` (`useShareStatus()`, `loadShareStatus()`; module
-store, refreshed after every settings change). `dm_encryption_available: false`
+store, refreshed after every settings change). `unreachable: true` (the share client's breaker is open, known locally) keeps the
+enable checkbox disabled with an explanation, and the confirm button too, since the
+terms live on the service and could not be read; turning off stays possible.
+Acceptance is not recorded server-side yet (follow-up).
+`dm_encryption_available: false`
 (radio key not read yet) shows an explanation that only encrypted DM files are
 unavailable. Strings: slice `ar` (`settings.share.*`, `settingsNav.share`).
 Slice letters are taken per ticket at merge time; pick the next free one and never

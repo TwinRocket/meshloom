@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
@@ -18,6 +18,7 @@ const offStatus: ShareStatus = {
   identity_ready: false,
   dm_encryption_available: true,
   banned: false,
+  unreachable: false,
   shorten_mode: 'auto',
   preview_policy: 'private',
 };
@@ -83,9 +84,56 @@ describe('SettingsShareSection', () => {
     fireEvent.click(await enableBox());
     const dialog = await screen.findByTestId('share-consent-dialog');
     const hrefs = Array.from(dialog.querySelectorAll('a')).map((a) => a.getAttribute('href'));
-    expect(hrefs).toContain('https://meshl.ink/terms');
-    expect(hrefs).toContain('https://meshl.ink/privacy');
+    // Pages of the share service itself, on the status host.
+    expect(hrefs).toContain(`https://${offStatus.host}/terms?lang=fr`);
+    expect(hrefs).toContain(`https://${offStatus.host}/privacy?lang=fr`);
+    expect(hrefs.some((h) => h?.includes('meshloom.app/fr/docs/deep/security/'))).toBe(true);
     expect(hrefs.some((h) => h?.includes('/docs/deep/security/'))).toBe(true);
+  });
+
+  it('takes the legal pages host from the status, not a constant', async () => {
+    current = { ...offStatus, host: 'share.example.test' };
+    renderSection();
+    fireEvent.click(await enableBox());
+    const dialog = await screen.findByTestId('share-consent-dialog');
+    const hrefs = Array.from(dialog.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('https://share.example.test/terms?lang=fr');
+  });
+
+  it('keeps the toggle disabled with an explanation while the service is unreachable', async () => {
+    current = { ...offStatus, unreachable: true };
+    renderSection();
+    const box = await enableBox();
+    expect(box).toBeDisabled();
+    expect(screen.getByTestId('share-unreachable')).toHaveTextContent(
+      i18n.t('settings.share.unreachable')
+    );
+    fireEvent.click(box);
+    expect(screen.queryByTestId('share-consent-dialog')).toBeNull();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('lets an already enabled instance turn sharing off while unreachable', async () => {
+    current = { ...offStatus, enabled: true, unreachable: true };
+    renderSection();
+    const box = await enableBox();
+    expect(box).toBeEnabled();
+    expect(screen.queryByTestId('share-unreachable')).toBeNull();
+    fireEvent.click(box);
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ share_enabled: false }));
+  });
+
+  it('disables the confirm button if the service drops while the dialog is open', async () => {
+    renderSection();
+    fireEvent.click(await enableBox());
+    const dialog = await screen.findByTestId('share-consent-dialog');
+    fireEvent.click(dialog.querySelector('#share-accept-terms') as HTMLElement);
+    const confirm = screen.getByRole('button', { name: i18n.t('settings.share.consent.confirm') });
+    expect(confirm).toBeEnabled();
+    const { setShareStatus } = await import('../stores/shareStatusStore');
+    act(() => setShareStatus({ ...offStatus, unreachable: true }));
+    expect(confirm).toBeDisabled();
+    expect(screen.getByTestId('share-consent-unreachable')).toBeInTheDocument();
   });
 
   it('cancelling leaves sharing off', async () => {

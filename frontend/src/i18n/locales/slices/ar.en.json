@@ -8,6 +8,7 @@
       "loading": "Loading the sharing status…",
       "intro": "Shorten long links and share files through the Meshloom share service. It is optional and stays off until you turn it on: while it is off, this Meshloom never contacts the service. Your browser never contacts it either; everything goes through this server.",
       "enable": "Turn on link and file sharing",
+      "unreachable": "The share service is not answering right now, so its terms cannot be read and sharing cannot be turned on. Try again later.",
       "enableHelp": "Turning it on asks you to read and accept the terms.",
       "status": {
         "yes": "yes",
