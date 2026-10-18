@@ -4,12 +4,14 @@ The stored value is libsodium's encoded string
 (``$argon2id$v=19$m=<KiB>,t=<passes>,p=1$<salt>$<hash>``): it carries its own
 salt and parameters, so a verify never needs the current ones, and
 ``needs_rehash()`` tells the caller to store a new hash after a successful
-login once ``OPSLIMIT``/``MEMLIMIT`` change. libsodium compares in constant time.
+login once ``PARAMS`` change. libsodium compares in constant time.
 
-Each hash or verify allocates ``MEMLIMIT`` bytes and takes a noticeable time
-(about 0.5 s on a desktop, several seconds on a Raspberry Pi): call the async
-variants from the event loop, they run in a worker thread. Limiting how many
-run at once (the login limiter, a semaphore) is the caller's job.
+``PARAMS`` is libsodium's INTERACTIVE level (2 passes, 64 MiB): the targets
+include Raspberry Pi boards with 512 MB, and the login path runs at most two
+verifications at once (about 128 MiB at peak). Measured costs are in
+``docs/dev/auth.md``. Each call blocks for that long: call the async variants
+from the event loop, they run in a worker thread. Limiting how many run at once
+(the login limiter, a semaphore) is the caller's job.
 
 Never log a password or a hash, and never put either in an exception message.
 """
@@ -17,12 +19,23 @@ Never log a password or a hash, and never put either in an exception message.
 import asyncio
 import re
 import unicodedata
+from dataclasses import dataclass
 
 import nacl.exceptions
 import nacl.pwhash.argon2id as argon2id
 
-OPSLIMIT: int = argon2id.OPSLIMIT_MODERATE
-MEMLIMIT: int = argon2id.MEMLIMIT_MODERATE
+
+@dataclass(frozen=True)
+class Argon2Params:
+    opslimit: int
+    memlimit: int
+
+
+# The one place the cost is set. Raising it later is safe: needs_rehash()
+# flags older hashes and the caller re-hashes them after a successful login.
+PARAMS = Argon2Params(
+    opslimit=argon2id.OPSLIMIT_INTERACTIVE, memlimit=argon2id.MEMLIMIT_INTERACTIVE
+)
 
 # A bound on the input, not a policy: argon2id hashes any length, but nothing
 # legitimate is longer and a cap keeps a huge body from being hashed at all.
@@ -38,13 +51,15 @@ def _encode(password: str) -> bytes:
     return unicodedata.normalize("NFC", password).encode("utf-8")
 
 
-def hash_password(password: str, *, opslimit: int = OPSLIMIT, memlimit: int = MEMLIMIT) -> str:
+def hash_password(password: str, *, params: Argon2Params = PARAMS) -> str:
     """Return the encoded argon2id hash of ``password``. Blocking."""
     if not password:
         raise ValueError("empty password")
     if len(password) > MAX_PASSWORD_LENGTH:
         raise ValueError("password too long")
-    return argon2id.str(_encode(password), opslimit=opslimit, memlimit=memlimit).decode("ascii")
+    return argon2id.str(
+        _encode(password), opslimit=params.opslimit, memlimit=params.memlimit
+    ).decode("ascii")
 
 
 def verify_password(password_hash: str | None, password: str) -> bool:
@@ -63,9 +78,7 @@ def verify_password(password_hash: str | None, password: str) -> bool:
         return False
 
 
-def needs_rehash(
-    password_hash: str | None, *, opslimit: int = OPSLIMIT, memlimit: int = MEMLIMIT
-) -> bool:
+def needs_rehash(password_hash: str | None, *, params: Argon2Params = PARAMS) -> bool:
     """True when ``password_hash`` was not made with argon2id at these parameters."""
     if not password_hash:
         return True
@@ -73,14 +86,12 @@ def needs_rehash(
     if match is None:
         return True
     version, mem_kib, passes, lanes = (int(group) for group in match.groups())
-    return (version, mem_kib, passes, lanes) != (19, memlimit // 1024, opslimit, 1)
+    return (version, mem_kib, passes, lanes) != (19, params.memlimit // 1024, params.opslimit, 1)
 
 
-async def hash_password_async(
-    password: str, *, opslimit: int = OPSLIMIT, memlimit: int = MEMLIMIT
-) -> str:
+async def hash_password_async(password: str, *, params: Argon2Params = PARAMS) -> str:
     """``hash_password`` in a worker thread, off the event loop."""
-    return await asyncio.to_thread(hash_password, password, opslimit=opslimit, memlimit=memlimit)
+    return await asyncio.to_thread(hash_password, password, params=params)
 
 
 async def verify_password_async(password_hash: str | None, password: str) -> bool:
