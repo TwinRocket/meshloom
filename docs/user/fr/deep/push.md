@@ -143,7 +143,9 @@ Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l�
 
 Les services push des navigateurs (Google, Mozilla, Apple) sont sur Internet. `POST /api/push/subscribe` refuse une adresse sur un réseau privé (réponse `400`, code `egress_private_address`), et Meshloom n’y envoie jamais rien, sauf si **Accepter les points de terminaison push sur un réseau privé** est coché dans **Réglages → Notifications** (réglage `push_allow_private_endpoints` de `/api/settings`). Cochez-le uniquement pour un distributeur UnifiedPush auto-hébergé sur votre réseau local ou sur cette machine. Comme pour le webhook, chaque push part uniquement vers l’adresse vérifiée par Meshloom, et une redirection n’est jamais suivie.
 
-Lors d’une mise à jour, si un appareil enregistré avant cette vérification n’est pas un service push de navigateur (un distributeur UnifiedPush, peut-être sur votre réseau local), la case est cochée d’office pour que l’appareil continue de recevoir, et un avis dans **Réglages → Notifications** le signale jusqu’à ce que vous le fermiez. Décochez la case si aucun de vos appareils n’est sur votre réseau. Avec uniquement des services push de navigateur, elle reste décochée.
+Lors d’une mise à jour, si un appareil enregistré avant cette vérification n’est pas un service push de navigateur (un distributeur UnifiedPush, peut-être sur votre réseau local), la case est cochée d’office pour que l’appareil continue de recevoir, et un avis dans **Réglages → Notifications** le signale jusqu’à ce que vous le fermiez. Décochez la case si aucun de vos appareils n’est sur votre réseau. Avec uniquement des services push de navigateur, ou un distributeur public comme ntfy.sh, elle reste décochée. Seul un appareil dont l’adresse est une IP privée, un nom sans point ou un nom en `.local`/`.lan`/`.home.arpa` compte comme étant sur votre réseau (Meshloom ne fait aucune résolution DNS pour cela).
+
+Restaurer une sauvegarde d’avant cette vérification suit la même règle : si un appareil restauré est sur votre réseau, la case est cochée et le même avis apparaît.
 
 ## Quand rien n’arrive
 

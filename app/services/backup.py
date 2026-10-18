@@ -989,7 +989,44 @@ async def push_restore_applies(extra: MeshloomExtra) -> bool | None:
     return not (existing and current_public != extra.vapid.public_key)
 
 
-async def _restore_push(extra: MeshloomExtra, warnings: list[str]) -> int:
+_PRIVATE_NAME_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal", ".localdomain")
+
+
+def endpoint_looks_private(endpoint: str) -> bool:
+    """Whether a push endpoint visibly targets a private network: an IP literal
+    that is not global, a dotless name or a ``.local``/``.lan``/``.home.arpa``
+    style name. No DNS: a public name (ntfy.sh) never counts. Migration 104
+    holds a frozen copy of this rule."""
+    import ipaddress
+    from urllib.parse import urlsplit
+
+    try:
+        host = (urlsplit(endpoint).hostname or "").rstrip(".").lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        pass
+    return "." not in host or host.endswith(_PRIVATE_NAME_SUFFIXES)
+
+
+async def _regrandfather_private_push(extra: MeshloomExtra) -> None:
+    """A backup taken before the egress guard carries no ``push_allow_private_endpoints``:
+    restored LAN subscriptions would be refused. Same rule as migration 097/104 and
+    the webhook (``grandfather_legacy_webhook``): turn the opt-in on, flagged for the
+    one-time notice, only when a restored endpoint visibly targets a private network."""
+    if any(endpoint_looks_private(sub.endpoint) for sub in extra.push_subscriptions):
+        await AppSettingsRepository.update(
+            push_allow_private_endpoints=True, push_private_endpoints_grandfathered=True
+        )
+
+
+async def _restore_push(
+    extra: MeshloomExtra, warnings: list[str], *, settings_have_push_opt_in: bool = True
+) -> int:
     """VAPID keys and subscriptions belong together: restored only on a host
     with no subscriptions of its own (or already using the backup's key)."""
     from app.push.vapid import ensure_vapid_keys
@@ -1014,17 +1051,24 @@ async def _restore_push(extra: MeshloomExtra, warnings: list[str]) -> int:
             label=sub.label,
             language=sub.language,
         )
+    if not settings_have_push_opt_in:
+        await _regrandfather_private_push(extra)
     return len(extra.push_subscriptions)
 
 
-async def restore_meshloom_extra(extra: MeshloomExtra) -> list[str]:
+async def restore_meshloom_extra(
+    extra: MeshloomExtra, *, settings_have_push_opt_in: bool = True
+) -> list[str]:
     """Restore ``meshloom_extra`` through the same checks as the routes.
-    Idempotent: a second run changes no count. Returns warnings."""
+    Idempotent: a second run changes no count. Returns warnings.
+
+    ``settings_have_push_opt_in``: the file's settings carried
+    ``push_allow_private_endpoints`` (False for a backup from before the egress guard)."""
     from app.services.radio_proxy_settings import update_radio_proxy_settings
 
     warnings: list[str] = []
     await _restore_fanout_configs(extra.fanout_configs, warnings)
-    await _restore_push(extra, warnings)
+    await _restore_push(extra, warnings, settings_have_push_opt_in=settings_have_push_opt_in)
     if extra.radio_proxy is not None:
         _status, proxy_warnings = await update_radio_proxy_settings(
             enabled=extra.radio_proxy.enabled,

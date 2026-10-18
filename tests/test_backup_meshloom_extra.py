@@ -171,6 +171,41 @@ async def test_vapid_restored_on_a_host_without_subscriptions(backup_db, reload_
     assert len(await PushSubscriptionRepository.get_all()) == 1
 
 
+def _push_extra(endpoint: str) -> MeshloomExtra:
+    return MeshloomExtra(
+        vapid=BackupVapid(private_key="backup-priv", public_key="backup-pub"),  # type: ignore[arg-type]
+        push_subscriptions=[BackupPushSubscription(endpoint=endpoint, p256dh="k", auth="a")],
+    )
+
+
+@pytest.mark.asyncio
+async def test_pre_guard_backup_regrandfathers_a_lan_subscription(backup_db, reload_spy, proxy_spy):
+    await restore_meshloom_extra(
+        _push_extra("http://192.168.1.20:8080/UP"), settings_have_push_opt_in=False
+    )
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is True
+    assert settings.push_private_endpoints_grandfathered is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["https://ntfy.sh/up", "https://fcm.googleapis.com/x"])
+async def test_pre_guard_backup_leaves_public_endpoints_refused_by_default(
+    backup_db, reload_spy, proxy_spy, endpoint
+):
+    await restore_meshloom_extra(_push_extra(endpoint), settings_have_push_opt_in=False)
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is False
+    assert settings.push_private_endpoints_grandfathered is False
+
+
+@pytest.mark.asyncio
+async def test_backup_with_the_opt_in_is_not_regrandfathered(backup_db, reload_spy, proxy_spy):
+    await restore_meshloom_extra(_push_extra("http://192.168.1.20:8080/UP"))
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is False
+
+
 @pytest.mark.asyncio
 async def test_existing_subscriptions_keep_the_host_keys(backup_db, reload_spy, proxy_spy):
     await AppSettingsRepository.set_vapid_keys("host-priv", "host-pub")

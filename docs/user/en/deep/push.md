@@ -143,7 +143,9 @@ A subscription is unique by its address, so registering again updates the existi
 
 Browser push services (Google, Mozilla, Apple) are on the Internet. `POST /api/push/subscribe` refuses an address on a private network (answer `400`, code `egress_private_address`), and Meshloom never sends to one, unless **Accept push endpoints on a private network** is ticked in **Settings → Notifications** (setting `push_allow_private_endpoints` of `/api/settings`). Tick it only for a self-hosted UnifiedPush distributor on your LAN or on this machine. Like the webhook, each push is sent only to the address Meshloom checked, and a redirect is never followed.
 
-On an upgrade, if a device registered before this check is not a browser push service (a UnifiedPush distributor, perhaps on your LAN), the box starts ticked so the device keeps receiving, and a notice in **Settings → Notifications** says so until you dismiss it. Untick the box if none of your devices is on your network. With browser push services only, it starts unticked.
+On an upgrade, if a device registered before this check is not a browser push service (a UnifiedPush distributor, perhaps on your LAN), the box starts ticked so the device keeps receiving, and a notice in **Settings → Notifications** says so until you dismiss it. Untick the box if none of your devices is on your network. With browser push services only, or only a public distributor such as ntfy.sh, it starts unticked. Only a device whose address is a private IP, a name without a dot or a `.local`/`.lan`/`.home.arpa` name counts as being on your network (Meshloom does no DNS lookup for this).
+
+Restoring a backup taken before this check works the same way: if a restored device is on your network, the box is ticked and the same notice appears.
 
 ## When nothing arrives
 
