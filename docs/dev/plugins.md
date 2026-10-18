@@ -225,7 +225,7 @@ and never sits in `plugins.config`. They follow the write-only pattern of
 `app/plugins/attention.py` `scan_source(source)` parses a local source with `ast`
 (nothing is imported or run) and returns an `AttentionReport`: `reasons`
 (`code`, `line`, `detail`, `informative`), `http_hosts` and `truncated`. Reused by
-the switch (T9) and `dev check` (T4d). The reasons are a review aid, not an
+the switch (T9) and `dev check` (T4d, "Checking a plugin"). The reasons are a review aid, not an
 exhaustive list of what the sandbox refuses.
 
 It never raises on any `str`, so one hostile bot cannot abort a batch scan: a
@@ -258,6 +258,41 @@ are dropped). They **prefill** the `http` permission: the user still consents.
 Extraction is bounded and linear: at most `MAX_URL_SCAN_BYTES` (256 KiB) of literal
 text searched and `MAX_URL_MATCHES` (1000) URLs examined, stopping at 20 hosts;
 `truncated` is true when a bound cut the search, so more hosts may exist.
+
+## Checking a plugin
+
+```bash
+uv run python -m meshloom_plugin.dev check path/to/plugin [--json] [--origin third_party|bundled|local] [--strict]
+```
+
+Run from a source checkout (`meshloom_plugin.dev` imports `app.plugins`, which is
+not shipped to the child). `check` runs, in order, and reports every finding:
+
+1. **Package.** The directory is zipped in memory (files at the root, mode 0644,
+   `__pycache__` left out, a symlink refused) and goes through
+   `validate_package`, so manifest, archive and config-schema failures carry the
+   server's codes and messages. `--origin` picks the id-namespace rule (`bundled`
+   for `meshloom.*`, `local` for `local.*`).
+2. **Static scan.** `scan_source` on every `.py` outside `vendor/`. Findings are
+   warnings (informative ones are marked `info`); `--strict` makes the blocking
+   ones errors. A plugin's own absolute imports of its other modules are flagged
+   by the scan, which cannot tell them from third-party modules.
+3. **Dry run**, only when the package is valid: the real runner with
+   `isolation: none` (the OS isolation is not exercised), `plugin.init`, one
+   synthetic `event.message` carrying `test: true`, then `plugin.shutdown`. The
+   plugin's calls to the host are captured and answered locally (`messages.send`
+   gets `{"captured": true}`, everything else `null`); nothing is sent. Timeouts:
+   20 s for `plugin.init`, 30 s for the event. An error answer, a runner start
+   error (`entry_load_failed`...), a timeout or a plugin that exits is an error;
+   the tail of the plugin's stderr is printed on failure. The `plugin.init`
+   payload is provisional until the supervisor (MSHL-179) fixes it.
+
+Exit status 0 passed, 1 failed, 2 usage (a path that is not a directory included). `--json` prints `{ok, plugin, errors,
+warnings, dry_run: {isolation, ran, calls, stderr}}` (`isolation` is always `"none (development only)"`; the text output says so too; `informative` is set on informative findings). Importing `meshloom_plugin.dev` imports
+neither FastAPI nor the database (`app/message_limits.py` imports FastAPI lazily
+for that reason); `tests/test_plugin_dev_check.py` asserts it and feeds every
+invalid manifest vector through `check`. `tests/plugin_dev/echo/` is the reference
+valid plugin. `run --replay` and `pack` come later (T27).
 
 ## Contract
 
@@ -299,6 +334,7 @@ hooks block and what they cannot: `docs/dev/plugins-security.md`.
 | `meshloom_plugin/runner.py` | the child: start-up stages, audit hook, import guard, JSON-RPC loop |
 | `meshloom_plugin/rpc.py` | NDJSON framing and JSON-RPC 2.0 helpers, used by both ends |
 | `meshloom_plugin/policy.py` | import allowlist and denylist, kept environment keys, default limits, handler concurrency |
+| `meshloom_plugin/dev.py` | author tooling, not child code: `python -m meshloom_plugin.dev check <dir>` (see "Checking a plugin") |
 | `meshloom_plugin/__init__.py` | `host()`: the RPC channel to the server, for the SDK |
 | `meshloom_plugin/errors.py` | exceptions plugin code may catch (`HostError`); never in `runner.py`, which runs as `__main__`, so a plugin importing `meshloom_plugin.runner` would get a second copy whose classes never match |
 

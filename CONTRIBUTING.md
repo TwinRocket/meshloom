@@ -62,6 +62,15 @@ npm run typecheck
 npm run build
 ```
 
+## Checking a plugin locally
+
+```bash
+uv run python -m meshloom_plugin.dev check path/to/plugin          # add --json for CI
+```
+
+It applies the server's manifest and package rules, a static review and a sandbox
+dry run. Details: `docs/dev/plugins.md`, "Checking a plugin".
+
 ## Quality + Publishing Scripts
 
 <details>
