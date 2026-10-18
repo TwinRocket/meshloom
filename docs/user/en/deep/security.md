@@ -49,7 +49,7 @@ The key can always be read back by anyone who reaches the interface: `GET /api/r
 
 Importing a key (**Set Private Key**, write-only) never shows the key. A key that does not match the radio the database is bound to is refused until you confirm the identity change (see [First launch](/en/docs/first-run/)).
 
-On Linux, the server also marks itself as not dumpable at startup, so another program running as the same user cannot read its memory or its environment (where the Basic auth login lives). The cost: the server writes no core dump, and debugging tools such as `py-spy` or `gdb` need `sudo` to attach to it.
+On Linux, the server also marks itself as not dumpable at startup, so another program running as the same user cannot read its memory or its environment (where the Basic auth login lives). The cost: the server writes no core dump, and debugging tools such as `py-spy` or `gdb` need `sudo` to attach to it. This protects against other non-root programs and does nothing against root; the default Docker image and the Home Assistant add-on run as root, so the protection mainly matters for the deb/rpm packages and installs that run as a dedicated user.
 
 ## Radio proxy
 

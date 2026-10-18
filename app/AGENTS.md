@@ -41,8 +41,10 @@ need root (`sudo`); a same-uid debugger gets "permission denied". There is no
 switch to turn it off (no environment variable on purpose): to debug, start the
 server under the debugger (`py-spy record -- uv run uvicorn ...`) or run the
 tool as root. It is inherited by child processes (`fork`) but reset by `execve`
-of a setuid binary or a file the user cannot read, so it does not harden the
-helper processes the server launches.
+of any normal program, so the bots' `exec` and the other helpers the server
+launches are not hardened. The flag protects against other non-root programs
+only: it does nothing against root (the default Docker image and the HA add-on
+run as root).
 
 ## Migrations
 
