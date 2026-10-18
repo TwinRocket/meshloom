@@ -19,6 +19,7 @@ describe('ToolsView', () => {
     renderTools();
     for (const key of [
       'sidebar.packetFeed',
+      'sidebar.feed',
       'sidebar.controlJournal',
       'sidebar.live',
       'sidebar.meshVisualizer',
@@ -38,6 +39,17 @@ describe('ToolsView', () => {
     expect(onSelectConversation).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'test', id: 'test' })
     );
+  });
+
+  it('opens the feed as its own conversation, with its description', () => {
+    const { onSelectConversation } = renderTools();
+    expect(screen.getByText(i18n.t('toolsView.feedDescription'))).toBeInTheDocument();
+    fireEvent.click(screen.getByText(i18n.t('sidebar.feed')));
+    expect(onSelectConversation).toHaveBeenCalledWith({
+      type: 'feed',
+      id: 'feed',
+      name: i18n.t('sidebar.feed'),
+    });
   });
 
   it('opens the live map as its own conversation', () => {

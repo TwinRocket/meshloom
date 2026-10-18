@@ -14,6 +14,7 @@ import {
 } from '../utils/lastViewedConversation';
 import { findPublicChannel } from '../utils/publicChannel';
 import { getContactDisplayName } from '../utils/pubkey';
+import { isFeedConversation, makeFeedConversation } from '../components/feed/feedConversation';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
 import type { Channel, Contact, Conversation } from '../types';
@@ -40,6 +41,8 @@ function resolveConversationFromHash(
   switch (hashConv.type) {
     case 'raw':
       return { type: 'raw', id: 'raw', name: 'Raw Packet Feed' };
+    case 'feed':
+      return makeFeedConversation(i18n.t('sidebar.feed'));
     case 'control':
       return { type: 'control', id: 'control', name: i18n.t('sidebar.controlJournal') };
     case 'map':
@@ -172,6 +175,11 @@ export function useConversationRouter({
       hasSetDefaultConversation.current = true;
       return;
     }
+    if (hashConv?.type === 'feed') {
+      setActiveConversationState(makeFeedConversation(i18n.t('sidebar.feed')));
+      hasSetDefaultConversation.current = true;
+      return;
+    }
     if (hashConv?.type === 'control') {
       setActiveConversationState({
         type: 'control',
@@ -253,6 +261,7 @@ export function useConversationRouter({
       if (
         lastViewed &&
         (lastViewed.type === 'raw' ||
+          isFeedConversation(lastViewed) ||
           lastViewed.type === 'control' ||
           lastViewed.type === 'map' ||
           lastViewed.type === 'live' ||

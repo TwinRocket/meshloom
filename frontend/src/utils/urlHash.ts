@@ -1,4 +1,5 @@
 import type { Channel, Contact, Conversation } from '../types';
+import { isFeedConversation } from '../components/feed/feedConversation';
 import { findPublicChannel, PUBLIC_CHANNEL_NAME } from './publicChannel';
 import { getContactDisplayName } from './pubkey';
 import {
@@ -11,6 +12,7 @@ interface ParsedHashConversation {
     | 'channel'
     | 'contact'
     | 'raw'
+    | 'feed'
     | 'control'
     | 'map'
     | 'live'
@@ -40,6 +42,10 @@ export function parseHashConversation(): ParsedHashConversation | null {
 
   if (hash === 'raw') {
     return { type: 'raw', name: 'raw' };
+  }
+
+  if (hash === 'feed') {
+    return { type: 'feed', name: 'feed' };
   }
 
   if (hash === 'control') {
@@ -236,6 +242,7 @@ export function getLocateHash(query?: string): string {
 export function getConversationHash(conv: Conversation | null): string {
   if (!conv) return '';
   if (conv.type === 'raw') return '#raw';
+  if (isFeedConversation(conv)) return '#feed';
   if (conv.type === 'control') return '#control';
   if (conv.type === 'map') {
     return conv.mapFocusKey ? getMapFocusHash(conv.mapFocusKey) : '#map';

@@ -9,9 +9,11 @@ import {
   Search,
   Hash,
   RadioTower,
+  Newspaper,
 } from 'lucide-react';
 import type { Conversation, HealthStatus } from '../types';
 import { RadioStatusChip } from './RadioStatusChip';
+import { makeFeedConversation } from './feed/feedConversation';
 import { cn } from '../lib/utils';
 
 /**
@@ -24,7 +26,16 @@ import { cn } from '../lib/utils';
  */
 
 type ToolId =
-  'raw' | 'control' | 'live' | 'visualizer' | 'trace' | 'locate' | 'search' | 'discovered' | 'test';
+  | 'raw'
+  | 'feed'
+  | 'control'
+  | 'live'
+  | 'visualizer'
+  | 'trace'
+  | 'locate'
+  | 'search'
+  | 'discovered'
+  | 'test';
 
 interface Props {
   onSelectConversation: (conversation: Conversation) => void;
@@ -46,6 +57,12 @@ const TOOLS: { id: ToolId; labelKey: string; descriptionKey: string; Icon: typeo
     labelKey: 'sidebar.packetFeed',
     descriptionKey: 'toolsView.packetFeedDescription',
     Icon: List,
+  },
+  {
+    id: 'feed',
+    labelKey: 'sidebar.feed',
+    descriptionKey: 'toolsView.feedDescription',
+    Icon: Newspaper,
   },
   {
     id: 'control',
@@ -137,7 +154,13 @@ export function ToolsView({
                 type="button"
                 aria-current={activeConversation?.type === id ? 'page' : undefined}
                 className={cn(ROW_CLASS, activeConversation?.type === id && 'bg-accent/60')}
-                onClick={() => onSelectConversation({ type: id, id, name: t(labelKey) })}
+                onClick={() =>
+                  onSelectConversation(
+                    id === 'feed'
+                      ? makeFeedConversation(t(labelKey))
+                      : { type: id, id, name: t(labelKey) }
+                  )
+                }
               >
                 <span
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"

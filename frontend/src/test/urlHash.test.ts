@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { makeFeedConversation } from '../components/feed/feedConversation';
 import {
   parseHashConversation,
   parseHashSettingsAnchor,
@@ -66,6 +67,12 @@ describe('parseHashConversation', () => {
     const result = parseHashConversation();
 
     expect(result).toEqual({ type: 'raw', name: 'raw' });
+  });
+
+  it('parses #feed as feed type', () => {
+    window.location.hash = '#feed';
+
+    expect(parseHashConversation()).toEqual({ type: 'feed', name: 'feed' });
   });
 
   it('parses #control as control type', () => {
@@ -453,6 +460,8 @@ describe('getLocateHash', () => {
 
 describe('getConversationHash', () => {
   it('encodes live conversations', () => {
+    expect(getConversationHash(makeFeedConversation('Feed'))).toBe('#feed');
+    expect(getConversationHash(makeFeedConversation('Control', 'control'))).toBe('#feed');
     expect(getConversationHash({ type: 'live', id: 'live', name: 'Live' })).toBe('#live');
   });
 

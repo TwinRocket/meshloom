@@ -43,6 +43,35 @@ feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
   decryption) is a single render. Read the snapshot with `getFeedSnapshot()` after
   a microtask, not right after the call.
 
+### Feed
+
+`#feed` (`components/feed/FeedView.tsx`, `lazy()` behind `LazyBoundary`, not in the
+entry chunk) is the only subscriber of `feedStore`; it sits beside `control`, which
+is untouched until the Control preset folds it in.
+
+- **Pagination.** On mount: `activateFeedStore()`, then `loadFeedPage(null)`
+  (`GET /api/messages?limit=200`, `FEED_PAGE_SIZE`). Scrolling within ~300 px of the
+  top calls `loadFeedPage({received_at, id})` of the oldest held row, sent as
+  `before` / `before_id`; that pair is how the server orders and cuts, so no row is
+  skipped or repeated. A page shorter than the limit sets `hasOlder=false`
+  ("beginning of history"). A re-mount refetches the newest page but never revives
+  `hasOlder` on a store that already reached the beginning.
+- **Follow mode.** Pinned means within `FOLLOW_THRESHOLD_PX` of the bottom. While
+  pinned, the view re-pins on every new row and for a bounded number of frames as
+  heights settle. A scroll up turns it off and records the highest id held; the
+  Follow button counts rows with a larger id that are not `historical`
+  (`feedFollow.ts`). Scrolling back to the bottom re-pins without the button.
+- **DOM cap.** `FEED_DOM_MAX` (300) rows are mounted at most, whatever the memory
+  window (`FEED_MAX_ROWS`, 2000) holds. The virtualizer follows the `MessageList`
+  invariants below (`scrollMargin`, string sentinel keys, zero-height fallback).
+  A prepended page keeps the reader's position by the growth of `scrollHeight`.
+- **Navigation type.** `'feed'` is not yet in `ConversationType` (`types.ts` is
+  owned elsewhere this wave): `components/feed/feedConversation.ts` carries
+  `FeedConversation`, `isFeedConversation()` and `makeFeedConversation()` (one cast).
+  Move the two fields into `types.ts` and drop the cast when it is free.
+- jsdom measures no layout: `src/test/feedView.test.tsx` fakes the scroller geometry.
+  Virtualization and the single scroller need a check in a real browser.
+
 `ControlJournalView` keeps its pure helpers in `utils/controlJournal.ts`. Each
 observation is decoded once: a decode cache keyed by `getRawPacketObservationKey`
 (re-decoded only if the bytes behind a key change) feeds both the filter and
@@ -126,7 +155,7 @@ purpose.
   (an old message with a new id). It is reserved for the client: `feedStore`
   keeps the flag on the row and `recordFeedMessage` returns it as `historical`
   (never a "new" message for the feed). The unread counters and toasts still treat
-  these messages like any other (no consumer of the feed yet). Absent on live frames and REST rows. The toast
+  these messages like any other; the feed's follow counter ignores them. Absent on live frames and REST rows. The toast
   `historical_decrypt_complete` (`_rooms` with a count for the bulk run) is the
   end-of-run signal.
 - `raw_packet`: key and dedupe on `observation_id`. `id` is the storage row and repeats.
@@ -323,6 +352,10 @@ no in-tab desktop notification.
 1. When an API or WS payload changes, update `types.ts`, `wsEvents.ts` and its
    handlers, and the tests (`src/test/fixtures/websocket_events.json` holds WS samples).
 2. When hash routing changes, update `utils/urlHash.ts` and `urlHash.test.ts`.
+   A new tool id goes through every surface keyed by it: `navDestinations.ts`
+   (`RailItemId`, `RAIL_ITEMS`), `ToolsView.tsx`, `CommandPalette.tsx`, `AppShell.tsx`
+   (`TOOL_TYPES`), `lastViewedConversation.ts`, `useConversationRouter.ts`,
+   `ConversationPane.tsx` and `isMessageConversation` in `useConversationMessages.ts`.
    `#settings/<section>/<anchor>` opens a section at a known anchor
    (`SETTINGS_ANCHORS`): `#settings/database/backup` scrolls to `#settings-backup`,
    the target of the public backup docs. The anchor is remembered once when the

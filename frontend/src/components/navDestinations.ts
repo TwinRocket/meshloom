@@ -12,6 +12,7 @@ import {
   Search,
   Hash,
   RadioTower,
+  Newspaper,
   type LucideIcon,
 } from 'lucide-react';
 import type { Conversation } from '../types';
@@ -42,6 +43,7 @@ export const UNREAD_BADGE_MAX = 99;
 export type RailItemId =
   | BottomNavTarget
   | 'raw'
+  | 'feed'
   | 'control'
   | 'live'
   | 'visualizer'
@@ -115,6 +117,7 @@ export const RAIL_ITEMS: RailItem[] = [
     })
   ),
   tool('raw', 'sidebar.packetFeed', List),
+  tool('feed', 'sidebar.feed', Newspaper),
   tool('control', 'sidebar.controlJournal', ScrollText),
   tool('live', 'sidebar.live', Radio),
   tool('visualizer', 'sidebar.meshVisualizer', Waypoints),

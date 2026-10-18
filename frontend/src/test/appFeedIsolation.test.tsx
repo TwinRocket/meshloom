@@ -4,14 +4,17 @@
  * which explains why the real ancestor chain has to be mounted).
  */
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
 
 const mocks = vi.hoisted(() => ({
   messageList: vi.fn(() => <div data-testid="message-list" />),
+  conversationPane: vi.fn(),
+  parseHash: vi.fn((): { type: string; name: string } | null => null),
   api: {
+    getMessages: vi.fn(),
     getRadioConfig: vi.fn(),
     getSettings: vi.fn(),
     getUndecryptedPacketCount: vi.fn(),
@@ -92,6 +95,15 @@ vi.mock('../hooks', async (importOriginal) => {
   };
 });
 
+vi.mock('../components/ConversationPane', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/ConversationPane')>();
+  return {
+    ConversationPane: (props: React.ComponentProps<typeof actual.ConversationPane>) => {
+      mocks.conversationPane();
+      return <actual.ConversationPane {...props} />;
+    },
+  };
+});
 vi.mock('../components/MessageList', () => ({ MessageList: mocks.messageList }));
 vi.mock('../components/MessageInput', () => ({
   MessageInput: React.forwardRef((_props, ref) => {
@@ -114,7 +126,7 @@ vi.mock('../components/ui/sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../utils/urlHash', () => ({
-  parseHashConversation: () => null,
+  parseHashConversation: () => mocks.parseHash(),
   parseHashSettingsSection: () => null,
   updateUrlHash: vi.fn(),
   pushUrlHash: vi.fn(),
@@ -128,6 +140,7 @@ import { App } from '../App';
 import {
   activateFeedStore,
   getFeedSnapshot,
+  isFeedStoreActive,
   resetFeedStore,
   useFeedRows,
 } from '../stores/feedStore';
@@ -172,6 +185,8 @@ describe('feed messages and the chat render path', () => {
   beforeEach(() => {
     window.location.hash = '';
     vi.clearAllMocks();
+    mocks.parseHash.mockReturnValue(null);
+    mocks.api.getMessages.mockResolvedValue([]);
     resetFeedStore();
     mocks.api.getRadioConfig.mockResolvedValue({
       public_key: 'aa'.repeat(32),
@@ -248,5 +263,25 @@ describe('feed messages and the chat render path', () => {
     await pushFrames(200);
 
     expect(mocks.messageList.mock.calls.length).toBeGreaterThan(rendersBefore);
+  });
+
+  it('re-renders only the mounted FeedView, not its ancestors, when frames arrive', async () => {
+    mocks.parseHash.mockReturnValue({ type: 'feed', name: 'feed' });
+    render(<App />);
+    // The leaf subscribes: the lazy view is mounted and has asked for its first page.
+    await waitFor(() => expect(mocks.api.getMessages).toHaveBeenCalled());
+    await waitFor(() => expect(isFeedStoreActive()).toBe(true));
+    await waitFor(() => expect(mocks.conversationPane).toHaveBeenCalled());
+
+    const paneRendersBefore = mocks.conversationPane.mock.calls.length;
+    await pushFrames(200);
+
+    expect(getFeedSnapshot().rows).toHaveLength(200);
+    // The view itself did render the rows ...
+    const list = await screen.findByRole('list');
+    expect(within(list).getAllByRole('listitem').length).toBeGreaterThan(0);
+    // ... while nothing between App and the view did.
+    expect(mocks.conversationPane.mock.calls.length).toBe(paneRendersBefore);
+    expect(mocks.messageList).not.toHaveBeenCalled();
   });
 });
