@@ -27,8 +27,12 @@ class MessageRepository:
     )
 
     @staticmethod
-    def _contact_activity_filter(public_key: str) -> tuple[str, list[Any]]:
+    def _contact_activity_filter(
+        public_key: str, *, include_direct_messages: bool = True
+    ) -> tuple[str, list[Any]]:
         lower_key = public_key.lower()
+        if not include_direct_messages:
+            return "type = 'CHAN' AND sender_key = ?", [lower_key]
         return (
             "((type = 'PRIV' AND conversation_key = ?) OR (type = 'CHAN' AND sender_key = ?))",
             [lower_key, lower_key],
@@ -1321,10 +1325,15 @@ class MessageRepository:
     async def get_contact_activity_series(
         public_key: str,
         now: int | None = None,
+        *,
+        include_direct_messages: bool = True,
     ) -> tuple[list[ContactAnalyticsHourlyBucket], list[ContactAnalyticsWeeklyBucket]]:
-        """Get combined DM + channel activity series for a keyed contact."""
+        """Get combined DM + channel activity series for a keyed contact (channel
+        only with ``include_direct_messages=False``)."""
         ts = now if now is not None else int(time.time())
-        where_sql, params = MessageRepository._contact_activity_filter(public_key)
+        where_sql, params = MessageRepository._contact_activity_filter(
+            public_key, include_direct_messages=include_direct_messages
+        )
         hour_counts = await MessageRepository._get_activity_hour_buckets(where_sql, params)
         hourly = MessageRepository._build_hourly_activity(hour_counts, ts)
         weekly = await MessageRepository._get_weekly_activity(where_sql, params, ts)

@@ -49,7 +49,8 @@ User docs: `docs/user/` (en, fr). Environment variables for users:
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
 
   On `preversion-5` every `/api` route needs a signed-in account
-  (`app/auth/middleware.py`, `docs/dev/auth.md`); the rest of the posture (bots
+  (`app/auth/middleware.py`, `docs/dev/auth.md`) and declares the permission
+  its role must hold (`app/auth/permissions.py`, default deny); the rest of the posture (bots
   running `exec()`, an unauthenticated proxy) is described in `SECURITY.md`,
   "Known limits". It is a fact, not a recommendation.
 - **No environment variable for anything a user tunes.** Settings live in

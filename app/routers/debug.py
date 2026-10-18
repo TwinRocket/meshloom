@@ -8,10 +8,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from meshcore import EventType
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import require
 from app.config import get_recent_log_lines, settings
 from app.models import AppSettings
 from app.radio_sync import get_contacts_selected_for_radio_sync, get_radio_channel_limit
@@ -472,7 +473,9 @@ def _build_companion_cli() -> DebugCompanionCli | None:
     )
 
 
-@router.get("/debug", response_model=DebugSnapshotResponse)
+@router.get(
+    "/debug", response_model=DebugSnapshotResponse, dependencies=[Depends(require("admin"))]
+)
 async def debug_support_snapshot() -> DebugSnapshotResponse:
     """Return a support/debug snapshot with recent logs and live radio state."""
     connection_info = radio_runtime.connection_info

@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth.permissions import require
 from app.models import (
     ContactGroup,
     ContactGroupCreate,
@@ -14,13 +15,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/contact-groups", tags=["contacts"])
 
 
-@router.get("", response_model=list[ContactGroup])
+@router.get("", response_model=list[ContactGroup], dependencies=[Depends(require("read"))])
 async def list_contact_groups() -> list[ContactGroup]:
     """Return all local contact groups with member public keys (sidebar-ready)."""
     return await ContactGroupRepository.list_all()
 
 
-@router.post("", response_model=ContactGroup)
+@router.post("", response_model=ContactGroup, dependencies=[Depends(require("send"))])
 async def create_contact_group(request: ContactGroupCreate) -> ContactGroup:
     try:
         group = await ContactGroupRepository.create(request.name)
@@ -30,7 +31,7 @@ async def create_contact_group(request: ContactGroupCreate) -> ContactGroup:
     return group
 
 
-@router.patch("/{group_id}", response_model=ContactGroup)
+@router.patch("/{group_id}", response_model=ContactGroup, dependencies=[Depends(require("send"))])
 async def update_contact_group(group_id: int, request: ContactGroupUpdate) -> ContactGroup:
     try:
         group = await ContactGroupRepository.update(
@@ -43,7 +44,7 @@ async def update_contact_group(group_id: int, request: ContactGroupUpdate) -> Co
     return group
 
 
-@router.delete("/{group_id}")
+@router.delete("/{group_id}", dependencies=[Depends(require("send"))])
 async def delete_contact_group(group_id: int) -> dict:
     deleted = await ContactGroupRepository.delete(group_id)
     if not deleted:
@@ -51,7 +52,9 @@ async def delete_contact_group(group_id: int) -> dict:
     return {"status": "ok"}
 
 
-@router.put("/{group_id}/members", response_model=ContactGroup)
+@router.put(
+    "/{group_id}/members", response_model=ContactGroup, dependencies=[Depends(require("send"))]
+)
 async def replace_contact_group_members(
     group_id: int, request: ContactGroupMembersUpdate
 ) -> ContactGroup:

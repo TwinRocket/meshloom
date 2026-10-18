@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.auth.permissions import require
 from app.models import (
     CommunityAirportSearchResponse,
     CommunityHashtagPut,
@@ -42,18 +43,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/community", tags=["community"])
 
 
-@router.get("", response_model=CommunityStatus)
+@router.get("", response_model=CommunityStatus, dependencies=[Depends(require("admin"))])
 async def get_community() -> CommunityStatus:
     return await community_status()
 
 
-@router.get("/airports", response_model=CommunityAirportSearchResponse)
+@router.get(
+    "/airports",
+    response_model=CommunityAirportSearchResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def search_airports(q: str = "") -> CommunityAirportSearchResponse:
     """Where an IATA code is (``q``, 3 letters), from the bundled list: no request."""
     return CommunityAirportSearchResponse(airports=lookup_airport(q))
 
 
-@router.get("/iata/suggest", response_model=CommunityIataSuggestion)
+@router.get(
+    "/iata/suggest",
+    response_model=CommunityIataSuggestion,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_iata_suggestion() -> CommunityIataSuggestion:
     """Codes the IATA form proposes. The settings ask it only on a click ("Suggest codes").
 
@@ -64,7 +73,7 @@ async def get_iata_suggestion() -> CommunityIataSuggestion:
     return await suggest_iata()
 
 
-@router.patch("", response_model=CommunityStatus)
+@router.patch("", response_model=CommunityStatus, dependencies=[Depends(require("admin"))])
 async def patch_community(body: CommunityUpdate) -> CommunityStatus:
     await update_community(
         enabled=body.enabled,
@@ -78,7 +87,9 @@ async def patch_community(body: CommunityUpdate) -> CommunityStatus:
     return await community_status()
 
 
-@router.post("/opt-out/retry", response_model=CommunityStatus)
+@router.post(
+    "/opt-out/retry", response_model=CommunityStatus, dependencies=[Depends(require("admin"))]
+)
 async def post_opt_out_retry() -> CommunityStatus:
     # Manual only: sends the opt-out Community did not confirm, the one
     # Community request allowed by hand while off (409 when none is pending).
@@ -86,7 +97,7 @@ async def post_opt_out_retry() -> CommunityStatus:
     return await community_status()
 
 
-@router.get("/me/stats", response_model=CommunityMeStats)
+@router.get("/me/stats", response_model=CommunityMeStats, dependencies=[Depends(require("admin"))])
 async def get_me_stats() -> CommunityMeStats:
     payload = await stats_json("GET", "/v1/me/stats", auth=True)
     if not isinstance(payload, dict):
@@ -94,7 +105,9 @@ async def get_me_stats() -> CommunityMeStats:
     return CommunityMeStats.model_validate(payload)
 
 
-@router.put("/me/iata", response_model=CommunityIataBindResult)
+@router.put(
+    "/me/iata", response_model=CommunityIataBindResult, dependencies=[Depends(require("admin"))]
+)
 async def put_me_iata(body: CommunityIataBindRequest) -> CommunityIataBindResult:
     # Clears the old retained status first, then binds, then reconnects. With
     # ``enable`` (join), Community is turned on only after a successful bind.
@@ -104,7 +117,11 @@ async def put_me_iata(body: CommunityIataBindRequest) -> CommunityIataBindResult
     )
 
 
-@router.post("/me/iata/override", response_model=CommunityIataBindResult)
+@router.post(
+    "/me/iata/override",
+    response_model=CommunityIataBindResult,
+    dependencies=[Depends(require("admin"))],
+)
 async def post_me_iata_override() -> CommunityIataBindResult:
     payload = await stats_json("POST", "/v1/me/iata/override", auth=True)
     if not isinstance(payload, dict):
@@ -112,7 +129,7 @@ async def post_me_iata_override() -> CommunityIataBindResult:
     return CommunityIataBindResult.model_validate(payload)
 
 
-@router.get("/stats", response_model=CommunityPublicStats)
+@router.get("/stats", response_model=CommunityPublicStats, dependencies=[Depends(require("read"))])
 async def get_community_stats() -> CommunityPublicStats:
     payload = await stats_json("GET", "/v1/community/stats", auth=False)
     if not isinstance(payload, dict):
@@ -120,7 +137,9 @@ async def get_community_stats() -> CommunityPublicStats:
     return CommunityPublicStats.model_validate(payload)
 
 
-@router.get("/hashtags", response_model=CommunityHashtagsResponse)
+@router.get(
+    "/hashtags", response_model=CommunityHashtagsResponse, dependencies=[Depends(require("read"))]
+)
 async def get_hashtags() -> CommunityHashtagsResponse:
     payload = await stats_json("GET", "/v1/hashtags", auth=False)
     if not isinstance(payload, dict):
@@ -128,7 +147,9 @@ async def get_hashtags() -> CommunityHashtagsResponse:
     return CommunityHashtagsResponse.model_validate(payload)
 
 
-@router.post("/live/subscribe", response_model=CommunityLiveStatus)
+@router.post(
+    "/live/subscribe", response_model=CommunityLiveStatus, dependencies=[Depends(require("read"))]
+)
 async def post_live_subscribe(
     body: CommunityLiveSubscribeRequest | None = None,
 ) -> CommunityLiveStatus:
@@ -138,24 +159,38 @@ async def post_live_subscribe(
     )
 
 
-@router.delete("/live/subscribe/{session_id}", response_model=CommunityLiveStatus)
+@router.delete(
+    "/live/subscribe/{session_id}",
+    response_model=CommunityLiveStatus,
+    dependencies=[Depends(require("read"))],
+)
 async def delete_live_subscribe(session_id: str) -> CommunityLiveStatus:
     return CommunityLiveStatus.model_validate(await unsubscribe_live(session_id))
 
 
-@router.get("/iata/active", response_model=CommunityIataActiveResponse)
+@router.get(
+    "/iata/active",
+    response_model=CommunityIataActiveResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def get_active_iata() -> CommunityIataActiveResponse:
     """Regions with traffic in the last 24 h (Community ``GET /v1/iata/active``), for Live."""
     return CommunityIataActiveResponse.model_validate(await active_iata_codes())
 
 
-@router.post("/live/restart", response_model=CommunityLiveStatus)
+@router.post(
+    "/live/restart", response_model=CommunityLiveStatus, dependencies=[Depends(require("admin"))]
+)
 async def post_live_restart() -> CommunityLiveStatus:
     """Mint a new live token and reconnect; clears a 4002 stop and a given-up 401."""
     return CommunityLiveStatus.model_validate(await restart_live())
 
 
-@router.put("/me/hashtags", response_model=CommunityHashtagsResponse)
+@router.put(
+    "/me/hashtags",
+    response_model=CommunityHashtagsResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def put_me_hashtags(body: CommunityHashtagPut) -> CommunityHashtagsResponse:
     payload = await stats_json(
         "PUT",

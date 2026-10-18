@@ -4,8 +4,10 @@ Meshloom 5.0.0 makes login mandatory (LAN included) with four roles: `admin`,
 `member`, `viewer` and `kiosk`. This page covers the data layer (tables,
 password hashing, opaque tokens, the repository) and the auth core: the gate
 that resolves a principal for every request, the CSRF rule, the first-run
-setup with its installation code, and the `/api/auth/*` routes. The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`, "Session gate"). The permission
-registry (per-route roles), device tokens, ingress identities,
+setup with its installation code, the `/api/auth/*` routes and the permission
+registry (which role may call which route, and receive which WebSocket event).
+The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`,
+"Session gate"). Device tokens, ingress identities,
 trusted networks and 2FA come with later Access tickets. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
@@ -22,6 +24,7 @@ works on the same tables.
 | Repository | `app/repository/auth.py` |
 | Principal (who is calling) | `app/auth/principal.py` |
 | The gate (ASGI middleware, HTTP + WebSocket) | `app/auth/middleware.py` |
+| Permissions (roles, `require()`, default deny, WebSocket event classes) | `app/auth/permissions.py` |
 | Sessions and the cookie | `app/auth/sessions.py` |
 | Username + password provider | `app/auth/providers/password.py` |
 | `Authorization: Basic` compatibility, Basic import | `app/security.py` |
@@ -29,7 +32,7 @@ works on the same tables.
 | CSRF rule, https detection (the one reader of proxy headers) | `app/origin_policy.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -159,13 +162,14 @@ and `websocket` scope:
    is exempt (a browser page cannot add an `Authorization` header across
    origins without a CORS preflight, which only listed origins pass); a bearer
    header that does not resolve gets no exemption.
-3. **Default deny.** Any path under `/api` that is not in `PUBLIC_ROUTES`
-   needs a principal of any role (the per-route permission registry is a later
-   ticket). Without one: 401 `auth_setup_required` while no account exists,
+3. **Default deny.** Any path under `/api` that is not in `PUBLIC_ROUTES`,
+   and the API docs (`/docs`, `/redoc`, `/openapi.json`), need a principal.
+   Without one: 401 `auth_setup_required` while no account exists,
    else `auth_invalid_credentials` when a credential was sent and did not
-   check, else `auth_required`. Paths outside `/api` (the frontend, `/docs`,
-   `/openapi.json`) stay public, so the login page can load. A database error
-   while resolving fails closed (anonymous).
+   check, else `auth_required`. The other paths outside `/api` (the frontend,
+   `NON_API_ACCESS`) stay public, so the login page can load. A database error
+   while resolving fails closed (anonymous). Which role may then call the
+   route is the permission registry's decision (below).
 4. **WebSocket.** An upgrade to `/api/...` without a principal is refused
    before the route runs, so before `accept()`: close code 1008, which uvicorn
    sends as HTTP 403 (same as the foreign-Origin refusal of `app/websocket.py`,
@@ -181,7 +185,8 @@ Public routes (`PUBLIC_ROUTES`): `GET /api/health`, `GET /api/auth/session`,
 
 **Tests.** `tests/conftest.py` signs every app request in as an admin
 (`_auth_as_admin`, it replaces `middleware.resolve`), so route tests need no
-login. Tests of the gate itself are marked `@pytest.mark.real_auth`. The
+login; the `sign_in_as("kiosk", scopes=...)` fixture signs them in with
+another role. Tests of the gate itself are marked `@pytest.mark.real_auth`. The
 `fast_argon2` fixture hashes at libsodium's minimum cost.
 
 ### `via`
@@ -205,6 +210,80 @@ instance is Docker.
 for `request_is_secure()` (cookie flavour only). The client IP stored in
 sessions and audit rows is the ASGI peer (`scope["client"]`). Trusted proxies
 and `X-Forwarded-For` come with a later ticket.
+
+## Permissions
+
+`app/auth/permissions.py`. Five permissions, granted by the four roles
+(cadrage §4.2, owner decision Q-A7):
+
+| Role | Permissions | In practice |
+|---|---|---|
+| `kiosk` | `read` | Channel messages (muted and pending channels included), contacts, channels, packets (control packets included), stats, map, health. Never a direct message; no settings, no profile, no sessions |
+| `viewer` | `read`, `read_private` | `kiosk` plus direct messages and marking read; its own profile and sessions |
+| `member` | `viewer` + `send` | Send, create and edit contacts, channels and contact groups, favourites, pins, mutes, the browser's push subscription, trace and path discovery |
+| `admin` | all, `repeater_admin` included | Settings, radio, repeaters and rooms, fanout and bots, backup and restore, private key, updates, Community, push preferences, debug |
+
+`admin` implies every other permission. `repeater_admin` is held only by
+`admin`; a principal's `scopes` (token scopes, M3) narrow its role's
+permissions, never extend them, so a token scoped to `repeater_admin` reaches
+the repeater and room routes and nothing else.
+
+**Declaring a route.** Every route declares exactly one rule in its decorator:
+
+```python
+@router.post("/channel", dependencies=[Depends(require("send"))])
+```
+
+`public()` marks a route reachable without a principal; it must also be in
+`PUBLIC_ROUTES` (the test checks both lists agree). `own_account()` is for the
+caller's own profile and sessions: every role but `kiosk`, and never through
+a scoped principal (a scope only narrows, and none grants the account). A route outside
+`/api` goes in `NON_API_ACCESS` (`public` or `authenticated`) in
+`app/auth/middleware.py`.
+
+**Default deny.** `enforce_declaration` is an app-wide dependency
+(`FastAPI(dependencies=...)` in `app/main.py`): an `/api` route that declares
+nothing answers 403 to everyone but an admin. `tests/test_auth_route_coverage.py`
+walks `app.routes` (through FastAPI's lazy includes, plus the frontend routes a
+build registers) and fails on a route without exactly one declaration, a
+non-API path missing from `NON_API_ACCESS`, or a WebSocket event type missing
+from `WS_EVENT_PERMISSIONS`.
+
+**Refusal.** 403 `{"detail": {"code": "auth_forbidden", "message", "params":
+{"permission"}}}` (`permission` is `account` for `own_account()`), translated
+by the frontend (`errors.auth_forbidden`, slice `x`). A refused WebSocket
+upgrade is closed with 1008 before `accept()`. The permission check runs before
+body validation, so a refused caller never gets a 422.
+
+**Direct messages (`read_private`).** Without it:
+
+- `GET /messages` and `GET /messages/around/{id}` answer `CHAN` rows only
+  (search `q` and `since_id` included); `type=PRIV`, any other type, or a
+  `conversation_key` longer than a channel key (32 characters: a contact key)
+  answers 403.
+- `GET /read-state/unreads` keeps only the `channel-*` keys of every map.
+- `GET /contacts` and the contact in `GET /contacts/analytics` have
+  `last_contacted` and `last_read_at` emptied; the analytics count no DM
+  (`dm_message_count` 0, `includes_direct_messages` false, channel-only
+  activity).
+- `GET /packets/{id}` and `GET /packets/history` show a packet decrypted from a
+  DM as undecrypted: a `TEXT_MESSAGE` packet, or a decryption that names no
+  channel (`packet_decryption_is_private()`, fail closed). Never `contact_key`:
+  a channel packet keeps its resolved sender there, so channel and control
+  packets stay whole for `kiosk`. The live `raw_packet` frame uses the same rule.
+- The JSON and full backups, the debug snapshot and the database download are
+  `admin` routes.
+
+**WebSocket events.** `WS_EVENT_PERMISSIONS` classifies every `WsEventType`
+(`app/events.py`); an unknown type goes to admins only. `ws_manager` keeps the
+principal of each socket and delivers an event only to the clients holding its
+permission. A `message` that is not `CHAN` is not sent to a client without
+`read_private`, and a `raw_packet` decrypted from a DM reaches it without its
+decryption. `radio_wifi` is `admin`; the other types are `read`. Finer
+per-event filtering (contact activity fields, toasts) is Access T26.
+
+**4.x upgrade.** The account imported from Basic and the first administrator
+are `admin`: a single-admin installation sees no change.
 
 ## Sessions and the cookie
 
@@ -312,11 +391,11 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`; under ingress no session: `authenticated: false`, `session_reason: "auth_ingress_unsupported"` |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session` (with `session_reason` under ingress) |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
-| `GET /auth/sessions` | signed in | The user's active sessions, newest first, `current` marks this one |
-| `DELETE /auth/sessions` | signed in | Revokes all the user's sessions except this one: `{revoked}` |
-| `DELETE /auth/sessions/{id}` | signed in | Revokes one of the user's sessions; 404 `auth_session_not_found` for anyone else's |
-| `GET /auth/me` | signed in | Profile: `id, username, display_name, role, provider, has_password, must_change_password, created_at` |
-| `PATCH /auth/me` | signed in, not `kiosk` | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`), which revokes the user's other sessions |
+| `GET /auth/sessions` | own account (not `kiosk`) | The user's active sessions, newest first, `current` marks this one |
+| `DELETE /auth/sessions` | own account (not `kiosk`) | Revokes all the user's sessions except this one: `{revoked}` |
+| `DELETE /auth/sessions/{id}` | own account (not `kiosk`) | Revokes one of the user's sessions; 404 `auth_session_not_found` for anyone else's |
+| `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, created_at` |
+| `PATCH /auth/me` | own account (not `kiosk`) | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`), which revokes the user's other sessions |
 
 Login, setup, logout, password changes and session revocations write an
 `auth_audit` row (IP, `via`, no secret).

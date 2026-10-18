@@ -53,6 +53,12 @@ Importing a key (**Set Private Key**, write-only) never shows the key. A key tha
 
 On Linux, the server also marks itself as not dumpable at startup, so another program running as the same user cannot read its memory or its environment (where the Basic auth login lives). The cost: the server writes no core dump, and debugging tools such as `py-spy` or `gdb` need `sudo` to attach to it. This protects against other non-root programs and does nothing against root; the default Docker image and the Home Assistant add-on run as root, so the protection mainly matters for the deb/rpm packages and installs that run as a dedicated user.
 
+## The sharing key
+
+Link and file sharing (coming in a later version) does not use the radio's key. Meshloom creates a separate key for it, at random, the first time sharing needs it, and keeps it in its database. To the sharing service this key is a pseudonym: it groups your uploads and your quotas, and it is not linked to your radio's public key in the Community directory, so what you share cannot be tied to your node, a ban there has no effect on Community, and a new radio keeps the same sharing identity. Only its public half leaves the server, in the short signed tokens sent to the sharing service: each one is valid for under two minutes, for one request only.
+
+The key never appears in the settings API, the support snapshot, the logs or any backup: the full backup and the JSON backup refuse to include it, and the `meshcore.db` download has it cleared. After a restore, Meshloom gives the instance a new sharing key; what you shared before stays online until it expires, but is no longer listed as yours. Other features that need their own key (remote access) get a separate one, so the two cannot be linked to each other.
+
 ## Radio proxy
 
 **Settings > Proxy** can make Meshloom behave like a radio on the network, so a phone app or a second Meshloom can use your radio through it. It is off by default. The protocol it speaks has no authentication, and Basic auth does not cover it. Enable it only on a network you trust.

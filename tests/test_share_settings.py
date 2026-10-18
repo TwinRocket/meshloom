@@ -19,7 +19,7 @@ async def test_defaults_are_off_auto_private(test_db):
     assert settings.share_enabled is False
     assert settings.share_shorten_mode == "auto"
     assert settings.share_preview_policy == "private"
-    assert await AppSettingsRepository.get_share_seed() == ""
+    assert await AppSettingsRepository.get_instance_seed("share") == ""
 
 
 @pytest.mark.asyncio
@@ -65,8 +65,8 @@ async def test_patch_route_answers_422_for_an_unknown_mode(test_db, client):
 
 @pytest.mark.asyncio
 async def test_the_seed_is_never_returned_by_the_settings_api(test_db, client):
-    await AppSettingsRepository.set_share_seed(SEED)
-    assert await AppSettingsRepository.get_share_seed() == SEED
+    await AppSettingsRepository.set_instance_seed("share", SEED)
+    assert await AppSettingsRepository.get_instance_seed("share") == SEED
     assert "share_instance_seed" not in AppSettings.model_fields
     assert SEED not in (await client.get("/api/settings")).text
     assert SEED not in (await AppSettingsRepository.get()).model_dump_json()
@@ -85,14 +85,14 @@ async def test_a_bad_stored_value_reads_as_the_default(test_db):
 
 @pytest.mark.asyncio
 async def test_export_never_holds_the_seed(test_db):
-    await AppSettingsRepository.set_share_seed(SEED)
+    await AppSettingsRepository.set_instance_seed("share", SEED)
     await AppSettingsRepository.update(share_enabled=True)
     export = await export_json()
     assert SEED not in json.dumps(export.model_dump(mode="json"))
 
 
 @pytest.mark.asyncio
-async def test_restore_leaves_consent_and_seed_and_restores_the_behaviours(test_db):
+async def test_restore_leaves_consent_rotates_seed_and_restores_the_behaviours(test_db):
     await AppSettingsRepository.update(share_shorten_mode="never", share_preview_policy="always")
     export = await export_json()
     assert export.settings is not None
@@ -102,14 +102,17 @@ async def test_restore_leaves_consent_and_seed_and_restores_the_behaviours(test_
     await AppSettingsRepository.update(
         share_enabled=False, share_shorten_mode="auto", share_preview_policy="private"
     )
-    await AppSettingsRepository.set_share_seed(SEED)
+    await AppSettingsRepository.set_instance_seed("share", SEED)
     await restore_json(BackupRestoreRequest(confirm=True, settings=exported))
 
     stored = await AppSettingsRepository.get()
     assert stored.share_enabled is False
     assert stored.share_shorten_mode == "never"
     assert stored.share_preview_policy == "always"
-    assert await AppSettingsRepository.get_share_seed() == SEED
+    # The on_restore hook of app/services/instance_identity.py gives a new identity.
+    rotated = await AppSettingsRepository.get_instance_seed("share")
+    assert rotated not in ("", SEED)
+    assert len(bytes.fromhex(rotated)) == 32
 
     # And a restore never switches an enabled instance off either.
     await AppSettingsRepository.update(share_enabled=True)
@@ -150,7 +153,7 @@ async def test_database_copy_resets_the_consent_and_clears_the_seed(test_db, tmp
     from app.services.backup import write_sqlite_backup
 
     await AppSettingsRepository.update(share_enabled=True, share_shorten_mode="never")
-    await AppSettingsRepository.set_share_seed(SEED)
+    await AppSettingsRepository.set_instance_seed("share", SEED)
     path = tmp_path / "copy.db"
     await write_sqlite_backup(test_db, str(path))
     async with aiosqlite.connect(path) as conn:

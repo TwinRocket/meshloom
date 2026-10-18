@@ -31,8 +31,17 @@ and the OpenAPI page (`/docs`), not a table here.
   a WebSocket is closed 1008 before `accept()`). A new public route goes in
   `PUBLIC_ROUTES` and its route decides what an anonymous caller sees (see
   `/api/health`). Read the principal with `app.auth.principal.get_principal`.
-  Route tests are signed in as an admin by `tests/conftest.py`; gate tests use
-  `@pytest.mark.real_auth`. Details: `docs/dev/auth.md`.
+  Route tests are signed in as an admin by `tests/conftest.py` (`sign_in_as`
+  for another role); gate tests use `@pytest.mark.real_auth`. Details:
+  `docs/dev/auth.md`.
+- **Every new route declares a permission** (`auth/permissions.py`):
+  `dependencies=[Depends(require("read"))]` (`read`, `read_private`, `send`,
+  `repeater_admin`, `admin`), `Depends(public())` for a `PUBLIC_ROUTES` entry
+  or `Depends(own_account())` for the caller's own profile. An undeclared
+  `/api` route is admin-only, and `tests/test_auth_route_coverage.py` fails on
+  it; a path outside `/api` goes in `NON_API_ACCESS`. A route that returns
+  messages, conversations or DM activity must also honour `read_private`
+  (`can_read_private(request)`): the `kiosk` role never gets a direct message.
 - `origin_policy.py` is also the only reader of proxy headers
   (`X-Forwarded-Host`, `X-Forwarded-Proto`); do not parse them anywhere else.
 - `routers/server_control.py` holds the repeater/room CLI helpers shared by the
@@ -64,6 +73,38 @@ and the OpenAPI page (`/docs`), not a table here.
   tag overlay, the upgrade-matrix image); `tests/test_plugin_packaging.py` checks them.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
+
+## Instance identities (`services/instance_identity.py`)
+
+- One Ed25519 key per service, owned by the instance, never the radio key and never
+  derived from it (owner decision Q-T5): `share` (links and files) today, `remote`
+  (Access) later. Each has its own column `app_settings.<service>_instance_seed`
+  (32 random bytes from `secrets.token_bytes`, hex), so two services' public keys
+  cannot be linked. A new service adds its name to `INSTANCE_SEED_SERVICES`
+  (`repository/settings.py`) and its column in a migration; the repository's
+  `get/set/claim_instance_seed(service)` refuse any other name.
+- `ensure_instance_key(service)` creates the seed on first use (a conditional
+  `UPDATE` plus a per-service lock: concurrent first uses end with one key) and
+  reuses it afterwards; `identity_ready`, `instance_public_key` and `fingerprint`
+  never create it. `regenerate(service)` replaces it. The `on_restore` hook
+  `instance_identity` regenerates every seed that exists after any restore (JSON
+  or SQLite); an empty one stays empty until its first use. `services/backup.py`
+  imports the module so the hook is registered before the lifespan runs them.
+- `mint_instance_jwt(service, audience, *, lifetime, jti=True, extra_claims=None)`
+  mints in the Community wire format through `_generate_jwt_token`
+  (`fanout/community_mqtt.py`) with a PyNaCl signer, `client = meshloom/<version>`
+  and no `owner`. `mint_share_jwt(binding)` is the share wrapper: `aud`
+  `meshloom-share`, 110 s (the links-files contract allows 120), `jti`, `bh` =
+  sha256 hex of the binding string. One token per request, never cached.
+- `_generate_jwt_token`'s keywords `sign`, `lifetime`, `extra_claims`, `owner`,
+  `client` and `jti` exist for these helpers only: the Community call sites pass
+  none, and `tests/test_community_jwt_golden.py` pins their tokens byte for byte.
+  An extra claim that names a registered claim (`iss`, `sub`, `aud`, `exp`, `iat`,
+  `nbf`, `jti`) or one the function sets is a `ValueError`, never an override.
+- **Never log, return or export a seed or a token.** The seed is not in
+  `AppSettings`; the backup rules are in `docs/dev/backup.md` (rule 4). Tests:
+  `tests/test_share_identity.py` (a local re-implementation of the Worker's checks,
+  proved on the links-files vectors copied in `tests/fixtures/links_files_vectors.json`).
 
 ## Recovery CLI (`app/cli.py`)
 
@@ -123,7 +164,7 @@ run as root).
   `share_shorten_mode`, `share_preview_policy`, `share_instance_seed`). Fresh databases get
   them from the migration, not from `SCHEMA_TABLES` (later columns are all added that
   way). `share_instance_seed` is outside `AppSettings`, read and written only through
-  `AppSettingsRepository.get_share_seed()/set_share_seed()`; the `*_seed` rule of
+  `services/instance_identity.py` (see "Instance identities"); the `*_seed` rule of
   `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
   the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
   behaviours are restored.
@@ -592,7 +633,13 @@ floor, never the percentage alone, and do not remove the floor.
 ## WebSocket (server side)
 
 - **Account before accept.** `AuthMiddleware` closes an upgrade with no
-  principal (1008, HTTP 403) before the route runs.
+  principal (1008, HTTP 403) before the route runs; `/api/ws` needs `read`.
+- **Events per principal.** Every `WsEventType` has a permission in
+  `WS_EVENT_PERMISSIONS` (`auth/permissions.py`; a new type must be added there
+  and in `app/events.py`, the coverage test greps the emit calls). `ws_manager`
+  keeps each socket's principal and skips clients without the type's
+  permission; a non-`CHAN` `message` needs `read_private`, and a `raw_packet`
+  decrypted from a DM goes to the others without its decryption.
 - **Origin before accept.** `routers/ws.py` calls `reject_foreign_origin()`
   (`app/websocket.py`) before `ws_manager.connect()`: an `Origin` whose host
   and port (missing port = the scheme's default) differ from both `Host` and
