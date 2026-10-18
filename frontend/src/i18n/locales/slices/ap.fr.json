@@ -1,0 +1,25 @@
+{
+  "plugins": {
+    "sendGuards": {
+      "title": "Protection du maillage",
+      "intro": "Meshloom limite ce que les extensions peuvent envoyer, toutes ensemble, et coupe les boucles entre répondeurs automatiques. Vous pouvez baisser les limites, jamais les relever.",
+      "scope": {
+        "plugin": "Cette extension a atteint sa propre limite d'envoi.",
+        "instance": "Toutes les extensions ensemble ont atteint la limite horaire de ce Meshloom.",
+        "destination": "Trop de messages vers ce canal ou ce contact cette heure-ci.",
+        "sender_cooldown": "L'extension a déjà répondu à cet expéditeur il y a moins de 30 secondes.",
+        "quiet_window": "L'extension ne répond pas à un message arrivé juste après un de ses envois."
+      },
+      "limits": {
+        "instance_per_hour": "Messages par heure, toutes extensions ensemble",
+        "channel_per_hour": "Messages par heure vers un canal",
+        "contact_per_hour": "Messages par heure vers un contact",
+        "default": "Par défaut : {{value}}"
+      },
+      "status": {
+        "refused": "{{count}} message refusé par les gardes d'envoi depuis le démarrage",
+        "last": "Dernier : {{scope}}"
+      }
+    }
+  }
+}

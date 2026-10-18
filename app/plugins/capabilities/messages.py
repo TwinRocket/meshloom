@@ -4,8 +4,10 @@ Checks, in order, each before any side effect: the parameters (`invalid_params`)
 the permission's `targets` (`target_not_allowed`), the destination exists
 (`target_unknown`, only under `targets: any`), the region (`region_unknown`), the
 byte limit of the server (`message_too_long` with `params.limit`), then the
-instance's hourly and daily quotas (`quota_exceeded` with `params.period`,
-`limit`, `retry_after`). Under `reply` and `scope` an unknown destination is
+instance's hourly and daily quotas (`quota_exceeded` with `params.scope` `plugin`,
+`period`, `limit`, `retry_after`), then the host-side send guards (`quota_exceeded` with
+`params.scope`: `sender_cooldown`, `quiet_window`, `destination`, `instance`;
+`app/plugins/quotas.py`). Under `reply` and `scope` an unknown destination is
 `target_not_allowed` like any other refused one, so a plugin without
 `contacts.read` cannot probe which contacts exist.
 
@@ -40,7 +42,14 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.message_limits import DM_HARD_LIMIT, byte_length, channel_text_allowance
 from app.plugins.capabilities.base import Call, CapabilityError, capability, invalid_params
 from app.plugins.capabilities.grants import conversation_readable, is_public_channel
-from app.plugins.quotas import QuotaExceeded, effective_send_limits, send_quota, send_spacer
+from app.plugins.quotas import (
+    GuardRefused,
+    QuotaExceeded,
+    effective_send_limits,
+    send_guard,
+    send_quota,
+    send_spacer,
+)
 from app.region_scope import is_unscoped, normalize_region_scope
 
 logger = logging.getLogger(__name__)
@@ -235,8 +244,46 @@ async def _check_quota(instance_id: str, limits: Any) -> None:
         raise CapabilityError(
             "quota_exceeded",
             f"at most {exc.limit} messages per {exc.period}",
-            {"period": exc.period, "limit": exc.limit, "retry_after": exc.retry_after},
+            {
+                "scope": "plugin",
+                "period": exc.period,
+                "limit": exc.limit,
+                "retry_after": exc.retry_after,
+            },
         ) from None
+
+
+def _reply_context(call: Call) -> tuple[str | None, int | None]:
+    """`(sender, received_at)` of the message this send answers, `(None, None)` when
+    it answers none (a timer, an outgoing message): the loop guards of the sender only
+    apply to a reply. A channel message has no sender key, its name stands in."""
+    event = call.event
+    if event is None or event.hook != "message" or event.params.get("is_outgoing"):
+        return None, None
+    params = event.params
+    if params.get("sender_key"):
+        sender: str | None = "key:" + str(params["sender_key"]).lower()
+    elif params.get("sender_name"):
+        sender = "name:" + str(params["sender_name"]).lower()
+    else:
+        sender = None
+    received = params.get("received_at")
+    return sender, received if type(received) is int else None
+
+
+async def _check_guards(call: Call, target: Target) -> None:
+    sender, received_at = _reply_context(call)
+    try:
+        await send_guard.check(
+            call.instance.instance_id,
+            is_dm=target.is_dm,
+            key=target.key,
+            sender=sender,
+            received_at=received_at,
+        )
+    except GuardRefused as exc:
+        send_guard.note_refusal(call.instance.instance_id, call.instance.label, exc)
+        raise CapabilityError("quota_exceeded", str(exc), exc.params) from None
 
 
 async def _transmit(target: Target, text: str, region: str | None) -> Any:
@@ -269,9 +316,12 @@ async def send(call: Call) -> dict[str, Any]:
 
     instance_id = call.instance.instance_id
     limits = effective_send_limits(permission, call.instance.quotas)
-    await _check_quota(instance_id, limits)  # refuse at once, without waiting for the spacing
+    # Refuse at once, without waiting for the spacing; checked again once the slot is ours.
+    await _check_quota(instance_id, limits)
+    await _check_guards(call, target)
     async with send_spacer.slot() as slot:
         await _check_quota(instance_id, limits)
+        await _check_guards(call, target)
         token = SENDING_INSTANCE.set(instance_id)
         try:
             message = await _transmit(target, params.text, region)
@@ -297,4 +347,13 @@ async def send(call: Call) -> dict[str, Any]:
             await send_quota.record(instance_id)
         except Exception:
             logger.exception("Plugin %s: could not count a send", instance_id)
+        try:
+            await send_guard.record(
+                instance_id,
+                is_dm=target.is_dm,
+                key=target.key,
+                sender=_reply_context(call)[0],
+            )
+        except Exception:
+            logger.exception("Plugin %s: could not count a send in the guards", instance_id)
     return {"sent": True, "message_id": getattr(message, "id", None)}

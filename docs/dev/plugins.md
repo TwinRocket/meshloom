@@ -747,7 +747,7 @@ runs on Linux only).
 `storage.py`, `timer.py`, `contacts.py`, `channels.py`, `status.py`, `log.py`),
 each registering its methods in `base.REGISTRY` with the permission it needs;
 `grants.py` holds the effective permissions and the read filters;
-`app/plugins/quotas.py` the send quotas and the global spacing. The supervisor's
+`app/plugins/quotas.py` the send quotas, the send guards and the global spacing. The supervisor's
 only entry point is `capabilities.dispatch(instance, method, params, event)`.
 Tests: `tests/test_plugin_capabilities.py` (real children through the host, the
 radio send replaced by a recorder, quota windows on a controlled clock).
@@ -788,8 +788,10 @@ else: a refusal has no side effect, uses no quota and touches no network.
   unknown destination is `target_not_allowed` like a forbidden one, so a plugin
   cannot probe which contacts exist), the region (`region_unknown`), the server byte rule of
   `app/message_limits.py` (`message_too_long`, `params.limit` and `params.bytes`),
-  then the quotas (`quota_exceeded`, `params.period` `hour` or `day`,
-  `params.limit`, `params.retry_after` in seconds). `targets`: `reply` allows
+  then the quotas (`quota_exceeded`, `params.scope` `plugin`, `params.period` `hour` or
+  `day`, `params.limit`, `params.retry_after` in seconds), then the send guards
+  (`quota_exceeded` with `params.scope` `sender_cooldown`, `quiet_window`, `destination` or
+  `instance`; see "Quotas and spacing"). `targets`: `reply` allows
   only the conversation of the message event being handled (named by `event_id`,
   or the only event in flight; a timer has none); `scope` also allows the
   channels and contacts the instance may read ("Reads"); `any` every known
@@ -851,8 +853,44 @@ else: a refusal has no side effect, uses no quota and touches no network.
   automatic sends, plugins and legacy bots alike (`app/fanout/bot_exec.py` uses
   it); a failed send does not move it. The quota check runs once before waiting
   (a full quota is refused at once) and again inside the spacing slot.
-- Not here (Store T6b): the budget per Meshloom instance, the per-destination
-  quotas and the loop guards.
+
+### Send guards (`SendGuard`, `send_guard`)
+
+Host-side, for every plugin instance together (legacy bots are not counted), checked after
+the per-instance quotas, once before waiting for the spacing and again inside the slot, and
+counted only for a send that went out. A refusal is `quota_exceeded` with `params.scope`:
+
+| `scope` | Guard | Extra params |
+|---|---|---|
+| `plugin` | the instance's own `per_hour`/`per_day` (above) | `period`, `limit`, `retry_after` |
+| `sender_cooldown` | one reply per 30 s (`SENDER_COOLDOWN_SECONDS`) to the same sender per plugin instance | `limit`, `retry_after` |
+| `quiet_window` | no reply to a message received less than 5 s (`QUIET_WINDOW_SECONDS`) after a send of the same instance to the same destination | `limit` |
+| `destination` | per clock hour and destination, all plugins together: 20 per channel (cap 60), 10 per contact (cap 30) | `period`, `limit`, `retry_after`, `kind` (`channel` or `contact`) |
+| `instance` | per clock hour, all plugins together: 120 (cap 300) | `period`, `limit`, `retry_after` |
+
+- **Order**: `sender_cooldown`, `quiet_window`, `destination`, `instance`, so the loop cuts
+  are named before the budgets. The cooldown and the quiet window apply only to a send
+  made while handling a message event that is not an outgoing one (a timer's send is not a
+  reply). The sender is `key:<sender_key>` for a direct message, else `name:<sender_name>`
+  (a channel message has no key); the quiet window compares the message's `received_at`
+  (Unix seconds) with the last send, and uses the current time when the event has none.
+  Several sends answering one event therefore need one message: the second is refused.
+- **Persistence**: `plugin_send_guard` (hourly windows, last-reply and last-send stamps) and
+  `plugin_send_limits` (migration 106; `PluginSendGuardRepository`), so a restart resets
+  nothing. `SendGuard.clock` and `.store` are injectable.
+- **Tuning**: `send_guard.set_limits(instance_per_hour=..., channel_per_hour=...,
+  contact_per_hour=...)` lowers a limit (`None` restores the default); a value above the
+  default (which is below the cap) or below 1 raises `ValueError`, and a stored value above
+  the default reads as the default. The cooldown and the quiet window are not tunable. The
+  Settings UI (T11a) calls `set_limits`; no route exists yet.
+- **Visibility**: a refusal is logged at WARNING (once a minute per instance and scope) and
+  counted in memory; `send_guard.hits(instance_id)` returns `{total, by_scope, last}` for
+  the plugin status. The user-facing wording is the i18n slice `ap`
+  (`plugins.sendGuards.*`, FR and EN).
+- **Simulation**: `tests/test_plugin_quotas.py` runs two hosts, each with its own guard store
+  and an echo plugin, on one fake channel on a controlled clock: the exchange stops after a
+  few messages with the guards' reasons logged, and with the loop cuts off the destination
+  quota still bounds it.
 
 ### Error codes
 

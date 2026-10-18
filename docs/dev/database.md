@@ -269,6 +269,23 @@ seconds of the fixed window), `count`. A row whose `period_start` is not the cur
 window reads as zero. Runtime state: excluded from every backup, removed with the
 instance. `PluginSendQuotaRepository` (`plugins.py`), rules in `app/plugins/quotas.py`.
 
+### `plugin_send_guard`
+
+Send guards of the plugin `messages.send` capability, for all instances together
+(migration 106): PK `(scope, subject)`. `instance` (subject `""`) and `destination`
+(`channel:<KEY>` or `contact:<key>`) hold an hourly window in `period_start` (Unix
+seconds) and `count`; a row of another window reads as zero. `cooldown` (subject
+`<instance_id>|<sender>`) and `quiet` (`<instance_id>|<destination>`) hold the time of
+the last reply or send in `period_start`; stamps older than their window are deleted at
+the next send. Runtime state: excluded from every backup; an instance's stamps go with it.
+
+### `plugin_send_limits`
+
+The limits the user lowered (migration 106): PK `name` (`instance_per_hour`,
+`channel_per_hour`, `contact_per_hour`, CHECK), `value` (at least 1). A missing row is the
+default; a value above the default reads as the default. `PluginSendGuardRepository`
+(`plugins.py`), rules in `app/plugins/quotas.py`.
+
 ## Relationships
 
 All foreign keys point at `contacts(public_key)` (children: advert paths, name

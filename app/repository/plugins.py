@@ -1,6 +1,7 @@
 """Repository for the plugin instances (``plugins``), their key-value store
 (``plugin_kv``), their write-only secrets (``plugin_secrets``) and their send
-counters (``plugin_send_quota``, rules in ``app/plugins/quotas.py``).
+counters (``plugin_send_quota`` and the loop guards' ``plugin_send_guard`` and
+``plugin_send_limits``, rules in ``app/plugins/quotas.py``).
 
 One row of ``plugins`` is one instance: a plugin (``plugin_id``) can be installed
 several times, each instance with its own label, config, scope, granted
@@ -375,6 +376,7 @@ class PluginRepository:
             await conn.execute(
                 "DELETE FROM plugin_send_quota WHERE instance_id = ?", (instance_id,)
             )
+            await _forget_guard_rows(conn, instance_id)
             if not keep_data:
                 await conn.execute("DELETE FROM plugin_kv WHERE instance_id = ?", (instance_id,))
         _instances_cache.pop(instance_id, None)
@@ -524,3 +526,112 @@ class PluginSendQuotaRepository:
             await conn.execute(
                 "DELETE FROM plugin_send_quota WHERE instance_id = ?", (instance_id,)
             )
+
+
+# `plugin_send_guard.subject` of the per-instance scopes is `<instance_id>|<what>`.
+_GUARD_SEPARATOR = "|"
+
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def _forget_guard_rows(conn: aiosqlite.Connection, instance_id: str) -> None:
+    pattern = _escape_like(instance_id + _GUARD_SEPARATOR) + "%"
+    await conn.execute(
+        "DELETE FROM plugin_send_guard WHERE scope IN ('cooldown', 'quiet')"
+        " AND subject LIKE ? ESCAPE '\\'",
+        (pattern,),
+    )
+
+
+class PluginSendGuardRepository:
+    """The Meshloom-wide send counters and loop-guard timestamps (``plugin_send_guard``)
+    and the user's lowered limits (``plugin_send_limits``). Windows, limits and
+    meaning are ``app/plugins/quotas.py``'s.
+
+    Scopes: ``instance`` and ``destination`` hold an hourly window (``period_start``,
+    ``count``); ``cooldown`` (last reply, subject ``<instance>|<sender>``) and
+    ``quiet`` (last send, subject ``<instance>|<destination>``) hold a time in
+    ``period_start``.
+    """
+
+    @staticmethod
+    async def get(scope: str, subject: str) -> tuple[int, int] | None:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT period_start, count FROM plugin_send_guard WHERE scope = ? AND subject = ?",
+                (scope, subject),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return (int(row["period_start"]), int(row["count"])) if row else None
+
+    @staticmethod
+    async def record_send(
+        *,
+        window_start: int,
+        destination: str,
+        instance_id: str,
+        now: int,
+        sender: str | None,
+        keep_cooldown_after: int,
+        keep_quiet_after: int,
+    ) -> None:
+        """Count one send in the instance budget and the destination's window (a row
+        of an older window restarts at 1), stamp the quiet window of
+        ``(instance, destination)`` and the cooldown of ``(instance, sender)``, and
+        drop the rows that no longer matter (``keep_*_after``: the oldest stamp
+        still inside its window)."""
+        async with db.tx() as conn:
+            for scope, subject in (("instance", ""), ("destination", destination)):
+                await conn.execute(
+                    """
+                    INSERT INTO plugin_send_guard (scope, subject, period_start, count)
+                    VALUES (?, ?, ?, 1)
+                    ON CONFLICT (scope, subject) DO UPDATE SET
+                        count = CASE WHEN period_start = excluded.period_start
+                                     THEN count + 1 ELSE 1 END,
+                        period_start = excluded.period_start
+                    """,
+                    (scope, subject, window_start),
+                )
+            stamps = [("quiet", instance_id + _GUARD_SEPARATOR + destination)]
+            if sender is not None:
+                stamps.append(("cooldown", instance_id + _GUARD_SEPARATOR + sender))
+            for scope, subject in stamps:
+                await conn.execute(
+                    """
+                    INSERT INTO plugin_send_guard (scope, subject, period_start, count)
+                    VALUES (?, ?, ?, 0)
+                    ON CONFLICT (scope, subject) DO UPDATE SET period_start = excluded.period_start
+                    """,
+                    (scope, subject, now),
+                )
+            await conn.execute(
+                "DELETE FROM plugin_send_guard WHERE"
+                " (scope = 'destination' AND period_start < ?)"
+                " OR (scope = 'cooldown' AND period_start < ?)"
+                " OR (scope = 'quiet' AND period_start < ?)",
+                (window_start, keep_cooldown_after, keep_quiet_after),
+            )
+
+    @staticmethod
+    async def limits() -> dict[str, int]:
+        async with db.readonly() as conn:
+            async with conn.execute("SELECT name, value FROM plugin_send_limits") as cursor:
+                rows = await cursor.fetchall()
+        return {row["name"]: int(row["value"]) for row in rows}
+
+    @staticmethod
+    async def set_limits(values: Mapping[str, int | None]) -> None:
+        """Store each limit; ``None`` removes it (back to the default)."""
+        async with db.tx() as conn:
+            for name, value in values.items():
+                if value is None:
+                    await conn.execute("DELETE FROM plugin_send_limits WHERE name = ?", (name,))
+                else:
+                    await conn.execute(
+                        "INSERT INTO plugin_send_limits (name, value) VALUES (?, ?)"
+                        " ON CONFLICT (name) DO UPDATE SET value = excluded.value",
+                        (name, value),
+                    )

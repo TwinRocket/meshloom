@@ -33,9 +33,11 @@ Une extension ne reçoit jamais ses propres messages en retour, sauf si elle a l
 ## Limites
 
 - **Messages envoyés.** Par défaut 30 par heure et 200 par jour pour chaque copie d’une extension. Une extension peut demander plus, jusqu’à 60 par heure et 500 par jour, et vous pouvez toujours baisser ces valeurs. Les compteurs survivent à un redémarrage de Meshloom.
+- **Toutes les extensions ensemble.** Quelles que soient les limites de chaque copie, ensemble les extensions envoient au plus 120 messages par heure depuis votre Meshloom. Chaque canal reçoit au plus 20 messages par heure des extensions et chaque contact 10 par heure, toutes extensions confondues. Vous pouvez baisser ces trois limites, jamais les relever. Les compteurs survivent à un redémarrage de Meshloom.
+- **Boucles.** Une copie d’extension répond au plus une fois toutes les 30 secondes au même expéditeur, et ne répond pas à un message arrivé moins de 5 secondes après un de ses envois vers le même canal ou contact. Cela empêche deux répondeurs automatiques, même sur deux Meshloom différents, de se répondre sans fin.
 - **Espacement.** Meshloom attend au moins 2 secondes entre deux messages automatiques, quelle que soit l’extension ou le bot qui les envoie, pour laisser aux répéteurs le temps de se remettre à l’écoute.
 - **Taille.** Un message est limité à ce que la radio peut transporter : 156 octets pour un message privé, moins sur un canal, où le nom de votre nœud passe en premier.
 - **Régions.** Une extension ne peut limiter un message de canal qu’à une région que Meshloom connaît déjà.
 - **Stockage.** 5 Mo par copie d’une extension.
 
-Une demande refusée apparaît dans le journal de l’extension avec sa raison, par exemple « non autorisé », « limite atteinte » ou « message trop long ».
+Une demande refusée apparaît dans le journal de l’extension avec sa raison, par exemple « non autorisé », « limite atteinte » ou « message trop long ». Pour les limites ci-dessus, la raison dit laquelle s’est déclenchée : la limite de la copie, toutes les extensions ensemble, le canal ou le contact, le délai par expéditeur ou le délai de calme.
