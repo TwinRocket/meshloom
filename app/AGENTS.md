@@ -67,6 +67,8 @@ and the OpenAPI page (`/docs`), not a table here.
   rate limited. `public_urls` and `host_guard_mode` are changed through `PATCH
   /api/auth/settings` (`normalize_public_urls`, 400 `auth_public_urls_invalid`; 400
   `auth_host_guard_would_lock_out` when the result would reject the current request).
+  Both modes record the refused names; `meshloom-admin host-guard-observe` is the
+  recovery path that needs no UI.
 - `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
   middleware): HSTS only over direct https (never ingress or relay), `no-store` on
   `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).

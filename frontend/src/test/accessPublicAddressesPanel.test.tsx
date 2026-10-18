@@ -79,12 +79,35 @@ describe('AccessPublicAddressesPanel', () => {
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ public_urls: [] }));
   });
 
-  it('"Allow" declares an observed host and clears it from the list', async () => {
+  it('"Allow" asks for a confirmation that shows the exact name and its context', async () => {
+    const user = userEvent.setup();
+    render(<AccessPublicAddressesPanel />);
+    expect(await screen.findByText(t('settings.access.public.rejectedRisk'))).toBeInTheDocument();
+    await user.click(
+      await screen.findByRole('button', {
+        name: t('settings.access.public.allowFor', { host: 'proxy.example.org' }),
+      })
+    );
+    // Never one click: nothing is sent until the confirmation.
+    expect(patch).not.toHaveBeenCalled();
+    expect(screen.getByTestId('allow-host')).toHaveTextContent('proxy.example.org');
+    expect(screen.getByText(t('settings.access.public.confirmRisk'))).toBeInTheDocument();
+    expect(screen.getAllByText(/3/).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole('button', { name: t('settings.access.cancel') }));
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('confirming declares the host and clears it from the list', async () => {
     const user = userEvent.setup();
     render(<AccessPublicAddressesPanel />);
     await user.click(
       await screen.findByRole('button', {
         name: t('settings.access.public.allowFor', { host: 'proxy.example.org' }),
+      })
+    );
+    await user.click(
+      screen.getByRole('button', {
+        name: t('settings.access.public.confirmAllow', { host: 'proxy.example.org' }),
       })
     );
     await waitFor(() =>

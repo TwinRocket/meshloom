@@ -23,9 +23,13 @@
         "allowed": "{{host}} declared as a public address.",
         "enforce": "Refuse unknown names (enforce)",
         "enforceHelpOff": "Observation mode: unknown names are listed above and still work. Enforcement will become the default in 5.1.",
-        "enforceHelpOn": "Enforced: a request under an undeclared name is refused with an error (421) naming it. If a name stops working, open Meshloom by its IP address (always accepted) and turn this off.",
+        "enforceHelpOn": "Enforced: a request under an undeclared name is refused with an error (421) naming it. If a name stops working, open Meshloom by its IP address (always accepted) and turn this off, or run `meshloom-admin host-guard-observe` on the machine.",
         "enforceOn": "Unknown names are now refused.",
-        "enforceOff": "Observation mode restored."
+        "enforceOff": "Observation mode restored.",
+        "rejectedRisk": "These names are supplied by whoever sent the request, so an unknown name may come from an attacker (DNS rebinding: a page on their domain pointed at your network). Allow only a name you set up yourself, such as your reverse proxy or your Tailscale name.",
+        "confirmTitle": "Declare this name as a public address?",
+        "confirmRisk": "Meshloom will answer to this exact name from now on. Continue only if you recognise it as yours. If you do not, cancel: an unknown name may be an attack.",
+        "confirmAllow": "Allow {{host}}"
       }
     }
   }

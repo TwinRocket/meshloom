@@ -916,6 +916,14 @@ static security headers (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, a
 `frame-ancestors 'none'` CSP, `Permissions-Policy`, `no-store`; no HSTS) because it
 is written outside `app/main.py`'s header middleware.
 
+`enforce` records the refused names too (before the 421 or the 1008), so the screen
+lists what was refused; the names are client-supplied, hence the risk text and the
+confirmation step of "Allow". Recovery without the UI: `meshloom-admin
+host-guard-observe` (audited as `settings.changed`, `via = "cli"`). Public URL hosts
+are converted to punycode (IDNA), checked label by label (1 to 63 LDH characters, no
+leading or trailing hyphen), the port is 1 to 65535, and the path prefix is limited to
+`[A-Za-z0-9._~-]` segments and `%XX` escapes (no dot segment, even encoded).
+
 Settings (MSHL-65, Settings → Users & Access → Public addresses,
 `AccessPublicAddressesPanel.tsx`): `PATCH /api/auth/settings` (admin) takes
 `public_urls` and `host_guard_mode` and returns them in the view. Entries go

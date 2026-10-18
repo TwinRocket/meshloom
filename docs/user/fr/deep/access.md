@@ -121,6 +121,7 @@ La sauvegarde complète (**Réglages → Base de données**) contient les compte
 | `meshloom-admin disable-user <utilisateur>` | Bloque un utilisateur et le déconnecte. Refuse de désactiver le dernier administrateur actif sauf avec `--force`. |
 | `meshloom-admin enable-user <utilisateur>` | Autorise de nouveau un utilisateur désactivé à se connecter. |
 | `meshloom-admin revoke-sessions <utilisateur>` ou `--all` | Déconnecte un utilisateur, ou tout le monde. |
+| `meshloom-admin host-guard-observe` | Remet le [contrôle du Host](/docs/deep/https/#les-noms-auxquels-meshloom-répond) en mode observation, quand le mode strict refuse le seul nom par lequel vous atteignez Meshloom. |
 
 Un Meshloom en cours d’exécution voit ces changements dès sa requête suivante ; un navigateur resté ouvert sur une page déconnectée de cette façon perd sa connexion en direct en moins de 30 secondes.
 

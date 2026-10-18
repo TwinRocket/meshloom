@@ -121,7 +121,7 @@ async def test_enforce_answers_421_naming_the_host():
     assert detail["params"] == {"host": "attacker.example"}
     assert "attacker.example" in detail["message"]
     assert response.headers["cache-control"] == "no-store"
-    assert host_guard.rejected_hosts() == []
+    assert [e.host for e in host_guard.rejected_hosts()] == ["attacker.example"]
 
 
 @pytest.mark.parametrize("mode", ["observe", "enforce"])
@@ -258,6 +258,8 @@ def test_trusted_network_stays_strict_in_both_modes(mode):
         ("https://meshloom.example.com:8443/mesh/", "https://meshloom.example.com:8443/mesh"),
         ("  https://192.0.2.7  ", "https://192.0.2.7"),
         ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+        ("https://bücher.de", "https://xn--bcher-kva.de"),
+        ("https://Bücher.DE:8443/a-b/c_d.e~f%20g", "https://xn--bcher-kva.de:8443/a-b/c_d.e~f%20g"),
     ],
 )
 def test_public_urls_are_normalized(raw, canonical):
@@ -281,6 +283,19 @@ def test_public_urls_are_normalized(raw, canonical):
         "https://mesh_loom.example.com",
         'https://a"b.example.com',
         "https:///path",
+        "https://foo-.example.com",
+        "https://-foo.example.com",
+        f"https://{'a' * 64}.example.com",
+        "https://exa mple.com",
+        "https://\u202eexample.com",
+        "https://example.com:0",
+        "https://example.com/<img/src=x/onerror=alert(1)>",
+        "https://example.com/%2e%2e/a",
+        "https://example.com/%2E/a",
+        "https://example.com/a%2Fb",
+        "https://example.com/a;b",
+        "https://example.com/a%zz",
+        "https://example.com/a'b",
     ],
 )
 def test_invalid_public_urls_are_refused(raw):
@@ -341,3 +356,37 @@ async def test_the_421_carries_the_security_headers():
     assert response.headers["permissions-policy"]
     assert response.headers["cache-control"] == "no-store"
     assert "strict-transport-security" not in response.headers
+
+
+async def test_enforce_mode_records_the_refused_names_and_only_ldh_ones():
+    _settings("enforce")
+    async with _client("evil.example") as client:
+        assert (await client.get("/api/x")).status_code == 421
+        assert (await client.get("/api/x")).status_code == 421
+    async with _client("a;b.example") as client:
+        assert (await client.get("/api/x")).status_code == 421
+    names = host_guard.rejected_hosts()
+    assert [(e.host, e.count) for e in names] == [("evil.example", 2)]
+
+
+async def test_enforce_mode_records_a_refused_websocket_upgrade():
+    from starlette.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    _settings("enforce")
+    app = Starlette(routes=[Route("/api/x", _ok), WebSocketRoute("/api/ws", _ws)])
+    client = TestClient(HostGuardMiddleware(app), base_url="http://evil.example")
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("/api/ws", headers={"host": "evil.example"}),
+    ):
+        pass
+    assert [e.host for e in host_guard.rejected_hosts()] == ["evil.example"]
+
+
+@pytest.mark.parametrize("state", [{"via": "relay"}, None])
+def test_would_lock_out_exempts_relay_and_judges_the_rest(state):
+    scope = {"type": "http", "headers": [(b"host", b"evil.example")], "state": state or {}}
+    assert host_guard.would_lock_out(scope, "enforce", []) is (state is None)
+    assert host_guard.would_lock_out(scope, "observe", []) is False
+    assert host_guard.would_lock_out(scope, "enforce", ["https://evil.example"]) is False

@@ -21,7 +21,7 @@ Two users, two strictnesses:
   default, so an upgrade behind any reverse proxy name keeps working) lets the
   request through, logs each new name once and records it in the bounded
   ``rejected_hosts()`` list. ``enforce`` answers 421 ``auth_host_rejected``
-  (HTTP) or closes the WebSocket with 1008. The default becomes ``enforce`` in
+  (HTTP) or closes the WebSocket with 1008; both modes record the name. The default becomes ``enforce`` in
   5.1.
 
 Exempt from the middleware: Home Assistant ingress (the Supervisor's proxy,
@@ -62,7 +62,7 @@ from collections import OrderedDict
 from collections.abc import Iterable
 from functools import lru_cache
 from typing import TYPE_CHECKING
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, Field
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -83,6 +83,11 @@ MAX_PUBLIC_URL_LENGTH = 253 + 64
 
 # Letters, digits, dots and hyphens: what a DNS name or an IPv4 literal is made of.
 _LDH = re.compile(r"[a-z0-9][a-z0-9.-]*")
+# One DNS label: 1 to 63 letters, digits or inner hyphens.
+_LABEL = re.compile(r"(?!-)[a-z0-9-]{1,63}(?<!-)")
+# Path prefix: RFC 3986 pchar and "/", without the sub-delims that carry markup or
+# separators; a percent escape must be two hex digits (dot segments checked apart).
+_PATH = re.compile(r"(?:/(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2})+)+")
 # New-name warnings: at most this many per window, the rest counted in one line.
 WARNING_BURST = 5
 WARNING_WINDOW_S = 60
@@ -214,13 +219,28 @@ def normalize_public_url(raw: str) -> str:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        if not _LDH.fullmatch(host) or len(host) > MAX_HOST_NAME_LENGTH or ".." in host:
+        if not host.isascii():
+            try:
+                host = host.encode("idna").decode("ascii")  # bücher.de -> xn--bcher-kva.de
+            except UnicodeError:
+                raise PublicUrlError(raw) from None
+        if (
+            len(host) > MAX_HOST_NAME_LENGTH
+            or not _LDH.fullmatch(host)
+            or not all(_LABEL.fullmatch(label) for label in host.split("."))
+        ):
             raise PublicUrlError(raw) from None
         shown = host
     else:
         shown = f"[{address}]" if address.version == 6 else str(address)
     path = parts.path.rstrip("/")
-    if path and (not path.startswith("/") or "//" in path or ".." in path.split("/")):
+    if path:
+        segments = [unquote(part) for part in path.split("/")[1:]]
+        if not _PATH.fullmatch(path) or any(
+            part in (".", "..") or "/" in part for part in segments
+        ):
+            raise PublicUrlError(raw)
+    if port is not None and port < 1:
         raise PublicUrlError(raw)
     netloc = shown if port in (None, 443) else f"{shown}:{port}"
     return f"https://{netloc}{path}"
@@ -303,7 +323,7 @@ def _warn_first_sighting(host: str, now: float) -> None:
     _warn_count += 1
     logger.warning(
         "Host header %r is not a declared address of this instance "
-        "(observation mode lets it through; declare it in the access settings)",
+        "(declare it in the access settings if it is yours)",
         host,
     )
 
@@ -405,9 +425,11 @@ class HostGuardMiddleware:
             await self.app(scope, receive, send)
             return
         host = request_host(raw or "")
+        # Recorded in both modes: in enforce mode the list is how an administrator
+        # sees what was refused (the names are client-supplied: see the screen's warning).
+        if host and _recordable(host):
+            record_rejected(host)
         if _mode != "enforce":
-            if host and _recordable(host):
-                record_rejected(host)
             await self.app(scope, receive, send)
             return
         if scope["type"] == "websocket":

@@ -23,9 +23,13 @@
         "allowed": "{{host}} déclaré comme adresse publique.",
         "enforce": "Refuser les noms inconnus (strict)",
         "enforceHelpOff": "Mode observation : les noms inconnus sont listés ci-dessus et fonctionnent toujours. Le mode strict deviendra le défaut en 5.1.",
-        "enforceHelpOn": "Mode strict : une requête sous un nom non déclaré est refusée avec une erreur (421) qui le nomme. Si un nom cesse de fonctionner, ouvrez Meshloom par son adresse IP (toujours acceptée) et désactivez-le.",
+        "enforceHelpOn": "Mode strict : une requête sous un nom non déclaré est refusée avec une erreur (421) qui le nomme. Si un nom cesse de fonctionner, ouvrez Meshloom par son adresse IP (toujours acceptée) et désactivez-le, ou lancez `meshloom-admin host-guard-observe` sur la machine.",
         "enforceOn": "Les noms inconnus sont désormais refusés.",
-        "enforceOff": "Mode observation rétabli."
+        "enforceOff": "Mode observation rétabli.",
+        "rejectedRisk": "Ces noms sont fournis par l’auteur de la requête : un nom inconnu peut venir d’un attaquant (rebinding DNS : une page de son domaine redirigée vers votre réseau). N’autorisez qu’un nom que vous avez vous-même mis en place, comme votre reverse-proxy ou votre nom Tailscale.",
+        "confirmTitle": "Déclarer ce nom comme adresse publique ?",
+        "confirmRisk": "Meshloom répondra désormais à ce nom exact. Ne continuez que si vous le reconnaissez comme le vôtre. Sinon, annulez : un nom inconnu peut être une attaque.",
+        "confirmAllow": "Autoriser {{host}}"
       }
     }
   }

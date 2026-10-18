@@ -121,6 +121,7 @@ The full backup (**Settings → Database**) carries the accounts when **Include 
 | `meshloom-admin disable-user <user>` | Blocks a user and signs it out. Refuses the last active administrator unless you add `--force`. |
 | `meshloom-admin enable-user <user>` | Lets a disabled user sign in again. |
 | `meshloom-admin revoke-sessions <user>` or `--all` | Signs one user, or everyone, out. |
+| `meshloom-admin host-guard-observe` | Switches the [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) back to observation mode, for when strict mode refuses the only name you can reach Meshloom by. |
 
 A running Meshloom sees these changes on its next request; a browser that stays open on a page signed out this way loses its live connection within 30 seconds.
 

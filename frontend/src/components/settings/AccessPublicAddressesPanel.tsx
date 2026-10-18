@@ -6,6 +6,14 @@ import { formatAccessError } from '../../auth/accessErrors';
 import type { AuthSettings, HostGuardMode, RejectedHost } from '../../auth/types';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from '../ui/sonner';
@@ -35,6 +43,7 @@ export function AccessPublicAddressesPanel() {
   const [view, setView] = useState<View | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [allowing, setAllowing] = useState<RejectedHost | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +147,12 @@ export function AccessPublicAddressesPanel() {
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('settings.access.public.rejectedHelp')}
         </p>
+        <p
+          role="note"
+          className="rounded-md border border-warning/50 bg-warning/10 p-3 text-[0.8125rem]"
+        >
+          {t('settings.access.public.rejectedRisk')}
+        </p>
         {view.rejected.length === 0 ? (
           <p className="text-[0.8125rem] text-muted-foreground">
             {t('settings.access.public.rejectedNone')}
@@ -157,12 +172,7 @@ export function AccessPublicAddressesPanel() {
                   size="sm"
                   disabled={busy}
                   aria-label={t('settings.access.public.allowFor', { host: entry.host })}
-                  onClick={() =>
-                    void patch(
-                      { public_urls: [...view.urls, `https://${entry.host}`] },
-                      t('settings.access.public.allowed', { host: entry.host })
-                    )
-                  }
+                  onClick={() => setAllowing(entry)}
                 >
                   {t('settings.access.public.allow')}
                 </Button>
@@ -199,6 +209,50 @@ export function AccessPublicAddressesPanel() {
           )}
         </p>
       </div>
+      <Dialog open={allowing !== null} onOpenChange={(next) => !next && setAllowing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('settings.access.public.confirmTitle')}</DialogTitle>
+            <DialogDescription>{t('settings.access.public.confirmRisk')}</DialogDescription>
+          </DialogHeader>
+          {allowing && (
+            <div className="space-y-1">
+              <code
+                data-testid="allow-host"
+                className="block rounded-md bg-muted p-2 font-mono text-sm break-all"
+              >
+                {allowing.host}
+              </code>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.access.public.seen', {
+                  count: allowing.count,
+                  last: new Date(allowing.last_seen * 1000).toLocaleString(),
+                })}
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAllowing(null)}>
+              {t('settings.access.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                const target = allowing;
+                setAllowing(null);
+                if (!target) return;
+                void patch(
+                  { public_urls: [...view.urls, `https://${target.host}`] },
+                  t('settings.access.public.allowed', { host: target.host })
+                );
+              }}
+            >
+              {t('settings.access.public.confirmAllow', { host: allowing?.host ?? '' })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SettingsGroup>
   );
 }
