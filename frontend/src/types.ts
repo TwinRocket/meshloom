@@ -316,6 +316,8 @@ export interface PluginStatusEntry {
   last_error: string | null;
   dropped_events: number;
   restarts: number;
+  /** The plugin's own one-line status (`status.set`), null when it set none. */
+  summary?: string | null;
 }
 
 export interface FanoutStatusEntry {

@@ -131,7 +131,8 @@ reach every module.
 - **`bot`** runs user code through `exec()` with full `__builtins__`, by design
   (arbitrary code execution; changing it is the out-of-scope Plugins work). Runs
   are capped in concurrency and time; `_bot_globals` persists between runs. The
-  bot waits 2 s so echoes can dedupe, and bot sends are spaced at least 2 s apart.
+  bot waits 2 s so echoes can dedupe, and bot sends are spaced at least 2 s apart
+  (`send_spacer` of `app/plugins/quotas.py`, shared with the plugin instances).
   Optional arguments (`region`, `scoped`, …) are passed only to bots whose
   signature names them (`analyze_bot_signature`, now in `meshloom_plugin/compat.py`, which
   the plugin shim for migrated bots shares; `bot_exec` re-imports it). `region` is `None` both when

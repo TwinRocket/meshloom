@@ -158,6 +158,9 @@ PLUGIN = """
                 except HostError as exc:
                     from meshloom_plugin.sdk import error_code
                     return error_code(exc)
+            elif msg.text == "!directory":
+                return [await self.contacts.list(limit=5), await self.contacts.get("ab" * 32),
+                        await self.channels.list()]
             elif msg.text == "!misc":
                 await self.timer(60)
                 await self.set_status("ok")
@@ -222,6 +225,25 @@ def test_storage_helpers(host) -> None:
     out = h.call("event.message", {**MESSAGE, "message_text": "!storage"})["result"]
     assert out == [3, "dflt", ["n"]]
     assert h.requests[0]["params"] == {"key": "n", "value": 3}
+
+
+def test_contacts_and_channels_helpers(host) -> None:
+    h = host(PLUGIN)
+    h.call("plugin.init", INIT)
+    h.answers["contacts.list"] = [{"public_key": "ab" * 32}, "junk"]
+    h.answers["contacts.get"] = None
+    h.answers["channels.list"] = [{"key": "CD" * 16, "name": "#x", "is_public": True}]
+    out = h.call("event.message", {**MESSAGE, "message_text": "!directory"})["result"]
+    assert out == [
+        [{"public_key": "ab" * 32}],
+        None,
+        [{"key": "CD" * 16, "name": "#x", "is_public": True}],
+    ]
+    assert [r["params"] for r in h.requests] == [
+        {"limit": 5, "offset": 0},
+        {"key": "ab" * 32},
+        {},
+    ]
 
 
 def test_http_helpers(host) -> None:

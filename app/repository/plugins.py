@@ -1,5 +1,6 @@
 """Repository for the plugin instances (``plugins``), their key-value store
-(``plugin_kv``) and their write-only secrets (``plugin_secrets``).
+(``plugin_kv``), their write-only secrets (``plugin_secrets``) and their send
+counters (``plugin_send_quota``, rules in ``app/plugins/quotas.py``).
 
 One row of ``plugins`` is one instance: a plugin (``plugin_id``) can be installed
 several times, each instance with its own label, config, scope, granted
@@ -366,10 +367,14 @@ class PluginRepository:
 
     @staticmethod
     async def delete(instance_id: str, *, keep_data: bool = False) -> None:
-        """Remove an instance and its secrets; its KV too unless ``keep_data``."""
+        """Remove an instance, its secrets and its send counters; its KV too unless
+        ``keep_data``."""
         async with db.tx() as conn:
             await conn.execute("DELETE FROM plugins WHERE instance_id = ?", (instance_id,))
             await conn.execute("DELETE FROM plugin_secrets WHERE instance_id = ?", (instance_id,))
+            await conn.execute(
+                "DELETE FROM plugin_send_quota WHERE instance_id = ?", (instance_id,)
+            )
             if not keep_data:
                 await conn.execute("DELETE FROM plugin_kv WHERE instance_id = ?", (instance_id,))
         _instances_cache.pop(instance_id, None)
@@ -478,3 +483,44 @@ class PluginKvRepository:
             ) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
+
+
+class PluginSendQuotaRepository:
+    """The fixed-window send counters of the instances (``plugin_send_quota``).
+    The windows and limits are ``app/plugins/quotas.py``'s."""
+
+    @staticmethod
+    async def counts(instance_id: str) -> dict[str, tuple[int, int]]:
+        """``period -> (period_start, count)`` as stored (a stale window included)."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT period, period_start, count FROM plugin_send_quota WHERE instance_id = ?",
+                (instance_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return {row["period"]: (int(row["period_start"]), int(row["count"])) for row in rows}
+
+    @staticmethod
+    async def increment(instance_id: str, starts: Mapping[str, int]) -> None:
+        """Count one send in each ``period`` whose current window starts at
+        ``starts[period]``; a row of an older window restarts at 1."""
+        async with db.tx() as conn:
+            for period, start in starts.items():
+                await conn.execute(
+                    """
+                    INSERT INTO plugin_send_quota (instance_id, period, period_start, count)
+                    VALUES (?, ?, ?, 1)
+                    ON CONFLICT (instance_id, period) DO UPDATE SET
+                        count = CASE WHEN period_start = excluded.period_start
+                                     THEN count + 1 ELSE 1 END,
+                        period_start = excluded.period_start
+                    """,
+                    (instance_id, period, start),
+                )
+
+    @staticmethod
+    async def forget(instance_id: str) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "DELETE FROM plugin_send_quota WHERE instance_id = ?", (instance_id,)
+            )
