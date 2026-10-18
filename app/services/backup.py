@@ -112,6 +112,8 @@ V1_SETTING_COLUMNS: tuple[str, ...] = (
     "push_allow_private_endpoints",
     "push_private_endpoints_grandfathered",
     "radio_offline_grace_s",
+    "share_shorten_mode",
+    "share_preview_policy",
     "ui_preferences",
 )
 BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
@@ -165,6 +167,14 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "app_settings.radio_outage_started_at": (
         "excluded",
         "live outage state of this host's radio: meaningless on another host",
+    ),
+    "app_settings.share_enabled": (
+        "excluded",
+        "sharing consent: a copy restored elsewhere would enable an egress nobody clicked",
+    ),
+    "app_settings.share_instance_seed": (
+        "excluded",
+        "instance identity seed: never exported, regenerated on first enablement",
     ),
     "app_settings.wifi_prompt_state": ("excluded", "per-host prompt state, never a secret"),
     "app_settings.auth_allowed_origins": (

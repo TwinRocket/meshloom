@@ -5,10 +5,17 @@ import { Lock } from 'lucide-react';
 import type { Channel, Contact, Conversation, RawPacket } from '../types';
 import { useRawPackets } from '../stores/rawPacketStore';
 import { labelPayloadType } from '../utils/rawPacketLabels';
-import { getContactDisplayName } from '../utils/pubkey';
+import {
+  controlEnvelopeLabel,
+  controlFromLabel,
+  controlSubtypeLabel,
+  controlThreadLabel,
+  controlToLabel,
+  formatTypeHex,
+  PeerName,
+} from './feed/controlParts';
 import {
   buildJournalEntries,
-  destMatchesPublicKey,
   filterControlJournalPackets,
   type JournalEntry,
   type ThreadKind,
@@ -16,10 +23,6 @@ import {
 import { RawPacketInspectorDialog } from './RawPacketDetailModal';
 import { ToolPaneHeader } from './ToolPaneHeader';
 import { cn } from '../lib/utils';
-
-function formatTypeHex(value: number): string {
-  return `0x${value.toString(16).padStart(4, '0')}`;
-}
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleTimeString([], {
@@ -37,59 +40,6 @@ interface JournalThread {
   channel?: Channel;
   entries: JournalEntry[];
   lastTimestamp: number;
-}
-
-function peerLabel(
-  contacts: Contact[],
-  hash: string | null,
-  isUs: boolean,
-  usLabel: string,
-  unknownLabel: string,
-  ambiguousLabel: (hash: string) => string
-): string {
-  if (isUs) return usLabel;
-  if (!hash) return unknownLabel;
-  if (contacts.length === 1) {
-    return getContactDisplayName(contacts[0].name, contacts[0].public_key, contacts[0].last_advert);
-  }
-  if (contacts.length > 1) return ambiguousLabel(hash);
-  return hash;
-}
-
-function PeerName({
-  label,
-  contact,
-  unique,
-  onOpenContactInfo,
-}: {
-  label: string;
-  contact?: Contact;
-  unique: boolean;
-  onOpenContactInfo: (publicKey: string, fromChannel?: boolean) => void;
-}) {
-  if (!unique || !contact) {
-    return <span>{label}</span>;
-  }
-  return (
-    <span
-      role="link"
-      tabIndex={0}
-      className="cursor-pointer text-primary hover:underline"
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpenContactInfo(contact.public_key);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          event.stopPropagation();
-          onOpenContactInfo(contact.public_key);
-        }
-      }}
-    >
-      {label}
-    </span>
-  );
 }
 
 interface ControlJournalViewProps {
@@ -129,15 +79,7 @@ export function ControlJournalView({
         existing.lastTimestamp = Math.max(existing.lastTimestamp, entry.packet.timestamp);
         continue;
       }
-      let label = t('controlJournal.unresolvedThread');
-      if (entry.threadKind === 'us') label = t('controlJournal.usThread');
-      if (entry.threadKind === 'channel') {
-        label = entry.channel?.name ?? t('controlJournal.unresolvedThread');
-      }
-      if (entry.threadKind === 'repeater' && entry.destContacts[0]) {
-        const contact = entry.destContacts[0];
-        label = getContactDisplayName(contact.name, contact.public_key, contact.last_advert);
-      }
+      const label = controlThreadLabel(t, entry);
       byId.set(entry.threadId, {
         id: entry.threadId,
         kind: entry.threadKind,
@@ -188,48 +130,9 @@ export function ControlJournalView({
 
   const activeThread = threads.find((thread) => thread.id === selectedThreadId) ?? null;
 
-  const subtypeLabel = (entry: JournalEntry): string | null => {
-    if (entry.journalType === 'AnonRequest') return t('controlJournal.subtypeLogin');
-    if (entry.journalType === 'GroupData') return t('controlJournal.subtypeDatagram');
-    if (!entry.requestSubtype) return null;
-    const folded = entry.requestSubtype.toLowerCase().replace(/[\s_()-]+/g, '');
-    if (folded.includes('stats')) return t('controlJournal.subtypeStatus');
-    if (folded.includes('owner')) return t('controlJournal.subtypeOwner');
-    if (folded.includes('region')) return t('controlJournal.subtypeRegions');
-    return entry.requestSubtype;
-  };
-
-  const fromLabel = (entry: JournalEntry): string => {
-    if (entry.anonSender) {
-      return getContactDisplayName(
-        entry.anonSender.name,
-        entry.anonSender.public_key,
-        entry.anonSender.last_advert
-      );
-    }
-    if (entry.anonSenderKey) {
-      return entry.anonSenderKey.slice(0, 12).toUpperCase();
-    }
-    return peerLabel(
-      entry.srcContacts,
-      entry.srcHash,
-      Boolean(entry.srcHash && publicKey && destMatchesPublicKey(entry.srcHash, publicKey)),
-      t('controlJournal.usThread'),
-      t('controlJournal.unknownPeer'),
-      (hash) => t('controlJournal.ambiguousHash', { hash })
-    );
-  };
-
-  const toLabel = (entry: JournalEntry): string => {
-    return peerLabel(
-      entry.destContacts,
-      entry.destHash,
-      entry.destIsUs,
-      t('controlJournal.usThread'),
-      t('controlJournal.unknownPeer'),
-      (hash) => t('controlJournal.ambiguousHash', { hash })
-    );
-  };
+  const subtypeLabel = (entry: JournalEntry) => controlSubtypeLabel(t, entry);
+  const fromLabel = (entry: JournalEntry) => controlFromLabel(t, entry, publicKey);
+  const toLabel = (entry: JournalEntry) => controlToLabel(t, entry);
 
   return (
     <div data-testid="control-journal" className="flex min-h-0 flex-1 flex-col bg-background">
@@ -291,14 +194,7 @@ export function ControlJournalView({
               <div className="mx-auto flex w-full max-w-none flex-col gap-2 lg:max-w-208 2xl:max-w-5xl">
                 {activeThread.entries.map((entry) => {
                   const subtype = subtypeLabel(entry);
-                  const destSrc =
-                    entry.destHash && entry.srcHash
-                      ? t('controlJournal.destSrc', { dest: entry.destHash, src: entry.srcHash })
-                      : entry.destHash
-                        ? t('controlJournal.destOnly', { dest: entry.destHash })
-                        : entry.srcHash
-                          ? t('controlJournal.srcOnly', { src: entry.srcHash })
-                          : null;
+                  const destSrc = controlEnvelopeLabel(t, entry);
                   const channelName =
                     entry.channel?.name ?? entry.packet.decrypted_info?.channel_name ?? null;
                   return (

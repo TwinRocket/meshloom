@@ -280,6 +280,9 @@ async def run_on_restore_hooks(source: RestoreSource) -> None:
 # ``app_settings.*_seed`` column is cleared too, whatever its name.
 SNAPSHOT_SCRUBBED_COLUMNS: tuple[str, ...] = ("radio_ble_pin", "radio_previous_transport")
 
+# Consent flags a database copy resets to 0 (the full backup excludes them too).
+SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = ("share_enabled",)
+
 # Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets and
 # the setup code hash are set to NULL, and the sessions are deleted. A restored
 # snapshot keeps the accounts but none can log in with a password: recovery
@@ -305,6 +308,11 @@ async def prepare_sqlite_snapshot(conn: aiosqlite.Connection, exported_at: int) 
     if cleared:
         assignments = ", ".join(f'"{column}" = NULL' for column in cleared)
         await conn.execute(f"UPDATE app_settings SET {assignments}")
+    # Consents never travel: a copy put back elsewhere must not enable an egress.
+    for column in SNAPSHOT_RESET_COLUMNS:
+        if column in columns:
+            await conn.execute(f'UPDATE app_settings SET "{column}" = 0')
+            cleared.append(column)
     async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
         tables = {row[0] for row in await cursor.fetchall()}
     for table, table_columns in SNAPSHOT_SCRUBBED_AUTH_COLUMNS.items():
