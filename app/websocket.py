@@ -5,7 +5,7 @@ import logging
 import math
 import time
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from fastapi import WebSocket
@@ -96,6 +96,23 @@ EVICT_CLOSE_CODE = 1013
 # then logs "ASGI callable returned without completing handshake" at ERROR.
 FOREIGN_ORIGIN_CLOSE_CODE = 1008
 
+# Close code for a socket whose credential stopped being valid (its session or
+# token was revoked or expired, its account disabled): 1008 "Policy Violation".
+# The frontend reconnects, the gate refuses the upgrade, and its next REST call
+# gets the 401 that sends it to the login page.
+REVOKED_CLOSE_CODE = 1008
+
+# A socket keeps the principal it opened with, role included: a change of role
+# must revoke the user's sessions (``app.auth.sessions.revoke_user_sessions``)
+# so its sockets close and reconnect with the new role; the recheck below
+# checks liveness only.
+#
+# How often the sessions of the open sockets are checked against the database
+# (one query for all of them). A revocation in this process closes its sockets
+# at once (``close_sessions``); this catches the rest: ``meshloom-admin``, which
+# writes the database from another process, an expiry, a disabled account.
+SESSION_RECHECK_INTERVAL_SECONDS = 30.0
+
 
 # Last WARNING per refused origin (monotonic seconds), so a hostile page that
 # retries in a loop cannot flood the log. Bounded: the oldest entry is evicted.
@@ -146,13 +163,29 @@ class _Client:
     client costs at most ``CLIENT_QUEUE_MAX`` frames of memory.
     """
 
-    __slots__ = ("websocket", "principal", "queue", "writer", "unreported", "last_drop_log")
+    __slots__ = (
+        "websocket",
+        "principal",
+        "session_id",
+        "token_id",
+        "last_slide",
+        "queue",
+        "writer",
+        "unreported",
+        "last_drop_log",
+    )
 
     def __init__(self, websocket: WebSocket, principal: Principal | None):
         self.websocket = websocket
         # Who opened the socket: decides which events it receives
         # (``WS_EVENT_PERMISSIONS``). None receives nothing (fail closed).
         self.principal = principal
+        # The credential that opened it, for ``close_sessions``/``close_tokens``.
+        self.session_id = principal.session_id if principal is not None else None
+        self.token_id = principal.token_id if principal is not None else None
+        # Wall-clock second of the last session slide from this socket's
+        # frames (``note_activity``); the upgrade request itself just slid it.
+        self.last_slide = time.time()
         self.queue: asyncio.Queue[str] = asyncio.Queue(maxsize=CLIENT_QUEUE_MAX)
         self.writer: asyncio.Task[None] | None = None
         # Dropped frames per event type not yet logged.
@@ -169,15 +202,25 @@ class WebSocketManager:
         self._clock = clock
         # Process-wide count of dropped best-effort frames, per event type.
         self.dropped_frames: Counter[str] = Counter()
+        # Open clients by the session or token that opened them.
+        self._by_session: dict[str, set[_Client]] = {}
+        self._by_token: dict[str, set[_Client]] = {}
+        # Runs while a session socket is open (``_recheck_sessions``).
+        self._recheck_task: asyncio.Task[None] | None = None
 
     async def connect(self, websocket: WebSocket, principal: Principal | None) -> None:
         await websocket.accept()
         client = _Client(websocket, principal)
         async with self._lock:
             self.active_connections[websocket] = client
+            self._index(client)
         client.writer = asyncio.get_running_loop().create_task(
             self._writer(client), name="ws-writer"
         )
+        if client.session_id is not None and (
+            self._recheck_task is None or self._recheck_task.done()
+        ):
+            self._recheck_task = spawn(self._recheck_sessions(), name="ws-session-recheck")
         logger.info("WebSocket client connected (%d total)", len(self.active_connections))
 
     async def disconnect(self, websocket: WebSocket) -> None:
@@ -185,6 +228,7 @@ class WebSocketManager:
             client = self.active_connections.pop(websocket, None)
             empty = not self.active_connections
         if client is not None:
+            self._unindex(client)
             self._stop_writer(client)
             self._log_drops(client, final=True)
         logger.info("WebSocket client disconnected (%d remaining)", len(self.active_connections))
@@ -192,6 +236,84 @@ class WebSocketManager:
             from app.services.community_live import release_live_on_app_ws_empty
 
             await release_live_on_app_ws_empty()
+
+    def _index(self, client: _Client) -> None:
+        if client.session_id is not None:
+            self._by_session.setdefault(client.session_id, set()).add(client)
+        if client.token_id is not None:
+            self._by_token.setdefault(client.token_id, set()).add(client)
+
+    def _unindex(self, client: _Client) -> None:
+        for index, key in (
+            (self._by_session, client.session_id),
+            (self._by_token, client.token_id),
+        ):
+            if key is None:
+                continue
+            clients = index.get(key)
+            if clients is not None:
+                clients.discard(client)
+                if not clients:
+                    del index[key]
+
+    def close_sessions(self, session_ids: Iterable[str]) -> int:
+        """Close every socket opened with one of these sessions (policy close
+        1008). Returns how many. Call it after revoking them."""
+        return self._close_indexed(self._by_session, session_ids, "session revoked")
+
+    def close_tokens(self, token_ids: Iterable[str]) -> int:
+        """Close every socket opened with one of these API or device tokens."""
+        return self._close_indexed(self._by_token, token_ids, "token revoked")
+
+    def _close_indexed(
+        self, index: dict[str, set[_Client]], keys: Iterable[str], reason: str
+    ) -> int:
+        clients = [client for key in set(keys) for client in index.get(key, ())]
+        for client in clients:
+            self._evict(client, reason, code=REVOKED_CLOSE_CODE)
+        return len(clients)
+
+    async def note_activity(self, websocket: WebSocket) -> None:
+        """A frame from the client: slide its session like an HTTP request
+        would, so a page that only keeps a WebSocket open (a kiosk display)
+        is not signed out at expiry. At most one attempt per
+        ``LAST_SEEN_WRITE_INTERVAL_S`` per socket, then ``touch()``'s own
+        once-a-minute rule."""
+        from app.repository.auth import LAST_SEEN_WRITE_INTERVAL_S
+
+        client = self.active_connections.get(websocket)
+        if client is None or client.session_id is None:
+            return
+        now = time.time()
+        if now - client.last_slide < LAST_SEEN_WRITE_INTERVAL_S:
+            return
+        client.last_slide = now
+        from app.auth.sessions import slide_session
+
+        try:
+            await slide_session(client.session_id, now=int(now))
+        except Exception:
+            logger.debug("Could not slide the session of a WebSocket", exc_info=True)
+
+    async def _recheck_sessions(self) -> None:
+        """Close the sockets whose session is no longer live, every
+        ``SESSION_RECHECK_INTERVAL_SECONDS``, while a session socket is open."""
+        from app.repository.auth import AuthSessionRepository
+
+        while self._by_session:
+            await asyncio.sleep(SESSION_RECHECK_INTERVAL_SECONDS)
+            open_ids = list(self._by_session)
+            if not open_ids:
+                break
+            try:
+                live = await AuthSessionRepository.filter_live(open_ids)
+            except Exception:
+                # Fail closed would sign everyone out on a database hiccup;
+                # the gate still refuses the next upgrade and request.
+                logger.exception("Could not recheck the sessions of the open WebSockets")
+                continue
+            if closed := self.close_sessions(set(open_ids) - live):
+                logger.info("Closed %d WebSocket(s) whose session ended", closed)
 
     @staticmethod
     def _stop_writer(client: _Client) -> None:
@@ -213,7 +335,7 @@ class WebSocketManager:
                 self._evict(client, f"send failed: {e}")
                 return
 
-    def _evict(self, client: _Client, reason: str) -> None:
+    def _evict(self, client: _Client, reason: str, *, code: int = EVICT_CLOSE_CODE) -> None:
         """Drop a client and actively close its socket.
 
         Merely forgetting the socket would leave the TCP session open and the
@@ -222,19 +344,18 @@ class WebSocketManager:
         if self.active_connections.get(client.websocket) is not client:
             return
         del self.active_connections[client.websocket]
+        self._unindex(client)
         logger.info(
             "Evicting WebSocket client (%s); %d remaining", reason, len(self.active_connections)
         )
         self._stop_writer(client)
         self._log_drops(client, final=True)
-        spawn(self._close_quietly(client.websocket), name="ws-close-evicted")
+        spawn(self._close_quietly(client.websocket, code), name="ws-close-evicted")
 
     @staticmethod
-    async def _close_quietly(websocket: WebSocket) -> None:
+    async def _close_quietly(websocket: WebSocket, code: int = EVICT_CLOSE_CODE) -> None:
         try:
-            await asyncio.wait_for(
-                websocket.close(code=EVICT_CLOSE_CODE), timeout=SEND_TIMEOUT_SECONDS
-            )
+            await asyncio.wait_for(websocket.close(code=code), timeout=SEND_TIMEOUT_SECONDS)
         except Exception as e:
             logger.debug("Closing evicted WebSocket failed: %s", e)
 

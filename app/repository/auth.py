@@ -320,7 +320,8 @@ class UserRepository:
         now: int | None = None,
     ) -> User | None:
         """Change profile fields. Revoking sessions on a role change or a
-        disable is the caller's decision (``AuthSessionRepository.revoke_all_for_user``)."""
+        disable is the caller's decision (``app.auth.sessions.revoke_user_sessions``,
+        which also closes their WebSockets)."""
         updates: list[str] = []
         params: list[Any] = []
         if display_name is not None:
@@ -387,6 +388,30 @@ class AuthSessionRepository:
 
         Beyond ``MAX_SESSIONS_PER_USER`` active sessions, the oldest are revoked.
         """
+        session, _ = await AuthSessionRepository.create_capped(
+            user_id,
+            token_hash,
+            lifetime_s=lifetime_s,
+            ip=ip,
+            user_agent=user_agent,
+            via=via,
+            now=now,
+        )
+        return session
+
+    @staticmethod
+    async def create_capped(
+        user_id: int,
+        token_hash: str,
+        *,
+        lifetime_s: int,
+        ip: str | None = None,
+        user_agent: str | None = None,
+        via: str | None = None,
+        now: int | None = None,
+    ) -> tuple[AuthSession, list[str]]:
+        """``create()``, plus the ids of the sessions the cap revoked (oldest
+        first), so the caller can close their sockets."""
         ts = _now(now)
         session_id = uuid.uuid4().hex
         if user_agent is not None:
@@ -400,23 +425,27 @@ class AuthSessionRepository:
                 """,
                 (session_id, user_id, token_hash, ts, ts, ts + lifetime_s, ip, user_agent, via),
             )
-            await conn.execute(
+            async with conn.execute(
                 """
-                UPDATE sessions SET revoked_at = ?
-                WHERE id IN (
-                    SELECT id FROM sessions
-                    WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ? AND id != ?
-                    ORDER BY created_at DESC, rowid DESC
-                    LIMIT -1 OFFSET ?
-                )
+                SELECT id FROM sessions
+                WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ? AND id != ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT -1 OFFSET ?
                 """,
                 # The new session never evicts itself (a clock that went back
                 # would otherwise sort it last); it counts as one of the cap.
-                (ts, user_id, ts, session_id, MAX_SESSIONS_PER_USER - 1),
-            )
+                (user_id, ts, session_id, MAX_SESSIONS_PER_USER - 1),
+            ) as cursor:
+                evicted = [row["id"] for row in await cursor.fetchall()]
+            evicted.reverse()
+            if evicted:
+                await conn.executemany(
+                    "UPDATE sessions SET revoked_at = ? WHERE id = ?",
+                    [(ts, evicted_id) for evicted_id in evicted],
+                )
             async with conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)) as cur:
                 row = await cur.fetchone()
-        return _row_to_session(row)
+        return _row_to_session(row), evicted
 
     @staticmethod
     async def get_active(token_hash: str, *, now: int | None = None) -> AuthSession | None:
@@ -475,14 +504,37 @@ class AuthSessionRepository:
     @staticmethod
     async def revoke_all_for_user(
         user_id: int, *, except_session_id: str | None = None, now: int | None = None
-    ) -> int:
+    ) -> list[str]:
+        """Revoke every live session of a user but ``except_session_id``.
+        Returns the ids it revoked."""
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL"
-                " AND id IS NOT ?",
-                (_now(now), user_id, except_session_id),
+                "SELECT id FROM sessions WHERE user_id = ? AND revoked_at IS NULL AND id IS NOT ?",
+                (user_id, except_session_id),
             ) as cursor:
-                return cursor.rowcount
+                revoked = [row["id"] for row in await cursor.fetchall()]
+            if revoked:
+                await conn.executemany(
+                    "UPDATE sessions SET revoked_at = ? WHERE id = ?",
+                    [(_now(now), session_id) for session_id in revoked],
+                )
+        return revoked
+
+    @staticmethod
+    async def filter_live(session_ids: list[str], *, now: int | None = None) -> set[str]:
+        """Those of ``session_ids`` still usable: not revoked, not expired, and
+        their user exists and is enabled (the rule of ``resolve_session``)."""
+        if not session_ids:
+            return set()
+        placeholders = ", ".join("?" for _ in session_ids)
+        async with db.readonly() as conn:
+            async with conn.execute(
+                f"SELECT s.id FROM sessions s JOIN users u ON u.id = s.user_id"
+                f" WHERE s.id IN ({placeholders}) AND s.revoked_at IS NULL"
+                f" AND s.expires_at > ? AND u.disabled = 0",
+                (*session_ids, _now(now)),
+            ) as cursor:
+                return {row["id"] for row in await cursor.fetchall()}
 
     @staticmethod
     async def purge(*, now: int | None = None) -> int:

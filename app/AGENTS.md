@@ -720,6 +720,13 @@ floor, never the percentage alone, and do not remove the floor.
   `X-Forwarded-Proto` is not read (a TLS terminator). Keep a new WebSocket
   route behind the same call. `tests/test_origin_policy.py` runs one table of
   origins through CORS and the WebSocket.
+- **Revocation closes sockets.** `ws_manager` indexes clients by session id
+  and token id; revoking through `app/auth/sessions.py` closes them at once
+  (1008), and a 30 s recheck catches revocations from `meshloom-admin`,
+  expiries and disabled accounts (`docs/dev/auth.md`, "Sessions and the cookie").
+  Client frames slide the session once a minute (`note_activity`), so a
+  socket-only kiosk stays signed in. A socket keeps its opening role: a role
+  change must go through `revoke_user_sessions()`.
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
   `broadcast_event()` never awaits socket I/O. A slow client first loses
