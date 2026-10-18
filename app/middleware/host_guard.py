@@ -189,6 +189,11 @@ def set_remote_hostname(hostname: str | None) -> None:
     _remote_hostnames = frozenset({host}) if host else frozenset()
 
 
+def remote_hostnames() -> frozenset[str]:
+    """The Remote hostname, when linked (passkeys use it as an RP id)."""
+    return _remote_hostnames
+
+
 def normalize_public_url(raw: str) -> str:
     """The canonical form of a declared public address, or ``PublicUrlError``.
 

@@ -31,7 +31,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from app.auth import audit, device_cookie, ratelimit, sessions, totp
+from app.auth import audit, device_cookie, ratelimit, sessions, totp, webauthn
 from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import (
     MAX_AUDIT_RETENTION_DAYS,
@@ -73,6 +73,7 @@ from app.repository.auth import (
     AuthSettingsRepository,
     InvalidUsernameError,
     LastAdminError,
+    PasskeyRepository,
     UsernameTakenError,
     UserRepository,
 )
@@ -185,6 +186,9 @@ def _secure(request: Request) -> bool:
 class AuthMethods(BaseModel):
     password: bool = True
     ingress: bool = False
+    # A WebAuthn ceremony can run on this request (``app/auth/webauthn.py``:
+    # https on a declared public address, the relay, or localhost).
+    passkey: bool = False
 
 
 class AuthCompat(BaseModel):
@@ -211,7 +215,7 @@ class SecondFactorChallenge(BaseModel):
     opens the session (``app/auth/totp.py``)."""
 
     pending_token: str
-    methods: list[Literal["totp", "recovery"]]
+    methods: list[Literal["totp", "recovery", "passkey"]]
     expires_in: int
 
 
@@ -324,7 +328,11 @@ async def _session_payload(
         authenticated=principal is not None,
         setup_required=setup_required,
         setup_code_required=setup_required and await setup_code_required(),
-        methods=AuthMethods(password=not under_ingress, ingress=under_ingress),
+        methods=AuthMethods(
+            password=not under_ingress,
+            ingress=under_ingress,
+            passkey=await webauthn.available(request.scope),
+        ),
         auth_compat=AuthCompat(basic=await basic_compat_active()),
         secure=_secure(request),
     )
@@ -616,9 +624,13 @@ async def _second_factor_challenge(request: Request, user: User) -> AuthSessionR
         request, "login", "pending", target=audit.user_target(user.id), details={"factor": "totp"}
     )
     payload = await _session_payload(None, _via(request), request)
+    methods: list[Literal["totp", "recovery", "passkey"]] = ["totp", "recovery"]
+    # A passkey too, when the account has one and this request can run a ceremony.
+    if payload.methods.passkey and await PasskeyRepository.count_for_user(current.id):
+        methods.append("passkey")
     payload.second_factor = SecondFactorChallenge(
         pending_token=token,
-        methods=["totp", "recovery"],
+        methods=methods,
         expires_in=int(totp.PENDING_TTL_S),
     )
     return payload

@@ -147,9 +147,33 @@ Connecté par Home Assistant, ou avec un compte sans mot de passe Meshloom (un k
 
 Le secret est gardé dans la base (chiffré au repos dans une version ultérieure). La sauvegarde complète le contient, avec les codes de secours (seulement leurs hachés), uniquement quand **Inclure les comptes** est coché ; le téléchargement de la base n’en garde aucun.
 
+## Les passkeys
+
+Une passkey vous connecte avec votre téléphone, votre ordinateur ou une clé de sécurité (empreinte, visage ou code de l’appareil) au lieu de saisir votre mot de passe. Elle est facultative, et votre mot de passe continue de fonctionner.
+
+Les passkeys demandent une connexion sécurisée avec un nom : Meshloom ne les propose qu’en **https** par une adresse déclarée dans **Réglages → Utilisateurs et accès → Adresses publiques** (derrière un reverse-proxy, listez-le aussi dans **Proxies de confiance** pour que Meshloom voie le https : [Derrière un reverse-proxy](#derrière-un-reverse-proxy)), par Meshloom Remote, ou sur `http://localhost`. En simple `http://` sur le réseau local (une adresse IP ou un nom `.local`), et à travers Home Assistant, elles ne sont pas disponibles : les navigateurs les y refusent. Une passkey ne fonctionne que sur l’adresse où elle a été créée.
+
+Les écrans pour ajouter et utiliser les passkeys arrivent dans une version ultérieure ; l’API est prête (comptes avec mot de passe, pas le kiosque ni les utilisateurs Home Assistant) :
+
+| Requête | Ce qu’elle fait |
+|---|---|
+| `POST /api/auth/webauthn/register/options` | `{"password"}`, plus `"code"` (de l’application, ou un code de secours) quand la double authentification est activée : les options à passer à `navigator.credentials.create()`. |
+| `POST /api/auth/webauthn/register/verify` | `{"credential", "name"}` : la réponse du navigateur et un nom pour la passkey. Valable 5 minutes, une fois, depuis la même session. |
+| `GET /api/auth/webauthn/credentials` | Vos passkeys : nom, création, dernière utilisation. |
+| `DELETE /api/auth/webauthn/credentials/<id>` | `{"password"}` : en retire une. Votre mot de passe vous connecte toujours. |
+| `POST /api/auth/webauthn/login/options` | `{}` : les options de `navigator.credentials.get()` pour se connecter sans mot de passe (l’appareil doit vérifier que c’est vous). |
+| `POST /api/auth/webauthn/login/verify` | `{"credential"}` : la réponse du navigateur ; ouvre la session. |
+
+- **Comme second facteur.** Avec la [double authentification](#la-double-authentification) activée, une passkey peut remplacer le code après le mot de passe : `POST /api/auth/login` indique `passkey` dans `second_factor.methods`, `POST /api/auth/webauthn/login/options` avec `{"pending_token"}` donne les options, et `POST /api/auth/login/2fa` accepte `{"pending_token", "passkey"}`. Sans double authentification, une passkey ne change rien à la connexion par mot de passe.
+- **Une passkey remplace à la fois le mot de passe et le code.** Se connecter avec une passkey seule suffit, même avec la double authentification activée : l’appareil vérifie que c’est vous (empreinte, visage ou code), ce qui vaut pour les deux facteurs. C’est pourquoi ajouter une passkey demande votre mot de passe **et** un code quand la double authentification est activée. Si vous pensez que quelqu’un a utilisé votre compte, passez vos passkeys en revue, retirez celles que vous ne reconnaissez pas, puis changez votre mot de passe.
+- **Les échecs comptent comme de mauvais mots de passe**, avec les mêmes délais. Chaque défi ne sert qu’une fois et expire au bout de 5 minutes. Une passkey dont le compteur recule (signe d’une clé de sécurité copiée) est refusée.
+- **Appareil perdu.** Connectez-vous avec votre mot de passe et retirez sa passkey. Un administrateur peut retirer toutes les passkeys d’un utilisateur sur la machine avec `meshloom-admin remove-passkeys <utilisateur>` (plus bas).
+
+Meshloom ne garde que la partie publique de chaque passkey. La sauvegarde complète ne les contient que quand **Inclure les comptes** est coché ; le téléchargement de la base les garde.
+
 ## Le journal d’audit
 
-Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, changés de rôle, désactivés, réactivés ou supprimés (refus compris, comme une tentative de rétrograder le dernier administrateur), changements de mot de passe, double authentification activée ou désactivée, nouveaux codes de secours et connexions en attente de leur code, création du premier administrateur, changements des réglages d’accès, jetons créés et révoqués et utilisations d’un jeton révoqué ou expiré, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
+Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, changés de rôle, désactivés, réactivés ou supprimés (refus compris, comme une tentative de rétrograder le dernier administrateur), changements de mot de passe, double authentification activée ou désactivée, nouveaux codes de secours et connexions en attente de leur code, passkeys ajoutées ou retirées, création du premier administrateur, changements des réglages d’accès, jetons créés et révoqués et utilisations d’un jeton révoqué ou expiré, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
 
 Chaque entrée garde l’heure, le compte qui a agi (aucun pour une connexion ratée ou la ligne de commande), l’adresse d’où il venait, la voie d’accès (réseau local, Home Assistant, ligne de commande, ou Meshloom lui-même pour une mise à jour automatique), ce qui a été visé et l’issue. Elle ne contient jamais de mot de passe, de code d’installation, de session, de clé ni le code d’un robot. Une connexion ratée ne nomme le compte que si le nom saisi correspond à un compte ; tout autre nom saisi est noté comme inconnu, si bien qu’un mot de passe tapé dans le champ du nom n’est pas gardé.
 
@@ -157,7 +181,7 @@ Les administrateurs le lisent dans **Réglages → Utilisateurs et accès → Jo
 
 ## Sauvegarde et restauration
 
-La sauvegarde complète (**Réglages → Base de données**) contient les comptes quand **Inclure les comptes** est coché, ce qui est le cas par défaut : leurs rôles, hachés de mots de passe et secrets de double authentification, et les jetons d’API (seulement leurs empreintes, si bien que les appareils continuent de fonctionner après une restauration), jamais les sessions ni le journal d’audit. La restaurer sur une nouvelle machine rend les mêmes comptes et mots de passe. Une restauration remplace les comptes et déconnecte tout le monde ; elle ne laisse jamais Meshloom sans administrateur actif qui peut se connecter ici (un compte avec mot de passe, ou un utilisateur Home Assistant sur l’add-on) : un fichier qui n’en a pas, ou sans comptes du tout, conserve les comptes actuels. Détails sur la [page de sauvegarde](/docs/backup/#contenu-de-la-sauvegarde). Le téléchargement de la base garde les comptes mais pas leurs mots de passe : après l’avoir remis en place, réinitialisez un mot de passe avec `meshloom-admin` (ci-dessous).
+La sauvegarde complète (**Réglages → Base de données**) contient les comptes quand **Inclure les comptes** est coché, ce qui est le cas par défaut : leurs rôles, hachés de mots de passe, secrets de double authentification et passkeys, et les jetons d’API (seulement leurs empreintes, si bien que les appareils continuent de fonctionner après une restauration), jamais les sessions ni le journal d’audit. La restaurer sur une nouvelle machine rend les mêmes comptes et mots de passe. Une restauration remplace les comptes et déconnecte tout le monde ; elle ne laisse jamais Meshloom sans administrateur actif qui peut se connecter ici (un compte avec mot de passe, ou un utilisateur Home Assistant sur l’add-on) : un fichier qui n’en a pas, ou sans comptes du tout, conserve les comptes actuels. Détails sur la [page de sauvegarde](/docs/backup/#contenu-de-la-sauvegarde). Le téléchargement de la base garde les comptes mais pas leurs mots de passe : après l’avoir remis en place, réinitialisez un mot de passe avec `meshloom-admin` (ci-dessous).
 
 ## Les commandes
 
@@ -170,6 +194,7 @@ La sauvegarde complète (**Réglages → Base de données**) contient les compte
 | `meshloom-admin disable-user <utilisateur>` | Bloque un utilisateur et le déconnecte. Refuse de désactiver le dernier administrateur actif sauf avec `--force`. |
 | `meshloom-admin enable-user <utilisateur>` | Autorise de nouveau un utilisateur désactivé à se connecter. |
 | `meshloom-admin disable-2fa <utilisateur>` | Retire la double authentification et les codes de secours d’un utilisateur (téléphone perdu). Il se connecte ensuite avec son seul mot de passe. |
+| `meshloom-admin remove-passkeys <utilisateur>` | Retire toutes les passkeys d’un utilisateur (appareil perdu ou volé). Le mot de passe continue de fonctionner. |
 | `meshloom-admin revoke-sessions <utilisateur>` ou `--all` | Déconnecte un utilisateur, ou tout le monde. |
 | `meshloom-admin host-guard-observe` | Remet le [contrôle du Host](/docs/deep/https/#les-noms-auxquels-meshloom-répond) en mode observation, quand le mode strict refuse le seul nom par lequel vous atteignez Meshloom. |
 

@@ -87,6 +87,8 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/auth/setup"),
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/login/2fa"),
+        ("POST", "/api/auth/webauthn/login/options"),
+        ("POST", "/api/auth/webauthn/login/verify"),
         ("POST", "/api/auth/logout"),
         # The kiosk's one-time code exchange (``app/routers/auth_kiosk.py``).
         ("GET", "/api/auth/kiosk-session"),

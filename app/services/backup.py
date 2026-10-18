@@ -241,6 +241,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "TOTP recovery code hashes: inside the users backup section (services/backup_accounts.py)",
     ),
+    "webauthn_credentials": (
+        "excluded",
+        "passkeys (public keys): inside the users backup section (services/backup_accounts.py)",
+    ),
     "auth_audit": ("excluded", "audit trail: not in the JSON backup, kept in the SQLite download"),
     "auth_settings": (
         "excluded",

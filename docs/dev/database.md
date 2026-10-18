@@ -243,6 +243,18 @@ by a regeneration, deleted when the factor is removed. In the JSON full backup
 only inside the `users` section; emptied in the database download.
 `TotpRepository` (`auth.py`).
 
+### `webauthn_credentials`
+
+Passkeys (migration 110, `app/auth/webauthn.py`, `docs/dev/auth.md`,
+"Passkeys"): PK `id`, `user_id` (FK `users(id)`, cascade), `credential_id`
+(BLOB, unique across accounts), `public_key` (BLOB, the COSE key; no secret is
+stored), `sign_count` (the authenticator's counter, stored after each use with a
+conditional `UPDATE`), `transports` (JSON list), `aaguid`, `name` (1-64
+characters), `backup_eligible` and `backed_up` (synced passkey flags),
+`created_at`, `last_used_at`. At most 20 per account. In the JSON full backup
+only inside the `users` section; kept in the database download (public keys).
+`PasskeyRepository` (`auth.py`).
+
 ### `auth_audit`
 
 Audit trail (`app/auth/audit.py`, `docs/dev/auth.md`, "Audit log"): PK `id`, `ts`, `actor_user_id`, `actor_token_id`
@@ -320,7 +332,7 @@ All foreign keys point at `contacts(public_key)` (children: advert paths, name
 history, both telemetry histories, pane cache, alert state, group members, all
 `ON DELETE CASCADE`), at `contact_groups(id)` (members, cascade) or at
 `messages(id)` (`raw_packets.message_id`, `SET NULL`), plus `sessions.user_id`,
-`api_tokens.user_id` and `recovery_codes.user_id` on `users(id)` (cascade). `messages.conversation_key`
+`api_tokens.user_id`, `recovery_codes.user_id` and `webauthn_credentials.user_id` on `users(id)` (cascade). `messages.conversation_key`
 and `messages.sender_key` are plain text, not foreign keys: a message outlives its
 contact or channel. Enforcement requires `PRAGMA foreign_keys = ON`, which
 `Database` sets after migrations (migration 049 rebuilt the tables with cascades).
@@ -339,6 +351,7 @@ databases). The current set:
 | `idx_contact_telemetry_pk_ts` | `contact_telemetry_history(public_key, timestamp)` |
 | `idx_auth_audit_ts` | `auth_audit(ts)` |
 | `idx_recovery_codes_user` | `recovery_codes(user_id)` |
+| `idx_webauthn_credentials_user` | `webauthn_credentials(user_id)` |
 | `idx_contacts_type_last_seen` | `contacts(type, last_seen)` |
 | `idx_messages_chan_unattributed_sender` | `messages(sender_name)` where `CHAN` and `sender_key IS NULL` |
 | `idx_messages_dedup_null_safe` | unique, `messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))` where `CHAN` |

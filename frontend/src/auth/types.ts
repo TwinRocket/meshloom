@@ -20,7 +20,7 @@ export interface AuthUser {
 export interface SecondFactorChallenge {
   /** Sent back with a code to `POST /auth/login/2fa`. */
   pending_token: string;
-  methods: ('totp' | 'recovery')[];
+  methods: ('totp' | 'recovery' | 'passkey')[];
   /** Seconds before the password has to be entered again. */
   expires_in: number;
 }
@@ -30,7 +30,7 @@ export interface AuthSessionInfo {
   authenticated: boolean;
   setup_required: boolean;
   setup_code_required: boolean;
-  methods: { password: boolean; ingress: boolean };
+  methods: { password: boolean; ingress: boolean; passkey?: boolean };
   auth_compat: { basic: boolean };
   /** Whether the server saw the request as https (a trusted proxy's `X-Forwarded-Proto`). */
   secure?: boolean;

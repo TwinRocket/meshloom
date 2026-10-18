@@ -189,7 +189,7 @@ These hold for every section; a restore function must keep them:
 ## Accounts (`users`, `api_tokens`)
 
 `app/services/backup_accounts.py` registers the `users` section (Access T65,
-`sensitive`, version 2) and the `api_tokens` section (Access T27, below),
+`sensitive`, version 3) and the `api_tokens` section (Access T27, below),
 imported by `services/backup.py`.
 
 - **Data.** `{"users": [...]}`, one object per `users` row: `id`, `username`,
@@ -198,7 +198,11 @@ imported by `services/backup.py`.
   `totp_enabled_at`, `totp_last_counter`, `created_at`, `updated_at`, and
   since version 2 `recovery_codes` (`[{code_hash, created_at, used_at}]`, the
   argon2id hashes of the TOTP recovery codes, never a code; a version 1 file
-  has none and restores without them). Never
+  has none and restores without them), and since version 3 `passkeys`
+  (`[{credential_id, public_key, sign_count, transports, aaguid, name,
+  backup_eligible, backed_up, created_at, last_used_at}]`, ids and COSE keys
+  in base64url; a public key, never a secret; a version 1 or 2 file restores
+  without them). Never
   `username_key` (recomputed), sessions, the audit trail or `auth_settings`
   (with the setup code hash). Keys a file adds to a row are dropped
   (`BackupUser`, `extra="ignore"`, `hide_input_in_errors`).
@@ -228,7 +232,9 @@ imported by `services/backup.py`.
   TOTP material and a forced password change are kept only on a `local`
   account outside `kiosk`, stripped otherwise; recovery codes only with an
   enabled TOTP factor (secret and enable time), at most 64, each an argon2id
-  hash under the same cost limit; a `system` account must be a
+  hash under the same cost limit; passkeys only on an account that keeps a
+  password hash (at most 64, strict base64url, a credential id listed twice is
+  restored once); a `system` account must be a
   `kiosk`; a hash must be argon2id (`v=19`, `p=1`) with a cost up to libsodium's
   MODERATE limits (256 MiB, 3 passes), so a file cannot make a login allocate
   more.
@@ -248,8 +254,10 @@ imported by `services/backup.py`.
   not touched (`section_skipped:api_tokens`). A `users` restore without this
   section leaves no token (the replaced accounts' rows cascade). The sockets of
   the replaced tokens close at once.
-- **Extension point.** Passkeys and recovery codes (T50, T52), once their
-  tables exist, go inside `users` as a version 2 of its `data`.
+- **Extension point.** Account material goes inside `users` as a new version
+  of its `data`, as the recovery codes (version 2, T50) and the passkeys
+  (version 3, T52) did. The SQLite snapshot keeps `webauthn_credentials`
+  (public keys).
 - Tests: `tests/test_backup_accounts.py`.
 
 ## The `on_restore` hook

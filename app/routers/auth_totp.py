@@ -6,7 +6,10 @@ URI, the one time they leave the server), ``POST /auth/2fa/confirm`` (the first
 valid code turns it on and returns the recovery codes, shown once), ``POST
 /auth/2fa/disable`` (password and a code), ``POST /auth/2fa/recovery`` (password
 and a TOTP code; new recovery codes). ``POST /auth/login/2fa`` is the second
-step of a login whose password checked (public, ``PUBLIC_ROUTES``). Codes are
+step of a login whose password checked (public, ``PUBLIC_ROUTES``): a TOTP
+code, a recovery code, or a passkey assertion for options from ``POST
+/auth/webauthn/login/options`` with the same pending token
+(``app/routers/auth_webauthn.py``). Codes are
 checked under the login delays (``app/auth/ratelimit.py``): a wrong code counts
 as a failed login for the client's address and the account's name. Rules:
 ``app/auth/totp.py``, ``docs/dev/auth.md``, "Second factor". Nothing here logs a
@@ -16,16 +19,19 @@ password, a code, a secret or a pending token.
 from __future__ import annotations
 
 import hmac
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
-from app.auth import audit, device_cookie, ratelimit, sessions, totp
+from app.auth import audit, device_cookie, ratelimit, sessions, totp, webauthn
 from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH
 from app.auth.permissions import own_account, public
+from app.auth.tokens import hash_token
 from app.repository.auth import TotpRepository, UserRepository
+from app.routers import auth_webauthn
 from app.routers.auth import (
     AuthSessionResponse,
     OkResponse,
@@ -92,10 +98,24 @@ class RecoveryCodes(BaseModel):
 
 
 class LoginSecondFactorRequest(BaseModel):
+    """The pending token and exactly one of ``code`` (TOTP or recovery) and
+    ``passkey`` (the browser's assertion JSON)."""
+
     model_config = ConfigDict(hide_input_in_errors=True)
 
     pending_token: SecretStr = Field(min_length=1, max_length=128)
-    code: SecretStr = Field(min_length=1, max_length=_MAX_CODE_LENGTH)
+    code: SecretStr | None = Field(default=None, min_length=1, max_length=_MAX_CODE_LENGTH)
+    passkey: dict[str, Any] | None = None
+
+    _passkey_size = field_validator("passkey")(
+        lambda value: value if value is None else auth_webauthn._bounded_credential(value)
+    )
+
+    @model_validator(mode="after")
+    def _one_proof(self) -> LoginSecondFactorRequest:
+        if (self.code is None) == (self.passkey is None):
+            raise ValueError("send a code or a passkey")
+        return self
 
 
 def _applicable(user: User) -> None:
@@ -150,6 +170,55 @@ async def _check_code(
         raise _error(status, "auth_2fa_invalid")
     limiter.record_success(address, user.username, device)
     return kind
+
+
+async def _check_passkey(
+    request: Request, user: User, token: str, credential: dict[str, Any], device: str | None
+) -> Literal["passkey"]:
+    """A passkey as the second factor: an assertion by one of ``user``'s
+    passkeys for options issued to this pending token and client (user
+    verification preferred). A failure counts as a wrong code."""
+    try:
+        rp = await webauthn.relying_party(request.scope)
+    except webauthn.PasskeyUnavailable as exc:
+        # Not counted against the token: this request cannot run a ceremony.
+        raise auth_webauthn._error(
+            400, "auth_passkey_unsupported", {"reason": exc.reason}
+        ) from None
+    binding = webauthn.second_factor_binding(
+        hash_token(token),
+        totp.client_binding(client_ip(request.scope), request.headers.get("user-agent")),
+    )
+    try:
+        ceremony = webauthn.ceremonies.take(
+            webauthn.credential_challenge(credential), "second_factor", binding, rp.rp_id
+        )
+        if ceremony.user_id != user.id:
+            raise webauthn.PasskeyInvalid("challenge_mismatch")
+    except webauthn.PasskeyInvalid as exc:
+        await audit.record_request(
+            request,
+            "login",
+            "failure",
+            target=audit.user_target(user.id),
+            details={"reason": f"passkey_{exc.reason}"},
+        )
+        raise _error(401, "auth_2fa_invalid") from None
+    try:
+        await auth_webauthn.check_assertion(
+            request,
+            rp,
+            credential,
+            ceremony,
+            require_user_verification=False,
+            expected_user=user,
+            device=device,
+        )
+    except webauthn.PasskeyInvalid:
+        raise _error(401, "auth_2fa_invalid") from None
+    except ratelimit.LoginDelayed as delayed:
+        raise _rate_limited(delayed) from None
+    return "passkey"
 
 
 @router.get("/2fa", response_model=TotpStatus, dependencies=[Depends(own_account())])
@@ -313,9 +382,13 @@ async def login_second_factor(
     presented = device_cookie.read(request.headers.get("cookie"), secure=secure)
     device = await device_cookie.known_device(presented, user.username)
     try:
-        kind = await _check_code(
-            request, user, body.code, "login", allow_recovery=True, status=401, device=device
-        )
+        if body.passkey is not None:
+            kind = await _check_passkey(request, user, token, body.passkey, device)
+        else:
+            assert body.code is not None
+            kind = await _check_code(
+                request, user, body.code, "login", allow_recovery=True, status=401, device=device
+            )
     except BaseException as exc:
         totp.pending_logins.put_back(token, entry, failed=getattr(exc, "status_code", None) == 401)
         raise

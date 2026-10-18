@@ -454,3 +454,37 @@ def test_disable_2fa_refuses_an_unknown_user_and_an_unmigrated_database(dbfile, 
     _add_user(dbfile, "alice")
     assert run(dbfile, "disable-2fa", "alice") == 1
     assert "recovery_codes" in capsys.readouterr().err
+
+
+def test_remove_passkeys_removes_them_all_and_writes_an_audit_row(dbfile, capsys):
+    _add_user(dbfile, "alice")
+    _add_user(dbfile, "bob")
+    uid, other = (row[0] for row in _query(dbfile, "SELECT id FROM users ORDER BY id"))
+    conn = sqlite3.connect(dbfile)
+    conn.executemany(
+        "INSERT INTO webauthn_credentials (user_id, credential_id, public_key, name, created_at)"
+        " VALUES (?, ?, x'01', 'key', 1)",
+        [(uid, b"a"), (uid, b"b"), (other, b"c")],
+    )
+    conn.commit()
+    conn.close()
+
+    assert run(dbfile, "remove-passkeys", "ALICE") == 0
+    assert "2 passkey(s)" in capsys.readouterr().out
+    assert _query(dbfile, "SELECT user_id FROM webauthn_credentials") == [(other,)]
+    assert _query(dbfile, "SELECT action, outcome, via, target FROM auth_audit") == [
+        ("passkey.removed", "success", "cli", f"user:{uid}")
+    ]
+    assert run(dbfile, "remove-passkeys", "alice") == 0
+    assert "no passkey" in capsys.readouterr().out
+    assert len(_query(dbfile, "SELECT 1 FROM auth_audit")) == 1
+
+
+def test_remove_passkeys_refuses_an_unmigrated_database(dbfile, capsys):
+    _add_user(dbfile, "alice")
+    conn = sqlite3.connect(dbfile)
+    conn.execute("DROP TABLE webauthn_credentials")
+    conn.commit()
+    conn.close()
+    assert run(dbfile, "remove-passkeys", "alice") == 1
+    assert "webauthn_credentials" in capsys.readouterr().err
