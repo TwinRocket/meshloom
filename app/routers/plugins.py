@@ -16,6 +16,7 @@ import logging
 import platform
 import re
 import shutil
+import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -84,8 +85,16 @@ def _unlocked() -> None:
 Writable = Depends(_unlocked)
 
 
+def _uuid(instance_id: str) -> str:
+    """The canonical form of an instance id (a uuid), 404 for anything else."""
+    try:
+        return str(uuid.UUID(instance_id))
+    except ValueError:
+        raise _error(404, "plugin_not_found", "No such plugin instance") from None
+
+
 async def _row(instance_id: str) -> dict[str, Any]:
-    row = await PluginRepository.get(instance_id)
+    row = await PluginRepository.get(_uuid(instance_id))
     if row is None:
         raise _error(404, "plugin_not_found", "No such plugin instance")
     return row
@@ -810,5 +819,7 @@ async def delete_plugin(instance_id: str, keep_data: bool = Query(False)) -> Res
     await plugin_manager.remove(instance_id)
     await PluginRepository.delete(instance_id, keep_data=keep_data)
     if row["kind"] == "local":
-        shutil.rmtree(plugin_manager.plugins_root() / "local" / instance_id, ignore_errors=True)
+        shutil.rmtree(
+            plugin_manager.plugins_root() / "local" / row["instance_id"], ignore_errors=True
+        )
     return Response(status_code=204)
