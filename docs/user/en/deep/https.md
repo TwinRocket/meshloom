@@ -135,6 +135,6 @@ The server refuses this connection when it comes from a page of another site: a 
 
 ## Which address to listen on
 
-`--host 0.0.0.0` makes the server reachable from every network the machine is on. This is what the Linux package, the installer's Docker setup and the image do, because the point is to use Meshloom from a phone or another computer. It is also why the warnings of [Security](/en/docs/deep/security/) matter: there are no user accounts, and where requests come from is not restricted.
+`--host 0.0.0.0` makes the server reachable from every network the machine is on. This is what the Linux package, the installer's Docker setup and the image do, because the point is to use Meshloom from a phone or another computer. It is also why the warnings of [Security](/en/docs/deep/security/) matter: an account is the only gate, and the server does not restrict which addresses may reach it.
 
 If you run it by hand and want it reachable from the machine itself only, use the uvicorn default (`127.0.0.1`) and open `http://localhost:8000`, which is a secure context without any certificate.

@@ -1,6 +1,6 @@
 ---
 title: Aller plus loin
-description: Transports, chemins d’installation, variables, Community, fanout, Home Assistant, dépannage.
+description: Transports, chemins d’installation, variables, Community, liens courts, fanout, Home Assistant, dépannage.
 level: deep
 order: 10
 ---
@@ -14,4 +14,4 @@ Deux pages valent une lecture avant les autres :
 - [Variables et réglages](/docs/deep/environment/) sépare ce qui se décide au démarrage de ce qui vit dans la base et se change dans l’interface.
 - [Sécurité](/docs/deep/security/) dit ce que Meshloom ne protège pas.
 
-[Meshloom Community](/docs/deep/community/) reste désactivé tant que vous ne l’avez pas rejoint : lisez sa page pour savoir ce qu’il envoie avant de le faire.
+[Meshloom Community](/docs/deep/community/) reste désactivé tant que vous ne l’avez pas rejoint : lisez sa page pour savoir ce qu’il envoie avant de le faire. Il en va de même pour les [Liens courts](/docs/deep/share/), le service de partage optionnel qui raccourcit les longues adresses web : il reste désactivé tant qu’un administrateur ne l’active pas.

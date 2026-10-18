@@ -223,7 +223,9 @@ Community guard.
 - Tests: `tests/test_share_service.py` (errors, ban, breaker with an injected
   clock, buckets, negative cache, hanging server), `tests/test_share_off_no_egress.py`
   (off: no request, no DNS lookup; on: only `SHARE_HOST`, no seed, channel key
-  or radio private key in any request). Fakes: `tests/share_fakes.py`.
+  or radio private key in any request). Fakes: `tests/share_fakes.py`. User docs:
+  `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans and what is
+  not implemented yet must follow this section).
 
 ## Recovery CLI (`app/cli.py`)
 

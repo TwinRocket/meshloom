@@ -135,6 +135,6 @@ Le serveur refuse cette connexion quand elle vient d’une page d’un autre sit
 
 ## Sur quelle adresse écouter
 
-`--host 0.0.0.0` rend le serveur joignable depuis tous les réseaux auxquels la machine est reliée. C’est ce que font le paquet Linux, l’installation Docker de l’installateur et l’image, parce que l’intérêt est d’utiliser Meshloom depuis un téléphone ou un autre ordinateur. C’est aussi ce qui rend pertinents les avertissements de [Sécurité](/docs/deep/security/) : il n’y a pas de comptes utilisateurs, et l’origine des requêtes n’est pas restreinte.
+`--host 0.0.0.0` rend le serveur joignable depuis tous les réseaux auxquels la machine est reliée. C’est ce que font le paquet Linux, l’installation Docker de l’installateur et l’image, parce que l’intérêt est d’utiliser Meshloom depuis un téléphone ou un autre ordinateur. C’est aussi ce qui rend pertinents les avertissements de [Sécurité](/docs/deep/security/) : un compte est la seule barrière, et le serveur ne restreint pas les adresses qui peuvent l’atteindre.
 
 Si vous le lancez à la main et que vous voulez qu’il ne soit joignable que depuis la machine elle-même, gardez la valeur par défaut d’uvicorn (`127.0.0.1`) et ouvrez `http://localhost:8000`, qui est un contexte sécurisé sans aucun certificat.
