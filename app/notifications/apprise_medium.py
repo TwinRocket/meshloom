@@ -43,6 +43,7 @@ from app.net.apprise_urls import (
     redact_apprise_url,
     validate_apprise_urls,
 )
+from app.net.egress_guard import tls_check_may_be_off
 from app.notifications.executor import run_blocking
 
 logger = logging.getLogger(__name__)
@@ -239,6 +240,13 @@ async def _send_one_url_scoped(
     server.socket_connect_timeout = CONNECT_TIMEOUT_S
     server.socket_read_timeout = READ_TIMEOUT_S
     if not verify_tls:
+        # Only for a user-chosen host whose every address is private: a fixed-host
+        # service (Telegram, Discord...) or a public host keeps its certificate check.
+        destination = validated.destination
+        if destination is None or not tls_check_may_be_off(destination.ips):
+            raise AppriseUrlRefused(
+                "verify_tls_requires_private_destination", line=line, scheme=validated.scheme
+            )
         server.verify_certificate = False
     if validated.scheme == "discord":
         # A webhook's avatar is fetched by Discord from an Apprise-hosted image.

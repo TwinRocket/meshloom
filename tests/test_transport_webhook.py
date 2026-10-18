@@ -194,11 +194,16 @@ async def test_private_network_needs_the_channel_flag(requests_seen):
 
 
 @pytest.mark.asyncio
-async def test_verify_tls_off_only_with_private_network(requests_seen):
-    refused = await WebhookTransport().send(
-        _channel(verify_tls=False), None, _delivery(PAYLOAD), {"url": SECRET_URL}
-    )
-    assert refused.error_code == "verify_tls_requires_private_network"
+async def test_verify_tls_off_only_for_a_private_destination(requests_seen):
+    # A public host keeps its certificate check, flag or not.
+    for flag in (False, True):
+        refused = await WebhookTransport().send(
+            _channel(verify_tls=False, allow_private_network=flag),
+            None,
+            _delivery(PAYLOAD),
+            {"url": SECRET_URL},
+        )
+        assert refused.error_code == "verify_tls_requires_private_destination"
     assert not requests_seen
     ok = await WebhookTransport().send(
         _channel(verify_tls=False, allow_private_network=True),

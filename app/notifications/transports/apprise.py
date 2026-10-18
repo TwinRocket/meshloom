@@ -36,8 +36,6 @@ class AppriseTransport:
         urls = split_apprise_urls(secrets.get("urls", ""))
         if not urls:
             return SendResult("failed", error_code="not_configured")
-        if not channel.verify_tls and not channel.allow_private_network:
-            return SendResult("failed", error_code="verify_tls_requires_private_network")
         markdown = channel.config.get("format") == "markdown"
         title, body = event_notification_text(
             dict(event.payload),

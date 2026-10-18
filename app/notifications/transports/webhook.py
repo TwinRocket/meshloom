@@ -5,8 +5,11 @@ with sorted keys, ``sha256=`` + HMAC-SHA256 of those bytes under the channel's
 secret. M1 adds two headers and leaves the signature alone (it does not cover
 them): ``X-Webhook-Id`` (the event's ``dedup_key``, the same on every retry, so a
 receiver such as Node-RED deduplicates a slow 200 that was delivered twice) and
-``X-Webhook-Timestamp`` (epoch seconds of this attempt, to reject an old replay).
-A signature that covers the timestamp is the v2 body (MSHL-140).
+``X-Webhook-Timestamp`` (epoch seconds of this attempt). Neither header is signed: they
+let a receiver drop an honest retry, but anyone holding a captured request can replay it
+with a new id or timestamp, so they are no protection against replay. That needs a
+signature over the id, the timestamp and the body: the v2 body (MSHL-137).
+A signature that covers the timestamp is the v2 body (MSHL-137).
 
 The URL and the secret are write-only channel secrets, never logged. Retries are the
 dispatcher's: this transport answers ``retry`` for a 5xx, a 429, a timeout or a
@@ -25,7 +28,11 @@ from typing import Any
 
 import httpx
 
-from app.net.egress_guard import pinned_async_client, validate_destination
+from app.net.egress_guard import (
+    pinned_async_client,
+    tls_check_may_be_off,
+    validate_destination,
+)
 from app.notifications.channels import Channel
 from app.notifications.render import Rendered, enrich_notification_payload
 from app.notifications.transports.base import (
@@ -94,8 +101,6 @@ class WebhookTransport:
         url = (secrets.get("url") or "").strip()
         if not url:
             return SendResult("failed", error_code="not_configured")
-        if not channel.verify_tls and not channel.allow_private_network:
-            return SendResult("failed", error_code="verify_tls_requires_private_network")
         body = body_bytes(event.payload)
         headers = request_headers(
             event.payload,
@@ -107,6 +112,8 @@ class WebhookTransport:
             target = await validate_destination(
                 url, allow_private_network=channel.allow_private_network
             )
+            if not channel.verify_tls and not tls_check_may_be_off(target.ips):
+                return SendResult("failed", error_code="verify_tls_requires_private_destination")
             async with pinned_async_client(
                 target,
                 verify_tls=channel.verify_tls,

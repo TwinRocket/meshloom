@@ -141,16 +141,33 @@ async def test_coded_errors_for_a_refused_scheme_and_a_private_host(sends):
 
 
 @pytest.mark.asyncio
-async def test_not_configured_and_tls_policy(sends):
+async def test_not_configured_and_tls_policy(sends, monkeypatch):
     send = AppriseTransport().send
     assert (await send(_channel(), None, _delivery(DM), {})).error_code == "not_configured"
-    bad = await send(_channel(verify_tls=False), None, _delivery(DM), {"urls": TG_A})
-    assert bad.error_code == "verify_tls_requires_private_network"
+    # A fixed-host service and a public user-chosen host keep their certificate check.
+    for urls in (TG_A, "json://93.184.215.14/hook"):
+        bad = await send(
+            _channel(verify_tls=False, allow_private_network=True),
+            None,
+            _delivery(DM),
+            {"urls": urls},
+        )
+        assert str(bad.error_code).endswith(": verify_tls_requires_private_destination")
+    assert not sends
+    seen = []
+
+    def fake(server, title, body, markdown):
+        seen.append(server.verify_certificate)
+        return True, _Response(status=200)
+
+    monkeypatch.setattr(apprise_medium, "_send_sync", fake)
     ok = await send(
-        _channel(verify_tls=False, allow_private_network=True), None, _delivery(DM), {"urls": TG_A}
+        _channel(verify_tls=False, allow_private_network=True),
+        None,
+        _delivery(DM),
+        {"urls": "json://192.168.1.10/hook"},
     )
-    assert ok.ok and sends[-1]["verify"] is False
-    assert not sends[:-1]
+    assert ok.ok and seen == [False]
 
 
 @pytest.mark.asyncio

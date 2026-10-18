@@ -4,7 +4,7 @@ Apprise (2.x, maintained) speaks SMTP with TLS by default (``mailtos`` + STARTTL
 or ``ssl``; ``none`` is a plain ``mailto`` the user chose). The URL carries the
 password, so it is built per send and never stored or logged. ``to`` takes several
 recipients (one per line in the UI; commas and semicolons work too) and ``cc`` an
-optional list. Apprise's mailto plugin sends one message per recipient inside that
+optional list (the Cc addresses join the recipients: each gets its own message once). Apprise's mailto plugin sends one message per recipient inside that
 one URL and reports a single bool, so a rejected recipient fails the whole delivery
 while the others may have been reached (documented in ``docs/user``). The dispatcher
 never retries it, which would resend to who already got it: the transport answers
@@ -27,7 +27,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from app.log_redaction import secret_scope
-from app.net.egress_guard import EgressBlocked, validate_destination
+from app.net.egress_guard import EgressBlocked, tls_check_may_be_off, validate_destination
 from app.notifications.channels import Channel
 from app.notifications.executor import run_blocking
 from app.notifications.render import Rendered, _is_message, message_text_is_public
@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 _RECIPIENT_SPLIT = re.compile(r"[,;\r\n]+")
 MAX_RECIPIENTS = 20
+_DEFAULT_PORTS = {"ssl": 465, "none": 25}
 
 
 def parse_recipients(raw: str | None) -> list[str]:
@@ -67,8 +68,10 @@ def build_email_apprise_url(email: Mapping[str, Any], *, verify_tls: bool = True
     password = str(email.get("password") or "")
     host = str(email.get("host") or "")
     from_addr = str(email.get("from") or email.get("from_address") or "")
-    to_addrs = parse_recipients(str(email.get("to") or ""))
-    cc_addrs = parse_recipients(str(email.get("cc") or ""))
+    # Apprise sends one message per ``to`` address and copies the whole Cc on each, so
+    # N recipients would give every Cc address N copies: Cc addresses are plain
+    # recipients here and get their own message once.
+    to_addrs = parse_recipients(f"{email.get('to') or ''},{email.get('cc') or ''}")
     port = email.get("port")
     if user:
         params["user"] = user
@@ -80,8 +83,6 @@ def build_email_apprise_url(email: Mapping[str, Any], *, verify_tls: bool = True
         params["from"] = from_addr
     if to_addrs:
         params["to"] = ",".join(to_addrs)
-    if cc_addrs:
-        params["cc"] = ",".join(cc_addrs)
     if port not in (None, ""):
         params["port"] = str(port)
     params.update(extra)
@@ -142,17 +143,21 @@ class EmailTransport:
         config = {**channel.config, "password": secrets.get("password", "")}
         if not config.get("host") or not parse_recipients(str(config.get("to") or "")):
             return SendResult("failed", error_code="not_configured")
-        if not channel.verify_tls and not channel.allow_private_network:
-            return SendResult("failed", error_code="verify_tls_requires_private_network")
         host = str(config["host"]).strip()
         bracketed = f"[{host}]" if ":" in host else host
+        mode = str(config.get("mode") or "starttls")
         try:
-            await validate_destination(
-                f"http://{bracketed}:{config.get('port') or 587}/",
+            target = await validate_destination(
+                f"http://{bracketed}:{config.get('port') or _DEFAULT_PORTS.get(mode, 587)}/",
                 allow_private_network=channel.allow_private_network,
             )
         except EgressBlocked as exc:
             return SendResult("failed", error_code=exc.code)
+        private = tls_check_may_be_off(target.ips)
+        if not channel.verify_tls and not private:
+            return SendResult("failed", error_code="verify_tls_requires_private_destination")
+        if mode == "none" and (config.get("user") or config.get("password")) and not private:
+            return SendResult("failed", error_code="smtp_plaintext_auth_refused")
         subject, html = render_email(
             event.payload, await channel_language(channel), channel.include_message_text
         )

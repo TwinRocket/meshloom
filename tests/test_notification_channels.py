@@ -336,12 +336,32 @@ class TestJournal:
 
 class TestTransportDefaults:
     @pytest.mark.asyncio
-    async def test_verify_tls_off_needs_the_private_network_flag(self, test_db):
+    async def test_verify_tls_off_needs_a_private_destination(self, test_db):
         body = {"type": "webhook", "name": "Hook", "verify_tls": False}
         config = {"url": "https://hooks.example.org/x"}
-        with pytest.raises(ChannelError) as refused:
-            await Channels.create(ChannelCreate(**body, config=config))
-        assert refused.value.code == "verify_tls_requires_private_network"
+        # The public address resolves publicly: refused with or without the flag.
+        for flag in (False, True):
+            with pytest.raises(ChannelError) as refused:
+                await Channels.create(
+                    ChannelCreate(**body, config=config, allow_private_network=flag)
+                )
+            assert refused.value.code == "verify_tls_requires_private_destination"
+        for type_, cfg in (
+            ("apprise", {"urls": "tgram://1:a-b/1"}),
+            ("apprise", {"urls": "json://93.184.215.14/x"}),
+            ("email", {"host": "smtp.example.org", "to": "me@example.org"}),
+        ):
+            with pytest.raises(ChannelError) as refused:
+                await Channels.create(
+                    ChannelCreate(
+                        type=type_,
+                        name="N",
+                        config=cfg,
+                        verify_tls=False,
+                        allow_private_network=True,
+                    )
+                )
+            assert refused.value.code == "verify_tls_requires_private_destination"
         channel = await Channels.create(
             ChannelCreate(
                 **body, config={"url": "http://192.168.1.4/x"}, allow_private_network=True
@@ -350,6 +370,11 @@ class TestTransportDefaults:
         assert channel.verify_tls is False
         with pytest.raises(ChannelError):
             await Channels.update(channel.id, ChannelUpdate(allow_private_network=False))
+        with pytest.raises(ChannelError) as moved:
+            await Channels.update(
+                channel.id, ChannelUpdate(config={"url": "https://hooks.example.org/x"})
+            )
+        assert moved.value.code == "verify_tls_requires_private_destination"
         kept = await Channels.update(channel.id, ChannelUpdate(verify_tls=True))
         assert kept.verify_tls is True
 
@@ -366,3 +391,21 @@ class TestTransportDefaults:
             )
         )
         assert local.include_message_text == "always"
+
+    @pytest.mark.asyncio
+    async def test_no_smtp_login_without_tls_to_a_public_host(self, test_db):
+        base = {"host": "smtp.example.org", "to": "me@example.org", "mode": "none"}
+        for cfg in ({**base, "password": "pw"}, {**base, "user": "me"}):
+            with pytest.raises(ChannelError) as refused:
+                await Channels.create(ChannelCreate(type="email", name="M", config=cfg))
+            assert refused.value.code == "smtp_plaintext_auth_refused"
+        await Channels.create(ChannelCreate(type="email", name="Open", config=base))
+        lan = await Channels.create(
+            ChannelCreate(
+                type="email",
+                name="Lan",
+                config={**base, "host": "192.168.1.5", "password": "pw"},
+                allow_private_network=True,
+            )
+        )
+        assert lan.secret_fields_set == ["password"]

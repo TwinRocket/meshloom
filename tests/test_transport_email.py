@@ -130,7 +130,8 @@ def test_cc_and_tls_options_reach_the_url():
     assert url.startswith("mailtos://")
     assert "verify=no" in url
     server = apprise.Apprise.instantiate(url)
-    assert server.cc == {"boss@example.org"}
+    assert server.cc == set()
+    assert len(server) == 4  # to a, b, c and the former Cc, once each
     assert server.verify_certificate is False
     assert "verify=no" not in build_email_apprise_url(CONFIG)
 
@@ -188,7 +189,7 @@ def test_neutral_subject_and_no_text_when_the_policy_strips_it(policy_, payload,
 @pytest.mark.asyncio
 async def test_real_send_reaches_every_recipient_with_the_inline_logo(smtp):
     result = await EmailTransport().send(
-        _channel(allow_private_network=False, language="en"),
+        _channel(config={**CONFIG, "mode": "starttls"}, language="en"),
         None,
         _delivery({"event": "channel_found", "name": "#meshcore"}),
         {"password": "smtp-pass-1"},
@@ -217,7 +218,10 @@ async def test_failure_is_final_and_coded(monkeypatch):
 
     monkeypatch.setattr(email_transport, "send_email_sync", boom)
     result = await EmailTransport().send(
-        _channel(), None, _delivery(DM), {"password": "smtp-pass-1"}
+        _channel(config={**CONFIG, "mode": "starttls"}),
+        None,
+        _delivery(DM),
+        {"password": "smtp-pass-1"},
     )
     assert (result.status, result.error_code) == ("failed", "send_failed")
 
@@ -233,8 +237,10 @@ async def test_not_configured_refused_host_and_tls_policy(smtp):
         _channel(config={**CONFIG, "host": "192.168.1.5"}), None, _delivery(DM), {}
     )
     assert private.error_code == "egress_private_address"
-    insecure = await send(_channel(verify_tls=False), None, _delivery(DM), {})
-    assert insecure.error_code == "verify_tls_requires_private_network"
+    insecure = await send(
+        _channel(verify_tls=False, allow_private_network=True), None, _delivery(DM), {}
+    )
+    assert insecure.error_code == "verify_tls_requires_private_destination"
     lan = await send(
         _channel(config={**CONFIG, "host": "192.168.1.5"}, allow_private_network=True),
         None,
@@ -243,6 +249,50 @@ async def test_not_configured_refused_host_and_tls_policy(smtp):
     )
     assert lan.ok
     assert len(smtp) == 3
+
+
+@pytest.mark.asyncio
+async def test_no_login_without_tls_outside_the_private_network(smtp):
+    send = EmailTransport().send
+    public = {**CONFIG, "user": "me", "mode": "none"}
+    refused = await send(_channel(config=public), None, _delivery(DM), {"password": "pw"})
+    assert refused.error_code == "smtp_plaintext_auth_refused"
+    assert not smtp
+    # A login name alone is refused too; encryption on lifts the rule.
+    assert (
+        await send(_channel(config=public), None, _delivery(DM), {})
+    ).error_code == "smtp_plaintext_auth_refused"
+    assert (
+        await send(
+            _channel(config={**public, "mode": "starttls"}), None, _delivery(DM), {"password": "pw"}
+        )
+    ).ok
+    smtp.clear()
+    # No credentials: plaintext is the user's choice. On the LAN, a login is allowed.
+    assert (await send(_channel(config={**CONFIG, "mode": "none"}), None, _delivery(DM), {})).ok
+    lan = {**public, "host": "192.168.1.5"}
+    assert (
+        await send(
+            _channel(config=lan, allow_private_network=True),
+            None,
+            _delivery(DM),
+            {"password": "pw"},
+        )
+    ).ok
+
+
+@pytest.mark.asyncio
+async def test_each_cc_address_gets_one_message_not_one_per_recipient(smtp):
+    result = await EmailTransport().send(
+        _channel(config={**CONFIG, "cc": "boss@example.org, a@example.org"}),
+        None,
+        _delivery(DM),
+        {},
+    )
+    assert result.ok
+    received = sorted(r for _, to, _ in smtp for r in to)
+    assert received == ["a@example.org", "b@example.org", "boss@example.org", "c@example.org"]
+    assert "Cc:" not in smtp[0][2]
 
 
 @pytest.mark.parametrize(
