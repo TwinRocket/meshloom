@@ -199,7 +199,7 @@ Community guard.
   256 ids), after the opt-in check; turning sharing off clears it.
 - **Routes (`routers/share.py`, prefix `/api/share`).** `GET /status` (`read`; no
   egress: `enabled`, `host`, `hosts`, `identity_ready`, `dm_encryption_available`
-  = `keystore.has_private_key()`, `banned`, `shorten_mode`, `preview_policy`),
+  = `keystore.has_private_key()`, `banned`, `unreachable` (share breaker open), `shorten_mode`, `preview_policy`),
   `POST /links` (`send`, i.e. member+; off answers `share_disabled` before
   anything; the URL is checked locally: http/https, host, 2048 characters, no
   whitespace), `GET /{id}/meta` (`read`, so a viewer or kiosk reads it; the id
