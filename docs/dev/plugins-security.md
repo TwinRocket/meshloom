@@ -94,6 +94,11 @@ frame.
 - The RPC descriptors are ordinary small integers: plugin code can write to the
   server directly. The server must treat every child message as hostile input
   (bounded lines, typed checks), which it does anyway.
+- `host().call_sync` (legacy bots) blocks the child's event loop until the server
+  answers or its timeout (25 s) ends. A plugin that calls it in a loop only stalls
+  its own instance; the lines read meanwhile are held back within hard caps (128
+  lines, 1 MiB) and the overflow is refused, so the wait cannot grow memory without
+  bound. The server's own per-event 30 s deadline still applies.
 - `RLIMIT_AS` is not set on macOS (not enforced there); macOS is a development
   platform only.
 - A file descriptor number given to `open()` is accepted (only descriptors the

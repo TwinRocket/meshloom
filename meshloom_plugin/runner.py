@@ -34,6 +34,8 @@ import importlib  # noqa: E402
 import importlib.machinery  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
+import select  # noqa: E402
+import time  # noqa: E402
 import traceback  # noqa: E402
 from typing import Any  # noqa: E402
 
@@ -49,9 +51,15 @@ _BOOT_MODULES_KEPT = ("importlib._bootstrap", "importlib._bootstrap_external")
 PARAMS_MAX_BYTES = 64 * 1024
 HOOK_NAMES = ("message", "raw_packet", "contact", "telemetry", "health", "timer")
 MAX_PENDING = 128
+# What `Channel.call_sync` may hold back while it blocks the loop: lines of the
+# server's own requests, answered once the loop runs again. Past either cap an
+# event is refused with `-32001` and a notification is dropped.
+MAX_DEFERRED_LINES = MAX_PENDING
+MAX_DEFERRED_BYTES = 1024 * 1024
 THREAD_STACK_SIZE = 256 * 1024
 PR_SET_NO_NEW_PRIVS = 38
 
+SYNC_CALL_TIMEOUT = 25.0
 EXIT_START_FAILED = 3
 EXIT_PROTOCOL = 2
 
@@ -533,6 +541,11 @@ class Channel:
         self._tasks: dict[Any, Any] = {}
         self._pending: dict[int, Any] = {}
         self._next_id = 0
+        self._select = select
+        self._monotonic = time.monotonic
+        self._sync_call = False
+        self._deferred: list[bytes] = []
+        self._deferred_bytes = 0
         self.done = loop.create_future()
 
     # Public API, reached through meshloom_plugin.host().
@@ -547,6 +560,120 @@ class Channel:
             return await future
         finally:
             self._pending.pop(msg_id, None)
+
+    def call_sync(self, method: str, params: Any = None, timeout: float = SYNC_CALL_TIMEOUT) -> Any:
+        """Send a request and block the calling handler until its answer arrives.
+
+        For synchronous plugin code (the legacy bot shim) that cannot await. The
+        whole loop is blocked meanwhile, which is the price of "no threads": the
+        other handlers wait, and the server's own lines are read and held back
+        (bounded, see `MAX_DEFERRED_LINES`) until the call is over. Answers to
+        other `call()`s are delivered at once. Raises `HostError` for a JSON-RPC
+        error, a timeout (`code: "timeout"`) or a closed stream; raises
+        `asyncio.CancelledError` when the server cancels the calling handler
+        meanwhile.
+        """
+        if self._sync_call:
+            raise RuntimeError("call_sync is not re-entrant")
+        if self.done.done():
+            raise HostError({"code": "host_closed", "message": "the host is gone"})
+        current = self._asyncio.current_task(self._loop) if self._loop.is_running() else None
+        self._next_id += 1
+        msg_id = self._next_id
+        deadline = self._monotonic() + timeout
+        self._sync_call = True
+        try:
+            self._send(rpc.request(msg_id, method, params))
+            return self._wait_sync(msg_id, deadline, current)
+        finally:
+            self._sync_call = False
+            if self._deferred:
+                self._loop.call_soon(self._drain_deferred)
+
+    def _wait_sync(self, msg_id: int, deadline: float, current: Any) -> Any:
+        while True:
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                raise HostError({"code": "timeout", "message": "no answer within the timeout"})
+            ready, _, _ = self._select.select([self._in], [], [], remaining)
+            if not ready:
+                continue
+            try:
+                data = os.read(self._in, 65536)
+            except BlockingIOError:
+                continue
+            except OSError as exc:
+                self._finish(EXIT_PROTOCOL, f"rpc read failed: {exc}")
+                raise HostError({"code": "host_closed", "message": "rpc read failed"}) from None
+            if not data:
+                self._finish(0, None)
+                raise HostError({"code": "host_closed", "message": "the host closed the stream"})
+            try:
+                lines = self._decoder.feed(data)
+            except rpc.FramingError as exc:
+                self._finish(EXIT_PROTOCOL, f"protocol: {exc}")
+                raise HostError({"code": "host_closed", "message": "protocol error"}) from None
+            for index, line in enumerate(lines):
+                if not line.strip():
+                    continue
+                try:
+                    answer = self._sync_line(line, msg_id, current)
+                except BaseException:
+                    self._defer_all(lines[index + 1 :])
+                    raise
+                if answer is not _NO_ANSWER:
+                    # What follows the answer keeps its order behind the deferred lines.
+                    self._defer_all(lines[index + 1 :])
+                    return answer
+
+    def _defer_all(self, lines: list[bytes]) -> None:
+        for line in lines:
+            if line.strip():
+                self._defer(line)
+
+    def _sync_line(self, line: bytes, msg_id: int, current: Any) -> Any:
+        """Handle one line read while blocked: the answer, or `_NO_ANSWER`."""
+        try:
+            msg = rpc.decode(line)
+        except rpc.ProtocolError as exc:
+            self._reply(rpc.error(None, exc.code, str(exc)))
+            return _NO_ANSWER
+        if "method" not in msg:
+            if msg.get("id") == msg_id:
+                if "error" in msg:
+                    raise HostError(msg["error"])
+                return msg.get("result")
+            self._handle_line(line)  # an answer to an async call()
+            return _NO_ANSWER
+        if msg["method"] == "event.cancel" and current is not None:
+            params = msg.get("params")
+            target = params.get("id") if isinstance(params, dict) else None
+            if self._tasks.get(target) is current:
+                if "id" in msg:
+                    self._reply(rpc.result(msg["id"], True))
+                raise self._asyncio.CancelledError()
+        self._defer(line)
+        return _NO_ANSWER
+
+    def _defer(self, line: bytes) -> None:
+        if len(self._deferred) < MAX_DEFERRED_LINES and (
+            self._deferred_bytes + len(line) <= MAX_DEFERRED_BYTES
+        ):
+            self._deferred.append(line)
+            self._deferred_bytes += len(line)
+            return
+        # Refuse an event now, as the pending cap does; a notification is dropped.
+        try:
+            msg = rpc.decode(line)
+        except rpc.ProtocolError:
+            return
+        if "id" in msg and "method" in msg:
+            self._reply(rpc.error(msg["id"], rpc.OVERLOADED, "too many events queued"))
+
+    def _drain_deferred(self) -> None:
+        lines, self._deferred, self._deferred_bytes = self._deferred, [], 0
+        for line in lines:
+            self._handle_line(line)
 
     def notify(self, method: str, params: Any = None) -> None:
         self._send(rpc.notification(method, params))
@@ -675,6 +802,7 @@ class Channel:
 
 
 _NO_REPLY = object()
+_NO_ANSWER = object()
 
 
 def _handler_name(method: str) -> str | None:
