@@ -140,6 +140,9 @@ vi.mock('../components/VisualizerView', () => ({
 vi.mock('../components/LiveView', () => ({
   LiveView: () => null,
 }));
+vi.mock('../components/feed/FeedView', () => ({
+  FeedView: () => <div data-testid="feed-view" />,
+}));
 
 vi.mock('../components/CrackerPanel', () => ({
   CrackerPanel: () => null,
@@ -167,6 +170,7 @@ import i18n from '../i18n';
 import { setCommunityStatus } from '../stores/communityStore';
 import type { CommunityStatus } from '../types';
 import {
+  getLastViewedConversation,
   LAST_VIEWED_CONVERSATION_KEY,
   REOPEN_LAST_CONVERSATION_KEY,
 } from '../utils/lastViewedConversation';
@@ -243,6 +247,41 @@ describe('App startup hash resolution', () => {
         expect(node).toHaveTextContent(`channel:${publicChannel.key}:Public`);
       }
     });
+  });
+
+  it('restores the feed from the URL hash', async () => {
+    setHash('#feed');
+
+    render(<App />);
+
+    await waitFor(() => {
+      for (const node of screen.getAllByTestId('active-conversation')) {
+        expect(node.textContent).toMatch(/^feed:feed:/);
+      }
+    });
+    expect(await screen.findByTestId('feed-view')).toBeInTheDocument();
+  });
+
+  it('reopens the last viewed feed, and control keeps working beside it', async () => {
+    setHash('');
+    localStorage.setItem(REOPEN_LAST_CONVERSATION_KEY, '1');
+    localStorage.setItem(
+      LAST_VIEWED_CONVERSATION_KEY,
+      JSON.stringify({ type: 'feed', id: 'feed', name: 'Feed', feedPreset: 'control' })
+    );
+    mocks.api.getChannels.mockResolvedValue([]);
+
+    render(<App />);
+
+    await waitFor(() => {
+      for (const node of screen.getAllByTestId('active-conversation')) {
+        expect(node).toHaveTextContent('feed:feed:Feed');
+      }
+    });
+    expect(await screen.findByTestId('feed-view')).toBeInTheDocument();
+    expect(getLastViewedConversation()).toEqual(
+      expect.objectContaining({ type: 'feed', feedPreset: 'control' })
+    );
   });
 
   it('restores the control journal from the URL hash', async () => {

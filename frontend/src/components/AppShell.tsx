@@ -242,6 +242,7 @@ export function AppShell({
   // keeps Tools lit, because that is where the reader came from and where Back goes.
   const TOOL_TYPES = [
     'raw',
+    'feed',
     'control',
     'live',
     'visualizer',

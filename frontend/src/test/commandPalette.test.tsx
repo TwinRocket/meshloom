@@ -28,6 +28,18 @@ function renderPalette() {
 }
 
 describe('CommandPalette', () => {
+  it('finds the feed by its French and English names', () => {
+    const { onSelectConversation } = renderPalette();
+
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
+    fireEvent.click(screen.getByText(i18n.t('sidebar.feed')));
+    expect(onSelectConversation).toHaveBeenCalledWith({
+      type: 'feed',
+      id: 'feed',
+      name: i18n.t('sidebar.feed'),
+    });
+  });
+
   it('opens the control journal as its own conversation', () => {
     const { onSelectConversation } = renderPalette();
 

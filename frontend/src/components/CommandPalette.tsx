@@ -6,6 +6,7 @@ import {
   Map,
   MessageSquare,
   Network,
+  Newspaper,
   Radio,
   RadioTower,
   Route,
@@ -16,6 +17,7 @@ import {
   Waypoints,
 } from 'lucide-react';
 
+import { makeFeedConversation } from './feed/feedConversation';
 import {
   Command,
   CommandEmpty,
@@ -68,6 +70,7 @@ interface ToolItem extends Searchable {
   icon: React.ComponentType<{ className?: string }>;
   type:
     | 'raw'
+    | 'feed'
     | 'control'
     | 'map'
     | 'live'
@@ -87,6 +90,7 @@ interface SettingItem extends Searchable {
 
 const TOOL_DEFS: Omit<ToolItem, 'name' | 'searchText'>[] = [
   { id: 'raw', icon: Radio, type: 'raw' },
+  { id: 'feed', icon: Newspaper, type: 'feed' },
   { id: 'control', icon: ScrollText, type: 'control' },
   { id: 'map', icon: Map, type: 'map' },
   { id: 'live', icon: Radio, type: 'live' },
@@ -103,6 +107,7 @@ const DIRECTORY_ONLY_TOOLS: readonly string[] = ['test'];
 
 const TOOL_NAME_KEYS: Record<string, string> = {
   raw: 'commandPalette.rawPacketFeed',
+  feed: 'sidebar.feed',
   control: 'sidebar.controlJournal',
   map: 'commandPalette.mapView',
   live: 'commandPalette.liveRain',
@@ -115,6 +120,7 @@ const TOOL_NAME_KEYS: Record<string, string> = {
 };
 
 const TOOL_SEARCH_EXTRA: Record<string, string> = {
+  feed: 'feed fil activity activite timeline messages',
   locate: 'rf locate zone community',
   test: 'test radio flood reach portee',
 };
@@ -303,7 +309,11 @@ export function CommandPalette({
                     key={tool.id}
                     onSelect={() =>
                       select(() =>
-                        onSelectConversation({ type: tool.type, id: tool.id, name: tool.name })
+                        onSelectConversation(
+                          tool.type === 'feed'
+                            ? makeFeedConversation(tool.name)
+                            : { type: tool.type, id: tool.id, name: tool.name }
+                        )
                       )
                     }
                   >

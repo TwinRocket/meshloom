@@ -38,6 +38,7 @@ import {
   isUnknownFullKeyContact,
 } from '../utils/pubkey';
 import { LazyBoundary } from './LazyBoundary';
+import { isFeedConversation } from './feed/feedConversation';
 
 const RepeaterDashboard = lazy(() =>
   import('./RepeaterDashboard').then((m) => ({ default: m.RepeaterDashboard }))
@@ -45,6 +46,7 @@ const RepeaterDashboard = lazy(() =>
 const RawPacketFeedView = lazy(() =>
   import('./RawPacketFeedView').then((m) => ({ default: m.RawPacketFeedView }))
 );
+const FeedView = lazy(() => import('./feed/FeedView').then((m) => ({ default: m.FeedView })));
 const SensorTelemetryPanel = lazy(() =>
   import('./SensorTelemetryPanel').then((m) => ({ default: m.SensorTelemetryPanel }))
 );
@@ -430,6 +432,19 @@ export function ConversationPane({
           radioOffline={!health?.radio_connected}
           onOpenContactInfo={onOpenContactInfo}
           onSelectConversation={onSelectConversation}
+        />
+      </LazyBoundary>
+    );
+  }
+
+  if (isFeedConversation(activeConversation)) {
+    return (
+      <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingFeed')} />}>
+        <FeedView
+          contacts={contacts}
+          channels={channels}
+          radioName={config?.name}
+          onBackToTools={onBackToTools}
         />
       </LazyBoundary>
     );

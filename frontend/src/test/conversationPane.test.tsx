@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
 import { ConversationPane } from '../components/ConversationPane';
+import { makeFeedConversation } from '../components/feed/feedConversation';
 import i18n from '../i18n';
 import sliceEn from '../i18n/locales/slices/b.en.json';
 import sliceFr from '../i18n/locales/slices/b.fr.json';
@@ -81,6 +82,10 @@ vi.mock('../components/MapView', () => ({
 
 vi.mock('../components/VisualizerView', () => ({
   VisualizerView: () => <div data-testid="visualizer-view" />,
+}));
+
+vi.mock('../components/feed/FeedView', () => ({
+  FeedView: () => <div data-testid="feed-view" />,
 }));
 
 vi.mock('../components/LiveView', () => ({
@@ -679,6 +684,15 @@ describe('ConversationPane', () => {
     fireEvent.click(screen.getByRole('button', { name: i18n.t('discovered.refuse') }));
     expect(onAdoptChannel).toHaveBeenCalledWith(channel.key);
     expect(onRefuseChannel).toHaveBeenCalledWith(channel.key);
+  });
+
+  it('renders the feed destination through the lazy FeedView', async () => {
+    render(
+      <ConversationPane {...createProps({ activeConversation: makeFeedConversation('Feed') })} />
+    );
+
+    expect(await screen.findByTestId('feed-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
   });
 
   it('passes optional nav callbacks into the raw feed without subscribing to packets', async () => {

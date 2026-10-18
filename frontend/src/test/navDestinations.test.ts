@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { Hash, Radio, ScrollText } from 'lucide-react';
 
-import { RAIL_ITEMS } from '../components/navDestinations';
+import { DEFAULT_RAIL, RAIL_ITEMS } from '../components/navDestinations';
 
 const frontendSrc = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -14,9 +14,14 @@ describe('navDestinations live chrome', () => {
     expect(live?.Icon).toBe(Radio);
   });
 
-  it('places the control journal next to the packet feed', () => {
+  it('places the feed right after the packet feed and keeps the control journal', () => {
     const rawIndex = RAIL_ITEMS.findIndex((item) => item.id === 'raw');
-    const control = RAIL_ITEMS[rawIndex + 1];
+    const feed = RAIL_ITEMS[rawIndex + 1];
+    expect(feed?.id).toBe('feed');
+    expect(feed?.labelKey).toBe('sidebar.feed');
+    expect(feed?.conversation).toEqual({ type: 'feed', id: 'feed', name: 'feed' });
+    expect(DEFAULT_RAIL).toContain('feed');
+    const control = RAIL_ITEMS[rawIndex + 2];
     expect(control?.id).toBe('control');
     expect(control?.Icon).toBe(ScrollText);
     expect(control?.conversation).toEqual({ type: 'control', id: 'control', name: 'control' });
