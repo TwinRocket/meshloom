@@ -149,14 +149,17 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   legacy row the restore grandfathers) comes back disabled with the warning
   `private_network_restored_disabled:<name>`: the user re-enables it, which
   runs the check.
+- Share service client (`app/services/share.py`, `app/AGENTS.md`, "Share
+  service client"): `follow_checked_redirects` with `HostAllowlist.of(SHARE_HOST)`,
+  HTTPS only, no redirect, capped answers, only while `share_enabled`.
 - Planned: the Store client (custom GitHub repositories: `github.com` and the
   exact release-asset redirect hosts `objects.githubusercontent.com` and
   `release-assets.githubusercontent.com`, both listed, HTTPS only
   (`schemes=frozenset({"https"})`); later `store.meshloom.app`) and the plugin `http` capability (the
   plugin's declared hosts, 10 s, 1 MB response, 256 KB body, redirects
   re-validated to a declared host) both send through
-  `follow_checked_redirects` with a `HostAllowlist`. Also Links & Files
-  (breaker / share service) and Access (Web Push). New consumers call
+  `follow_checked_redirects` with a `HostAllowlist`. Also Access (Web Push).
+  New consumers call
   `validate_destination` and send through a pinned client (or
   `follow_checked_redirects`); never add an outbound path to a user-chosen URL
   around it.
@@ -203,6 +206,16 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
 - `tests/test_apprise_urls.py` fails when the installed Apprise exposes a
   plugin in neither list: on an Apprise bump, read the new plugin and classify
   it (refused unless reviewed).
+
+## Circuit breaker (`breaker.py`)
+
+`CircuitBreaker(threshold=, open_seconds=, clock=time.monotonic)`: closed until
+`threshold` consecutive `record_failure()`, then open (`allow()` false,
+`cooling()` true) for `open_seconds`, then half-open (`allow()` grants exactly
+one trial). `record_success()` closes it; `release_trial()` gives back a trial
+that reached no verdict (cancellation). In memory. Used by the Community client
+(`CommunityBreaker`, 3 failures, 30 s) and the share client (3 failures, 5 min),
+each with its own instance; the caller decides what counts as a failure.
 
 Tests: `tests/test_egress_guard.py`, `tests/test_egress_guard_checked_fetch.py`
 (allowlist, redirect chains, caps, headers), `tests/test_apprise_urls.py`.

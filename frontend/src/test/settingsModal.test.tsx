@@ -1504,6 +1504,36 @@ describe('SettingsModal', () => {
     );
   });
 
+  it('shows the push review notice, re-enables in one click and dismisses', async () => {
+    const onSaveAppSettings = vi.fn(async () => {});
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'notifications',
+      onSaveAppSettings,
+      appSettings: {
+        ...baseSettings,
+        push_allow_private_endpoints: false,
+        push_private_endpoints_review: true,
+      },
+    });
+
+    expect(
+      await screen.findByText(i18n.t('settings.notifications.pushReview'))
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.notifications.pushReviewEnable') })
+    );
+    await waitFor(() =>
+      expect(onSaveAppSettings).toHaveBeenLastCalledWith({ push_allow_private_endpoints: true })
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.notifications.pushReviewDismiss') })
+    );
+    await waitFor(() =>
+      expect(onSaveAppSettings).toHaveBeenLastCalledWith({ push_private_endpoints_review: false })
+    );
+  });
+
   it('keeps the secret-kept placeholder in step with the saved secret, rollback included', async () => {
     let rejectSave: (err: Error) => void = () => {};
     const onSaveAppSettings = vi.fn(

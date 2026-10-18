@@ -133,7 +133,8 @@ reach every module.
   are capped in concurrency and time; `_bot_globals` persists between runs. The
   bot waits 2 s so echoes can dedupe, and bot sends are spaced at least 2 s apart.
   Optional arguments (`region`, `scoped`, …) are passed only to bots whose
-  signature names them (`_analyze_bot_signature`). `region` is `None` both when
+  signature names them (`analyze_bot_signature`, now in `meshloom_plugin/compat.py`, which
+  the plugin shim for migrated bots shares; `bot_exec` re-imports it). `region` is `None` both when
   unscoped and when unknown: check `scoped` first. In a `BotReply` dict, an absent
   `region` keeps the channel's `flood_scope_override`, `None` sends unscoped.
 - **Egress guard.** `webhook`, `apprise`, `sqs` and `map_upload` destinations
