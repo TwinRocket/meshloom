@@ -285,7 +285,9 @@ and `X-Forwarded-Proto`. It is uvicorn's own `ProxyHeadersMiddleware` (and
 gate and CORS and rebuilt whenever `auth_settings.trusted_proxies`
 changes (`AuthSettingsRepository.update()` calls `proxy_headers.apply()`;
 `load()` at startup). The list is addresses or CIDRs in canonical network form,
-empty by default; loopback is not trusted implicitly and a `/0` is refused
+empty by default; loopback is not trusted implicitly, a network wider than
+`/8` (IPv4) or `/16` (IPv6) and an IPv4-mapped entry are refused (an IPv4 entry
+also matches its `::ffff:` form, for a dual-stack listener)
 (`normalize_proxy`; stored entries that fail it are dropped on read). It is
 read and written through `GET/PATCH /api/auth/settings` (`admin`; a refused
 entry is 400 `auth_trusted_proxies_invalid`; a change is audited as
@@ -520,7 +522,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}}` (`methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}, secure}` (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
@@ -530,7 +532,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, created_at` |
 | `PATCH /auth/me` | own account (not `kiosk`) | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`), which revokes the user's other sessions |
 | `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies}` (canonical CIDRs) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a `/0` or more than 32 |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it |
 
 Login, setup, logout, password changes and session revocations write an
 `auth_audit` row (IP, `via`, no secret).

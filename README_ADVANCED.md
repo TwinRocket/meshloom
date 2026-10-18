@@ -68,11 +68,15 @@ If the radio's contact table is already full (from contacts added by advertiseme
 
 ## Sub-Path Reverse Proxy
 
-Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix. No `X-Forwarded-*` header is needed.
+Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix. No `X-Forwarded-*` header is needed for the paths (see below for the client address and HTTPS).
 
 The proxy must ensure the sub-path URL has a **trailing slash**. If a user visits `/meshcore` (no slash), relative paths break. For Nginx, a `location /meshcore/ { ... }` block (note the trailing slash) does the right thing.
 
-CORS currently allows every origin with credentials (`allow_origins=["*"]`, `allow_credentials=True`). Do not expose the interface beyond a trusted network on the strength of Basic auth alone.
+Browser calls from other sites are refused unless listed in **Allowed origins** (same-origin by default).
+
+## Reverse proxy and trusted proxies
+
+Meshloom believes `X-Forwarded-For` and `X-Forwarded-Proto` only from the addresses in **Settings → Local Configuration → Trusted proxies** (empty by default; uvicorn always runs with `--no-proxy-headers`). List the proxy's own address only: `127.0.0.1` for a proxy on the same host, or a fixed `ipv4_address` you give the proxy container on a dedicated network. Never list a Docker network or its gateway (`172.17.0.1`): with port 8000 also published, clients can reach Meshloom through the gateway and would then forge their address. Examples for Caddy, nginx and Traefik: [`docs/user/en/deep/https.md`](docs/user/en/deep/https.md#trusted-proxies).
 
 ## HTTPS
 

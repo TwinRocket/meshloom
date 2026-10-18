@@ -24,7 +24,7 @@ Le premier administrateur, et le compte que Meshloom crée à partir de l’iden
 
 ## Derrière un reverse-proxy
 
-Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance).
+Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. N’indiquez que l’adresse du proxy lui-même, jamais un réseau Docker ni sa passerelle. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance).
 
 ## Les commandes
 

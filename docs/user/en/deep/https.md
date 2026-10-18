@@ -50,18 +50,40 @@ The certificate mounts are read-only. `command` replaces the one built into the 
 
 Behind a reverse proxy, every request reaches Meshloom from the proxy's address. The visitor's own address and whether they used HTTPS only arrive in the `X-Forwarded-For` and `X-Forwarded-Proto` headers, which anyone can send. Meshloom believes them only from the addresses listed in **Settings → Local Configuration → Trusted proxies** (administrators only). The list is empty by default, and `127.0.0.1` is not trusted unless you add it.
 
-List the address the proxy connects from, as Meshloom sees it:
+List the proxy's own address, as Meshloom sees it, one address per line (a `/32`, or a `/128` in IPv6):
 
 - the proxy runs on the same machine as a package or source install: `127.0.0.1` (and `::1` if it connects over IPv6);
-- the proxy is another container on the same Docker network: that network, for example `172.18.0.0/16` (`docker network inspect <network>` shows it);
+- the proxy is another container: give it a fixed address on a network of its own and list that address, for example `172.20.0.10` (see below);
 - the proxy is another machine: its address on your network.
+
+**Never list a whole Docker network or its gateway** (`172.18.0.0/16`, `172.17.0.1`, Docker Desktop's `192.168.65.1`). When Meshloom's port 8000 is also published on the host, some clients reach it through that gateway (connections from the host itself, IPv6 through `docker-proxy`, Docker Desktop): with the gateway trusted, they could write any address in `X-Forwarded-For` and pass the sign-in delays or falsify the audit log. The settings page warns about such an entry. Once a proxy fronts Meshloom, do not publish port 8000 at all if you can.
+
+With Docker Compose, a fixed proxy address looks like this:
+
+```yaml
+services:
+  meshloom:
+    networks: [proxy]
+    # no "ports:" once the proxy fronts Meshloom
+  caddy:
+    image: caddy:2
+    ports: ["443:443", "80:80"]
+    networks:
+      proxy:
+        ipv4_address: 172.20.0.10   # list this address in Trusted proxies
+networks:
+  proxy:
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+```
 
 Once the proxy is listed:
 
 - sign-in delays, the audit log and the session list show the visitor's address instead of the proxy's. Meshloom takes the rightmost address of `X-Forwarded-For` that is not itself a trusted proxy, so a value the visitor wrote cannot be picked;
 - when the proxy says `X-Forwarded-Proto: https`, the session cookie is a secure one (`__Host-` prefix, `Secure`).
 
-Without the list, Meshloom still works behind a proxy, but every visitor shares the proxy's address and, on an HTTPS site, the session cookie is the plain one. Never list a network your visitors come from: a listed address can claim to be anyone. Meshloom's own server (uvicorn) reads none of these headers itself: every start command carries `--no-proxy-headers`, and a command you write yourself must keep it.
+Without the list, Meshloom still works behind a proxy, but every visitor shares the proxy's address and, on an HTTPS site, the session cookie is the plain one. The sign-in page and the Trusted proxies block say so when your browser is on HTTPS but Meshloom saw plain HTTP. Never list a network your visitors come from: a listed address can claim to be anyone. Meshloom's own server (uvicorn) reads none of these headers itself: every start command carries `--no-proxy-headers`, and a command you write yourself must keep it.
 
 Caddy keeps `Host` and sets both headers by itself:
 
