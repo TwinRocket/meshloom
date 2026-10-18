@@ -389,7 +389,9 @@ line on stdin is the RPC stream.
    `RLIMIT_NOFILE` 64, `RLIMIT_FSIZE` 50 MiB, `RLIMIT_CORE` 0, `RLIMIT_CPU`
    3600 s, `RLIMIT_AS` 256 MiB on Linux only (macOS does not enforce it),
    `RLIMIT_NPROC` only when `isolation == "setuid"`; `_thread.stack_size(256 KiB)`;
-   `PR_SET_NO_NEW_PRIVS` on Linux (through `ctypes`, purged afterwards). Then
+   `PR_SET_NO_NEW_PRIVS` and `PR_SET_DUMPABLE` 0 on Linux (through `ctypes`,
+   purged afterwards; dumpable 0 keeps a same-uid sibling out of
+   `/proc/<pid>/mem`). Then
    `asyncio` is imported: it loads `socket`, `ssl` and `subprocess` at module
    level, so it cannot come after the hook, and step 5 removes them again.
 4. Install the audit hook.
@@ -612,6 +614,11 @@ ones.
   `MESHCORE_DISABLE_BOTS`, which keeps driving the legacy bots until the switch.
 - **Platform.** No `resource` module (Windows): the system is off,
   `plugins_disabled_source: "platform"`.
+- **Isolation setup.** When `isolation.startup()` fails at start (detection, or
+  the dedicated uid's file model: a database left `0644` would be readable by the
+  plugin uid), the system fails closed: `fail_closed()`, nothing starts until a
+  restart, `start()` raises `plugins_disabled`, health says
+  `plugins_disabled_source: "isolation"` and the log has the error.
 - **Cap.** At most one running instance per 128 MB of `MemTotal` (sysconf
   elsewhere), clamped to 3..20 (`instance_cap()`); one more is
   `PluginCapacityError` (`code` `instance_cap_reached`, `cap`).

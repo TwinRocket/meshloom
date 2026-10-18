@@ -66,8 +66,11 @@ without the setuid bit.
 ### `setuid` (`setuid.py`, `permissions.py`)
 
 `subprocess.Popen(user=, group=, extra_groups=[], umask=0o077)` with the
-`meshloom-plugin` account (`useradd --system`, no shell, no home, created in
-the `Dockerfile`; the add-on is `FROM` that image). The work dir is created by
+`meshloom-plugin` account (uid and gid pinned to 10002, `PLUGIN_UID` in the
+`Dockerfile`, next to `MESHLOOM_RUN_AS_USER`'s 10001: Docker does not remap
+users, so it is that uid on the host too, and the first system uid, 999, is
+often a real host account; no shell, no home; an account that already exists is
+kept; the add-on is `FROM` that image). The work dir is created by
 the server and handed to the uid (`chown`, `0700`). The runner sets
 `RLIMIT_NPROC` (64, counted over every task of the uid) and refuses to start
 when told `setuid` while still root. At startup (`isolation.startup()`) the
@@ -81,10 +84,20 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 ### Known limits of the OS layer
 
 - Under `setuid`, every instance shares the uid: one plugin can read another
-  one's work dir and signal its process. A uid per instance is a follow-up.
+  one's work dir, signal its process and use up the shared `RLIMIT_NPROC`. It
+  cannot read or write another child's memory: the runner sets
+  `PR_SET_DUMPABLE` 0 (every level), so `/proc/<pid>/mem` and `ptrace` of a
+  sibling are refused (`test_a_sibling_under_the_same_uid_cannot_open_the_child_memory`).
+  A uid per instance is a follow-up.
 - Under `setuid` the network is open to an exec'd program (only the hooks
-  refuse sockets in-process). A network namespace needs privileges the image
-  keeps for root only (follow-up, MSHL-191 measures it).
+  refuse sockets in-process), **loopback included**: that reaches the radio
+  proxy, which has no authentication and accepts SEND commands
+  (`app/radio_proxy/policy.py`; only private key export is refused), so a plugin
+  past its hooks can send messages beyond its own send quota. A network namespace
+  is not available in default Docker: `unshare(CLONE_NEWNET)` needs
+  `CAP_SYS_ADMIN`, which Docker's default root does not have; the alternatives
+  are an extra capability, or nftables owner matching on the plugin uid with
+  `CAP_NET_ADMIN` (follow-up, MSHL-191 measures it).
 - Without a pid namespace (`setuid`, `none`), a process that left the session
   survives the group kill; the service's cgroup (`KillMode=control-group`) or
   the container's end still stops it.
@@ -102,6 +115,7 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 | `os.environ` cleared but `LANG` and `PYTHONHASHSEED` (and the supervisor passes only those) | no server secret in the environment |
 | Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` under the dedicated uid only; small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap |
 | `PR_SET_NO_NEW_PRIVS` (Linux) | no privilege gain through a setuid binary, even if a process were spawned |
+| `PR_SET_DUMPABLE` 0 (Linux, before any plugin code) | `execve` (and the uid drop) made the child dumpable again; now no process of the same uid, another instance included, can open its `/proc/<pid>/mem` or `ptrace` it |
 | Audit hook (PEP 578) | refuses the events below |
 | Purge of `sys.modules`, references replaced by stubs, import guard | network, process and native modules are not reachable by name |
 | Event loop self-pipe on `os.pipe()` | the child holds no socket object at all |

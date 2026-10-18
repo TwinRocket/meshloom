@@ -50,7 +50,7 @@ Le paquet Linux, l’image Raspberry Pi et une installation depuis les sources s
 
 ### Utilisateur dédié (`setuid`)
 
-L’image Docker et l’add-on Home Assistant exécutent Meshloom en root, et Docker n’autorise pas bubblewrap. Les extensions tournent sous un compte séparé, `meshloom-plugin`, qui ne peut ni ouvrir la base de données ni lire la mémoire du serveur. Pour que ce soit vrai, Meshloom resserre au démarrage les droits de son dossier de données : le dossier passe en `0711` et ses fichiers en `0600` (lisibles par root seulement) ; les dossiers des extensions restent lisibles. Si vous ouvrez la base depuis l’hôte avec un autre compte, faites-le en root. À ce niveau, une extension qui contournerait les garde-fous internes de Meshloom pourrait encore atteindre le réseau.
+L’image Docker et l’add-on Home Assistant exécutent Meshloom en root, et Docker n’autorise pas bubblewrap. Les extensions tournent sous un compte séparé, `meshloom-plugin`, qui ne peut ni ouvrir la base de données ni lire la mémoire du serveur. Pour que ce soit vrai, Meshloom resserre au démarrage les droits de son dossier de données : le dossier passe en `0711` et ses fichiers en `0600` (lisibles par root seulement) ; les dossiers des extensions restent lisibles. Si vous ouvrez la base depuis l’hôte avec un autre compte, faites-le en root. À ce niveau, une extension qui contournerait les garde-fous internes de Meshloom pourrait encore atteindre le réseau, y compris le proxy radio de Meshloom sur la même machine, par lequel elle pourrait envoyer plus de messages que ses limites ne le permettent. Le compte a l’uid et le gid fixes 10002.
 
 ### Hooks seulement (`none`)
 

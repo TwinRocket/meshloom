@@ -81,7 +81,8 @@ and the OpenAPI page (`/docs`), not a table here.
   with the `meshloom-plugin` account, else `bwrap` if its self-test passes, else
   `none`, "hooks only", with a warning); `startup()` applies the file model of
   `permissions.py` under `setuid` (data dir `0711`, files `0600`, server umask
-  `077`). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  `077`); if it fails, `lifecycle.start()` fails closed (`fail_closed()`, health
+  `plugins_disabled_source: "isolation"`). The account is uid/gid 10002. bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). Stdlib only, so
   `tests/test_plugin_isolation.py` runs with `--noconftest` in the root container
   job; details in `docs/dev/plugins-security.md`, "OS isolation".

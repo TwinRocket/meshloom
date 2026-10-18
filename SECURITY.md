@@ -34,13 +34,16 @@ boundary: a bubblewrap sandbox on Linux, a dedicated `meshloom-plugin`
 account in the Docker image and the Home Assistant add-on
 (`docs/dev/plugins-security.md`, "OS isolation"). **A plugin that escapes that
 boundary is a vulnerability**: reading the database, the server's environment
-or memory, writing Meshloom's files, reaching the network under bubblewrap, or
+or memory, another plugin's memory, writing Meshloom's files, reaching the network under bubblewrap, or
 outliving its kill under bubblewrap. Report it as above. A bypass of the
 in-process guards alone (the audit hook, the import allowlist) is not one: they
 are documented as defence in depth, not as the boundary. The "hooks only" level
 (no bubblewrap and no dedicated account) is a known limit, logged at every
 start and reported in `/api/health`; so are the limits listed in that document
-for the dedicated account (shared uid between plugins, network not cut).
+for the dedicated account (plugins share one uid, so they can read each
+other's work directories and signal each other, but not each other's memory;
+the network, loopback and the unauthenticated radio proxy included, is not
+cut).
 
 ## Known limits, not vulnerabilities
 
