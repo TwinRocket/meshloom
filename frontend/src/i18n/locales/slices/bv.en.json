@@ -1,0 +1,37 @@
+{
+  "settings": {
+    "access": {
+      "pairing": {
+        "title": "Pair a device",
+        "help": "Pair a phone app such as meshenger by scanning a QR code: it gets its own device token with the scopes you choose, attached to your account, without anyone typing a token. A code works once and expires in a few minutes.",
+        "ingressNotice": "You are signed in through Home Assistant. A device cannot pair through Home Assistant's ingress: it must reach Meshloom at its own address, which the QR code carries.",
+        "none": "No pairing code waiting.",
+        "add": "Pair a device",
+        "createTitle": "Pair a device",
+        "createHelp": "Name the device, choose what it may do and how long the code stays valid. Meshloom then shows a QR code for the device to scan.",
+        "label": "Device name",
+        "labelPlaceholder": "Nadia's phone",
+        "scopes": "Scopes",
+        "scopesHelp": "Tick only what the device needs. The device never gets more than your role allows.",
+        "lifetime": "The code is valid for",
+        "lifetimeMinutes_one": "{{count}} minute",
+        "lifetimeMinutes_other": "{{count}} minutes",
+        "create": "Show the QR code",
+        "qrTitle": "Scan to pair “{{label}}”",
+        "qrHelp": "Open meshenger (or another app that enrols with Meshloom) on the device and scan this QR code. It is shown only now; Meshloom keeps a fingerprint of the code and cannot show it again.",
+        "secretWarning": "This QR code is a password for a new device. Do not share it, do not post a screenshot of it, and scan it only with your own device. Anyone who scans it before it expires gets access to your account with these scopes.",
+        "qrAlt": "QR code to pair a device with Meshloom",
+        "countdown": "Expires in {{time}}",
+        "expired": "This code has expired and the QR code is hidden. Create a new one.",
+        "scopesGiven": "The device will get: {{scopes}}.",
+        "regenerate": "Create a new code",
+        "cancelCode": "Cancel the code",
+        "cancelNamed": "Cancel the code for {{label}}",
+        "cancelled": "Pairing code cancelled.",
+        "done": "Close",
+        "owner": "By {{user}}",
+        "expiresAt": "Expires {{when}}"
+      }
+    }
+  }
+}
