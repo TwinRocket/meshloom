@@ -8,7 +8,7 @@
     "fullRestore": {
       "warnings": {
         "accounts_restored": "The accounts were replaced by the ones in the backup and every session was signed out: sign in again with an account from the backup.",
-        "accounts_no_admin": "The accounts in the backup were not restored: none is an enabled administrator. The current accounts were kept.",
+        "accounts_no_admin": "The accounts in the backup were not restored: none is an enabled administrator who can sign in here (an account with a password, or a Home Assistant user on the add-on). The current accounts were kept.",
         "trusted_network_dropped": "The trusted network {{value}} was removed: its account is not the same person in the restored accounts."
       }
     }

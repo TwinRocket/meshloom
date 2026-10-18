@@ -188,21 +188,32 @@ These hold for every section; a restore function must keep them:
   covers (`users` today). Checked by default; unchecked, none of them is
   exported and the restore of that file keeps the current accounts (rule 1).
 - **Restore.** The file's accounts replace the instance's, ids kept, in the
-  section's transaction. A section with no enabled administrator (`role =
-  'admin'`, `disabled = 0`) writes nothing and returns `accounts_no_admin`;
-  the count is checked again after the writes (a failure raises and rolls back),
-  so a restore never leaves the instance without one. Otherwise it returns
-  `accounts_restored`. Every `sessions` row is deleted (a kept id may name
-  another person), `updated_at` becomes at least the restore time (every
-  known-device cookie, keyed on it, is invalidated), and a trusted network rule
-  (`auth_settings.trusted_networks`) survives only when its `user_id` names the
-  same `username_key` before and after; each dropped rule is a
-  `trusted_network_dropped:<cidr>` warning. The in-memory rules are replaced by
-  the kept ones inside the restore (fail closed), and the `accounts` hook
-  (`register_on_restore`) resets them so they are read again. Open WebSockets
-  of deleted sessions close at the 30 s session recheck.
+  section's transaction. A section with no enabled administrator **who can sign
+  in here** writes nothing and returns `accounts_no_admin`: a local account
+  with a password hash, or an `ingress` identity only when the install kind is
+  `addon` (`BackupUser.can_sign_in_here`; an add-on backup whose only admin is a
+  Home Assistant user, restored on Docker or the package, is refused). The
+  count is checked again after the writes with the same rule
+  (`_USABLE_ADMIN_SQL`; a failure raises and rolls back), so a restore never
+  locks everyone out. Otherwise it returns `accounts_restored`. Every
+  `sessions` row is deleted and every WebSocket of the old and new account ids
+  is closed at once (`ws_manager.close_user`; a kept id may name another
+  person), `updated_at` becomes at least the restore time and past both the
+  file's and the replaced row's value (every known-device cookie, keyed on it,
+  is invalidated), and a trusted network rule (`auth_settings.trusted_networks`)
+  survives only when its `user_id` names the same `username_key` before and
+  after; each dropped rule is a `trusted_network_dropped:<cidr>` warning. The
+  in-memory rules are replaced by the kept ones inside the restore (fail
+  closed), and the `accounts` hook (`register_on_restore`) resets them so they
+  are read again.
+- **Row rules** (`BackupUser`, the accounts API's invariants). A password hash,
+  TOTP material and a forced password change are kept only on a `local`
+  account outside `kiosk`, stripped otherwise; a `system` account must be a
+  `kiosk`; a hash must be argon2id (`v=19`, `p=1`) with a cost up to libsodium's
+  MODERATE limits (256 MiB, 3 passes), so a file cannot make a login allocate
+  more.
 - **Fail closed.** An invalid row (unknown role, oversized field, two rows
-  with one username key) raises: the section is rolled back
+  with one username key, a refused hash or `system` role) raises: the section is rolled back
   (`section_failed:users`) and the current accounts stay.
 - **Never log** a hash, a TOTP secret or a row; log lines carry counts.
 - **Extension point.** `api_tokens` (Access T27) is not a table yet. It will be

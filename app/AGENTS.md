@@ -653,7 +653,7 @@ be wrong, because historical decryption inserts old messages with new ids.
   "Accounts"; the export's `include_accounts`, true by default, leaves
   `ACCOUNT_SECTIONS` out): its restore replaces the accounts, deletes every
   session, keeps only trusted network rules whose account is unchanged, and
-  refuses a file without an enabled admin (`accounts_no_admin`).
+  refuses a file without an enabled admin who can sign in here (`accounts_no_admin`: a local admin with a password, or an ingress admin on the add-on), strips password material the API forbids and closes the accounts' sockets at once.
   `NEVER_EXPORTED_SECTIONS` (sessions, pairing codes, audit, Remote identity)
   can never be registered and are ignored in a file. Inspect and
   restore bodies over 64 MiB are a 413 `backup_too_large`.

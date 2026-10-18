@@ -12,13 +12,18 @@ Rules (``docs/dev/backup.md``, "Accounts"):
   ``BACKUP_COVERAGE``); keys a file adds to a user row are ignored.
 - **Restore.** The file's accounts replace the instance's, ids kept, in one
   transaction. A file without the section keeps the current accounts. A section
-  without an enabled administrator is refused (``accounts_no_admin``) and the
-  current accounts stay: a restore never leaves the instance without one. Every
-  login session is deleted (ids may now name other people), ``updated_at`` moves
-  forward (known-device cookies are invalidated) and a trusted network rule is
-  kept only when its account id names the same username before and after
-  (``trusted_network_dropped:<cidr>``). The ``accounts`` restore hook reloads the
-  trusted network rules; open WebSockets close at the session recheck.
+  with no enabled administrator who can sign in here (a local account with a
+  password, or a Home Assistant identity on the add-on) is refused
+  (``accounts_no_admin``) and the current accounts stay: a restore never locks
+  everyone out. Rows follow the API's rules: a password hash, TOTP material or
+  forced change only on a local account outside ``kiosk`` (stripped otherwise),
+  a ``system`` account only as a kiosk, an argon2id hash only up to libsodium's
+  MODERATE cost. Every login session is deleted and every socket of the old and
+  new account ids is closed (ids may now name other people), ``updated_at``
+  moves past both the file's and the replaced row's (known-device cookies are
+  invalidated) and a trusted network rule is kept only when its account id
+  names the same username before and after (``trusted_network_dropped:<cidr>``).
+  The ``accounts`` restore hook reloads the trusted network rules.
 - **Never log** a hash, a TOTP secret or a row: log lines carry counts only.
 - **Extension point.** API tokens (Access T27) are not a table yet. They will be
   their own section ``api_tokens`` (hashes and scopes, ``sensitive``) registered
@@ -29,10 +34,12 @@ Rules (``docs/dev/backup.md``, "Accounts"):
 
 import json
 import logging
+import re
 import time
 
 import aiosqlite
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+import nacl.pwhash.argon2id as argon2id
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from app.auth.models import (
     USERNAME_MAX_LENGTH,
@@ -58,6 +65,12 @@ ACCOUNT_SECTIONS: tuple[str, ...] = (USERS_SECTION,)
 # A bound on a file, not a policy.
 MAX_BACKUP_USERS = 10_000
 _MAX_SECRET_LENGTH = 1024
+# A restored hash must be argon2id with parameters a login can afford: up to
+# libsodium's MODERATE limits (the app writes INTERACTIVE ones), so a file
+# cannot make the next login for that name allocate gigabytes.
+_HASH_PARAMS = re.compile(r"^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=1\$[^$]+\$[^$]+$")
+_MAX_HASH_MEM_KIB = argon2id.MEMLIMIT_MODERATE // 1024
+_MAX_HASH_PASSES = argon2id.OPSLIMIT_MODERATE
 
 _USER_COLUMNS = (
     "id",
@@ -97,6 +110,38 @@ class BackupUser(BaseModel):
     totp_last_counter: int | None = None
     created_at: int = Field(ge=0)
     updated_at: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _account_invariants(self) -> "BackupUser":
+        """The rules the accounts API enforces: only a local account outside
+        ``kiosk`` has a password, a TOTP secret or a forced change; a ``system``
+        identity is a kiosk."""
+        if self.provider == "system" and self.role != "kiosk":
+            raise ValueError("a system account must be a kiosk")
+        if self.provider != "local" or self.role == "kiosk":
+            self.password_hash = None
+            self.totp_secret = None
+            self.totp_enabled_at = None
+            self.totp_last_counter = None
+        if self.password_hash is not None:
+            match = _HASH_PARAMS.match(self.password_hash.get_secret_value())
+            if match is None:
+                raise ValueError("password_hash is not an argon2id hash")
+            mem_kib, passes = (int(group) for group in match.groups())
+            if mem_kib > _MAX_HASH_MEM_KIB or passes > _MAX_HASH_PASSES:
+                raise ValueError("password_hash parameters are too costly")
+        if self.password_hash is None:
+            self.must_change_password = False
+        return self
+
+    def can_sign_in_here(self, *, addon: bool) -> bool:
+        """An enabled admin someone can sign in as on this instance: a local
+        account with a password, or a Home Assistant identity on the add-on."""
+        if self.role != "admin" or self.disabled:
+            return False
+        if self.provider == "local":
+            return self.password_hash is not None
+        return self.provider == "ingress" and addon
 
 
 class BackupUsersData(BaseModel):
@@ -174,14 +219,45 @@ async def _keep_trusted_networks(
     return warnings
 
 
+def _is_addon() -> bool:
+    from app.services.install_kind import detect_install_kind
+
+    return detect_install_kind()[0] == "addon"
+
+
+# The same rule as ``BackupUser.can_sign_in_here``, on the written rows.
+_USABLE_ADMIN_SQL = (
+    "SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0 AND ("
+    "(provider = 'local' AND password_hash IS NOT NULL) OR (provider = 'ingress' AND ?))"
+)
+
+
+async def _updated_at_before(conn: aiosqlite.Connection) -> dict[int, int]:
+    async with conn.execute("SELECT id, updated_at FROM users") as cursor:
+        return {int(row[0]): int(row[1]) for row in await cursor.fetchall()}
+
+
+def _close_account_sockets(user_ids: set[int]) -> None:
+    """Close every socket of these accounts at once (sessions, Basic, ingress,
+    trusted networks): an id kept from the file may now name another person."""
+    from app.websocket import ws_manager
+
+    closed = sum(ws_manager.close_user(user_id) for user_id in user_ids)
+    if closed:
+        logger.info("Backup restore: closed %d WebSocket(s) of replaced accounts", closed)
+
+
 async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> list[str]:
     data = BackupUsersData.model_validate(section.data)
-    if not any(user.role == "admin" and not user.disabled for user in data.users):
+    addon = _is_addon()
+    if not any(user.can_sign_in_here(addon=addon) for user in data.users):
         logger.warning(
-            "Backup restore: the accounts section has no enabled administrator, kept the current accounts"
+            "Backup restore: no administrator in the accounts section can sign in here,"
+            " kept the current accounts"
         )
         return ["accounts_no_admin"]
     before = await _username_keys(conn)
+    updated_before = await _updated_at_before(conn)
     now = int(time.time())
     # Every session goes: an id kept from the file may now name another person.
     await conn.execute("DELETE FROM sessions")
@@ -206,18 +282,19 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
                 user.totp_last_counter,
                 user.created_at,
                 # Moves every known-device cookie's generation forward.
-                max(now, user.updated_at + 1),
+                max(now, user.updated_at + 1, updated_before.get(user.id, -1) + 1),
                 username_key(name),
             ),
         )
-    async with conn.execute(
-        "SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0"
-    ) as cursor:
+    async with conn.execute(_USABLE_ADMIN_SQL, (int(addon),)) as cursor:
         row = await cursor.fetchone()
     if not row or int(row[0]) < 1:
         # Unreachable after the check above; raising rolls the section back.
-        raise RuntimeError("accounts restore would leave no enabled administrator")
-    warnings = await _keep_trusted_networks(conn, before, await _username_keys(conn))
+        raise RuntimeError("accounts restore would leave no administrator who can sign in")
+    after = await _username_keys(conn)
+    warnings = await _keep_trusted_networks(conn, before, after)
+    # In memory only, and fail closed: a rolled-back commit just closed sockets.
+    _close_account_sockets(set(before) | set(after))
     logger.info("Backup restore: %d account(s) restored", len(data.users))
     return ["accounts_restored", *warnings]
 

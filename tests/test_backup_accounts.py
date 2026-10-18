@@ -251,3 +251,143 @@ async def test_inspect_describes_the_accounts_section(backup_db, client):
     assert summary["known"] is True
     assert summary["sensitive"] is True
     assert set(summary["description"]) == {"en", "fr"}
+
+
+def _only_admin(exported: dict, **changes) -> list[dict]:
+    """Make the file's only admin look like ``changes``."""
+    users = exported["sections"][USERS_SECTION]["data"]["users"]
+    for user in users:
+        if user["role"] == "admin":
+            user.update(changes)
+    return users
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"provider": "ingress", "external_id": "ha-admin", "password_hash": None},
+        {"password_hash": None},
+        {"provider": "system", "role": "kiosk"},
+    ],
+)
+async def test_an_admin_who_cannot_sign_in_here_keeps_the_current_accounts(
+    backup_db, setup_stub, changes
+):
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    _only_admin(exported, **changes)
+    before = await _accounts(backup_db)
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert "accounts_no_admin" in job.result.warnings
+    assert await _accounts(backup_db) == before
+    assert await _count(backup_db, "sessions") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_home_assistant_admin_counts_on_the_add_on(backup_db, setup_stub, monkeypatch):
+    monkeypatch.setattr("app.services.backup_accounts._is_addon", lambda: True)
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    _only_admin(exported, provider="ingress", external_id="ha-admin", password_hash=HASH_ADMIN)
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert "accounts_restored" in job.result.warnings
+    async with backup_db.readonly() as conn:
+        async with conn.execute(
+            "SELECT provider, password_hash FROM users WHERE role = 'admin'"
+        ) as cursor:
+            # The hash a Home Assistant identity must not carry is stripped.
+            assert [tuple(row) for row in await cursor.fetchall()] == [("ingress", None)]
+
+
+@pytest.mark.asyncio
+async def test_password_material_is_stripped_where_the_api_forbids_it(backup_db, setup_stub):
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    users = exported["sections"][USERS_SECTION]["data"]["users"]
+    users.append(
+        {
+            "id": 50,
+            "username": "wall",
+            "role": "kiosk",
+            "provider": "local",
+            "password_hash": HASH_BOB,
+            "totp_secret": TOTP_SECRET,
+            "totp_enabled_at": 1,
+            "must_change_password": True,
+            "created_at": 1,
+            "updated_at": 1,
+        }
+    )
+    for user in users:
+        if user["provider"] == "ingress":
+            user.update(password_hash=HASH_BOB, totp_secret=TOTP_SECRET)
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert "accounts_restored" in job.result.warnings
+    async with backup_db.readonly() as conn:
+        async with conn.execute(
+            "SELECT password_hash, totp_secret, totp_enabled_at, must_change_password"
+            " FROM users WHERE role = 'kiosk' OR provider = 'ingress'"
+        ) as cursor:
+            rows = [tuple(row) for row in await cursor.fetchall()]
+    assert rows == [(None, None, None, 0), (None, None, None, 0)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"provider": "system", "role": "admin"},
+        {"password_hash": "$argon2id$v=19$m=4194304,t=2,p=1$c2FsdA$aGFzaA"},
+        {"password_hash": "$argon2id$v=19$m=65536,t=99,p=1$c2FsdA$aGFzaA"},
+        {"password_hash": "$2b$12$notargon2"},
+    ],
+)
+async def test_a_forbidden_account_or_costly_hash_fails_closed(backup_db, setup_stub, change):
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    for user in exported["sections"][USERS_SECTION]["data"]["users"]:
+        if user["username"] == "bob":
+            user.update(change)
+    before = await _accounts(backup_db)
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert "section_failed:users" in job.result.warnings
+    assert await _accounts(backup_db) == before
+
+
+@pytest.mark.asyncio
+async def test_updated_at_moves_past_the_replaced_row(backup_db, setup_stub):
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    future = int(time.time()) + 1000
+    async with backup_db.tx() as conn:
+        await conn.execute("UPDATE users SET updated_at = ?", (future,))
+    for user in exported["sections"][USERS_SECTION]["data"]["users"]:
+        user["updated_at"] = future - 1  # +1 would equal the stored generation
+    await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    async with backup_db.readonly() as conn:
+        async with conn.execute("SELECT MIN(updated_at) FROM users") as cursor:
+            row = await cursor.fetchone()
+    assert row[0] == future + 1
+
+
+@pytest.mark.asyncio
+async def test_a_restore_closes_the_sockets_of_every_account_at_once(
+    backup_db, setup_stub, monkeypatch
+):
+    from app.websocket import ws_manager
+
+    closed: list[int] = []
+    monkeypatch.setattr(ws_manager, "close_user", lambda user_id, **_: closed.append(user_id) or 0)
+    await _seed_accounts(backup_db)
+    exported = await _export()
+    ids = {user["id"] for user in exported["sections"][USERS_SECTION]["data"]["users"]}
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert "accounts_restored" in job.result.warnings
+    assert set(closed) == ids
+
+    closed.clear()
+    _only_admin(exported, password_hash=None)
+    job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
+    assert "accounts_no_admin" in job.result.warnings
+    assert closed == []  # a refused file leaves every socket open
