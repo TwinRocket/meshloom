@@ -78,7 +78,10 @@ defaults and overrides, `ui_preferences`, `notification_destinations`,
 `app/origin_policy.py`; `wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
 password, outside `AppSettings`; `radio_outage_started_at`: Unix time of the radio outage
 that was notified, NULL when none, written by `notifications/radio_watch.py`, outside
-`AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`).
+`AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`;
+`share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
+(migration 102); `share_instance_seed`: the sharing identity seed, outside `AppSettings`,
+never exported by a backup).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
 written through `AppSettingsRepository` (`settings.py`), plus
 `RadioTransportRepository` (`radio_transport.py`) and `RadioProxyRepository`

@@ -1622,6 +1622,25 @@ class AppSettings(BaseModel):
             "pause never notifies"
         ),
     )
+    share_enabled: bool = Field(
+        default=False,
+        description=(
+            "Instance-level consent to the link and file sharing service (shortened "
+            "links, shared images). Off: nothing is ever sent to it. Never restored "
+            "from a backup"
+        ),
+    )
+    share_shorten_mode: Literal["auto", "always", "never"] = Field(
+        default="auto",
+        description="When the composer shortens a link: auto (long links only), always, never",
+    )
+    share_preview_policy: Literal["always", "private", "never"] = Field(
+        default="private",
+        description=(
+            "When a shared image or link preview is fetched automatically: always, "
+            "private (conversations that are not public), never"
+        ),
+    )
     push_private_endpoints_grandfathered: bool = Field(
         default=False,
         description=(

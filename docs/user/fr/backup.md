@@ -84,6 +84,7 @@ Les versions plus récentes de Meshloom ajoutent d’autres parties à ce fichie
 - Les messages, paquets bruts et historiques de télémétrie : utilisez **Télécharger meshcore.db** pour ceux-là.
 - Les réglages de connexion à la radio (port, adresse, appareil Bluetooth) : ils appartiennent à la machine.
 - La participation à Meshloom Community et son code de région : la rejoindre est votre choix, à refaire.
+- Le consentement au partage de liens et de fichiers : restaurée sur une autre machine, une sauvegarde activerait sinon un service que personne n’y a accepté ; le partage reste donc désactivé (ou tel quel) après une restauration. La manière de raccourcir les liens et le moment où les aperçus se chargent sont restaurés.
 - L’horloge de la radio (Meshloom la règle) et quelques réglages qu’aucune commande n’atteint (buzzer et vibration).
 - Les clés avec lesquelles Meshloom s’identifie auprès des services en ligne (accès à distance, partage de liens). Elles ne quittent jamais le serveur, pas même dans une sauvegarde complète qui contient la clé privée de la radio, ni dans un téléchargement de `meshcore.db` : Meshloom en crée de nouvelles après chaque restauration, y compris une copie de `meshcore.db` remise en place (faite par cette version ou une plus récente), et ces services doivent donc être liés de nouveau.
 
