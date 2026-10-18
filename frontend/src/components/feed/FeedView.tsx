@@ -10,7 +10,7 @@ import {
   getFeedSnapshot,
   useFeedRows,
 } from '../../stores/feedStore';
-import type { Channel, Contact, Message } from '../../types';
+import type { Channel, Contact, Conversation, Message } from '../../types';
 import { formatNumber } from '../../utils/formatNumber';
 import {
   countHiddenRows,
@@ -21,11 +21,13 @@ import {
   saveFeedFilters,
   type FeedFilters,
 } from '../../utils/feedFilters';
+import type { SearchNavigateTarget } from '../SearchView';
 import { Button } from '../ui/button';
 import { ToolPaneHeader } from '../ToolPaneHeader';
 import { FEED_DOM_MAX } from './feedConversation';
 import { countArrivedSince, FOLLOW_THRESHOLD_PX, highestId } from './feedFollow';
 import { buildFeedItems, createDayLabeler } from './feedDays';
+import type { FeedRowActions } from './feedActions';
 import { FeedFilterChips } from './FeedFilterChips';
 import {
   fillHiddenPages,
@@ -41,6 +43,12 @@ interface FeedViewProps {
   channels: Channel[];
   radioName?: string;
   onBackToTools?: () => void;
+  /** Leaves the feed for the conversation, scrolled to (and highlighting) the message. */
+  onNavigateToMessage?: (target: SearchNavigateTarget) => void;
+  /** Leaves the feed for the conversation, at its bottom. */
+  onSelectConversation?: (conversation: Conversation) => void;
+  /** Opens the contact sheet beside the feed. */
+  onOpenContactInfo?: (publicKey: string, fromChannel?: boolean) => void;
 }
 
 const ESTIMATED_ROW_HEIGHT = 56;
@@ -84,7 +92,15 @@ function useTimeFormatter(language: string) {
  * rows the store holds. `type` and `outgoing` are also sent to the server so hidden
  * rows are not fetched; changing them empties the store and reloads the first page.
  */
-export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedViewProps) {
+export function FeedView({
+  contacts,
+  channels,
+  radioName,
+  onBackToTools,
+  onNavigateToMessage,
+  onSelectConversation,
+  onOpenContactInfo,
+}: FeedViewProps) {
   const { t, i18n } = useTranslation();
   const { rows, hasOlder } = useFeedRows();
   const formatRowTime = useTimeFormatter(i18n.language);
@@ -360,6 +376,27 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     [following, visibleRows, baselineId]
   );
 
+  // Without the three callbacks (a bare view) rows are read-only, no menu either.
+  const actions = useMemo<FeedRowActions | undefined>(() => {
+    if (!onNavigateToMessage || !onSelectConversation || !onOpenContactInfo) return undefined;
+    return {
+      onOpenMessage: (row, conversationName) =>
+        onNavigateToMessage({
+          id: row.id,
+          type: row.type,
+          conversation_key: row.conversation_key,
+          conversation_name: conversationName,
+        }),
+      onOpenConversation: (row, conversationName) =>
+        onSelectConversation({
+          type: row.type === 'CHAN' ? 'channel' : 'contact',
+          id: row.conversation_key,
+          name: conversationName,
+        }),
+      onOpenContact: onOpenContactInfo,
+    };
+  }, [onNavigateToMessage, onSelectConversation, onOpenContactInfo]);
+
   const header = <ToolPaneHeader title={t('feed.title')} onBack={onBackToTools} />;
   const chips = <FeedFilterChips filters={filters} hidden={hidden} onChange={setFilters} />;
 
@@ -475,22 +512,17 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
                 );
               }
               return (
-                <div
+                <FeedMessageRow
                   key={item.key}
-                  ref={virtualizer.measureElement}
-                  data-index={item.index}
-                  role="listitem"
-                  tabIndex={0}
-                  className="absolute left-0 top-0 w-full border-b border-border/50 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                  style={position}
-                >
-                  <FeedMessageRow
-                    row={entry.row}
-                    labels={resolveLabels(entry.row)}
-                    time={formatRowTime(entry.row.received_at)}
-                    radioName={radioName}
-                  />
-                </div>
+                  measureRef={virtualizer.measureElement}
+                  index={item.index}
+                  offset={item.start - scrollMargin}
+                  row={entry.row}
+                  labels={resolveLabels(entry.row)}
+                  time={formatRowTime(entry.row.received_at)}
+                  radioName={radioName}
+                  actions={actions}
+                />
               );
             })}
           </div>
