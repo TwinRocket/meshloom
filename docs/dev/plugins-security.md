@@ -327,3 +327,44 @@ every pipe is closed (gh-119710, fixed in 3.12). The host now drains, then
 closes the pipe after such a kill (`PluginProcess._discard_stdout`, bounded by
 `STDOUT_DRAIN_SECONDS`), and the code is `rpc_framing`. The corpus also found
 bypass 4 above.
+
+## Measurements
+
+`tests/plugin_corpus/measure_footprint.py` starts children the way the
+supervisor does, under each level available, and reads `/proc` (RSS and PSS of
+each child's process tree, bwrap's processes included), then keeps them busy
+(one event every 5 s) and reads again. Run it on the target, from the
+repository root:
+
+```bash
+uv run python tests/plugin_corpus/measure_footprint.py --instances 8 --duration 3600
+```
+
+Run as root with the `meshloom-plugin` account to include `setuid`, and with
+bubblewrap installed (and user namespaces allowed) to include `bwrap`.
+
+**No Raspberry Pi was available for MSHL-191.** The figures below come from a
+Linux arm64 container (Debian bookworm, `python:3.11-slim`, Python 3.11.17, the
+same architecture and distribution as Raspberry Pi OS 64-bit) on an Apple M
+host: memory is comparable, start times are not (a Pi 3's Cortex-A53 is several
+times slower). Eight instances, one hour, one event every 5 s:
+
+| Level | Processes per child | RSS per child, start / 1 h | PSS per child, start / 1 h | PSS of the 8 children, start / 1 h | Start to first answer |
+|---|---|---|---|---|---|
+| `none` | 1 | 18.7 / 19.1 MiB | 11.0 / 12.1 MiB | 88 / 95 MiB | 30-31 ms |
+| `bwrap` | 3 (two bwrap, the runner) | 21.8 / 21.8 MiB | 11.4 / 11.4 MiB | 91 / 92 MiB | 33-37 ms |
+| `setuid` | 1 | 18.7 / 18.7 MiB | 11.1 / 11.2 MiB | 89 / 91 MiB | 32-43 ms |
+
+PSS divides each shared page among the processes sharing it, so it is the figure that adds up across
+children; RSS counts the interpreter's shared pages in every child. bwrap adds
+about 3 MiB of RSS per child and almost no PSS. Over the hour (719 rounds of one
+event to each child) a child grew by at most 1 MiB of PSS. The three levels ran
+at the same time in separate containers, so the host's `MemAvailable` drop is
+not reported.
+
+The instance cap (`host.instance_cap`: one instance per 128 MB of `MemTotal`,
+between 3 and 20; a Pi 3 with 1 GB gets 7) stays: a child costs about a tenth
+of its share, which leaves the rest to the server, the OS and a plugin's own
+data within its 256 MiB `RLIMIT_AS`. Eight children take about 95 MiB of PSS, a
+tenth of a Pi 3's memory. Still to do on a real Pi 3: the same run,
+start times, and the memory after an hour with the server running.

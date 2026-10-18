@@ -69,3 +69,6 @@ answer `"pong"`, so every host plugin answers it.
 3. Run `uv run pytest tests/test_plugin_corpus.py -k <name>`, then remove the
    guard it pins and check it fails (on Linux with bubblewrap, and as root with
    the `meshloom-plugin` account for `setuid`; CI runs both).
+
+`measure_footprint.py` is not a case: it measures what children cost on a target
+(`docs/dev/plugins-security.md`, "Measurements").
