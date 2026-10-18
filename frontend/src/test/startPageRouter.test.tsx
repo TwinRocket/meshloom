@@ -69,6 +69,17 @@ describe('useConversationRouter start page', () => {
     });
   });
 
+  it('opens the feed with the filters of a start page query', async () => {
+    const { result } = renderRouter('control?display=1&bogus=1');
+    await waitFor(() => {
+      expect(result.current.activeConversation).toMatchObject({
+        type: 'feed',
+        feedPreset: 'control',
+        feedQuery: 'display=1',
+      });
+    });
+  });
+
   it('waits for settings before choosing', async () => {
     const { result, rerender } = renderRouter('feed', { settingsLoaded: false });
     expect(result.current.activeConversation).toBeNull();

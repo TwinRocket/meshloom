@@ -22,8 +22,11 @@ import type { Channel, Contact, Conversation, Message, RawPacket } from '../../t
 import { buildJournalEntries, type JournalEntry } from '../../utils/controlJournal';
 import { formatNumber } from '../../utils/formatNumber';
 import {
+  applyFeedQuery,
   countHiddenRows,
   controlPreset,
+  feedQueryOf,
+  parseFeedQuery,
   filtersToQuery,
   hasEmptySelection,
   hasNoMessages,
@@ -36,7 +39,9 @@ import type { SearchNavigateTarget } from '../SearchView';
 import { RawPacketInspectorDialog } from '../RawPacketDetailModal';
 import { Button } from '../ui/button';
 import { ToolPaneHeader } from '../ToolPaneHeader';
-import { FEED_DOM_MAX } from './feedConversation';
+import { replaceFeedHash } from '../../utils/urlHash';
+import { saveLastViewedConversation } from '../../utils/lastViewedConversation';
+import { FEED_DOM_MAX, makeFeedConversation } from './feedConversation';
 import {
   countArrivedSince,
   countControlArrivedSince,
@@ -69,6 +74,8 @@ import { createFeedNameResolver } from './feedNames';
 interface FeedViewProps {
   /** Opens with the Control preset's filters, which are not persisted. */
   preset?: 'control';
+  /** The filters the URL hash pinned (`feedQuery`): laid over the stored ones when it opens. */
+  initialQuery?: string;
   contacts: Contact[];
   channels: Channel[];
   radioName?: string;
@@ -128,6 +135,7 @@ function useTimeFormatter(language: string) {
  */
 export function FeedView({
   preset,
+  initialQuery,
   contacts,
   channels,
   radioName,
@@ -142,9 +150,11 @@ export function FeedView({
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
+  // URL > localStorage > defaults, decided before the first request so one fetch is made.
   const [filters, setFilters] = useState<FeedFilters>(() =>
-    preset === 'control' ? controlPreset : loadFeedFilters()
+    applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), initialQuery)
   );
+  const [display] = useState(() => (initialQuery ? parseFeedQuery(initialQuery).display : false));
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -197,6 +207,21 @@ export function FeedView({
     if (!preset) saveFeedFilters(filters);
   }, [filters, preset]);
 
+  // The URL follows the filters (no history entry), so any state is bookmarkable. The first
+  // run only mirrors what the URL already pinned: a plain `#feed` is not rewritten.
+  const firstUrlSyncRef = useRef(true);
+  useEffect(() => {
+    if (firstUrlSyncRef.current) {
+      firstUrlSyncRef.current = false;
+      return;
+    }
+    const feedQuery = feedQueryOf(filters, display);
+    replaceFeedHash(preset, feedQuery);
+    saveLastViewedConversation(
+      makeFeedConversation(tRef.current('sidebar.feed'), preset, feedQuery)
+    );
+  }, [filters, display, preset]);
+
   // Rows are re-evaluated once a minute so an expired timed mute reappears. A `channel`
   // frame reaches this view as a new `channels` prop, which the memo below depends on.
   useEffect(() => {
@@ -214,12 +239,16 @@ export function FeedView({
   // A stored node filters only while the facet that shows (and clears) it is on screen:
   // Control on and the node still among the threads. Otherwise it is ignored, never a
   // hidden filter the reader cannot see.
-  const activeNode =
-    filters.sources.control &&
-    filters.node &&
-    nodeSections.some((s) => s.nodes.some((n) => n.id === filters.node))
-      ? filters.node
-      : null;
+  // The match ignores case (a URL carries a lowercase key) and resolves to the thread's own id.
+  const activeNode = useMemo(() => {
+    if (!filters.sources.control || !filters.node) return null;
+    const wanted = filters.node.toLowerCase();
+    for (const section of nodeSections) {
+      const found = section.nodes.find((n) => n.id.toLowerCase() === wanted);
+      if (found) return found.id;
+    }
+    return null;
+  }, [filters.sources.control, filters.node, nodeSections]);
   const effective = useMemo<FeedFilters>(
     () => (activeNode === filters.node ? filters : { ...filters, node: activeNode }),
     [filters, activeNode]

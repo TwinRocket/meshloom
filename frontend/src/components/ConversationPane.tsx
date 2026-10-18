@@ -450,6 +450,7 @@ export function ConversationPane({
           // A preset is applied when the view opens, so another preset is another view.
           key={activeConversation.feedPreset ?? 'feed'}
           preset={activeConversation.feedPreset}
+          initialQuery={activeConversation.feedQuery}
           contacts={contacts}
           channels={channels}
           radioName={config?.name}

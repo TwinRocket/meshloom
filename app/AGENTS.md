@@ -1169,8 +1169,12 @@ service's body (`tests/test_test_route_error_oracles.py`).
   the repository reads an unknown stored value as "" so a stale id (restored backup) never
   resets the other preferences or makes a later save fail. The frontend router applies it
   (`useConversationRouter`) after hash and reopen-last; the kiosk role reads it through
-  `AppSettingsView` (pinned in `tests/test_settings_view.py`). A future `?query` (feed filters,
-  MSHL-154) must extend the validation here and `parseHashConversation`.
+  `AppSettingsView` (pinned in `tests/test_settings_view.py`). `start_view` also accepts
+  `feed?...` / `control?...` in the feed hash grammar (`parseFeedQuery`,
+  `frontend/src/utils/feedFilters.ts`): `is_valid_start_view` (models.py) is the allowlist
+  (keys `src`, `types`, `dir`, `muted`, `pending`, `node` = 64 hex, `display`; no repeated key,
+  no unknown token, 512 chars). Stricter than the browser, which ignores what it does not know.
+  Change the grammar in both places (`tests/test_settings_router.py`, `feedHash.test.tsx`).
 
 - `GET /radio/private-key` is ungated (404 when the keystore is empty);
   `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` is retired (`RETIRED_ENV`).

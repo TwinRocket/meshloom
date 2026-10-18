@@ -1,6 +1,7 @@
 import i18n from '../i18n';
 import type { Conversation } from '../types';
 import { makeFeedConversation } from '../components/feed/feedConversation';
+import { canonicalFeedQuery } from './feedFilters';
 import { parseHashConversation } from './urlHash';
 
 export const REOPEN_LAST_CONVERSATION_KEY = 'meshloom-reopen-last-conversation';
@@ -64,7 +65,7 @@ export function getLastViewedConversation(): Conversation | null {
 
     const parsed = JSON.parse(raw) as { type?: unknown; id?: unknown; name?: unknown } & Partial<
       Omit<Conversation, 'type' | 'id' | 'name'>
-    > & { feedPreset?: unknown };
+    > & { feedPreset?: unknown; feedQuery?: unknown };
     if (
       !isSupportedType(parsed.type) ||
       typeof parsed.id !== 'string' ||
@@ -80,7 +81,8 @@ export function getLastViewedConversation(): Conversation | null {
     if (parsed.type === 'feed') {
       return makeFeedConversation(
         parsed.name,
-        parsed.feedPreset === 'control' ? 'control' : undefined
+        parsed.feedPreset === 'control' ? 'control' : undefined,
+        typeof parsed.feedQuery === 'string' ? canonicalFeedQuery(parsed.feedQuery) : undefined
       );
     }
 
@@ -122,7 +124,11 @@ export function captureLastViewedConversationFromHash(): void {
   }
   if (hashConversation.type === 'feed') {
     saveLastViewedConversation(
-      makeFeedConversation(i18n.t('sidebar.feed'), hashConversation.feedPreset)
+      makeFeedConversation(
+        i18n.t('sidebar.feed'),
+        hashConversation.feedPreset,
+        hashConversation.feedQuery
+      )
     );
     return;
   }

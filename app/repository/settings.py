@@ -11,13 +11,13 @@ from pydantic import ValidationError
 from app import origin_policy, radio_workarounds
 from app.database import db
 from app.models import (
-    START_VIEW_IDS,
     AppSettings,
     NotificationDestinations,
     NotificationDestinationsUpdate,
     RejectedChannel,
     TelemetryAlertRules,
     UiPreferences,
+    is_valid_start_view,
 )
 from app.path_utils import bucket_path_hash_widths, bucket_region_scope, parse_packet_envelope
 from app.services.update_window import (
@@ -343,7 +343,7 @@ class AppSettingsRepository:
             ui_preferences = UiPreferences()
         # A start page that is no longer a known tool (restored backup, id removed later)
         # reads as the default, so saving other preferences never sends it back.
-        if ui_preferences.start_view and ui_preferences.start_view not in START_VIEW_IDS:
+        if ui_preferences.start_view and not is_valid_start_view(ui_preferences.start_view):
             ui_preferences = ui_preferences.model_copy(update={"start_view": ""})
 
         # Parse blocked_keys JSON

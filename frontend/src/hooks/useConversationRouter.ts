@@ -41,7 +41,7 @@ function toolConversationFromParsed(
     case 'raw':
       return { type: 'raw', id: 'raw', name: 'Raw Packet Feed' };
     case 'feed':
-      return makeFeedConversation(i18n.t('sidebar.feed'), hashConv.feedPreset);
+      return makeFeedConversation(i18n.t('sidebar.feed'), hashConv.feedPreset, hashConv.feedQuery);
     case 'map':
       return { type: 'map', id: 'map', name: 'Node Map', mapFocusKey: hashConv.mapFocusKey };
     case 'live':
@@ -212,7 +212,9 @@ export function useConversationRouter({
       return;
     }
     if (hashConv?.type === 'feed') {
-      setActiveConversationState(makeFeedConversation(i18n.t('sidebar.feed'), hashConv.feedPreset));
+      setActiveConversationState(
+        makeFeedConversation(i18n.t('sidebar.feed'), hashConv.feedPreset, hashConv.feedQuery)
+      );
       hasSetDefaultConversation.current = true;
       return;
     }

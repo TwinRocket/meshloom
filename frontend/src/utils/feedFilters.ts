@@ -200,3 +200,111 @@ export function countHiddenRows(
   }
   return counts;
 }
+
+/**
+ * The feed in the URL hash: `#feed?src=messages,control,events&types=chan,priv&dir=in,out
+ * &muted=1&pending=1&node=<pubkey64>&display=1` (also `#control?...`).
+ *
+ * Bookmarks sync to other vendors' clouds and a private channel's key is its access, so the
+ * grammar carries only public data: source and type names, flags and a node's 64-hex public
+ * key. A channel node is never encoded (and a 32-hex value is never accepted as a node).
+ * Unknown keys, unknown tokens and malformed values are ignored one by one.
+ */
+export interface FeedHashState {
+  /** Only the filters the query named, laid over the stored ones (URL > localStorage > defaults). */
+  filters: Partial<FeedFilters>;
+  /** Parsed and carried; the kiosk display mode acts on it. */
+  display: boolean;
+}
+
+const HASH_SOURCES = ['messages', 'control', 'events'] as const;
+const HASH_TYPES = ['chan', 'priv'] as const;
+const HASH_DIRS = ['in', 'out'] as const;
+const PUBKEY64 = /^[0-9a-f]{64}$/i;
+
+/** The tokens of a list value that are in the allowlist; null when it has none to keep. */
+function listTokens<T extends string>(value: string | null, allowed: readonly T[]): T[] | null {
+  if (value === null) return null;
+  if (value === '') return [];
+  const kept = value
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter((token): token is T => (allowed as readonly string[]).includes(token));
+  return kept.length > 0 ? kept : null;
+}
+
+function flagValue(value: string | null): boolean | null {
+  return value === '1' ? true : value === '0' ? false : null;
+}
+
+export function parseFeedQuery(query: string): FeedHashState {
+  const params = new URLSearchParams(query);
+  const filters: Partial<FeedFilters> = {};
+  const sources = listTokens(params.get('src'), HASH_SOURCES);
+  if (sources) {
+    filters.sources = {
+      messages: sources.includes('messages'),
+      control: sources.includes('control'),
+      events: sources.includes('events'),
+    };
+  }
+  const types = listTokens(params.get('types'), HASH_TYPES);
+  if (types) {
+    filters.chan = types.includes('chan');
+    filters.priv = types.includes('priv');
+  }
+  const dirs = listTokens(params.get('dir'), HASH_DIRS);
+  if (dirs) {
+    filters.incoming = dirs.includes('in');
+    filters.outgoing = dirs.includes('out');
+  }
+  const muted = flagValue(params.get('muted'));
+  if (muted !== null) filters.includeMuted = muted;
+  const pending = flagValue(params.get('pending'));
+  if (pending !== null) filters.includePending = pending;
+  const node = params.get('node');
+  if (node !== null && PUBKEY64.test(node)) filters.node = `contact:${node.toLowerCase()}`;
+  return { filters, display: params.get('display') === '1' };
+}
+
+/** The query (no `?`) for the keys a state names, in grammar order; '' when it names none. */
+export function encodeFeedQuery(state: FeedHashState): string {
+  const { filters } = state;
+  const parts: string[] = [];
+  if (filters.sources) {
+    const on = HASH_SOURCES.filter((name) => filters.sources?.[name]);
+    parts.push(`src=${on.join(',')}`);
+  }
+  if (filters.chan !== undefined && filters.priv !== undefined) {
+    parts.push(
+      `types=${HASH_TYPES.filter((t) => (t === 'chan' ? filters.chan : filters.priv)).join(',')}`
+    );
+  }
+  if (filters.incoming !== undefined && filters.outgoing !== undefined) {
+    parts.push(
+      `dir=${HASH_DIRS.filter((d) => (d === 'in' ? filters.incoming : filters.outgoing)).join(',')}`
+    );
+  }
+  if (filters.includeMuted !== undefined) parts.push(`muted=${filters.includeMuted ? 1 : 0}`);
+  if (filters.includePending !== undefined) parts.push(`pending=${filters.includePending ? 1 : 0}`);
+  const key = filters.node?.startsWith('contact:') ? filters.node.slice('contact:'.length) : '';
+  if (PUBKEY64.test(key)) parts.push(`node=${key.toLowerCase()}`);
+  if (state.display) parts.push('display=1');
+  return parts.join('&');
+}
+
+/** The query of the query: only what the grammar knows, so unknown keys never travel on. */
+export function canonicalFeedQuery(query: string): string {
+  return encodeFeedQuery(parseFeedQuery(query));
+}
+
+/** The full, explicit state of the filters: a bookmark of it does not depend on `localStorage`. */
+export function feedQueryOf(filters: FeedFilters, display = false): string {
+  return encodeFeedQuery({ filters, display });
+}
+
+/** The filters a query pins, over the base ones. */
+export function applyFeedQuery(base: FeedFilters, query: string | undefined): FeedFilters {
+  if (!query) return base;
+  return { ...base, ...parseFeedQuery(query).filters };
+}
