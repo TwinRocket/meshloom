@@ -1,10 +1,10 @@
 # Plugins
 
 Status: **format, validators, data model, the child runtime, the SDK, the legacy
-bot shim, the supervisor and the capability API v1** (MSHL-175, MSHL-184, MSHL-176,
-MSHL-177, MSHL-179, MSHL-181). The server starts one supervised child per enabled
+bot shim, the supervisor, the capability API v1 and `http.fetch`** (MSHL-175, MSHL-184,
+MSHL-176, MSHL-177, MSHL-179, MSHL-181, MSHL-183). The server starts one supervised child per enabled
 instance and answers its requests (see "Capabilities"); the OS isolation
-(MSHL-180), `http.fetch` (Store T7), the global send budgets and loop guards
+(MSHL-180), LAN hosts for `http` (MSHL-282), the global send budgets and loop guards
 (Store T6b) and the API and UI are later tickets, and nothing installs a plugin yet. Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
@@ -424,8 +424,16 @@ raises `PermissionError`, not `ImportError`: a vendored library that does
 
 JSON-RPC 2.0, one object per line (`\n`), UTF-8, at most
 `rpc.MAX_MESSAGE_BYTES` (100 KiB) per line, arrays and objects nested at most
-`rpc.MAX_NESTING_DEPTH` (64) deep (checked before parsing); no batches. A line
-over the cap ends the child (exit 2); a line that is not JSON, nested too deep or
+`rpc.MAX_NESTING_DEPTH` (64) deep (checked before parsing); no batches. Only the
+two `http.fetch` lines may be longer, each in one direction (`rpc.LargeLines`):
+the request a child sends, up to `rpc.HTTP_FETCH_REQUEST_BYTES` (384 KiB, for a
+256 KiB body), which the server's reader (`rpc.HOST_INBOUND`, the decoder's
+default) accepts and nothing else that long; and an answer the child reads, up to
+`rpc.HTTP_FETCH_RESULT_BYTES` (1.5 MiB, for 1 MiB in base64), which the child's
+reader (`rpc.CHILD_INBOUND`) accepts for a response only (the server builds a
+line that long only for an `http.fetch` answer: `rpc.result_limit(method)`). An
+over-cap line is parsed once to check its kind; a partial line is refused once
+it passes the larger bound. A line over the cap ends the child (exit 2); a line that is not JSON, nested too deep or
 not a JSON-RPC 2.0 object gets an error with `id: null` (`-32700`, `-32600`) and
 the child keeps serving. The server decodes child output with the same
 `rpc.decode`.
@@ -545,6 +553,11 @@ What the supervisor (MSHL-179) must provide, as the SDK uses it:
 - **`http.fetch` timeout.** The server clamps `timeout` to at most 10 s (cadrage §4.3)
   whatever the child sends: it must stay below the 25 s `call_sync` timeout and the 30 s
   event deadline. The shim and the SDK pass the value through unchanged.
+- **`http.fetch` answers.** `HttpResponse.truncated` is true when the server cut the
+  body at 1 MiB. While `call_sync` waits, a long answer to another `call()` is
+  delivered at once, never held back: only events and notifications (100 KiB lines)
+  go to the deferral buffer, bounded by `MAX_DEFERRED_LINES` and `MAX_DEFERRED_BYTES`
+  (1 MiB).
 - Refusals carry `error.data.code` (`permission_denied`, `host_not_allowed` (T7),
   `quota_exceeded`, `target_not_allowed`, `target_unknown`, `region_unknown`,
   `message_too_long`, `send_failed`, `invalid_params`; "Capabilities", "Error codes").
@@ -744,7 +757,8 @@ runs on Linux only).
 ## Capabilities
 
 `app/plugins/capabilities/`: one module per capability (`messages.py`,
-`storage.py`, `timer.py`, `contacts.py`, `channels.py`, `status.py`, `log.py`),
+`storage.py`, `timer.py`, `contacts.py`, `channels.py`, `status.py`, `log.py`,
+`http.py`),
 each registering its methods in `base.REGISTRY` with the permission it needs;
 `grants.py` holds the effective permissions and the read filters;
 `app/plugins/quotas.py` the send quotas and the global spacing. The supervisor's
@@ -778,6 +792,7 @@ else: a refusal has no side effect, uses no quota and touches no network.
 | `contacts.list` | `contacts.read` | `limit?` (1 to 200, default 100), `offset?` | contacts |
 | `contacts.get` | `contacts.read` | `key` (64 hex) | a contact or `null` |
 | `channels.list` | `channels.read` | none | `{key, name, is_public}` per channel |
+| `http.fetch` | `http` | `url`, `method?` (`GET` default, `POST`, `PUT`, `PATCH`, `DELETE`), `headers?` (at most 32 strings), `body?` (text, at most 256 KiB), `timeout?` (seconds, clamped to 10) | `{status, headers, body, encoding?, truncated}` |
 | `status.set` | none | `summary` (`""` clears) | `null` |
 | `log` | none | `level` (`debug`, `info`, `warning`, `error`), `message` | `null` (usually sent as a notification) |
 
@@ -820,6 +835,40 @@ else: a refusal has no side effect, uses no quota and touches no network.
   and the `#` channels whose key derives from their name) are listed; a private
   channel only when the instance has `messages.read` with `channels: all`.
   Pending channels are left out.
+- **`http.fetch`** (`capabilities/http.py`), checks in order, all before any DNS
+  lookup or connection: the params (`invalid_params`, `params.fields`: an `http(s)`
+  URL of at most 2048 characters **without user info**, a known method, header
+  names that are HTTP tokens and values without CR/LF, a body over 256 KiB with
+  `params.limit`, a positive timeout); the host is one of the effective
+  `http.hosts`, exactly, on the scheme's default port (`host_not_allowed`;
+  `meshloom.app` and its subdomains only for a `meshloom.*` id, checked again here
+  although the manifest already refuses them); HTTPS (`https_required`: plain HTTP
+  is for LAN hosts declared by name and accepted at consent, MSHL-282, so no host
+  can use it yet); then the quota, 60 requests per instance and clock hour, in
+  memory (`quota_exceeded`, `params.period: "hour"`, `params.limit`,
+  `params.retry_after`; a restart of Meshloom resets it, a restart of the child
+  does not). A refused call uses no quota. Then the egress guard's fixed-host path
+  (`follow_checked_redirects`, `app/net/AGENTS.md`) with the same hosts as the
+  allowlist, `https` only: pinned resolution, private and reserved addresses
+  refused (`host_not_allowed`), at most 3 redirects, each hop re-validated
+  (`host_not_allowed`, or `https_required` for a hop to `http:`), credentials
+  (`Authorization`, API key headers...) dropped once a hop leaves the origin,
+  `Host`, `Content-Length`, `Transfer-Encoding`, `Cookie` and the hop-by-hop
+  headers never sent, no cookie jar, `Accept-Encoding: identity`, a total of
+  `timeout` seconds for the whole chain, and the answer cut at 1 MiB while it
+  streams (`truncated: true`, the rest left unread). The server adds
+  `User-Agent: Meshloom-Plugin` when the plugin sets none and never adds a
+  credential of its own. Any other failure is `fetch_failed` with
+  `params.reason` (`timeout`, `tls_error`, `connect_error`, `egress_unresolvable`,
+  `egress_too_many_redirects`, `egress_response_encoding`...). An HTTP error
+  status is an answer. The answer's `headers` are a fixed subset (content type,
+  caching, `Location`, `Retry-After`, rate-limit headers; never `Set-Cookie`),
+  each value cut at 1024 characters; `body` is the UTF-8 text, or base64 with
+  `encoding: "base64"` when the bytes are not UTF-8 or the escaped text would be
+  longer. Each call is logged at INFO with the instance, the method, the URL
+  without user info, query or fragment (`sdk.safe_url`) and the status or the
+  refusal code. `store_online` (the Store's consent) does not gate it: installed
+  plugins keep working when the Store is off. Tests: `tests/test_plugin_http.py`.
 - **Status**: control characters dropped, cut at 140 characters, kept in memory
   and sent in `plugin_status` (`summary`); at most one change per 2 s
   (`quota_exceeded`, `params.retry_after`).
@@ -859,9 +908,10 @@ else: a refusal has no side effect, uses no quota and touches no network.
 A refusal is a JSON-RPC error whose `data.code` is stable and whose `data.params`
 carries the values above: `-32602` for `invalid_params`, `-32010` (`REFUSED`) for
 `permission_denied` (`params.permission`), `quota_exceeded`,
-`target_not_allowed`, `target_unknown`, `region_unknown`, `message_too_long` and
-`send_failed`. An unknown method is `-32601`; a test event's capture past its
+`target_not_allowed`, `target_unknown`, `region_unknown`, `message_too_long`,
+`send_failed`, `host_not_allowed`, `https_required` and `fetch_failed`
+(`params.reason`). An unknown method is `-32601`; a test event's capture past its
 bound is `-32001` (`test_sends_truncated`). The SDK's `error_code(exc)` returns
 `data.code`. The user-facing wording of the permissions and of these codes is
 the i18n slice `al` (`plugins.permissions.*`, `plugins.capabilityErrors.*`, FR and
-EN); `tests/test_plugin_capabilities.py` checks every registry permission has it.
+EN; the `http.fetch` codes are in slice `aq`); `tests/test_plugin_capabilities.py` checks every registry permission has it.

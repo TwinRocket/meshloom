@@ -32,6 +32,9 @@ REFUSAL_CODES = (
     "region_unknown",
     "message_too_long",
     "send_failed",
+    "host_not_allowed",
+    "https_required",
+    "fetch_failed",
     "invalid_params",
 )
 

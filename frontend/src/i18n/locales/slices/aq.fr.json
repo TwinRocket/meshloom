@@ -1,0 +1,9 @@
+{
+  "plugins": {
+    "capabilityErrors": {
+      "host_not_allowed": "Le plugin a tenté de joindre un serveur qu'il n'est pas autorisé à contacter.",
+      "https_required": "Le plugin a tenté d'utiliser une adresse non chiffrée (http) ; seul https est autorisé.",
+      "fetch_failed": "La requête du plugin vers son serveur a échoué (injoignable, trop lent ou refusé)."
+    }
+  }
+}

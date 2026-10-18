@@ -8,7 +8,16 @@ One module per capability, each registering its JSON-RPC methods in
 
 from typing import TYPE_CHECKING, Any
 
-from app.plugins.capabilities import channels, contacts, log, messages, status, storage, timer
+from app.plugins.capabilities import (
+    channels,
+    contacts,
+    http,
+    log,
+    messages,
+    status,
+    storage,
+    timer,
+)
 from app.plugins.capabilities.base import (
     REFUSAL_CODES,
     REFUSED,
@@ -31,6 +40,7 @@ __all__ = [
     "channels",
     "contacts",
     "dispatch",
+    "http",
     "log",
     "messages",
     "status",

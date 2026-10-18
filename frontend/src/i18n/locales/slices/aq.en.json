@@ -1,0 +1,9 @@
+{
+  "plugins": {
+    "capabilityErrors": {
+      "host_not_allowed": "The plugin tried to reach a server it was not allowed to contact.",
+      "https_required": "The plugin tried to use an unencrypted (http) address; only https is allowed.",
+      "fetch_failed": "The plugin's request to its server failed (unreachable, too slow or refused)."
+    }
+  }
+}

@@ -24,7 +24,7 @@ wrong: the code wins.
 | Audit hook (PEP 578) | refuses the events below |
 | Purge of `sys.modules`, references replaced by stubs, import guard | network, process and native modules are not reachable by name |
 | Event loop self-pipe on `os.pipe()` | the child holds no socket object at all |
-| RPC lines capped at 100 KiB and 64 levels of nesting, checked before parsing | a hostile peer cannot exhaust the parser (both ends use `rpc.decode`) |
+| RPC lines capped at 100 KiB and 64 levels of nesting, checked before parsing; only an `http.fetch` request (child to server, 384 KiB) and an answer the child reads (1.5 MiB) may be longer, per direction (`rpc.LargeLines`) | a hostile peer cannot exhaust the parser (both ends use `rpc.decode`), and a child cannot send the server a long line of any other kind |
 
 The audit hook raises `PermissionError` on:
 

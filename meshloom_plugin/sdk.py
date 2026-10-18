@@ -141,11 +141,15 @@ class Message:
 
 @dataclass(frozen=True)
 class HttpResponse:
-    """Answer of `http.fetch`: `body` is the raw bytes, `text` the UTF-8 decoding."""
+    """Answer of `http.fetch`: `body` is the raw bytes, `text` the UTF-8 decoding.
+
+    `truncated` is true when the server cut the body at its cap (1 MiB).
+    """
 
     status: int
     headers: dict[str, str]
     body: bytes
+    truncated: bool = False
 
     @property
     def text(self) -> str:
@@ -156,7 +160,7 @@ class HttpResponse:
 
     @classmethod
     def from_result(cls, result: Any) -> "HttpResponse":
-        """Parse a `http.fetch` result: `{status, headers, body, encoding?}`."""
+        """Parse a `http.fetch` result: `{status, headers, body, encoding?, truncated?}`."""
         if not isinstance(result, dict) or type(result.get("status")) is not int:
             raise HostError({"code": -32603, "message": "http.fetch returned no status"})
         body = result.get("body", "")
@@ -179,6 +183,7 @@ class HttpResponse:
             status=result["status"],
             headers=headers if isinstance(headers, dict) else {},
             body=raw,
+            truncated=result.get("truncated") is True,
         )
 
 
