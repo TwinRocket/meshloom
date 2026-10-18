@@ -13,7 +13,7 @@ import sqlite3
 import time
 import unicodedata
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import aiosqlite
@@ -28,6 +28,7 @@ from app.auth.models import (
     AuthSession,
     AuthSettings,
     HostGuardMode,
+    PairingCode,
     Provider,
     Role,
     TokenOrigin,
@@ -980,6 +981,40 @@ class AuthSessionRepository:
 _LIVE_TOKEN = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)"
 
 
+async def insert_token(
+    conn: aiosqlite.Connection,
+    user_id: int,
+    name: str,
+    token_hash: str,
+    scopes: list[str],
+    *,
+    expires_at: int | None,
+    origin: TokenOrigin,
+    now: int,
+) -> ApiToken:
+    """Insert a token inside the caller's transaction (``ApiTokenRepository.create``,
+    the pairing redemption). Raises ``TokenLimitError`` past ``MAX_TOKENS_PER_USER``."""
+    token_id = uuid.uuid4().hex
+    async with conn.execute(
+        f"SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND {_LIVE_TOKEN}",
+        (user_id, now),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is not None and int(row[0]) >= MAX_TOKENS_PER_USER:
+        raise TokenLimitError(str(MAX_TOKENS_PER_USER))
+    await conn.execute(
+        """
+        INSERT INTO api_tokens (id, user_id, name, token_hash, scopes, created_at,
+            expires_at, origin)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (token_id, user_id, name, token_hash, json.dumps(scopes), now, expires_at, origin),
+    )
+    async with conn.execute("SELECT * FROM api_tokens WHERE id = ?", (token_id,)) as cur:
+        created = await cur.fetchone()
+    return _row_to_token(created)
+
+
 class ApiTokenRepository:
     """``api_tokens``: rows keyed by the SHA-256 of their secret (``app/auth/tokens.py``)."""
 
@@ -995,27 +1030,17 @@ class ApiTokenRepository:
         now: int | None = None,
     ) -> ApiToken:
         """Store a token. Raises ``TokenLimitError`` past ``MAX_TOKENS_PER_USER``."""
-        ts = _now(now)
-        token_id = uuid.uuid4().hex
         async with db.tx() as conn:
-            async with conn.execute(
-                f"SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND {_LIVE_TOKEN}",
-                (user_id, ts),
-            ) as cursor:
-                row = await cursor.fetchone()
-            if row is not None and int(row[0]) >= MAX_TOKENS_PER_USER:
-                raise TokenLimitError(str(MAX_TOKENS_PER_USER))
-            await conn.execute(
-                """
-                INSERT INTO api_tokens (id, user_id, name, token_hash, scopes, created_at,
-                    expires_at, origin)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (token_id, user_id, name, token_hash, json.dumps(scopes), ts, expires_at, origin),
+            return await insert_token(
+                conn,
+                user_id,
+                name,
+                token_hash,
+                scopes,
+                expires_at=expires_at,
+                origin=origin,
+                now=_now(now),
             )
-            async with conn.execute("SELECT * FROM api_tokens WHERE id = ?", (token_id,)) as cur:
-                created = await cur.fetchone()
-        return _row_to_token(created)
 
     @staticmethod
     async def get_by_hash(token_hash: str) -> ApiToken | None:
@@ -1091,6 +1116,222 @@ class ApiTokenRepository:
                 (*token_ids, _now(now)),
             ) as cursor:
                 return {row["id"] for row in await cursor.fetchall()}
+
+
+class PairingLimitError(ValueError):
+    """The user already holds ``MAX_PENDING_PAIRINGS_PER_USER`` pending codes."""
+
+
+MAX_PENDING_PAIRINGS_PER_USER = 10
+_PENDING_PAIRING = "used_at IS NULL AND revoked_at IS NULL AND expires_at > ?"
+
+
+def _row_to_pairing(row: Any) -> PairingCode:
+    extensions = None
+    if row["extensions"]:
+        try:
+            parsed = json.loads(row["extensions"])
+        except ValueError:
+            parsed = None
+        extensions = parsed if isinstance(parsed, dict) else None
+    return PairingCode(
+        id=row["id"],
+        created_by=row["created_by"],
+        label=row["label"],
+        scopes=[s for s in _json_list(row["scopes"]) if isinstance(s, str)],
+        urls=[u for u in _json_list(row["urls"]) if isinstance(u, str)],
+        created_at=row["created_at"],
+        expires_at=row["expires_at"],
+        used_at=row["used_at"],
+        revoked_at=row["revoked_at"],
+        token_id=row["token_id"],
+        device_name=row["device_name"],
+        extensions=extensions,
+    )
+
+
+class PairingRedemption(BaseModel):
+    """What ``PairingCodeRepository.redeem`` did. ``reason`` is None on success
+    (``token`` and ``owner`` set), else why the code gave nothing: ``unknown``,
+    ``used``, ``revoked``, ``expired``, or a refusal of ``authorize`` /
+    ``token_limit`` (the code is spent then)."""
+
+    reason: str | None = None
+    code: PairingCode | None = None
+    token: ApiToken | None = None
+    owner: User | None = None
+
+
+class PairingCodeRepository:
+    """``pairing_codes``: rows keyed by the SHA-256 of their code (``app/auth/pairing.py``)."""
+
+    @staticmethod
+    async def create(
+        created_by: int,
+        label: str,
+        code_hash: str,
+        scopes: list[str],
+        urls: list[str],
+        *,
+        expires_at: int,
+        now: int | None = None,
+    ) -> PairingCode:
+        """Store a pending code. Raises ``PairingLimitError`` past
+        ``MAX_PENDING_PAIRINGS_PER_USER``."""
+        ts = _now(now)
+        pairing_id = uuid.uuid4().hex
+        async with db.tx() as conn:
+            async with conn.execute(
+                f"SELECT COUNT(*) FROM pairing_codes WHERE created_by = ? AND {_PENDING_PAIRING}",
+                (created_by, ts),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is not None and int(row[0]) >= MAX_PENDING_PAIRINGS_PER_USER:
+                raise PairingLimitError(str(MAX_PENDING_PAIRINGS_PER_USER))
+            await conn.execute(
+                """
+                INSERT INTO pairing_codes (id, code_hash, created_by, label, scopes, urls,
+                    created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    pairing_id,
+                    code_hash,
+                    created_by,
+                    label,
+                    json.dumps(scopes),
+                    json.dumps(urls),
+                    ts,
+                    expires_at,
+                ),
+            )
+            async with conn.execute(
+                "SELECT * FROM pairing_codes WHERE id = ?", (pairing_id,)
+            ) as cursor:
+                created = await cursor.fetchone()
+        return _row_to_pairing(created)
+
+    @staticmethod
+    async def get(pairing_id: str) -> PairingCode | None:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT * FROM pairing_codes WHERE id = ?", (pairing_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+        return _row_to_pairing(row) if row is not None else None
+
+    @staticmethod
+    async def list_pending(
+        created_by: int | None = None, *, now: int | None = None
+    ) -> list[PairingCode]:
+        """Codes still redeemable, newest first: one user's, or everyone's."""
+        query = f"SELECT * FROM pairing_codes WHERE {_PENDING_PAIRING}"
+        params: list[Any] = [_now(now)]
+        if created_by is not None:
+            query += " AND created_by = ?"
+            params.append(created_by)
+        async with db.readonly() as conn:
+            async with conn.execute(
+                query + " ORDER BY created_at DESC, rowid DESC", params
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [_row_to_pairing(row) for row in rows]
+
+    @staticmethod
+    async def revoke(pairing_id: str, *, now: int | None = None) -> bool:
+        """Revoke a pending code. True when it was still pending."""
+        ts = _now(now)
+        async with db.tx() as conn:
+            async with conn.execute(
+                f"UPDATE pairing_codes SET revoked_at = ? WHERE id = ? AND {_PENDING_PAIRING}",
+                (ts, pairing_id, ts),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def redeem(
+        code_hash: str,
+        *,
+        device_name: str,
+        extensions: dict[str, Any] | None,
+        token_hash: str,
+        authorize: Callable[[User | None, list[str]], str | None],
+        now: int | None = None,
+    ) -> PairingRedemption:
+        """Spend the code stored under ``code_hash`` and issue its device token,
+        in one transaction (two concurrent redemptions cannot both win).
+
+        Once the code is found pending it is spent, whatever follows: the
+        owner check (``authorize(owner, scopes)`` returns a refusal reason or
+        None) and the token cap can still refuse, and the code is gone then.
+        """
+        ts = _now(now)
+        async with db.tx() as conn:
+            async with conn.execute(
+                "SELECT * FROM pairing_codes WHERE code_hash = ?", (code_hash,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None or not hmac.compare_digest(row["code_hash"], code_hash):
+                return PairingRedemption(reason="unknown")
+            code = _row_to_pairing(row)
+            if code.used_at is not None:
+                return PairingRedemption(reason="used", code=code)
+            if code.revoked_at is not None:
+                return PairingRedemption(reason="revoked", code=code)
+            if code.expires_at <= ts:
+                return PairingRedemption(reason="expired", code=code)
+            async with conn.execute(
+                "UPDATE pairing_codes SET used_at = ? WHERE id = ? AND used_at IS NULL",
+                (ts, code.id),
+            ) as cursor:
+                if cursor.rowcount != 1:
+                    return PairingRedemption(reason="used", code=code)
+            code.used_at = ts
+            owner = await _fetch_user(conn, code.created_by)
+            refusal = authorize(owner, code.scopes)
+            if refusal is not None or owner is None:
+                return PairingRedemption(reason=refusal or "owner_unavailable", code=code)
+            try:
+                token = await insert_token(
+                    conn,
+                    owner.id,
+                    device_name,
+                    token_hash,
+                    sorted(set(code.scopes)),
+                    expires_at=None,
+                    origin="pairing",
+                    now=ts,
+                )
+            except TokenLimitError:
+                return PairingRedemption(reason="token_limit", code=code, owner=owner)
+            await conn.execute(
+                "UPDATE pairing_codes SET token_id = ?, device_name = ?, extensions = ?"
+                " WHERE id = ?",
+                (
+                    token.id,
+                    device_name,
+                    json.dumps(extensions, separators=(",", ":"))
+                    if extensions is not None
+                    else None,
+                    code.id,
+                ),
+            )
+            code.token_id, code.device_name, code.extensions = token.id, device_name, extensions
+        return PairingRedemption(code=code, token=token, owner=owner)
+
+    @staticmethod
+    async def purge(*, now: int | None = None) -> int:
+        """Delete codes that hold no device token and can no longer give one
+        (expired, revoked, or spent by a refused redemption; a deleted token
+        clears ``token_id``). A redeemed row stays with its token (its
+        ``extensions``)."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "DELETE FROM pairing_codes WHERE token_id IS NULL AND (used_at IS NOT NULL"
+                " OR revoked_at IS NOT NULL OR expires_at <= ?)",
+                (_now(now),),
+            ) as cursor:
+                return cursor.rowcount
 
 
 def _is_secret_key(key: str) -> bool:

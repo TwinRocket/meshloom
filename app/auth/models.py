@@ -80,6 +80,26 @@ class ApiToken(BaseModel):
     origin: TokenOrigin = "ui"
 
 
+class PairingCode(BaseModel):
+    """A device pairing code, without its hash (``app/auth/pairing.py``)."""
+
+    id: str
+    created_by: int
+    label: str
+    scopes: list[str]
+    # The addresses the QR payload carries, fixed at creation.
+    urls: list[str]
+    created_at: int
+    expires_at: int
+    used_at: int | None = None
+    revoked_at: int | None = None
+    # Set by a successful redemption: the device token, its name, and the
+    # ``extensions`` object the device sent (opaque, for meshenger E2).
+    token_id: str | None = None
+    device_name: str | None = None
+    extensions: dict[str, Any] | None = None
+
+
 class AuthAuditEntry(BaseModel):
     id: int
     ts: int

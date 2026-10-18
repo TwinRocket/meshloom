@@ -72,6 +72,13 @@ and the OpenAPI page (`/docs`), not a table here.
   user verification required for the passwordless sign-in; counter checked and stored
   conditionally. Routes `routers/auth_webauthn.py`; a passkey is also a second factor
   at `POST /api/auth/login/2fa` when TOTP is on. Details: `docs/dev/auth.md`, "Passkeys".
+- `auth/pairing.py` is device pairing (MSHL-71; contract `docs/dev/device-pairing.md`):
+  a `member` or `admin` session creates a single-use `mlp_` code (SHA-256 at rest, at most
+  10 minutes, scopes within its role) whose QR payload carries the public, Remote and LAN
+  addresses; `POST /api/auth/pair` (public) spends it and inserts the device token in one
+  transaction (`PairingCodeRepository.redeem`), checking the creator again (fail closed).
+  Every bad code is one 410 `auth_pairing_expired` and a failure for the login delays
+  (key `LIMIT_KEY`); refused under ingress before any lookup. Routes `routers/auth_pairing.py`.
 - `middleware/host_guard.py` is the `Host` guard (docs/dev/auth.md, "Host guard"):
   `host_allowed` is the one rule (trusted-network auto-login calls it directly and
   stays strict in both modes); `HostGuardMiddleware` (inside the proxy-headers
@@ -373,6 +380,12 @@ run as root).
   also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by
   `tests/test_migrations/test_migration_110.py`). It travels inside the `users` backup
   section (version 3). Rules: `docs/dev/auth.md`, "Passkeys".
+- Migration 112 adds `pairing_codes` (device pairing codes: SHA-256 of the code, creator,
+  scopes, QR addresses, expiry, use, revocation, the token it gave and the device's opaque
+  `extensions`; DDL and `idx_pairing_codes_user` also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`,
+  compared by `tests/test_migrations/test_migration_112.py`). Never exported, emptied in the
+  database download, purged hourly once it can no longer give a token. Rules:
+  `docs/dev/device-pairing.md`.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
@@ -704,7 +717,7 @@ be wrong, because historical decryption inserts old messages with new ids.
   `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
   the BLE PIN, the previous-transport snapshot, `users.password_hash`,
   `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
-  `sessions`, `recovery_codes` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
+  `sessions`, `recovery_codes`, `pairing_codes` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
   login secrets are never exported. The accounts travel in the JSON full
   backup's `users` section, the API tokens in its `api_tokens` section
   (`services/backup_accounts.py`, `docs/dev/backup.md`,

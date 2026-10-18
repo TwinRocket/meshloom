@@ -716,12 +716,13 @@ async def test_the_sqlite_snapshot_holds_no_seed_and_no_ble_pin(seeded, tmp_path
 
 @pytest.mark.asyncio
 async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
-    """Sessions, password and TOTP secrets and the setup code hash never leave
+    """Sessions, pairing codes, password and TOTP secrets and the setup code hash never leave
     in the database download; the accounts themselves do."""
     from app.auth.tokens import hash_token
     from app.repository.auth import (
         AuthSessionRepository,
         AuthSettingsRepository,
+        PairingCodeRepository,
         UserRepository,
     )
 
@@ -736,6 +737,9 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
         )
     await AuthSessionRepository.create(user.id, hash_token("cookie"), lifetime_s=60)
     await AuthSettingsRepository.set_setup_code_hash(hash_token("setup"))
+    await PairingCodeRepository.create(
+        user.id, "phone", hash_token("pairing"), ["read"], [], expires_at=2**40
+    )
 
     snapshot = tmp_path / "meshcore.db"
     await write_sqlite_backup(test_db, str(snapshot))
@@ -746,6 +750,8 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
             assert (await c.fetchone())[0] == 0
         async with conn.execute("SELECT COUNT(*) FROM recovery_codes") as c:
             assert (await c.fetchone())[0] == 0
+        async with conn.execute("SELECT COUNT(*) FROM pairing_codes") as c:
+            assert (await c.fetchone())[0] == 0
         async with conn.execute("SELECT setup_code_hash FROM auth_settings") as c:
             assert (await c.fetchone())[0] is None
     raw = snapshot.read_bytes()
@@ -753,6 +759,7 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
         password_hash,
         hash_token("cookie"),
         hash_token("setup"),
+        hash_token("pairing"),
         "JBSWY3DPEHPK3PXP",
         recovery_hash,
     ):

@@ -77,7 +77,7 @@ from app.repository.auth import (
     UsernameTakenError,
     UserRepository,
 )
-from app.routers import auth_kiosk, auth_tokens
+from app.routers import auth_kiosk, auth_pairing, auth_tokens
 from app.security import basic_compat_active, invalidate_basic_cache
 
 logger = logging.getLogger(__name__)
@@ -1484,5 +1484,6 @@ async def get_audit(
 
 # ``/auth/tokens``: API and device tokens (``app/routers/auth_tokens.py``).
 router.include_router(auth_tokens.router)
+router.include_router(auth_pairing.router)
 # ``/auth/kiosk-*``: the kiosk launcher's device-token sign-in (``app/routers/auth_kiosk.py``).
 router.include_router(auth_kiosk.router)

@@ -14,8 +14,10 @@ device tokens" (the tokens page is
 factor in "Second factor (TOTP)" (its pages: `frontend/src/auth/TotpEnrolment.tsx`,
 `SecondFactorStep.tsx`, `RecoveryCodesView.tsx`, `EnrolmentRequiredPage.tsx` and
 `frontend/src/components/settings/AccessSecurityPanel.tsx`), passkeys in
-"Passkeys" (their pages: `frontend/src/auth/passkeys.ts`, the login button in `LoginPage.tsx`, `SecondFactorStep.tsx` and `frontend/src/components/settings/AccessPasskeysPanel.tsx`; `frontend/AGENTS.md`, "Session gate"). Pairing comes with a later
-Access ticket. The manual checklist run before the 5.0.0 tag is the last
+"Passkeys" (their pages: `frontend/src/auth/passkeys.ts`, the login button in `LoginPage.tsx`, `SecondFactorStep.tsx` and `frontend/src/components/settings/AccessPasskeysPanel.tsx`; `frontend/AGENTS.md`, "Session gate"). Device pairing (a single-use code,
+shown as a QR, traded for a device token) has its own contract page,
+`docs/dev/device-pairing.md`; its settings screen comes with a later Access
+ticket. The manual checklist run before the 5.0.0 tag is the last
 section ("Manual checklist before the 5.0.0 tag"). Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
@@ -228,7 +230,9 @@ logged at ERROR and the row is not written (a bug at the call site).
   routes declare `_admin(action)`, `require("admin")` plus that row). Never the
   typed name or password. A 422 (body validation) writes no row.
 
-  Reserved for the tickets that add their feature: `pairing.used`,
+  `pairing.created`, `pairing.revoked` and `pairing.used` are the device
+  pairing rows (`docs/dev/device-pairing.md`, "Security rules").
+  Reserved for the tickets that add their feature:
   `passkey.added`, `passkey.removed`,
   `plugin.created`, `plugin.changed`, `plugin.disabled`, `plugin.installed`,
   `plugin.updated`, `plugin.removed` (Store), `remote.linked`,
@@ -1132,6 +1136,10 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `GET /auth/tokens` | own account, `member` or `admin` (403 `auth_forbidden` otherwise; never a token) | Live tokens, newest first: `{id, name, scopes, created_at, last_used_at, expires_at, origin, user_id, username}`, the caller's own, every user's for an admin. Never the secret or the hash |
 | `POST /auth/tokens` | same | 201. `{name (1-64), scopes (1-5 of read, read_private, send, repeater_admin, admin), expires_at?}` (Unix seconds, null never). Answers the row plus `token` (`mlt_…`), the only time it is shown. 400 `auth_token_scope` (`params.scope`) for a scope the caller's role does not grant, 400 `auth_token_expiry_invalid` for an expiry not in the future, 409 `auth_token_limit` (`params.max`, 100 live tokens per user) |
 | `DELETE /auth/tokens/{id}` | same | 204. Revokes the token (the caller's own; any for an admin) and closes its sockets at once. 404 `auth_token_not_found` for an unknown, revoked or someone else's token |
+| `POST /auth/pairings` | same as the tokens | 201. `{label (1-64), scopes (1-5), ttl (30-600 s, 300 by default)}`: a single-use pairing code bound to those scopes and to the caller. Answers the row (`id, label, scopes, urls, created_at, expires_at, created_by, username`) plus `code` (`mlp_…`) and `qr_payload` (`meshloom://pair?d=…`), the only time they are shown. 400 `auth_token_scope`, 409 `auth_pairing_limit` (`params.max`, 10 pending per user) ([Device pairing](device-pairing.md)) |
+| `GET /auth/pairings` | same | Pending codes, newest first: the caller's own, every user's for an admin. Never the code |
+| `DELETE /auth/pairings/{id}` | same | 204. Revokes a pending code at once. 404 `auth_pairing_not_found` (unknown, no longer pending, someone else's) |
+| `POST /auth/pair` | public, login delays | `{code, device_name (1-64), extensions?}` → 201 `{token, token_id, scopes, user {id, username, display_name}, urls}`: the device token (origin `pairing`, no expiry) of the code's creator with exactly its scopes. 410 `auth_pairing_expired` for every bad code (one answer), 403 `auth_pairing_ingress`, 429 `auth_rate_limited`, 409 `auth_token_limit` ([Device pairing](device-pairing.md)) |
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
 | `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices, require_2fa_for_admins}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
