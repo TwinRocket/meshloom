@@ -485,7 +485,8 @@ must answer within 20 s. Then the status is `running`.
   queue builds on the host side and every in-flight event is running.
 - Every event carries `event_id` (its JSON-RPC id) in its params; a test event
   also carries `test: true`. `dispatch_test()` returns `{"result", "sends"}`:
-  a child request `messages.send` naming the `event_id` of a test event is
+  a child request `messages.send` naming the `event_id` of a test event (or
+  carrying no `event_id` while that test event is the only one in flight) is
   captured there (answer `{"captured": true}`) and never sent.
 - An event gets 30 s; then the host sends `event.cancel {"id"}`. A handler that
   stops within 5 s answers `-32800`: the instance keeps running and `last_error`

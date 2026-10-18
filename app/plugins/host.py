@@ -788,7 +788,13 @@ class PluginInstance:
 
     async def _on_child_request(self, method: str, params: Any) -> Any:
         event_id = params.get("event_id") if isinstance(params, dict) else None
-        event = self._in_flight.get(event_id) if isinstance(event_id, int) else None
+        if isinstance(event_id, int):
+            event = self._in_flight.get(event_id)
+        elif len(self._in_flight) == 1:
+            # No `event_id`: the only event in flight is the one that caused it.
+            event = next(iter(self._in_flight.values()))
+        else:
+            event = None
         if method == "messages.send" and event is not None and event.test:
             # A test event's sends are captured for the caller, never sent.
             assert isinstance(params, dict)

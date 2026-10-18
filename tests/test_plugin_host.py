@@ -513,6 +513,28 @@ async def test_test_events_capture_sends(manager, tmp_path):
     assert outcome == {"result": "sent", "sends": [{"to": "reply", "text": "pong"}]}
 
 
+async def test_test_event_sends_without_event_id_are_captured(manager, tmp_path):
+    root = tmp_path / "plugins"
+    write_plugin(root, "test.sdk-sender", "sender")
+    (root / "test.sdk-sender" / "plugin.py").write_text(
+        "import meshloom_plugin\n\n"
+        "async def on_message(params):\n"
+        "    await meshloom_plugin.host().call('messages.send', {'to': 'reply', 'text': 'hi'})\n",
+        encoding="utf-8",
+    )
+    row = await PluginRepository.create(
+        plugin_id="test.sdk-sender",
+        label="sdk sender",
+        kind="store",
+        version="1.0.0",
+        manifest={"entry": "plugin.py", "hooks": ["message"]},
+        enabled=True,
+    )
+    await running(manager, row["instance_id"])
+    outcome = await manager.dispatch_test(row["instance_id"], "message", {})
+    assert outcome["sends"] == [{"to": "reply", "text": "hi"}]
+
+
 async def test_unknown_host_method_is_refused_to_the_child(manager, tmp_path):
     instance_id = await create_instance(tmp_path / "plugins", "sender")
     instance = await running(manager, instance_id)
