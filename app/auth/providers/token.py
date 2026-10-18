@@ -64,7 +64,7 @@ _FAILURE_AUDIT_MAX_TOKENS = 1024
 _failure_audited: dict[str, float] = {}
 
 
-def new_api_token() -> str:
+def fresh_token() -> str:
     """A fresh token secret: ``mlt_`` + 256 random bits."""
     return TOKEN_PREFIX + new_token()
 
@@ -101,7 +101,7 @@ async def issue_token(
 ) -> tuple[ApiToken, str]:
     """Create a token for ``user`` and return its row and its secret, to be
     shown once. The caller checked the scopes (``scope_violation``)."""
-    token = new_api_token()
+    token = fresh_token()
     row = await ApiTokenRepository.create(
         user.id,
         name,
