@@ -31,8 +31,11 @@ and the OpenAPI page (`/docs`), not a table here.
 - `services/test_channel.py` (`#meshloom-testing`, radio self-test and
   `POST /tools/mesh-test`) stores no channel and no message.
 - `plugins/` is the plugin package format: manifest model, permission registry, config
-  schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`).
-  No runtime yet. Change the contract only through `scripts/build/export_plugin_contract.py`.
+  schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`),
+  plus the static attention scan of local sources (`plugins/attention.py`). The data
+  model is `repository/plugins.py` (instances, KV, write-only secrets: only
+  `config_for_init()` returns a secret in clear). No runtime yet. Change the contract
+  only through `scripts/build/export_plugin_contract.py`.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
 
@@ -98,6 +101,14 @@ run as root).
   `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
   the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
   behaviours are restored.
+- Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
+  also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
+  and `app_settings.store_online` (Store consent, off, outside `AppSettings`, excluded
+  from backups and reset to 0 in a database copy). Additive: bots in `fanout_configs`
+  are untouched until the switch. One `plugin_id` can have several instances, each
+  with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
+  never exported (`plugin_secrets` emptied in the database download). Rules:
+  `docs/dev/plugins.md`, "Data model".
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
@@ -423,7 +434,7 @@ be wrong, because historical decryption inserts old messages with new ids.
   `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
   the BLE PIN, the previous-transport snapshot, `users.password_hash`,
   `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
-  `sessions` emptied (under `secure_delete`): instance identity seeds and
+  `sessions` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
   login secrets are never exported. Inspect and
   restore bodies over 64 MiB are a 413 `backup_too_large`.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every

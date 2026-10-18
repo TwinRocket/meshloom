@@ -176,6 +176,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "instance identity seed: never exported, regenerated on first enablement",
     ),
+    "app_settings.store_online": (
+        "excluded",
+        "Store consent: a copy restored elsewhere would enable an egress nobody clicked",
+    ),
     "app_settings.wifi_prompt_state": ("excluded", "per-host prompt state, never a secret"),
     "app_settings.auth_allowed_origins": (
         "excluded",
@@ -223,6 +227,12 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "sessions": ("excluded", "login sessions, never exported"),
     "auth_audit": ("excluded", "audit trail: not in the JSON backup, kept in the SQLite download"),
     "auth_settings": ("excluded", "access settings and setup code hash: Access T65"),
+    # Plugins (docs/dev/plugins.md, "Data model"). The instances and their KV get a
+    # backup section with the plugins API; the secrets never leave (emptied in the
+    # SQLite download too).
+    "plugins": ("excluded", "plugin instances: backup section with the plugins API"),
+    "plugin_kv": ("excluded", "plugin storage: backup section with the plugins API"),
+    "plugin_secrets": ("excluded", "plugin config secrets, never exported"),
 }
 
 

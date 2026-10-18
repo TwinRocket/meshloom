@@ -262,6 +262,47 @@ CREATE TABLE IF NOT EXISTS auth_settings (
 );
 
 INSERT OR IGNORE INTO auth_settings (id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS plugins (
+    instance_id TEXT PRIMARY KEY,
+    plugin_id TEXT NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('bundled', 'store', 'custom', 'local')),
+    version TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    manifest TEXT NOT NULL DEFAULT '{}',
+    config_schema TEXT NOT NULL DEFAULT '{}',
+    config TEXT NOT NULL DEFAULT '{}',
+    scope TEXT NOT NULL DEFAULT '{}',
+    granted_permissions TEXT NOT NULL DEFAULT '{}',
+    quotas TEXT NOT NULL DEFAULT '{}',
+    auto_update INTEGER NOT NULL DEFAULT 0,
+    source TEXT,
+    archive_sha256 TEXT,
+    repository TEXT,
+    installed_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'installed',
+    last_error TEXT,
+    attention TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS plugin_kv (
+    instance_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (instance_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS plugin_secrets (
+    instance_id TEXT NOT NULL,
+    field TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (instance_id, field)
+);
 """
 
 # Indexes are created after migrations so that legacy databases have all
@@ -305,6 +346,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_chan_unattributed_sender
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_auth_audit_ts ON auth_audit(ts);
+CREATE INDEX IF NOT EXISTS idx_plugins_plugin_id ON plugins(plugin_id);
 """
 
 
