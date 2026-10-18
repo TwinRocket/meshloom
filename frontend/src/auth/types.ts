@@ -17,6 +17,8 @@ export interface AuthSessionInfo {
   setup_code_required: boolean;
   methods: { password: boolean; ingress: boolean };
   auth_compat: { basic: boolean };
+  /** Whether the server saw the request as https (a trusted proxy's `X-Forwarded-Proto`). */
+  secure?: boolean;
   user?: AuthUser;
   via?: AuthVia;
   instance?: { name?: string; version: string };
@@ -51,6 +53,18 @@ export function noSessionReason(session: AuthSessionInfo): string | null {
  */
 export function ingressOnly(session: AuthSessionInfo): boolean {
   return session.methods.ingress && !session.methods.password;
+}
+
+/**
+ * The browser is on https but the server saw http: a TLS proxy Meshloom does not
+ * trust (Settings → Local Configuration → Trusted proxies). The session cookie is then
+ * the plain one, without `Secure`. An older server that sends no `secure` says nothing.
+ */
+export function behindUntrustedHttpsProxy(
+  session: Pick<AuthSessionInfo, 'secure'> | null | undefined,
+  protocol: string = window.location.protocol
+): boolean {
+  return protocol === 'https:' && session?.secure === false;
 }
 
 /** The shortest password the backend accepts (`password_policy_violation`). */

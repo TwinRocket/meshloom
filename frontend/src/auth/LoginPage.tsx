@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
-import { noSessionReason, type AuthSessionInfo } from './types';
+import { behindUntrustedHttpsProxy, noSessionReason, type AuthSessionInfo } from './types';
 
 /** The sign-in form fields, shared with the re-login dialog. */
 export function LoginForm({
@@ -88,10 +88,26 @@ export function LoginForm({
 }
 
 /** Shown to an anonymous visitor once an account exists. */
-export function LoginPage({ onDone }: { onDone: (session: AuthSessionInfo) => void }) {
+export function LoginPage({
+  onDone,
+  session,
+}: {
+  onDone: (session: AuthSessionInfo) => void;
+  /** The anonymous `GET /auth/session` answer, for the untrusted-proxy hint. */
+  session?: AuthSessionInfo;
+}) {
   const { t } = useTranslation();
   return (
     <AuthLayout title={t('auth.login.title')} description={t('auth.login.description')}>
+      {behindUntrustedHttpsProxy(session) && (
+        <div
+          role="note"
+          className="flex gap-2 rounded-md border border-border bg-muted/50 p-3 text-xs text-muted-foreground"
+        >
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <p>{t('auth.login.untrustedProxy')}</p>
+        </div>
+      )}
       {!window.isSecureContext && (
         <div
           role="note"

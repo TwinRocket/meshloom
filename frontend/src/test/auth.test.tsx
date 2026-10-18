@@ -167,6 +167,29 @@ describe('session gate', () => {
     expect(await screen.findByRole('note')).toHaveTextContent(t('auth.login.insecureContext'));
   });
 
+  it('warns on https when the server saw http (an untrusted proxy)', async () => {
+    vi.stubGlobal('location', { ...window.location, protocol: 'https:' });
+    stubFetch({ 'GET /auth/session': () => jsonResponse({ ...base, secure: false }) });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    expect(await screen.findByText(t('auth.login.untrustedProxy'))).toBeInTheDocument();
+  });
+
+  it('says nothing about the proxy when the server saw https', async () => {
+    vi.stubGlobal('location', { ...window.location, protocol: 'https:' });
+    stubFetch({ 'GET /auth/session': () => jsonResponse({ ...base, secure: true }) });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    await screen.findByRole('heading', { name: t('auth.login.title') });
+    expect(screen.queryByText(t('auth.login.untrustedProxy'))).toBeNull();
+  });
+
   it('shows the wrong-password error and the rate-limit wait', async () => {
     const user = userEvent.setup();
     let answer = () =>

@@ -3,16 +3,23 @@
     "trustedProxies": {
       "title": "Proxies de confiance",
       "label": "Reverse proxies placés devant cette instance",
-      "help": "Une adresse ou un réseau par ligne (127.0.0.1, 172.18.0.0/16, fd00::/8). N’indiquez que le reverse proxy que vous avez placé devant Meshloom (nginx, Caddy, Traefik, cloudflared). Depuis ces adresses seulement, Meshloom croit X-Forwarded-For (l’adresse du visiteur, utilisée pour les délais de connexion, le journal d’audit et les sessions) et X-Forwarded-Proto (https : cookie sécurisé). Une adresse listée peut se faire passer pour n’importe qui : n’indiquez jamais un réseau d’où viennent vos visiteurs.",
+      "help": "Une adresse par ligne : celle depuis laquelle votre reverse proxy (nginx, Caddy, Traefik, cloudflared) se connecte à Meshloom, par exemple 127.0.0.1 s’il tourne sur la même machine, ou l’adresse fixe donnée au conteneur du proxy (172.20.0.10). Depuis ces adresses seulement, Meshloom croit X-Forwarded-For (l’adresse du visiteur, utilisée pour les délais de connexion, le journal d’audit et les sessions) et X-Forwarded-Proto (https : cookie sécurisé). Indiquez le proxy lui-même, jamais un réseau Docker ni sa passerelle (172.17.0.1) : les visiteurs qui atteignent un port publié peuvent arriver par la passerelle, et une adresse listée peut se faire passer pour n’importe qui.",
       "none": "Vide : aucun proxy n’est de confiance. Les en-têtes transmis sont ignorés et l’adresse du visiteur est celle de la connexion.",
-      "invalid": "Ni une adresse IP ni un réseau (une adresse, ou adresse/préfixe ; pas /0) : {{entries}}",
+      "invalid": "Ni une adresse IP ni un réseau (une adresse, ou adresse/préfixe ; au plus /8 en IPv4, /16 en IPv6 ; pas de forme ::ffff:) : {{entries}}",
       "save": "Enregistrer les proxies",
       "saving": "Enregistrement…",
       "saved": "Proxies de confiance enregistrés",
-      "saveFailed": "Impossible d’enregistrer les proxies de confiance"
+      "saveFailed": "Impossible d’enregistrer les proxies de confiance",
+      "broadEntry": "Entrée risquée : {{entries}}. Un réseau ou une passerelle Docker couvre aussi les clients qui atteignent un port publié à travers elle, et ils pourraient falsifier leur adresse. N’indiquez que l’adresse du proxy lui-même.",
+      "httpsNotTrusted": "Votre navigateur utilise HTTPS, mais Meshloom a reçu cette page en HTTP simple : le proxy HTTPS placé devant lui n’est pas de confiance. Tant que vous ne l’indiquez pas ici, le cookie de session n’est pas marqué Secure et l’adresse du visiteur est celle du proxy."
     }
   },
   "errors": {
-    "auth_trusted_proxies_invalid": "Ni une adresse IP ni un réseau, ou plus de 32 proxies de confiance"
+    "auth_trusted_proxies_invalid": "Ni une adresse IP ni un réseau, un réseau plus large que /8 (IPv4) ou /16 (IPv6), ou plus de 32 proxies de confiance"
+  },
+  "auth": {
+    "login": {
+      "untrustedProxy": "Cette page utilise HTTPS, mais le proxy placé devant Meshloom n’est pas encore de confiance : votre cookie de session ne sera pas marqué Secure. Un administrateur peut corriger cela dans Réglages → Configuration locale → Proxies de confiance."
+    }
   }
 }

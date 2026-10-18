@@ -208,7 +208,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     );
   }
   if (!session.authenticated) {
-    return <LoginPage onDone={(next) => setState({ status: 'ready', session: next })} />;
+    return (
+      <LoginPage
+        session={session}
+        onDone={(next) => setState({ status: 'ready', session: next })}
+      />
+    );
   }
 
   return (
