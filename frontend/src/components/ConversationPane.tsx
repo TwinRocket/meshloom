@@ -449,6 +449,7 @@ export function ConversationPane({
           contacts={contacts}
           channels={channels}
           radioName={config?.name}
+          publicKey={config?.public_key}
           onBackToTools={onBackToTools}
           onNavigateToMessage={onNavigateToMessage}
           onSelectConversation={onSelectConversation}

@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown } from 'lucide-react';
@@ -10,22 +18,33 @@ import {
   getFeedSnapshot,
   useFeedRows,
 } from '../../stores/feedStore';
-import type { Channel, Contact, Conversation, Message } from '../../types';
+import type { Channel, Contact, Conversation, Message, RawPacket } from '../../types';
+import { buildJournalEntries, type JournalEntry } from '../../utils/controlJournal';
 import { formatNumber } from '../../utils/formatNumber';
 import {
   countHiddenRows,
   filtersToQuery,
   hasEmptySelection,
+  hasNoMessages,
   loadFeedFilters,
   rowPassesFilters,
   saveFeedFilters,
   type FeedFilters,
 } from '../../utils/feedFilters';
 import type { SearchNavigateTarget } from '../SearchView';
+import { RawPacketInspectorDialog } from '../RawPacketDetailModal';
 import { Button } from '../ui/button';
 import { ToolPaneHeader } from '../ToolPaneHeader';
 import { FEED_DOM_MAX } from './feedConversation';
-import { countArrivedSince, FOLLOW_THRESHOLD_PX, highestId } from './feedFollow';
+import {
+  countArrivedSince,
+  countControlArrivedSince,
+  FOLLOW_THRESHOLD_PX,
+  highestId,
+} from './feedFollow';
+import { buildFeedNodes, visibleControlEntries } from './feedControl';
+import { FeedControlRow, type FeedControlActions } from './FeedControlRow';
+import { FeedNodesFacet } from './FeedNodesFacet';
 import { buildFeedItems, createDayLabeler, type FeedItem } from './feedDays';
 import {
   firstRowAfterMark,
@@ -50,6 +69,8 @@ interface FeedViewProps {
   contacts: Contact[];
   channels: Channel[];
   radioName?: string;
+  /** Our public key, to recognise "us" in control packets. */
+  publicKey?: string;
   onBackToTools?: () => void;
   /** Leaves the feed for the conversation, scrolled to (and highlighting) the message. */
   onNavigateToMessage?: (target: SearchNavigateTarget) => void;
@@ -71,6 +92,8 @@ const RELOAD_DEBOUNCE_MS = 250;
 const CLOCK_TICK_MS = 60_000;
 /** Frames the pin is re-applied while row heights settle. */
 const PIN_FRAMES = 12;
+/** How long the twin of a "Paired" badge stays highlighted after the scroll. */
+const HIGHLIGHT_MS = 2000;
 
 function useTimeFormatter(language: string) {
   return useMemo(() => {
@@ -104,13 +127,14 @@ export function FeedView({
   contacts,
   channels,
   radioName,
+  publicKey,
   onBackToTools,
   onNavigateToMessage,
   onSelectConversation,
   onOpenContactInfo,
 }: FeedViewProps) {
   const { t, i18n } = useTranslation();
-  const { rows, hasOlder, epoch } = useFeedRows();
+  const { rows, controlPackets, hasOlder, epoch } = useFeedRows();
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
@@ -122,6 +146,9 @@ export function FeedView({
   const [olderError, setOlderError] = useState<string | null>(null);
   const [following, setFollowing] = useState(true);
   const [baselineId, setBaselineId] = useState(0);
+  const [baselineMs, setBaselineMs] = useState(0);
+  const [inspected, setInspected] = useState<RawPacket | null>(null);
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   // The "where was I" mark is read once per visit: the separator then stays on the row it
   // named, whatever arrives and whatever the mark becomes when the view hides.
@@ -135,6 +162,8 @@ export function FeedView({
   const hasOlderRef = useRef(hasOlder);
   const rowsRef = useRef<readonly Message[]>(rows);
   const visibleRowsRef = useRef<readonly Message[]>([]);
+  const visibleControlRef = useRef<readonly JournalEntry[]>([]);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorRef = useRef<ScrollAnchor | null>(null);
   // Read on hide/unmount, when the scroller may already be detached.
   const viewportBottomRef = useRef(0);
@@ -154,7 +183,6 @@ export function FeedView({
   hasOlderRef.current = hasOlder;
   rowsRef.current = rows;
   tRef.current = t;
-  filtersRef.current = filters;
   channelsRef.current = channels;
 
   // Preferences are per browser (`localStorage`); a second tab only sees them on reload.
@@ -167,28 +195,63 @@ export function FeedView({
     return () => clearInterval(timer);
   }, []);
 
+  // Control rows are built once per observation (the decode cache) and rebuilt, without
+  // decoding, when the contacts or channels change.
+  const entries = useMemo(
+    () => buildJournalEntries([...controlPackets], contacts, channels, publicKey),
+    [controlPackets, contacts, channels, publicKey]
+  );
+  const nodeSections = useMemo(() => buildFeedNodes(entries, t), [entries, t]);
+  // A stored node filters only while the facet that shows (and clears) it is on screen:
+  // Control on and the node still among the threads. Otherwise it is ignored, never a
+  // hidden filter the reader cannot see.
+  const activeNode =
+    filters.sources.control &&
+    filters.node &&
+    nodeSections.some((s) => s.nodes.some((n) => n.id === filters.node))
+      ? filters.node
+      : null;
+  const effective = useMemo<FeedFilters>(
+    () => (activeNode === filters.node ? filters : { ...filters, node: activeNode }),
+    [filters, activeNode]
+  );
+  filtersRef.current = effective;
+
+  const noMessages = hasNoMessages(filters);
   const emptySelection = hasEmptySelection(filters);
   const query = useMemo(() => filtersToQuery(filters), [filters]);
-  const queryKey = emptySelection ? 'none' : JSON.stringify(query);
+  const queryKey = noMessages ? 'none' : JSON.stringify(query);
 
   const visibleRows = useMemo(
-    () => rows.filter((row) => rowPassesFilters(row, filters, channels, nowSec)),
-    [rows, filters, channels, nowSec]
+    () => rows.filter((row) => rowPassesFilters(row, effective, channels, nowSec)),
+    [rows, effective, channels, nowSec]
   );
   visibleRowsRef.current = visibleRows;
-  const hidden = useMemo(
-    () => countHiddenRows(rows, filters, channels, nowSec),
-    [rows, filters, channels, nowSec]
+  const visibleControl = useMemo(
+    () => visibleControlEntries(entries, filters.sources.control, activeNode),
+    [entries, filters.sources.control, activeNode]
   );
-  const items = useMemo(() => buildFeedItems(visibleRows, newSinceId), [visibleRows, newSinceId]);
+  visibleControlRef.current = visibleControl;
+  const hidden = useMemo(
+    () => countHiddenRows(rows, effective, channels, nowSec),
+    [rows, effective, channels, nowSec]
+  );
+  const items = useMemo(
+    () => buildFeedItems(visibleRows, newSinceId, visibleControl),
+    [visibleRows, newSinceId, visibleControl]
+  );
+  const itemCount = items.length;
   const resolveLabels = useMemo(
     () => createFeedNameResolver(channels, contacts),
     [channels, contacts]
   );
 
   /** Rows the current filters keep among those the store holds right now. */
-  const countVisibleNow = useCallback(
-    () =>
+  const countVisibleNow = useCallback(() => {
+    const node = filtersRef.current.node;
+    // A node that is not a channel hides every message: older pages cannot fill the list.
+    if (node && !node.toUpperCase().startsWith('CHANNEL:')) return Number.MAX_SAFE_INTEGER;
+    return (
       getFeedSnapshot().rows.filter((row) =>
         rowPassesFilters(
           row,
@@ -196,9 +259,9 @@ export function FeedView({
           channelsRef.current,
           Math.floor(Date.now() / 1000)
         )
-      ).length,
-    []
-  );
+      ).length + visibleControlRef.current.length
+    );
+  }, []);
 
   const loadNewest = useCallback(
     async (serverQuery: ReturnType<typeof filtersToQuery>, signal?: AbortSignal) => {
@@ -287,6 +350,7 @@ export function FeedView({
 
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current || !hasOlderRef.current || reloadPendingRef.current) return;
+    if (hasNoMessages(filtersRef.current)) return;
     const oldest = rowsRef.current[0];
     if (!oldest) return;
     loadingOlderRef.current = true;
@@ -313,16 +377,16 @@ export function FeedView({
     }
   }, [countVisibleNow]);
 
-  // Muted / pending are client-side: ticking them in place can leave a short list that
+  // Muted / pending and the node are client-side: ticking them in place can leave a short list that
   // cannot be scrolled, so the same bounded fetch applies.
-  const clientFilterKey = `${filters.includeMuted}|${filters.includePending}`;
+  const clientFilterKey = `${filters.includeMuted}|${filters.includePending}|${activeNode}`;
   useEffect(() => {
     if (firstClientFilterRef.current) {
       firstClientFilterRef.current = false;
       return;
     }
-    if (status === 'ready' && !hasEmptySelection(filtersRef.current)) void loadOlderIfHollow();
-    // Only a change of these two chips is a gesture.
+    if (status === 'ready' && !hasNoMessages(filtersRef.current)) void loadOlderIfHollow();
+    // Only a change of these is a gesture.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientFilterKey]);
 
@@ -334,7 +398,9 @@ export function FeedView({
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) =>
-      items[index]?.kind === 'row' ? ESTIMATED_ROW_HEIGHT : ESTIMATED_DAY_HEIGHT,
+      items[index]?.kind === 'row' || items[index]?.kind === 'control'
+        ? ESTIMATED_ROW_HEIGHT
+        : ESTIMATED_DAY_HEIGHT,
     scrollMargin,
     getItemKey: (index) => items[index]?.key ?? `__idx:${index}`,
     overscan: 8,
@@ -414,12 +480,15 @@ export function FeedView({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [visibleRows.length, totalSize, status, pinToBottom]);
+  }, [itemCount, totalSize, status, pinToBottom]);
 
   const setFollow = useCallback((next: boolean) => {
     if (followingRef.current === next) return;
     followingRef.current = next;
-    if (!next) setBaselineId(highestId(visibleRowsRef.current));
+    if (!next) {
+      setBaselineId(highestId(visibleRowsRef.current));
+      setBaselineMs(Date.now());
+    }
     setFollowing(next);
   }, []);
 
@@ -450,8 +519,12 @@ export function FeedView({
   }, [visibleRows, handleFollowClick]);
 
   const arrived = useMemo(
-    () => (following ? 0 : countArrivedSince(visibleRows, baselineId)),
-    [following, visibleRows, baselineId]
+    () =>
+      following
+        ? 0
+        : countArrivedSince(visibleRows, baselineId) +
+          countControlArrivedSince(visibleControl, baselineMs),
+    [following, visibleRows, visibleControl, baselineId, baselineMs]
   );
 
   // Without the three callbacks (a bare view) rows are read-only, no menu either.
@@ -475,167 +548,234 @@ export function FeedView({
     };
   }, [onNavigateToMessage, onSelectConversation, onOpenContactInfo]);
 
+  useEffect(
+    () => () => {
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    },
+    []
+  );
+  const openPaired = useCallback(
+    (pairedKey: string) => {
+      const key = `control:${pairedKey}`;
+      const index = items.findIndex((item) => item.key === key);
+      if (index < 0) return;
+      virtualizer.scrollToIndex(index, { align: 'center' });
+      setHighlightKey(key);
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = setTimeout(() => setHighlightKey(null), HIGHLIGHT_MS);
+    },
+    [items, virtualizer]
+  );
+  const controlActions = useMemo<FeedControlActions>(
+    () => ({
+      onInspect: setInspected,
+      onOpenContact: onOpenContactInfo,
+      onOpenChannel: onSelectConversation
+        ? (channel) =>
+            onSelectConversation({ type: 'channel', id: channel.key, name: channel.name })
+        : undefined,
+      onOpenPaired: openPaired,
+    }),
+    [onOpenContactInfo, onSelectConversation, openPaired]
+  );
+  const itemKeys = useMemo(() => new Set(items.map((item) => item.key)), [items]);
+
   const header = <ToolPaneHeader title={t('feed.title')} onBack={onBackToTools} />;
   const chips = <FeedFilterChips filters={filters} hidden={hidden} onChange={setFilters} />;
+  const facet =
+    filters.sources.control && nodeSections.length > 0 ? (
+      <FeedNodesFacet
+        sections={nodeSections}
+        selected={activeNode}
+        onSelect={(node) => setFilters((prev) => ({ ...prev, node }))}
+      />
+    ) : null;
+  const inspector = (
+    <RawPacketInspectorDialog
+      open={inspected !== null}
+      onOpenChange={(isOpen) => !isOpen && setInspected(null)}
+      channels={channels}
+      source={
+        inspected
+          ? { kind: 'packet', packet: inspected }
+          : { kind: 'loading', message: t('rawPacket.loading') }
+      }
+      title={t('rawPacket.details')}
+      description={t('rawPacket.detailsDescription')}
+    />
+  );
+  // Header, chips, then the Nodes facet beside the pane the rest of the view fills.
+  const shell = (content: ReactNode) => (
+    <>
+      {header}
+      {chips}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        {facet}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{content}</div>
+      </div>
+      {inspector}
+    </>
+  );
+  const hasNothing = rows.length === 0 && entries.length === 0;
 
-  if (status === 'loading' && rows.length === 0) {
-    return (
-      <>
-        {header}
-        {chips}
+  if (status === 'loading' && itemCount === 0) {
+    return shell(
+      <div role="status" className="flex flex-1 items-center justify-center text-muted-foreground">
+        {t('conversation.loadingFeed')}
+      </div>
+    );
+  }
+
+  if (status === 'error' && itemCount === 0) {
+    return shell(
+      <div
+        role="alert"
+        className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-sm text-muted-foreground"
+      >
+        <p>{t('feed.loadError', { error: loadError })}</p>
+        <Button size="sm" onClick={() => void loadNewest(query)}>
+          {t('feed.retry')}
+        </Button>
+      </div>
+    );
+  }
+
+  if (itemCount === 0) {
+    return shell(
+      loadingOlder || status === 'loading' ? (
         <div
           role="status"
           className="flex flex-1 items-center justify-center text-muted-foreground"
         >
-          {t('conversation.loadingFeed')}
+          {t('feed.loadingOlder')}
         </div>
-      </>
+      ) : (
+        <div className="flex flex-1 items-center justify-center p-4 text-center text-muted-foreground">
+          {hasNothing && !emptySelection ? t('feed.empty') : t('feed.emptyFiltered')}
+        </div>
+      )
     );
   }
 
-  if (status === 'error' && rows.length === 0) {
-    return (
-      <>
-        {header}
-        {chips}
-        <div
-          role="alert"
-          className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-sm text-muted-foreground"
-        >
-          <p>{t('feed.loadError', { error: loadError })}</p>
-          <Button size="sm" onClick={() => void loadNewest(query)}>
-            {t('feed.retry')}
-          </Button>
-        </div>
-      </>
-    );
-  }
-
-  if (visibleRows.length === 0) {
-    return (
-      <>
-        {header}
-        {chips}
-        {loadingOlder || status === 'loading' ? (
-          <div
-            role="status"
-            className="flex flex-1 items-center justify-center text-muted-foreground"
-          >
+  return shell(
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-2"
+      >
+        {loadingOlder ? (
+          <div role="status" className="py-2 text-center text-xs text-muted-foreground">
             {t('feed.loadingOlder')}
           </div>
-        ) : (
-          <div className="flex flex-1 items-center justify-center p-4 text-center text-muted-foreground">
-            {rows.length === 0 && !emptySelection ? t('feed.empty') : t('feed.emptyFiltered')}
-          </div>
-        )}
-      </>
-    );
-  }
-
-  return (
-    <>
-      {header}
-      {chips}
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <div
-          ref={scrollRef}
-          onScroll={handleScroll}
-          className="min-h-0 flex-1 overflow-y-auto px-4 py-2"
-        >
-          {loadingOlder ? (
-            <div role="status" className="py-2 text-center text-xs text-muted-foreground">
-              {t('feed.loadingOlder')}
-            </div>
-          ) : olderError ? (
-            <div
-              role="alert"
-              className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground"
-            >
-              <span>{t('feed.loadOlderError', { error: olderError })}</span>
-              <Button size="sm" variant="outline" onClick={() => void loadOlder()}>
-                {t('feed.retry')}
-              </Button>
-            </div>
-          ) : !hasOlder ? (
-            <div className="py-2 text-center text-xs text-muted-foreground">
-              {t('feed.beginning')}
-            </div>
-          ) : null}
+        ) : olderError ? (
           <div
-            ref={spacerRef}
-            role="list"
-            aria-label={t('feed.listLabel')}
-            style={{ height: totalSize, position: 'relative' }}
+            role="alert"
+            className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground"
           >
-            {mounted.map((item) => {
-              const entry = items[item.index];
-              if (!entry) return null;
-              const position = {
-                transform: `translateY(${item.start - scrollMargin}px)`,
-              };
-              if (entry.kind === 'new') {
-                return (
-                  <div
-                    key={item.key}
-                    ref={virtualizer.measureElement}
-                    data-index={item.index}
-                    role="separator"
-                    aria-label={t('feed.newSinceLastVisit')}
-                    className="absolute left-0 top-0 flex w-full items-center gap-2 py-1 text-xs font-medium text-primary"
-                    style={position}
-                  >
-                    <span className="h-px flex-1 bg-primary/40" />
-                    <span>{t('feed.newSinceLastVisit')}</span>
-                    <span className="h-px flex-1 bg-primary/40" />
-                  </div>
-                );
-              }
-              if (entry.kind === 'day') {
-                return (
-                  <div
-                    key={item.key}
-                    ref={virtualizer.measureElement}
-                    data-index={item.index}
-                    role="presentation"
-                    className="absolute left-0 top-0 w-full pt-3 pb-1"
-                    style={position}
-                  >
-                    <h3 className="text-center text-xs font-medium text-muted-foreground">
-                      {labelDay(entry.at, nowSec)}
-                    </h3>
-                  </div>
-                );
-              }
+            <span>{t('feed.loadOlderError', { error: olderError })}</span>
+            <Button size="sm" variant="outline" onClick={() => void loadOlder()}>
+              {t('feed.retry')}
+            </Button>
+          </div>
+        ) : !hasOlder ? (
+          <div className="py-2 text-center text-xs text-muted-foreground">
+            {t('feed.beginning')}
+          </div>
+        ) : null}
+        <div
+          ref={spacerRef}
+          role="list"
+          aria-label={t('feed.listLabel')}
+          style={{ height: totalSize, position: 'relative' }}
+        >
+          {mounted.map((item) => {
+            const entry = items[item.index];
+            if (!entry) return null;
+            const position = {
+              transform: `translateY(${item.start - scrollMargin}px)`,
+            };
+            if (entry.kind === 'new') {
               return (
-                <FeedMessageRow
+                <div
+                  key={item.key}
+                  ref={virtualizer.measureElement}
+                  data-index={item.index}
+                  role="separator"
+                  aria-label={t('feed.newSinceLastVisit')}
+                  className="absolute left-0 top-0 flex w-full items-center gap-2 py-1 text-xs font-medium text-primary"
+                  style={{ transform: `translateY(${item.start - scrollMargin}px)` }}
+                >
+                  <span className="h-px flex-1 bg-primary/40" />
+                  <span>{t('feed.newSinceLastVisit')}</span>
+                  <span className="h-px flex-1 bg-primary/40" />
+                </div>
+              );
+            }
+            if (entry.kind === 'day') {
+              return (
+                <div
+                  key={item.key}
+                  ref={virtualizer.measureElement}
+                  data-index={item.index}
+                  role="presentation"
+                  className="absolute left-0 top-0 w-full pt-3 pb-1"
+                  style={position}
+                >
+                  <h3 className="text-center text-xs font-medium text-muted-foreground">
+                    {labelDay(entry.at, nowSec)}
+                  </h3>
+                </div>
+              );
+            }
+            if (entry.kind === 'control') {
+              return (
+                <FeedControlRow
                   key={item.key}
                   measureRef={virtualizer.measureElement}
                   index={item.index}
                   offset={item.start - scrollMargin}
-                  row={entry.row}
-                  labels={resolveLabels(entry.row)}
-                  time={formatRowTime(entry.row.received_at)}
-                  radioName={radioName}
-                  actions={actions}
+                  entry={entry.entry}
+                  time={formatRowTime(entry.entry.packet.timestamp)}
+                  publicKey={publicKey}
+                  actions={controlActions}
+                  pairedAvailable={
+                    entry.entry.pairedKey !== null &&
+                    itemKeys.has(`control:${entry.entry.pairedKey}`)
+                  }
+                  highlighted={highlightKey === item.key}
                 />
               );
-            })}
-          </div>
+            }
+            return (
+              <FeedMessageRow
+                key={item.key}
+                measureRef={virtualizer.measureElement}
+                index={item.index}
+                offset={item.start - scrollMargin}
+                row={entry.row}
+                labels={resolveLabels(entry.row)}
+                time={formatRowTime(entry.row.received_at)}
+                radioName={radioName}
+                actions={actions}
+              />
+            );
+          })}
         </div>
-        {!following && (
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleFollowClick}
-            className="absolute bottom-3 right-4 shadow-md"
-          >
-            <ArrowDown className="h-4 w-4" aria-hidden="true" />
-            {arrived > 0
-              ? t('feed.followNew', { count: arrived, formatted: formatNumber(arrived) })
-              : t('feed.follow')}
-          </Button>
-        )}
       </div>
-    </>
+      {!following && (
+        <Button
+          type="button"
+          size="sm"
+          onClick={handleFollowClick}
+          className="absolute bottom-3 right-4 shadow-md"
+        >
+          <ArrowDown className="h-4 w-4" aria-hidden="true" />
+          {arrived > 0
+            ? t('feed.followNew', { count: arrived, formatted: formatNumber(arrived) })
+            : t('feed.follow')}
+        </Button>
+      )}
+    </div>
   );
 }
