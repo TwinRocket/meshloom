@@ -88,6 +88,13 @@ COPY --from=frontend-builder /build/dist ./frontend/dist
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
 
+# The account plugin children drop to when the server runs as root (the default
+# here and in the Home Assistant add-on): app/plugins/isolation/setuid.py. No
+# shell, no home, no password; Docker's seccomp profile refuses the user
+# namespaces bubblewrap needs, so this is the isolation of the image.
+RUN useradd --system --no-create-home --home-dir /nonexistent \
+        --shell /usr/sbin/nologin --user-group meshloom-plugin
+
 # Root by default, like every image before it. MESHLOOM_RUN_AS_USER=10001 opts
 # in to running as that uid (see docker-entrypoint.sh). setpriv comes with
 # util-linux in the base image.
