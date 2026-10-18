@@ -7,6 +7,13 @@ import {
   reportPasswordChangeRequired,
 } from './auth/authEvents';
 import type {
+  BundledPlugin,
+  PluginDiagnostic,
+  PluginInstallRequest,
+  PluginLogs,
+  PluginPatch,
+} from './components/settings/extensions/pluginsTypes';
+import type {
   AuthAuditPage,
   AuthLoginRequest,
   AuthMe,
@@ -133,6 +140,7 @@ import type {
   UnreadCounts,
   ShareLink,
   ShareMeta,
+  PluginInstance,
   ShareStatus,
 } from './types';
 
@@ -1185,6 +1193,29 @@ export const api = {
     fetchJson<{ deleted: boolean }>(`/push/subscriptions/${id}`, { method: 'DELETE' }),
   testPushSubscription: (id: string) =>
     fetchJson<{ status: string }>(`/push/subscriptions/${id}/test`, { method: 'POST' }),
+  getPlugins: () => fetchJson<PluginInstance[]>('/plugins'),
+  getBundledPlugins: () => fetchJson<BundledPlugin[]>('/plugins/bundled'),
+  installPlugin: (body: PluginInstallRequest) =>
+    fetchJson<PluginInstance>('/plugins/install', { method: 'POST', body: JSON.stringify(body) }),
+  patchPlugin: (id: string, body: PluginPatch) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  restartPlugin: (id: string) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
+  getPluginLogs: (id: string, limit = 200) =>
+    fetchJson<PluginLogs>(`/plugins/${encodeURIComponent(id)}/logs?limit=${limit}`, {
+      cache: 'no-store',
+    }),
+  getPluginDiagnostic: (id: string) =>
+    fetchJson<PluginDiagnostic>(`/plugins/${encodeURIComponent(id)}/diagnostic`, {
+      cache: 'no-store',
+    }),
+  deletePlugin: (id: string, keepData: boolean) =>
+    fetchJson<void>(`/plugins/${encodeURIComponent(id)}?keep_data=${keepData}`, {
+      method: 'DELETE',
+    }),
   getShareStatus: () => fetchJson<ShareStatus>('/share/status'),
   shortenLink: (url: string) =>
     fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),

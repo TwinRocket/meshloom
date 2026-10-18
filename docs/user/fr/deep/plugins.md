@@ -87,3 +87,12 @@ Aucun des deux n’est disponible : il ne reste que les garde-fous de Meshloom �
 Cherchez `Plugin isolation` dans le journal du serveur au démarrage, ou ouvrez `/api/health` une fois connecté et lisez `plugins_isolation` : `bwrap`, `setuid` ou `none`. Après avoir installé bubblewrap, redémarrez Meshloom pour qu’il vérifie à nouveau.
 
 Franchir ces murs est une faille de sécurité : signalez-la comme l’indique la politique de sécurité du projet. Les extensions que vous installez restent du code auquel vous choisissez de faire confiance ; les murs limitent ce qu’une erreur ou une mauvaise mise à jour peut atteindre.
+
+
+## Réglages → Extensions (brouillon)
+
+Les administrateurs gèrent les extensions dans **Réglages → Extensions**. Le haut de la page indique le niveau d'isolation en vigueur et ce qu'il signifie. L'onglet **Installées** liste chaque copie avec son état, un badge quand elle demande votre attention (réglages requis, permissions à revoir, consentement requis), si elle est fournie, un interrupteur et des flèches pour réordonner. **Store** et **Mises à jour** sont des emplacements pour l'instant.
+
+- **Ajouter une extension fournie** montre ce qu'elle peut faire en clair, les serveurs qu'elle contacte et sa déclaration de confidentialité. Quand elle peut lire les messages privés (messages directs ou tous les canaux) et joindre Internet, un avertissement dit qu'elle peut transmettre vos messages privés à ces serveurs. Rien n'est installé tant que vous n'avez pas coché la case et confirmé.
+- Une extension **révoquée** ou **incompatible** ne peut pas être activée. Une extension à examiner reste arrêtée tant que vous ne l'avez pas ouverte et choisi **Accepter et activer**.
+- Le tiroir de détail permet de décocher des permissions, de choisir les conversations qu'elle peut lire, de baisser ses limites d'envoi (jamais au-dessus de ce qu'elle demande), de lire son journal, de la redémarrer, de **copier un diagnostic** pour un rapport de bug (sans valeur de réglage ni secret) et de la désinstaller, en gardant ses données ou non. Les réglages secrets ne sont jamais affichés. La modification des réglages propres à l'extension arrivera plus tard.

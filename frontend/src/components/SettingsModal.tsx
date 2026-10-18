@@ -27,6 +27,7 @@ import { SettingsProxySection } from './settings/SettingsProxySection';
 import { SettingsLocalSection } from './settings/SettingsLocalSection';
 import { SettingsNotificationsSection } from './settings/SettingsNotificationsSection';
 import { SettingsCommunitySection } from './settings/SettingsCommunitySection';
+import { SettingsExtensionsSection } from './settings/SettingsExtensionsSection';
 import { SettingsShareSection } from './settings/SettingsShareSection';
 import { SettingsRadioAppSection } from './settings/SettingsRadioAppSection';
 import { SettingsAlertsSection } from './settings/SettingsAlertsSection';
@@ -166,6 +167,7 @@ export function SettingsModal(props: SettingsModalProps) {
     'radio-app': false,
     alerts: false,
     fanout: false,
+    extensions: false,
     database: false,
     navigation: false,
     statistics: false,
@@ -390,6 +392,15 @@ export function SettingsModal(props: SettingsModalProps) {
               className={sectionContentClass}
               onSaveAppSettings={onSaveAppSettings}
             />
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('extensions') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('extensions')}
+          {isSectionVisible('extensions') && (
+            <SettingsExtensionsSection className={sectionContentClass} health={health} />
           )}
         </section>
       )}

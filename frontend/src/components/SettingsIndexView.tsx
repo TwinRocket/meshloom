@@ -41,7 +41,16 @@ const GROUPS: { titleKey: string; sections: SettingsSection[] }[] = [
   { titleKey: 'settingsIndex.groupRadio', sections: ['radio', 'proxy', 'radio-app', 'alerts'] },
   {
     titleKey: 'settingsIndex.groupApp',
-    sections: ['local', 'access', 'navigation', 'notifications', 'updates', 'community', 'fanout'],
+    sections: [
+      'local',
+      'access',
+      'navigation',
+      'notifications',
+      'updates',
+      'community',
+      'fanout',
+      'extensions',
+    ],
   },
   { titleKey: 'settingsIndex.groupData', sections: ['database', 'statistics', 'about'] },
 ];
