@@ -205,7 +205,7 @@ async def lifespan(app: FastAPI):
     # Retired MESHCORE_* settings (VAPID contact, radio workarounds): copied into
     # app_settings once, then only a warning while they (or a retired
     # MESHLOOM_COMMUNITY* variable) are still set.
-    from app import cors, radio_workarounds
+    from app import origin_policy, radio_workarounds
     from app.services.legacy_env_settings import import_legacy_env_settings
 
     try:
@@ -218,7 +218,7 @@ async def lifespan(app: FastAPI):
         # The workarounds stay off (their defaults) rather than block startup.
         logger.exception("Failed to load the radio workarounds from app_settings")
     try:
-        await cors.load()
+        await origin_policy.load()
     except Exception:
         # Same-origin only (the default) rather than block startup.
         logger.exception("Failed to load the allowed origins from app_settings")

@@ -14,9 +14,9 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import app.websocket as websocket_module
+from app.origin_policy import websocket_origin_allowed
 from app.websocket import (
     FOREIGN_ORIGIN_CLOSE_CODE,
-    origin_allowed,
     reject_foreign_origin,
     ws_manager,
 )
@@ -152,7 +152,7 @@ class TestOriginAllowed:
         ],
     )
     def test_rule(self, headers, allowed):
-        assert origin_allowed(headers) is allowed
+        assert websocket_origin_allowed(headers) is allowed
 
 
 class TestRefusalLogThrottle:

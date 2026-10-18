@@ -349,8 +349,17 @@ def parse_apprise_urls(urls: list[str]) -> list[ValidatedUrl]:
     """Allowlist, instantiate, turn redirects off, refuse a Telegram URL with no chat id.
 
     No DNS lookup: ``validate_apprise_urls`` adds the host check. Raises
-    ``AppriseUrlRefused``.
+    ``AppriseUrlRefused``. The URLs' secret parts are registered with
+    ``secret_scope`` meanwhile: Apprise may log a URL at DEBUG while parsing.
     """
+    from app.log_redaction import secret_scope
+
+    with secret_scope(*(part for url in urls for part in apprise_url_secret_parts(url))):
+        return _parse_apprise_urls(urls)
+
+
+def _parse_apprise_urls(urls: list[str]) -> list[ValidatedUrl]:
+    """``parse_apprise_urls`` without the secret scope."""
     import apprise as apprise_lib
     from apprise.plugins.telegram import NotifyTelegram
 

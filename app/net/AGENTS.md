@@ -117,6 +117,10 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   before the guard (no such key) reads as allowed and
   `private_network_grandfathered` (`grandfather_legacy_webhook()` in
   `app/models.py`, applied on repository reads and backup restores).
+- Apprise notification medium (`app/notifications/apprise_medium.py`):
+  `notification_destinations.apprise.urls` through `validate_apprise_urls`
+  with `apprise.allow_private_network`, at save (`PATCH /api/settings`, only
+  when the URLs or the flag change) and before each send, URL by URL.
 - Web Push: `POST /api/push/subscribe` (400 coded) and every send
   (`app/push/send.py`), with the instance setting `push_allow_private_endpoints`.
 - The test routes (`POST /push/subscriptions/{id}/test`,

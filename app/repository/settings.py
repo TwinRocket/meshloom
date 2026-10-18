@@ -8,7 +8,7 @@ from typing import Any, TypedDict
 import aiosqlite
 from pydantic import ValidationError
 
-from app import cors, radio_workarounds
+from app import origin_policy, radio_workarounds
 from app.database import db
 from app.models import (
     AppSettings,
@@ -48,13 +48,14 @@ PUSH_DEFAULT_KEYS = (
     "app_started",
 )
 
-NOTIFICATION_MEDIA_KEYS = ("push", "email", "webhook")
+NOTIFICATION_MEDIA_KEYS = ("push", "email", "webhook", "apprise")
 
 
 class NotificationMediaFlags(TypedDict):
     push: bool
     email: bool
     webhook: bool
+    apprise: bool
 
 
 class PushDefaults(TypedDict):
@@ -72,7 +73,7 @@ class PushDefaults(TypedDict):
 
 
 def _default_media() -> NotificationMediaFlags:
-    return NotificationMediaFlags(push=True, email=False, webhook=False)
+    return NotificationMediaFlags(push=True, email=False, webhook=False, apprise=False)
 
 
 DEFAULT_PUSH_DEFAULTS: PushDefaults = PushDefaults(
@@ -84,7 +85,7 @@ def coerce_notification_media(
     raw: object,
     fallback: NotificationMediaFlags | None = None,
 ) -> NotificationMediaFlags:
-    """Accept a legacy bool (push only) or ``{push,email,webhook}``."""
+    """Accept a legacy bool (push only) or ``{push,email,webhook,apprise}``."""
     base = NotificationMediaFlags(**(fallback or _default_media()))
     if isinstance(raw, bool):
         base["push"] = raw
@@ -107,14 +108,14 @@ def media_enabled(
 
 def any_media_enabled(defaults: Mapping[str, Any], key: str) -> bool:
     flags = coerce_notification_media(defaults.get(key, True))
-    return flags["push"] or flags["email"] or flags["webhook"]
+    return any(flags[key] for key in NOTIFICATION_MEDIA_KEYS)
 
 
 def or_notification_media(*raws: object) -> NotificationMediaFlags:
-    result = NotificationMediaFlags(push=False, email=False, webhook=False)
+    result = NotificationMediaFlags(push=False, email=False, webhook=False, apprise=False)
     for raw in raws:
         flags = coerce_notification_media(
-            raw, NotificationMediaFlags(push=False, email=False, webhook=False)
+            raw, NotificationMediaFlags(push=False, email=False, webhook=False, apprise=False)
         )
         for key in NOTIFICATION_MEDIA_KEYS:
             result[key] = result[key] or flags[key]
@@ -205,7 +206,7 @@ ConversationOverride = dict[str, bool]
 
 
 def coerce_conversation_override(raw: object) -> ConversationOverride:
-    """Accept a legacy bool (push only) or a partial ``{push,email,webhook}``."""
+    """Accept a legacy bool (push only) or a partial ``{push,email,webhook,apprise}``."""
     if isinstance(raw, bool):
         return {"push": raw}
     if not isinstance(raw, Mapping):
@@ -740,8 +741,17 @@ class AppSettingsRepository:
         push_private_endpoints_grandfathered: bool | None = None,
         radio_offline_grace_s: int | None = None,
     ) -> AppSettings:
-        """Update app settings. Only provided fields are updated."""
+        """Update app settings. Only provided fields are updated.
+
+        A change of ``notification_destinations`` sends the push proof of
+        modification (``notify_destination_changed``).
+        """
         async with db.tx() as conn:
+            destinations_before = (
+                (await AppSettingsRepository._get_in_conn(conn)).notification_destinations
+                if notification_destinations is not None
+                else None
+            )
             await AppSettingsRepository._apply_updates(
                 conn,
                 max_radio_contacts=max_radio_contacts,
@@ -780,7 +790,11 @@ class AppSettingsRepository:
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
-        cors.apply(result)
+        origin_policy.apply(result)
+        if destinations_before is not None:
+            from app.notify import notify_destination_changed
+
+            notify_destination_changed(destinations_before, result.notification_destinations)
         return result
 
     @staticmethod
@@ -1005,6 +1019,7 @@ class AppSettingsRepository:
                 push=bool(rules.channels.push),
                 email=bool(rules.channels.email),
                 webhook=bool(rules.channels.webhook),
+                apprise=bool(rules.channels.apprise),
             )
         return defaults
 
@@ -1028,6 +1043,7 @@ class AppSettingsRepository:
             rules.channels.push = merged["telemetry_alert"]["push"]
             rules.channels.email = merged["telemetry_alert"]["email"]
             rules.channels.webhook = merged["telemetry_alert"]["webhook"]
+            rules.channels.apprise = merged["telemetry_alert"]["apprise"]
             await conn.execute(
                 "UPDATE app_settings SET telemetry_alert_rules = ? WHERE id = 1",
                 (json.dumps(stored_rules_dict(rules)),),

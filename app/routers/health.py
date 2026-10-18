@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
+from app.notify import notification_statuses
 from app.repository import RawPacketRepository
 from app.services.radio_lifecycle import expected_reboot_reason
 from app.services.radio_runtime import radio_runtime as radio_manager
@@ -33,6 +34,20 @@ class FanoutStatusResponse(BaseModel):
     type: str
     status: str
     last_error: str | None = None
+
+
+class NotificationLastError(BaseModel):
+    """A medium's last failure: a code and a time, for Apprise the line and the
+    redacted URL (scheme and host). Never an exception text."""
+
+    code: str
+    at: int
+    line: int | None = None
+    url: str | None = None
+
+
+class NotificationStatusResponse(BaseModel):
+    last_error: NotificationLastError | None = None
 
 
 class RadioStatsSnapshot(BaseModel):
@@ -76,6 +91,7 @@ class HealthResponse(BaseModel):
     database_size_mb: float
     oldest_undecrypted_timestamp: int | None
     fanout_statuses: dict[str, FanoutStatusResponse] = Field(default_factory=dict)
+    notification_statuses: dict[str, NotificationStatusResponse] = Field(default_factory=dict)
     bots_disabled: bool = False
     bots_disabled_source: Literal["env", "until_restart"] | None = None
     basic_auth_enabled: bool = False
@@ -227,6 +243,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "database_size_mb": db_size_mb,
         "oldest_undecrypted_timestamp": oldest_ts,
         "fanout_statuses": fanout_statuses,
+        "notification_statuses": notification_statuses(),
         "bots_disabled": bots_disabled_source is not None,
         "bots_disabled_source": bots_disabled_source,
         "basic_auth_enabled": _read_optional_bool_setting("basic_auth_enabled"),

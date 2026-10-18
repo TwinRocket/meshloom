@@ -11,6 +11,7 @@ const MEDIA: { channel: NotificationMediaChannel; label: string }[] = [
   { channel: 'push', label: 'chatHeader.notifyPush' },
   { channel: 'email', label: 'chatHeader.notifyEmail' },
   { channel: 'webhook', label: 'chatHeader.notifyWebhook' },
+  { channel: 'apprise', label: 'chatHeader.notifyApprise' },
 ];
 
 type Panel = 'main' | 'notify' | 'mute';
@@ -24,6 +25,7 @@ interface ConversationOverflowMenuProps {
   notifyMediaEnabled?: NotificationMediaFlags;
   emailReady?: boolean;
   webhookReady?: boolean;
+  appriseReady?: boolean;
   canMute: boolean;
   muted?: boolean;
   mutedUntil?: number | null;
@@ -75,6 +77,7 @@ export function ConversationOverflowMenu({
   notifyMediaEnabled,
   emailReady = false,
   webhookReady = false,
+  appriseReady = false,
   canMute,
   muted = false,
   mutedUntil,
@@ -128,7 +131,7 @@ export function ConversationOverflowMenu({
         : null;
 
   const ready = (channel: NotificationMediaChannel) =>
-    channel === 'push' || (channel === 'email' ? emailReady : webhookReady);
+    ({ push: true, email: emailReady, webhook: webhookReady, apprise: appriseReady })[channel];
 
   return (
     <div ref={rootRef} className="relative shrink-0">
@@ -261,7 +264,7 @@ export function ConversationOverflowMenu({
                   );
                 })}
               </div>
-              {(!emailReady || !webhookReady) && onOpenNotifySettings && (
+              {(!emailReady || !webhookReady || !appriseReady) && onOpenNotifySettings && (
                 <button
                   type="button"
                   className="w-full px-3 py-1.5 text-left text-[0.6875rem] text-muted-foreground hover:text-foreground"

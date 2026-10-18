@@ -14,10 +14,15 @@ and the OpenAPI page (`/docs`), not a table here.
 - `radio_workarounds.py` holds an in-memory copy of the workaround settings
   (Settings → Radio → Advanced): loaded at startup, refreshed by
   `AppSettingsRepository.update()`. Write through the repository, never around it.
-- `cors.py` keeps the CORS allowlist (`app_settings.auth_allowed_origins`, Settings
-  → Local Configuration → Allowed origins) the same way, and feeds it to Starlette's
-  `CORSMiddleware`, rebuilt when the list changes. Empty means same-origin only;
-  `normalize_origin()` refuses `*`, paths and credentials.
+- `origin_policy.py` is the one origin policy for CORS and the WebSocket
+  upgrade: it keeps the allowlist (`app_settings.auth_allowed_origins`, Settings
+  → Local Configuration → Allowed origins) the same way, and parses stored
+  entries and request `Origin`/`Host` headers alike (pydantic `AnyHttpUrl`:
+  lowercase, punycode, default port dropped). `normalize_origin()` refuses `*`,
+  paths and credentials (typed trailing slashes are dropped); a request `Origin`
+  with a path, even `/`, or `null` matches nothing. `cors.py` feeds the list to
+  Starlette's `CORSMiddleware` (rebuilt when the list changes, `is_allowed_origin`
+  overridden by the policy). Empty means same-origin only.
 - `routers/server_control.py` holds the repeater/room CLI helpers shared by the
   repeater and room routers.
 - `push/` is Web Push, separate from the fanout bus (`fanout/`, see `fanout/AGENTS.md`).
@@ -512,12 +517,15 @@ floor, never the percentage alone, and do not remove the floor.
 - **Origin before accept.** `routers/ws.py` calls `reject_foreign_origin()`
   (`app/websocket.py`) before `ws_manager.connect()`: an `Origin` whose host
   and port (missing port = the scheme's default) differ from both `Host` and
-  the first `X-Forwarded-Host` is closed with 1008, which uvicorn sends as an
+  the first `X-Forwarded-Host`, and that is not in the allowlist
+  (`origin_policy.websocket_origin_allowed()`), is closed with 1008, which uvicorn sends as an
   HTTP 403 (no frame). No `Origin` is accepted (scripts, meshenger);
   `Origin: null` is refused. Trusting `X-Forwarded-Host` is safe against
   CSWSH because a browser page cannot set it; DNS rebinding is the `Host`
-  guard's job, not this one. Keep a new WebSocket route behind the same call.
-  Not shared with the HTTP CORS rule: it ignores `auth_allowed_origins`; a shared `app/origin_policy.py` is the follow-up.
+  guard's job, not this one. The scheme is not compared and
+  `X-Forwarded-Proto` is not read (a TLS terminator). Keep a new WebSocket
+  route behind the same call. `tests/test_origin_policy.py` runs one table of
+  origins through CORS and the WebSocket.
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
   `broadcast_event()` never awaits socket I/O. A slow client first loses
@@ -625,15 +633,49 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Telemetry alerts and notifications
 
-- Secrets (SMTP password, webhook secret in `notification_destinations`,
+- Four media: `push`, `email`, `webhook`, `apprise` (`NOTIFICATION_MEDIA_KEYS`,
+  `app/repository/settings.py`; the push router models, `pushPolicy.ts` and
+  the frontend matrix list them too). A missing key reads as off
+  (`coerce_notification_media`), so adding one needs no migration. A channel
+  reaches a medium other than push only through its bell override.
+- Secrets (SMTP password, webhook secret, Apprise `urls` in `notification_destinations`,
   `NOTIFICATION_SECRET_KEYS` in `app/secret_fields.py`) are returned as
   `********`; a PATCH that sends `********` back keeps the stored value. A
   kept secret never follows a destination change (`NOTIFICATION_DESTINATION_KEYS`:
   email `host`/`port`/`mode`, webhook `url`): the PATCH answers 400
   `secret_required`, and a v1 restore drops it with the warning
   `secret_dropped_destination_changed:email.password` (or
-  `webhook.hmac_secret`). The fanout configs follow the same rules
-  (`app/fanout/AGENTS.md`, "Secrets").
+  `webhook.hmac_secret`). Apprise `urls` are the secret and the destination
+  at once: `********` keeps them, `""` clears them. The fanout configs follow
+  the same rules (`app/fanout/AGENTS.md`, "Secrets").
+- Any change of `notification_destinations` (`AppSettingsRepository.update`,
+  so a restore too) pushes `notify.destination_changed` to every subscription
+  (`notify_destination_changed`): the proof of modification, not configurable.
+- **Apprise medium** (`app/notifications/apprise_medium.py`, `send_apprise_alert`
+  in `app/notify.py`). URLs checked at save (`_check_webhook_destination` in
+  the settings router, coded 400) and again before each send; one Apprise
+  object per URL, one result per URL. Retries (tenacity, `RETRY_WAITS` 0/5/30 s)
+  on a network error, a 5xx or a 429 (`Retry-After`, capped at 120 s), never
+  another 4xx, and only for a URL with one target (`len(server) <= 1`: a retry
+  resends to every target of the URL, so ntfy topics, Telegram chats or e-mail
+  recipients already reached would get duplicates); the HTTP status comes from a `requests.Session.send` wrapper
+  that records only inside `_send_sync` (a context variable, carried into
+  Apprise 2's own pool by `submit_with_context`). Blocking sends run in
+  `app/notifications/executor.py` (4 threads, shared later by the engine).
+  `dispatch_system_event` never sends directly: it submits to `AppriseQueue`
+  (aiolimiter: one send at a time, 2 s apart, 20 pending, then one
+  `notifications_grouped` "+N events"; `first_seen` capped at 10 an hour, the
+  rest one `first_seen_grouped`). The text policy (`include_message_text`:
+  `public_only` default, `always`, `never`) and the format apply once, in
+  `event_notification_text` (`app/push/manager.py`); room-wide mentions
+  (`@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@…>`, `<!…>`) are
+  always neutralised, Markdown escapes the text. Every Apprise parse and send
+  (the medium, save-time validation, the fanout) runs inside `secret_scope()`
+  with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
+  the ring buffer and `/api/debug` masked. Blocked senders and muted channels
+  never reach it (`app/services/message_filters.py`, shared with the Apprise
+  fanout). `apprise_last_error()` (code, time, line, `redact_apprise_url`)
+  is in the health payload as `notification_statuses.apprise`.
 - Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
   fixed-host callers (Store client, plugin `http` capability: host allowlist,
   redirects re-validated hop by hop, streaming size caps).
@@ -643,7 +685,7 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   webhook stored before the guard reads as allowed and grandfathered (one-time
   banner, cleared by a PATCH or a URL change). A dispatch failure is logged at
   WARNING (code, type, host, HTTP status) and kept in memory as
-  `webhook_last_error()` for the health payload.
+  `webhook_last_error()` for the health payload (`notification_statuses.webhook`).
 - The email transport builds an Apprise `mailto` URL on the fly from the SMTP
   settings; the URL is never stored. The HTML email references no remote content
   (inline `cid:` logo, no remote image, no link).

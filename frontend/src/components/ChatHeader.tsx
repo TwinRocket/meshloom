@@ -45,6 +45,7 @@ interface ChatHeaderProps {
   notifyMediaEnabled?: NotificationMediaFlags;
   emailReady?: boolean;
   webhookReady?: boolean;
+  appriseReady?: boolean;
   onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenNotifySettings?: () => void;
   onToggleFavorite: (type: 'channel' | 'contact', id: string) => void;
@@ -73,6 +74,7 @@ export function ChatHeader({
   notifyMediaEnabled,
   emailReady = false,
   webhookReady = false,
+  appriseReady = false,
   onSetConversationMedia,
   onOpenNotifySettings,
   onToggleFavorite,
@@ -292,6 +294,7 @@ export function ChatHeader({
                   mediaEnabled={notifyMediaEnabled}
                   emailReady={emailReady}
                   webhookReady={webhookReady}
+                  appriseReady={appriseReady}
                   onSetMedia={onSetConversationMedia}
                   onOpenSettings={onOpenNotifySettings}
                 />

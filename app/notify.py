@@ -1,4 +1,4 @@
-"""System-event dispatch for telemetry alerts (push, email, webhook)."""
+"""System-event dispatch for notifications (push, email, webhook, Apprise)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,9 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 
 from app.models import NotificationDestinations, TelemetryAlertChannels
+from app.net.apprise_urls import AppriseUrlRefused, split_apprise_urls
 from app.net.egress_guard import error_code, pinned_async_client, validate_destination
+from app.notifications.apprise_medium import AppriseQueue, AppriseSendFailed, send_to_urls
 from app.repository.settings import AppSettingsRepository
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,10 @@ WEBHOOK_TIMEOUT_SECONDS = 10.0
 # The last webhook failure ({"code", "at"}), cleared by a successful send. In
 # memory only, for the health payload (notifications T3); never the exception text.
 _webhook_last_error: dict[str, Any] | None = None
+# The last Apprise failure ({"code", "at", "line", "url"}, the URL redacted),
+# cleared by a send where every URL succeeded. Same rules.
+_apprise_last_error: dict[str, Any] | None = None
+_apprise_queue: AppriseQueue | None = None
 
 TEST_ALERT_PAYLOAD = {
     "event": "telemetry_alert",
@@ -46,6 +52,7 @@ def _channel_flags(channels: TelemetryAlertChannels | Mapping[str, Any]) -> Tele
         push=bool(channels.get("push", False)),
         email=bool(channels.get("email", False)),
         webhook=bool(channels.get("webhook", False)),
+        apprise=bool(channels.get("apprise", False)),
     )
 
 
@@ -181,6 +188,123 @@ async def send_webhook_alert(dest: NotificationDestinations, payload: Mapping[st
     _webhook_last_error = None
 
 
+def apprise_last_error() -> dict[str, Any] | None:
+    return dict(_apprise_last_error) if _apprise_last_error else None
+
+
+def notification_statuses() -> dict[str, dict[str, Any]]:
+    """The health payload's ``notification_statuses``: each medium's last failure."""
+    return {
+        "webhook": {"last_error": webhook_last_error()},
+        "apprise": {"last_error": apprise_last_error()},
+    }
+
+
+async def send_apprise_alert(dest: NotificationDestinations, payload: Mapping[str, Any]) -> None:
+    """Send one event to every Apprise URL now, each URL on its own (no limiter).
+
+    The text policy (``include_message_text``) and the format apply here, once.
+    Raises ``ValueError`` when no URL is set, else the first URL's
+    ``AppriseUrlRefused`` or ``AppriseSendFailed`` once every URL was tried.
+    """
+    global _apprise_last_error
+    apprise = dest.apprise
+    urls = split_apprise_urls(apprise.urls or "")
+    if not urls:
+        raise ValueError("apprise urls are not configured")
+
+    from app.email_template import resolve_instance_language
+    from app.push.manager import event_notification_text
+
+    markdown = apprise.format == "markdown"
+    title, body = event_notification_text(
+        dict(payload),
+        await resolve_instance_language(),
+        include_message_text=apprise.include_message_text,
+        markdown=markdown,
+    )
+    results = await send_to_urls(
+        urls,
+        allow_private_network=apprise.allow_private_network,
+        title=title,
+        body=body,
+        markdown=markdown,
+    )
+    failures = [(result, result.error) for result in results if result.error is not None]
+    for result, error in failures:
+        logger.warning(
+            "notify: Apprise URL %d (%s) failed: %s", result.line, result.url, error.code
+        )
+    if not failures:
+        _apprise_last_error = None
+        return
+    last, last_error = failures[-1]
+    _apprise_last_error = {
+        "code": last_error.code,
+        "at": int(time.time()),
+        "line": last.line,
+        "url": last.url,
+    }
+    raise failures[0][1]
+
+
+async def _deliver_apprise(payload: dict[str, Any]) -> None:
+    dest = (await AppSettingsRepository.get()).notification_destinations
+    try:
+        await send_apprise_alert(dest, payload)
+    except ValueError:
+        logger.debug("notify: Apprise not configured")
+    except (AppriseUrlRefused, AppriseSendFailed):
+        pass  # logged per URL and kept for the health payload
+
+
+def apprise_queue() -> AppriseQueue:
+    """The process-wide limiter in front of the Apprise medium."""
+    global _apprise_queue
+    if _apprise_queue is None:
+        _apprise_queue = AppriseQueue(_deliver_apprise)
+    return _apprise_queue
+
+
+# Fields that say nothing about where notifications go (a one-time banner).
+_NOT_A_DESTINATION = {"webhook": {"private_network_grandfathered"}}
+
+
+def destination_kinds_changed(
+    before: NotificationDestinations, after: NotificationDestinations
+) -> list[str]:
+    """The destination kinds (``email``, ``webhook``, ``apprise``) whose settings changed."""
+    old, new = before.model_dump(by_alias=True), after.model_dump(by_alias=True)
+    changed = []
+    for kind in new:
+        ignored = _NOT_A_DESTINATION.get(kind, set())
+        old_kind = {k: v for k, v in (old.get(kind) or {}).items() if k not in ignored}
+        new_kind = {k: v for k, v in new[kind].items() if k not in ignored}
+        if old_kind != new_kind:
+            changed.append(kind)
+    return changed
+
+
+def notify_destination_changed(
+    before: NotificationDestinations, after: NotificationDestinations
+) -> None:
+    """Proof of modification: a change of any destination pushes a notification
+    to every subscription. Not configurable; never raises."""
+    kinds = destination_kinds_changed(before, after)
+    if not kinds:
+        return
+    try:
+        from app.background_tasks import spawn
+        from app.push.manager import DESTINATION_CHANGED_EVENT, push_manager
+
+        spawn(
+            push_manager.dispatch_event({"event": DESTINATION_CHANGED_EVENT, "kinds": kinds}),
+            name="notify-destination-changed",
+        )
+    except Exception:
+        logger.debug("notify: destination change notice failed", exc_info=True)
+
+
 async def dispatch_system_event(
     payload: dict[str, Any],
     channels: TelemetryAlertChannels | Mapping[str, Any],
@@ -206,6 +330,12 @@ async def dispatch_system_event(
             await send_email_alert(dest, payload)
         except Exception:
             logger.debug("notify: email dispatch failed", exc_info=True)
+
+    if flags.apprise and (dest.apprise.urls or "").strip():
+        try:
+            await apprise_queue().submit(payload)
+        except Exception:
+            logger.debug("notify: Apprise enqueue failed", exc_info=True)
 
     if flags.webhook:
         try:

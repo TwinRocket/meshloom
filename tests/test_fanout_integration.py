@@ -115,6 +115,7 @@ async def integration_db():
     Settings must be patched too: FanoutManager.load_from_db() now reads
     Meshloom Stats community state via AppSettingsRepository.
     """
+    import app.repository.channels as channels_mod
     import app.repository.settings as settings_mod
 
     test_db = Database(":memory:")
@@ -122,13 +123,17 @@ async def integration_db():
 
     original_fanout_db = fanout_mod.db
     original_settings_db = settings_mod.db
+    original_channels_db = channels_mod.db
     fanout_mod.db = test_db
     settings_mod.db = test_db
+    # The Apprise module reads the block lists and the channel mute.
+    channels_mod.db = test_db
     try:
         yield test_db
     finally:
         fanout_mod.db = original_fanout_db
         settings_mod.db = original_settings_db
+        channels_mod.db = original_channels_db
         await test_db.disconnect()
 
 

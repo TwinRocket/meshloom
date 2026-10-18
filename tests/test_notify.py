@@ -62,7 +62,7 @@ def test_enrich_maps_lpp_rule_to_metric():
 
 def test_coerce_bool_sets_push_only():
     flags = coerce_notification_media(False)
-    assert flags == {"push": False, "email": False, "webhook": False}
+    assert flags == {"push": False, "email": False, "webhook": False, "apprise": False}
     flags = coerce_notification_media(True, {"push": False, "email": True, "webhook": True})
     assert flags["push"] is True
     assert flags["email"] is True
@@ -74,7 +74,7 @@ def test_or_notification_media_unions_flags():
         {"push": True, "email": False, "webhook": False},
         {"push": False, "email": True, "webhook": False},
     )
-    assert combined == {"push": True, "email": True, "webhook": False}
+    assert combined == {"push": True, "email": True, "webhook": False, "apprise": False}
 
 
 @pytest.fixture

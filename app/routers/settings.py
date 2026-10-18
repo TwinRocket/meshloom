@@ -203,7 +203,7 @@ class AppSettingsUpdate(BaseModel):
     )
     notification_destinations: NotificationDestinationsUpdate | None = Field(
         default=None,
-        description="SMTP and webhook destinations; omit/null secrets keep stored values",
+        description="SMTP, webhook and Apprise destinations; omit/null secrets keep stored values",
     )
 
     @field_validator("auth_allowed_origins")
@@ -836,12 +836,12 @@ class TelemetryAlertCatalog(BaseModel):
 
 
 class NotificationDestTestRequest(BaseModel):
-    channel: Literal["email", "webhook"]
+    channel: Literal["email", "webhook", "apprise"]
 
 
 class NotificationDestTestResponse(BaseModel):
     status: str
-    channel: Literal["email", "webhook"]
+    channel: Literal["email", "webhook", "apprise"]
 
 
 @router.get("/telemetry-alert-catalog", response_model=TelemetryAlertCatalog)
@@ -899,17 +899,31 @@ def _webhook_test_detail(exc: BaseException) -> dict[str, Any]:
 
 
 async def _check_webhook_destination(patch: NotificationDestinationsUpdate) -> None:
-    """Refuse at save a webhook the guard would refuse at send (400, coded), and a
-    kept secret that would follow a destination change (``SecretRequiredError``).
+    """Refuse at save a webhook or Apprise URL the guard would refuse at send
+    (400, coded), and a kept secret that would follow a destination change
+    (``SecretRequiredError``).
 
-    Checked only when the URL or its private-network flag changes, so saving an
-    unrelated field never depends on the webhook host's DNS.
+    Checked only when the URLs or their private-network flag change, so saving an
+    unrelated field never depends on the destination hosts' DNS.
     """
+    from app.net.apprise_urls import AppriseUrlRefused, split_apprise_urls, validate_apprise_urls
     from app.telemetry_alerts import merge_notification_destinations
 
     current = (await AppSettingsRepository.get()).notification_destinations
     # Raises SecretRequiredError when a kept secret would follow a new destination.
     merged_all = merge_notification_destinations(current, patch)
+    apprise = merged_all.apprise
+    if apprise.urls.strip() and (
+        apprise.urls != current.apprise.urls
+        or apprise.allow_private_network != current.apprise.allow_private_network
+    ):
+        try:
+            await validate_apprise_urls(
+                split_apprise_urls(apprise.urls),
+                allow_private_network=apprise.allow_private_network,
+            )
+        except AppriseUrlRefused as exc:
+            raise HTTPException(status_code=400, detail=exc.detail()) from None
     if patch.webhook is None:
         return
     merged = merged_all.webhook
@@ -933,9 +947,12 @@ async def test_notification_destinations(
     request: NotificationDestTestRequest,
 ) -> NotificationDestTestResponse:
     """Send a fixed test payload on one channel. Does not create a latch."""
+    from app.net.apprise_urls import AppriseUrlRefused
+    from app.notifications.apprise_medium import AppriseSendFailed
     from app.notify import (
         TEST_ALERT_PAYLOAD,
         describe_webhook_failure,
+        send_apprise_alert,
         send_email_alert,
         send_webhook_alert,
     )
@@ -944,8 +961,15 @@ async def test_notification_destinations(
     try:
         if request.channel == "email":
             await send_email_alert(dest, TEST_ALERT_PAYLOAD)
+        elif request.channel == "apprise":
+            await send_apprise_alert(dest, TEST_ALERT_PAYLOAD)
         else:
             await send_webhook_alert(dest, TEST_ALERT_PAYLOAD)
+    except AppriseUrlRefused as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
+    except AppriseSendFailed as exc:
+        # Line, scheme, host and HTTP status: the guard passed for that URL.
+        raise HTTPException(status_code=502, detail=exc.detail()) from None
     except ValueError as exc:
         logger.info("Notification test (%s) refused: %s", request.channel, exc)
         raise HTTPException(

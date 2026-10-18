@@ -56,4 +56,5 @@ export interface NavigationData {
   onOpenNotifySettings?: () => void;
   emailReady?: boolean;
   webhookReady?: boolean;
+  appriseReady?: boolean;
 }

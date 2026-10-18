@@ -445,7 +445,10 @@ class TestModulesRecheck:
         from app.fanout.apprise_mod import AppriseModule
 
         mod = AppriseModule("t", {"urls": "json://192.168.1.5/"})
-        with patch("app.fanout.apprise_mod._send_sync") as send:
+        with (
+            patch("app.fanout.apprise_mod._send_sync") as send,
+            patch("app.fanout.apprise_mod.is_filtered", AsyncMock(return_value=False)),
+        ):
             await mod.on_message({"type": "PRIV", "text": "hi", "sender_name": "A"})
         send.assert_not_called()
         assert mod.last_error == "egress_private_address (URL 1)"

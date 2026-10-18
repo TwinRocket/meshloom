@@ -13,7 +13,7 @@ Il n’y a ni comptes utilisateurs, ni sessions, ni rôles, ni permissions par f
 
 Cela veut dire lire tout l’historique des messages directs et des canaux, écrire au nom de votre nœud, changer son nom et ses réglages radio, supprimer des contacts et vider la base de données. Il n’y a pas d’intermédiaire entre « ne peut pas ouvrir la page » et « contrôle tout ». Cela comprend aussi changer le réseau Wi-Fi de la radio et la redémarrer.
 
-Les autres sites ouverts dans le même navigateur ne peuvent pas lire les réponses de Meshloom : le serveur ne répond qu’à sa propre adresse, plus les sites que vous ajoutez dans **Réglages > Configuration locale > Origines autorisées** (vide par défaut). Ils peuvent encore déclencher à l’aveugle quelques requêtes simples et suivre le flux en direct : cela aussi repose sur le réseau de confiance (voir [Sécurité](/docs/deep/security/#ce-qui-nexiste-pas)).
+Les autres sites ouverts dans le même navigateur ne peuvent pas lire les réponses de Meshloom : le serveur ne répond qu’à sa propre adresse, plus les sites que vous ajoutez dans **Réglages > Configuration locale > Origines autorisées** (vide par défaut). Ils ne peuvent pas non plus ouvrir le flux en direct. Ils peuvent encore déclencher à l’aveugle quelques requêtes simples : cela aussi repose sur le réseau de confiance (voir [Sécurité](/docs/deep/security/#ce-qui-nexiste-pas)).
 
 ## Les bots exécutent du code
 

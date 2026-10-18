@@ -117,6 +117,8 @@ Integrations you had set up before this check keep working: the upgrade ticks th
 
 Give one address per line. Each message is sent to all of them. You can write your own text templates for direct messages and channel messages, with variables such as the sender, the text, the channel, the number of hops, and the signal strength. Messages you sent yourself are not forwarded unless you tick the option. For Discord, you can keep the webhook's own name and picture.
 
+Apprise skips messages from a blocked contact or name and messages on a muted channel (until the mute ends), like the conversation list. The machine outputs (Private MQTT, Webhook, Amazon SQS) still receive them: a script or a broker decides for itself. To be notified of system events (radio offline, new contacts, alerts) through Apprise, use the Apprise destination in [Notifications](/en/docs/deep/push/#apprise-destination) instead.
+
 Meshloom accepts these Apprise services:
 
 - **On a server you choose** (the address goes through the private-network check above): JSON, XML and form webhooks (`json://`, `xml://`, `form://`), ntfy (`ntfy://`; a bare topic goes to ntfy.sh), Gotify, Home Assistant (`hassio://`), Matrix, e-mail (`mailto://`: the SMTP server is the address checked), MQTT, Signal (REST API), Rocket.Chat, Mattermost, Nextcloud and Nextcloud Talk, Emby, and an Apprise API server (`apprise://`). Each also has its `s` form with TLS (`jsons://`, `ntfys://`...).

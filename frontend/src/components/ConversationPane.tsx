@@ -116,6 +116,7 @@ interface ConversationPaneProps {
   notifyMediaEnabled?: NotificationMediaFlags;
   emailReady?: boolean;
   webhookReady?: boolean;
+  appriseReady?: boolean;
   onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenNotifySettings?: () => void;
   trackedTelemetryRepeaters: string[];
@@ -215,6 +216,7 @@ export function ConversationPane({
   notifyMediaEnabled,
   emailReady,
   webhookReady,
+  appriseReady,
   onSetConversationMedia,
   onOpenNotifySettings,
   trackedTelemetryRepeaters,
@@ -563,6 +565,7 @@ export function ConversationPane({
         notifyMediaEnabled={notifyMediaEnabled}
         emailReady={emailReady}
         webhookReady={webhookReady}
+        appriseReady={appriseReady}
         onSetConversationMedia={onSetConversationMedia}
         onOpenNotifySettings={onOpenNotifySettings}
         onTrace={onTrace}

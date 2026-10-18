@@ -117,6 +117,8 @@ Les intégrations configurées avant cette vérification continuent de fonctionn
 
 Indiquez une adresse par ligne. Chaque message est envoyé à toutes. Vous pouvez écrire vos propres modèles de texte pour les messages directs et les messages de salon, avec des variables comme l’expéditeur, le texte, le salon, le nombre de sauts et la force du signal. Les messages que vous avez envoyés vous-même ne sont pas transmis, sauf si vous cochez l’option. Pour Discord, vous pouvez conserver le nom et l’image propres au webhook.
 
+Apprise ignore les messages d’un contact ou d’un nom bloqué et ceux d’un salon en sourdine (jusqu’à la fin de la sourdine), comme la liste des conversations. Les sorties machine (MQTT privé, Webhook, Amazon SQS) les reçoivent toujours : un script ou un broker décide lui-même. Pour être averti des événements système (radio hors ligne, nouveaux contacts, alertes) par Apprise, utilisez plutôt la destination Apprise des [Notifications](/docs/deep/push/#destination-apprise).
+
 Meshloom accepte ces services Apprise :
 
 - **Sur un serveur que vous choisissez** (l’adresse passe par la vérification de réseau privé ci-dessus) : webhooks JSON, XML et formulaire (`json://`, `xml://`, `form://`), ntfy (`ntfy://` ; un sujet seul part vers ntfy.sh), Gotify, Home Assistant (`hassio://`), Matrix, e-mail (`mailto://` : c’est le serveur SMTP qui est vérifié), MQTT, Signal (API REST), Rocket.Chat, Mattermost, Nextcloud et Nextcloud Talk, Emby, et un serveur Apprise API (`apprise://`). Chacun existe aussi en forme `s` avec TLS (`jsons://`, `ntfys://`…).

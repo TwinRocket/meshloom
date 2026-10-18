@@ -330,7 +330,7 @@ The browser never calls GitHub. Install / auto-update show only when
 
 `public/sw.js` displays notifications and handles clicks; `utils/pushPolicy.ts`
 mirrors `app/push/policy.py`. The `ChatHeader` bell opens `ConversationNotifyMenu`
-(push, email, webhook per conversation). Turning push on subscribes this browser
+(push, email, webhook, Apprise per conversation). Turning push on subscribes this browser
 first when needed, then sets the per-conversation override (`App.tsx`). There is
 no in-tab desktop notification.
 

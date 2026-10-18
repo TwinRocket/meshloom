@@ -134,6 +134,10 @@ reach every module.
   `last_error` is a code (`egress_*`, `timeout`, `connect_error`...) or `HTTP <status>`.
 - **`apprise`** sends the instances `validate_apprise_urls` returned (redirects
   off); a refused URL sets `last_error` to `<code> (URL <line>)`, never the URL.
+  It skips blocked senders and muted channels (`services/message_filters.py`,
+  shared with the Apprise notification medium); `mqtt_private`, `sqs` and
+  `webhook` still forward them (machine integrations,
+  `tests/test_message_filters.py`).
 - **`map_upload`** defaults to `dry_run: true` (logs only), signs each upload with
   the radio's private key from `keystore` and skips without it. Uploads go
   through `_post()` (guard, then pinned client).

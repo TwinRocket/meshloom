@@ -19,7 +19,7 @@ function renderMenu(
       pinned={false}
       favorite={false}
       canNotify
-      notifyMediaEnabled={{ push: true, email: false, webhook: false }}
+      notifyMediaEnabled={{ push: true, email: false, webhook: false, apprise: false }}
       emailReady
       webhookReady
       canMute

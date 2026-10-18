@@ -995,6 +995,13 @@ class TestMapUploadValidation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def no_message_filters(monkeypatch):
+    """These tests run without a database: no block list, no muted channel."""
+    monkeypatch.setattr("app.fanout.apprise_mod.is_filtered", AsyncMock(return_value=False))
+
+
+@pytest.mark.usefixtures("no_message_filters")
 class TestAppriseModule:
     @pytest.mark.asyncio
     async def test_status_disconnected_when_no_urls(self):
@@ -1054,6 +1061,7 @@ class TestAppriseModule:
             assert "hello" in body
 
 
+@pytest.mark.usefixtures("no_message_filters")
 class TestAppriseFormatBody:
     def test_dm_format(self):
         from app.fanout.apprise_mod import _format_body
@@ -1416,6 +1424,7 @@ class TestAppriseValidation:
         assert config["include_outgoing"] is True
 
 
+@pytest.mark.usefixtures("no_message_filters")
 class TestAppriseMarkdownFormat:
     def test_format_body_markdown_true_uses_markdown_fallback(self):
         from app.fanout.apprise_mod import _format_body

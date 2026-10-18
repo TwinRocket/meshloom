@@ -10,12 +10,14 @@ const MEDIA: { channel: NotificationMediaChannel; label: string }[] = [
   { channel: 'push', label: 'chatHeader.notifyPush' },
   { channel: 'email', label: 'chatHeader.notifyEmail' },
   { channel: 'webhook', label: 'chatHeader.notifyWebhook' },
+  { channel: 'apprise', label: 'chatHeader.notifyApprise' },
 ];
 
 interface ConversationNotifyMenuProps {
   mediaEnabled: NotificationMediaFlags;
   emailReady: boolean;
   webhookReady: boolean;
+  appriseReady: boolean;
   onSetMedia: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenSettings?: () => void;
 }
@@ -24,13 +26,15 @@ export function ConversationNotifyMenu({
   mediaEnabled,
   emailReady,
   webhookReady,
+  appriseReady,
   onSetMedia,
   onOpenSettings,
 }: ConversationNotifyMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const anyOn = mediaEnabled.push || mediaEnabled.email || mediaEnabled.webhook;
+  const anyOn =
+    mediaEnabled.push || mediaEnabled.email || mediaEnabled.webhook || mediaEnabled.apprise;
 
   useEffect(() => {
     if (!open) return;
@@ -51,7 +55,7 @@ export function ConversationNotifyMenu({
   }, [open]);
 
   const ready = (channel: NotificationMediaChannel) =>
-    channel === 'push' || (channel === 'email' ? emailReady : webhookReady);
+    ({ push: true, email: emailReady, webhook: webhookReady, apprise: appriseReady })[channel];
 
   return (
     <div ref={rootRef} className="relative">
@@ -102,7 +106,7 @@ export function ConversationNotifyMenu({
               );
             })}
           </div>
-          {(!emailReady || !webhookReady) && onOpenSettings && (
+          {(!emailReady || !webhookReady || !appriseReady) && onOpenSettings && (
             <button
               type="button"
               className="mt-2 w-full rounded px-1 py-1 text-left text-[0.6875rem] text-muted-foreground hover:text-foreground"

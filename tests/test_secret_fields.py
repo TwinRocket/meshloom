@@ -292,6 +292,7 @@ async def test_apprise_send_error_is_scrubbed_in_log_and_status(caplog, monkeypa
 
     monkeypatch.setattr(apprise_mod, "_RETRY_DELAY_S", 0)
     monkeypatch.setattr(apprise_mod, "_validated_servers", AsyncMock(return_value=[]))
+    monkeypatch.setattr(apprise_mod, "is_filtered", AsyncMock(return_value=False))
     module = apprise_mod.AppriseModule("tg", {"urls": TGRAM})
     with (
         patch.object(apprise_mod, "_send_sync", side_effect=RuntimeError(f"bad {TGRAM}")),
