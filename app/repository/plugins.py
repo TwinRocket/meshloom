@@ -6,20 +6,24 @@ several times, each instance with its own label, config, scope, granted
 permissions, quotas, KV and secrets; the code directory is shared per
 ``plugin_id`` (one version). Model and rules: ``docs/dev/plugins.md``, "Data model".
 
-Secrets (the values of the config schema's ``"writeOnly": true`` fields) never
-sit in ``plugins.config``: they live in ``plugin_secrets`` and every read here
-returns them as ``REDACTED`` (``********``, the write-only pattern of
-``app/secret_fields.py``). Only ``config_for_init()`` merges the clear values,
-for the runtime's ``plugin.init``. A write follows the same rules as the other
-write-only secrets: a field omitted, ``None`` or ``REDACTED`` keeps the stored
-value, ``""`` clears it, anything else replaces it. They are stored in clear
-until the Notifications key file (``app/secret_store.py``, Notifications T32)
-exists, like the repeater passwords today; never exported (no JSON backup
-section, emptied in the SQLite download).
+Which config fields are secret is decided by the instance's config schema
+(``plugins.config_schema``, the ``"writeOnly": true`` fields of
+``config.schema.json``), never by the caller: every such field passed in
+``config`` goes to ``plugin_secrets`` and never sits in ``plugins.config``. Every
+read here returns a stored secret as ``REDACTED`` (``********``, the write-only
+pattern of ``app/secret_fields.py``). Only ``config_for_init()`` merges the clear
+values, for the runtime's ``plugin.init``. A write follows the same rules as the
+other write-only secrets: a secret field omitted, ``None`` or ``REDACTED`` keeps
+the stored value, ``""`` clears it, any other string replaces it. ``REDACTED``
+for a field with no stored value is refused (``secret_required``): the mask is
+never stored as a value. Secrets are stored in clear until the Notifications key
+file (``app/secret_store.py``) exists, like the repeater passwords today; never
+exported (no JSON backup section, emptied in the SQLite download).
 """
 
 import json
 import time
+import unicodedata
 import uuid
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -27,15 +31,22 @@ from typing import Any, Literal
 import aiosqlite
 
 from app.database import db
+from app.plugins.config_schema import secret_fields
 from app.secret_fields import REDACTED
 
 PluginKind = Literal["bundled", "store", "custom", "local"]
+
+# KV bounds (docs/dev/plugins.md, "Data model"). The `storage` capability enforces
+# the same quota; these are the repository's backstop.
+KV_MAX_KEY_BYTES = 256
+KV_MAX_VALUE_BYTES = 256 * 1024
+KV_QUOTA_BYTES = 5 * 1024 * 1024
 
 # In-memory copy of the instances (secrets masked) for status reporting, like
 # ``repository/fanout.py``. Filled by every read and write here.
 _instances_cache: dict[str, dict[str, Any]] = {}
 
-_JSON_FIELDS = ("manifest", "config", "scope", "granted_permissions", "quotas")
+_JSON_FIELDS = ("manifest", "scope", "granted_permissions", "quotas")
 _FLAG_FIELDS = ("enabled", "auto_update")
 _UPDATABLE = (
     "label",
@@ -43,6 +54,7 @@ _UPDATABLE = (
     "enabled",
     "manifest",
     "config",
+    "config_schema",
     "scope",
     "granted_permissions",
     "quotas",
@@ -57,13 +69,23 @@ _UPDATABLE = (
 )
 
 
+class PluginStoreError(ValueError):
+    """A coded refusal of the plugin repository. ``code`` and ``fields`` never
+    hold a value, only field or key names."""
+
+    def __init__(self, code: str, fields: list[str] | None = None) -> None:
+        self.code = code
+        self.fields = fields or []
+        super().__init__(f"{code}: {', '.join(self.fields)}" if self.fields else code)
+
+
 def _loads(value: str | None, default: Any) -> Any:
     return json.loads(value) if value else default
 
 
-def _row_to_dict(row: Any, secret_fields: frozenset[str]) -> dict[str, Any]:
+def _row_to_dict(row: Any, stored_secrets: frozenset[str]) -> dict[str, Any]:
     config = _loads(row["config"], {})
-    config.update(dict.fromkeys(secret_fields, REDACTED))
+    config.update(dict.fromkeys(stored_secrets, REDACTED))
     result = {
         "instance_id": row["instance_id"],
         "plugin_id": row["plugin_id"],
@@ -73,7 +95,8 @@ def _row_to_dict(row: Any, secret_fields: frozenset[str]) -> dict[str, Any]:
         "enabled": bool(row["enabled"]),
         "manifest": _loads(row["manifest"], {}),
         "config": config,
-        "secret_fields": sorted(secret_fields),
+        "config_schema": _loads(row["config_schema"], {}),
+        "secret_fields": sorted(stored_secrets),
         "scope": _loads(row["scope"], {}),
         "granted_permissions": _loads(row["granted_permissions"], {}),
         "quotas": _loads(row["quotas"], {}),
@@ -125,11 +148,35 @@ async def _list_in_conn(conn: aiosqlite.Connection, where: str = "") -> list[dic
     return [_row_to_dict(row, secrets.get(row["instance_id"], frozenset())) for row in rows]
 
 
+def _split_config(
+    config: Mapping[str, Any], secret_names: frozenset[str], stored: frozenset[str]
+) -> tuple[dict[str, Any], dict[str, str | None]]:
+    """``(plain config, secret writes)``: the schema's secret fields leave ``config``.
+    A secret write of ``None`` keeps, ``""`` clears, a string replaces."""
+    plain: dict[str, Any] = {}
+    writes: dict[str, str | None] = {}
+    required: list[str] = []
+    for key, value in config.items():
+        if key not in secret_names:
+            plain[key] = value
+        elif value is None or value == REDACTED:
+            if value == REDACTED and key not in stored:
+                required.append(key)
+            writes[key] = None
+        elif isinstance(value, str):
+            writes[key] = value
+        else:
+            raise PluginStoreError("secret_not_string", [key])
+    if required:
+        raise PluginStoreError("secret_required", sorted(required))
+    return plain, writes
+
+
 async def _write_secrets_in_conn(
-    conn: aiosqlite.Connection, instance_id: str, secrets: Mapping[str, str | None], now: int
+    conn: aiosqlite.Connection, instance_id: str, writes: Mapping[str, str | None], now: int
 ) -> None:
-    for field, value in secrets.items():
-        if value is None or value == REDACTED:
+    for field, value in writes.items():
+        if value is None:
             continue
         if value == "":
             await conn.execute(
@@ -148,12 +195,6 @@ async def _write_secrets_in_conn(
         )
 
 
-def _plain_config(config: Mapping[str, Any], secret_names: set[str]) -> dict[str, Any]:
-    """``config`` without any secret field: a secret never reaches ``plugins.config``,
-    even when a caller echoes a masked config back."""
-    return {key: value for key, value in config.items() if key not in secret_names}
-
-
 class PluginRepository:
     """CRUD for plugin instances, secrets included (write-only)."""
 
@@ -165,8 +206,8 @@ class PluginRepository:
         kind: PluginKind,
         version: str,
         manifest: Mapping[str, Any],
+        config_schema: Mapping[str, Any] | None = None,
         config: Mapping[str, Any] | None = None,
-        secrets: Mapping[str, str | None] | None = None,
         scope: Mapping[str, Any] | None = None,
         granted_permissions: Mapping[str, Any] | None = None,
         quotas: Mapping[str, Any] | None = None,
@@ -179,10 +220,12 @@ class PluginRepository:
         attention: Mapping[str, Any] | None = None,
         instance_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create an instance (a new uuid unless ``instance_id`` is given)."""
+        """Create an instance (a new uuid unless ``instance_id`` is given).
+        ``config_schema`` is the plugin's validated ``config.schema.json``."""
         new_id = instance_id or str(uuid.uuid4())
         now = int(time.time())
-        secrets = secrets or {}
+        schema = dict(config_schema or {})
+        plain, writes = _split_config(config or {}, secret_fields(schema), frozenset())
         async with db.tx() as conn:
             async with conn.execute(
                 "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM plugins"
@@ -193,10 +236,10 @@ class PluginRepository:
                 """
                 INSERT INTO plugins (
                     instance_id, plugin_id, label, kind, version, enabled, manifest,
-                    config, scope, granted_permissions, quotas, auto_update, source,
-                    archive_sha256, repository, installed_at, updated_at, status,
+                    config_schema, config, scope, granted_permissions, quotas, auto_update,
+                    source, archive_sha256, repository, installed_at, updated_at, status,
                     last_error, attention, sort_order
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
                 """,
                 (
                     new_id,
@@ -206,7 +249,8 @@ class PluginRepository:
                     version,
                     1 if enabled else 0,
                     json.dumps(manifest),
-                    json.dumps(_plain_config(config or {}, set(secrets))),
+                    json.dumps(schema),
+                    json.dumps(plain),
                     json.dumps(scope or {}),
                     json.dumps(granted_permissions or {}),
                     json.dumps(quotas or {}),
@@ -221,7 +265,7 @@ class PluginRepository:
                     sort_order,
                 ),
             )
-            await _write_secrets_in_conn(conn, new_id, secrets, now)
+            await _write_secrets_in_conn(conn, new_id, writes, now)
             result = await _get_in_conn(conn, new_id)
         assert result is not None
         return result
@@ -258,21 +302,33 @@ class PluginRepository:
         return [_row_to_dict(row, secrets.get(row["instance_id"], frozenset())) for row in rows]
 
     @staticmethod
-    async def update(
-        instance_id: str, *, secrets: Mapping[str, str | None] | None = None, **fields: Any
-    ) -> dict[str, Any] | None:
-        """Update the given fields (``_UPDATABLE``) and merge ``secrets``
-        (write-only rules, module docstring). None when the instance is unknown."""
+    async def update(instance_id: str, **fields: Any) -> dict[str, Any] | None:
+        """Update the given fields (``_UPDATABLE``). ``config`` replaces the plain
+        config and merges the secret fields (module docstring); a new
+        ``config_schema`` moves fields that became secret into ``plugin_secrets``
+        and drops stored secrets the schema no longer declares. None when the
+        instance is unknown."""
         unknown = set(fields) - set(_UPDATABLE)
         if unknown:
             raise ValueError(f"not updatable: {', '.join(sorted(unknown))}")
         now = int(time.time())
         async with db.tx() as conn:
             async with conn.execute(
-                "SELECT 1 FROM plugins WHERE instance_id = ?", (instance_id,)
+                "SELECT config, config_schema FROM plugins WHERE instance_id = ?", (instance_id,)
             ) as cursor:
-                if await cursor.fetchone() is None:
-                    return None
+                current = await cursor.fetchone()
+            if current is None:
+                return None
+            stored = (await _secret_fields_in_conn(conn, instance_id)).get(instance_id, frozenset())
+            schema = fields.get("config_schema")
+            schema = dict(schema) if schema is not None else _loads(current["config_schema"], {})
+            names = secret_fields(schema)
+            plain: dict[str, Any] = {}
+            writes: dict[str, str | None] = {}
+            if "config" in fields:
+                plain, writes = _split_config(fields["config"] or {}, names, stored)
+            elif "config_schema" in fields:
+                plain, writes = _split_config(_loads(current["config"], {}), names, stored)
             updates: list[str] = []
             params: list[Any] = []
             for field in _UPDATABLE:
@@ -280,9 +336,9 @@ class PluginRepository:
                     continue
                 value = fields[field]
                 if field == "config":
-                    stored = await _secret_fields_in_conn(conn, instance_id)
-                    names = set(stored.get(instance_id, frozenset())) | set(secrets or {})
-                    value = json.dumps(_plain_config(value, names))
+                    value = json.dumps(plain)
+                elif field == "config_schema":
+                    value = json.dumps(schema)
                 elif field in _JSON_FIELDS:
                     value = json.dumps(value)
                 elif field == "attention":
@@ -291,13 +347,21 @@ class PluginRepository:
                     value = 1 if value else 0
                 updates.append(f"{field} = ?")
                 params.append(value)
+            if "config_schema" in fields and "config" not in fields:
+                updates.append("config = ?")
+                params.append(json.dumps(plain))
             updates.append("updated_at = ?")
             params.extend([now, instance_id])
             await conn.execute(
                 f"UPDATE plugins SET {', '.join(updates)} WHERE instance_id = ?", params
             )
-            if secrets:
-                await _write_secrets_in_conn(conn, instance_id, secrets, now)
+            await _write_secrets_in_conn(conn, instance_id, writes, now)
+            if "config_schema" in fields:
+                for field in stored - names:
+                    await conn.execute(
+                        "DELETE FROM plugin_secrets WHERE instance_id = ? AND field = ?",
+                        (instance_id, field),
+                    )
             return await _get_in_conn(conn, instance_id)
 
     @staticmethod
@@ -329,8 +393,22 @@ class PluginRepository:
         return config
 
 
+def _check_kv_key(key: str) -> None:
+    """A key is 1 to ``KV_MAX_KEY_BYTES`` UTF-8 bytes with no control, format,
+    surrogate or unassigned character."""
+    if not isinstance(key, str) or not key:
+        raise PluginStoreError("kv_key_invalid")
+    try:
+        size = len(key.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise PluginStoreError("kv_key_invalid") from None
+    if size > KV_MAX_KEY_BYTES or any(unicodedata.category(c).startswith("C") for c in key):
+        raise PluginStoreError("kv_key_invalid")
+
+
 class PluginKvRepository:
-    """The per-instance key-value store (``storage`` capability). Values are JSON."""
+    """The per-instance key-value store (``storage`` capability). Values are JSON;
+    keys and sizes are bounded (``KV_*``, ``PluginStoreError``)."""
 
     @staticmethod
     async def get(instance_id: str, key: str) -> Any | None:
@@ -344,14 +422,34 @@ class PluginKvRepository:
 
     @staticmethod
     async def set(instance_id: str, key: str, value: Any) -> None:
+        """Store ``value`` (JSON). Refused: an invalid key (``kv_key_invalid``), a
+        value over ``KV_MAX_VALUE_BYTES`` (``kv_value_too_large``), or a write that
+        takes the instance over ``KV_QUOTA_BYTES`` (``kv_quota_exceeded``)."""
+        _check_kv_key(key)
+        try:
+            encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
+            value_bytes = len(encoded.encode("utf-8"))
+        except (TypeError, ValueError, UnicodeEncodeError):
+            raise PluginStoreError("kv_value_invalid", [key]) from None
+        if value_bytes > KV_MAX_VALUE_BYTES:
+            raise PluginStoreError("kv_value_too_large", [key])
         async with db.tx() as conn:
+            async with conn.execute(
+                "SELECT COALESCE(SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(CAST(value AS BLOB))), 0)"
+                " FROM plugin_kv WHERE instance_id = ? AND key != ?",
+                (instance_id, key),
+            ) as cursor:
+                row = await cursor.fetchone()
+            others = int(row[0]) if row else 0
+            if others + len(key.encode("utf-8")) + value_bytes > KV_QUOTA_BYTES:
+                raise PluginStoreError("kv_quota_exceeded", [key])
             await conn.execute(
                 """
                 INSERT INTO plugin_kv (instance_id, key, value, updated_at) VALUES (?, ?, ?, ?)
                 ON CONFLICT (instance_id, key) DO UPDATE
                 SET value = excluded.value, updated_at = excluded.updated_at
                 """,
-                (instance_id, key, json.dumps(value, ensure_ascii=False), int(time.time())),
+                (instance_id, key, encoded, int(time.time())),
             )
 
     @staticmethod

@@ -241,7 +241,8 @@ the installation code). The CORS list stays `app_settings.auth_allowed_origins`.
 Plugin instances (migration 103; model and rules in `docs/dev/plugins.md`, "Data
 model"): PK `instance_id` (uuid), `plugin_id` (the manifest id; several instances
 share one), `label`, `kind` (`bundled`/`store`/`custom`/`local`, CHECK), `version`,
-`enabled`, `manifest`, `config` (never a secret), `scope`, `granted_permissions`,
+`enabled`, `manifest`, `config_schema` (the plugin's `config.schema.json`: its
+`writeOnly` fields are the secrets), `config` (never a secret), `scope`, `granted_permissions`,
 `quotas` (JSON), `auto_update`, `source` (a local plugin's code), `archive_sha256`,
 `repository`, `installed_at`, `updated_at`, `status`, `last_error`, `attention`
 (JSON, NULL when nothing to review), `sort_order`. `PluginRepository` (`plugins.py`).

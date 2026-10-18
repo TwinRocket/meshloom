@@ -15,6 +15,7 @@ _STATEMENTS = (
     version TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 0,
     manifest TEXT NOT NULL DEFAULT '{}',
+    config_schema TEXT NOT NULL DEFAULT '{}',
     config TEXT NOT NULL DEFAULT '{}',
     scope TEXT NOT NULL DEFAULT '{}',
     granted_permissions TEXT NOT NULL DEFAULT '{}',

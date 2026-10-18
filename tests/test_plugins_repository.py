@@ -5,11 +5,25 @@ import json
 import aiosqlite
 import pytest
 
-from app.repository.plugins import PluginKvRepository, PluginRepository
+from app.repository.plugins import (
+    KV_MAX_KEY_BYTES,
+    KV_MAX_VALUE_BYTES,
+    KV_QUOTA_BYTES,
+    PluginKvRepository,
+    PluginRepository,
+    PluginStoreError,
+)
 from app.secret_fields import REDACTED
 
 TOKEN = "tok-3f9c1e7a5b2d"
 MANIFEST = {"manifest": 1, "id": "acme.weather", "version": "1.2.0"}
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "city": {"type": "string"},
+        "api_key": {"type": "string", "writeOnly": True},
+    },
+}
 
 
 async def _create(label: str = "Weather #paris", **kwargs):
@@ -19,8 +33,8 @@ async def _create(label: str = "Weather #paris", **kwargs):
         "kind": "store",
         "version": "1.2.0",
         "manifest": MANIFEST,
-        "config": {"city": "Paris"},
-        "secrets": {"api_key": TOKEN},
+        "config_schema": SCHEMA,
+        "config": {"city": "Paris", "api_key": TOKEN},
     }
     defaults.update(kwargs)
     return await PluginRepository.create(**defaults)
@@ -66,27 +80,74 @@ async def test_secret_writes_follow_the_write_only_rules(test_db):
     # A masked config echoed back keeps the secret and never stores the mask.
     echoed = (await PluginRepository.get(instance_id))["config"]
     echoed["city"] = "Lyon"
-    await PluginRepository.update(instance_id, config=echoed, secrets={"api_key": REDACTED})
+    await PluginRepository.update(instance_id, config=echoed)
     assert await PluginRepository.config_for_init(instance_id) == {
         "city": "Lyon",
         "api_key": TOKEN,
     }
 
-    await PluginRepository.update(instance_id, secrets={"api_key": None})
+    # Omitted or None keeps.
+    await PluginRepository.update(instance_id, config={"city": "Lyon"})
+    await PluginRepository.update(instance_id, config={"city": "Lyon", "api_key": None})
     assert (await PluginRepository.config_for_init(instance_id))["api_key"] == TOKEN
 
-    await PluginRepository.update(instance_id, secrets={"api_key": "new-token"})
+    await PluginRepository.update(instance_id, config={"city": "Lyon", "api_key": "new-token"})
     assert (await PluginRepository.config_for_init(instance_id))["api_key"] == "new-token"
 
-    await PluginRepository.update(instance_id, secrets={"api_key": ""})
+    await PluginRepository.update(instance_id, config={"city": "Lyon", "api_key": ""})
     assert await PluginRepository.config_for_init(instance_id) == {"city": "Lyon"}
     assert (await PluginRepository.get(instance_id))["secret_fields"] == []
+
+    # After a clear, the mask is refused rather than stored as the value.
+    with pytest.raises(PluginStoreError) as exc:
+        await PluginRepository.update(instance_id, config={"city": "Lyon", "api_key": REDACTED})
+    assert (exc.value.code, exc.value.fields) == ("secret_required", ["api_key"])
+    assert await PluginRepository.config_for_init(instance_id) == {"city": "Lyon"}
+
+
+@pytest.mark.asyncio
+async def test_secretness_comes_from_the_schema_not_the_caller(test_db):
+    # Without a schema declaring it, a field is plain config.
+    plain = await _create(config_schema={}, config={"token": "visible"})
+    assert plain["config"] == {"token": "visible"}
+
+    # Declared writeOnly: stored as a secret even though the caller passed it in config.
+    created = await _create(config={"city": "Paris", "api_key": TOKEN})
+    assert created["config"]["api_key"] == REDACTED
+    async with test_db.readonly() as conn:
+        async with conn.execute("SELECT config FROM plugins") as cursor:
+            assert not _holds([tuple(r) for r in await cursor.fetchall()], TOKEN)
+
+    with pytest.raises(PluginStoreError) as exc:
+        await _create(config={"api_key": REDACTED})
+    assert exc.value.code == "secret_required"
+    with pytest.raises(PluginStoreError) as exc:
+        await _create(config={"api_key": 12})
+    assert exc.value.code == "secret_not_string"
+
+
+@pytest.mark.asyncio
+async def test_a_new_schema_moves_and_drops_secrets(test_db):
+    instance_id = (await _create(config_schema={}, config={"city": "Paris", "pin": "1234"}))[
+        "instance_id"
+    ]
+    schema = {"type": "object", "properties": {"pin": {"type": "string", "writeOnly": True}}}
+    moved = await PluginRepository.update(instance_id, config_schema=schema)
+    assert moved is not None
+    assert moved["config"] == {"city": "Paris", "pin": REDACTED}
+    assert await PluginRepository.config_for_init(instance_id) == {"city": "Paris", "pin": "1234"}
+
+    # The schema no longer declares it: the stored secret goes.
+    dropped = await PluginRepository.update(instance_id, config_schema={})
+    assert dropped is not None
+    assert dropped["secret_fields"] == []
+    assert await PluginRepository.config_for_init(instance_id) == {"city": "Paris"}
 
 
 @pytest.mark.asyncio
 async def test_two_instances_of_one_plugin_keep_separate_config_kv_and_secrets(test_db):
     paris = (await _create("Weather #paris"))["instance_id"]
-    lyon = (await _create("Weather #lyon", config={"city": "Lyon"}, secrets={"api_key": "other"}))[
+    lyon = (await _create("Weather #lyon", config={"city": "Lyon", "api_key": "other"}))[
         "instance_id"
     ]
     assert paris != lyon
@@ -154,6 +215,35 @@ async def test_kv_delete_and_usage(test_db):
     await PluginKvRepository.delete(instance_id, "clé")
     assert await PluginKvRepository.get(instance_id, "clé") is None
     assert await PluginKvRepository.usage_bytes(instance_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_kv_keys_and_sizes_are_bounded(test_db):
+    instance_id = (await _create())["instance_id"]
+    bad_keys = ("", "a\x00b", "line\nbreak", "\u202eevil", "x" * (KV_MAX_KEY_BYTES + 1), "\ud800")
+    for key in bad_keys:
+        with pytest.raises(PluginStoreError) as exc:
+            await PluginKvRepository.set(instance_id, key, 1)
+        assert exc.value.code == "kv_key_invalid"
+    await PluginKvRepository.set(instance_id, "é" * (KV_MAX_KEY_BYTES // 2), 1)
+
+    with pytest.raises(PluginStoreError) as exc:
+        await PluginKvRepository.set(instance_id, "big", "x" * KV_MAX_VALUE_BYTES)
+    assert exc.value.code == "kv_value_too_large"
+    with pytest.raises(PluginStoreError) as exc:
+        await PluginKvRepository.set(instance_id, "nan", float("nan"))
+    assert exc.value.code == "kv_value_invalid"
+
+    chunk = "x" * (KV_MAX_VALUE_BYTES - 16)
+    with pytest.raises(PluginStoreError) as exc:
+        for index in range(KV_QUOTA_BYTES // KV_MAX_VALUE_BYTES + 2):
+            await PluginKvRepository.set(instance_id, f"k{index}", chunk)
+    assert exc.value.code == "kv_quota_exceeded"
+    assert await PluginKvRepository.usage_bytes(instance_id) <= KV_QUOTA_BYTES
+    # Rewriting a key counts only its new size; another instance has its own quota.
+    await PluginKvRepository.set(instance_id, "k0", "small")
+    other = (await _create("Weather #lyon"))["instance_id"]
+    await PluginKvRepository.set(other, "k0", chunk)
 
 
 @pytest.mark.asyncio
