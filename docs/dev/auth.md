@@ -227,8 +227,8 @@ Upgrade path (cadrage P3, `app/security.py`):
   any account with a password. It is ambient (a browser replays it), so the
   CSRF rule applies to it.
 - A successful check is cached in memory for 5 minutes under
-  HMAC-SHA256(`username_key:password`) under a random per-process key (at most
-  256 entries): 100 requests, one
+  a low-cost scrypt of the password (n=1024, r=8: 1 MiB, about a millisecond;
+  salt = a random per-process secret + `username_key`; at most 256 entries): 100 requests, one
   argon2id verification. The account is read again on every request and the
   cache entry is used only while `users.updated_at` is unchanged, so a
   disabled account or a password reset applies at once, even from another

@@ -18,7 +18,8 @@ gate is ``app/auth/middleware.py`` and those credentials become an account
   same Origin rule as the session cookie.
 - **Verification cache.** argon2id costs a large fraction of a second per
   check, so a successful check is remembered for ``BASIC_CACHE_TTL_S`` under
-  the HMAC-SHA256 of ``username_key:password`` (random per-process key):
+  a low-cost scrypt of the password (salt: a random per-process secret and
+  ``username_key``):
   100 consecutive requests cost one
   verification. The user is read again on every request: a cached check is
   used only while ``users.updated_at`` is unchanged, so a disabled account or
@@ -33,7 +34,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-import hmac
+import hashlib
 import logging
 import secrets
 import time
@@ -81,7 +82,7 @@ def parse_basic_authorization(value: str | None) -> BasicCredentials | None:
     return BasicCredentials(username=username, password=password)
 
 
-# Keys the cache: an entry is an HMAC of the credentials under this
+# Salts the cache keys: an entry is derived from the credentials and this
 # per-process secret, so the cache alone cannot be brute-forced offline.
 _CACHE_SECRET = secrets.token_bytes(32)
 
@@ -94,8 +95,16 @@ def _cache_key(credentials: BasicCredentials) -> str | None:
         key = username_key(credentials.username)
     except InvalidUsernameError:
         return None
-    material = f"{key}:{credentials.password}".encode()
-    return hmac.new(_CACHE_SECRET, material, "sha256").hexdigest()
+    # A KDF, not a bare hash, even for an in-memory key: scrypt at a low cost
+    # (1 MiB, about a millisecond), salted with the per-process secret and the user.
+    return hashlib.scrypt(
+        credentials.password.encode(),
+        salt=_CACHE_SECRET + key.encode(),
+        n=1024,
+        r=8,
+        p=1,
+        dklen=32,
+    ).hex()
 
 
 def invalidate_basic_cache(user_id: int | None = None) -> None:
