@@ -1649,6 +1649,15 @@ class AppSettings(BaseModel):
             "service; the UI shows a one-time notice until dismissed"
         ),
     )
+    push_private_endpoints_review: bool = Field(
+        default=False,
+        description=(
+            "Migration 104 turned push_allow_private_endpoints off for a subscription behind "
+            "a hostname (split DNS, Tailscale *.ts.net) it cannot tell from a public one; "
+            "sends to a private address are refused until the box is ticked. The UI shows a "
+            "notice with a one-click re-enable until it is dismissed or the setting is saved"
+        ),
+    )
     auto_update: bool = Field(
         default=False,
         description="When true, apply a newer Meshloom package/image through the helper",
