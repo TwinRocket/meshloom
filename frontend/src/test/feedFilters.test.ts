@@ -17,6 +17,7 @@ import {
   rowPassesFilters,
   saveFeedFilters,
   type FeedFilters,
+  withoutPrivate,
 } from '../utils/feedFilters';
 import fixture from './fixtures/feedFilters.json';
 
@@ -306,5 +307,26 @@ describe('interleaving control entries', () => {
         .filter((i) => i.kind !== 'day')
         .map((i) => i.key)
     ).toEqual(['row:1', 'control:a', 'control:b', 'row:2', 'control:c']);
+  });
+});
+
+describe('withoutPrivate', () => {
+  it('turns direct messages off and keeps channels as they were', () => {
+    expect(withoutPrivate({ ...defaultFeedFilters, chan: true, priv: true })).toMatchObject({
+      chan: true,
+      priv: false,
+    });
+    expect(withoutPrivate({ ...defaultFeedFilters, chan: true, priv: false }).chan).toBe(true);
+  });
+
+  it('falls back to channels for a direct-messages-only selection', () => {
+    const only = withoutPrivate({ ...defaultFeedFilters, chan: false, priv: true });
+    expect(only).toMatchObject({ chan: true, priv: false });
+    expect(filtersToQuery(only).type).toBe('CHAN');
+  });
+
+  it('leaves a session with channels off and no DMs asking for nothing', () => {
+    const none = withoutPrivate({ ...defaultFeedFilters, chan: false, priv: false });
+    expect(none).toMatchObject({ chan: false, priv: false });
   });
 });

@@ -24,6 +24,7 @@ vi.mock('../api', async (importOriginal) => {
   return { ...actual, api: { ...actual.api, getMessages: mocks.getMessages } };
 });
 
+import { ApiError } from '../api';
 import { FeedView } from '../components/feed/FeedView';
 import { FEED_DOM_MAX, FEED_PAGE_SIZE } from '../components/feed/feedConversation';
 import { countArrivedSince } from '../components/feed/feedFollow';
@@ -974,6 +975,108 @@ describe('FeedView display mode', () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(scroller.scrollTop).toBe(1000));
+  });
+});
+
+describe('FeedView under a session without read_private (kiosk role)', () => {
+  const dmRow = () =>
+    msg(5, { type: 'PRIV', conversation_key: 'aa'.repeat(32), text: 'psst', sender_name: 'Bob' });
+  const directLabel = () => i18n.t('feed.filters.direct');
+
+  beforeEach(() => {
+    sessionMocks.canReadPrivate = false;
+  });
+  afterEach(() => {
+    sessionMocks.canReadPrivate = true;
+    cleanup();
+  });
+
+  it('renders no Direct messages chip and asks for channels only', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    renderFeed();
+    await screen.findByRole('list');
+    expect(screen.queryByRole('button', { name: directLabel() })).toBeNull();
+    expect(screen.getByRole('button', { name: i18n.t('feed.filters.channels') })).toBeTruthy();
+    expect(mocks.getMessages).toHaveBeenNthCalledWith(
+      1,
+      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      expect.anything()
+    );
+  });
+
+  it('keeps the chip for a session that can read direct messages', async () => {
+    sessionMocks.canReadPrivate = true;
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    renderFeed();
+    await screen.findByRole('list');
+    expect(screen.getByRole('button', { name: directLabel() })).toBeTruthy();
+    expect(mocks.getMessages).toHaveBeenNthCalledWith(
+      1,
+      { limit: FEED_PAGE_SIZE },
+      expect.anything()
+    );
+  });
+
+  it('ignores types=priv in the URL and falls back to channels', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    render(<FeedView initialQuery="types=priv" contacts={[]} channels={channels} />);
+    await screen.findByRole('list');
+    expect(mocks.getMessages).toHaveBeenNthCalledWith(
+      1,
+      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      expect.anything()
+    );
+  });
+
+  it('overrides a stored priv filter without writing the override back', async () => {
+    const stored = { chan: false, priv: true };
+    localStorage.setItem(FEED_FILTERS_STORAGE_KEY, JSON.stringify(stored));
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    renderFeed();
+    await screen.findByRole('list');
+    expect(mocks.getMessages).toHaveBeenNthCalledWith(
+      1,
+      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      expect.anything()
+    );
+    expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toEqual(stored);
+    // Changing another chip saves, but `chan` and `priv` keep the values storage held.
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('feed.filters.sent') }));
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toMatchObject({
+        chan: false,
+        priv: true,
+        outgoing: false,
+      })
+    );
+  });
+
+  it('drops a PRIV frame that reaches the client', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    renderFeed();
+    await screen.findByRole('list');
+    await act(async () => {
+      recordFeedMessage(dmRow());
+      await Promise.resolve();
+    });
+    expect(getFeedSnapshot().rows.map((r) => r.id)).toEqual([1]);
+    expect(screen.queryByText(/psst/)).toBeNull();
+  });
+
+  it('keeps the #control preset readable', async () => {
+    mocks.getMessages.mockResolvedValue([]);
+    render(<FeedView preset="control" contacts={[]} channels={channels} />);
+    await screen.findByText(i18n.t('feed.title'));
+    expect(screen.getByRole('button', { name: i18n.t('feed.filters.control') })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: directLabel() })).toBeNull();
+  });
+
+  it('renders a refused read as the empty state, not as an error', async () => {
+    mocks.getMessages.mockRejectedValue(new ApiError('Forbidden', 403));
+    renderFeed();
+    expect(await screen.findByText(i18n.t('feed.forbidden'))).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
   });
 });
 

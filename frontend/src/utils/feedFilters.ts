@@ -121,6 +121,16 @@ export function hasEmptySelection(filters: FeedFilters): boolean {
   return hasNoMessages(filters) && !filters.sources.control;
 }
 
+/**
+ * The filters of a session that may not read direct messages (no `read_private`): `priv` is
+ * off whatever was stored or pinned in the URL. A "DMs only" selection (`chan` off, `priv` on)
+ * means nothing to such a session, so it falls back to channels. Applied when filters are
+ * loaded; the caller keeps the original `priv` for storage so it is never rewritten.
+ */
+export function withoutPrivate(filters: FeedFilters): FeedFilters {
+  return { ...filters, chan: filters.chan || filters.priv, priv: false };
+}
+
 /** The part of the filters the server evaluates (`type`, `outgoing` on `GET /api/messages`). */
 export function filtersToQuery(filters: FeedFilters): FeedQuery {
   const query: FeedQuery = {};

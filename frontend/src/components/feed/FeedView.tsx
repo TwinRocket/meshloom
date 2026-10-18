@@ -11,11 +11,13 @@ import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, Monitor } from 'lucide-react';
 
-import { formatApiError } from '../../api';
+import { ApiError, formatApiError } from '../../api';
+import { useCapabilities } from '../../auth/SessionProvider';
 import {
   activateFeedStore,
   clearFeedRows,
   getFeedSnapshot,
+  setFeedAcceptsPrivate,
   useFeedRows,
 } from '../../stores/feedStore';
 import type { Channel, Contact, Conversation, Message, RawPacket } from '../../types';
@@ -33,6 +35,7 @@ import {
   loadFeedFilters,
   rowPassesFilters,
   saveFeedFilters,
+  withoutPrivate,
   type FeedFilters,
 } from '../../utils/feedFilters';
 import type { SearchNavigateTarget } from '../SearchView';
@@ -155,10 +158,34 @@ export function FeedView({
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
+  // The session's capability, never a role name: without `read_private` (the kiosk role) the
+  // feed offers no Direct messages chip, asks the server for channels only and drops any DM
+  // frame. The server refuses DMs anyway; this only stops the feed from offering what fails.
+  const { canReadPrivate } = useCapabilities();
+  const canReadPrivateRef = useRef(canReadPrivate);
+  canReadPrivateRef.current = canReadPrivate;
+  // An effect, declared before the one that attaches the store. It is not reset on unmount: the
+  // store stays attached and keeps receiving frames, which must still obey this session.
+  useEffect(() => {
+    setFeedAcceptsPrivate(canReadPrivate);
+  }, [canReadPrivate]);
+  // What storage held for `chan` and `priv`: a session without the capability overrides them in
+  // memory but never writes the override back, so the same browser keeps its choice for a fuller
+  // session.
+  const storedTypesRef = useRef<Pick<FeedFilters, 'chan' | 'priv'> | null>(null);
   // URL > localStorage > defaults, decided before the first request so one fetch is made.
-  const [filters, setFilters] = useState<FeedFilters>(() =>
-    applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), initialQuery)
+  const startFilters = useCallback(
+    (query: string | undefined): FeedFilters => {
+      const base = preset === 'control' ? controlPreset : loadFeedFilters();
+      if (storedTypesRef.current === null) {
+        storedTypesRef.current = { chan: base.chan, priv: base.priv };
+      }
+      const pinned = applyFeedQuery(base, query);
+      return canReadPrivateRef.current ? pinned : withoutPrivate(pinned);
+    },
+    [preset]
   );
+  const [filters, setFilters] = useState<FeedFilters>(() => startFilters(initialQuery));
   // Display mode: a layer over `filters` (see `feedDisplay.ts`), so leaving it restores them.
   // It is channels only, whatever the URL says: nothing in the mode turns DMs or media back on.
   const [display, setDisplay] = useState(() =>
@@ -168,6 +195,7 @@ export function FeedView({
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderError, setOlderError] = useState<string | null>(null);
   const [following, setFollowing] = useState(true);
@@ -215,7 +243,7 @@ export function FeedView({
 
   // The query this view last wrote or opened with. A different `initialQuery` is then a change
   // from outside (back/forward, a pasted bookmark in the same tab) and replaces the filters.
-  const skipFirstSaveRef = useRef(Boolean(initialQuery));
+  const skipFirstSaveRef = useRef(Boolean(initialQuery) || !canReadPrivate);
   const firstUrlSyncRef = useRef(true);
   const ownQueryRef = useRef(initialQuery ?? '');
   const onQueryChangeRef = useRef(onQueryChange);
@@ -228,8 +256,8 @@ export function FeedView({
     skipFirstSaveRef.current = true;
     firstUrlSyncRef.current = true;
     setDisplay(parseFeedQuery(incoming).display);
-    setFilters(applyFeedQuery(preset === 'control' ? controlPreset : loadFeedFilters(), incoming));
-  }, [initialQuery, preset]);
+    setFilters(startFilters(incoming));
+  }, [initialQuery, preset, startFilters]);
 
   // Preferences are per browser (`localStorage`); a second tab only sees them on reload.
   // A preset's filters are not the reader's feed filters: they are never written back. Filters
@@ -240,8 +268,9 @@ export function FeedView({
       skipFirstSaveRef.current = false;
       return;
     }
-    if (!preset) saveFeedFilters(filters);
-  }, [filters, preset]);
+    if (preset) return;
+    saveFeedFilters(canReadPrivate ? filters : { ...filters, ...storedTypesRef.current });
+  }, [filters, preset, canReadPrivate]);
 
   // The URL follows the filters (no history entry), so any state is bookmarkable. The first
   // run only mirrors what the URL already pinned: a plain `#feed` is not rewritten.
@@ -348,12 +377,19 @@ export function FeedView({
     async (serverQuery: ReturnType<typeof filtersToQuery>, signal?: AbortSignal) => {
       setStatus('loading');
       setLoadError(null);
+      setForbidden(false);
       try {
         await loadFeedPage(null, signal, serverQuery);
         setStatus('ready');
         await fillHiddenPages(countVisibleNow, serverQuery, signal, FEED_MAX_PAGES_PER_GESTURE - 1);
       } catch (err) {
         if (signal?.aborted) return;
+        // A refused read (403) is the state of a surface this session does not have, not a failure.
+        if (err instanceof ApiError && err.status === 403) {
+          setForbidden(true);
+          setStatus('ready');
+          return;
+        }
         setLoadError(formatApiError(err, tRef.current));
         setStatus('error');
       }
@@ -704,7 +740,14 @@ export function FeedView({
       }
     />
   );
-  const chips = <FeedFilterChips filters={filters} hidden={hidden} onChange={setFilters} />;
+  const chips = (
+    <FeedFilterChips
+      filters={filters}
+      hidden={hidden}
+      onChange={setFilters}
+      showDirect={canReadPrivate}
+    />
+  );
   const facet =
     !display && filters.sources.control && nodeSections.length > 0 ? (
       <FeedNodesFacet
@@ -781,7 +824,11 @@ export function FeedView({
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center p-4 text-center text-muted-foreground">
-          {hasNothing && !emptySelection ? t('feed.empty') : t('feed.emptyFiltered')}
+          {forbidden
+            ? t('feed.forbidden')
+            : hasNothing && !emptySelection
+              ? t('feed.empty')
+              : t('feed.emptyFiltered')}
         </div>
       )
     );

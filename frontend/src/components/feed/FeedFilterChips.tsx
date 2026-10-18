@@ -8,6 +8,8 @@ interface FeedFilterChipsProps {
   filters: FeedFilters;
   hidden: { muted: number; pending: number };
   onChange: (next: FeedFilters) => void;
+  /** False without `read_private`: the Direct messages chip is not rendered at all. */
+  showDirect?: boolean;
 }
 
 interface ChipProps {
@@ -43,7 +45,12 @@ function Chip({ label, pressed, onToggle, disabled, title, hint }: ChipProps) {
 }
 
 /** The Sources and Show chip rows above the timeline. */
-export function FeedFilterChips({ filters, hidden, onChange }: FeedFilterChipsProps) {
+export function FeedFilterChips({
+  filters,
+  hidden,
+  onChange,
+  showDirect = true,
+}: FeedFilterChipsProps) {
   const { t } = useTranslation();
   const set = (patch: Partial<FeedFilters>) => onChange({ ...filters, ...patch });
   const soon = t('feed.filters.soon');
@@ -75,11 +82,13 @@ export function FeedFilterChips({ filters, hidden, onChange }: FeedFilterChipsPr
           pressed={filters.chan}
           onToggle={() => set({ chan: !filters.chan })}
         />
-        <Chip
-          label={t('feed.filters.direct')}
-          pressed={filters.priv}
-          onToggle={() => set({ priv: !filters.priv })}
-        />
+        {showDirect && (
+          <Chip
+            label={t('feed.filters.direct')}
+            pressed={filters.priv}
+            onToggle={() => set({ priv: !filters.priv })}
+          />
+        )}
         <Chip
           label={t('feed.filters.received')}
           pressed={filters.incoming}
