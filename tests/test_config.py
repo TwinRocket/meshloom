@@ -6,39 +6,15 @@ Settings env validation (basic auth pairing and experimental aliases).
 
 import logging
 
-import pytest
-from pydantic import ValidationError
-
 from app.config import Settings, _UvicornLogHygiene
 
 
 class TestBasicAuthConfiguration:
-    """Ensure basic auth credentials are configured as a pair."""
+    """The retired Basic variables are plain strings: a partial pair no longer stops the start."""
 
-    def test_basic_auth_disabled_by_default(self):
-        s = Settings()
-        assert s.basic_auth_enabled is False
-
-    def test_basic_auth_enabled_when_both_credentials_are_set(self):
-        s = Settings(
-            basic_auth_username="mesh",
-            basic_auth_password="secret",
-        )
-        assert s.basic_auth_enabled is True
-
-    def test_basic_auth_requires_password_with_username(self):
-        with pytest.raises(ValidationError, match="MESHCORE_BASIC_AUTH_USERNAME"):
-            Settings(
-                basic_auth_username="mesh",
-                basic_auth_password="",
-            )
-
-    def test_basic_auth_requires_username_with_password(self):
-        with pytest.raises(ValidationError, match="MESHCORE_BASIC_AUTH_USERNAME"):
-            Settings(
-                basic_auth_username="",
-                basic_auth_password="secret",
-            )
+    def test_unpaired_credentials_are_accepted(self):
+        assert Settings(basic_auth_username="mesh").basic_auth_password == ""
+        assert Settings(basic_auth_password="secret").basic_auth_username == ""
 
 
 class TestRetiredVariables:

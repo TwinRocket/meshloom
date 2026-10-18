@@ -65,10 +65,8 @@ See [Meshloom Community](/en/docs/deep/community/).
 |----------|---------|-------------|
 | `MESHCORE_DISABLE_BOTS` | `false` | Turns the bot system off at startup. Bots run Python code with full access to the machine. The Linux package sets it to `true` in `meshloom.env` |
 | `MESHCORE_DISABLE_PLUGINS` | `false` | Host lock of the plugin system: when `true`, no plugin is started, whatever the settings say. It is separate from `MESHCORE_DISABLE_BOTS` |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(empty)* | User name asked by the browser for the whole application, the live connection (WebSocket) included. Use it with [HTTPS](/en/docs/deep/https/) |
-| `MESHCORE_BASIC_AUTH_PASSWORD` | *(empty)* | Matching password |
 
-The two password variables must be set together. Setting only one stops Meshloom at startup. From 5.0 they are retired: the first start creates the administrator account from them, then they are no longer read and a warning is logged while they are set. Basic auth with that user name and password is still accepted until 5.2. A user name longer than 64 characters cannot become an account: the import is skipped with an error in the log, and you create the administrator with the installation code printed in the log. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
+From 5.0 `MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` are retired (also listed under **Retired variables**): when both are set and Meshloom has no account yet, the first start creates the administrator account from them, then they are no longer read and a warning is logged at every start while they are set (remove them; accounts are managed in **Settings → Users & Access**). Setting only one imports nothing and no longer stops Meshloom. `Authorization: Basic` with an account's user name and password is still accepted until 5.2, then removed. A user name longer than 64 characters cannot become an account: the import is skipped with an error in the log, and you create the administrator with the installation code printed in the log. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
 
 ## Installation and updates
 
@@ -107,6 +105,7 @@ Meshloom writes the same warning at each start while one of them is still set.
 
 | Retired variable | What happens to it |
 |----------|---------|
+| `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Read only at the first start with no account, to create the administrator; compatibility until 5.2: `Authorization: Basic` is still accepted, then removed. Accounts are managed in **Settings → Users & Access**. Same warning at each start |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignored, with the same warning. The radio's private key can always be read back: through `GET /api/radio/private-key` and in the full backup (**Settings → Database**, see [Back up your radio](/en/docs/backup/)). See [Security](/en/docs/deep/security/#the-nodes-private-key) |
 
 ## Settings stored in the database

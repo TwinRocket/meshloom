@@ -34,8 +34,10 @@ gate is ``app/auth/middleware.py`` and those credentials become an account
   failing client (the Docker gateway, an untrusted proxy) waits those seconds
   too. Basic does not go through the login delays (``app/auth/ratelimit.py``).
 
-The rest of the migration (health/debug cleanup, ``auth_compat`` logging) is a
-later Access ticket.
+Removal: the header and these variables go in 5.2, two releases after 5.0
+(delete this module's Basic path, ``auth_compat`` and the two ``RETIRED_ENV``
+hints in ``app/services/legacy_env_settings.py``). The variables themselves are
+only warned about (``warn_about_retired_env``, every start).
 """
 
 from __future__ import annotations
@@ -105,6 +107,8 @@ _CACHE_SECRET = secrets.token_bytes(32)
 # cache key -> (user id, users.password_hash when verified, monotonic expiry)
 _cache: dict[str, tuple[int, str, float]] = {}
 
+_deprecation_logged = False
+
 # Client IP -> monotonic time until which its Basic attempts fail at once.
 _failed_ips: dict[str, float] = {}
 
@@ -141,7 +145,9 @@ def invalidate_basic_cache(user_id: int | None = None) -> None:
 
 
 def reset_basic_state() -> None:
-    """Empty both caches (tests)."""
+    """Empty both caches and re-arm the deprecation log (tests)."""
+    global _deprecation_logged
+    _deprecation_logged = False
     _cache.clear()
     _failed_ips.clear()
 
@@ -160,6 +166,13 @@ async def authenticate_basic(credentials: BasicCredentials, ip: str | None = Non
     Raises ``VerificationBusy`` (``app/auth/providers/password.py``) when the
     argon2id queue is full.
     """
+    global _deprecation_logged
+    if not _deprecation_logged:
+        _deprecation_logged = True
+        logger.warning(
+            "Authorization: Basic is deprecated and will be removed in Meshloom 5.2: "
+            "scripts and sensors will need another way to sign in."
+        )
     now = time.monotonic()
     key = await _cache_key(credentials)
     if key is None:
@@ -232,13 +245,3 @@ async def import_basic_credentials(username: str, password: str) -> bool:
         username,
     )
     return True
-
-
-def warn_retired_basic_env(configured: bool) -> None:
-    if configured:
-        logger.warning(
-            "MESHCORE_BASIC_AUTH_USERNAME / MESHCORE_BASIC_AUTH_PASSWORD are retired and no "
-            "longer read: accounts live in the database (docs/user, accounts page). Remove "
-            "them from the environment. Authorization: Basic is still accepted until 5.2 "
-            "and is checked against the accounts."
-        )

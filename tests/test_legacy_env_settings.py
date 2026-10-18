@@ -263,3 +263,24 @@ def test_clock_wraparound_variable_set_on_gets_no_off_warning(monkeypatch, caplo
     with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
         warn_about_retired_env()
     assert "used to keep the radio clock wraparound off" not in caplog.text
+
+
+def test_basic_auth_variables_are_retired_with_the_users_and_access_hint(monkeypatch, caplog):
+    monkeypatch.setenv("MESHCORE_BASIC_AUTH_USERNAME", "mesh")
+    monkeypatch.setenv("MESHCORE_BASIC_AUTH_PASSWORD", "s3cret-value")
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        assert set(warn_about_retired_env()) == {
+            "MESHCORE_BASIC_AUTH_USERNAME",
+            "MESHCORE_BASIC_AUTH_PASSWORD",
+        }
+    assert "Settings → Users & Access" in caplog.text
+    assert "Only one of" not in caplog.text
+    assert "s3cret-value" not in caplog.text
+
+
+@pytest.mark.parametrize("name", ["MESHCORE_BASIC_AUTH_USERNAME", "MESHCORE_BASIC_AUTH_PASSWORD"])
+def test_half_a_basic_auth_pair_only_warns(monkeypatch, caplog, name):
+    monkeypatch.setenv(name, "x")
+    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
+        assert warn_about_retired_env() == [name]
+    assert "Only one of" in caplog.text

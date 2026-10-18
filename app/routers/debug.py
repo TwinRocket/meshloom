@@ -114,7 +114,6 @@ class DebugHealthSummary(BaseModel):
     oldest_undecrypted_timestamp: int | None
     fanouts_with_errors: dict[str, FanoutStatusResponse] = Field(default_factory=dict)
     bots_disabled_source: Literal["env", "until_restart"] | None = None
-    basic_auth_enabled: bool = False
 
 
 class DebugEnvironment(BaseModel):
@@ -346,7 +345,6 @@ def _build_debug_health_summary(
         oldest_undecrypted_timestamp=health_data["oldest_undecrypted_timestamp"],
         fanouts_with_errors=fanouts_with_errors,
         bots_disabled_source=health_data["bots_disabled_source"],
-        basic_auth_enabled=health_data["basic_auth_enabled"],
     )
 
 

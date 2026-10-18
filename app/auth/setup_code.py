@@ -138,17 +138,15 @@ async def prepare_first_run(
 async def _prepare(
     existing_database: bool, basic_username: str, basic_password: str, keep_stored_code: bool
 ) -> None:
-    from app.security import import_basic_credentials, warn_retired_basic_env
+    from app.security import import_basic_credentials
 
     basic_configured = bool(basic_username and basic_password)
     if await UserRepository.any_exist():
         if await setup_code_required():
             await clear_setup_code()
-        warn_retired_basic_env(basic_configured)
         return
     if basic_configured and await import_basic_credentials(basic_username, basic_password):
         await clear_setup_code()
-        warn_retired_basic_env(True)
         return
     if not existing_database:
         await clear_setup_code()

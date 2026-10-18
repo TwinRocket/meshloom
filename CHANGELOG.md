@@ -51,6 +51,8 @@ The server now enforces the radio's message size limit for every way of sending.
 
 ### Changed
 
+- **`/api/health` and `/api/debug` no longer report `basic_auth_enabled`; the retired Basic variables only warn.** The field is gone from both payloads (the interface already reads `GET /api/auth/session`). `MESHCORE_BASIC_AUTH_USERNAME` and `_PASSWORD` are listed with the other retired variables: the first start with no account still turns them into the administrator, and every start logs a warning pointing to **Settings → Users & Access**. Setting only one no longer stops Meshloom from starting; it imports nothing. `Authorization: Basic` stays accepted until 5.2 and logs a deprecation warning the first time it is used after each start.
+
 - **Bulk room decryption shows a translated completion message.** After decrypting old packets for several rooms at once, the confirmation now follows your language like the single-room one. Messages decrypted this way are also flagged as old on the live connection (`historical: true`, never sent to bots or webhooks), so a future client can tell them from new ones.
 - **The meshcore.db download no longer holds the Bluetooth PIN.** The database copy from **Settings → Database** now leaves out the Bluetooth PIN, like the full backup, and the keys Meshloom will use to identify itself to online services. Putting such a copy back in place counts as a restore when Meshloom next starts.
 - **Restore files are limited to 64 MiB.** A larger file is refused with a clear error.
@@ -134,6 +136,8 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 - **Une page de changement de mot de passe obligatoire.** Quand un administrateur définit votre mot de passe, Meshloom affiche une page demandant le mot de passe actuel et un nouveau (avec les règles) à la place de l’application, puis continue une fois le changement fait. Toute requête refusée avec « changement de mot de passe requis » vous y amène aussi.
 
 #### Modifications
+
+- **`/api/health` et `/api/debug` n'exposent plus `basic_auth_enabled` ; les variables Basic retirées ne font que prévenir.** Le champ disparaît des deux réponses (l'interface lit déjà `GET /api/auth/session`). `MESHCORE_BASIC_AUTH_USERNAME` et `_PASSWORD` rejoignent les autres variables retirées : le premier démarrage sans compte en fait toujours l'administrateur, et chaque démarrage journalise un avertissement qui renvoie vers **Réglages → Utilisateurs et accès**. En définir une seule n'empêche plus Meshloom de démarrer ; rien n'est importé. `Authorization: Basic` reste accepté jusqu'à la 5.2 et journalise un avertissement de dépréciation à sa première utilisation après chaque démarrage.
 
 - **Le déchiffrement groupé des salons affiche un message de fin traduit.** Après le déchiffrement d'anciens paquets pour plusieurs salons à la fois, la confirmation suit désormais votre langue, comme pour un seul salon. Les messages ainsi déchiffrés sont aussi marqués comme anciens sur la connexion en direct (`historical: true`, jamais envoyé aux bots ni aux webhooks), pour qu'un client puisse les distinguer des nouveaux.
 - **Le téléchargement de meshcore.db ne contient plus le code PIN Bluetooth.** La copie de la base depuis **Réglages → Base de données** laisse désormais de côté le code PIN Bluetooth, comme la sauvegarde complète, ainsi que les clés avec lesquelles Meshloom s'identifiera auprès des services en ligne. Remettre une telle copie en place compte comme une restauration au prochain démarrage de Meshloom.

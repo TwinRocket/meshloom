@@ -566,7 +566,12 @@ Upgrade path (cadrage P3, `app/security.py`):
 - At startup, when both are set and no account exists, they become an `admin`
   account (no password policy, no installation code: the credentials prove
   ownership) and `auth_settings.basic_imported` is set. The variables are then
-  never read again; each start logs a warning while they are still set.
+  never read again; each start logs a warning while they are still set
+  (both names are in `RETIRED_ENV`, `app/services/legacy_env_settings.py`,
+  plus a second warning when only one is set: nothing is imported and the
+  start is no longer refused). The first `Authorization: Basic` use of a
+  process logs a deprecation warning once. Removal in 5.2: the header path,
+  `auth_compat` and the two `RETIRED_ENV` entries.
   A user name the account rules refuse is logged as an error and the normal
   first run applies.
 - The header stays accepted in 5.0 and 5.1 (removed in 5.2), checked against

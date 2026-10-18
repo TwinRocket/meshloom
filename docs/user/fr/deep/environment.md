@@ -65,10 +65,8 @@ Voir [Meshloom Community](/docs/deep/community/).
 |----------|--------|-------------|
 | `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Les bots exécutent du code Python avec un accès complet à la machine. Le paquet Linux la met à `true` dans `meshloom.env` |
 | `MESHCORE_DISABLE_PLUGINS` | `false` | Verrou d'hôte du système d'extensions : à `true`, aucune extension ne démarre, quels que soient les réglages. Indépendant de `MESHCORE_DISABLE_BOTS` |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application, connexion en direct (WebSocket) comprise. À utiliser avec [HTTPS](/docs/deep/https/) |
-| `MESHCORE_BASIC_AUTH_PASSWORD` | *(vide)* | Mot de passe associé |
 
-Les deux variables d’authentification doivent être définies ensemble. Définir l’une sans l’autre empêche Meshloom de démarrer. À partir de la 5.0 elles sont retirées : le premier démarrage en crée le compte administrateur, puis elles ne sont plus lues et un avertissement est journalisé tant qu’elles sont définies. L’authentification Basic avec ce nom et ce mot de passe reste acceptée jusqu’à la 5.2. Un nom d’utilisateur de plus de 64 caractères ne peut pas devenir un compte : l’import est ignoré avec une erreur dans le journal, et vous créez l’administrateur avec le code d’installation imprimé dans le journal. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
+À partir de la 5.0 `MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD` sont retirées (voir aussi **Variables retirées**) : quand les deux sont définies et que Meshloom n’a encore aucun compte, le premier démarrage en crée le compte administrateur, puis elles ne sont plus lues et un avertissement est journalisé à chaque démarrage tant qu’elles sont définies (retirez-les ; les comptes se gèrent dans **Réglages → Utilisateurs et accès**). En définir une seule n’importe rien et n’empêche plus Meshloom de démarrer. `Authorization: Basic` avec le nom et le mot de passe d’un compte reste accepté jusqu’à la 5.2, puis sera retiré. Un nom d’utilisateur de plus de 64 caractères ne peut pas devenir un compte : l’import est ignoré avec une erreur dans le journal, et vous créez l’administrateur avec le code d’installation imprimé dans le journal. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
 
 ## Installation et mises à jour
 
@@ -107,6 +105,7 @@ Meshloom écrit le même avertissement à chaque démarrage tant que l’une d�
 
 | Variable retirée | Ce qu’elle devient |
 |----------|--------|
+| `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Lues uniquement au premier démarrage sans compte, pour créer l’administrateur ; compatibilité jusqu’à la 5.2 : `Authorization: Basic` reste accepté, puis sera retiré. Les comptes se gèrent dans **Réglages → Utilisateurs et accès**. Même avertissement à chaque démarrage |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignorée, avec le même avertissement. La clé privée de la radio peut toujours être relue : par `GET /api/radio/private-key` et dans la sauvegarde complète (**Réglages → Base de données**, voir [Sauvegarder la radio](/docs/backup/)). Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud) |
 
 ## Réglages stockés dans la base

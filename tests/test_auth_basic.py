@@ -91,3 +91,15 @@ async def test_cached_basic_check_ends_with_a_password_reset_in_the_same_second(
         )
         stale = await client.get("/api/auth/me", headers=basic(ADMIN, PASSWORD))
         assert stale.status_code == 401
+
+
+async def test_basic_is_logged_once_as_deprecated(monkeypatch):
+    messages: list[str] = []
+    monkeypatch.setattr(security.logger, "warning", lambda msg, *a: messages.append(msg % a))
+    await create_user()
+    async with make_client() as client:
+        for _ in range(3):
+            response = await client.get("/api/auth/me", headers=basic(ADMIN, PASSWORD))
+            assert response.status_code == 200
+    assert [m for m in messages if "Authorization: Basic is deprecated" in m] != []
+    assert len(messages) == 1

@@ -103,17 +103,22 @@ async def test_setup_applies_the_password_policy():
     assert await UserRepository.list_all() == []
 
 
-async def test_basic_credentials_are_imported_once_without_code_or_policy(caplog):
+async def test_basic_credentials_are_imported_once_without_code_or_policy(caplog, monkeypatch):
+    from app.services.legacy_env_settings import warn_about_retired_env
+
+    monkeypatch.setenv("MESHCORE_BASIC_AUTH_USERNAME", "mesh")
+    monkeypatch.setenv("MESHCORE_BASIC_AUTH_PASSWORD", "secret")
     with caplog.at_level(logging.WARNING):
         await setup_code.prepare_first_run(
             existing_database=True, basic_username="mesh", basic_password="secret"
         )
+        warn_about_retired_env()
     [user] = await UserRepository.list_all()
     assert (user.username, user.role, user.has_password) == ("mesh", "admin", True)
     settings = await AuthSettingsRepository.get()
     assert settings.basic_imported and not settings.setup_code_set
     assert "secret" not in caplog.text
-    assert any("retired" in r.getMessage() for r in caplog.records)
+    assert any("no longer read" in r.getMessage() for r in caplog.records)
 
     # The next start does not import again, even with other values; it only warns.
     caplog.clear()
@@ -121,8 +126,9 @@ async def test_basic_credentials_are_imported_once_without_code_or_policy(caplog
         await setup_code.prepare_first_run(
             existing_database=True, basic_username="other", basic_password="changed"
         )
+        warn_about_retired_env()
     assert [u.username for u in await UserRepository.list_all()] == ["mesh"]
-    assert any("retired" in r.getMessage() for r in caplog.records)
+    assert any("no longer read" in r.getMessage() for r in caplog.records)
 
     # Existing scripts keep working with the header, browsers with the challenge.
     async with make_client() as client:
