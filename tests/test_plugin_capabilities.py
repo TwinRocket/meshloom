@@ -832,6 +832,7 @@ def test_registry_lists_the_v1_methods():
         "contacts.list": "contacts.read",
         "contacts.get": "contacts.read",
         "channels.list": "channels.read",
+        "http.fetch": "http",
         "status.set": None,
         "log": None,
     }

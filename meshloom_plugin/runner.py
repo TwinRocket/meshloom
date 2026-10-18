@@ -545,7 +545,7 @@ class Channel:
         self._in = rpc_in
         self._out = rpc_out
         self.target: Any = None
-        self._decoder = rpc.LineDecoder()
+        self._decoder = rpc.LineDecoder(large=rpc.CHILD_INBOUND)
         self._semaphore = asyncio.Semaphore(policy.MAX_CONCURRENT_HANDLERS)
         self._tasks: dict[Any, Any] = {}
         self._pending: dict[int, Any] = {}
