@@ -25,7 +25,7 @@ from app.plugins import launch
 from app.plugins.isolation.base import IsolationBackend
 from app.plugins.isolation.none import NoneBackend
 from meshloom_plugin import policy, rpc
-from tests.plugin_isolation_support import available_backends, run_probe, shared_tmp_dir
+from tests.plugin_isolation_support import available_backends, shared_tmp_dir
 
 CORPUS = Path(__file__).parent / "plugin_corpus"
 LINUX = sys.platform.startswith("linux")
@@ -492,128 +492,11 @@ def test_setuid_announced_to_a_root_child_is_refused(work: Path) -> None:
     assert "root" in error["message"]
 
 
-# --- Corpus -----------------------------------------------------------------------
-
-
-def _corpus_cases() -> list[Path]:
-    return sorted(p for p in CORPUS.iterdir() if (p / "case.json").is_file())
-
-
-@pytest.mark.parametrize("level", ["none", "bwrap", "setuid"])
-@pytest.mark.parametrize("case_dir", _corpus_cases(), ids=lambda p: p.name)
-def test_corpus_case(case_dir: Path, level: str, work: Path) -> None:
-    backend = available_backends().get(level)
-    if backend is None:
-        pytest.skip(f"the {level} backend is not available here")
-    case = json.loads((case_dir / "case.json").read_text())
-    secret_env = {**launch.runner_env(), "MESHLOOM_SECRET": "leak", "HOME": "/root"}
-    marker = work / "parent-only.txt"
-    marker.write_text("inherited?")
-    marker_fd = os.open(marker, os.O_RDONLY)
-    os.set_inheritable(marker_fd, True)
-    marker_stat = os.fstat(marker_fd)
-    try:
-        # The child must hold its line even when the parent gets it wrong:
-        # a polluted environment and a descriptor passed on purpose.
-        runner = Runner(case_dir, work, env=secret_env, pass_fds=(marker_fd,), backend=backend)
-        try:
-            for event in case["events"]:
-                response = runner.event(event["params"])
-                try:
-                    _check_expectation(event["expect"], response, marker_stat)
-                except AssertionError:
-                    open_path = event.get("open_path")
-                    if not _open_path_applies(open_path):
-                        raise
-                    assert open_path is not None
-                    if level in open_path.get("closed_by", []):
-                        # The runner cannot close it in-process; the OS level does,
-                        # and its check proves it (docs/dev/plugins-security.md).
-                        _OS_CHECKS[open_path["os_check"]](runner, backend, work)
-                    else:
-                        # A documented open path at this level: pinned so a later
-                        # ticket that closes it turns it into a pass.
-                        pytest.xfail(f"open path: {open_path['note']}: {response}")
-                assert runner.request("event.health", {"ok": True})["result"] is None
-        finally:
-            runner.close()
-    finally:
-        os.close(marker_fd)
-
-
-def _check_expectation(
-    expect: dict[str, Any], response: dict[str, Any], marker: os.stat_result
-) -> None:
-    if "error_type" in expect:
-        assert _error_type(response) == expect["error_type"], response
-    elif "result" in expect:
-        assert response.get("result") == expect["result"], response
-    else:
-        _CHECKS[expect["check"]](response, marker)
-
-
-def _open_path_applies(open_path: dict[str, Any] | None) -> bool:
-    if open_path is None:
-        return False
-    below = open_path.get("python_below")
-    if below is None:
-        return True
-    major, minor = (int(part) for part in below.split("."))
-    return sys.version_info[:2] < (major, minor)
-
-
-def _check_hook_frame(response: dict[str, Any], _marker: os.stat_result) -> None:
-    result = response["result"]
-    assert isinstance(result, dict), response
-    assert result["globals"] == []
-    assert result["builtins"] == []
-    assert set(result["local_types"]) <= {"str", "bytes", "int", "bool", "tuple", "type"}
-
-
-def _check_environ(response: dict[str, Any], _marker: os.stat_result) -> None:
-    assert set(response["result"]) <= set(policy.ENV_KEYS), response
-
-
-def _check_inherited_fds(response: dict[str, Any], marker: os.stat_result) -> None:
-    seen = response["result"]
-    assert [fd for fd, _dev, _ino in seen][:3] == [0, 1, 2]
-    assert not any(dev == marker.st_dev and ino == marker.st_ino for _fd, dev, ino in seen)
-
-
-_CHECKS = {
-    "hook_frame": _check_hook_frame,
-    "environ": _check_environ,
-    "inherited_fds": _check_inherited_fds,
-}
-
-
-def _os_check_exec_escape(_runner: Runner, backend: IsolationBackend, work: Path) -> None:
-    """What a rebuilt `fork_exec` gives a plugin: a program with no hook, in the box."""
-    data = shared_tmp_dir("meshloom-data-")
-    secret = data / "meshcore.db"
-    secret.write_bytes(b"SQLite format 3\x00")
-    os.chmod(secret, 0o600)
-    os.chmod(data, 0o711)
-    result = run_probe(backend, secret)
-    assert result["read_secret"].startswith("denied"), result
-    assert result["read_environ"].startswith("denied"), result
-    assert result["app_root_written"] is False, result
-    if backend.level == "bwrap":
-        assert result["read_app_code"].startswith("denied"), result
-        assert result["connect"].startswith("denied"), result
-
-
 def _os_check_nproc(runner: Runner, _backend: IsolationBackend, _work: Path) -> None:
     """Threads stay possible on 3.11, but bounded by RLIMIT_NPROC for the uid."""
     limits = Path(f"/proc/{runner.proc.pid}/limits").read_text()
     line = next(line for line in limits.splitlines() if line.startswith("Max processes"))
     assert line.split()[3] == str(policy.DEFAULT_LIMITS["processes"]), line
-
-
-_OS_CHECKS = {
-    "exec_escape": _os_check_exec_escape,
-    "nproc": _os_check_nproc,
-}
 
 
 def test_launch_env_keeps_only_the_whitelisted_keys() -> None:

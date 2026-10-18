@@ -1,0 +1,19 @@
+{
+  "description": "Arm timers until the per-instance quota (16 pending) refuses one.",
+  "stage": "host",
+  "permissions": {
+    "timer": {}
+  },
+  "events": [
+    {
+      "hook": "message",
+      "params": {},
+      "expect": {
+        "result": {
+          "armed": 16,
+          "refused": "quota_exceeded"
+        }
+      }
+    }
+  ]
+}

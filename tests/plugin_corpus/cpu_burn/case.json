@@ -1,0 +1,22 @@
+{
+  "description": "Burn CPU in a handler that yields (so cancel would work): the rolling CPU budget, read from /proc, kills the child.",
+  "stage": "host",
+  "platforms": [
+    "linux"
+  ],
+  "budgets": {
+    "event_timeout": 30.0,
+    "cpu_budget": 0.5,
+    "cpu_window": 5.0,
+    "cpu_sample_interval": 0.1
+  },
+  "events": [
+    {
+      "hook": "message",
+      "params": {},
+      "expect": {
+        "killed": "cpu_budget"
+      }
+    }
+  ]
+}

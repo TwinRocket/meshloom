@@ -1,0 +1,19 @@
+{
+  "description": "Open path: write native code under a harmless suffix into the work dir and load it with ExtensionFileLoader from the import machinery kept in sys.modules. dlopen emits no audit event, so the hooks cannot refuse it; only the OS isolation contains what it runs. The plugin writes no real library: an ImportError naming the file proves the loader tried.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      },
+      "open_path": {
+        "note": "native code from the work dir: dlopen emits no audit event; under bwrap and setuid what it runs stays in the box (MSHL-191)",
+        "closed_by": [
+          "bwrap",
+          "setuid"
+        ],
+        "os_check": "exec_escape"
+      }
+    }
+  ]
+}
