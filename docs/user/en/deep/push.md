@@ -113,6 +113,10 @@ Each URL is sent on its own: one failing service does not stop the others. A fai
 
 The test button sends a test notification to every URL; a failure names the URL line and the kind of failure, never the token.
 
+### Language
+
+**Settings → Notifications → Notification language** sets the language of e-mail and Apprise notifications: **Automatic**, **Français** or **English**. Automatic follows the browsers subscribed to push: English only when most of them (a strict majority) use English, French on a tie. Push notifications always keep the language of the browser that subscribed, and the webhook sends data, not text.
+
 ### Proof of change
 
 Any change of a delivery destination (e-mail, webhook or Apprise) sends a push notification **Notification destination changed** to every subscribed browser, naming what changed. It cannot be turned off: if you did not make the change, someone else did.

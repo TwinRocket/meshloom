@@ -22,6 +22,7 @@ import {
   type NotificationDestinationChannel,
   type NotificationDestinations,
   type NotificationEmailMode,
+  type NotificationLanguage,
   type NotificationMediaChannel,
   type PushDefaults,
 } from '../../types';
@@ -857,6 +858,33 @@ export function SettingsNotificationsSection({
               })}
             </tbody>
           </table>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="notification-language">
+            {t('settings.notifications.language.label')}
+          </Label>
+          <select
+            id="notification-language"
+            value={appSettings?.notification_language ?? 'auto'}
+            disabled={!onSaveAppSettings || !appSettings}
+            onChange={(event) => {
+              void onSaveAppSettings?.({
+                notification_language: event.target.value as NotificationLanguage,
+              }).catch((err: unknown) => {
+                toast.error(t('settings.notifications.language.saveFailed'), {
+                  description: formatApiError(err, t),
+                });
+              });
+            }}
+            className={SELECT_CLASS}
+          >
+            <option value="auto">{t('settings.notifications.language.auto')}</option>
+            <option value="fr">{t('settings.notifications.language.fr')}</option>
+            <option value="en">{t('settings.notifications.language.en')}</option>
+          </select>
+          <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+            {t('settings.notifications.language.help')}
+          </p>
         </div>
         <div className="space-y-1">
           <Label htmlFor="radio-offline-grace">

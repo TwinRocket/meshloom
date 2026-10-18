@@ -79,6 +79,14 @@ L’installateur les définit pour vous. On les modifie rarement à la main.
 | `MESHLOOM_RUN_AS_USER` | Docker uniquement. Un nombre comme `10001` fait tourner Meshloom sous cet utilisateur plutôt que root. Voir [Autres chemins d’installation](/docs/deep/install-paths/) |
 | `MESHLOOM_IMAGE` | Docker uniquement. L’image que Compose démarre, idéalement figée par son empreinte |
 
+## Notifications
+
+La langue des notifications se choisit dans **Réglages → Notifications** et se stocke dans la base de données, pas dans une variable :
+
+| Réglage | Défaut | Description |
+|---------|--------|-------------|
+| `notification_language` | `auto` | `auto`, `fr` ou `en`. La langue des notifications par e-mail et Apprise ; `auto` suit les navigateurs abonnés au push (anglais seulement si une majorité stricte des navigateurs est en anglais, français en cas d’égalité) |
+
 ## Variables retirées
 
 Ces variables ne changent plus rien. Leurs réglages sont dans l’interface :

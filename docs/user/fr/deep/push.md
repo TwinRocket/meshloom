@@ -113,6 +113,10 @@ Chaque URL est envoyée séparément : un service en panne n’empêche pas les 
 
 Le bouton de test envoie une notification de test à chaque URL ; un échec indique la ligne de l’URL et le type d’échec, jamais le jeton.
 
+### Langue
+
+**Réglages → Notifications → Langue des notifications** fixe la langue des notifications par e-mail et Apprise : **Automatique**, **Français** ou **English**. Automatique suit les navigateurs abonnés au push : anglais seulement si la plupart d’entre eux (une majorité stricte) sont en anglais, français en cas d’égalité. Les notifications push gardent toujours la langue du navigateur abonné, et le webhook envoie des données, pas du texte.
+
 ### Preuve de modification
 
 Toute modification d’une destination (e-mail, webhook ou Apprise) envoie à chaque navigateur abonné une notification push **Destination de notification modifiée**, qui dit ce qui a changé. Elle ne peut pas être désactivée : si ce n’est pas vous, quelqu’un d’autre l’a fait.
