@@ -18,7 +18,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from app.auth import audit, sessions
+from app.auth import audit, ratelimit, sessions
 from app.auth.middleware import client_ip
 from app.auth.models import (
     MAX_AUDIT_RETENTION_DAYS,
@@ -81,6 +81,7 @@ _MESSAGES = {
     "auth_session_not_found": "Session not found",
     "auth_setup_unavailable": "Setup is not available yet: check the server log and retry",
     "auth_busy": "Too many sign-in checks at once: retry in a moment",
+    "auth_rate_limited": "Too many attempts: retry later",
     "auth_ingress_only": "Home Assistant signs you in here: open Meshloom from its sidebar",
     "auth_audit_cursor_invalid": "Invalid audit cursor",
     "auth_trusted_proxies_invalid": (
@@ -89,11 +90,13 @@ _MESSAGES = {
 }
 
 
-def _error(status: int, code: str, params: dict | None = None) -> HTTPException:
+def _error(
+    status: int, code: str, params: dict | None = None, headers: dict[str, str] | None = None
+) -> HTTPException:
     detail: dict = {"code": code, "message": _MESSAGES.get(code, code)}
     if params:
         detail["params"] = params
-    return HTTPException(status_code=status, detail=detail)
+    return HTTPException(status_code=status, detail=detail, headers=headers)
 
 
 def _policy_error(reason: str) -> HTTPException:
@@ -376,14 +379,38 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
 
     One generic 401 for an unknown name, a wrong password, a disabled account
     and an account without a password (ingress, kiosk). 403
-    ``auth_ingress_only`` under ingress, checked before any password work.
+    ``auth_ingress_only`` under ingress, checked before any password work. 429
+    ``auth_rate_limited`` with ``params.retry_after`` and ``Retry-After`` while
+    a login delay runs (``app/auth/ratelimit.py``), checked before the argon2id
+    queue so a refused attempt costs no password check.
     """
     _refuse_under_ingress(request)
+    ip = client_ip(request.scope)
+    limiter = ratelimit.login_limiter
+    try:
+        limiter.check(ip, body.username)
+    except ratelimit.LoginDelayed as delayed:
+        # One row per delay, not per refused attempt (app/auth/ratelimit.py, "Audit").
+        if delayed.first:
+            await audit.record_request(
+                request,
+                "login",
+                "refused" if delayed.reason == "ip" else "delayed",
+                target=await audit.typed_username_target(body.username),
+                details={"reason": delayed.reason, "retry_after": delayed.retry_after_s},
+            )
+        raise _error(
+            429,
+            "auth_rate_limited",
+            {"retry_after": delayed.retry_after_s},
+            headers={"Retry-After": str(delayed.retry_after_s)},
+        ) from None
     try:
         user = await authenticate(body.username, body.password.get_secret_value())
     except VerificationBusy:
         raise _error(503, "auth_busy") from None
     if user is None:
+        await limiter.record_failure(ip, body.username)
         await audit.record_request(
             request,
             "login",
@@ -391,6 +418,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
             target=await audit.typed_username_target(body.username),
         )
         raise _error(401, "auth_invalid_credentials")
+    limiter.record_success(ip, body.username)
     principal = await _start_session(request, response, user)
     await audit.record_request(
         request, "login", "success", principal=principal, target=audit.user_target(user.id)

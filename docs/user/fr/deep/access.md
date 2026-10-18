@@ -22,6 +22,16 @@ Chaque compte a l’un des quatre rôles. Le serveur vérifie le rôle à chaque
 
 Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
 
+## Les délais de connexion
+
+Les mauvais mots de passe ralentissent les tentatives suivantes ; ils ne verrouillent jamais un compte.
+
+- **Depuis une adresse, pour un compte :** les 5 premiers mauvais mots de passe ne coûtent rien. Ensuite, la tentative suivante attend 1 seconde, puis 2, 4, 8 et ainsi de suite, jusqu’à 1 minute. Pendant ce temps, la page de connexion indique combien de secondes attendre. Une fois l’attente passée, le bon mot de passe fonctionne et efface le délai.
+- **Pour un compte, depuis n’importe où :** après 5 mauvais mots de passe, le compte accepte au plus une tentative par seconde, qui que ce soit qui l’envoie. Quelqu’un qui essaie de deviner `admin` depuis de nombreuses adresses n’a donc qu’un essai par seconde, et vous entrez quand même, au plus une seconde plus tard.
+- **Depuis une adresse, pour tous les comptes :** au-delà de 100 mauvais mots de passe en 15 minutes, cette adresse est refusée jusqu’à ce que son compteur redescende (une tentative de plus toutes les 9 secondes). Cette règle est coupée pour une installation Docker (Compose ou un simple conteneur) sans proxy de confiance : là, chaque visiteur peut arriver par l’adresse de Docker lui-même, et un seul visiteur malveillant bloquerait tout le monde.
+
+Les délais sont gardés en mémoire et repartent de zéro au redémarrage de Meshloom. Un délai est écrit une fois dans le journal d’audit, pas à chaque tentative refusée.
+
 ## Derrière un reverse-proxy
 
 Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. N’indiquez que l’adresse du proxy lui-même, jamais un réseau Docker ni sa passerelle. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance).
@@ -54,7 +64,7 @@ Un mot de passe compte au moins 12 caractères et n’est jamais lu sur la ligne
 
 Quand Meshloom est mis à jour depuis une version plus ancienne, le premier administrateur doit prouver qu’il a accès à la machine en saisissant un code d’installation. Meshloom ne garde qu’une empreinte du code, qui ne peut donc pas être réaffiché : `meshloom-admin setup-code` en fabrique un **nouveau** et le précédent cesse de fonctionner. La commande ne marche que tant qu’aucun compte n’existe ; ensuite, utilisez `create-admin` ou `reset-password`.
 
-Le code a 8 chiffres ; Meshloom en imprime aussi un nouveau dans son journal à chaque démarrage tant qu’aucun compte n’existe. Les espaces ou tirets saisis au milieu sont ignorés. Une installation neuve ne demande pas de code. Si Meshloom n’a pas pu préparer le premier démarrage (le journal le dit), la création de l’administrateur est refusée jusqu’à ce qu’il y arrive ; redémarrez Meshloom si cela dure.
+Le code a 8 chiffres ; Meshloom en imprime aussi un nouveau dans son journal à chaque démarrage tant qu’aucun compte n’existe. Les espaces ou tirets saisis au milieu sont ignorés. Une installation neuve ne demande pas de code. Si Meshloom n’a pas pu préparer le premier démarrage (le journal le dit), la création de l’administrateur est refusée jusqu’à ce qu’il y arrive ; redémarrez Meshloom si cela dure. Un code imprimé entre-temps par `meshloom-admin setup-code` reste valable : Meshloom ne le remplace pas quand il réessaie.
 
 ## La commande pour chaque installation
 

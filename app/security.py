@@ -28,8 +28,11 @@ gate is ``app/auth/middleware.py`` and those credentials become an account
   entries on a password change.
 - **Failures.** After a failed check, Basic attempts from the same client IP
   that are not already cached fail at once for ``BASIC_FAILURE_COOLDOWN_S`` (no argon2id), so a flood of
-  garbage credentials costs one verification every few seconds per IP. A
-  script on the same IP as the failing client waits those seconds too.
+  garbage credentials costs one verification every few seconds per IP. The
+  IP is ``client_ip()`` (``app/auth/middleware.py``): behind a trusted proxy
+  each forwarded client has its own cooldown. A script on the same IP as the
+  failing client (the Docker gateway, an untrusted proxy) waits those seconds
+  too. Basic does not go through the login delays (``app/auth/ratelimit.py``).
 
 The rest of the migration (health/debug cleanup, ``auth_compat`` logging) is a
 later Access ticket.

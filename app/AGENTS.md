@@ -44,6 +44,12 @@ and the OpenAPI page (`/docs`), not a table here.
   it; a path outside `/api` goes in `NON_API_ACCESS`. A route that returns
   messages, conversations or DM activity must also honour `read_private`
   (`can_read_private(request)`): the `kiosk` role never gets a direct message.
+- `auth/ratelimit.py` (login delays) runs on `POST /api/auth/login` before any
+  argon2id check: progressive delay per (IP, username), one attempt a second per
+  slowed username, hard refusal per IP past 100 failures in 15 minutes (off on
+  `compose`/`container` without a trusted proxy). No lockout by name. 429
+  `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
+  every table bounded (`docs/dev/auth.md`, "Login delays").
 - `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
   gate and CORS) is the only interpreter of `X-Forwarded-For` and
   `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from

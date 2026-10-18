@@ -22,6 +22,16 @@ Each account has one of four roles. The server checks the role on every request,
 
 The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.
 
+## Sign-in delays
+
+Wrong passwords slow the next attempts down; they never lock an account.
+
+- **From one address, for one account:** the first 5 wrong passwords cost nothing. After that, the next attempt waits 1 second, then 2, 4, 8 and so on, up to 1 minute. Meanwhile the sign-in page says how many seconds to wait. Once the wait is over the right password works, and it clears the delay.
+- **For one account, from anywhere:** after 5 wrong passwords, the account takes at most one attempt per second, whoever sends it. Someone guessing at `admin` from many addresses therefore gets one try a second, and you still get in, at most a second later.
+- **From one address, for any account:** past 100 wrong passwords in 15 minutes, that address is refused until its count goes down (one more attempt every 9 seconds). This rule is off for a Docker install (Compose or a plain container) with no trusted proxy set: there every visitor can arrive from Docker's own address, and one bad visitor would lock everyone out.
+
+The delays live in memory and start again empty when Meshloom restarts. A delay is written to the audit log once, not for each refused attempt.
+
 ## Behind a reverse proxy
 
 Sign-in delays, the audit log and the session list record the address a request comes from. Behind a reverse proxy that is the proxy's, for every visitor, until you list the proxy in **Settings → Local Configuration → Trusted proxies**; Meshloom then uses the visitor's address the proxy forwards. List the proxy's own address only, never a Docker network or its gateway. See [HTTPS, trusted proxies](/en/docs/deep/https/#trusted-proxies).
@@ -54,7 +64,7 @@ Passwords are at least 12 characters and are never taken from the command line, 
 
 When Meshloom is updated from an older version, the first administrator must prove they have access to the machine by typing an installation code. Meshloom stores only a fingerprint of the code, so it cannot be shown again: `meshloom-admin setup-code` makes a **new** one and the previous code stops working. The command only works while no account exists; afterwards use `create-admin` or `reset-password`.
 
-The code has 8 digits; Meshloom also prints a new one in its log at each start while no account exists. Spaces or dashes typed inside it are ignored. A fresh installation asks for no code. If Meshloom could not prepare the first start (the log says so), creating the administrator is refused until it can; restart Meshloom if it lasts.
+The code has 8 digits; Meshloom also prints a new one in its log at each start while no account exists. Spaces or dashes typed inside it are ignored. A fresh installation asks for no code. If Meshloom could not prepare the first start (the log says so), creating the administrator is refused until it can; restart Meshloom if it lasts. A code printed by `meshloom-admin setup-code` in the meantime stays valid: Meshloom does not replace it when it tries again.
 
 ## The command for each installation
 

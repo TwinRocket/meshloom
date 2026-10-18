@@ -28,6 +28,7 @@ works on the same tables.
 | Sessions and the cookie | `app/auth/sessions.py` |
 | Audit log (events, retention purge) | `app/auth/audit.py`, `tests/test_auth_audit.py` |
 | Username + password provider | `app/auth/providers/password.py` |
+| Login delays (per pair, per username, per IP) | `app/auth/ratelimit.py`, `tests/test_auth_ratelimit.py` |
 | Home Assistant ingress provider | `app/auth/providers/ingress.py` |
 | `Authorization: Basic` compatibility, Basic import | `app/security.py` |
 | Installation code, first run | `app/auth/setup_code.py` |
@@ -35,7 +36,7 @@ works on the same tables.
 | Trusted proxies (the one interpreter of `X-Forwarded-For`/`-Proto`) | `app/middleware/proxy_headers.py`, `tests/test_proxy_headers.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -72,8 +73,9 @@ and `auth_settings`.
   figure, roughly 1.5 to 3 s for INTERACTIVE, more on a Pi Zero 2 W (not
   measured). Each call allocates 64 MiB. From async code, call
   `hash_password_async()` / `verify_password_async()`, which run in a worker
-  thread. Bounding how many run at once (the login limiter, a
-  semaphore) belongs to the caller.
+  thread. Bounding how many run at once belongs to the caller: the login
+  delays (`app/auth/ratelimit.py`) first, then the semaphore of the password
+  provider ("Login delays" below).
 - **Sessions and codes are opaque secrets** (`tokens.new_token()`, 256 bits from
   `secrets`). Only `hash_token()` (SHA-256 hex) is stored. The repository looks a
   session up by that hash and checks the stored value with `hmac.compare_digest`.
@@ -141,8 +143,8 @@ logged at ERROR and the row is not written (a bug at the call site).
   server), `actor_token_id` (bearer tokens, later), `ip` (`client_ip()`), `via`
   (`lan`, `ingress`, `trusted`, `relay`, plus `cli` for `meshloom-admin` and
   `system` for the server on its own), `outcome` (`success`, `failure`,
-  `refused` for a 403 or a CLI precondition, `delayed` for the login delays ticket,
-  `error`), `target` (`user:<id>` for a known account, `username:unknown` for a
+  `refused` for a 403, a CLI precondition or a login refused per IP, `delayed`
+  for a login refused while a delay runs ("Login delays"), `error`), `target` (`user:<id>` for a known account, `username:unknown` for a
   typed name that matches no account (`typed_username_target()`: the typed text
   is never stored, so a password typed into the username field never reaches
   the log), `session:<id>`, `bot:<id>`,
@@ -524,14 +526,50 @@ Upgrade path (cadrage P3, `app/security.py`):
   entries.
 - **Failures.** After a failed check, Basic attempts from that client IP that
   are not already cached fail at once for 3 seconds, without argon2id (at most
-  1024 IPs tracked). A script sharing the IP of a failing client (Docker
-  gateway) waits those seconds too.
+  1024 IPs tracked). The IP is `client_ip()`: behind a trusted proxy each
+  forwarded client has its own cooldown, otherwise the proxy's address is
+  shared by all of them. A script sharing the IP of a failing client (Docker
+  gateway, an untrusted proxy) waits those seconds too. Basic does not go
+  through the login delays.
 - **Load cap** (`app/auth/providers/password.py`). At most 2 argon2id checks
   run and 8 wait; one more answers 503 `auth_busy` at once, on any route and
-  on `POST /api/auth/login`, instead of queueing behind a flood. The real
-  login limiter is a later ticket.
+  on `POST /api/auth/login`, instead of queueing behind a flood. On the login
+  route the login delays run before it ("Login delays").
 - A user name longer than 64 characters (the account limit) cannot be
   imported: the error is logged and the first run continues without it.
+
+## Login delays
+
+`app/auth/ratelimit.py` (cadrage, "Tentatives et délais"). `POST /api/auth/login`
+calls `login_limiter.check(ip, username)` before any password work, then
+`record_failure()` or `record_success()`. A refused attempt answers 429
+`auth_rate_limited` with `params.retry_after` and `Retry-After` (whole
+seconds, at least 1), never reaches the argon2id semaphore, and the frontend
+shows `errors.auth_rate_limited` (slice `aa`). No hard lockout by username,
+and none by IP alone behind Docker:
+
+| Rule | Key | Behaviour |
+|---|---|---|
+| Progressive delay | `(client_ip, username_key)` | 5 free failures, then each failure closes the pair for 1, 2, 4, ... seconds, capped at 60. The first attempt after the delay is checked; a success forgets the pair |
+| Global slow-down | `username_key` | After 5 failures from any IP, at most one attempt per second on that name (`check()` takes the slot). Never more than one second to wait, so the right password always gets in |
+| Hard refusal | `client_ip` | Beyond 100 failures in 15 minutes (`aiolimiter.AsyncLimiter(100, 900)` per IP, read with `has_capacity()`: one more every 9 s). Off when `install_kind` is `compose` or `container` and `auth_settings.trusted_proxies` is empty (read live): every client may arrive from the Docker gateway |
+
+- **IP.** `client_ip()`: the TCP peer, or what a trusted proxy forwarded
+  ("Proxy headers"). Via the relay (later), the address in the frame.
+- **Memory.** Pair and username entries go `FORGET_AFTER_S` (15 min) after
+  their last failure once no delay runs; an IP bucket goes once it has leaked
+  empty. A sweep runs at most once a minute from `check()`; each table holds
+  at most 4096 keys (the least recently failed goes). Restarting empties it.
+- **Audit.** One `login` row per delay, not per refused attempt: outcome
+  `delayed` (`details.reason` `pair` or `username`) or `refused` (`ip`), with
+  `details.retry_after`; the typed name follows `typed_username_target()`.
+- **Clock.** The limiter takes a clock; `_FailureWindow` hands it to
+  aiolimiter in place of the loop's time, so the tests use a fake clock.
+- **Not covered.** Concurrent attempts on one pair can each pass `check()`
+  before the first failure is recorded (bounded by the argon2id queue of 10).
+  Under a sustained flood on one name from many addresses, the owner competes
+  for the one slot a second; the per-IP rule and the relay's edge lock answer
+  that, not a lock on the name.
 
 ## First run and the installation code
 
@@ -558,8 +596,12 @@ start and no code hash is stored, whatever code is sent. `GET
 
 Once an account exists the hash is cleared. `POST /api/auth/setup` checks the
 code with digits only (`1234 5678` and `1234-5678` match); wrong codes are
-answered one at a time, one second apart (a lock around setup), until the
-login limiter. The code is never stored in clear and never in an audit row.
+answered one at a time, one second apart (a lock around setup): one guess a
+second against 10^8 codes, so the login delays do not apply to setup. When the
+setup route retries a failed `prepare_first_run()`, it keeps a code hash that
+is already stored (`keep_stored_code`): it may be the one `meshloom-admin
+setup-code` printed while the startup preparation was failing. The code is
+never stored in clear and never in an audit row.
 
 ## Password policy
 
@@ -585,7 +627,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 |---|---|---|
 | `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}, secure}` (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
-| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress, before any password check |
+| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
 | `GET /auth/sessions` | own account (not `kiosk`) | The user's active sessions, newest first, `current` marks this one |
 | `DELETE /auth/sessions` | own account (not `kiosk`) | Revokes all the user's sessions except this one: `{revoked}` |

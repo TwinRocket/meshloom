@@ -3,8 +3,9 @@
 Used by ``POST /api/auth/login`` and by the ``Authorization: Basic``
 compatibility credential (``app/security.py``). At most
 ``MAX_CONCURRENT_VERIFICATIONS`` argon2id checks run at once (64 MiB each,
-``app/auth/passwords.py``); the others wait. A login attempt limiter in front
-of it comes with a later Access ticket. Beyond those plus
+``app/auth/passwords.py``); the others wait. On ``POST /api/auth/login`` the
+login delays (``app/auth/ratelimit.py``) run first, so an attempt they refuse
+never takes a place here. Beyond those plus
 ``MAX_QUEUED_VERIFICATIONS`` waiting, a new check is not queued:
 ``VerificationBusy`` is raised at once and the caller answers 503
 ``auth_busy``, so a flood of garbage credentials cannot stall logins for long.

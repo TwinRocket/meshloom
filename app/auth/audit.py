@@ -83,8 +83,9 @@ AUDIT_ACTIONS: tuple[str, ...] = get_args(AuditAction)
 
 # ``success``: done. ``failure``: a check failed (wrong password, invalid code,
 # the radio refused, a 4xx). ``refused``: a precondition stopped it before any
-# attempt (``meshloom-admin``). ``delayed``: a login answered after a delay
-# (the login delays ticket). ``error``: the server failed.
+# attempt (``meshloom-admin``, a login refused per IP). ``delayed``: a login
+# refused while a delay runs (``app/auth/ratelimit.py``, one row per delay).
+# ``error``: the server failed.
 AuditOutcome = Literal["success", "failure", "refused", "delayed", "error"]
 AUDIT_OUTCOMES: tuple[str, ...] = get_args(AuditOutcome)
 
