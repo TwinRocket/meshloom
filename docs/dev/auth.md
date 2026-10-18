@@ -2,7 +2,8 @@
 
 Meshloom 5.0.0 makes login mandatory (LAN included) with four roles: `admin`,
 `member`, `viewer` and `kiosk`. This page covers the data layer only: tables,
-password hashing, opaque tokens and the repository. Nothing reads it yet: the
+password hashing, opaque tokens and the repository. Only the recovery CLI
+(`app/cli.py`) reads it yet: the
 middleware, the routes and the UI come with the later Access tickets (auth core,
 audit log, 2FA, backup sections). Like every doc here this is a hypothesis: the
 code wins.
@@ -17,6 +18,7 @@ code wins.
 | Password hashing (argon2id) | `app/auth/passwords.py` |
 | Opaque secrets (sessions, setup code) | `app/auth/tokens.py` |
 | Repository | `app/repository/auth.py` |
+| Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
 | Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`

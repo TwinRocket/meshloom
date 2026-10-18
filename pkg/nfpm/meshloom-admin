@@ -1,0 +1,49 @@
+#!/bin/sh
+# meshloom-admin: recover access to a Meshloom instance from the host
+# (app/cli.py; docs/user/en/deep/access.md).
+#
+# One wrapper for every install kind that ships a Python tree:
+#   - deb/rpm and the RPi image: /opt/meshloom/.venv/bin/meshloom-admin, run as the
+#     user that owns the database (sudo -u meshloom).
+#   - Docker image and Home Assistant add-on: /usr/local/bin/meshloom-admin, run with
+#     `docker compose exec` / `docker exec`.
+# The project is not pip-installed in the venv (no build backend), so a console
+# script entry point cannot exist; this wrapper is the command.
+#
+# The database path is MESHCORE_DATABASE_PATH when set. Otherwise it is found the
+# way the service finds it, because an interactive shell or `docker exec` does not
+# see the unit's EnvironmentFile or the add-on launcher's environment.
+set -eu
+
+if [ -n "${MESHLOOM_APP_DIR:-}" ]; then
+    APP="$MESHLOOM_APP_DIR"
+elif [ -x /opt/meshloom/.venv/bin/python ]; then
+    APP=/opt/meshloom
+elif [ -x /app/.venv/bin/python ]; then
+    APP=/app
+else
+    echo "meshloom-admin: no Meshloom installation found (looked in /opt/meshloom and /app)" >&2
+    exit 1
+fi
+
+if [ -z "${MESHCORE_DATABASE_PATH:-}" ]; then
+    if [ "$APP" = /opt/meshloom ]; then
+        # Package: the value in the unit's environment file, else the packaged default.
+        env_file="${MESHLOOM_ENV_FILE:-/etc/meshloom/meshloom.env}"
+        value=
+        if [ -r "$env_file" ]; then
+            value=$(sed -n 's/^MESHCORE_DATABASE_PATH=//p' "$env_file" | tail -n 1 | tr -d '"'"'")
+        fi
+        MESHCORE_DATABASE_PATH="${value:-/var/lib/meshloom/meshcore.db}"
+    elif [ -f /data/options.json ]; then
+        # Home Assistant add-on: meshloom/run.py points the server at /config.
+        MESHCORE_DATABASE_PATH=/config/meshcore.db
+    else
+        MESHCORE_DATABASE_PATH="$APP/data/meshcore.db"
+    fi
+    export MESHCORE_DATABASE_PATH
+fi
+
+PYTHONPATH="$APP${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+exec "$APP/.venv/bin/python" -m app.cli "$@"
