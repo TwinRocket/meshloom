@@ -693,9 +693,12 @@ def test_log_ring_keeps_the_runner_error():
     assert ring.runner_error == {"code": "entry_invalid", "message": "nope"}
 
 
-async def test_health_carries_the_plugin_fields(test_db):
+async def test_health_carries_the_plugin_fields(test_db, monkeypatch):
+    import app.repository.plugins as plugins_repo
     from app.routers.health import HealthResponse, build_health_data
 
+    # The repository's row cache is module-wide: other tests of this worker fill it.
+    monkeypatch.setattr(plugins_repo, "_instances_cache", {})
     data = await build_health_data(False, None)
     health = HealthResponse(**data)
     assert health.plugins_isolation == "none"
