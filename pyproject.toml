@@ -89,6 +89,7 @@ dev = [
     "pytest-xdist>=3.0",
     "ruff>=0.8.0",
     "pyright>=1.1.390",
+    "hypothesis>=6.170",
 ]
 
 [tool.uv]
