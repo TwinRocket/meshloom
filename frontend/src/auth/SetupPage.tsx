@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
 import { passwordStrength } from './passwordStrength';
-import { PASSWORD_MIN_LENGTH, type AuthSessionInfo } from './types';
+import { PASSWORD_MIN_LENGTH, noSessionReason, type AuthSessionInfo } from './types';
 
 /**
  * First run: create the administrator. A database that existed before the upgrade also
@@ -51,6 +51,13 @@ export function SetupPage({
         ...(displayName.trim() && { display_name: displayName.trim() }),
         ...(setupCodeRequired && { setup_code: setupCode.trim() }),
       });
+      const reason = noSessionReason(session);
+      if (reason) {
+        // The account exists now, but nothing keeps this browser signed in.
+        setError(t(`errors.${reason}`));
+        setBusy(false);
+        return;
+      }
       onDone(session);
     } catch (err) {
       setError(formatApiError(err, t));

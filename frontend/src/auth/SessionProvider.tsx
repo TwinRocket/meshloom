@@ -24,7 +24,7 @@ interface SessionValue {
   /** The last `GET /auth/session` answer (the gate renders children only when signed in). */
   session: AuthSessionInfo | null;
   /** Ends the session on the server and goes back to the login page. */
-  signOut: () => Promise<void>;
+  signOut: () => Promise<boolean>;
 }
 
 const EMPTY: SessionValue = {
@@ -32,7 +32,7 @@ const EMPTY: SessionValue = {
   role: null,
   via: null,
   session: null,
-  signOut: async () => {},
+  signOut: async () => false,
 };
 
 const SessionContext = createContext<SessionValue>(EMPTY);
@@ -120,13 +120,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener('visibilitychange', check);
   }, [authenticated]);
 
+  /** Resolves true when the session ended; false when the server still knows us. */
   const signOut = useCallback(async () => {
     try {
       await api.authLogout();
-    } finally {
-      setExpired(false);
-      await load();
+    } catch {
+      // Whatever the server says, the reload below tells whether we are still signed in.
     }
+    setExpired(false);
+    const session = await load();
+    return !session?.authenticated;
   }, [load]);
 
   const value = useMemo<SessionValue>(() => {

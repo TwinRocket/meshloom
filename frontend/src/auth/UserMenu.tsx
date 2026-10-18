@@ -18,6 +18,7 @@ export function UserMenu({ className }: { className?: string }) {
   const { user, role, via, signOut } = useSession();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stillSignedIn, setStillSignedIn] = useState(false);
   if (!user) return null;
   const name = user.display_name || user.username;
 
@@ -55,12 +56,20 @@ export function UserMenu({ className }: { className?: string }) {
               disabled={busy}
               onClick={() => {
                 setBusy(true);
-                void signOut();
+                void signOut()
+                  .then((ended) => setStillSignedIn(!ended))
+                  .finally(() => setBusy(false));
               }}
             >
               <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
               {t('auth.userMenu.signOut')}
             </Button>
+          )}
+          {stillSignedIn && (
+            // Saved Basic credentials (4.x) authenticate every request: no session to end.
+            <p role="status" className="text-sm text-muted-foreground">
+              {t('auth.userMenu.basicNote')}
+            </p>
           )}
         </DialogContent>
       </Dialog>

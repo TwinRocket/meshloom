@@ -2,7 +2,9 @@
   "errors": {
     "auth_rate_limited": "Too many attempts. Try again in {{retry_after}} seconds.",
     "auth_host_rejected": "Request refused: this address is not one this instance answers to.",
-    "auth_last_admin": "This is the last administrator: keep at least one."
+    "auth_last_admin": "This is the last administrator: keep at least one.",
+    "auth_ingress_unsupported": "Your credentials are right, but Meshloom cannot keep you signed in through Home Assistant yet. Open Meshloom on its own address (http://<host>:8000) and sign in there. If you were creating the account, it exists now.",
+    "auth_no_session": "Signing in did not open a session. Reload the page and try again."
   },
   "auth": {
     "loading": "Loading…",
@@ -10,7 +12,10 @@
     "sessionLoadFailed": "Meshloom could not reach the server.",
     "username": "User name",
     "password": "Password",
-    "language": { "fr": "Français", "en": "English" },
+    "language": {
+      "fr": "Français",
+      "en": "English"
+    },
     "role": {
       "admin": "Administrator",
       "member": "Member",
@@ -51,7 +56,8 @@
     "userMenu": {
       "open": "Account of {{name}}",
       "signOut": "Sign out",
-      "ingressNote": "Home Assistant signs you in: there is no Meshloom session to end."
+      "ingressNote": "Home Assistant signs you in: there is no Meshloom session to end.",
+      "basicNote": "This browser signs in with saved Basic credentials, so there is no session to end. Close the browser or forget the saved login to sign out."
     }
   }
 }

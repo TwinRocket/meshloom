@@ -20,6 +20,8 @@ export interface AuthSessionInfo {
   user?: AuthUser;
   via?: AuthVia;
   instance?: { name?: string; version: string };
+  /** Set by login/setup when the credentials were right but no session was opened. */
+  session_reason?: string;
 }
 
 export interface AuthSetupRequest {
@@ -32,6 +34,14 @@ export interface AuthSetupRequest {
 export interface AuthLoginRequest {
   username: string;
   password: string;
+}
+
+/** Error code under `errors.` explaining a login or setup that opened no session. */
+export function noSessionReason(session: AuthSessionInfo): string | null {
+  if (session.session_reason) return session.session_reason;
+  // Belt and braces: an ingress answer that claims a session cannot be kept either.
+  if (session.via === 'ingress') return 'auth_ingress_unsupported';
+  return session.authenticated ? null : 'auth_no_session';
 }
 
 /** The shortest password the backend accepts (`password_policy_violation`). */

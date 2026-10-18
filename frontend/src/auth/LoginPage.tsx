@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
-import type { AuthSessionInfo } from './types';
+import { noSessionReason, type AuthSessionInfo } from './types';
 
 /** The sign-in form fields, shared with the re-login dialog. */
 export function LoginForm({
@@ -32,6 +32,13 @@ export function LoginForm({
     setError(null);
     try {
       const session = await api.authLogin({ username: username.trim(), password });
+      const reason = noSessionReason(session);
+      if (reason) {
+        setError(t(`errors.${reason}`));
+        setPassword('');
+        setBusy(false);
+        return;
+      }
       onDone(session);
     } catch (err) {
       setError(formatApiError(err, t));

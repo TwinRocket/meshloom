@@ -2,7 +2,9 @@
   "errors": {
     "auth_rate_limited": "Trop de tentatives. Réessayez dans {{retry_after}} secondes.",
     "auth_host_rejected": "Requête refusée : cette adresse n'est pas une de celles auxquelles cette instance répond.",
-    "auth_last_admin": "C'est le dernier administrateur : gardez-en au moins un."
+    "auth_last_admin": "C'est le dernier administrateur : gardez-en au moins un.",
+    "auth_ingress_unsupported": "Vos identifiants sont corrects, mais Meshloom ne peut pas encore vous garder connecté depuis Home Assistant. Ouvrez Meshloom sur sa propre adresse (http://<hôte>:8000) et connectez-vous là. Si vous créiez le compte, il existe maintenant.",
+    "auth_no_session": "La connexion n'a pas ouvert de session. Rechargez la page et réessayez."
   },
   "auth": {
     "loading": "Chargement…",
@@ -10,7 +12,10 @@
     "sessionLoadFailed": "Meshloom n'a pas pu joindre le serveur.",
     "username": "Nom d'utilisateur",
     "password": "Mot de passe",
-    "language": { "fr": "Français", "en": "English" },
+    "language": {
+      "fr": "Français",
+      "en": "English"
+    },
     "role": {
       "admin": "Administrateur",
       "member": "Membre",
@@ -51,7 +56,8 @@
     "userMenu": {
       "open": "Compte de {{name}}",
       "signOut": "Se déconnecter",
-      "ingressNote": "Home Assistant vous connecte : il n'y a pas de session Meshloom à terminer."
+      "ingressNote": "Home Assistant vous connecte : il n'y a pas de session Meshloom à terminer.",
+      "basicNote": "Ce navigateur se connecte avec des identifiants Basic enregistrés : il n'y a pas de session à terminer. Fermez le navigateur ou oubliez l'identifiant enregistré pour vous déconnecter."
     }
   }
 }

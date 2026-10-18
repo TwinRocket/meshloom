@@ -342,3 +342,96 @@ describe('passwordStrength', () => {
     expect(passwordStrength('a'.repeat(24))).toBe('strong');
   });
 });
+
+describe('review fixes', () => {
+  it('scrolls inside the page so the submit button is reachable on a small viewport', async () => {
+    // jsdom does no layout: assert the classes that make the page scroll (body is overflow:hidden).
+    stubFetch({
+      'GET /auth/session': () =>
+        jsonResponse({ ...base, setup_required: true, setup_code_required: true }),
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    const layout = await screen.findByTestId('auth-layout');
+    expect(layout).toHaveClass('h-dvh', 'overflow-y-auto');
+    expect(layout.firstElementChild).toHaveClass('m-auto');
+    expect(layout).not.toHaveClass('min-h-dvh');
+    expect(screen.getByRole('button', { name: t('auth.setup.submit') })).toBeInTheDocument();
+  });
+
+  const ingressAnswer = () =>
+    jsonResponse({
+      ...base,
+      via: 'ingress',
+      session_reason: 'auth_ingress_unsupported',
+    });
+
+  it('explains the Home Assistant ingress gap on login instead of mounting the app', async () => {
+    const user = userEvent.setup();
+    const fetchFn = stubFetch({
+      'GET /auth/session': () => jsonResponse(base),
+      'POST /auth/login': ingressAnswer,
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    await screen.findByRole('heading', { name: t('auth.login.title') });
+    await user.type(screen.getByLabelText(t('auth.username')), 'owner');
+    await user.type(screen.getByLabelText(t('auth.password')), 'pw');
+    await user.click(screen.getByRole('button', { name: t('auth.login.submit') }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      t('errors.auth_ingress_unsupported')
+    );
+    expect(screen.queryByTestId('app')).toBeNull();
+    // No loop: one session read, one login.
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('explains the ingress gap after setup too', async () => {
+    const user = userEvent.setup();
+    stubFetch({
+      'GET /auth/session': () => jsonResponse({ ...base, setup_required: true }),
+      'POST /auth/setup': ingressAnswer,
+    });
+    render(
+      <SessionProvider>
+        <Probe />
+      </SessionProvider>
+    );
+    await screen.findByLabelText(t('auth.username'));
+    await user.type(screen.getByLabelText(t('auth.username')), 'owner');
+    await user.type(screen.getByLabelText(t('auth.password')), 'correct horse battery');
+    await user.type(
+      screen.getByLabelText(t('auth.setup.confirmPassword')),
+      'correct horse battery'
+    );
+    await user.click(screen.getByRole('button', { name: t('auth.setup.submit') }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      t('errors.auth_ingress_unsupported')
+    );
+    expect(screen.queryByTestId('app')).toBeNull();
+  });
+
+  it('says so when Sign out cannot end a Basic session, and frees the button', async () => {
+    const user = userEvent.setup();
+    stubFetch({
+      'GET /auth/session': () => jsonResponse(signedIn),
+      'POST /auth/logout': () => jsonResponse({ ok: true }),
+    });
+    const { UserMenu } = await import('../auth/UserMenu');
+    render(
+      <SessionProvider>
+        <UserMenu />
+      </SessionProvider>
+    );
+    await user.click(await screen.findByRole('button', { name: /Olive/ }));
+    await user.click(screen.getByRole('button', { name: t('auth.userMenu.signOut') }));
+    expect(await screen.findByText(t('auth.userMenu.basicNote'))).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: t('auth.userMenu.signOut') })).toBeEnabled();
+  });
+});

@@ -22,8 +22,8 @@ export function AuthLayout({
 }) {
   const { t } = useTranslation();
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-background p-4">
-      <div className="w-full max-w-sm space-y-5 rounded-lg border border-border bg-card p-6 text-card-foreground shadow-sm">
+    <main className="flex h-dvh overflow-y-auto bg-background p-4" data-testid="auth-layout">
+      <div className="m-auto w-full max-w-sm space-y-5 rounded-lg border border-border bg-card p-6 text-card-foreground shadow-sm">
         <div className="flex flex-col items-center gap-2 text-center">
           <img src="./meshloom-mark.svg" alt="" className="h-10 w-10 object-contain" />
           <h1 className="text-lg font-semibold">{title}</h1>
