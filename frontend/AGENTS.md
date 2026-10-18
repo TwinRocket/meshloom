@@ -25,7 +25,8 @@ rely on it. Community and `#live` detail: `docs/dev/frontend-community.md`.
 `stores/rawPacketStore.ts` is read through `useSyncExternalStore`
 (`useRawPackets()`, `useRawPacketStatsSession()`). Only leaf views subscribe:
 `RawPacketFeedView`, `VisualizerView`, `LiveView`, `ControlJournalView`,
-`CrackerPanel`. **No ancestor of `MessageList` (`App`, `AppShell`,
+`CrackerPanel`. `FeedView` reads `feedStore`, which holds its own copy of the control
+packets (see below), but `useRawPackets()` only through the activation seed. **No ancestor of `MessageList` (`App`, `AppShell`,
 `ConversationPane`) may subscribe**, or every packet re-renders the whole tree.
 `src/test/appPacketIsolation.test.tsx` enforces this.
 
@@ -38,6 +39,16 @@ feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
   `recordFeedMessage` / `applyFeedAck` / ... call is a flag check and stores
   nothing. `useRealtimeAppState` calls the store from `onMessage` (after the blocked
   check), `onMessageAcked`, `onMessageDeleted` and `onContactResolved`.
+- **Control rows.** `recordFeedControlPacket(packet)` is called by `onRawPacket` right
+  after `recordRawPacket`. Active store only (one flag check otherwise); the header byte
+  and the server's `payload_type` label select Request / Response / AnonRequest /
+  GroupData without decoding, and only those go through the decode cache of
+  `utils/controlJournal.ts` (`isControlJournalPacket`), so an observation is decoded once.
+  Rows are deduped by `getRawPacketObservationKey`, ordered by `(timestamp, key)` and
+  bounded by `FEED_CONTROL_MAX` = 500 **control** packets (the oldest go). They seed from
+  `rawPacketStore` at `activateFeedStore()`. `onReconnect` clears `rawPacketStore` and
+  **not** these rows; `clearFeedRows()` (a server-filter reload) does not either, only
+  `resetFeedStore()` does.
 - **Batched emits.** Mutations edit a private working array; one `queueMicrotask`
   publishes a new immutable snapshot and notifies once, so a burst (historical
   decryption) is a single render. Read the snapshot with `getFeedSnapshot()` after
@@ -46,8 +57,9 @@ feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
 ### Feed
 
 `#feed` (`components/feed/FeedView.tsx`, `lazy()` behind `LazyBoundary`, not in the
-entry chunk) is the only subscriber of `feedStore`; it sits beside `control`, which
-is untouched until the Control preset folds it in.
+entry chunk) is the only subscriber of `feedStore`; it sits beside `control`
+(`ControlJournalView`, still the Control journal until the Control preset folds it in).
+The feed now carries the control source itself: see _Control rows_ above and below.
 
 - **Pagination.** On mount: `activateFeedStore()`, then `loadFeedPage(null)`
   (`GET /api/messages?limit=200`, `FEED_PAGE_SIZE`). Scrolling within ~300 px of the
@@ -108,6 +120,24 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   absent when `navigator.clipboard` is undefined (HTTP on the LAN). A view rendered
   without the three callbacks is read-only. No reply, react or resend. Tests:
   `src/test/feedRowActions.test.tsx`.
+- **Control source.** `Sources > Control` (on by default) interleaves
+  `FeedControlRow`s with the messages: `buildFeedItems(messages, controls)` merges the two
+  sorted lists by `received_at` / `packet.timestamp` (a message first on a tie).
+  `buildJournalEntries` (incremental, `utils/controlJournal.ts`) turns the held packets
+  into entries (classification, pairing, never decrypting third-party Request / Anon
+  payloads); `controlParts.tsx` holds the labels shared with `ControlJournalView`. A row
+  click opens `RawPacketInspectorDialog`; the peers open the contact sheet; the GroupData
+  channel opens the conversation; the "Paired" badge scrolls to the twin (a plain badge
+  when the twin is filtered out). The follow counter counts control rows by the browser
+  receipt time (`received_at_ms`), messages by id.
+- **Nodes facet.** `FeedNodesFacet` (a `md:w-64` column, a sheet on a phone) lists the
+  control threads (`classifyThread`: repeaters and rooms, channels, us, unresolved) with
+  counts. The pick is `FeedFilters.node` (a thread id, per browser, in the same
+  `localStorage` key); a node that no longer exists filters nothing. A node narrows the
+  control rows to its thread; a channel node narrows the messages to that channel, any
+  other node hides the messages (`rowPassesFilters`, client-side only). With Messages off
+  and Control on no request is sent (`hasNoMessages`); `hasEmptySelection` is true only
+  when nothing can show.
 - jsdom measures no layout: `src/test/feedView.test.tsx` fakes the scroller geometry.
   Virtualization and the single scroller need a check in a real browser.
 
@@ -116,8 +146,8 @@ observation is decoded once: a decode cache keyed by `getRawPacketObservationKey
 (re-decoded only if the bytes behind a key change) feeds both the filter and
 `buildJournalEntries`, which is incremental (new observations only; a change of
 contacts, channels or public key rebuilds entries from the cache, not the
-decoder; request/response pairing is recomputed each time). Both follow the live
-buffer: keys that left it are dropped by the next filter/build.
+decoder; request/response pairing is recomputed each time). `filterControlJournalPackets` drops the decode of keys that left the live buffer; the
+feed forgets the decode of a control row it drops (`forgetControlDecode`).
 It is a sibling of `utils/rawPacketDerivedCache.ts` (not reused: the journal needs
 the decoded object, not that cache's summary fields) with the same eviction rule.
 

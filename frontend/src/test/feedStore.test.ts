@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  FEED_CONTROL_MAX,
   FEED_MAX_ROWS,
   activateFeedStore,
   applyFeedAck,
   getFeedSnapshot,
   maxKnownId,
   mergeHistoryPage,
+  recordFeedControlPacket,
   recordFeedMessage,
   removeFeedMessage,
   renameFeedConversation,
   resetFeedStore,
   subscribeFeedStore,
+  clearFeedRows,
 } from '../stores/feedStore';
-import type { Message } from '../types';
+import { recordRawPacket, resetRawPacketStore } from '../stores/rawPacketStore';
+import type { Message, RawPacket } from '../types';
 
 function msg(id: number, received_at: number, overrides: Partial<Message> = {}): Message {
   return {
@@ -166,5 +170,103 @@ describe('feedStore', () => {
     expect(listener).toHaveBeenCalledTimes(1);
     expect(getFeedSnapshot().rows).toHaveLength(2000);
     off();
+  });
+});
+
+function control(id: number, timestamp: number, overrides: Partial<RawPacket> = {}): RawPacket {
+  return {
+    id,
+    observation_id: id,
+    timestamp,
+    // Flood Request: header 0x01.
+    data: `0100bbaa${id.toString(16).padStart(4, '0')}${'11'.repeat(16)}`,
+    payload_type: 'Request',
+    snr: null,
+    rssi: null,
+    decrypted: false,
+    decrypted_info: null,
+    ...overrides,
+  };
+}
+const controlIds = () => getFeedSnapshot().controlPackets.map((p) => p.id);
+
+describe('feedStore control rows', () => {
+  beforeEach(() => {
+    resetFeedStore();
+    resetRawPacketStore();
+    activateFeedStore();
+  });
+
+  it('keeps the four control types and drops everything else', async () => {
+    const header = (type: number) => ((type << 2) | 1).toString(16).padStart(2, '0');
+    recordFeedControlPacket(control(1, 10));
+    recordFeedControlPacket(
+      control(2, 11, { data: `${header(1)}00bbaa${'11'.repeat(16)}`, payload_type: 'Response' })
+    );
+    recordFeedControlPacket(
+      control(3, 12, { data: `${header(7)}00bb${'cc'.repeat(34)}`, payload_type: 'AnonRequest' })
+    );
+    recordFeedControlPacket(
+      control(4, 13, { data: `${header(6)}00bbaa${'11'.repeat(16)}`, payload_type: 'GroupData' })
+    );
+    recordFeedControlPacket(
+      control(5, 14, { data: `${header(5)}00bbaa${'11'.repeat(16)}`, payload_type: 'GroupText' })
+    );
+    recordFeedControlPacket(
+      control(6, 15, { data: `${header(4)}00${'77'.repeat(8)}`, payload_type: 'Advert' })
+    );
+    await flush();
+    expect(controlIds()).toEqual([1, 2, 3, 4]);
+  });
+
+  it('orders by timestamp and dedupes by observation key', async () => {
+    expect(recordFeedControlPacket(control(1, 30))).toBe(true);
+    expect(recordFeedControlPacket(control(2, 10))).toBe(true);
+    expect(recordFeedControlPacket(control(1, 30))).toBe(false);
+    // Same observation, other db id: still the same arrival.
+    expect(recordFeedControlPacket({ ...control(9, 30), observation_id: 1 })).toBe(false);
+    await flush();
+    expect(controlIds()).toEqual([2, 1]);
+  });
+
+  it('bounds the held control packets at FEED_CONTROL_MAX, dropping the oldest', async () => {
+    for (let i = 1; i <= FEED_CONTROL_MAX + 5; i += 1) recordFeedControlPacket(control(i, i));
+    await flush();
+    const ids = controlIds();
+    expect(ids).toHaveLength(FEED_CONTROL_MAX);
+    expect(ids[0]).toBe(6);
+    expect(recordFeedControlPacket(control(1, 1))).toBe(true);
+  });
+
+  it('is not emptied by clearFeedRows (a filter reload), only by a reset', async () => {
+    recordFeedControlPacket(control(1, 1));
+    recordFeedMessage(msg(1, 100));
+    await flush();
+    clearFeedRows();
+    await flush();
+    expect(getFeedSnapshot().rows).toHaveLength(0);
+    expect(controlIds()).toEqual([1]);
+    resetFeedStore();
+    expect(controlIds()).toEqual([]);
+  });
+
+  it('records nothing and decodes nothing while inactive', () => {
+    resetFeedStore();
+    expect(recordFeedControlPacket(control(1, 1))).toBe(false);
+    expect(getFeedSnapshot().controlPackets).toEqual([]);
+  });
+
+  it('seeds from the raw buffer on activation, once', async () => {
+    resetFeedStore();
+    recordRawPacket(control(1, 5));
+    recordRawPacket(control(2, 6, { payload_type: 'GroupText', data: `15${'00'.repeat(10)}` }));
+    activateFeedStore();
+    await flush();
+    expect(controlIds()).toEqual([1]);
+    // A second activation does not seed again over what has been recorded since.
+    resetRawPacketStore();
+    activateFeedStore();
+    await flush();
+    expect(controlIds()).toEqual([1]);
   });
 });

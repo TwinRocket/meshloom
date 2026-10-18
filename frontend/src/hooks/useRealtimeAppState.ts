@@ -17,6 +17,7 @@ import { getContactDisplayName } from '../utils/pubkey';
 import { clearRawPackets, MAX_RAW_PACKETS, recordRawPacket } from '../stores/rawPacketStore';
 import {
   applyFeedAck,
+  recordFeedControlPacket,
   recordFeedMessage,
   removeFeedMessage,
   renameFeedConversation,
@@ -410,6 +411,8 @@ export function useRealtimeAppState({
       onRawPacket: (packet: RawPacket) => {
         emitStatusDotPulse(packet.payload_type);
         recordRawPacket(packet, maxRawPackets);
+        // The feed keeps its own control rows: `onReconnect` clears the raw buffer, not these.
+        recordFeedControlPacket(packet);
       },
       onCommunityPacket: (packet: CommunityPacket) => {
         recordCommunityPacket(packet);

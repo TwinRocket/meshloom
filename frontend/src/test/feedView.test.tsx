@@ -460,11 +460,12 @@ describe('FeedView filter chips', () => {
     expect(chip(chipLabel('channels'))).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('keeps Control and Events disabled until their sources exist', async () => {
+  it('enables Control (on by default) and keeps Events disabled until its source exists', async () => {
     mocks.getMessages.mockResolvedValue(mixedRows());
     renderFeed(mixedChannels);
     await screen.findByRole('list');
-    expect(chip(chipLabel('control'))).toBeDisabled();
+    expect(chip(chipLabel('control'))).toBeEnabled();
+    expect(chip(chipLabel('control'))).toHaveAttribute('aria-pressed', 'true');
     expect(chip(chipLabel('events'))).toBeDisabled();
   });
 });

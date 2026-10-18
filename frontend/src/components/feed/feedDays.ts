@@ -1,7 +1,10 @@
 import type { Message } from '../../types';
+import type { JournalEntry } from '../../utils/controlJournal';
 
 export type FeedItem =
-  { kind: 'day'; key: string; at: number } | { kind: 'row'; key: string; row: Message };
+  | { kind: 'day'; key: string; at: number }
+  | { kind: 'row'; key: string; row: Message }
+  | { kind: 'control'; key: string; entry: JournalEntry };
 
 /** Local calendar day of an epoch-seconds instant, `YYYY-M-D` (unpadded: only compared). */
 export function localDayKey(seconds: number): string {
@@ -9,17 +12,41 @@ export function localDayKey(seconds: number): string {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
-/** Rows interleaved with one separator before the first row of each local day. */
-export function buildFeedItems(rows: readonly Message[]): FeedItem[] {
+/**
+ * Messages (sorted by `received_at`) and control entries (sorted by `packet.timestamp`)
+ * merged by time, a message first on a tie, with one separator before the first row of
+ * each local day.
+ */
+export function buildFeedItems(
+  rows: readonly Message[],
+  controls: readonly JournalEntry[] = []
+): FeedItem[] {
   const items: FeedItem[] = [];
   let day: string | null = null;
-  for (const row of rows) {
-    const rowDay = localDayKey(row.received_at);
+  const push = (at: number, item: Exclude<FeedItem, { kind: 'day' }>) => {
+    const rowDay = localDayKey(at);
     if (rowDay !== day) {
       day = rowDay;
-      items.push({ kind: 'day', key: `day:${rowDay}`, at: row.received_at });
+      items.push({ kind: 'day', key: `day:${rowDay}`, at });
     }
-    items.push({ kind: 'row', key: `row:${row.id}`, row });
+    items.push(item);
+  };
+  let m = 0;
+  let c = 0;
+  while (m < rows.length || c < controls.length) {
+    const row = rows[m];
+    const entry = controls[c];
+    if (row && (!entry || row.received_at <= entry.packet.timestamp)) {
+      push(row.received_at, { kind: 'row', key: `row:${row.id}`, row });
+      m += 1;
+    } else {
+      push(entry.packet.timestamp, {
+        kind: 'control',
+        key: `control:${entry.observationKey}`,
+        entry,
+      });
+      c += 1;
+    }
   }
   return items;
 }
