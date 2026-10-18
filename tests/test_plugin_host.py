@@ -155,11 +155,22 @@ async def create_instance(
     return row["instance_id"]
 
 
-async def wait_until(predicate, timeout: float = 15.0, what: str = "condition") -> None:
+def describe(instance) -> str:
+    return (
+        f"status={instance.status} last_error={instance.last_error!r} "
+        f"failures={instance.consecutive_failures} restarts={instance.restarts} "
+        f"log={instance.log.lines()[-5:]!r}"
+    )
+
+
+async def wait_until(
+    predicate, timeout: float = 15.0, what: str = "condition", instance=None
+) -> None:
     deadline = time.monotonic() + timeout
     while not predicate():
         if time.monotonic() > deadline:
-            raise AssertionError(f"timed out waiting for {what}")
+            detail = f": {describe(instance)}" if instance is not None else ""
+            raise AssertionError(f"timed out waiting for {what}{detail}")
         await asyncio.sleep(0.02)
 
 
@@ -195,7 +206,7 @@ async def running(mgr: PluginManager, instance_id: str):
     await mgr.start(instance_id)
     instance = mgr.get(instance_id)
     assert instance is not None
-    await wait_until(lambda: instance.status == "running", what="running")
+    await wait_until(lambda: instance.status == "running", what="running", instance=instance)
     return instance
 
 
@@ -262,10 +273,12 @@ async def test_five_consecutive_crashes_is_a_crash_loop_until_manual_restart(man
     instance = manager.get(instance_id)
     assert instance is not None
 
-    await wait_until(lambda: instance.status == "crash_loop", timeout=30, what="crash_loop")
-    assert instance.consecutive_failures == 5
-    assert instance.restarts == 4
-    assert "entry_load_failed" in (instance.last_error or "")
+    await wait_until(
+        lambda: instance.status == "crash_loop", timeout=30, what="crash_loop", instance=instance
+    )
+    assert instance.consecutive_failures == 5, describe(instance)
+    assert instance.restarts == 4, describe(instance)
+    assert "entry_load_failed" in (instance.last_error or ""), describe(instance)
     assert not instance.active
     stored = await PluginRepository.get(instance_id)
     assert stored is not None and stored["status"] == "crash_loop"
@@ -275,7 +288,7 @@ async def test_five_consecutive_crashes_is_a_crash_loop_until_manual_restart(man
     await manager.restart(instance_id)
     restarted = manager.get(instance_id)
     assert restarted is not None and restarted is not instance
-    await wait_until(lambda: restarted.status == "running")
+    await wait_until(lambda: restarted.status == "running", instance=restarted)
     assert restarted.consecutive_failures == 0
 
 

@@ -435,7 +435,7 @@ class PluginProcess:
         assert self._proc is not None
         await self._proc.wait()
         # Let the readers drain what the child wrote last (its runner_error line).
-        await asyncio.wait(self._readers[:2], timeout=1.0)
+        await asyncio.wait(self._readers[:2], timeout=3.0)
         self._exited.set()
         for future in list(self._pending.values()):
             if not future.done():
