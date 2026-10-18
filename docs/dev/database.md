@@ -312,6 +312,8 @@ databases). The current set:
   contacts not heard for `stale_contact_days` (off at 0); prune undecrypted raw
   packets older than `raw_packet_retention_days` (off at 0); then a bounded
   `PRAGMA incremental_vacuum` (2048 pages) so freed pages return to the OS.
+  The same pass deletes expired and revoked `sessions`
+  (`app/auth/sessions.py`, `purge_sessions`), always.
 - Inline caps: telemetry histories (30 days, 1000 rows per key), advert paths (10
   per contact), push subscriptions (15 failures), pane cache (7 days on read),
   hop cache (`expires_at` on read).
@@ -323,10 +325,9 @@ databases). The current set:
   `tracked_telemetry_repeaters` and `tracked_telemetry_contacts`, and strips the
   `contact-*` entries from `push_conversations` and `push_conversation_overrides`.
   A new setting keyed by contact must be added to that reset.
-- Expired and revoked `sessions` (`AuthSessionRepository.purge`) and `auth_audit`
-  rows past `audit_retention_days` (`AuthAuditRepository.purge_older_than`) have
-  purge helpers, but no loop calls them yet: the auth core and the audit log
-  tickets schedule them.
+- `auth_audit` rows past `audit_retention_days`
+  (`AuthAuditRepository.purge_older_than`) have a purge helper, but no loop calls
+  it yet: the audit log ticket adds it to the housekeeping loop.
 - Everything else (messages, channels, fanout configs) is kept until the user
   deletes it.
 
