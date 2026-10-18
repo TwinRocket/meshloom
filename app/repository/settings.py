@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from app import origin_policy, radio_workarounds
 from app.database import db
 from app.models import (
+    START_VIEW_IDS,
     AppSettings,
     NotificationDestinations,
     NotificationDestinationsUpdate,
@@ -340,6 +341,10 @@ class AppSettingsRepository:
         except (json.JSONDecodeError, TypeError, KeyError, ValidationError) as e:
             logger.warning("Failed to parse ui_preferences, using defaults: %s", e)
             ui_preferences = UiPreferences()
+        # A start page that is no longer a known tool (restored backup, id removed later)
+        # reads as the default, so saving other preferences never sends it back.
+        if ui_preferences.start_view and ui_preferences.start_view not in START_VIEW_IDS:
+            ui_preferences = ui_preferences.model_copy(update={"start_view": ""})
 
         # Parse blocked_keys JSON
         blocked_keys: list[str] = []

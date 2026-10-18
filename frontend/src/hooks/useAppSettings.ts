@@ -96,7 +96,10 @@ export function useAppSettings() {
       const next = backfill.shouldPersist
         ? {
             ...data,
+            // Merged, not rebuilt: the route replaces the whole object, so a list of two fields
+            // would reset the start page and drop the server label.
             ui_preferences: {
+              ...data.ui_preferences,
               theme: data.ui_preferences?.theme ?? '',
               nav_rail: backfill.ids,
             },

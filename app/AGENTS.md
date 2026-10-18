@@ -1163,8 +1163,9 @@ service's body (`tests/test_test_route_error_oracles.py`).
 - `ui_preferences` (`UiPreferences`, one JSON column, no migration per field): `nav_rail`,
   `theme`, `start_view`, `server_label`. `start_view` is the tool hash fragment the app
   opens on when the URL has no hash (empty = conversations). `PATCH /settings` answers 400
-  for a value outside `START_VIEW_IDS` (models.py); the model itself does not validate, so
-  a stale stored value cannot reset the other preferences. The frontend router applies it
+  for a value outside `START_VIEW_IDS` (models.py); the model itself does not validate, and
+  the repository reads an unknown stored value as "" so a stale id (restored backup) never
+  resets the other preferences or makes a later save fail. The frontend router applies it
   (`useConversationRouter`) after hash and reopen-last; the kiosk role reads it through
   `AppSettingsView` (pinned in `tests/test_settings_view.py`). A future `?query` (feed filters,
   MSHL-154) must extend the validation here and `parseHashConversation`.

@@ -118,6 +118,37 @@ describe('useAppSettings rail overlay backfill', () => {
     expect(localStorage.getItem(RAIL_OVERLAY_BACKFILL_KEY)).toBe('1');
   });
 
+  it('keeps the other interface preferences when it persists the backfill', async () => {
+    const stored = ['conversations', 'map', 'live'];
+    const fixture = settingsFixture(stored);
+    fixture.ui_preferences = {
+      ...fixture.ui_preferences,
+      start_view: 'feed',
+      server_label: {
+        text: 'Club',
+        color: '',
+        size_px: 14,
+        bold: false,
+        italic: false,
+        font: 'system',
+      },
+    };
+    mocks.takePrefetchOrFetch.mockResolvedValue(fixture);
+    mocks.api.updateSettings.mockResolvedValue({});
+
+    const { result } = renderHook(() => useAppSettings());
+    await act(async () => {
+      await result.current.fetchAppSettings();
+    });
+
+    expect(mocks.api.updateSettings).toHaveBeenCalledWith({
+      ui_preferences: {
+        ...fixture.ui_preferences,
+        nav_rail: [...stored, 'discovered'],
+      },
+    });
+  });
+
   it('does not re-add the overlay after the user removed it', async () => {
     localStorage.setItem(RAIL_OVERLAY_BACKFILL_KEY, '1');
     const stored = ['conversations', 'map', 'live'];

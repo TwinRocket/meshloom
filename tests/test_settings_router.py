@@ -817,3 +817,54 @@ class TestTelemetryAlertRulesPatchMerge:
         await toggle_tracked_telemetry(TrackedTelemetryRequest(public_key=key))
         stored = await AppSettingsRepository.get()
         assert stored.telemetry_alert_rules.overrides[key].alerting is False
+
+
+class TestStartViewHttp:
+    async def test_unknown_start_page_is_a_400_through_the_route(self, test_db, client):
+        response = await client.patch(
+            "/api/settings", json={"ui_preferences": {"start_view": "nope"}}
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Unknown start page"
+
+    async def test_known_start_page_is_saved_through_the_route(self, test_db, client):
+        response = await client.patch(
+            "/api/settings", json={"ui_preferences": {"start_view": "feed"}}
+        )
+        assert response.status_code == 200
+        assert response.json()["ui_preferences"]["start_view"] == "feed"
+
+    @pytest.mark.parametrize("role", ["member", "viewer", "kiosk"])
+    async def test_only_an_administrator_sets_it(self, test_db, client, sign_in_as, role):
+        sign_in_as(role)
+        response = await client.patch(
+            "/api/settings", json={"ui_preferences": {"start_view": "feed"}}
+        )
+        assert response.status_code == 403
+        assert (await AppSettingsRepository.get()).ui_preferences.start_view == ""
+
+    async def test_a_stale_stored_value_reads_as_default_and_does_not_block_saves(
+        self, test_db, client
+    ):
+        await AppSettingsRepository.update(
+            ui_preferences=UiPreferences.model_construct(start_view="removed-tool", theme="dark")
+        )
+        stored = (await AppSettingsRepository.get()).ui_preferences
+        assert stored.start_view == ""
+
+        response = await client.patch(
+            "/api/settings",
+            json={"ui_preferences": stored.model_dump(mode="json") | {"theme": "light"}},
+        )
+        assert response.status_code == 200
+        assert response.json()["ui_preferences"]["theme"] == "light"
+
+
+def test_start_view_ids_match_the_frontend_hash_grammar():
+    from pathlib import Path
+
+    from app.models import START_VIEW_IDS
+
+    source = (Path(__file__).parent.parent / "frontend/src/utils/urlHash.ts").read_text()
+    for tool in START_VIEW_IDS:
+        assert f"hash === '{tool}'" in source, tool
