@@ -120,6 +120,7 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 | **Alertes** | `telemetry_alert_rules` |
 | **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail et webhook) |
 | **Mises à jour** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
+| **Utilisateurs et accès** | `public_urls` (**Adresses publiques** : les noms auxquels Meshloom répond depuis l’extérieur, déclarés par un administrateur ; aucune variable d’environnement n’existe pour cela), `host_guard_mode` (observation ou strict) |
 | **Configuration locale** et **Navigation** | `ui_preferences` : thème, étiquette de l’instance, barre de gauche ; `auth_allowed_origins` : les autres sites autorisés à appeler l’API (**Origines autorisées**) |
 | Canaux découverts | `rejected_channels` : les canaux que vous avez refusés |
 | Hors interface | `raw_packet_retention_days` : supprime automatiquement les paquets illisibles plus vieux que ce nombre de jours (`0` garde tout). À régler par `PATCH /api/settings` |

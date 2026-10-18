@@ -62,7 +62,13 @@ and the OpenAPI page (`/docs`), not a table here.
   middleware) follows `auth_settings.host_guard_mode`: `observe` (5.0.0 default)
   records unknown names in a bounded in-memory list (`rejected_hosts`, in `GET
   /api/auth/settings`) and logs each once, `enforce` answers 421
-  `auth_host_rejected`. Ingress and relay-tagged requests are exempt.
+  `auth_host_rejected` (with the static security headers). Ingress and relay-tagged
+  requests are exempt. Only LDH names are recorded, and the first-sighting warning is
+  rate limited. `public_urls` and `host_guard_mode` are changed through `PATCH
+  /api/auth/settings` (`normalize_public_urls`, 400 `auth_public_urls_invalid`; 400
+  `auth_host_guard_would_lock_out` when the result would reject the current request).
+  Both modes record the refused names; `meshloom-admin host-guard-observe` is the
+  recovery path that needs no UI.
 - `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
   middleware): HSTS only over direct https (never ingress or relay), `no-store` on
   `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).

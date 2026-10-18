@@ -83,7 +83,7 @@ The delays live in memory and start again empty when Meshloom restarts. A delay 
 
 ## Behind a reverse proxy
 
-Sign-in delays, the audit log and the session list record the address a request comes from. Behind a reverse proxy that is the proxy's, for every visitor, until you list the proxy in **Settings → Local Configuration → Trusted proxies**; Meshloom then uses the visitor's address the proxy forwards. List the proxy's own address only, never a Docker network or its gateway. See [HTTPS, trusted proxies](/en/docs/deep/https/#trusted-proxies). Meshloom also looks at the name in the browser's address: in 5.0.0 an unknown name (your proxy's DNS name, say) is only noted; from 5.1 it will be refused unless declared. See [Host names Meshloom answers to](/en/docs/deep/https/#host-names-meshloom-answers-to).
+Sign-in delays, the audit log and the session list record the address a request comes from. Behind a reverse proxy that is the proxy's, for every visitor, until you list the proxy in **Settings → Local Configuration → Trusted proxies**; Meshloom then uses the visitor's address the proxy forwards. List the proxy's own address only, never a Docker network or its gateway. See [HTTPS, trusted proxies](/en/docs/deep/https/#trusted-proxies). Meshloom also looks at the name in the browser's address: in 5.0.0 an unknown name (your proxy's DNS name, say) is only noted; from 5.1 it will be refused unless declared (**Settings → Users & Access → Public addresses**). See [Host names Meshloom answers to](/en/docs/deep/https/#host-names-meshloom-answers-to).
 
 ## Trusted networks
 
@@ -121,6 +121,7 @@ The full backup (**Settings → Database**) carries the accounts when **Include 
 | `meshloom-admin disable-user <user>` | Blocks a user and signs it out. Refuses the last active administrator unless you add `--force`. |
 | `meshloom-admin enable-user <user>` | Lets a disabled user sign in again. |
 | `meshloom-admin revoke-sessions <user>` or `--all` | Signs one user, or everyone, out. |
+| `meshloom-admin host-guard-observe` | Switches the [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) back to observation mode, for when strict mode refuses the only name you can reach Meshloom by. |
 
 A running Meshloom sees these changes on its next request; a browser that stays open on a page signed out this way loses its live connection within 30 seconds.
 

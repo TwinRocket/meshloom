@@ -121,7 +121,7 @@ async def test_enforce_answers_421_naming_the_host():
     assert detail["params"] == {"host": "attacker.example"}
     assert "attacker.example" in detail["message"]
     assert response.headers["cache-control"] == "no-store"
-    assert host_guard.rejected_hosts() == []
+    assert [e.host for e in host_guard.rejected_hosts()] == ["attacker.example"]
 
 
 @pytest.mark.parametrize("mode", ["observe", "enforce"])
@@ -245,3 +245,178 @@ def test_trusted_network_stays_strict_in_both_modes(mode):
     headers = {"host": "attacker.example"}
     assert trusted_network.rule_blocker(scope, headers, "lan", **kwargs) == "host"
     assert trusted_network.rule_blocker(scope, {"host": "192.168.1.10"}, "lan", **kwargs) is None
+
+
+# ---------------------------------------------------------------- MSHL-65
+
+
+@pytest.mark.parametrize(
+    ("raw", "canonical"),
+    [
+        ("https://Meshloom.Example.COM", "https://meshloom.example.com"),
+        ("https://meshloom.example.com:443/", "https://meshloom.example.com"),
+        ("https://meshloom.example.com:8443/mesh/", "https://meshloom.example.com:8443/mesh"),
+        ("  https://192.0.2.7  ", "https://192.0.2.7"),
+        ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+        ("https://bücher.de", "https://xn--bcher-kva.de"),
+        ("https://Bücher.DE:8443/a-b/c_d.e~f%20g", "https://xn--bcher-kva.de:8443/a-b/c_d.e~f%20g"),
+    ],
+)
+def test_public_urls_are_normalized(raw, canonical):
+    assert host_guard.normalize_public_url(raw) == canonical
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",
+        "meshloom.example.com",
+        "http://meshloom.example.com",
+        "ftp://meshloom.example.com",
+        "https://user:pw@meshloom.example.com",
+        "https://meshloom.example.com?x=1",
+        "https://meshloom.example.com#frag",
+        "https://meshloom.example.com:99999",
+        "https://meshloom.example.com/a/../b",
+        "https://meshloom.example.com//x",
+        "https://mesh loom.example.com",
+        "https://mesh_loom.example.com",
+        'https://a"b.example.com',
+        "https:///path",
+        "https://foo-.example.com",
+        "https://-foo.example.com",
+        f"https://{'a' * 64}.example.com",
+        "https://exa mple.com",
+        "https://\u202eexample.com",
+        "https://example.com:0",
+        "https://example.com/<img/src=x/onerror=alert(1)>",
+        "https://example.com/%2e%2e/a",
+        "https://example.com/%2E/a",
+        "https://example.com/a%2Fb",
+        "https://example.com/a;b",
+        "https://example.com/a%zz",
+        "https://example.com/a'b",
+    ],
+)
+def test_invalid_public_urls_are_refused(raw):
+    with pytest.raises(host_guard.PublicUrlError):
+        host_guard.normalize_public_url(raw)
+
+
+def test_public_urls_are_deduplicated_and_bounded():
+    assert host_guard.normalize_public_urls(
+        ["https://a.example.com", "https://A.example.com:443"]
+    ) == ["https://a.example.com"]
+    with pytest.raises(host_guard.PublicUrlError):
+        host_guard.normalize_public_urls(
+            [f"https://h{i}.example.com" for i in range(host_guard.MAX_PUBLIC_URLS + 1)]
+        )
+
+
+async def test_only_ldh_names_are_recorded():
+    _settings()
+    for host in ("a'b.example.com", "a;b.example.com", "{x}.example.com", "a_b.example.com"):
+        async with _client(host) as client:
+            assert (await client.get("/api/x")).status_code == 200
+    assert host_guard.rejected_hosts() == []
+    async with _client("proxy.example.com") as client:
+        await client.get("/api/x")
+    assert [e.host for e in host_guard.rejected_hosts()] == ["proxy.example.com"]
+
+
+def test_the_first_sighting_warning_is_rate_limited(caplog):
+    caplog.set_level("WARNING", logger=host_guard.logger.name)
+    for i in range(host_guard.MAX_REJECTED_HOSTS * 2):
+        host_guard.record_rejected(f"h{i}.example.com")
+    lines = [r for r in caplog.records if "not a declared address" in r.getMessage()]
+    assert len(lines) == host_guard.WARNING_BURST
+    # The names are all still recorded (bounded), only the log is limited.
+    assert len(host_guard.rejected_hosts()) == host_guard.MAX_REJECTED_HOSTS
+
+
+def test_the_warning_budget_comes_back_with_a_summary(caplog):
+    caplog.set_level("WARNING", logger=host_guard.logger.name)
+    for i in range(7):
+        host_guard._warn_first_sighting(f"h{i}.example.com", 1000.0)
+    host_guard._warn_first_sighting("later.example.com", 1000.0 + host_guard.WARNING_WINDOW_S)
+    messages = [r.getMessage() for r in caplog.records]
+    assert sum("not a declared address" in m for m in messages) == host_guard.WARNING_BURST + 1
+    assert any("2 more unknown Host names" in m for m in messages)
+
+
+async def test_the_421_carries_the_security_headers():
+    _settings("enforce")
+    async with _client("attacker.example") as client:
+        response = await client.get("/api/x")
+    assert response.status_code == 421
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"]
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert response.headers["permissions-policy"]
+    assert response.headers["cache-control"] == "no-store"
+    assert "strict-transport-security" not in response.headers
+
+
+async def test_enforce_mode_records_the_refused_names_and_only_ldh_ones():
+    _settings("enforce")
+    async with _client("evil.example") as client:
+        assert (await client.get("/api/x")).status_code == 421
+        assert (await client.get("/api/x")).status_code == 421
+    async with _client("a;b.example") as client:
+        assert (await client.get("/api/x")).status_code == 421
+    names = host_guard.rejected_hosts()
+    assert [(e.host, e.count) for e in names] == [("evil.example", 2)]
+
+
+async def test_enforce_mode_records_a_refused_websocket_upgrade():
+    from starlette.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    _settings("enforce")
+    app = Starlette(routes=[Route("/api/x", _ok), WebSocketRoute("/api/ws", _ws)])
+    client = TestClient(HostGuardMiddleware(app), base_url="http://evil.example")
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("/api/ws", headers={"host": "evil.example"}),
+    ):
+        pass
+    assert [e.host for e in host_guard.rejected_hosts()] == ["evil.example"]
+
+
+@pytest.mark.parametrize("state", [{"via": "relay"}, None])
+def test_would_lock_out_exempts_relay_and_judges_the_rest(state):
+    scope = {"type": "http", "headers": [(b"host", b"evil.example")], "state": state or {}}
+    assert host_guard.would_lock_out(scope, "enforce", []) is (state is None)
+    assert host_guard.would_lock_out(scope, "observe", []) is False
+    assert host_guard.would_lock_out(scope, "enforce", ["https://evil.example"]) is False
+
+
+async def test_a_change_written_by_another_process_is_seen_before_refusing(test_db):
+    from app.repository.auth import AuthSettingsRepository
+
+    await AuthSettingsRepository.update(host_guard_mode="enforce")
+    async with _client("evil.example") as client:
+        assert (await client.get("/api/x")).status_code == 421
+        # What `meshloom-admin host-guard-observe` does: a write the server did not make.
+        async with test_db.tx() as conn:
+            await conn.execute("UPDATE auth_settings SET host_guard_mode = 'observe' WHERE id = 1")
+        assert host_guard.mode() == "enforce"
+        # Throttled: inside the interval the refusal stands.
+        assert (await client.get("/api/x")).status_code == 421
+        host_guard._last_refresh = 0.0
+        assert (await client.get("/api/x")).status_code == 200
+    assert host_guard.mode() == "observe"
+
+
+async def test_a_failed_refresh_keeps_the_refusal(monkeypatch, test_db):
+    from app.repository.auth import AuthSettingsRepository
+
+    _settings("enforce")
+
+    async def boom():
+        raise RuntimeError("db closed")
+
+    monkeypatch.setattr(AuthSettingsRepository, "get", boom)
+    async with _client("evil.example") as client:
+        assert (await client.get("/api/x")).status_code == 421

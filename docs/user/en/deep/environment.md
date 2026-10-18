@@ -120,6 +120,7 @@ You change these in the web interface. Nothing here is set through the environme
 | **Alerts** | `telemetry_alert_rules` |
 | **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (email and webhook) |
 | **Updates** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
+| **Users & Access** | `public_urls` (**Public addresses**: the names Meshloom answers to from outside, declared by an administrator; no environment variable exists for them), `host_guard_mode` (observe or enforce) |
 | **Local Configuration** and **Navigation** | `ui_preferences`: theme, label of the instance, left rail; `auth_allowed_origins`: the other sites allowed to call the API (**Allowed origins**) |
 | Discovered channels | `rejected_channels`: the channels you refused |
 | Not in the interface | `raw_packet_retention_days`: automatically deletes unreadable packets older than this many days (`0` keeps everything). Set it through `PATCH /api/settings` |

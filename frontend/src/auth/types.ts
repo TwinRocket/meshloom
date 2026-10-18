@@ -40,6 +40,22 @@ export interface AuthSettings {
   trusted_networks?: TrustedNetworkRule[];
   /** The Access security notice, computed by the server (read only). */
   security_notices?: AccessSecurityNotice[];
+  /** Declared public addresses, canonical `https://host[:port][/prefix]`. Their hosts pass the Host guard. */
+  public_urls?: string[];
+  /** `observe` records unknown Host names and lets them through; `enforce` answers 421. */
+  host_guard_mode?: HostGuardMode;
+  /** Host names the guard would refuse, since the last restart, newest first (read only). */
+  rejected_hosts?: RejectedHost[];
+}
+
+export type HostGuardMode = 'observe' | 'enforce';
+
+export interface RejectedHost {
+  host: string;
+  count: number;
+  /** Unix seconds. */
+  first_seen: number;
+  last_seen: number;
 }
 
 /** `cidr` → `user_id`: requests from that network act as that account (never through a proxy). */
