@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   loadShareStatus,
@@ -6,8 +6,10 @@ import {
   useShareMetaEntry,
   useShareStatus,
 } from '../../stores/shareMetaStore';
-import { looksLikeShareLink, parseShareLink } from '../../utils/shareLinks';
+import { displayShareHost, looksLikeShareLink, parseShareLink } from '../../utils/shareLinks';
 
+// FSI..PDI around the remote host in plain-string contexts (title); messageText's
+// isolateBidi does the same but importing it here would be a cycle.
 const LINK_CLASS = 'text-primary underline hover:text-primary/80';
 
 /**
@@ -20,7 +22,7 @@ export function ShareLinkAnchor({ href }: { href: string }) {
   const candidate = looksLikeShareLink(href);
   const status = useShareStatus();
   const id = status?.enabled ? parseShareLink(href, status.hosts) : null;
-  const entry = useShareMetaEntry(id ?? '');
+  const entry = useShareMetaEntry(id);
 
   // The status route is local (no egress); only a URL shaped like a service link asks.
   useEffect(() => {
@@ -30,7 +32,11 @@ export function ShareLinkAnchor({ href }: { href: string }) {
   const warm = () => {
     if (id) void requestShareMeta(id);
   };
-  const destination = id && entry?.state === 'ready' ? entry.meta.target_host : null;
+  // The host comes from the share service: sanitised, punycode, cut (never raw).
+  const destination = displayShareHost(
+    id && entry?.state === 'ready' ? entry.meta.target_host : null
+  );
+  const hintId = useId();
 
   return (
     <>
@@ -42,18 +48,27 @@ export function ShareLinkAnchor({ href }: { href: string }) {
         title={
           id
             ? destination
-              ? t('shareLink.titleTo', { host: destination })
+              ? t('shareLink.titleTo', { host: `\u2068${destination.full}\u2069` })
               : t('shareLink.title')
             : undefined
         }
+        aria-describedby={destination ? hintId : undefined}
         onMouseEnter={id ? warm : undefined}
         onFocus={id ? warm : undefined}
       >
         {href}
       </a>
       {destination && (
-        <span data-testid="share-link-hint" className="ml-1 text-xs text-muted-foreground">
-          {`→ ${destination}`}
+        <span
+          id={hintId}
+          data-testid="share-link-hint"
+          className="ml-1 text-xs text-muted-foreground"
+          title={destination.full}
+        >
+          {'→ '}
+          <bdi dir="ltr" className="inline-block max-w-[16rem] truncate align-bottom">
+            {destination.text}
+          </bdi>
         </span>
       )}
     </>

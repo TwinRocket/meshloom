@@ -53,3 +53,34 @@ export function splitShareLinkBody(
   if (!id) return null;
   return { id, caption: space === -1 ? '' : trimmed.slice(space).trim() };
 }
+
+const HOST_MAX = 253;
+// C0/DEL, ALM, ZWSP, bidi embeddings/overrides/isolates, word joiner, BOM.
+// eslint-disable-next-line no-control-regex
+const HOST_STRIP =
+  /[\u0000-\u001F\u007F\u061C\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF\s]/g;
+
+/**
+ * A destination host reported by the share service, made safe to show, or null.
+ * Control and bidi characters are removed, a non-ASCII (IDN) host is shown in its
+ * punycode form so look-alike letters cannot pass for another site, and a very
+ * long value is cut (`text`), the whole sanitised value staying in `full`.
+ */
+export function displayShareHost(raw: string | null | undefined): {
+  text: string;
+  full: string;
+} | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(HOST_STRIP, '');
+  if (!cleaned) return null;
+  let full = cleaned;
+  if (!/^[\x21-\x7E]*$/.test(cleaned)) {
+    try {
+      full = new URL(`https://${cleaned}`).hostname;
+    } catch {
+      return null;
+    }
+  }
+  const text = full.length > HOST_MAX ? `${full.slice(0, HOST_MAX)}…` : full;
+  return { text, full };
+}

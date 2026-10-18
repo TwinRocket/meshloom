@@ -16,6 +16,8 @@ import type { ShareMeta, ShareStatus } from '../types';
  */
 export const META_TTL_MS = 10 * 60 * 1000;
 export const STATUS_TTL_MS = 60 * 1000;
+/** Most ids remembered; the least recently used is dropped first. */
+export const META_MAX_ENTRIES = 200;
 
 export type ShareMetaEntry =
   { state: 'loading' } | { state: 'ready'; meta: ShareMeta } | { state: 'missing' };
@@ -30,9 +32,12 @@ let statusAt = 0;
 let statusPending: Promise<ShareStatus | null> | null = null;
 const metas = new Map<string, Stored>();
 const listeners = new Set<() => void>();
+const metaListeners = new Map<string, Set<() => void>>();
 
-function emit(): void {
-  for (const listener of listeners) listener();
+/** Wake the status subscribers (`id` omitted) or only those of one link id. */
+function emit(id?: string): void {
+  const targets = id === undefined ? listeners : metaListeners.get(id);
+  if (targets) for (const listener of [...targets]) listener();
 }
 
 function subscribe(listener: () => void): () => void {
@@ -40,6 +45,25 @@ function subscribe(listener: () => void): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+function subscribeMeta(id: string, listener: () => void): () => void {
+  let set = metaListeners.get(id);
+  if (!set) metaListeners.set(id, (set = new Set()));
+  set.add(listener);
+  return () => {
+    set.delete(listener);
+    if (set.size === 0 && metaListeners.get(id) === set) metaListeners.delete(id);
+  };
+}
+
+function remember(id: string, entry: ShareMetaEntry, at: number): void {
+  metas.delete(id); // re-insert last: Map order is the LRU order
+  metas.set(id, { entry, at });
+  for (const key of metas.keys()) {
+    if (metas.size <= META_MAX_ENTRIES) break;
+    if (metas.get(key)?.entry.state !== 'loading') metas.delete(key);
+  }
 }
 
 export function getShareStatusSnapshot(): ShareStatus | null {
@@ -81,15 +105,15 @@ export async function requestShareMeta(id: string): Promise<void> {
   const now = Date.now();
   const stored = metas.get(id);
   if (stored && (stored.entry.state === 'loading' || now - stored.at < META_TTL_MS)) return;
-  metas.set(id, { entry: { state: 'loading' }, at: now });
-  emit();
+  remember(id, { state: 'loading' }, now);
+  emit(id);
   try {
     const meta = await api.getShareMeta(id);
-    metas.set(id, { entry: { state: 'ready', meta }, at: Date.now() });
+    remember(id, { state: 'ready', meta }, Date.now());
   } catch {
-    metas.set(id, { entry: { state: 'missing' }, at: Date.now() });
+    remember(id, { state: 'missing' }, Date.now());
   }
-  emit();
+  emit(id);
 }
 
 export function getShareMetaEntry(id: string): ShareMetaEntry | null {
@@ -97,9 +121,10 @@ export function getShareMetaEntry(id: string): ShareMetaEntry | null {
 }
 
 /** The entry of one id; re-renders when it changes. */
-export function useShareMetaEntry(id: string): ShareMetaEntry | null {
-  const read = () => getShareMetaEntry(id);
-  return useSyncExternalStore(subscribe, read, read);
+export function useShareMetaEntry(id: string | null): ShareMetaEntry | null {
+  const read = () => (id ? getShareMetaEntry(id) : null);
+  const sub = (listener: () => void) => (id ? subscribeMeta(id, listener) : () => {});
+  return useSyncExternalStore(sub, read, read);
 }
 
 export function __resetShareMetaStoreForTests(): void {
@@ -107,4 +132,5 @@ export function __resetShareMetaStoreForTests(): void {
   statusAt = 0;
   statusPending = null;
   metas.clear();
+  metaListeners.clear();
 }

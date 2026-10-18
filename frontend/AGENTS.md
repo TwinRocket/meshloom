@@ -410,7 +410,10 @@ key}`); they are not `Message.conversation_key`.
   (re-exported by `richPayloads.tsx`), which `linkifyText` uses for every URL. The
   destination hint (`-> host`) comes from `GET /api/share/{id}/meta` on hover or
   focus only, through `stores/shareMetaStore.ts` (one request per id, 10-minute
-  memory, negative entries kept). The store asks `/api/share/status` (local, no
+  memory capped at 200 ids, negative entries kept; once fetched, the hint stays
+  visible for every instance of that id until the memory expires). The remote host
+  is never shown raw: `displayShareHost` strips control and bidi characters, shows
+  an IDN as punycode and cuts it, and the anchor renders it in a `<bdi dir=ltr>`. The store asks `/api/share/status` (local, no
   egress) only for a URL shaped like a service link, and never requests a meta
   when sharing is off. `utils/messagePreview.ts` previews a service link from the
   text alone (`🔗 caption`).

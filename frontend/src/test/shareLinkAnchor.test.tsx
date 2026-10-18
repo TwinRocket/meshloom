@@ -5,13 +5,14 @@ import { api } from '../api';
 import { MessageBody } from '../components/message/MessageBody';
 import {
   __resetShareMetaStoreForTests,
+  META_MAX_ENTRIES,
   META_TTL_MS,
   getShareMetaEntry,
   requestShareMeta,
 } from '../stores/shareMetaStore';
 import type { ShareStatus } from '../types';
 import { describeMessagePreview } from '../utils/messagePreview';
-import { parseShareLink, splitShareLinkBody } from '../utils/shareLinks';
+import { displayShareHost, parseShareLink, splitShareLinkBody } from '../utils/shareLinks';
 import i18n from '../i18n';
 
 const URL_A = 'https://meshl.ink/AbCdEfG';
@@ -43,6 +44,22 @@ describe('shareLinks grammar', () => {
   it('splits a caption off', () => {
     expect(splitShareLinkBody(`${URL_A} sunset`)).toEqual({ id: 'AbCdEfG', caption: 'sunset' });
     expect(splitShareLinkBody(`look ${URL_A}`)).toBeNull();
+  });
+});
+
+describe('displayShareHost', () => {
+  it('strips bidi and control characters', () => {
+    expect(displayShareHost('exa\u202Emple.org')?.text).toBe('example.org');
+    expect(displayShareHost('\u202E\u2066')).toBeNull();
+  });
+  it('shows an IDN host as punycode', () => {
+    expect(displayShareHost('exаmple.org')?.text).toMatch(/^xn--/);
+  });
+  it('cuts a very long value and keeps the whole one in full', () => {
+    const out = displayShareHost('a'.repeat(5000));
+    expect(out?.text.length).toBe(254);
+    expect(out?.text.endsWith('…')).toBe(true);
+    expect(out?.full.length).toBe(5000);
   });
 });
 
@@ -95,6 +112,29 @@ describe('ShareLinkAnchor', () => {
   });
 });
 
+describe('ShareLinkAnchor hostile host', () => {
+  it('renders the remote host isolated, sanitised and truncated', async () => {
+    __resetShareMetaStoreForTests();
+    vi.spyOn(api, 'getShareStatus').mockResolvedValue(status(true));
+    vi.spyOn(api, 'getShareMeta').mockResolvedValue({
+      kind: 'link',
+      target_host: `\u202Eevil${'a'.repeat(5000)}.org`,
+      expires_at: null,
+    });
+    render(<MessageBody content={URL_A} />);
+    await waitFor(() => expect(api.getShareStatus).toHaveBeenCalled());
+    fireEvent.mouseEnter(screen.getByRole('link'));
+    const hint = await screen.findByTestId('share-link-hint');
+    expect(hint.querySelector('bdi')?.getAttribute('dir')).toBe('ltr');
+    expect(hint.textContent).not.toMatch(/[\u202E]/);
+    expect(hint.textContent!.length).toBeLessThan(270);
+    expect(hint.getAttribute('title')!.length).toBeGreaterThan(5000);
+    expect(screen.getByRole('link').getAttribute('aria-describedby')).toBe(hint.id);
+    expect(screen.getByRole('link').getAttribute('title')).not.toMatch(/\u202E/);
+    vi.restoreAllMocks();
+  });
+});
+
 describe('shareMetaStore', () => {
   beforeEach(() => {
     __resetShareMetaStoreForTests();
@@ -117,6 +157,17 @@ describe('shareMetaStore', () => {
     metaSpy.mockResolvedValue({ kind: 'link', target_host: null, expires_at: null });
     await requestShareMeta('AbCdEfG');
     expect(metaSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps at most META_MAX_ENTRIES ids, dropping the oldest', async () => {
+    vi.spyOn(api, 'getShareMeta').mockResolvedValue({
+      kind: 'link',
+      target_host: null,
+      expires_at: null,
+    });
+    for (let i = 0; i < META_MAX_ENTRIES + 5; i++) await requestShareMeta(`id${i}`);
+    expect(getShareMetaEntry('id0')).toBeNull();
+    expect(getShareMetaEntry(`id${META_MAX_ENTRIES + 4}`)?.state).toBe('ready');
   });
 
   it('shares one request between concurrent calls', async () => {
