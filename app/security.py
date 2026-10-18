@@ -21,10 +21,15 @@ gate is ``app/auth/middleware.py`` and those credentials become an account
   a low-cost scrypt of the password (salt: a random per-process secret and
   ``username_key``):
   100 consecutive requests cost one
-  verification. The user is read again on every request: a cached check is
-  used only while ``users.updated_at`` is unchanged, so a disabled account or
-  a password reset (even from the CLI, another process) applies at once;
-  ``invalidate_basic_cache()`` drops entries on a password change.
+  verification. The account is read again on every request: a cached check is
+  used only while the stored password hash is the one it was verified
+  against, so a disabled account or a password reset (even from the CLI,
+  another process) applies at once; ``invalidate_basic_cache()`` drops
+  entries on a password change.
+- **Failures.** After a failed check, Basic attempts from the same client IP
+  that are not already cached fail at once for ``BASIC_FAILURE_COOLDOWN_S`` (no argon2id), so a flood of
+  garbage credentials costs one verification every few seconds per IP. A
+  script on the same IP as the failing client waits those seconds too.
 
 The rest of the migration (health/debug cleanup, ``auth_compat`` logging) is a
 later Access ticket.
@@ -32,9 +37,11 @@ later Access ticket.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
+import hmac
 import logging
 import secrets
 import time
@@ -42,7 +49,7 @@ from dataclasses import dataclass
 
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH, hash_password_async
-from app.auth.providers.password import authenticate
+from app.auth.providers.password import authenticate_with_hash
 from app.repository.auth import (
     AuthSettingsRepository,
     InvalidUsernameError,
@@ -57,6 +64,11 @@ BASIC_CHALLENGE = f'Basic realm="{BASIC_REALM}", charset="UTF-8"'
 
 BASIC_CACHE_TTL_S = 300
 BASIC_CACHE_MAX_ENTRIES = 256
+
+# After a failed Basic check, further Basic attempts from that IP fail at
+# once for this long, without an argon2id check (bounded table).
+BASIC_FAILURE_COOLDOWN_S = 3.0
+BASIC_FAILED_IPS_MAX = 1024
 
 
 @dataclass(frozen=True)
@@ -86,25 +98,33 @@ def parse_basic_authorization(value: str | None) -> BasicCredentials | None:
 # per-process secret, so the cache alone cannot be brute-forced offline.
 _CACHE_SECRET = secrets.token_bytes(32)
 
-# cache key -> (user id, users.updated_at when verified, monotonic expiry)
-_cache: dict[str, tuple[int, int, float]] = {}
+# cache key -> (user id, users.password_hash when verified, monotonic expiry)
+_cache: dict[str, tuple[int, str, float]] = {}
+
+# Client IP -> monotonic time until which its Basic attempts fail at once.
+_failed_ips: dict[str, float] = {}
 
 
-def _cache_key(credentials: BasicCredentials) -> str | None:
-    try:
-        key = username_key(credentials.username)
-    except InvalidUsernameError:
-        return None
+def _scrypt_key(password: str, user_key: str) -> str:
     # A KDF, not a bare hash, even for an in-memory key: scrypt at a low cost
     # (1 MiB, about a millisecond), salted with the per-process secret and the user.
     return hashlib.scrypt(
-        credentials.password.encode(),
-        salt=_CACHE_SECRET + key.encode(),
+        password.encode(),
+        salt=_CACHE_SECRET + user_key.encode(),
         n=1024,
         r=8,
         p=1,
         dklen=32,
     ).hex()
+
+
+async def _cache_key(credentials: BasicCredentials) -> str | None:
+    try:
+        key = username_key(credentials.username)
+    except InvalidUsernameError:
+        return None
+    # Off the event loop: about a millisecond on a laptop, more on a Pi.
+    return await asyncio.to_thread(_scrypt_key, credentials.password, key)
 
 
 def invalidate_basic_cache(user_id: int | None = None) -> None:
@@ -116,25 +136,60 @@ def invalidate_basic_cache(user_id: int | None = None) -> None:
         _cache.pop(key, None)
 
 
-async def authenticate_basic(credentials: BasicCredentials) -> User | None:
-    """The enabled user these Basic credentials prove, using the cache."""
-    key = _cache_key(credentials)
+def reset_basic_state() -> None:
+    """Empty both caches (tests)."""
+    _cache.clear()
+    _failed_ips.clear()
+
+
+def _note_failure(ip: str | None, now: float) -> None:
+    if ip is None:
+        return
+    if ip not in _failed_ips and len(_failed_ips) >= BASIC_FAILED_IPS_MAX:
+        _failed_ips.pop(next(iter(_failed_ips)))
+    _failed_ips[ip] = now + BASIC_FAILURE_COOLDOWN_S
+
+
+async def authenticate_basic(credentials: BasicCredentials, ip: str | None = None) -> User | None:
+    """The enabled user these Basic credentials prove, using the caches.
+
+    Raises ``VerificationBusy`` (``app/auth/providers/password.py``) when the
+    argon2id queue is full.
+    """
+    now = time.monotonic()
+    key = await _cache_key(credentials)
     if key is None:
         return None
-    now = time.monotonic()
     cached = _cache.get(key)
     if cached is not None and cached[2] > now:
-        user = await UserRepository.get(cached[0])
-        if user is not None and not user.disabled and user.updated_at == cached[1]:
-            return user
+        current = await UserRepository.get_credentials(credentials.username)
+        stored = (
+            current.password_hash.get_secret_value()
+            if current is not None and current.password_hash is not None
+            else None
+        )
+        if (
+            current is not None
+            and current.user.id == cached[0]
+            and not current.user.disabled
+            and stored is not None
+            and hmac.compare_digest(stored, cached[1])
+        ):
+            return current.user
         # Changed since (password reset from the CLI, disabled): check again.
         _cache.pop(key, None)
-    user = await authenticate(credentials.username, credentials.password)
-    if user is None:
+    if ip is not None and (blocked_until := _failed_ips.get(ip)) is not None:
+        if blocked_until > now:
+            return None
+        _failed_ips.pop(ip, None)
+    result = await authenticate_with_hash(credentials.username, credentials.password)
+    if result is None:
+        _note_failure(ip, now)
         return None
+    user, stored = result
     if len(_cache) >= BASIC_CACHE_MAX_ENTRIES:
         _cache.pop(next(iter(_cache)))
-    _cache[key] = (user.id, user.updated_at, now + BASIC_CACHE_TTL_S)
+    _cache[key] = (user.id, stored, now + BASIC_CACHE_TTL_S)
     return user
 
 

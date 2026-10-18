@@ -138,7 +138,11 @@ async def test_no_cookie_under_home_assistant_ingress(monkeypatch):
     async with make_client(client=("172.30.32.2", 40000)) as client:
         response = await login(client)
         assert set_cookie_headers(response) == []
-        assert response.json()["via"] == "ingress"
+        body = response.json()
+        # Never "authenticated" when no session was opened: the real state and why.
+        assert body["authenticated"] is False
+        assert body["session_reason"] == "auth_ingress_unsupported"
+        assert "user" not in body
         assert await AuthSessionRepository.list_for_user(1) == []
         logout = await client.post("/api/auth/logout")
         assert set_cookie_headers(logout) == []
@@ -202,24 +206,39 @@ async def test_allowed_origins_pass_the_csrf_rule():
     assert response.status_code == 200
 
 
-async def test_bearer_requests_are_exempt_from_the_origin_rule():
-    await create_user()
+async def test_only_a_resolved_bearer_token_is_exempt_from_the_origin_rule(monkeypatch):
+    from app.auth import middleware
+    from app.auth.principal import Principal
+
+    user = await create_user()
     async with make_client() as client:
-        await login(client)
-        refused = await client.post("/api/auth/logout", headers={"Origin": FOREIGN})
-        assert refused.status_code == 403
-        passed = await client.post(
-            "/api/auth/logout", headers={"Origin": FOREIGN, "Authorization": "Bearer abc"}
+        # No token is valid yet: an unknown bearer gets no exemption.
+        for path in ("/api/auth/logout", "/api/auth/me"):
+            response = await client.request(
+                "POST" if path.endswith("logout") else "PATCH",
+                path,
+                json={},
+                headers={"Origin": FOREIGN, "Authorization": "Bearer abc"},
+            )
+            assert response.status_code == 403, path
+            assert _code(response) == "auth_origin_rejected"
+        anonymous = await client.patch(
+            "/api/auth/me", json={}, headers={"Authorization": "Bearer abc"}
+        )
+        assert anonymous.status_code == 401
+        assert _code(anonymous) == "auth_invalid_credentials"
+        assert "www-authenticate" not in anonymous.headers
+
+        async def resolve_token(token, via):
+            if token == "good":
+                return Principal(user=user, via=via, credential="token", token_id="t1")
+            return None
+
+        monkeypatch.setattr(middleware, "resolve_bearer_token", resolve_token)
+        passed = await client.patch(
+            "/api/auth/me", json={}, headers={"Origin": FOREIGN, "Authorization": "Bearer good"}
         )
         assert passed.status_code == 200
-        # No token is valid yet: a protected route answers 401, never 403.
-        response = await client.patch(
-            "/api/auth/me",
-            json={},
-            headers={"Origin": FOREIGN, "Authorization": "Bearer abc"},
-        )
-        assert response.status_code == 401
-        assert _code(response) == "auth_invalid_credentials"
 
 
 async def test_login_itself_follows_the_origin_rule():

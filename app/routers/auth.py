@@ -27,8 +27,13 @@ from app.auth.passwords import (
     verify_password_async,
 )
 from app.auth.principal import Principal, Via, get_principal
-from app.auth.providers.password import authenticate
-from app.auth.setup_code import check_setup_code, clear_setup_code, setup_code_required
+from app.auth.providers.password import VerificationBusy, authenticate
+from app.auth.setup_code import (
+    SetupUnavailable,
+    check_setup_code,
+    clear_setup_code,
+    setup_code_required,
+)
 from app.repository.auth import (
     AuthAuditRepository,
     AuthSessionRepository,
@@ -55,6 +60,8 @@ _MESSAGES = {
     "auth_required": "Authentication required",
     "auth_forbidden": "Not allowed for this account",
     "auth_session_not_found": "Session not found",
+    "auth_setup_unavailable": "Setup is not available yet: check the server log and retry",
+    "auth_busy": "Too many sign-in checks at once: retry in a moment",
 }
 
 
@@ -133,6 +140,10 @@ class AuthSessionResponse(BaseModel):
     user: SessionUser | None = None
     via: Via | None = None
     instance: InstanceInfo | None = None
+    # Set when setup or login checked out but opened no session: why not.
+    # ``auth_ingress_unsupported``: through Home Assistant ingress no cookie is
+    # ever set, and the ingress identity provider is a later ticket.
+    session_reason: str | None = None
 
 
 class SetupRequest(BaseModel):
@@ -204,7 +215,11 @@ def _instance_name() -> str | None:
         return None
 
 
-async def _session_payload(principal: Principal | None) -> AuthSessionResponse:
+async def _session_payload(
+    principal: Principal | None, *, opened: bool | None = None
+) -> AuthSessionResponse:
+    """The session state. ``opened=False``: credentials checked out but no
+    session was opened, so the caller is still anonymous and gets the reason."""
     setup_required = not await UserRepository.any_exist()
     payload = AuthSessionResponse(
         authenticated=principal is not None,
@@ -212,6 +227,7 @@ async def _session_payload(principal: Principal | None) -> AuthSessionResponse:
         setup_code_required=setup_required and await setup_code_required(),
         methods=AuthMethods(),
         auth_compat=AuthCompat(basic=await basic_compat_active()),
+        session_reason="auth_ingress_unsupported" if opened is False else None,
     )
     if principal is not None:
         from app.version_info import get_app_build_info
@@ -225,11 +241,11 @@ async def _session_payload(principal: Principal | None) -> AuthSessionResponse:
     return payload
 
 
-async def _start_session(request: Request, response: Response, user: User) -> Principal:
-    """Create a session and set its cookie (never under ingress)."""
+async def _start_session(request: Request, response: Response, user: User) -> Principal | None:
+    """Create a session and set its cookie. None under ingress: no cookie there."""
     via = _via(request)
     if via == "ingress":
-        return Principal(user=user, via=via, credential="session")
+        return None
     issued = await sessions.issue_session(
         user,
         ip=client_ip(request.scope),
@@ -274,7 +290,12 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
         if await UserRepository.any_exist():
             raise _error(409, "auth_setup_done")
         code = body.setup_code.get_secret_value() if body.setup_code else None
-        if not await check_setup_code(code):
+        try:
+            code_ok = await check_setup_code(code)
+        except SetupUnavailable:
+            await _audit("setup", "unavailable", request)
+            raise _error(503, "auth_setup_unavailable") from None
+        if not code_ok:
             await _audit("setup", "setup_code_invalid", request)
             await asyncio.sleep(SETUP_FAILURE_DELAY_S)
             raise _error(403, "auth_setup_code_invalid")
@@ -294,7 +315,7 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
     await _audit("setup", "success", request, actor_user_id=user.id, target=f"user:{user.id}")
     logger.info("Administrator account %r created", user.username)
     principal = await _start_session(request, response, user)
-    return await _session_payload(principal)
+    return await _session_payload(principal, opened=principal is not None)
 
 
 @router.post("/login", response_model=AuthSessionResponse, response_model_exclude_none=True)
@@ -304,13 +325,16 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     One generic 401 for an unknown name, a wrong password, a disabled account
     and an account without a password (ingress, kiosk).
     """
-    user = await authenticate(body.username, body.password.get_secret_value())
+    try:
+        user = await authenticate(body.username, body.password.get_secret_value())
+    except VerificationBusy:
+        raise _error(503, "auth_busy") from None
     if user is None:
         await _audit("login", "failure", request, target=body.username[:USERNAME_MAX_LENGTH])
         raise _error(401, "auth_invalid_credentials")
     principal = await _start_session(request, response, user)
     await _audit("login", "success", request, actor_user_id=user.id)
-    return await _session_payload(principal)
+    return await _session_payload(principal, opened=principal is not None)
 
 
 @router.post("/logout", response_model=OkResponse)
