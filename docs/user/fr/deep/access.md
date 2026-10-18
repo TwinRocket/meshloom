@@ -33,13 +33,13 @@ Remplacez `alice` par le nom du compte.
 
 ### Paquet Linux (apt ou dnf)
 
-Lancez-la en tant qu’utilisateur `meshloom`, qui possède la base. Avec `sudo`, la commande lit le chemin de la base dans `/etc/meshloom/meshloom.env` :
+Lancez-la avec `sudo` :
 
 ```bash
-sudo -u meshloom /opt/meshloom/.venv/bin/meshloom-admin reset-password alice
+sudo meshloom-admin reset-password alice
 ```
 
-Ne la lancez pas en root : SQLite pourrait créer des fichiers que le service ne peut pas écrire.
+La commande refuse de s’exécuter sans les droits root. En root, elle lit le chemin de la base dans `/etc/meshloom/meshloom.env` (un fichier que seul root peut lire), puis passe à l’utilisateur `meshloom`, qui possède la base : SQLite ne laisse ainsi aucun fichier que le service ne peut pas écrire. La même commande existe sous le nom `/opt/meshloom/.venv/bin/meshloom-admin`.
 
 ### Docker et Docker Compose
 
@@ -49,7 +49,7 @@ Lancez-la dans le conteneur, depuis le dossier qui contient `docker-compose.yml`
 docker compose exec meshloom meshloom-admin reset-password alice
 ```
 
-Avec `docker run`, utilisez `docker exec -it <conteneur> meshloom-admin reset-password alice`. Si le conteneur tourne sous l’utilisateur 10001 (`MESHLOOM_RUN_AS_USER`), ajoutez `--user 10001` à `exec`, pour que les fichiers de la base gardent leur propriétaire. Pour passer un mot de passe par un tube, retirez le terminal : `echo 'un long mot de passe' | docker compose exec -T meshloom meshloom-admin reset-password alice --stdin`.
+Avec `docker run`, utilisez `docker exec -it <conteneur> meshloom-admin reset-password alice`. Si le conteneur tourne sous l’utilisateur 10001 (`MESHLOOM_RUN_AS_USER`), ajoutez `--user 10001` à `exec`, pour que les fichiers de la base gardent leur propriétaire. Pour alimenter un script, lisez le mot de passe sans l’afficher et passez-le sur l’entrée standard, il n’apparaît ainsi jamais dans l’historique de votre shell : `read -rs pw; printf '%s\n' "$pw" | docker compose exec -T meshloom meshloom-admin reset-password alice --stdin`.
 
 ### Add-on Home Assistant
 
@@ -67,7 +67,7 @@ Utilisez le nom affiché par la première commande. La base de l’add-on est `/
 L’image installe le paquet Linux, la commande est donc la même. Ouvrez un shell sur le Pi en SSH (l’utilisateur et la clé choisis dans Raspberry Pi Imager), puis :
 
 ```bash
-sudo -u meshloom /opt/meshloom/.venv/bin/meshloom-admin reset-password alice
+sudo meshloom-admin reset-password alice
 ```
 
 Si vous avez besoin du code d’installation et ne pouvez pas lire le journal, `meshloom-admin setup-code` en donne un nouveau en SSH.
@@ -86,5 +86,7 @@ La base est `data/meshcore.db` dans ce dossier.
 ## Si la commande échoue
 
 - **`database not found`** : la commande a regardé le mauvais fichier. Donnez-lui le chemin avec `--db /chemin/vers/meshcore.db`, ou définissez `MESHCORE_DATABASE_PATH`.
-- **`cannot read database` ou `cannot open database for writing`** : vous n’êtes pas l’utilisateur propriétaire du fichier. Utilisez `sudo -u meshloom` (paquet) ou `docker compose exec` (Docker).
+- **`run it as root`** (paquet) : ajoutez `sudo` devant.
+- **`cannot read /etc/meshloom/meshloom.env`** : donnez la base avec `--db /chemin/vers/meshcore.db` ou définissez `MESHCORE_DATABASE_PATH`.
+- **`cannot read database` ou `cannot open database for writing`** : vous n’êtes pas l’utilisateur propriétaire du fichier. Utilisez `sudo meshloom-admin` (paquet) ou `docker compose exec` (Docker).
 - **`start Meshloom once`** : la base est plus ancienne que le programme. Lancez Meshloom pour qu’il la mette à niveau, puis relancez la commande.

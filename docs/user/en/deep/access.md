@@ -33,13 +33,13 @@ Replace `alice` with the account name.
 
 ### Linux package (apt or dnf)
 
-Run it as the `meshloom` user, which owns the database. With `sudo` the command reads the database path from `/etc/meshloom/meshloom.env`:
+Run it with `sudo`:
 
 ```bash
-sudo -u meshloom /opt/meshloom/.venv/bin/meshloom-admin reset-password alice
+sudo meshloom-admin reset-password alice
 ```
 
-Do not run it as root: SQLite could then create files the service cannot write.
+The command refuses to run without root. As root it reads the database path from `/etc/meshloom/meshloom.env` (a file only root can read), then switches to the `meshloom` user, which owns the database, so SQLite never leaves files the service cannot write. The same command is `/opt/meshloom/.venv/bin/meshloom-admin`.
 
 ### Docker and Docker Compose
 
@@ -49,7 +49,7 @@ Run it inside the container, from the folder holding `docker-compose.yml`:
 docker compose exec meshloom meshloom-admin reset-password alice
 ```
 
-With `docker run`, use `docker exec -it <container> meshloom-admin reset-password alice`. If the container runs as user 10001 (`MESHLOOM_RUN_AS_USER`), add `--user 10001` to `exec`, so the database files keep their owner. To pipe a password, drop the terminal: `echo 'a long new password' | docker compose exec -T meshloom meshloom-admin reset-password alice --stdin`.
+With `docker run`, use `docker exec -it <container> meshloom-admin reset-password alice`. If the container runs as user 10001 (`MESHLOOM_RUN_AS_USER`), add `--user 10001` to `exec`, so the database files keep their owner. To feed a script, read the password without echoing it and pass it on standard input, so it never appears in your shell history: `read -rs pw; printf '%s\n' "$pw" | docker compose exec -T meshloom meshloom-admin reset-password alice --stdin`.
 
 ### Home Assistant add-on
 
@@ -67,7 +67,7 @@ Use the name printed by the first command. The add-on's database is `/config/mes
 The image installs the Linux package, so the command is the same. Open a shell on the Pi over SSH (the user and key you set in Raspberry Pi Imager), then:
 
 ```bash
-sudo -u meshloom /opt/meshloom/.venv/bin/meshloom-admin reset-password alice
+sudo meshloom-admin reset-password alice
 ```
 
 If you need the installation code and cannot see the log, `meshloom-admin setup-code` gives a new one over SSH.
@@ -86,5 +86,7 @@ The database is `data/meshcore.db` in that folder.
 ## If it does not start
 
 - **`database not found`**: the command looked at the wrong file. Give it the path with `--db /path/to/meshcore.db`, or set `MESHCORE_DATABASE_PATH`.
-- **`cannot read database` or `cannot open database for writing`**: you are not the user that owns the file. Use `sudo -u meshloom` (package) or `docker compose exec` (Docker).
+- **`run it as root`** (package): put `sudo` in front.
+- **`cannot read /etc/meshloom/meshloom.env`**: pass the database with `--db /path/to/meshcore.db` or set `MESHCORE_DATABASE_PATH`.
+- **`cannot read database` or `cannot open database for writing`**: you are not the user that owns the file. Use `sudo meshloom-admin` (package) or `docker compose exec` (Docker).
 - **`start Meshloom once`**: the database is older than the program. Start Meshloom so it upgrades the database, then run the command again.

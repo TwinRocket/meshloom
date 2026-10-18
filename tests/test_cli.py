@@ -18,6 +18,7 @@ from app.database import Database
 from app.repository import auth as auth_repo
 
 PASSWORD = "correct horse battery staple"
+ROOT = Path(__file__).resolve().parent.parent
 SHIM = Path(__file__).resolve().parent.parent / "pkg" / "nfpm" / "meshloom-admin"
 
 
@@ -226,29 +227,117 @@ def test_help_runs():
         assert name in result.stdout
 
 
-def test_shim_picks_the_package_database_from_the_env_file(tmp_path):
-    env_file = tmp_path / "meshloom.env"
-    env_file.write_text('A=1\nMESHCORE_DATABASE_PATH="/srv/m/x.db"\n')
-    app = tmp_path / "app"
+def _fake_install(tmp_path: Path) -> tuple[Path, Path]:
+    app = tmp_path / "opt"
     (app / ".venv" / "bin").mkdir(parents=True)
     fake_python = app / ".venv" / "bin" / "python"
-    fake_python.write_text('#!/bin/sh\necho "$MESHCORE_DATABASE_PATH|$PYTHONPATH|$*"\n')
+    fake_python.write_text('#!/bin/sh\necho "py|$MESHCORE_DATABASE_PATH|$PYTHONPATH|$*"\n')
     fake_python.chmod(0o755)
+    fake_runuser = tmp_path / "runuser"
+    fake_runuser.write_text('#!/bin/sh\necho "runuser $*" >&2\nshift 3\nexec "$@"\n')
+    fake_runuser.chmod(0o755)
+    return app, fake_runuser
+
+
+def _shim(args: list[str], env: dict[str, str]) -> subprocess.CompletedProcess:
+    base = {"PATH": os.environ["PATH"]}
+    return subprocess.run(
+        ["sh", str(SHIM), *args], capture_output=True, text=True, env={**base, **env}, check=False
+    )
+
+
+def test_shim_container_kind_needs_no_root_and_isolates_the_path(tmp_path):
+    app, _ = _fake_install(tmp_path)
+    env = {"MESHLOOM_APP_DIR": str(app), "MESHLOOM_PACKAGE_ROOT": str(tmp_path / "none")}
+    result = _shim(["list-users"], env)
+    assert result.returncode == 0
+    assert result.stdout.strip() == f"py|{app}/data/meshcore.db|{app}|-P -m app.cli list-users"
+    result = _shim(["--help"], {**env, "MESHCORE_DATABASE_PATH": "/explicit.db"})
+    assert result.stdout.startswith("py|/explicit.db|")
+
+
+def test_shim_package_kind_refuses_non_root(tmp_path):
+    app, runuser = _fake_install(tmp_path)
+    env = {"MESHLOOM_PACKAGE_ROOT": str(app), "MESHLOOM_EUID": "1000"}
+    result = _shim(["list-users"], env)
+    assert result.returncode == 1 and "sudo meshloom-admin" in result.stderr
+    assert "py|" not in result.stdout
+
+
+def test_shim_package_kind_reads_the_env_file_as_data_and_drops_privileges(tmp_path):
+    app, runuser = _fake_install(tmp_path)
+    marker = tmp_path / "executed"
+    env_file = tmp_path / "meshloom.env"
+    env_file.write_text(
+        f"A=$(touch {marker})\n# MESHCORE_DATABASE_PATH=/commented.db\n"
+        'MESHCORE_DATABASE_PATH="/srv/m/x y.db"\n'
+    )
     env = {
-        "PATH": os.environ["PATH"],
-        "MESHLOOM_APP_DIR": str(app),
+        "MESHLOOM_PACKAGE_ROOT": str(app),
+        "MESHLOOM_EUID": "0",
         "MESHLOOM_ENV_FILE": str(env_file),
+        "MESHLOOM_RUNUSER": str(runuser),
     }
+    result = _shim(["list-users"], env)
+    assert result.returncode == 0, result.stderr
+    assert "runuser -u meshloom --" in result.stderr
+    assert result.stdout.strip() == f"py|/srv/m/x y.db|{app}|-P -m app.cli list-users"
+    assert not marker.exists()  # the file is parsed, never sourced
+
+    env_file.unlink()  # no env file: the packaged default
+    result = _shim(["list-users"], env)
+    assert result.stdout.split("|")[1] == "/var/lib/meshloom/meshcore.db"
+
+    result = _shim(["list-users"], {**env, "MESHCORE_DATABASE_PATH": "/given.db"})
+    assert result.stdout.split("|")[1] == "/given.db"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_shim_package_kind_warns_when_the_env_file_is_unreadable(tmp_path):
+    app, runuser = _fake_install(tmp_path)
+    env_file = tmp_path / "meshloom.env"
+    env_file.write_text("MESHCORE_DATABASE_PATH=/x.db\n")
+    env_file.chmod(0)
+    env = {
+        "MESHLOOM_PACKAGE_ROOT": str(app),
+        "MESHLOOM_EUID": "0",
+        "MESHLOOM_ENV_FILE": str(env_file),
+        "MESHLOOM_RUNUSER": str(runuser),
+    }
+    try:
+        result = _shim(["list-users"], env)
+    finally:
+        env_file.chmod(0o600)
+    assert result.returncode == 1 and "cannot read" in result.stderr and "--db" in result.stderr
+
+
+def test_current_directory_cannot_shadow_the_installed_code(tmp_path):
+    shadow = tmp_path / "shadow" / "app"
+    shadow.mkdir(parents=True)
+    (shadow / "__init__.py").write_text("")
+    (shadow / "cli.py").write_text("print('SHADOWED')\n")
     result = subprocess.run(
-        ["sh", str(SHIM), "list-users"], capture_output=True, text=True, env=env, check=True
+        [sys.executable, "-P", "-m", "app.cli", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path / "shadow",
+        env={**os.environ, "PYTHONPATH": str(ROOT)},
+        check=False,
     )
-    # Not /opt/meshloom here, so the env file is not consulted: the app-dir default applies.
-    assert result.stdout.strip() == f"{app}/data/meshcore.db|{app}|-m app.cli list-users"
-    env["MESHCORE_DATABASE_PATH"] = "/explicit.db"
-    result = subprocess.run(
-        ["sh", str(SHIM), "--help"], capture_output=True, text=True, env=env, check=True
-    )
-    assert result.stdout.startswith("/explicit.db|")
+    assert "SHADOWED" not in result.stdout and "list-users" in result.stdout
+
+
+def test_refusals_and_list_users_are_audited(dbfile, stdin, capsys):
+    _add_user(dbfile, "alice")
+    assert run(dbfile, "list-users") == 0
+    assert run(dbfile, "disable-user", "alice") == 1  # last admin
+    assert run(dbfile, "disable-user", "ghost") == 1
+    rows = _query(dbfile, "SELECT action, outcome, target FROM auth_audit ORDER BY id")
+    assert rows == [
+        ("cli.list_users", "ok", None),
+        ("cli.disable_user", "refused", "alice"),
+        ("cli.disable_user", "refused", "ghost"),
+    ]
 
 
 def test_change_is_visible_to_a_connection_the_server_keeps_open(dbfile, stdin):
@@ -264,13 +353,11 @@ def test_change_is_visible_to_a_connection_the_server_keeps_open(dbfile, stdin):
     assert after != before and verify_password(after, "a brand new passphrase")
 
 
-ROOT = Path(__file__).resolve().parent.parent
-
-
 def test_every_install_kind_ships_the_command():
     assert os.access(SHIM, os.X_OK)
     nfpm = (ROOT / "pkg" / "nfpm" / "nfpm.yaml.tmpl").read_text()
     assert "dst: /opt/meshloom/.venv/bin/meshloom-admin" in nfpm
     assert "src: __PKGDIR__/meshloom-admin" in nfpm
     dockerfile = (ROOT / "Dockerfile").read_text()
+    assert "dst: /usr/bin/meshloom-admin" in nfpm
     assert "pkg/nfpm/meshloom-admin /usr/local/bin/meshloom-admin" in dockerfile

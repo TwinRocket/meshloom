@@ -11,8 +11,8 @@ Run it on the machine (or in the container) that holds the database::
 
 It opens the SQLite file directly, through the same repositories as the server
 (``app/repository/auth.py``), so a change is visible to a running server on its
-next request: no restart. The file is opened in WAL mode like the server does,
-and never created or migrated here: a missing or unreadable file, or one the
+next request: no restart. The server leaves the file in WAL mode (the mode is
+stored in the file, this module does not set it), and the file is never created or migrated here: a missing or unreadable file, or one the
 server has not migrated yet, is a clear error and exit status 1. Per-install
 commands and the wrapper script: ``docs/user/en/deep/access.md``.
 
@@ -148,6 +148,21 @@ async def _audit(action: str, target: str | None, **details: object) -> None:
     await AuthAuditRepository.add(action, "ok", target=target, via=AUDIT_VIA, details=details)
 
 
+async def _audit_refusal(args: argparse.Namespace, reason: str) -> None:
+    """Record a refused command; the audit trail must not hide the refusal itself."""
+    target = getattr(args, "username", None)
+    try:
+        await AuthAuditRepository.add(
+            "cli." + args.command.replace("-", "_"),
+            "refused",
+            target=target,
+            via=AUDIT_VIA,
+            details={"reason": reason},
+        )
+    except (sqlite3.Error, ValueError):
+        pass
+
+
 def _status(user: User) -> str:
     return "disabled" if user.disabled else "active"
 
@@ -219,6 +234,7 @@ async def _setup_code(args: argparse.Namespace) -> int:
 
 async def _list_users(args: argparse.Namespace) -> int:
     users = await UserRepository.list_all()
+    await _audit("cli.list_users", None, count=len(users))
     if args.json:
         print(json.dumps([user.model_dump() for user in users], indent=2))
         return 0
@@ -361,7 +377,11 @@ def build_parser() -> argparse.ArgumentParser:
 async def _run(args: argparse.Namespace) -> int:
     conn = await _open_database(args.db or settings.database_path)
     try:
-        return await _COMMANDS[args.command](args)
+        try:
+            return await _COMMANDS[args.command](args)
+        except CliError as exc:
+            await _audit_refusal(args, str(exc))
+            raise
     except AuthSettingsMissingError:
         raise CliError("auth_settings row missing: start Meshloom once to repair it") from None
     except sqlite3.OperationalError as exc:

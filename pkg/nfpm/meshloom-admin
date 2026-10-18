@@ -3,39 +3,67 @@
 # (app/cli.py; docs/user/en/deep/access.md).
 #
 # One wrapper for every install kind that ships a Python tree:
-#   - deb/rpm and the RPi image: /opt/meshloom/.venv/bin/meshloom-admin, run as the
-#     user that owns the database (sudo -u meshloom).
+#   - deb/rpm and the RPi image: /opt/meshloom/.venv/bin/meshloom-admin, also
+#     linked as /usr/bin/meshloom-admin. Run it with sudo: it reads
+#     /etc/meshloom/meshloom.env (root:root 0640), then drops to the `meshloom`
+#     user, which owns the database, so SQLite never leaves root-owned -wal files.
 #   - Docker image and Home Assistant add-on: /usr/local/bin/meshloom-admin, run with
-#     `docker compose exec` / `docker exec`.
+#     `docker compose exec` / `docker exec` (the container user is already right).
 # The project is not pip-installed in the venv (no build backend), so a console
 # script entry point cannot exist; this wrapper is the command.
 #
 # The database path is MESHCORE_DATABASE_PATH when set. Otherwise it is found the
 # way the service finds it, because an interactive shell or `docker exec` does not
 # see the unit's EnvironmentFile or the add-on launcher's environment.
+#
+# Test hooks (not documented for users): MESHLOOM_APP_DIR, MESHLOOM_PACKAGE_ROOT,
+# MESHLOOM_ENV_FILE, MESHLOOM_EUID, MESHLOOM_RUNUSER.
 set -eu
+
+PKG_ROOT="${MESHLOOM_PACKAGE_ROOT:-/opt/meshloom}"
+SERVICE_USER=meshloom
 
 if [ -n "${MESHLOOM_APP_DIR:-}" ]; then
     APP="$MESHLOOM_APP_DIR"
-elif [ -x /opt/meshloom/.venv/bin/python ]; then
-    APP=/opt/meshloom
+elif [ -x "$PKG_ROOT/.venv/bin/python" ]; then
+    APP="$PKG_ROOT"
 elif [ -x /app/.venv/bin/python ]; then
     APP=/app
 else
-    echo "meshloom-admin: no Meshloom installation found (looked in /opt/meshloom and /app)" >&2
+    echo "meshloom-admin: no Meshloom installation found (looked in $PKG_ROOT and /app)" >&2
     exit 1
 fi
 
-if [ -z "${MESHCORE_DATABASE_PATH:-}" ]; then
-    if [ "$APP" = /opt/meshloom ]; then
-        # Package: the value in the unit's environment file, else the packaged default.
+PYTHON="$APP/.venv/bin/python"
+# -P: the current directory never goes on sys.path, so an app/ folder next to
+# the operator cannot shadow the installed code.
+set -- -P -m app.cli "$@"
+
+if [ "$APP" = "$PKG_ROOT" ]; then
+    if [ "${MESHLOOM_EUID:-$(id -u)}" != 0 ]; then
+        echo "meshloom-admin: run it as root: sudo meshloom-admin ..." >&2
+        exit 1
+    fi
+    if [ -z "${MESHCORE_DATABASE_PATH:-}" ]; then
+        # Read the unit's environment file as data, never `source` it.
         env_file="${MESHLOOM_ENV_FILE:-/etc/meshloom/meshloom.env}"
         value=
         if [ -r "$env_file" ]; then
             value=$(sed -n 's/^MESHCORE_DATABASE_PATH=//p' "$env_file" | tail -n 1 | tr -d '"'"'")
+        elif [ -e "$env_file" ]; then
+            echo "meshloom-admin: cannot read $env_file; pass --db or set MESHCORE_DATABASE_PATH" >&2
+            exit 1
         fi
         MESHCORE_DATABASE_PATH="${value:-/var/lib/meshloom/meshcore.db}"
-    elif [ -f /data/options.json ]; then
+    fi
+    cd /
+    exec "${MESHLOOM_RUNUSER:-runuser}" -u "$SERVICE_USER" -- \
+        env "MESHCORE_DATABASE_PATH=$MESHCORE_DATABASE_PATH" "PYTHONPATH=$APP" \
+        "$PYTHON" "$@"
+fi
+
+if [ -z "${MESHCORE_DATABASE_PATH:-}" ]; then
+    if [ -f /data/options.json ]; then
         # Home Assistant add-on: meshloom/run.py points the server at /config.
         MESHCORE_DATABASE_PATH=/config/meshcore.db
     else
@@ -43,7 +71,6 @@ if [ -z "${MESHCORE_DATABASE_PATH:-}" ]; then
     fi
     export MESHCORE_DATABASE_PATH
 fi
-
 PYTHONPATH="$APP${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
-exec "$APP/.venv/bin/python" -m app.cli "$@"
+exec "$PYTHON" "$@"

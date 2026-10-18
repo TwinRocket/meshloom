@@ -18,6 +18,9 @@ contents:
     dst: /opt/meshloom/.venv/bin/meshloom-admin
     file_info:
       mode: 0755
+  - src: /opt/meshloom/.venv/bin/meshloom-admin
+    dst: /usr/bin/meshloom-admin
+    type: symlink
   - src: __PKGDIR__/meshloom.service
     dst: /usr/lib/systemd/system/meshloom.service
     file_info:

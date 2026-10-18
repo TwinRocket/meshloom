@@ -42,13 +42,15 @@ and the OpenAPI page (`/docs`), not a table here.
   `pyproject.toml` has no build backend, so the venv never gets a console script.
   The wrapper is shipped at `/opt/meshloom/.venv/bin/meshloom-admin` (`nfpm.yaml.tmpl`)
   and `/usr/local/bin/meshloom-admin` (`Dockerfile`; the add-on is `FROM` that image).
-  It finds the database the way the service does (the package's env file, `/config`
-  for the add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's
-  environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
+  On the package it must run as root (also linked as `/usr/bin/meshloom-admin`): it parses
+  `/etc/meshloom/meshloom.env` (root:root 0640) as data, never sources it, then drops to
+  `meshloom` with `runuser`. It runs python with `-P` so a local `app/` cannot shadow the
+  install. It finds the database the way the service does (that env file, `/config` for the
+  add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
 - It opens the file itself (`mode=rw`, never created, no schema script, no migration:
   the server owns those) and attaches `app.database.db` to that connection, then uses the
   repositories of `app/repository/auth.py`. Changes are WAL commits, seen by a running
-  server on its next read. Every action writes an `auth_audit` row (`via = "cli"`).
+  server on its next read. Every command writes an `auth_audit` row (`via = "cli"`; outcome `refused` for a refusal).
 - Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
   new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
 - Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
