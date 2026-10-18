@@ -38,6 +38,7 @@ async def patched_database(path: str = ":memory:"):
         contacts,
         directory,
         messages,
+        notification_channels,
         plugins,
         push_subscriptions,
         radio_proxy,
@@ -50,6 +51,7 @@ async def patched_database(path: str = ":memory:"):
     )
     from app.repository import fanout as fanout_repo
 
+    notification_channels.invalidate_cache()
     db = Database(path)
     await db.connect()
 
@@ -60,6 +62,7 @@ async def patched_database(path: str = ":memory:"):
         contact_groups,
         directory,
         messages,
+        notification_channels,
         plugins,
         radio_proxy,
         radio_transport,
@@ -86,6 +89,7 @@ async def patched_database(path: str = ":memory:"):
     try:
         yield db
     finally:
+        notification_channels.invalidate_cache()
         for mod, original in originals:
             mod.db = original
         packets_module.db = original_packets_db

@@ -381,6 +381,15 @@ run as root).
   also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by
   `tests/test_migrations/test_migration_110.py`). It travels inside the `users` backup
   section (version 3). Rules: `docs/dev/auth.md`, "Passkeys".
+- Migration 113 adds the notification channels (`notification_channels`,
+  `notification_deliveries`, `notification_counters`, `notification_state`, DDL also in
+  `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by `tests/test_migrations/test_migration_113.py`)
+  and `app_settings.notification_rules`, then imports the 4.18.x preferences once
+  (`builtin:push`, `legacy:email|webhook|apprise`, `push_defaults` and
+  `push_conversation_overrides` as rules). The legacy columns stay and are no longer written.
+  The pure transform (`build_channels`, `build_rules`) lives in the migration module so the
+  restore of a 4.18 backup can reuse it. Model, registry and deletion rule:
+  `app/notifications/AGENTS.md`.
 - Migration 112 adds `pairing_codes` (device pairing codes: SHA-256 of the code, creator,
   scopes, QR addresses, expiry, use, revocation, the token it gave and the device's opaque
   `extensions`; DDL and `idx_pairing_codes_user` also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`,

@@ -1,0 +1,561 @@
+"""Repository for the notification channels and their journal, counters and state.
+
+Reads never return a secret: ``Channel`` carries ``secret_fields_set`` (names only).
+``get_for_send`` is the one reader of the secret values, for the dispatcher. The public
+channels are cached in memory; every write invalidates the cache, so the next
+evaluation sees a PATCH.
+"""
+
+import json
+import logging
+import time
+import uuid
+from typing import Any
+
+import aiosqlite
+from pydantic import ValidationError
+
+from app.database import db
+from app.net.apprise_urls import AppriseUrlRefused, split_apprise_urls, validate_apprise_urls
+from app.net.egress_guard import EgressBlocked, validate_destination
+from app.notifications.channels import (
+    BUILTIN_PUSH_ID,
+    Channel,
+    ChannelCreate,
+    ChannelError,
+    ChannelType,
+    ChannelUpdate,
+    get_type,
+    is_builtin,
+)
+from app.secret_fields import REDACTED, destination_changed
+
+logger = logging.getLogger(__name__)
+
+DELIVERIES_PER_CHANNEL = 200
+LAST_ERROR_MAX = 200
+
+_cache: dict[str, Channel] | None = None
+_orphans_logged: set[str] = set()
+
+
+def invalidate_cache() -> None:
+    global _cache
+    _cache = None
+
+
+def _loads(raw: object) -> dict[str, Any]:
+    try:
+        loaded = json.loads(raw) if isinstance(raw, str) and raw else {}
+    except json.JSONDecodeError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _row_to_channel(row: aiosqlite.Row) -> Channel:
+    secrets = _loads(row["secrets"])
+    return Channel(
+        id=row["id"],
+        type=row["type"],
+        preset=row["preset"],
+        name=row["name"],
+        enabled=bool(row["enabled"]),
+        language=row["language"],
+        config=_loads(row["config"]),
+        secret_fields_set=sorted(k for k, v in secrets.items() if v),
+        allow_private_network=bool(row["allow_private_network"]),
+        include_message_text=row["include_message_text"],
+        verify_tls=bool(row["verify_tls"]),
+        quiet_hours_exempt=bool(row["quiet_hours_exempt"]),
+        rate_per_min=row["rate_per_min"],
+        rate_per_hour=row["rate_per_hour"],
+        rate_per_day=row["rate_per_day"],
+        sort_order=row["sort_order"] or 0,
+        created_at=row["created_at"] or 0,
+        last_ok_at=row["last_ok_at"],
+        last_error=row["last_error"],
+        failure_count=row["failure_count"] or 0,
+        paused_until=row["paused_until"],
+        deletable=not is_builtin(row["id"]),
+    )
+
+
+async def _fetch(conn: aiosqlite.Connection, channel_id: str) -> aiosqlite.Row | None:
+    async with conn.execute("SELECT * FROM notification_channels WHERE id = ?", (channel_id,)) as c:
+        return await c.fetchone()
+
+
+def _split_config(entry: ChannelType, config: dict[str, Any]) -> tuple[dict, dict]:
+    """Validate ``config`` against the type's model, then split public from secret."""
+    try:
+        model = entry.config_model.model_validate(config)
+    except ValidationError as exc:
+        fields = sorted({".".join(str(p) for p in err["loc"]) for err in exc.errors()})
+        raise ChannelError("config_invalid", fields=fields) from None
+    dumped = model.model_dump(by_alias=True, mode="python")
+    public: dict[str, Any] = {}
+    secrets: dict[str, str] = {}
+    for name, value in dumped.items():
+        key = name
+        if key in entry.secret_fields:
+            raw = value.get_secret_value() if hasattr(value, "get_secret_value") else value
+            if raw:
+                secrets[key] = raw
+        else:
+            public[key] = value
+    return public, secrets
+
+
+def _required_missing(entry: ChannelType, public: dict, secrets: dict) -> list[str]:
+    return [f for f in entry.required if not (public.get(f) or secrets.get(f))]
+
+
+async def _check_destination(
+    entry: ChannelType, public: dict, secrets: dict, allow_private_network: bool
+) -> None:
+    """Refuse a host the egress guard would refuse at send (400, coded)."""
+    try:
+        if entry.id == "webhook" and secrets.get("url"):
+            await validate_destination(secrets["url"], allow_private_network=allow_private_network)
+        elif entry.id == "apprise" and secrets.get("urls"):
+            await validate_apprise_urls(
+                split_apprise_urls(secrets["urls"]), allow_private_network=allow_private_network
+            )
+        elif entry.id == "email" and public.get("host"):
+            host = str(public["host"]).strip()
+            bracketed = f"[{host}]" if ":" in host else host
+            await validate_destination(
+                f"http://{bracketed}:{public.get('port') or 587}/",
+                allow_private_network=allow_private_network,
+            )
+    except EgressBlocked as exc:
+        raise ChannelError(exc.code) from None
+    except AppriseUrlRefused as exc:
+        raise ChannelError(exc.code, line=exc.line, scheme=exc.scheme) from None
+
+
+def _utf_trim(value: str | None) -> str | None:
+    return value[:LAST_ERROR_MAX] if value else value
+
+
+class NotificationChannelRepository:
+    @staticmethod
+    async def list_all() -> list[Channel]:
+        global _cache
+        if _cache is None:
+            async with db.readonly() as conn:
+                async with conn.execute(
+                    "SELECT * FROM notification_channels ORDER BY sort_order, created_at, id"
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            _cache = {ch.id: ch for ch in map(_row_to_channel, rows)}
+        return list(_cache.values())
+
+    @staticmethod
+    async def get(channel_id: str) -> Channel | None:
+        await NotificationChannelRepository.list_all()
+        return (_cache or {}).get(channel_id)
+
+    @staticmethod
+    async def resolve(channel_ids: list[str]) -> list[Channel]:
+        """The channels behind rule ids, skipping an orphan (logged once per id)."""
+        await NotificationChannelRepository.list_all()
+        known = _cache or {}
+        resolved: list[Channel] = []
+        for channel_id in channel_ids:
+            channel = known.get(channel_id)
+            if channel is None:
+                if channel_id not in _orphans_logged:
+                    _orphans_logged.add(channel_id)
+                    logger.warning("Notification rules name an unknown channel: %s", channel_id)
+                continue
+            resolved.append(channel)
+        return resolved
+
+    @staticmethod
+    async def get_for_send(channel_id: str) -> tuple[Channel, dict[str, str]] | None:
+        """The channel and its secret values, for the dispatcher only."""
+        async with db.readonly() as conn:
+            row = await _fetch(conn, channel_id)
+        if row is None:
+            return None
+        secrets = {k: v for k, v in _loads(row["secrets"]).items() if isinstance(v, str) and v}
+        return _row_to_channel(row), secrets
+
+    @staticmethod
+    async def create(body: ChannelCreate) -> Channel:
+        entry = get_type(body.type)
+        public, secrets = _split_config(entry, body.config)
+        missing = _required_missing(entry, public, secrets)
+        if missing:
+            raise ChannelError("config_required", fields=missing)
+        if entry.singleton_id is not None:
+            channel_id = entry.singleton_id
+        else:
+            channel_id = body.id or f"{entry.id}-{uuid.uuid4().hex[:8]}"
+            if is_builtin(channel_id) or ":" in channel_id:
+                raise ChannelError("channel_id_reserved")
+        await _check_destination(entry, public, secrets, body.allow_private_network)
+        # NULL rate columns mean "the type's default limits" (registry).
+        async with db.tx() as conn:
+            if await _fetch(conn, channel_id) is not None:
+                raise ChannelError("channel_exists", 409)
+            async with conn.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM notification_channels"
+            ) as cursor:
+                sort_order = (await cursor.fetchone())[0]  # type: ignore[index]
+            await conn.execute(
+                """
+                INSERT INTO notification_channels
+                    (id, type, preset, name, enabled, language, config, secrets,
+                     allow_private_network, include_message_text, verify_tls,
+                     quiet_hours_exempt, rate_per_min, rate_per_hour, rate_per_day,
+                     sort_order, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    channel_id,
+                    entry.id,
+                    body.preset,
+                    body.name.strip(),
+                    1 if body.enabled else 0,
+                    body.language,
+                    json.dumps(public, sort_keys=True),
+                    json.dumps(secrets, sort_keys=True),
+                    1 if body.allow_private_network else 0,
+                    body.include_message_text or entry.include_message_text_default,
+                    1 if body.verify_tls else 0,
+                    1
+                    if (
+                        entry.quiet_hours_exempt_default
+                        if body.quiet_hours_exempt is None
+                        else body.quiet_hours_exempt
+                    )
+                    else 0,
+                    body.rate_per_min,
+                    body.rate_per_hour,
+                    body.rate_per_day,
+                    sort_order,
+                    int(time.time()),
+                ),
+            )
+            row = await _fetch(conn, channel_id)
+        invalidate_cache()
+        assert row is not None
+        return _row_to_channel(row)
+
+    @staticmethod
+    async def update(channel_id: str, patch: ChannelUpdate) -> Channel:
+        found = await NotificationChannelRepository.get_for_send(channel_id)
+        if found is None:
+            raise ChannelError("channel_not_found", 404)
+        current, stored_secrets = found
+        if patch.type is not None and patch.type != current.type:
+            raise ChannelError("type_immutable")
+        entry = get_type(current.type)
+
+        public = dict(current.config)
+        secrets = dict(stored_secrets)
+        config_changed = False
+        if patch.config is not None:
+            config_changed = True
+            incoming = dict(patch.config)
+            merged: dict[str, Any] = {**public}
+            for name in entry.secret_fields:
+                if name in secrets:
+                    merged[name] = secrets[name]
+            replaced: set[str] = set()
+            for key, value in incoming.items():
+                if key in entry.secret_fields:
+                    if value is None or value == REDACTED:
+                        continue
+                    replaced.add(key)
+                merged[key] = value
+            if entry.destination_keys and destination_changed(
+                entry.id,
+                {**public, **secrets},
+                merged,
+                {entry.id: dict.fromkeys(entry.destination_keys, "")},
+            ):
+                kept = [f for f in entry.secret_follows if secrets.get(f) and f not in replaced]
+                if kept:
+                    raise ChannelError("secret_required", fields=kept)
+            public, secrets = _split_config(entry, merged)
+        missing = _required_missing(entry, public, secrets)
+        if missing:
+            raise ChannelError("config_required", fields=missing)
+
+        allow_private = (
+            current.allow_private_network
+            if patch.allow_private_network is None
+            else patch.allow_private_network
+        )
+        if config_changed or allow_private != current.allow_private_network:
+            await _check_destination(entry, public, secrets, allow_private)
+        if config_changed:
+            # The grandfathering banner was about the old destination.
+            public.pop("private_network_grandfathered", None)
+
+        sets: dict[str, Any] = {}
+        if config_changed:
+            sets["config"] = json.dumps(public, sort_keys=True)
+            sets["secrets"] = json.dumps(secrets, sort_keys=True)
+        for column in (
+            "name",
+            "enabled",
+            "language",
+            "allow_private_network",
+            "include_message_text",
+            "verify_tls",
+            "quiet_hours_exempt",
+            "rate_per_min",
+            "rate_per_hour",
+            "rate_per_day",
+        ):
+            if column in patch.model_fields_set and column != "type":
+                value = getattr(patch, column)
+                if value is None and column not in (
+                    "rate_per_min",
+                    "rate_per_hour",
+                    "rate_per_day",
+                ):
+                    continue
+                if isinstance(value, bool):
+                    value = 1 if value else 0
+                sets[column] = (
+                    value.strip() if isinstance(value, str) and column == "name" else value
+                )
+        async with db.tx() as conn:
+            if sets:
+                assignments = ", ".join(f"{col} = ?" for col in sets)
+                await conn.execute(
+                    f"UPDATE notification_channels SET {assignments} WHERE id = ?",  # noqa: S608
+                    (*sets.values(), channel_id),
+                )
+            row = await _fetch(conn, channel_id)
+        invalidate_cache()
+        assert row is not None
+        return _row_to_channel(row)
+
+    @staticmethod
+    async def delete(channel_id: str) -> None:
+        """Delete a channel and every reference to it, in one transaction."""
+        if is_builtin(channel_id):
+            raise ChannelError("channel_builtin")
+        async with db.tx() as conn:
+            if await _fetch(conn, channel_id) is None:
+                raise ChannelError("channel_not_found", 404)
+            await conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
+            await conn.execute(
+                "DELETE FROM notification_deliveries WHERE channel_id = ?", (channel_id,)
+            )
+            await conn.execute(
+                "DELETE FROM notification_counters WHERE channel_id = ?", (channel_id,)
+            )
+            async with conn.execute(
+                "SELECT notification_rules FROM app_settings WHERE id = 1"
+            ) as c:
+                row = await c.fetchone()
+            rules = _loads(row[0]) if row else {}
+            if rules and strip_channel_from_rules(rules, channel_id):
+                await conn.execute(
+                    "UPDATE app_settings SET notification_rules = ? WHERE id = 1",
+                    (json.dumps(rules, sort_keys=True),),
+                )
+        invalidate_cache()
+        _orphans_logged.discard(channel_id)
+
+    @staticmethod
+    async def record_result(channel_id: str, *, ok: bool, error: str | None = None) -> None:
+        """Status update after a send. ``error`` must already be scrubbed by the caller."""
+        now = int(time.time())
+        async with db.tx() as conn:
+            if ok:
+                await conn.execute(
+                    "UPDATE notification_channels SET last_ok_at = ?, last_error = NULL, "
+                    "failure_count = 0 WHERE id = ?",
+                    (now, channel_id),
+                )
+            else:
+                await conn.execute(
+                    "UPDATE notification_channels SET last_error = ?, "
+                    "failure_count = failure_count + 1 WHERE id = ?",
+                    (_utf_trim(error), channel_id),
+                )
+        invalidate_cache()
+
+    @staticmethod
+    async def set_paused_until(channel_id: str, until: int | None) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE notification_channels SET paused_until = ? WHERE id = ?",
+                (until, channel_id),
+            )
+        invalidate_cache()
+
+
+def strip_channel_from_rules(rules: dict[str, Any], channel_id: str) -> bool:
+    """Remove ``channel_id`` from every list and map of ``rules`` (in place).
+
+    ``events[*].channels`` (and ``contact_types``), ``conversations[key]`` (a key left
+    empty is dropped), ``keywords[*].channels`` and ``watched_nodes[*].channels``.
+    Returns whether anything changed.
+    """
+    changed = False
+
+    def drop(owner: dict[str, Any], key: str) -> None:
+        nonlocal changed
+        ids = owner.get(key)
+        if isinstance(ids, list) and channel_id in ids:
+            owner[key] = [i for i in ids if i != channel_id]
+            changed = True
+
+    for event in (rules.get("events") or {}).values():
+        if not isinstance(event, dict):
+            continue
+        drop(event, "channels")
+        types = event.get("contact_types")
+        if isinstance(types, dict):
+            for kind in types:
+                drop(types, kind)
+    conversations = rules.get("conversations")
+    if isinstance(conversations, dict):
+        for key in list(conversations):
+            entry = conversations[key]
+            if isinstance(entry, dict) and channel_id in entry:
+                del entry[channel_id]
+                changed = True
+                if not entry:
+                    del conversations[key]
+    for section in ("keywords", "watched_nodes"):
+        for item in rules.get(section) or []:
+            if isinstance(item, dict):
+                drop(item, "channels")
+    return changed
+
+
+class NotificationJournalRepository:
+    """Deliveries ring (200 rows per channel), hourly counters and the dedup state."""
+
+    @staticmethod
+    async def add_delivery(
+        channel_id: str,
+        event: str,
+        *,
+        status: str,
+        dedup_key: str = "",
+        error: str | None = None,
+        attempts: int = 1,
+    ) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "INSERT INTO notification_deliveries "
+                "(channel_id, event, dedup_key, status, error, attempts, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    channel_id,
+                    event,
+                    dedup_key,
+                    status,
+                    _utf_trim(error),
+                    attempts,
+                    int(time.time()),
+                ),
+            )
+            await conn.execute(
+                "DELETE FROM notification_deliveries WHERE channel_id = ? AND id NOT IN "
+                "(SELECT id FROM notification_deliveries WHERE channel_id = ? "
+                "ORDER BY id DESC LIMIT ?)",
+                (channel_id, channel_id, DELIVERIES_PER_CHANNEL),
+            )
+
+    @staticmethod
+    async def list_deliveries(channel_id: str, limit: int = DELIVERIES_PER_CHANNEL) -> list[dict]:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT id, channel_id, event, dedup_key, status, error, attempts, created_at "
+                "FROM notification_deliveries WHERE channel_id = ? ORDER BY id DESC LIMIT ?",
+                (channel_id, limit),
+            ) as cursor:
+                return [dict(row) for row in await cursor.fetchall()]
+
+    @staticmethod
+    async def prune_deliveries() -> int:
+        """The daily prune: at most 200 rows per channel, none for a deleted channel."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                """
+                DELETE FROM notification_deliveries WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (
+                            PARTITION BY channel_id ORDER BY id DESC) AS rn
+                        FROM notification_deliveries
+                    ) WHERE rn > ?
+                ) OR channel_id NOT IN (SELECT id FROM notification_channels)
+                """,
+                (DELIVERIES_PER_CHANNEL,),
+            ) as cursor:
+                return cursor.rowcount
+
+    @staticmethod
+    async def add_sent(channel_id: str, hour: int, count: int = 1) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "INSERT INTO notification_counters (channel_id, hour, sent) VALUES (?, ?, ?) "
+                "ON CONFLICT(channel_id, hour) DO UPDATE SET sent = sent + excluded.sent",
+                (channel_id, hour, count),
+            )
+
+    @staticmethod
+    async def sent_since(channel_id: str, since_hour: int) -> int:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT COALESCE(SUM(sent), 0) FROM notification_counters "
+                "WHERE channel_id = ? AND hour >= ?",
+                (channel_id, since_hour),
+            ) as cursor:
+                return int((await cursor.fetchone())[0])  # type: ignore[index]
+
+    @staticmethod
+    async def prune_counters(before_hour: int) -> None:
+        async with db.tx() as conn:
+            await conn.execute("DELETE FROM notification_counters WHERE hour < ?", (before_hour,))
+
+    @staticmethod
+    async def state_get(key: str, now: int | None = None) -> str | None:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT value FROM notification_state WHERE key = ? "
+                "AND (expires_at IS NULL OR expires_at > ?)",
+                (key, int(time.time()) if now is None else now),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return row[0] if row else None
+
+    @staticmethod
+    async def state_set(key: str, value: str, expires_at: int | None = None) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "INSERT INTO notification_state (key, value, expires_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "expires_at = excluded.expires_at",
+                (key, value, expires_at),
+            )
+
+    @staticmethod
+    async def state_prune(now: int | None = None) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "DELETE FROM notification_state WHERE expires_at IS NOT NULL AND expires_at <= ?",
+                (int(time.time()) if now is None else now,),
+            )
+
+
+__all__ = [
+    "BUILTIN_PUSH_ID",
+    "DELIVERIES_PER_CHANNEL",
+    "NotificationChannelRepository",
+    "NotificationJournalRepository",
+    "invalidate_cache",
+    "strip_channel_from_rules",
+]

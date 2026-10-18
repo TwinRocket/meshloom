@@ -86,6 +86,7 @@ La langue des notifications se choisit dans **Réglages → Notifications** et s
 | Réglage | Défaut | Description |
 |---------|--------|-------------|
 | `notification_language` | `auto` | `auto`, `fr` ou `en`. La langue des notifications par e-mail et Apprise ; `auto` suit les navigateurs abonnés au push (anglais seulement si une majorité stricte des navigateurs est en anglais, français en cas d’égalité) |
+| `notification_rules` | `{}` | Les règles de notification (quel canal reçoit quel événement, exceptions par conversation). Écrites par l’import 4.18 vers 5.0 et par les canaux de notification ; aucun écran ne les modifie encore |
 
 ## Variables retirées
 
@@ -126,7 +127,7 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 | **Base de données** | `auto_decrypt_dm_on_advert` |
 | **Gestion radio-application** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 de chaque au maximum), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alertes** | `telemetry_alert_rules` |
-| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail et webhook) |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail et webhook), `notification_rules` ; les nouvelles tables `notification_channels`, `notification_deliveries`, `notification_counters` et `notification_state` |
 | **Mises à jour** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
 | **Utilisateurs et accès** | `public_urls` (**Adresses publiques** : les noms auxquels Meshloom répond depuis l’extérieur, déclarés par un administrateur ; aucune variable d’environnement n’existe pour cela), `host_guard_mode` (observation ou strict) |
 | **Configuration locale** et **Navigation** | `ui_preferences` : thème, étiquette de l’instance, barre de gauche ; `auth_allowed_origins` : les autres sites autorisés à appeler l’API (**Origines autorisées**) |

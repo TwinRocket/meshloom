@@ -7,6 +7,7 @@ referenced by ``cid:``. No remote image, no link to a Meshloom site.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,8 @@ from app.notifications.render import (  # noqa: F401  (re-exported: callers impo
     rule_kind,
     telemetry_email_lines,
 )
+
+logger = logging.getLogger(__name__)
 
 # Inline logo: Apprise gives the part ``Content-ID: <LOGO_CID>`` because the
 # attachment name matches the ``cid:`` reference in the HTML (see notify.py).
@@ -48,6 +51,7 @@ async def resolve_instance_language() -> AppLanguage:
 
         chosen = (await AppSettingsRepository.get()).notification_language
     except Exception:
+        logger.warning("notification_language unreadable, falling back to auto", exc_info=True)
         chosen = "auto"
     if chosen in ("fr", "en"):
         return chosen
@@ -56,6 +60,9 @@ async def resolve_instance_language() -> AppLanguage:
 
         subs = await PushSubscriptionRepository.get_all()
     except Exception:
+        logger.warning(
+            "push subscriptions unreadable, notification language falls back to fr", exc_info=True
+        )
         return "fr"
     english = sum(1 for sub in subs if normalize_email_language(sub.get("language")) == "en")
     french = sum(1 for sub in subs if normalize_email_language(sub.get("language")) == "fr")

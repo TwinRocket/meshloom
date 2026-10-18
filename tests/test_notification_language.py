@@ -78,3 +78,25 @@ async def test_the_language_travels_in_a_backup(test_db):
     export = await export_json()
     assert export.settings is not None
     assert export.settings.notification_language == "en"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["member", "viewer", "kiosk"])
+async def test_non_admin_cannot_change_notification_language(test_db, client, sign_in_as, role):
+    sign_in_as(role)
+    response = await client.patch("/api/settings", json={"notification_language": "en"})
+    assert response.status_code == 403
+    assert (await AppSettingsRepository.get()).notification_language == "auto"
+
+
+@pytest.mark.asyncio
+async def test_unreadable_settings_fall_back_with_a_logged_warning(test_db, monkeypatch, caplog):
+    async def boom():
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(AppSettingsRepository, "get", boom)
+    monkeypatch.setattr(PushSubscriptionRepository, "get_all", boom)
+    with caplog.at_level("WARNING", logger="app.email_template"):
+        assert await resolve_instance_language() == "fr"
+    assert "notification_language unreadable" in caplog.text
+    assert "push subscriptions unreadable" in caplog.text
