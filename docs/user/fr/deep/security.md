@@ -53,6 +53,12 @@ L’import d’une clé (**Définir la clé privée**, en écriture seule) n’a
 
 Sous Linux, le serveur se marque aussi comme non « dumpable » au démarrage : un autre programme lancé par le même utilisateur ne peut pas lire sa mémoire ni son environnement (où se trouve l’identifiant d’accès Basic). En contrepartie, le serveur n’écrit aucun core dump, et les outils de débogage comme `py-spy` ou `gdb` demandent `sudo` pour s’y attacher. Cela protège contre les autres programmes non root et ne fait rien contre root ; l’image Docker par défaut et l’add-on Home Assistant tournent en root, donc la protection compte surtout pour les paquets deb/rpm et les installations qui tournent sous un utilisateur dédié.
 
+## La clé de partage
+
+Le partage de liens et de fichiers (prévu dans une prochaine version) n’utilise pas la clé de la radio. Meshloom crée pour lui une clé distincte, au hasard, la première fois que le partage en a besoin, et la garde dans sa base. Pour le service de partage, cette clé est un pseudonyme : elle regroupe vos envois et vos quotas, et elle n’est pas liée à la clé publique de votre radio dans l’annuaire Community. Ce que vous partagez ne peut donc pas être rattaché à votre nœud, un bannissement là-bas n’a aucun effet sur Community, et une nouvelle radio garde la même identité de partage. Seule sa moitié publique quitte le serveur, dans les jetons signés courts envoyés au service de partage : chacun vaut moins de deux minutes, pour une seule requête.
+
+La clé n’apparaît jamais dans l’API des réglages, l’instantané de support, les journaux ni aucune sauvegarde : la sauvegarde complète et la sauvegarde JSON refusent de la contenir, et elle est effacée du téléchargement de `meshcore.db`. Après une restauration, Meshloom donne à l’instance une nouvelle clé de partage ; ce que vous aviez partagé reste en ligne jusqu’à son expiration, mais n’est plus listé comme vôtre. Les autres fonctions qui ont besoin de leur propre clé (l’accès à distance) en reçoivent une autre, pour que les deux ne puissent pas être reliées.
+
 ## Proxy radio
 
 **Réglages > Proxy** permet à Meshloom de se comporter comme une radio sur le réseau, pour qu’une application mobile ou un second Meshloom utilise votre radio à travers lui. Il est désactivé par défaut. Le protocole qu’il parle n’a aucune authentification, et l’accès Basic ne le couvre pas. Ne l’activez que sur un réseau de confiance.
