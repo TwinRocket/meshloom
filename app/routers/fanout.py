@@ -19,6 +19,7 @@ from app.net.apprise_urls import (
 )
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.repository.fanout import FanoutConfigRepository
+from app.secret_fields import SecretRequiredError, merge_secrets, redact_config
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/fanout", tags=["fanout"])
@@ -436,6 +437,11 @@ async def _check_destinations(config_type: str, config: dict) -> None:
         raise HTTPException(status_code=400, detail=exc.detail()) from None
 
 
+def allows_private_network(config_type: str, config: dict) -> bool:
+    """A guarded row whose LAN opt-in (``allow_private_network``) is on."""
+    return config_type in _GUARDED_TYPES and config.get("allow_private_network") is True
+
+
 def _carry_grandfathered_flag(config_type: str, config: dict, previous: dict | None) -> None:
     """Keep ``private_network_grandfathered`` (set by migration 100 or a restore of
     an older backup) only while the destination and its opt-in are unchanged.
@@ -444,7 +450,9 @@ def _carry_grandfathered_flag(config_type: str, config: dict, previous: dict | N
     The grandfathered opt-in covers the destination it was granted for: a new
     destination sent with the flag still true (the opt-in echoed back, never
     confirmed) drops ``allow_private_network``. Ticking the box again in the UI
-    sends the flag as false, which keeps the opt-in.
+    sends the flag as false, which keeps the opt-in. Only that echo drops it:
+    an API client that omits the flag while it changes the destination keeps
+    its explicit ``allow_private_network`` (and the flag is cleared).
     """
     if config_type not in _GUARDED_TYPES:
         return
@@ -511,11 +519,27 @@ def _bot_system_disabled_detail() -> str | None:
     return None
 
 
+def present_fanout_config(cfg: dict) -> dict:
+    """The API form of a stored row: its secrets write-only (``app/secret_fields.py``)."""
+    return {**cfg, "config": redact_config(cfg["type"], cfg.get("config") or {})}
+
+
 @router.get("")
 async def list_fanout_configs() -> list[dict]:
     """List all fanout configs."""
     configs = await FanoutConfigRepository.get_all()
-    return [cfg for cfg in configs if not is_reserved_fanout_id(cfg["id"])]
+    return [present_fanout_config(cfg) for cfg in configs if not is_reserved_fanout_id(cfg["id"])]
+
+
+@router.get("/{config_id}")
+async def get_fanout_config(config_id: str) -> dict:
+    """One fanout config."""
+    existing = (
+        None if is_reserved_fanout_id(config_id) else await FanoutConfigRepository.get(config_id)
+    )
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Fanout config not found")
+    return present_fanout_config(existing)
 
 
 def prepare_fanout_config(
@@ -582,7 +606,9 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
         if disabled_detail:
             raise HTTPException(status_code=403, detail=disabled_detail)
 
-    normalized_config, scope = prepare_fanout_config(body.type, body.config, body.scope)
+    # A new row has no stored secret: a sentinel sent back reads as unset.
+    config = merge_secrets(body.type, None, body.config)
+    normalized_config, scope = prepare_fanout_config(body.type, config, body.scope)
     if body.enabled:
         await _check_destinations(body.type, normalized_config)
 
@@ -599,7 +625,7 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
         await fanout_manager.reload_config(cfg["id"])
 
     logger.info("Created fanout config %s (type=%s, name=%s)", cfg["id"], body.type, body.name)
-    return cfg
+    return present_fanout_config(cfg)
 
 
 @router.patch("/{config_id}")
@@ -624,7 +650,18 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     if body.scope is not None:
         kwargs["scope"] = _enforce_scope(existing["type"], body.scope)
 
-    config_to_validate = body.config if body.config is not None else existing["config"]
+    # Secrets are write-only: ``********`` or an omitted key keeps the stored
+    # value, ``""`` clears it. Merged before validation, so the grandfathered
+    # same-destination check compares the real URLs.
+    # A kept secret never follows a destination change: 400 secret_required.
+    try:
+        config_to_validate = (
+            merge_secrets(existing["type"], existing["config"], body.config)
+            if body.config is not None
+            else existing["config"]
+        )
+    except SecretRequiredError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
     normalized_config = _validate_and_normalize_config(existing["type"], config_to_validate)
     _carry_grandfathered_flag(existing["type"], normalized_config, existing["config"])
     # A disabled row sends nothing: it can be saved (or turned off) while its
@@ -642,7 +679,7 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     await fanout_manager.reload_config(config_id)
 
     logger.info("Updated fanout config %s", config_id)
-    return updated
+    return present_fanout_config(updated)
 
 
 @router.delete("/{config_id}")

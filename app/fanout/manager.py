@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from app.fanout.base import FanoutModule
+from app.secret_fields import config_secret_values, scrub_error
 
 logger = logging.getLogger(__name__)
 _DISPATCH_TIMEOUT_SECONDS = 30.0
@@ -444,11 +445,15 @@ class FanoutManager:
             if module is None and last_error is None:
                 continue
 
+            # Health and /api/debug read this: an error may quote a secret
+            # (an Apprise URL token, a password), so it never leaves unscrubbed.
+            config_type = info.get("type", "unknown")
+            config = info.get("config") or (module.config if module is not None else {})
             result[config_id] = {
                 "name": info.get("name", config_id),
-                "type": info.get("type", "unknown"),
+                "type": config_type,
                 "status": status,
-                "last_error": last_error,
+                "last_error": scrub_error(last_error, config_secret_values(config_type, config)),
             }
         return result
 

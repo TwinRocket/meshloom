@@ -17,6 +17,7 @@ import {
 import { toast } from '../ui/sonner';
 import { cn } from '@/lib/utils';
 import { api, formatApiError } from '../../api';
+import { SECRET_REDACTED } from '../../types';
 import type { Channel, Contact, FanoutConfig, HealthStatus } from '../../types';
 import { LazyBoundary } from '../LazyBoundary';
 
@@ -685,14 +686,137 @@ function censorAppriseUrl(url: string): string {
   return '********';
 }
 
-function formatAppriseTargets(urls: string | undefined) {
-  const targets = (urls || '')
+function formatAppriseTargets(config: Record<string, unknown>) {
+  // The API sends the URLs redacted, with a scheme-and-host summary per URL.
+  if (Array.isArray(config.urls_redacted)) {
+    const targets = config.urls_redacted.filter((line): line is string => typeof line === 'string');
+    if (targets.length === 0) return i18n.t('settings.fanout.apprise.noTargets');
+    return targets.join(', ');
+  }
+  const urls =
+    typeof config.urls === 'string' && config.urls !== SECRET_REDACTED ? config.urls : '';
+  const targets = urls
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
   if (targets.length === 0) return i18n.t('settings.fanout.apprise.noTargets');
 
   return targets.map(censorAppriseUrl).join(', ');
+}
+
+/**
+ * A write-only secret: the API returns a set secret as SECRET_REDACTED, which
+ * the backend keeps on save. Typing replaces it, an emptied field goes back to
+ * "unchanged", and Clear sends "" so the save removes it.
+ */
+function SecretInput({
+  id,
+  value,
+  placeholder,
+  destinationChanged = false,
+  onChange,
+}: {
+  id: string;
+  value: unknown;
+  placeholder?: string;
+  /** The destination was edited: a kept secret would be refused (400 secret_required). */
+  destinationChanged?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [storedSet] = useState(() => value === SECRET_REDACTED);
+  const current = typeof value === 'string' ? value : '';
+  const kept = current === SECRET_REDACTED;
+  const required = kept && destinationChanged;
+  const cleared = storedSet && current === '';
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          type="password"
+          autoComplete="new-password"
+          value={kept ? '' : current}
+          required={required}
+          aria-invalid={required || undefined}
+          placeholder={
+            required
+              ? t('settings.fanout.secret.required')
+              : kept
+                ? t('settings.fanout.secret.kept')
+                : cleared
+                  ? t('settings.fanout.secret.cleared')
+                  : placeholder
+          }
+          onChange={(e) =>
+            onChange(e.target.value === '' && storedSet ? SECRET_REDACTED : e.target.value)
+          }
+        />
+        {kept && (
+          <Button type="button" variant="outline" size="sm" onClick={() => onChange('')}>
+            {t('settings.fanout.secret.clear')}
+          </Button>
+        )}
+        {cleared && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onChange(SECRET_REDACTED)}
+          >
+            {t('settings.fanout.secret.keep')}
+          </Button>
+        )}
+      </div>
+      {cleared && (
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.fanout.secret.clearedHelp')}
+        </p>
+      )}
+      {required && (
+        <p className="text-[0.8125rem] text-destructive">
+          {t('settings.fanout.secret.requiredAfterDestination')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const MQTT_DESTINATION: Record<string, unknown> = {
+  broker_host: '',
+  broker_port: 1883,
+  use_tls: false,
+  tls_insecure: false,
+};
+
+/** Mirrors FANOUT_DESTINATION_KEYS (app/secret_fields.py): key -> default. */
+const SECRET_DESTINATION_KEYS: Record<string, Record<string, unknown>> = {
+  webhook: { url: '' },
+  mqtt_private: MQTT_DESTINATION,
+  mqtt_ha: MQTT_DESTINATION,
+  mqtt_community: {
+    broker_host: 'mqtt-us-v1.letsmesh.net',
+    broker_port: 443,
+    transport: 'websockets',
+    use_tls: true,
+    tls_verify: true,
+    websocket_path: '/',
+  },
+  sqs: { queue_url: '', endpoint_url: '', region_name: '' },
+};
+
+function destinationValue(value: unknown, fallback: unknown): string {
+  return String(value ?? fallback).trim();
+}
+
+/** Whether the editor moved this row's destination since it opened. */
+function useDestinationChanged(type: string, config: Record<string, unknown>): boolean {
+  const [initial] = useState(config);
+  const keys = SECRET_DESTINATION_KEYS[type] ?? {};
+  return Object.entries(keys).some(
+    ([key, fallback]) =>
+      destinationValue(config[key], fallback) !== destinationValue(initial[key], fallback)
+  );
 }
 
 function formatSqsQueueSummary(config: Record<string, unknown>) {
@@ -738,6 +862,7 @@ function MqttPrivateConfigEditor({
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
   const { t } = useTranslation();
+  const destinationChanged = useDestinationChanged('mqtt_private', config);
   return (
     <div className="space-y-3">
       <p className="text-[0.8125rem] text-muted-foreground">
@@ -787,12 +912,12 @@ function MqttPrivateConfigEditor({
         </div>
         <div className="space-y-2">
           <Label htmlFor="fanout-mqtt-pass">{t('settings.fanout.mqtt.password')}</Label>
-          <Input
+          <SecretInput
             id="fanout-mqtt-pass"
-            type="password"
+            destinationChanged={destinationChanged}
             placeholder={t('settings.fanout.mqtt.optional')}
-            value={(config.password as string) || ''}
-            onChange={(e) => onChange({ ...config, password: e.target.value })}
+            value={config.password}
+            onChange={(password) => onChange({ ...config, password })}
           />
         </div>
       </div>
@@ -850,6 +975,7 @@ function MqttHaConfigEditor({
   onChange: (config: Record<string, unknown>) => void;
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
+  const destinationChanged = useDestinationChanged('mqtt_ha', config);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [trackedRepeaters, setTrackedRepeaters] = useState<string[]>([]);
   const [contactSearch, setContactSearch] = useState('');
@@ -1316,12 +1442,12 @@ function MqttHaConfigEditor({
         </div>
         <div className="space-y-2">
           <Label htmlFor="fanout-ha-pass">{t('settings.fanout.mqtt.password')}</Label>
-          <Input
+          <SecretInput
             id="fanout-ha-pass"
-            type="password"
+            destinationChanged={destinationChanged}
             placeholder={t('settings.fanout.mqtt.optional')}
-            value={(config.password as string) || ''}
-            onChange={(e) => onChange({ ...config, password: e.target.value })}
+            value={config.password}
+            onChange={(password) => onChange({ ...config, password })}
           />
         </div>
       </div>
@@ -1504,6 +1630,7 @@ function MqttCommunityConfigEditor({
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
 }) {
+  const destinationChanged = useDestinationChanged('mqtt_community', config);
   const authMode = (config.auth_mode as string) || DEFAULT_COMMUNITY_AUTH_MODE;
   const { t } = useTranslation();
 
@@ -1639,11 +1766,11 @@ function MqttCommunityConfigEditor({
           </div>
           <div className="space-y-2">
             <Label htmlFor="fanout-comm-password">{t('settings.fanout.mqtt.password')}</Label>
-            <Input
+            <SecretInput
               id="fanout-comm-password"
-              type="password"
-              value={(config.password as string) || ''}
-              onChange={(e) => onChange({ ...config, password: e.target.value })}
+              destinationChanged={destinationChanged}
+              value={config.password}
+              onChange={(password) => onChange({ ...config, password })}
             />
           </div>
         </div>
@@ -2639,6 +2766,8 @@ function AppriseConfigEditor({
   onChange: (config: Record<string, unknown>) => void;
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
+  const [urlsStored] = useState(() => config.urls === SECRET_REDACTED);
+  const urlsKept = config.urls === SECRET_REDACTED;
   const markdown = config.markdown_format !== false;
   const defaultDm = markdown ? APPRISE_DEFAULT_DM : APPRISE_DEFAULT_DM_PLAIN;
   const defaultChan = markdown ? APPRISE_DEFAULT_CHANNEL : APPRISE_DEFAULT_CHANNEL_PLAIN;
@@ -2678,10 +2807,17 @@ function AppriseConfigEditor({
           id="fanout-apprise-urls"
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[80px]"
           placeholder={
-            'discord://webhook_id/token\nslack://token_a/token_b/token_c\ntgram://bot_token/chat_id'
+            urlsKept
+              ? t('settings.fanout.apprise.urlsKept', { targets: formatAppriseTargets(config) })
+              : 'discord://webhook_id/token\nslack://token_a/token_b/token_c\ntgram://bot_token/chat_id'
           }
-          value={(config.urls as string) || ''}
-          onChange={(e) => onChange({ ...config, urls: e.target.value })}
+          value={urlsKept ? '' : (config.urls as string) || ''}
+          onChange={(e) =>
+            onChange({
+              ...config,
+              urls: e.target.value === '' && urlsStored ? SECRET_REDACTED : e.target.value,
+            })
+          }
           rows={4}
         />
         <p className="text-[0.8125rem] text-muted-foreground">
@@ -2896,6 +3032,7 @@ function WebhookConfigEditor({
   onChange: (config: Record<string, unknown>) => void;
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
+  const destinationChanged = useDestinationChanged('webhook', config);
   const headersStr = JSON.stringify(config.headers ?? {}, null, 2);
   const [headersText, setHeadersText] = useState(headersStr);
   const [headersError, setHeadersError] = useState<string | null>(null);
@@ -2963,12 +3100,12 @@ function WebhookConfigEditor({
             <Label htmlFor="fanout-webhook-hmac-secret">
               {t('settings.fanout.webhook.hmacSecret')}
             </Label>
-            <Input
+            <SecretInput
               id="fanout-webhook-hmac-secret"
-              type="password"
+              destinationChanged={destinationChanged}
               placeholder={t('settings.fanout.webhook.hmacSecretPlaceholder')}
-              value={(config.hmac_secret as string) || ''}
-              onChange={(e) => onChange({ ...config, hmac_secret: e.target.value })}
+              value={config.hmac_secret}
+              onChange={(hmac_secret) => onChange({ ...config, hmac_secret })}
             />
           </div>
           <div className="space-y-2">
@@ -3018,6 +3155,7 @@ function SqsConfigEditor({
   onChange: (config: Record<string, unknown>) => void;
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
+  const destinationChanged = useDestinationChanged('sqs', config);
   const { t } = useTranslation();
   return (
     <div className="space-y-3">
@@ -3089,22 +3227,22 @@ function SqsConfigEditor({
         </div>
         <div className="space-y-2">
           <Label htmlFor="fanout-sqs-secret-key">{t('settings.fanout.sqs.secretKey')}</Label>
-          <Input
+          <SecretInput
             id="fanout-sqs-secret-key"
-            type="password"
-            value={(config.secret_access_key as string) || ''}
-            onChange={(e) => onChange({ ...config, secret_access_key: e.target.value })}
+            destinationChanged={destinationChanged}
+            value={config.secret_access_key}
+            onChange={(secret_access_key) => onChange({ ...config, secret_access_key })}
           />
         </div>
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="fanout-sqs-session-token">{t('settings.fanout.sqs.sessionToken')}</Label>
-        <Input
+        <SecretInput
           id="fanout-sqs-session-token"
-          type="password"
-          value={(config.session_token as string) || ''}
-          onChange={(e) => onChange({ ...config, session_token: e.target.value })}
+          destinationChanged={destinationChanged}
+          value={config.session_token}
+          onChange={(session_token) => onChange({ ...config, session_token })}
         />
       </div>
 
@@ -3746,9 +3884,7 @@ export function SettingsFanoutSection({
                           <div className="break-all">
                             {t('settings.fanout.list.targets')}{' '}
                             <code>
-                              {formatAppriseTargets(
-                                (cfg.config as Record<string, unknown>).urls as string | undefined
-                              )}
+                              {formatAppriseTargets(cfg.config as Record<string, unknown>)}
                             </code>
                           </div>
                         </div>

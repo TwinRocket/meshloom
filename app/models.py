@@ -1966,6 +1966,12 @@ class BackupExport(BaseModel):
     and push preferences. No messages, raw packets, radio private key or VAPID
     keys: the full backup (``BackupExportV2``) adds those. Restore must not emit
     first-seen.
+
+    The download (``GET /settings/backup/json``) holds no notification secret:
+    the SMTP password and the webhook HMAC secret read ``********`` and
+    ``secret_omitted`` lists their paths. Restoring it keeps the stored secrets
+    (``********`` means "unchanged", ``app/secret_fields.py``). The full backup
+    keeps them in clear (it can be encrypted) and leaves ``secret_omitted`` empty.
     """
 
     format: str = "meshloom-backup-v1"
@@ -1977,6 +1983,10 @@ class BackupExport(BaseModel):
     push_defaults: dict[str, Any] | None = None
     push_conversation_overrides: dict[str, bool | dict[str, bool]] | None = None
     vapid_subject: str | None = None
+    secret_omitted: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Secrets written as ``********`` instead of their value, by path.",
+    )
 
 
 class BackupRestoreRequest(BackupExport):
@@ -1993,6 +2003,8 @@ class BackupRestoreResult(BaseModel):
     channels_upserted: int = 0
     settings_updated: bool = False
     groups_upserted: int = 0
+    # ``code:value`` strings, as in the full restore job's warnings.
+    warnings: list[str] = Field(default_factory=list)
     private_key_warning: str = (
         "This Meshloom-only restore never touches the radio or its private key "
         "(the full backup in Settings > Database carries both). It does not replace "

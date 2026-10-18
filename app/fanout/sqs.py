@@ -14,6 +14,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from app.fanout.base import FanoutModule
 from app.net.egress_guard import EgressBlocked, validate_destination
+from app.secret_fields import config_secret_values, scrub_error
 
 logger = logging.getLogger(__name__)
 
@@ -161,10 +162,11 @@ class SqsModule(FanoutModule):
             await asyncio.to_thread(partial(self._client.send_message, **request_kwargs))
             self._set_last_error(None)
         except (ClientError, BotoCoreError) as exc:
-            self._set_last_error(str(exc))
-            logger.warning("SQS %s send error: %s", self.config_id, exc)
+            detail = scrub_error(str(exc), config_secret_values("sqs", self.config))
+            self._set_last_error(detail)
+            logger.warning("SQS %s send error: %s", self.config_id, detail)
         except Exception as exc:
-            self._set_last_error(str(exc))
+            self._set_last_error(scrub_error(str(exc), config_secret_values("sqs", self.config)))
             logger.exception("Unexpected SQS send error for %s", self.config_id)
 
     @property

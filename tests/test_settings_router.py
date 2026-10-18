@@ -726,12 +726,26 @@ class TestTelemetryAlertRulesPatchMerge:
         await update_settings(
             AppSettingsUpdate(
                 notification_destinations=NotificationDestinationsUpdate(
-                    email=NotificationEmailDestUpdate(host="smtp.other")
+                    email=NotificationEmailDestUpdate(to="ops@example.org")
                 )
             )
         )
         stored = await AppSettingsRepository.get()
-        assert stored.notification_destinations.email.host == "smtp.other"
+        assert stored.notification_destinations.email.password == "secret"
+
+        # A kept password never follows a new host.
+        with pytest.raises(HTTPException) as exc:
+            await update_settings(
+                AppSettingsUpdate(
+                    notification_destinations=NotificationDestinationsUpdate(
+                        email=NotificationEmailDestUpdate(host="smtp.other")
+                    )
+                )
+            )
+        assert exc.value.status_code == 400
+        assert exc.value.detail["code"] == "secret_required"
+        stored = await AppSettingsRepository.get()
+        assert stored.notification_destinations.email.host == "smtp.example"
         assert stored.notification_destinations.email.password == "secret"
 
         await update_settings(

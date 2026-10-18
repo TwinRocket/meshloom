@@ -470,7 +470,13 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         kwargs["telemetry_alert_rules"] = update.telemetry_alert_rules
 
     if update.notification_destinations is not None:
-        await _check_webhook_destination(update.notification_destinations)
+        from app.secret_fields import SecretRequiredError
+
+        try:
+            await _check_webhook_destination(update.notification_destinations)
+        except SecretRequiredError as exc:
+            # A kept secret never follows a destination change: 400 secret_required.
+            raise HTTPException(status_code=400, detail=exc.detail()) from None
         kwargs["notification_destinations"] = update.notification_destinations
 
     if update.push_allow_private_endpoints is not None:
@@ -893,17 +899,20 @@ def _webhook_test_detail(exc: BaseException) -> dict[str, Any]:
 
 
 async def _check_webhook_destination(patch: NotificationDestinationsUpdate) -> None:
-    """Refuse at save a webhook the guard would refuse at send (400, coded).
+    """Refuse at save a webhook the guard would refuse at send (400, coded), and a
+    kept secret that would follow a destination change (``SecretRequiredError``).
 
     Checked only when the URL or its private-network flag changes, so saving an
     unrelated field never depends on the webhook host's DNS.
     """
-    if patch.webhook is None:
-        return
     from app.telemetry_alerts import merge_notification_destinations
 
     current = (await AppSettingsRepository.get()).notification_destinations
-    merged = merge_notification_destinations(current, patch).webhook
+    # Raises SecretRequiredError when a kept secret would follow a new destination.
+    merged_all = merge_notification_destinations(current, patch)
+    if patch.webhook is None:
+        return
+    merged = merged_all.webhook
     url = merged.url.strip()
     if not url or (
         url == current.webhook.url.strip()

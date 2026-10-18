@@ -101,6 +101,10 @@ Meshloom envoie chaque message en JSON, avec la méthode que vous choisissez (`P
 
 Si vous définissez un **secret HMAC**, Meshloom signe le corps avec HMAC-SHA256 et envoie le résultat sous la forme `sha256=<hex>` dans un en-tête. L’en-tête est `X-Webhook-Signature`, sauf si vous en nommez un autre.
 
+## Secrets
+
+Les secrets ne se relisent pas : les adresses Apprise, le secret HMAC du webhook, les mots de passe MQTT, la clé secrète et le jeton de session Amazon SQS ne sont plus jamais affichés une fois enregistrés. Leur champ reste vide avec **Inchangé** : laissez-le vide pour conserver le secret enregistré, saisissez-en un nouveau pour le remplacer, ou appuyez sur **Effacer** pour le supprimer à l’enregistrement (**Conserver** annule). La zone Apprise montre le service et l’hôte des adresses enregistrées ; y saisir du texte les remplace toutes. Si vous changez la destination d’un secret (l’URL du webhook, le broker MQTT, son port ou son TLS, le point de terminaison SQS), le champ du secret devient obligatoire : saisissez de nouveau le secret, ou effacez-le. Une restauration qui envoie une intégration ailleurs supprime son secret et le signale. L’URL du webhook, ses en-têtes et l’identifiant de clé d’accès Amazon SQS ne sont pas des secrets : ils restent affichés en clair. Une intégration restaurée qui avait le droit de joindre un réseau privé revient désactivée, avec un avis : vérifiez son adresse avant de l’activer.
+
 ## Destinations sur votre réseau
 
 Webhook, Apprise, Amazon SQS (point d’accès personnalisé) et Envoi vers la carte (adresse d’API personnalisée) refusent une destination sur votre réseau local, sur cette machine ou sur une adresse de métadonnées cloud, sauf si vous cochez **Autoriser une destination sur un réseau privé (réseau local, localhost)** dans l’intégration. Ainsi, un réglage modifié ne peut pas faire du serveur une sonde de votre réseau. Cochez-la pour Home Assistant, Gotify, ntfy, Node-RED, LocalStack ou un script sur votre réseau ; les adresses de métadonnées cloud restent refusées même dans ce cas.

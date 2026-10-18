@@ -350,7 +350,9 @@ be wrong, because historical decryption inserts old messages with new ids.
 - **Three kinds.** `GET /settings/backup/database` (a SQLite snapshot, never
   restored from the UI, no private key); `meshloom-backup-v1` (`export_json` /
   `restore_json`, Meshloom data only; `GET /settings/backup/json` stays v1 for
-  scripts); and the full backup `meshloom-backup-v2` (`POST
+  scripts and leaves out the notification secrets: they read `********`,
+  `secret_omitted` lists their paths, and a restore of that file keeps the
+  stored ones; only the full backup calls `export_json(include_secrets=True)`); and the full backup `meshloom-backup-v2` (`POST
   /settings/backup/export`): the v1 fields unchanged plus `identity`, `radio`
   (`RadioNodeSettings`), `wifi` and `meshloom_extra`. Code:
   `services/backup.py` (formats, coverage, export, Meshloom restore),
@@ -434,7 +436,12 @@ be wrong, because historical decryption inserts old messages with new ids.
   present in the file; `meshloom_extra` through the route code paths: fanout
   validation shared with the create route, `system:*` ids refused, bots
   restored disabled and skipped while bots are disabled, an Apprise row whose
-  URLs the allowlist refuses restored disabled (`apprise_restored_disabled`), VAPID keys and
+  URLs the allowlist refuses restored disabled (`apprise_restored_disabled`), a
+  row with a private-network opt-in (`allow_private_network`, a legacy row the
+  restore grandfathers included) restored disabled
+  (`private_network_restored_disabled:<name>`), a fanout secret sent as
+  `********` keeping the stored one (`merge_secrets`) unless its destination
+  moved (`secret_dropped_destination_changed:<name>`), VAPID keys and
   subscriptions only on a host with no subscriptions of its own, proxy through
   `services/radio_proxy_settings.py`), then in one companion CLI session: radio
   settings group by group (no clock sync per group, one at the end; a reboot
@@ -618,8 +625,15 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Telemetry alerts and notifications
 
-- Secrets (SMTP password, webhook secret in `notification_destinations`) are
-  returned as `********`; a PATCH that sends `********` back keeps the stored value.
+- Secrets (SMTP password, webhook secret in `notification_destinations`,
+  `NOTIFICATION_SECRET_KEYS` in `app/secret_fields.py`) are returned as
+  `********`; a PATCH that sends `********` back keeps the stored value. A
+  kept secret never follows a destination change (`NOTIFICATION_DESTINATION_KEYS`:
+  email `host`/`port`/`mode`, webhook `url`): the PATCH answers 400
+  `secret_required`, and a v1 restore drops it with the warning
+  `secret_dropped_destination_changed:email.password` (or
+  `webhook.hmac_secret`). The fanout configs follow the same rules
+  (`app/fanout/AGENTS.md`, "Secrets").
 - Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
   fixed-host callers (Store client, plugin `http` capability: host allowlist,
   redirects re-validated hop by hop, streaming size caps).

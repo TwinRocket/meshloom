@@ -44,7 +44,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 
 ### Adding a migration
 
-1. Create `app/migrations/_099_what_it_does.py` (next number, no gap) with
+1. Create `app/migrations/_101_what_it_does.py` (next number, no gap) with
    `async def migrate(conn)`. Make it idempotent as above.
 2. New table or column: the migration creates it for existing databases. Recent
    practice (082-084) also adds it to `SCHEMA_TABLES` in `app/database.py` so fresh

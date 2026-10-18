@@ -697,6 +697,7 @@ async def _meshloom_step(run: _Run) -> None:
     run.result.channels_upserted = result.channels_upserted
     run.result.groups_upserted = result.groups_upserted
     run.result.settings_updated = result.settings_updated
+    run.result.warnings.extend(result.warnings)
     if isinstance(doc, BackupExportV2) and doc.meshloom_extra is not None:
         run.result.warnings.extend(await restore_meshloom_extra(doc.meshloom_extra))
     if isinstance(doc, BackupExportV2) and doc.sections:

@@ -141,6 +141,10 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   lookup. An Apprise row whose URLs are refused here (a 4.18 file) is kept,
   disabled, with the warning `apprise_restored_disabled:<name>`
   (`prepare_refused_apprise_config`), as migration 100 keeps it.
+  A restored row whose opt-in is on (`allow_private_network: true`, or a
+  legacy row the restore grandfathers) comes back disabled with the warning
+  `private_network_restored_disabled:<name>`: the user re-enables it, which
+  runs the check.
 - Planned: the Store client (custom GitHub repositories: `github.com` and the
   exact release-asset redirect hosts `objects.githubusercontent.com` and
   `release-assets.githubusercontent.com`, both listed, HTTPS only
@@ -186,7 +190,9 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   `errors.<code>_apprise` (i18next context) with a fallback to
   `errors.<code>`. Never the URL or a host.
 - `redact_apprise_url()` keeps the scheme and, for `user_host`, the host;
-  everything else is masked. The frontend `censorAppriseUrl` stays for display.
+  everything else is masked. It feeds `urls_redacted` in the fanout API (the
+  stored `urls` read `********`, `app/secret_fields.py`); the frontend
+  `censorAppriseUrl` is only a fallback for a config without it.
 - `tests/test_apprise_urls.py` fails when the installed Apprise exposes a
   plugin in neither list: on an Apprise bump, read the new plugin and classify
   it (refused unless reviewed).

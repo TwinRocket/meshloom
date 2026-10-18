@@ -25,6 +25,36 @@ configs are validated on every create and update, enabled or not.
 - `system:*` ids are reserved: hidden from `/api/fanout` and fanout statuses,
   `PATCH`/`DELETE` on them answer 403.
 
+## Secrets
+
+- Secret config keys are write-only: `FANOUT_SECRET_KEYS` in `app/secret_fields.py`
+  (Apprise `urls`, webhook `hmac_secret`, the MQTT `password`, SQS
+  `secret_access_key` and `session_token`). `GET /api/fanout` and
+  `GET /api/fanout/{id}` return them through `redact_config()`: `********` when
+  set, `""` when not; Apprise adds the derived `urls_redacted` (one
+  `redact_apprise_url()` line per URL, never stored). `allow_private_network`
+  and `private_network_grandfathered` are plain flags, not secrets.
+- Writes go through `merge_secrets()`: a key omitted, `None` or `********`
+  keeps the stored value, `""` clears it, anything else replaces it; derived
+  keys are dropped. The routes and the backup restore use it, so a redacted
+  config sent back never overwrites a secret.
+- A kept secret never follows a destination change. `FANOUT_DESTINATION_KEYS`
+  lists, per type, the keys that say where the secret goes (with their
+  defaults: an absent key reads as its default): webhook `url`, MQTT
+  `broker_host`/`broker_port`/`use_tls`, SQS `endpoint_url`. When one of them
+  changes and a non-empty stored secret would be kept, `merge_secrets()` raises
+  `SecretRequiredError`: `PATCH` answers 400 `secret_required` (params
+  `fields`), and the restore clears that secret and adds the warning
+  `secret_dropped_destination_changed:<name>`. Sending the secret again (or
+  `""`) passes. The editor mirrors the table (`SECRET_DESTINATION_KEYS`) and
+  marks the kept secret field required once a destination field is edited.
+- `get_statuses()` (health, `/api/debug`) passes each `last_error` through
+  `scrub_error()` with `config_secret_values()`: for an Apprise URL, only its
+  `user:password` and path tokens (`apprise_url_secret_parts()`), so the host
+  stays readable; the Apprise module scrubs its send errors before logging them.
+- Still shown in clear (not secrets): the webhook `url` and `headers`, the SQS
+  `access_key_id`.
+
 ## Event flow
 
 ```
@@ -130,6 +160,9 @@ Detail: `docs/dev/community-client.md`.
 3. In `app/routers/fanout.py`: add it to `_VALID_TYPES`, add a
    `_validate_<type>_config` wired into `_validate_and_normalize_config`, and an
    `_enforce_scope` branch if the scope is fixed.
+   List its secret keys in `FANOUT_SECRET_KEYS` (`app/secret_fields.py`), even
+   when empty, its destination keys in `FANOUT_DESTINATION_KEYS` (and the
+   editor's `SECRET_DESTINATION_KEYS`), and use `SecretInput` for the secrets.
 4. Frontend (`frontend/src/components/settings/SettingsFanoutSection.tsx`): add the
    type to `FANOUT_TYPE_ORDER`, the `DraftType` union and
    `CREATE_INTEGRATION_DEFINITIONS`, a `<Type>ConfigEditor` and its

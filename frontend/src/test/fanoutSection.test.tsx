@@ -1524,6 +1524,125 @@ describe('SettingsFanoutSection', () => {
     ).toBeInTheDocument();
   });
 
+  it('apprise list shows the redacted summary the API sends', async () => {
+    const config: FanoutConfig = {
+      id: 'ap-1',
+      type: 'apprise',
+      name: 'Apprise Feed',
+      enabled: true,
+      config: { urls: '********', urls_redacted: ['tgram://********', 'ntfy://ntfy.sh/****'] },
+      scope: { messages: 'all', raw_packets: 'none' },
+      sort_order: 0,
+      created_at: 1000,
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValue([config]);
+    renderSection();
+
+    const group = await screen.findByRole('group', {
+      name: tf('list.integrationAria', { name: 'Apprise Feed' }),
+    });
+    expect(within(group).getByText('tgram://********, ntfy://ntfy.sh/****')).toBeInTheDocument();
+  });
+
+  describe('write-only secrets', () => {
+    const signedHook: FanoutConfig = {
+      ...webhookConfig,
+      config: { ...webhookConfig.config, hmac_secret: '********', hmac_header: '' },
+    };
+
+    async function openSignedHook() {
+      mockedApi.getFanoutConfigs.mockResolvedValue([signedHook]);
+      mockedApi.updateFanoutConfig.mockResolvedValue(signedHook);
+      renderSection();
+      const group = await screen.findByRole('group', {
+        name: tf('list.integrationAria', { name: 'Test Hook' }),
+      });
+      fireEvent.click(within(group).getByRole('button', { name: tf('list.edit') }));
+      const input = (await screen.findByLabelText(tf('webhook.hmacSecret'))) as HTMLInputElement;
+      return input;
+    }
+
+    async function savedSecret() {
+      fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+      await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+      const [, body] = mockedApi.updateFanoutConfig.mock.calls[0];
+      return (body.config as Record<string, unknown>).hmac_secret;
+    }
+
+    it('shows a set secret as unchanged and sends the sentinel back', async () => {
+      const input = await openSignedHook();
+      expect(input.value).toBe('');
+      expect(input.placeholder).toBe(tf('secret.kept'));
+      expect(await savedSecret()).toBe('********');
+    });
+
+    it('replaces the secret with a typed value', async () => {
+      const input = await openSignedHook();
+      fireEvent.change(input, { target: { value: 'n3w' } });
+      expect(await savedSecret()).toBe('n3w');
+    });
+
+    it('an emptied field keeps the stored secret', async () => {
+      const input = await openSignedHook();
+      fireEvent.change(input, { target: { value: 'typo' } });
+      fireEvent.change(input, { target: { value: '' } });
+      expect(input.placeholder).toBe(tf('secret.kept'));
+      expect(await savedSecret()).toBe('********');
+    });
+
+    it('Clear sends an empty secret, Keep undoes it', async () => {
+      const input = await openSignedHook();
+      fireEvent.click(screen.getByRole('button', { name: tf('secret.clear') }));
+      expect(input.placeholder).toBe(tf('secret.cleared'));
+      expect(screen.getByText(tf('secret.clearedHelp'))).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: tf('secret.keep') }));
+      expect(input.placeholder).toBe(tf('secret.kept'));
+      fireEvent.click(screen.getByRole('button', { name: tf('secret.clear') }));
+      expect(await savedSecret()).toBe('');
+    });
+
+    it('marks the kept secret required once the destination changes', async () => {
+      const input = await openSignedHook();
+      expect(input.required).toBe(false);
+      fireEvent.change(screen.getByLabelText(tf('webhook.url')), {
+        target: { value: 'https://other.example.org/hook' },
+      });
+      expect(input.required).toBe(true);
+      expect(input.placeholder).toBe(tf('secret.required'));
+      expect(screen.getByText(tf('secret.requiredAfterDestination'))).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: 'n3w' } });
+      expect(input.required).toBe(false);
+      expect(screen.queryByText(tf('secret.requiredAfterDestination'))).not.toBeInTheDocument();
+    });
+
+    it('keeps redacted Apprise URLs unless new ones are typed', async () => {
+      const apprise: FanoutConfig = {
+        id: 'ap-1',
+        type: 'apprise',
+        name: 'Apprise Feed',
+        enabled: true,
+        config: { urls: '********', urls_redacted: ['tgram://********'] },
+        scope: { messages: 'all', raw_packets: 'none' },
+        sort_order: 0,
+        created_at: 1000,
+      };
+      mockedApi.getFanoutConfigs.mockResolvedValue([apprise]);
+      mockedApi.updateFanoutConfig.mockResolvedValue(apprise);
+      renderSection();
+      const group = await screen.findByRole('group', {
+        name: tf('list.integrationAria', { name: 'Apprise Feed' }),
+      });
+      fireEvent.click(within(group).getByRole('button', { name: tf('list.edit') }));
+      const urls = (await screen.findByLabelText(tf('apprise.urls'))) as HTMLTextAreaElement;
+      expect(urls.value).toBe('');
+      expect(urls.placeholder).toBe(tf('apprise.urlsKept', { targets: 'tgram://********' }));
+      fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+      await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+      const [, body] = mockedApi.updateFanoutConfig.mock.calls[0];
+      expect((body.config as Record<string, unknown>).urls).toBe('********');
+    });
+  });
+
   it('sqs list shows queue url summary', async () => {
     const config: FanoutConfig = {
       id: 'sqs-1',
