@@ -56,6 +56,7 @@ from app.repository import (
 # Imported for its side effect: the instance identities' on_restore hook, so it is
 # registered before the lifespan runs the SQLite restore hooks.
 from app.services import instance_identity  # noqa: F401, E402
+from app.services.backup_accounts import ACCOUNT_SECTIONS  # registers the users section
 from app.services.backup_sections import (
     export_sections,
     prepare_sqlite_snapshot,
@@ -229,13 +230,17 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         ),
         ("excluded", _HISTORY),
     ),
-    # Local accounts (docs/dev/auth.md). Users come with the accounts section
-    # (Access T65). Sessions and the setup code never leave; the audit trail
-    # is not in the JSON backup but stays in the SQLite download.
-    "users": ("excluded", "accounts section: Access T65"),
+    # Local accounts (docs/dev/auth.md). Users travel in the ``users`` section
+    # (``services/backup_accounts.py``), not in the v1 fields. Sessions and the
+    # setup code never leave; the audit trail is not in the JSON backup but
+    # stays in the SQLite download.
+    "users": ("excluded", "the users backup section (services/backup_accounts.py)"),
     "sessions": ("excluded", "login sessions, never exported"),
     "auth_audit": ("excluded", "audit trail: not in the JSON backup, kept in the SQLite download"),
-    "auth_settings": ("excluded", "access settings and setup code hash: Access T65"),
+    "auth_settings": (
+        "excluded",
+        "access settings of this host (networks, proxies, URLs) and the setup code hash",
+    ),
     # Plugins (docs/dev/plugins.md, "Data model"). The instances and their KV get a
     # backup section with the plugins API; the secrets never leave (emptied in the
     # SQLite download too).
@@ -815,11 +820,15 @@ async def _read_wifi(cli, public_key: str | None) -> tuple[BackupWifi | None, li
         return None, ["wifi_read_failed"]
 
 
-async def export_backup_v2(*, encrypted: bool = False) -> BackupExportV2:
+async def export_backup_v2(
+    *, encrypted: bool = False, include_accounts: bool = True
+) -> BackupExportV2:
     """The full backup. Works with the radio disconnected (Meshloom part only).
 
     ``encrypted``: the caller wraps it in a passphrase envelope; otherwise each
-    sensitive section adds ``section_sensitive_unencrypted:<name>``."""
+    sensitive section adds ``section_sensitive_unencrypted:<name>``.
+    ``include_accounts`` False leaves the account sections out
+    (``ACCOUNT_SECTIONS``: users, their hashes and two-factor secrets)."""
     from app.radio import RadioOperationError
     from app.services.backup_radio import read_radio_node_settings
     from app.services.companion_cli import CliError, companion_cli_session
@@ -867,7 +876,9 @@ async def export_backup_v2(*, encrypted: bool = False) -> BackupExportV2:
             if identity is not None and identity.private_key_status == "export_disabled"
             else "private_key_unavailable"
         )
-    sections, section_warnings = await export_sections()
+    sections, section_warnings = await export_sections(
+        skip=() if include_accounts else ACCOUNT_SECTIONS
+    )
     warnings.extend(section_warnings)
     if not encrypted:
         warnings.extend(

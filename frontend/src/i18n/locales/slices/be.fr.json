@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "fullBackup": {
+      "includeAccounts": "Inclure les comptes",
+      "accountsWarning": "Contient des hachés de mots de passe (et des secrets de double authentification) : quiconque détient le fichier peut tenter de deviner les mots de passe hors ligne. Chiffrez-le, ou décochez cette case avant de l’envoyer à quelqu’un. Les sessions de connexion ne sont jamais incluses.",
+      "accountsLeftOut": "Comptes exclus : restaurer ce fichier conserve les comptes du Meshloom sur lequel il est restauré."
+    },
+    "fullRestore": {
+      "warnings": {
+        "accounts_restored": "Les comptes ont été remplacés par ceux de la sauvegarde et toutes les sessions ont été fermées : reconnectez-vous avec un compte de la sauvegarde.",
+        "accounts_no_admin": "Les comptes de la sauvegarde n’ont pas été restaurés : aucun n’est un administrateur actif qui peut se connecter ici (un compte avec mot de passe, ou un utilisateur Home Assistant sur l’add-on). Les comptes actuels ont été conservés.",
+        "trusted_network_dropped": "Le réseau de confiance {{value}} a été retiré : son compte n’est plus la même personne dans les comptes restaurés."
+      }
+    }
+  }
+}

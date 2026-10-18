@@ -779,12 +779,16 @@ export const api = {
   getJsonBackup: () => fetchJson<BackupExport>('/settings/backup/json'),
   /** The full backup (radio identity, settings, Wi-Fi, Meshloom), optionally encrypted. */
   exportFullBackup: async (
-    passphrase?: string
+    passphrase?: string,
+    includeAccounts = true
   ): Promise<{ data: unknown; filename: string; warnings: string[] }> => {
     const res = await fetch(`${API_BASE}/settings/backup/export`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(passphrase ? { passphrase } : {}),
+      body: JSON.stringify({
+        ...(passphrase ? { passphrase } : {}),
+        include_accounts: includeAccounts,
+      }),
     });
     if (!res.ok) {
       throw await apiErrorFrom(res);

@@ -106,6 +106,10 @@ Each entry holds the time, the account that acted (none for a failed sign-in or 
 
 Administrators read it in **Settings → Users & Access → Audit log** (hidden from everyone else), or through `GET /api/auth/audit`: newest first, by pages, with a button to load older entries. The filters (action family, action, outcome, account, dates) narrow the entries already loaded; load older ones to look further back. Entries are kept **366 days**, then deleted by an hourly clean-up; an administrator changes that with `PATCH /api/auth/settings` and `{"audit_retention_days": <1 to 36500>}`. The log is not in the JSON backups; the database download (**Settings → Database**) keeps it.
 
+## Backup and restore
+
+The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes and two-factor secrets, never the sessions or the audit log. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
+
 ## Commands
 
 | Command | What it does |
