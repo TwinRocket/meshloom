@@ -5,5 +5,14 @@
       "title": "Display",
       "description": "This display is read-only. Only the language and the theme are yours to change."
     }
+  },
+  "auth": {
+    "changePassword": {
+      "title": "Change your password",
+      "description": "An administrator set the password of {{username}}. Choose your own before you continue.",
+      "current": "Current password",
+      "new": "New password",
+      "submit": "Change password"
+    }
   }
 }

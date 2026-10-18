@@ -285,6 +285,9 @@ purpose.
   kiosks skip `/settings`, `/radio/config`, `/updates`, `/community`, `/push/preferences`,
   the Wi-Fi state; the kiosk also skips the mark-read calls, `read_private`); the kiosk gets
   no contact row, no Direct chip and no settings door.
+- **Forced password change.** `GET /auth/session` `user.must_change_password` (or a 403
+  `auth_password_change_required` from any call, via `authEvents.ts`) makes `SessionProvider`
+  render `ChangePasswordPage` (`PATCH /auth/me`) instead of the app, then re-read the session.
 - **Coded 403.** `fetchJson` reports a 403 `auth_forbidden` through `auth/authEvents.ts`
   (`reportForbidden`); `SessionProvider` shows `errors.auth_forbidden` as one toast
   (id `auth_forbidden`), never the server's text. A refused read (a GET, or any call

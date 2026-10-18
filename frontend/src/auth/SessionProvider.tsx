@@ -12,7 +12,13 @@ import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../api';
 import { Button } from '../components/ui/button';
 import { toast } from '../components/ui/sonner';
-import { forbiddenIsToasted, onAuthRequired, onForbidden } from './authEvents';
+import {
+  forbiddenIsToasted,
+  onAuthRequired,
+  onForbidden,
+  onPasswordChangeRequired,
+} from './authEvents';
+import { ChangePasswordPage } from './ChangePasswordPage';
 import { capabilitiesFor, UNRESTRICTED, type Capabilities } from './capabilities';
 import { IngressSignInPage } from './IngressSignInPage';
 import { LoginPage } from './LoginPage';
@@ -75,6 +81,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const [state, setState] = useState<GateState>({ status: 'loading' });
   const [expired, setExpired] = useState(false);
+  // Set by a 403 `auth_password_change_required` from any call, before the session says so.
+  const [passwordChangeForced, setPasswordChangeForced] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -120,6 +128,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     });
   }, [authenticated, viaIngress, load]);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    return onPasswordChangeRequired(() => setPasswordChangeForced(true));
+  }, [authenticated]);
 
   // A refused action is told once, in the reader's language, whatever the server's text.
   // The same toast id folds a burst of refusals into one.
@@ -233,6 +246,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       <LoginPage
         session={session}
         onDone={(next) => setState({ status: 'ready', session: next })}
+      />
+    );
+  }
+
+  if (session.user && (session.user.must_change_password || passwordChangeForced)) {
+    return (
+      <ChangePasswordPage
+        username={session.user.username}
+        onChanged={() => {
+          setPasswordChangeForced(false);
+          setState({ status: 'loading' });
+          void load();
+        }}
+        onSignOut={() => void signOut()}
       />
     );
   }

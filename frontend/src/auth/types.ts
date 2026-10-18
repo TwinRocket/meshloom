@@ -8,6 +8,8 @@ export interface AuthUser {
   username: string;
   display_name: string;
   role: AuthRole;
+  /** An administrator set the password: nothing else works until the user changes it. */
+  must_change_password?: boolean;
 }
 
 /** `GET /auth/session`, and the answer of `POST /auth/login` and `POST /auth/setup`. */

@@ -56,5 +56,21 @@ export function forbiddenIsToasted({ method, permission }: ForbiddenEvent): bool
   return verb !== 'GET' && verb !== 'HEAD';
 }
 
+type PasswordChangeListener = () => void;
+
+const passwordChangeListeners = new Set<PasswordChangeListener>();
+
+export function onPasswordChangeRequired(listener: PasswordChangeListener): () => void {
+  passwordChangeListeners.add(listener);
+  return () => {
+    passwordChangeListeners.delete(listener);
+  };
+}
+
+/** A 403 `auth_password_change_required`: every route but the change itself is refused. */
+export function reportPasswordChangeRequired(): void {
+  for (const listener of passwordChangeListeners) listener();
+}
+
 /** Dispatched on `window` once the user signed in again: the WebSocket reconnects at once. */
 export const AUTH_RESTORED_EVENT = 'meshloom:auth-restored';

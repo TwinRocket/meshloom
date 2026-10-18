@@ -1,6 +1,10 @@
 import type { TFunction } from 'i18next';
 
-import { reportAuthRequired, reportForbidden } from './auth/authEvents';
+import {
+  reportAuthRequired,
+  reportForbidden,
+  reportPasswordChangeRequired,
+} from './auth/authEvents';
 import type {
   AuthLoginRequest,
   AuthSessionInfo,
@@ -202,6 +206,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     }
     // The role may not do this: the session layer decides whether to tell the reader.
     const refusal = error.status === 403 ? getApiErrorCode(error.detail) : null;
+    if (refusal?.code === 'auth_password_change_required') reportPasswordChangeRequired();
     if (refusal?.code === 'auth_forbidden') {
       const permission = refusal.params.permission;
       reportForbidden({
@@ -286,6 +291,12 @@ export const api = {
   authLogin: (body: AuthLoginRequest) =>
     fetchJson<AuthSessionInfo>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
   authLogout: () => fetchJson<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  /** `PATCH /auth/me`: the one write open while a password change is required. */
+  changeOwnPassword: (current_password: string, new_password: string) =>
+    fetchJson<unknown>('/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ current_password, new_password }),
+    }),
   getAuthSettings: () => fetchJson<AuthSettings>('/auth/settings', { cache: 'no-store' }),
   patchAuthSettings: (patch: Partial<AuthSettings>) =>
     fetchJson<AuthSettings>('/auth/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
