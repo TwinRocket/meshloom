@@ -8,6 +8,7 @@ from typing import Literal, TypedDict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from app.auth import audit
 from app.auth.permissions import require
 from app.repository import AppSettingsRepository
 from app.services.install_kind import detect_install_kind
@@ -179,8 +180,14 @@ async def refresh_updates() -> UpdateStatusResponse:
     status_code=202,
     dependencies=[Depends(require("admin"))],
 )
-async def apply_updates() -> UpdateStatusResponse:
+async def apply_updates(actor: audit.RequestActor = audit.SYSTEM_ACTOR) -> UpdateStatusResponse:
+    async with audit.audited(actor, "update.triggered", details={"trigger": "manual"}) as details:
+        return await _apply_updates(details)
+
+
+async def _apply_updates(details: dict) -> UpdateStatusResponse:
     status = await build_update_status()
+    details["target"] = status.latest
     if not status.apply_supported:
         raise HTTPException(status_code=409, detail="apply_not_supported")
     if not status.update_available:

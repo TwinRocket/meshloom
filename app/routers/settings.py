@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+from app.auth import audit
 from app.auth.permissions import require
 from app.background_tasks import spawn
 from app.cors import normalize_origins
@@ -1217,7 +1218,9 @@ async def restore_json_backup(request: BackupRestoreRequest) -> BackupRestoreRes
     openapi_extra=_BACKUP_BODY_OPENAPI,
     dependencies=[Depends(require("admin"))],
 )
-async def restore_backup(http_request: Request) -> Any:
+async def restore_backup(
+    http_request: Request, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> Any:
     """Restore a backup.
 
     - Flat body (no ``backup`` key): the v1 request, ``{"confirm": true, ...v1
@@ -1229,6 +1232,9 @@ async def restore_backup(http_request: Request) -> Any:
       anything is written.
 
     A body over 64 MiB is refused with 413 ``backup_too_large`` before parsing.
+
+    Each call writes one ``backup.restored`` audit row: here for a refusal and
+    for the v1 merge, at the end of the job otherwise.
     """
     from app.services.backup import V1_FORMATS, open_backup_document
     from app.services.backup_restore import (
@@ -1245,7 +1251,19 @@ async def restore_backup(http_request: Request) -> Any:
                     "backup_use_full_restore",
                     message="This file is a full backup: restore it with the backup field",
                 )
-            return await restore_json_backup(parse_backup_model(BackupRestoreRequest, body))
+            v1_request = parse_backup_model(BackupRestoreRequest, body)
+            try:
+                result = await restore_json_backup(v1_request)
+            except HTTPException as exc:
+                await audit.record(
+                    "backup.restored",
+                    "failure",
+                    actor=actor,
+                    details={"format": "v1", "status": exc.status_code},
+                )
+                raise
+            await audit.record("backup.restored", "success", actor=actor, details={"format": "v1"})
+            return result
         request = parse_backup_model(BackupRestoreV2Request, normalize_backup_request(body))
         if not request.confirm:
             raise BackupError("backup_confirm_required", message="Restore requires confirm=true")
@@ -1266,9 +1284,11 @@ async def restore_backup(http_request: Request) -> Any:
                 replace_live_identity=request.replace_live_identity,
                 wipe_history=request.wipe_history,
                 expected_live_public_key=request.expected_live_public_key,
+                actor=actor,
             ),
         )
     except BackupError as exc:
+        await audit.record("backup.restored", "failure", actor=actor, details={"error": exc.code})
         raise _backup_http_error(exc) from None
     return JSONResponse({"job_id": job_id}, status_code=202)
 

@@ -311,10 +311,18 @@ async def _maybe_auto_apply() -> None:
             return
     if job.get("state") == "failed" and last_attempt_recent(job):
         return
+    from app.auth import audit
+
     try:
         await start_apply(kind, target=status["latest"])
     except UpdateApplyBusy:
         return
+    await audit.record(
+        "update.triggered",
+        "success",
+        actor=audit.SYSTEM_ACTOR,
+        details={"trigger": "auto", "target": status["latest"]},
+    )
 
 
 async def poll_interval_seconds() -> int:

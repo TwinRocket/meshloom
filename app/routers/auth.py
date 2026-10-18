@@ -14,12 +14,20 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from app.auth import sessions
+from app.auth import audit, sessions
 from app.auth.middleware import client_ip
-from app.auth.models import USERNAME_MAX_LENGTH, Role, User
+from app.auth.models import (
+    MAX_AUDIT_RETENTION_DAYS,
+    MIN_AUDIT_RETENTION_DAYS,
+    USERNAME_MAX_LENGTH,
+    AuthAuditEntry,
+    AuthSettings,
+    Role,
+    User,
+)
 from app.auth.passwords import (
     MAX_PASSWORD_LENGTH,
     MIN_PASSWORD_LENGTH,
@@ -50,6 +58,10 @@ from app.security import basic_compat_active, invalidate_basic_cache
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# Audit log pages (``GET /auth/audit``).
+AUDIT_PAGE_DEFAULT = 100
+AUDIT_PAGE_MAX = 500
+
 # Wrong installation codes are answered one at a time, this far apart.
 SETUP_FAILURE_DELAY_S = 1.0
 
@@ -67,6 +79,7 @@ _MESSAGES = {
     "auth_setup_unavailable": "Setup is not available yet: check the server log and retry",
     "auth_busy": "Too many sign-in checks at once: retry in a moment",
     "auth_ingress_only": "Home Assistant signs you in here: open Meshloom from its sidebar",
+    "auth_audit_cursor_invalid": "Invalid audit cursor",
     "auth_trusted_proxies_invalid": (
         "Not an address or network, a network wider than /8 or /16, or too many trusted proxies"
     ),
@@ -101,15 +114,6 @@ def _via(request: Request) -> Via:
 
 def _secure(request: Request) -> bool:
     return bool(request.scope.get("auth_secure", False))
-
-
-async def _audit(action: str, outcome: str, request: Request, **fields) -> None:
-    try:
-        await AuthAuditRepository.add(
-            action, outcome, ip=client_ip(request.scope), via=_via(request), **fields
-        )
-    except Exception:
-        logger.warning("Could not write the auth audit row %s/%s", action, outcome)
 
 
 # --- Models -------------------------------------------------------------------
@@ -322,10 +326,14 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
         try:
             code_ok = await check_setup_code(code)
         except SetupUnavailable:
-            await _audit("setup", "unavailable", request)
+            await audit.record_request(
+                request, "setup", "error", details={"reason": "setup_unavailable"}
+            )
             raise _error(503, "auth_setup_unavailable") from None
         if not code_ok:
-            await _audit("setup", "setup_code_invalid", request)
+            await audit.record_request(
+                request, "setup", "failure", details={"reason": "setup_code_invalid"}
+            )
             await asyncio.sleep(SETUP_FAILURE_DELAY_S)
             raise _error(403, "auth_setup_code_invalid")
         password = body.password.get_secret_value()
@@ -341,9 +349,16 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
         except (InvalidUsernameError, UsernameTakenError):
             raise _error(400, "auth_username_invalid") from None
         await clear_setup_code()
-    await _audit("setup", "success", request, actor_user_id=user.id, target=f"user:{user.id}")
     logger.info("Administrator account %r created", user.username)
     principal = await _start_session(request, response, user)
+    await audit.record_request(
+        request,
+        "setup",
+        "success",
+        principal=principal,
+        target=audit.user_target(user.id),
+        details={"role": user.role},
+    )
     return await _session_payload(principal, _via(request), request)
 
 
@@ -366,10 +381,17 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     except VerificationBusy:
         raise _error(503, "auth_busy") from None
     if user is None:
-        await _audit("login", "failure", request, target=body.username[:USERNAME_MAX_LENGTH])
+        await audit.record_request(
+            request,
+            "login",
+            "failure",
+            target=audit.username_target(body.username[:USERNAME_MAX_LENGTH]),
+        )
         raise _error(401, "auth_invalid_credentials")
     principal = await _start_session(request, response, user)
-    await _audit("login", "success", request, actor_user_id=user.id)
+    await audit.record_request(
+        request, "login", "success", principal=principal, target=audit.user_target(user.id)
+    )
     return await _session_payload(principal, _via(request), request)
 
 
@@ -379,7 +401,9 @@ async def logout(request: Request, response: Response) -> OkResponse:
     principal = get_principal(request)
     if principal is not None and principal.session_id is not None:
         await sessions.revoke_session(principal.session_id)
-        await _audit("logout", "success", request, actor_user_id=principal.user_id)
+        await audit.record_request(
+            request, "logout", "success", target=f"session:{principal.session_id}"
+        )
     if _via(request) != "ingress":
         response.headers.append("set-cookie", sessions.clear_cookie_header(secure=_secure(request)))
         response.headers["Clear-Site-Data"] = '"cookies"'
@@ -407,12 +431,12 @@ async def revoke_other_sessions(request: Request) -> RevokedCount:
     count = await sessions.revoke_user_sessions(
         principal.user_id, except_session_id=principal.session_id
     )
-    await _audit(
-        "sessions_revoke_others",
-        "success",
+    await audit.record_request(
         request,
-        actor_user_id=principal.user_id,
-        details={"count": count},
+        "session.revoked",
+        "success",
+        target=audit.user_target(principal.user_id),
+        details={"scope": "others", "count": count},
     )
     return RevokedCount(revoked=count)
 
@@ -427,12 +451,8 @@ async def revoke_session(session_id: str, request: Request) -> OkResponse:
     if not any(row.id == session_id for row in own):
         raise _error(404, "auth_session_not_found")
     await sessions.revoke_session(session_id)
-    await _audit(
-        "session_revoke",
-        "success",
-        request,
-        actor_user_id=principal.user_id,
-        target=f"session:{session_id}",
+    await audit.record_request(
+        request, "session.revoked", "success", target=f"session:{session_id}"
     )
     return OkResponse()
 
@@ -465,17 +485,38 @@ async def patch_me(body: MePatch, request: Request) -> MeResponse:
         )
         current = body.current_password.get_secret_value() if body.current_password else ""
         if not current or not await verify_password_async(stored, current):
-            await _audit("password_change", "failure", request, actor_user_id=user.id)
+            await audit.record_request(
+                request,
+                "password.changed",
+                "failure",
+                target=audit.user_target(user.id),
+                details={"reason": "current_password_invalid"},
+            )
             raise _error(403, "auth_invalid_credentials")
         new_password = body.new_password.get_secret_value()
         if reason := password_policy_violation(new_password, user.username):
             raise _policy_error(reason)
         await UserRepository.set_password_hash(user.id, await hash_password_async(new_password))
         invalidate_basic_cache(user.id)
-        await sessions.revoke_user_sessions(user.id, except_session_id=principal.session_id)
-        await _audit("password_change", "success", request, actor_user_id=user.id)
-    if body.display_name is not None:
+        revoked = await sessions.revoke_user_sessions(
+            user.id, except_session_id=principal.session_id
+        )
+        await audit.record_request(
+            request,
+            "password.changed",
+            "success",
+            target=audit.user_target(user.id),
+            details={"sessions_revoked": revoked},
+        )
+    if body.display_name is not None and body.display_name != user.display_name:
         await UserRepository.update(user.id, display_name=body.display_name)
+        await audit.record_request(
+            request,
+            "user.changed",
+            "success",
+            target=audit.user_target(user.id),
+            details={"fields": ["display_name"]},
+        )
     updated = await UserRepository.get(user.id)
     if updated is None:
         raise _error(401, "auth_required")
@@ -491,17 +532,29 @@ class AuthSettingsView(BaseModel):
             "addresses or CIDRs, canonical network form. Empty trusts no peer."
         )
     )
+    audit_retention_days: int = Field(
+        description="Audit rows older than this many days are purged (hourly)."
+    )
 
 
 class AuthSettingsPatch(BaseModel):
     trusted_proxies: list[str] | None = Field(default=None, max_length=MAX_TRUSTED_PROXIES * 4)
+    audit_retention_days: int | None = Field(
+        default=None, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
+    )
+
+
+def _settings_view(settings: AuthSettings) -> AuthSettingsView:
+    return AuthSettingsView(
+        trusted_proxies=settings.trusted_proxies,
+        audit_retention_days=settings.audit_retention_days,
+    )
 
 
 @router.get("/settings", response_model=AuthSettingsView, dependencies=[Depends(require("admin"))])
 async def get_auth_settings() -> AuthSettingsView:
     """The access settings."""
-    settings = await AuthSettingsRepository.get()
-    return AuthSettingsView(trusted_proxies=settings.trusted_proxies)
+    return _settings_view(await AuthSettingsRepository.get())
 
 
 @router.patch(
@@ -509,22 +562,59 @@ async def get_auth_settings() -> AuthSettingsView:
 )
 async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> AuthSettingsView:
     """Change the access settings. The trusted proxies apply to the next request."""
-    principal = _require(request)
+    _require(request)
     trusted_proxies: list[str] | None = None
     if body.trusted_proxies is not None:
         try:
             trusted_proxies = normalize_proxies(body.trusted_proxies)
         except ValueError:
             raise _error(400, "auth_trusted_proxies_invalid") from None
-    settings = await AuthSettingsRepository.update(trusted_proxies=trusted_proxies)
+    settings = await AuthSettingsRepository.update(
+        trusted_proxies=trusted_proxies, audit_retention_days=body.audit_retention_days
+    )
     if trusted_proxies is not None:
         logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))
-        await _audit(
-            "settings_change",
-            "success",
+        await audit.record_request(
             request,
-            actor_user_id=principal.user_id,
+            "settings.changed",
+            "success",
             target="auth_settings.trusted_proxies",
             details={"trusted_proxies": trusted_proxies},
         )
-    return AuthSettingsView(trusted_proxies=settings.trusted_proxies)
+    if body.audit_retention_days is not None:
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.audit_retention_days",
+            details={"audit_retention_days": settings.audit_retention_days},
+        )
+    return _settings_view(settings)
+
+
+# --- Audit log ------------------------------------------------------------------
+
+
+class AuditPage(BaseModel):
+    """One page of the audit log, newest first. ``next_cursor`` is opaque:
+    send it back as ``cursor`` for the next (older) page; None on the last."""
+
+    entries: list[AuthAuditEntry]
+    next_cursor: str | None = None
+
+
+@router.get("/audit", response_model=AuditPage, dependencies=[Depends(require("admin"))])
+async def get_audit(
+    cursor: str | None = Query(default=None, max_length=32),
+    limit: int = Query(default=AUDIT_PAGE_DEFAULT, ge=1, le=AUDIT_PAGE_MAX),
+) -> AuditPage:
+    """The audit log, newest first, paged by cursor. Reading it writes no row."""
+    before_id: int | None = None
+    if cursor is not None:
+        if not cursor.isdigit() or not 0 < int(cursor) < 2**63:
+            raise _error(400, "auth_audit_cursor_invalid")
+        before_id = int(cursor)
+    rows = await AuthAuditRepository.list_recent(limit=limit + 1, before_id=before_id)
+    entries = rows[:limit]
+    next_cursor = str(entries[-1].id) if len(rows) > limit else None
+    return AuditPage(entries=entries, next_cursor=next_cursor)

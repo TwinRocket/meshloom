@@ -114,7 +114,7 @@ async def test_first_ingress_visit_on_an_empty_database_creates_the_admin():
         ("bob", "member", "ingress", False),
     ]
     audit = await AuthAuditRepository.list_recent()
-    assert {row.action for row in audit} >= {"ingress_user_created"}
+    assert {row.action for row in audit} >= {"user.created"}
 
 
 async def test_later_identities_take_the_default_role_and_a_local_admin_does_not_count():

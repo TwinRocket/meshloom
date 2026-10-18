@@ -95,7 +95,7 @@ def test_reset_password_takes_effect_in_the_database_and_signs_out(dbfile, stdin
     assert not verify_password(stored, PASSWORD)
     assert _query(dbfile, "SELECT revoked_at IS NOT NULL FROM sessions") == [(1,)]
     assert _query(dbfile, "SELECT action, outcome, via FROM auth_audit") == [
-        ("cli.reset_password", "ok", "cli")
+        ("password.changed", "success", "cli")
     ]
     out = capsys.readouterr()
     assert "a brand new passphrase" not in out.out + out.err
@@ -336,9 +336,9 @@ def test_refusals_and_list_users_are_audited(dbfile, stdin, capsys):
     assert run(dbfile, "disable-user", "ghost") == 1
     rows = _query(dbfile, "SELECT action, outcome, target FROM auth_audit ORDER BY id")
     assert rows == [
-        ("cli.list_users", "ok", None),
-        ("cli.disable_user", "refused", "alice"),
-        ("cli.disable_user", "refused", "ghost"),
+        ("users.listed", "success", None),
+        ("user.disabled", "refused", "username:alice"),
+        ("user.disabled", "refused", "username:ghost"),
     ]
 
 

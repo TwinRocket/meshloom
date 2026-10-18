@@ -9,6 +9,7 @@ import string
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.auth import audit
 from app.auth.permissions import require
 from app.fanout.bot_exec import _analyze_bot_signature
 from app.fanout.manager import fanout_manager, is_reserved_fanout_id
@@ -594,7 +595,9 @@ def prepare_refused_apprise_config(config: dict, scope: dict) -> tuple[dict, dic
 
 
 @router.post("", dependencies=[Depends(require("admin"))])
-async def create_fanout_config(body: FanoutConfigCreate) -> dict:
+async def create_fanout_config(
+    body: FanoutConfigCreate, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> dict:
     """Create a new fanout config."""
     if body.type not in _VALID_TYPES:
         raise HTTPException(
@@ -626,11 +629,23 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
         await fanout_manager.reload_config(cfg["id"])
 
     logger.info("Created fanout config %s (type=%s, name=%s)", cfg["id"], body.type, body.name)
+    if body.type == "bot":
+        await audit.record(
+            "bot.created",
+            "success",
+            actor=actor,
+            target=f"bot:{cfg['id']}",
+            details={"name": body.name, "enabled": bool(cfg["enabled"])},
+        )
     return present_fanout_config(cfg)
 
 
 @router.patch("/{config_id}", dependencies=[Depends(require("admin"))])
-async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict:
+async def update_fanout_config(
+    config_id: str,
+    body: FanoutConfigUpdate,
+    actor: audit.RequestActor = audit.SYSTEM_ACTOR,
+) -> dict:
     """Update a fanout config. Triggers module reload."""
     if is_reserved_fanout_id(config_id):
         raise HTTPException(status_code=403, detail="Reserved system module")
@@ -680,11 +695,25 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     await fanout_manager.reload_config(config_id)
 
     logger.info("Updated fanout config %s", config_id)
+    if existing["type"] == "bot":
+        await audit.record(
+            "bot.changed",
+            "success",
+            actor=actor,
+            target=f"bot:{config_id}",
+            details={
+                "name": updated["name"],
+                "enabled": bool(updated["enabled"]),
+                "fields": sorted(body.model_dump(exclude_none=True)),
+            },
+        )
     return present_fanout_config(updated)
 
 
 @router.delete("/{config_id}", dependencies=[Depends(require("admin"))])
-async def delete_fanout_config(config_id: str) -> dict:
+async def delete_fanout_config(
+    config_id: str, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> dict:
     """Delete a fanout config."""
     if is_reserved_fanout_id(config_id):
         raise HTTPException(status_code=403, detail="Reserved system module")
@@ -697,13 +726,24 @@ async def delete_fanout_config(config_id: str) -> dict:
     await FanoutConfigRepository.delete(config_id)
 
     logger.info("Deleted fanout config %s", config_id)
+    if existing["type"] == "bot":
+        await audit.record(
+            "bot.deleted",
+            "success",
+            actor=actor,
+            target=f"bot:{config_id}",
+            details={"name": existing["name"]},
+        )
     return {"deleted": True}
 
 
 @router.post("/bots/disable-until-restart", dependencies=[Depends(require("admin"))])
-async def disable_bots_until_restart() -> dict:
+async def disable_bots_until_restart(actor: audit.RequestActor = audit.SYSTEM_ACTOR) -> dict:
     """Stop active bot modules and prevent them from running again until restart."""
     source = await fanout_manager.disable_bots_until_restart()
+    await audit.record(
+        "bots.disabled", "success", actor=actor, details={"until": "restart", "source": source}
+    )
 
     from app.services.radio_runtime import radio_runtime as radio_manager
     from app.websocket import broadcast_health
