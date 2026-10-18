@@ -1,7 +1,11 @@
 """``/api/auth/*``: first-run setup, login, logout, sessions and the own profile.
 
 ``GET/PATCH /auth/settings`` holds the access settings an admin tunes (the
-trusted proxies today). Contract and rules: ``docs/dev/auth.md``. ``GET /auth/session``,
+trusted proxies, the audit retention, the role of new Home Assistant users);
+``/auth/users`` is the admin's account management (create, change the role,
+disable, delete, set a password, sign out). Every change writes an audit row;
+no change may leave the instance without an enabled administrator (409
+``auth_last_admin``). Contract and rules: ``docs/dev/auth.md``. ``GET /auth/session``,
 ``POST /auth/setup``, ``POST /auth/login`` and ``POST /auth/logout`` are public
 (``PUBLIC_ROUTES``, ``app/auth/middleware.py``); the others need a principal.
 Errors are coded (``{"detail": {"code", "message", "params"?}}``), translated
@@ -51,6 +55,7 @@ from app.repository.auth import (
     AuthSessionRepository,
     AuthSettingsRepository,
     InvalidUsernameError,
+    LastAdminError,
     UsernameTakenError,
     UserRepository,
 )
@@ -84,6 +89,13 @@ _MESSAGES = {
     "auth_rate_limited": "Too many attempts: retry later",
     "auth_ingress_only": "Home Assistant signs you in here: open Meshloom from its sidebar",
     "auth_audit_cursor_invalid": "Invalid audit cursor",
+    "auth_user_not_found": "User not found",
+    "auth_username_taken": "This username is already taken",
+    "auth_last_admin": "This is the last enabled administrator: keep at least one",
+    "auth_password_required": "This role needs an initial password",
+    "auth_password_not_applicable": (
+        "This account has no password: Home Assistant and kiosk accounts sign in another way"
+    ),
     "auth_trusted_proxies_invalid": (
         "Not an address or network, a network wider than /8 or /16, or too many trusted proxies"
     ),
@@ -139,6 +151,9 @@ class SessionUser(BaseModel):
     username: str
     display_name: str
     role: Role
+    # True after an admin set the password: every other route answers 403
+    # ``auth_password_change_required`` until ``PATCH /auth/me`` changes it.
+    must_change_password: bool = False
 
 
 class InstanceInfo(BaseModel):
@@ -254,7 +269,11 @@ async def _session_payload(
 
         user = principal.user
         payload.user = SessionUser(
-            id=user.id, username=user.username, display_name=user.display_name, role=user.role
+            id=user.id,
+            username=user.username,
+            display_name=user.display_name,
+            role=user.role,
+            must_change_password=user.must_change_password,
         )
         payload.via = principal.via
         payload.instance = InstanceInfo(name=_instance_name(), version=get_app_build_info().version)
@@ -545,11 +564,11 @@ async def patch_me(body: MePatch, request: Request) -> MeResponse:
         new_password = body.new_password.get_secret_value()
         if reason := password_policy_violation(new_password, user.username):
             raise _policy_error(reason)
+        # Clears must_change_password; moving updated_at forgets the user's
+        # known-device cookies (app/auth/device_cookie.py).
         await UserRepository.set_password_hash(user.id, await hash_password_async(new_password))
         invalidate_basic_cache(user.id)
-        revoked = await sessions.revoke_user_sessions(
-            user.id, except_session_id=principal.session_id
-        )
+        revoked = await sessions.sign_out_user(user.id, except_session_id=principal.session_id)
         await audit.record_request(
             request,
             "password.changed",
@@ -584,6 +603,12 @@ class AuthSettingsView(BaseModel):
     audit_retention_days: int = Field(
         description="Audit rows older than this many days are purged (hourly)."
     )
+    ingress_default_role: Role = Field(
+        description=(
+            "Role of a Home Assistant user seen for the first time, after the first one "
+            "(always admin)."
+        )
+    )
 
 
 class AuthSettingsPatch(BaseModel):
@@ -591,12 +616,14 @@ class AuthSettingsPatch(BaseModel):
     audit_retention_days: int | None = Field(
         default=None, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
     )
+    ingress_default_role: Role | None = None
 
 
 def _settings_view(settings: AuthSettings) -> AuthSettingsView:
     return AuthSettingsView(
         trusted_proxies=settings.trusted_proxies,
         audit_retention_days=settings.audit_retention_days,
+        ingress_default_role=settings.ingress_default_role,
     )
 
 
@@ -619,7 +646,9 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         except ValueError:
             raise _error(400, "auth_trusted_proxies_invalid") from None
     settings = await AuthSettingsRepository.update(
-        trusted_proxies=trusted_proxies, audit_retention_days=body.audit_retention_days
+        trusted_proxies=trusted_proxies,
+        audit_retention_days=body.audit_retention_days,
+        ingress_default_role=body.ingress_default_role,
     )
     if trusted_proxies is not None:
         logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))
@@ -638,7 +667,339 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             target="auth_settings.audit_retention_days",
             details={"audit_retention_days": settings.audit_retention_days},
         )
+    if body.ingress_default_role is not None:
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.ingress_default_role",
+            details={"ingress_default_role": settings.ingress_default_role},
+        )
     return _settings_view(settings)
+
+
+# --- Users (admin) ----------------------------------------------------------------
+
+
+class UserView(BaseModel):
+    """An account as the admin sees it. ``external_id`` (the Home Assistant
+    user id) is never returned: ``provider`` is enough for a badge."""
+
+    id: int
+    username: str
+    display_name: str
+    role: Role
+    provider: str
+    disabled: bool
+    must_change_password: bool
+    has_password: bool
+    totp_enabled: bool
+    created_at: int
+    updated_at: int
+
+
+class UserCreate(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    username: str = Field(min_length=1, max_length=USERNAME_MAX_LENGTH)
+    role: Role
+    display_name: str = Field(default="", max_length=128)
+    # Required for every role but ``kiosk``, which has none.
+    password: SecretStr | None = Field(default=None, max_length=MAX_PASSWORD_LENGTH)
+    must_change_password: bool = True
+
+
+class UserPatch(BaseModel):
+    display_name: str | None = Field(default=None, max_length=128)
+    role: Role | None = None
+    disabled: bool | None = None
+    must_change_password: bool | None = None
+
+
+class UserPasswordSet(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    password: SecretStr = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+    must_change_password: bool = True
+
+
+def _user_view(user: User) -> UserView:
+    return UserView(
+        id=user.id,
+        username=user.username,
+        display_name=user.display_name,
+        role=user.role,
+        provider=user.provider,
+        disabled=user.disabled,
+        must_change_password=user.must_change_password,
+        has_password=user.has_password,
+        totp_enabled=user.totp_enabled_at is not None,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
+
+
+def _takes_password(provider: str, role: Role) -> bool:
+    """Only local accounts outside ``kiosk`` sign in with a password: Home
+    Assistant signs ingress identities in, a kiosk has no password (Q-A7)."""
+    return provider == "local" and role != "kiosk"
+
+
+async def _target_user(user_id: int) -> User:
+    user = await UserRepository.get(user_id)
+    if user is None:
+        raise _error(404, "auth_user_not_found")
+    return user
+
+
+async def _last_admin_refusal(
+    request: Request, action: audit.AuditAction, user_id: int
+) -> HTTPException:
+    """Audit the refusal and return the 409 to raise."""
+    await audit.record_request(
+        request,
+        action,
+        "refused",
+        target=audit.user_target(user_id),
+        details={"reason": "last_admin"},
+    )
+    return _error(409, "auth_last_admin")
+
+
+def _sign_out_scope(principal: Principal, user_id: int) -> str | None:
+    """The session to keep when an admin acts on their own account: theirs."""
+    return principal.session_id if principal.user_id == user_id else None
+
+
+@router.get("/users", response_model=list[UserView], dependencies=[Depends(require("admin"))])
+async def list_users() -> list[UserView]:
+    """Every account, local and Home Assistant, by id."""
+    return [_user_view(user) for user in await UserRepository.list_all()]
+
+
+@router.post(
+    "/users",
+    response_model=UserView,
+    status_code=201,
+    dependencies=[Depends(require("admin"))],
+)
+async def create_user(body: UserCreate, request: Request) -> UserView:
+    """Create a local account. Every role but ``kiosk`` gets an initial
+    password (the policy applies), to change at first sign-in by default."""
+    _require(request)
+    password_hash: str | None = None
+    if body.role == "kiosk":
+        if body.password is not None:
+            raise _error(400, "auth_password_not_applicable")
+    else:
+        if body.password is None:
+            raise _error(400, "auth_password_required")
+        password = body.password.get_secret_value()
+        if reason := password_policy_violation(password, body.username):
+            raise _policy_error(reason)
+        password_hash = await hash_password_async(password)
+    try:
+        user = await UserRepository.create(
+            body.username,
+            body.role,
+            display_name=body.display_name,
+            password_hash=password_hash,
+            must_change_password=body.must_change_password and password_hash is not None,
+        )
+    except InvalidUsernameError:
+        raise _error(400, "auth_username_invalid") from None
+    except UsernameTakenError:
+        raise _error(409, "auth_username_taken") from None
+    await audit.record_request(
+        request,
+        "user.created",
+        "success",
+        target=audit.user_target(user.id),
+        details={"role": user.role, "must_change": user.must_change_password},
+    )
+    return _user_view(user)
+
+
+@router.patch("/users/{user_id}", response_model=UserView, dependencies=[Depends(require("admin"))])
+async def patch_user(user_id: int, body: UserPatch, request: Request) -> UserView:
+    """Change an account's display name, role, disabled state or
+    ``must_change_password``. A role change or a disable signs the user out
+    everywhere (sessions revoked, sockets closed); a role of ``kiosk`` drops
+    the password. 409 ``auth_last_admin`` when no enabled admin would be left."""
+    principal = _require(request)
+    target = await _target_user(user_id)
+    role = body.role if body.role is not None and body.role != target.role else None
+    disabled = (
+        body.disabled if body.disabled is not None and body.disabled != target.disabled else None
+    )
+    display_name = (
+        body.display_name
+        if body.display_name is not None and body.display_name.strip() != target.display_name
+        else None
+    )
+    effective_role = role or target.role
+    must_change = (
+        body.must_change_password
+        if body.must_change_password is not None
+        and body.must_change_password != target.must_change_password
+        else None
+    )
+    if must_change and not (
+        _takes_password(target.provider, effective_role) and target.has_password
+    ):
+        raise _error(400, "auth_password_not_applicable")
+    to_kiosk = role == "kiosk"
+    if to_kiosk and target.must_change_password:
+        must_change = False
+    try:
+        updated = await UserRepository.update(
+            user_id,
+            display_name=display_name,
+            role=role,
+            disabled=disabled,
+            must_change_password=must_change,
+            clear_password=to_kiosk and target.has_password,
+            keep_an_admin=True,
+        )
+    except LastAdminError:
+        raise await _last_admin_refusal(
+            request, "user.disabled" if disabled else "user.changed", user_id
+        ) from None
+    if updated is None:
+        raise _error(404, "auth_user_not_found")
+    revoked = 0
+    if role is not None or disabled or to_kiosk:
+        invalidate_basic_cache(user_id)
+        # Their own account included: the admin's socket keeps the role it opened with.
+        revoked = await sessions.sign_out_user(user_id)
+    elif must_change:
+        # The socket would keep running while every route asks for the change.
+        from app.websocket import ws_manager
+
+        ws_manager.close_user(user_id, except_session_id=_sign_out_scope(principal, user_id))
+    fields = [
+        name
+        for name, value in (
+            ("display_name", display_name),
+            ("role", role),
+            ("must_change_password", must_change),
+        )
+        if value is not None
+    ]
+    if to_kiosk and target.has_password:
+        fields.append("password_removed")
+    target_ref = audit.user_target(user_id)
+    if fields:
+        details: dict = {"fields": fields, "sessions_revoked": revoked}
+        if role is not None:
+            details["role"] = role
+            details["previous_role"] = target.role
+        await audit.record_request(
+            request, "user.changed", "success", target=target_ref, details=details
+        )
+    if disabled is not None:
+        await audit.record_request(
+            request,
+            "user.disabled" if disabled else "user.enabled",
+            "success",
+            target=target_ref,
+            details={"sessions_revoked": revoked} if disabled else None,
+        )
+    return _user_view(updated)
+
+
+@router.delete(
+    "/users/{user_id}", response_model=OkResponse, dependencies=[Depends(require("admin"))]
+)
+async def delete_user(user_id: int, request: Request) -> OkResponse:
+    """Delete an account and its sessions, closing its sockets. A Home
+    Assistant identity comes back on its next visit, with the default role:
+    disable it to keep it out. 409 ``auth_last_admin`` for the last enabled admin."""
+    _require(request)
+    target = await _target_user(user_id)
+    try:
+        deleted = await UserRepository.delete(user_id, keep_an_admin=True)
+    except LastAdminError:
+        raise await _last_admin_refusal(request, "user.deleted", user_id) from None
+    if not deleted:
+        raise _error(404, "auth_user_not_found")
+    invalidate_basic_cache(user_id)
+    from app.websocket import ws_manager
+
+    ws_manager.close_user(user_id)
+    await audit.record_request(
+        request,
+        "user.deleted",
+        "success",
+        target=audit.user_target(user_id),
+        details={"role": target.role, "provider": target.provider},
+    )
+    return OkResponse()
+
+
+@router.post(
+    "/users/{user_id}/password",
+    response_model=UserView,
+    dependencies=[Depends(require("admin"))],
+)
+async def set_user_password(user_id: int, body: UserPasswordSet, request: Request) -> UserView:
+    """Set a local account's password (the policy applies), to change at the
+    next sign-in by default. Signs the user out everywhere (the admin's own
+    session stays when it is their account) and forgets its known devices.
+    400 ``auth_password_not_applicable`` for Home Assistant and kiosk accounts."""
+    principal = _require(request)
+    target = await _target_user(user_id)
+    if not _takes_password(target.provider, target.role):
+        raise _error(400, "auth_password_not_applicable")
+    password = body.password.get_secret_value()
+    if reason := password_policy_violation(password, target.username):
+        raise _policy_error(reason)
+    if not await UserRepository.set_password_hash(
+        user_id,
+        await hash_password_async(password),
+        must_change_password=body.must_change_password,
+    ):
+        raise _error(404, "auth_user_not_found")
+    invalidate_basic_cache(user_id)
+    revoked = await sessions.sign_out_user(
+        user_id, except_session_id=_sign_out_scope(principal, user_id)
+    )
+    await audit.record_request(
+        request,
+        "password.changed",
+        "success",
+        target=audit.user_target(user_id),
+        details={
+            "reset": True,
+            "must_change": body.must_change_password,
+            "sessions_revoked": revoked,
+        },
+    )
+    updated = await _target_user(user_id)
+    return _user_view(updated)
+
+
+@router.delete(
+    "/users/{user_id}/sessions",
+    response_model=RevokedCount,
+    dependencies=[Depends(require("admin"))],
+)
+async def revoke_user_sessions(user_id: int, request: Request) -> RevokedCount:
+    """Sign a user out everywhere (the admin's own session stays when it is
+    their account) and close its sockets."""
+    principal = _require(request)
+    await _target_user(user_id)
+    count = await sessions.sign_out_user(
+        user_id, except_session_id=_sign_out_scope(principal, user_id)
+    )
+    await audit.record_request(
+        request,
+        "session.revoked",
+        "success",
+        target=audit.user_target(user_id),
+        details={"scope": "all", "count": count},
+    )
+    return RevokedCount(revoked=count)
 
 
 # --- Audit log ------------------------------------------------------------------

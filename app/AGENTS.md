@@ -797,8 +797,10 @@ floor, never the percentage alone, and do not remove the floor.
   (1008), and a 30 s recheck catches revocations from `meshloom-admin`,
   expiries and disabled accounts (`docs/dev/auth.md`, "Sessions and the cookie").
   Client frames slide the session once a minute (`note_activity`), so a
-  socket-only kiosk stays signed in. A socket keeps its opening role: a role
-  change must go through `revoke_user_sessions()`.
+  socket-only kiosk stays signed in. A socket keeps its opening role: a change of
+  the account (role, disable, deletion, password) goes through
+  `sessions.sign_out_user()`, which also closes its Basic and ingress sockets
+  (`ws_manager.close_user()`).
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
   `broadcast_event()` never awaits socket I/O. A slow client first loses

@@ -22,6 +22,24 @@ Chaque compte a l’un des quatre rôles. Le serveur vérifie le rôle à chaque
 
 Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
 
+## Gérer les comptes
+
+Pour l’instant, les administrateurs gèrent les comptes par l’API ; l’écran des **Réglages** arrive dans une version ultérieure.
+
+| Requête | Ce qu’elle fait |
+|---|---|
+| `GET /api/auth/users` | Liste tous les comptes avec leur rôle, leur origine (`local`, ou `ingress` pour un utilisateur Home Assistant), s’ils sont désactivés et s’ils ont un mot de passe. |
+| `POST /api/auth/users` | Crée un compte : `{"username", "role", "password", "display_name"}`. Tout rôle sauf `kiosk` demande un mot de passe initial, que la personne change à sa première connexion (envoyez `"must_change_password": false` pour s’en passer). Un `kiosk` n’a pas de mot de passe. |
+| `PATCH /api/auth/users/<id>` | Change le rôle, le nom affiché, `disabled` (`true` bloque le compte) ou `must_change_password`. |
+| `POST /api/auth/users/<id>/password` | Fixe un nouveau mot de passe, à changer à la prochaine connexion sauf avec `"must_change_password": false`. |
+| `DELETE /api/auth/users/<id>/sessions` | Déconnecte le compte partout. |
+| `DELETE /api/auth/users/<id>` | Supprime le compte. |
+
+- **Il reste toujours un administrateur.** Le dernier administrateur actif ne peut être ni rétrogradé, ni désactivé, ni supprimé : la requête est refusée (`auth_last_admin`). Promouvez ou réactivez d’abord un autre administrateur.
+- **Les changements s’appliquent aussitôt.** Un nouveau rôle, une désactivation, une suppression ou un mot de passe fixé par un administrateur déconnecte le compte partout, pages ouvertes comprises, et oublie les navigateurs où il était mémorisé. Passer un compte en `kiosk` lui retire son mot de passe.
+- **Un mot de passe choisi par un administrateur est provisoire.** Tant que la personne n’a pas choisi le sien, Meshloom ne la laisse rien faire d’autre que le changer (ou se déconnecter) ; la requête est `PATCH /api/auth/me` avec `{"current_password", "new_password"}`. Changer son propre mot de passe déconnecte ses autres navigateurs.
+- **Les utilisateurs Home Assistant** (voir l’add-on plus bas) prennent n’importe quel rôle, `kiosk` compris, et peuvent être désactivés, mais n’ont jamais de mot de passe : c’est Home Assistant qui les connecte. Le rôle donné aux prochains nouveaux est `ingress_default_role` (`member` par défaut), réglé avec `PATCH /api/auth/settings`. Un utilisateur Home Assistant supprimé revient avec ce rôle à sa visite suivante : désactivez-le plutôt pour le tenir à l’écart.
+
 ## Les délais de connexion
 
 Les mauvais mots de passe ralentissent les tentatives suivantes ; ils ne verrouillent jamais un compte.
@@ -48,7 +66,7 @@ Les délais de connexion, le journal d’audit et la liste des sessions notent l
 
 ## Le journal d’audit
 
-Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, désactivés ou réactivés, changements de mot de passe, création du premier administrateur, changements des réglages d’accès, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
+Meshloom tient un journal des actions sensibles : connexions (réussies ou non), déconnexions et sessions déconnectées, comptes créés, renommés, changés de rôle, désactivés, réactivés ou supprimés (refus compris, comme une tentative de rétrograder le dernier administrateur), changements de mot de passe, création du premier administrateur, changements des réglages d’accès, robots créés, modifiés, supprimés ou arrêtés, restaurations de sauvegarde, imports de clé privée, réinitialisations d’usine de la radio et mises à jour lancées. Chaque commande `meshloom-admin` ci-dessous écrit aussi une entrée, y compris quand elle est refusée.
 
 Chaque entrée garde l’heure, le compte qui a agi (aucun pour une connexion ratée ou la ligne de commande), l’adresse d’où il venait, la voie d’accès (réseau local, Home Assistant, ligne de commande, ou Meshloom lui-même pour une mise à jour automatique), ce qui a été visé et l’issue. Elle ne contient jamais de mot de passe, de code d’installation, de session, de clé ni le code d’un robot. Une connexion ratée ne nomme le compte que si le nom saisi correspond à un compte ; tout autre nom saisi est noté comme inconnu, si bien qu’un mot de passe tapé dans le champ du nom n’est pas gardé.
 
@@ -102,7 +120,7 @@ Avec `docker run`, utilisez `docker exec -it <conteneur> meshloom-admin reset-pa
 
 ### Add-on Home Assistant
 
-Par la barre latérale, c’est Home Assistant qui vous connecte : Meshloom accepte l’utilisateur Home Assistant qui l’ouvre, sans mot de passe propre. Le premier utilisateur Home Assistant qui ouvre Meshloom en devient l’administrateur, même si un administrateur Meshloom existe déjà (issu des options `basic_auth_*` de la 4.18 ou de `meshloom-admin`), pour que la barre latérale mène toujours à un administrateur ; les suivants reçoivent le rôle **Membre**. Seuls les administrateurs de Home Assistant voient le panneau Meshloom : ce sont donc des personnes qui administrent déjà votre Home Assistant. Si vous ne pouvez pas ouvrir Meshloom, rétablissez votre accès dans Home Assistant lui-même. Si vous avez donné un port d’hôte au port 8000 de l’add-on, cette adresse demande un compte Meshloom comme toute autre installation. La commande existe quand même pour le cas rare où elle serait utile. Elle s’exécute dans le conteneur de l’add-on et demande donc d’atteindre le Docker de l’hôte : l’add-on *Advanced SSH & Web Terminal* avec le **Mode protégé** désactivé.
+Par la barre latérale, c’est Home Assistant qui vous connecte : Meshloom accepte l’utilisateur Home Assistant qui l’ouvre, sans mot de passe propre. Le premier utilisateur Home Assistant qui ouvre Meshloom en devient l’administrateur, même si un administrateur Meshloom existe déjà (issu des options `basic_auth_*` de la 4.18 ou de `meshloom-admin`), pour que la barre latérale mène toujours à un administrateur ; les suivants reçoivent le rôle **Membre** (un administrateur peut le changer, ainsi que le rôle de chacun : voir « Gérer les comptes » plus haut). Seuls les administrateurs de Home Assistant voient le panneau Meshloom : ce sont donc des personnes qui administrent déjà votre Home Assistant. Si vous ne pouvez pas ouvrir Meshloom, rétablissez votre accès dans Home Assistant lui-même. Si vous avez donné un port d’hôte au port 8000 de l’add-on, cette adresse demande un compte Meshloom comme toute autre installation. La commande existe quand même pour le cas rare où elle serait utile. Elle s’exécute dans le conteneur de l’add-on et demande donc d’atteindre le Docker de l’hôte : l’add-on *Advanced SSH & Web Terminal* avec le **Mode protégé** désactivé.
 
 ```bash
 docker ps --format '{{.Names}}' | grep meshloom
