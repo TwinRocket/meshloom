@@ -32,8 +32,8 @@ _KEYS_BY_TYPE: dict[str, set[str]] = {
     "array": {"items", "minItems", "maxItems"},
 }
 _ITEM_KEYS = {"type", "enum", "minLength", "maxLength"}
-_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
-_LANG_RE = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
+_NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
+_LANG_RE = re.compile(r"[a-z]{2}(-[A-Z]{2})?")
 
 
 class _Collector:
@@ -51,7 +51,7 @@ def _text(value: Any, path: str, out: _Collector) -> str | None:
             out.add("config_schema_text_too_long", path, "text is too long")
         return value
     if isinstance(value, dict):
-        bad = [k for k, v in value.items() if not _LANG_RE.match(k) or not isinstance(v, str)]
+        bad = [k for k, v in value.items() if not _LANG_RE.fullmatch(k) or not isinstance(v, str)]
         if bad or "en" not in value:
             out.add(
                 "config_schema_i18n_invalid",
@@ -64,6 +64,16 @@ def _text(value: Any, path: str, out: _Collector) -> str | None:
         return value["en"]
     out.add("config_schema_i18n_invalid", path, "title and description are strings or i18n maps")
     return None
+
+
+def _fits_type(value: Any, ptype: str) -> bool:
+    if ptype == "string":
+        return isinstance(value, str)
+    if ptype == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if ptype == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return False
 
 
 def _unknown(keys: set[str], allowed: set[str], path: str, out: _Collector) -> None:
@@ -81,7 +91,7 @@ def _check_property(name: str, prop: Any, out: _Collector) -> dict[str, Any] | N
         out.add("config_schema_invalid", path, "a property is an object")
         return None
     ptype = prop.get("type")
-    if ptype not in _KEYS_BY_TYPE:
+    if not isinstance(ptype, str) or ptype not in _KEYS_BY_TYPE:
         out.add(
             "config_schema_type_not_allowed",
             f"{path}.type",
@@ -113,6 +123,8 @@ def _check_property(name: str, prop: Any, out: _Collector) -> dict[str, Any] | N
         out.add(
             "config_schema_invalid", f"{path}.enum", f"enum is a list of 1 to {MAX_ENUM} values"
         )
+    elif enum is not None and not all(_fits_type(v, ptype) for v in enum):
+        out.add("config_schema_invalid", f"{path}.enum", "enum values must match the type")
     if ptype == "array":
         items = prop.get("items")
         if not isinstance(items, dict) or items.get("type") != "string":
@@ -123,14 +135,31 @@ def _check_property(name: str, prop: Any, out: _Collector) -> dict[str, Any] | N
             )
         else:
             _unknown(set(items), _ITEM_KEYS, f"{path}.items", out)
+            item_enum = items.get("enum")
+            if item_enum is not None and (
+                not isinstance(item_enum, list)
+                or not 0 < len(item_enum) <= MAX_ENUM
+                or not all(isinstance(v, str) for v in item_enum)
+            ):
+                out.add("config_schema_invalid", f"{path}.items.enum", "enum is a list of strings")
     return normalized
 
 
 def check_config_schema(schema: Any) -> frozenset[str]:
     """Validate a config schema; returns its secret field names.
 
-    Raises PluginValidationError listing every problem found.
+    Raises PluginValidationError listing every problem found, and nothing else: the
+    input is untrusted, so an unexpected shape is reported, never raised as TypeError.
     """
+    try:
+        return _check_config_schema(schema)
+    except (TypeError, KeyError, AttributeError, RecursionError):
+        raise PluginValidationError(
+            [PluginIssue("config_schema_invalid", "", "the config schema is malformed")]
+        ) from None
+
+
+def _check_config_schema(schema: Any) -> frozenset[str]:
     out = _Collector()
     if not isinstance(schema, dict):
         out.add("config_schema_invalid", "", "the config schema is a JSON object")
@@ -159,7 +188,7 @@ def check_config_schema(schema: Any) -> frozenset[str]:
                 normalized[key] = plain
     secrets: set[str] = set()
     for name, prop in props.items():
-        if not _NAME_RE.match(name):
+        if not _NAME_RE.fullmatch(name):
             out.add(
                 "config_schema_name_invalid", f"properties.{name}", "use lowercase snake_case names"
             )
@@ -170,7 +199,9 @@ def check_config_schema(schema: Any) -> frozenset[str]:
             if norm.get("writeOnly") is True and norm.get("type") == "string":
                 secrets.add(name)
     required = schema.get("required", [])
-    if not isinstance(required, list) or any(r not in props for r in required):
+    if not isinstance(required, list) or any(
+        not isinstance(r, str) or r not in props for r in required
+    ):
         out.add(
             "config_schema_required_unknown", "required", "required lists declared properties only"
         )

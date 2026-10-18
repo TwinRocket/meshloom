@@ -136,7 +136,9 @@ def test_native_binary_under_a_harmless_name():
     pe = bytearray(b"MZ" + b"\x00" * 62) + b"PE\x00\x00"
     pe[0x3C:0x40] = (64).to_bytes(4, "little")
     assert refused(build(with_extra(**{"x.txt": bytes(pe)}))) == ["package_native_extension"]
-    assert validate_package(build(with_extra(**{"note.txt": b"MZ is a text file"})))
+    assert refused(build(with_extra(**{"note.txt": b"MZ is a text file"}))) == [
+        "package_native_extension"
+    ]
 
 
 def test_nested_zip_with_native_extension_is_refused():
@@ -329,3 +331,98 @@ def test_extraction_needs_an_empty_destination(tmp_path):
     with pytest.raises(PluginValidationError) as exc:
         extract_package(build(), tmp_path)
     assert exc.value.codes == ["package_destination_not_empty"]
+
+
+def test_unicode_and_case_collisions_are_refused_before_extraction(tmp_path):
+    nfc, nfd = "caf\u00e9.txt", "cafe\u0301.txt"
+    assert refused(build(with_extra(**{nfc: b"a", nfd: b"b"}))) == ["package_duplicate_entry"]
+    assert refused(build(with_extra(**{"Foo": b"a", "foo/bar": b"b"}))) == [
+        "package_duplicate_entry"
+    ]
+    assert refused(
+        build(with_extra(**{"vendor/caf\u00e9": b"a", "vendor/cafe\u0301/x.py": b""}))
+    ) == ["package_duplicate_entry"]
+    dest = tmp_path / "out"
+    with pytest.raises(PluginValidationError):
+        extract_package(build(with_extra(**{nfc: b"a", nfd: b"b"})), dest)
+    assert not dest.exists()
+
+
+@pytest.mark.parametrize("name", ["vendor/\u202eevil.py", "vendor/a\u200bb.py"])
+def test_invisible_characters_in_entry_names(name):
+    assert refused(build(with_extra(**{name: b"x"}))) == ["package_unsafe_path"]
+
+
+def _zip_bytes(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for n, d in files.items():
+            zf.writestr(n, d)
+    return buf.getvalue()
+
+
+def test_bad_crc_is_a_typed_error():
+    data = bytearray(
+        build(
+            with_extra(**{"vendor/data.txt": b"hello world" * 10}), compression=zipfile.ZIP_STORED
+        )
+    )
+    i = data.index(b"hello world")
+    data[i] ^= 0xFF
+    assert refused(bytes(data)) == ["package_bad_zip"]
+
+
+def test_nested_zip_with_prepended_junk_is_still_scanned():
+    inner = b"JUNKJUNK" + _zip_bytes({"lib/evil.so": b"x"})
+    assert refused(build(with_extra(**{"vendor/data.bin": inner}))) == ["package_native_extension"]
+
+
+def test_pe_with_far_header_and_foreign_archives_are_refused():
+    pe = bytearray(b"MZ" + b"\x00" * 1000)
+    pe[0x3C:0x40] = (600).to_bytes(4, "little")
+    pe[600:604] = b"PE\x00\x00"
+    assert refused(build(with_extra(**{"vendor/a.bin": bytes(pe)}))) == ["package_native_extension"]
+    import gzip
+
+    assert refused(build(with_extra(**{"vendor/a.bin": gzip.compress(b"x")}))) == [
+        "package_nested_archive"
+    ]
+    tar = bytearray(512)
+    tar[257:262] = b"ustar"
+    assert refused(build(with_extra(**{"vendor/a.bin": bytes(tar)}))) == ["package_nested_archive"]
+
+
+def test_extraction_cleans_up_on_failure(tmp_path, monkeypatch):
+    real = zipfile.ZipFile.open
+    calls = {"n": 0}
+
+    def flaky(self, name, *a, **k):
+        # Validation reads each file once; fail on the extraction pass only.
+        if isinstance(name, str):
+            calls["n"] += 1
+            if name == "plugin.py":
+                raise zipfile.BadZipFile("boom")
+        return real(self, name, *a, **k)
+
+    monkeypatch.setattr(zipfile.ZipFile, "open", flaky)
+    dest = tmp_path / "out"
+    with pytest.raises(PluginValidationError) as exc:
+        extract_package(build(), dest)
+    assert exc.value.codes == ["package_extract_failed"]
+    assert not dest.exists()
+    existing = tmp_path / "empty"
+    existing.mkdir()
+    with pytest.raises(PluginValidationError):
+        extract_package(build(), existing)
+    assert existing.is_dir() and list(existing.iterdir()) == []
+
+
+def test_extracted_directories_are_0755(tmp_path):
+    dest = tmp_path / "out"
+    old = __import__("os").umask(0o002)
+    try:
+        extract_package(build(), dest)
+    finally:
+        __import__("os").umask(old)
+    assert stat.S_IMODE((dest / "i18n").stat().st_mode) == 0o755
+    assert stat.S_IMODE(dest.stat().st_mode) == 0o755

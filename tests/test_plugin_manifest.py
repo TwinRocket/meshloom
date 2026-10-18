@@ -95,7 +95,7 @@ def test_prerelease_and_build_metadata_versions():
 
 
 def test_http_host_rules():
-    for host in ("192.168.1.10", "api.example.com", "::1"):
+    for host in ("8.8.8.8", "api.example.com", "2a00:1450:4001:81b::200e"):
         m = copy.deepcopy(SAMPLE)
         m["permissions"]["http"] = {"hosts": [host]}
         parse_manifest(m)
@@ -104,6 +104,10 @@ def test_http_host_rules():
         ("example.com:8080", "host_invalid"),
         ("192.168.0.0/16", "host_range"),
         ("*", "host_wildcard"),
+        ("10.0.0.1", "host_private_ip"),
+        ("fe80::1", "host_private_ip"),
+        ("0.0.0.0", "host_private_ip"),
+        ("::ffff:127.0.0.1", "host_private_ip"),
         ("-bad.example.com", "host_invalid"),
     ):
         m = copy.deepcopy(SAMPLE)
@@ -153,3 +157,108 @@ def test_exported_schema_describes_the_contract():
     perms = schema["$defs"]["Permissions"]["properties"]
     assert {"messages.read", "messages.send", "http", "storage", "timer"} <= set(perms)
     assert not {"ui.panel", "feed.post"} & set(perms)
+
+
+# --- Parity between the pydantic model and the exported JSON schema -------------------
+
+# Error codes that JSON Schema can express: a manifest failing with one of these must
+# be invalid for the schema too, or the contract and the code disagree.
+SCHEMA_CODES = {
+    "missing",
+    "extra_forbidden",
+    "literal_error",
+    "int_type",
+    "bool_type",
+    "string_type",
+    "string_pattern_mismatch",
+    "too_short",
+    "less_than_equal",
+    "greater_than_equal",
+}
+PROBES = {
+    "manifest-true": ("manifest", True),
+    "manifest-one-string": ("manifest", "1"),
+    "api-string": ("runtime", {"type": "python", "api": "1", "python": ">=3.11"}),
+    "api-bool": ("runtime", {"type": "python", "api": True, "python": ">=3.11"}),
+    "stores-yes": (
+        "privacy",
+        {"sends_to_third_parties": [], "stores_message_content": "yes"},
+    ),
+    "stores-int": ("privacy", {"sends_to_third_parties": [], "stores_message_content": 1}),
+    "direct-string": ("permissions", {"messages.read": {"direct": "true"}}),
+    "per-hour-string": ("permissions", {"messages.send": {"per_hour": "20"}}),
+    "per-hour-float": ("permissions", {"messages.send": {"per_hour": 20.5}}),
+    "hooks-string": ("hooks", "message"),
+    "categories-string": ("categories", "bot"),
+}
+
+
+@pytest.fixture(scope="module")
+def schema_validator():
+    from jsonschema import Draft202012Validator
+
+    schema = json.loads((ROOT / "docs/dev/plugins/manifest.schema.json").read_text("utf-8"))
+    return Draft202012Validator(schema)
+
+
+def _model_valid(manifest, origin="third_party"):
+    try:
+        parse_manifest(copy.deepcopy(manifest), origin=origin)
+        return True
+    except PluginValidationError:
+        return False
+
+
+@pytest.mark.parametrize("vector", VECTORS["vectors"], ids=lambda v: v["name"])
+def test_model_and_schema_agree_on_the_vectors(vector, schema_validator):
+    schema_ok = schema_validator.is_valid(vector["manifest"])
+    if _model_valid(vector["manifest"], vector["origin"]):
+        assert schema_ok, "the model accepts what the exported schema rejects"
+    elif vector["errors"][0]["code"] in SCHEMA_CODES:
+        assert not schema_ok, "the schema accepts what the model rejects with a schema code"
+
+
+@pytest.mark.parametrize(("key", "value"), PROBES.values(), ids=list(PROBES))
+def test_strict_typing_matches_the_schema(key, value, schema_validator):
+    bad = copy.deepcopy(SAMPLE)
+    bad[key] = value
+    assert not schema_validator.is_valid(bad)
+    assert not _model_valid(bad)
+
+
+def test_trailing_newline_is_not_an_anchor_escape():
+    for field in (
+        ("name", {"en": "W", "fr\n": "x"}),
+        ("readme", {"en": "README.md", "fr\n": "R.md"}),
+    ):
+        bad = copy.deepcopy(SAMPLE)
+        bad[field[0]] = field[1]
+        assert ("i18n_language_invalid", field[0]) in _issues(bad)
+    for pattern_field, value in (("id", "acme.weather\n"), ("version", "1.2.0\n")):
+        bad = copy.deepcopy(SAMPLE)
+        bad[pattern_field] = value
+        assert not _model_valid(bad)
+
+
+def test_homoglyph_and_invisible_characters():
+    for name in ("Meѕhloom", "Mеshloom", "Weather​", "Wea‮ther"):
+        bad = copy.deepcopy(SAMPLE)
+        bad["name"] = {"en": name}
+        assert not _model_valid(bad), name
+    bad = copy.deepcopy(SAMPLE)
+    bad["authors"] = [{"name": "Aсme"}]
+    assert ("name_homoglyph", "authors.0.name") in _issues(bad)
+    # Compatibility forms fold before the misleading-word check.
+    bad = copy.deepcopy(SAMPLE)
+    bad["name"] = {"en": "Ｍeshloom"}
+    assert ("name_misleading", "") in _issues(bad)
+    ok = copy.deepcopy(SAMPLE)
+    ok["name"] = {"en": "Weather", "ru": "Погода GPS-трекер"}
+    parse_manifest(ok)
+
+
+def test_model_is_stricter_than_the_schema_on_integral_floats():
+    # JSON Schema treats 1.0 as the integer 1; the model refuses it for `api`.
+    bad = copy.deepcopy(SAMPLE)
+    bad["runtime"] = {"type": "python", "api": 1.0, "python": ">=3.11"}
+    assert not _model_valid(bad)

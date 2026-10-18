@@ -25,14 +25,18 @@ Code map:
 | `app/plugins/manifest.py` | pydantic `Manifest` model, `parse_manifest()`, `load_manifest_json()`, `manifest_json_schema()` |
 | `app/plugins/permissions.py` | permission registry: names, parameter models, caps, `http` host rules, reserved names |
 | `app/plugins/config_schema.py` | `check_config_schema()` (keyword subset pre-check, then the `jsonschema` metaschema), `validate_config_values()` |
-| `app/plugins/package.py` | `validate_package()` (nothing is extracted), `extract_package()` (validates first) |
+| `app/plugins/package.py` | `validate_package()` (nothing is extracted), `extract_package()` (validates first, files 0644, directories 0755; on any failure the destination is emptied again, so no partial tree stays) |
 | `app/plugins/licenses.py` | `ACCEPTED_LICENSES`, the one SPDX list (decision Q13; also for `vendor/`) |
 | `app/plugins/errors.py` | `PluginValidationError` carrying `PluginIssue(code, path, message)` |
 | `app/data/plugin_icons.json` | closed icon list (lucide names); `frontend/src/test/pluginIcons.test.ts` checks every name exists in `lucide-react` |
 
 ### Manifest rules
 
-Everything is validated by the pydantic models; unknown fields are refused. The rules
+Everything is validated by the pydantic models in strict mode (no coercion: `"api": "1"`,
+`"manifest": true` or `"stores_message_content": "yes"` are refused, as the exported
+schema refuses them); unknown fields are refused. The model may be stricter than the schema
+(it also refuses `1.0` for `api`), never looser: `tests/test_plugin_manifest.py` feeds the
+vectors and a list of type probes to both. The rules
 JSON Schema cannot express are enforced in `Manifest._cross_rules` and exercised by
 the golden vectors.
 
@@ -40,6 +44,9 @@ the golden vectors.
   (`<publisher>.<name>`). `meshloom.*` and `local.*` are reserved: the caller says
   who submits through `origin` (`third_party` by default, `bundled`, `local`), and
   an origin must use its own namespace.
+- Texts (`name`, `summary`, author names) refuse control, invisible (bidi, zero-width) and
+  unassigned characters; `name` and author names also refuse a word that mixes Latin letters
+  with Cyrillic or Greek ones (`Meѕhloom`). The misleading-word check runs on the NFKC-folded name.
 - `name` and `summary` are language maps (`en` required, codes like `fr` or `pt-BR`).
   Outside `meshloom.*` a name in any language must not contain `meshloom`,
   `official` or `officiel` (case-insensitive).
@@ -64,10 +71,13 @@ the golden vectors.
 | `messages.read` | `channels` `public` (default) or `all`; `direct`, `outgoing` (booleans, default false) |
 | `messages.send` | `targets` `reply` (default), `scope`, `any`; `per_hour` 1 to 60; `per_day` 1 to 500 |
 | `raw_packets.read`, `contacts.read`, `channels.read`, `telemetry.read`, `storage`, `timer` | none (`{}`) |
-| `http` | `hosts`: 1 to 20 exact lowercase hostnames or IP literals; never a wildcard, a range, a URL or a port. `meshloom.app` and its subdomains are refused unless the id is `meshloom.*` |
+| `http` | `hosts`: 1 to 20 exact lowercase hostnames or **public** IP literals; never a wildcard, a range, a URL or a port. A hostname's last label starts with a letter (so `127.1`, `2130706433` and `0x7f.1` are refused); an IP literal is canonical (no scope id, lowercase IPv6, not IPv4-mapped), and private, loopback, link-local, unspecified and other non-global addresses are refused (`host_private_ip`, e.g. `169.254.169.254`). `meshloom.app` and its subdomains are refused unless the id is `meshloom.*` |
 
 Reserved and refused with `permission_reserved`: `notifications.send`, `feed.post`,
 `ui.panel`, `channels.manage`, `contacts.manage`. Any other name is `extra_forbidden`.
+
+The IP restriction fails closed until MSHL-282 (declaring a LAN host in the manifest, with
+named consent) lands; it will relax then, as a contract change.
 
 ### Config schema
 
@@ -76,7 +86,8 @@ A subset of JSON Schema 2020-12: a flat `object` whose properties are `string`,
 bounds, `title` and `description` (a string or a `{"en": ..., "fr": ...}` map).
 Secrets are `"writeOnly": true` on a string (no default, no enum); the shared
 `SchemaForm` keys on it. No `$ref`, `pattern` (ReDoS), `oneOf` or nesting: any other
-keyword is `config_schema_keyword_not_allowed`. Value errors never echo the value.
+keyword is `config_schema_keyword_not_allowed`. Value errors never echo the value. A malformed schema (wrong JSON types for `type`,
+`required`, `enum`, ...) is a `PluginValidationError`, never a `TypeError`.
 
 ### Archive rules (`validate_package`)
 
@@ -84,14 +95,22 @@ Checked from the central directory and bounded reads, before any extraction:
 
 - 5 MiB compressed, 20 MiB uncompressed (declared sizes, nested archives included),
   2000 entries (nested ones included).
-- Entry names: no absolute path, drive letter, backslash, control character, `.` or
-  `..` segment, empty segment; case-insensitive duplicates and file-as-directory
-  clashes are refused.
+- Entry names: no absolute path, drive letter, backslash, control or invisible character,
+  `.` or `..` segment, empty segment. Duplicates and file-as-directory clashes are decided on
+  the NFC-normalised, case-folded name (`café` in NFC and NFD, `Foo` and `foo/bar`), so no
+  partial tree is written on a case- or normalisation-insensitive filesystem.
 - No symlink or special file, no executable bit, no encryption, only stored and
   deflated entries.
 - No native code anywhere, including `vendor/*.dist-info` and nested zips: names
-  ending `.so` (also `.so.N`), `.pyd`, `.dll`, `.dylib`, and files whose first bytes
-  are ELF, Mach-O or PE. Nested zips (up to 3 levels) are opened and scanned the same way.
+  ending `.so` (also `.so.N`), `.pyd`, `.dll`, `.dylib`, and files starting with the
+  ELF or Mach-O magic or with `MZ` (any DOS/PE header, refused outright). Every file is
+  read once (its CRC is checked, a corrupt archive is `package_bad_zip`). A file is opened
+  as a nested zip when it starts with a zip header **or** carries an end-of-central-directory
+  record near its tail (zipfile opens archives with junk prepended); nested zips (up to 3
+  levels) are scanned the same way and share the size and entry budgets. gzip, bzip2, xz and
+  tar content is refused (`package_nested_archive`) rather than scanned. This is best
+  effort: it cannot catch native code hidden in a custom container; the sandbox and the
+  index review are the real boundary.
 - No compiled bytecode (`.pyc`, `.pyo`, `__pycache__`): ship the source, reviewers read it.
 - `manifest.json`, `README.md` and `LICENSE` exist; every file the manifest references
   exists; READMEs, i18n files and the config schema respect their size caps and parse.
@@ -107,7 +126,7 @@ T16), Python syntax of the entry.
 `too_short`) or one of ours: `id_namespace_reserved`, `id_namespace_mismatch`,
 `name_misleading`, `license_not_accepted`, `url_not_https`, `icon_unknown`,
 `permission_reserved`, `host_wildcard`, `host_range`, `host_invalid`,
-`http_host_reserved`, `i18n_en_required`, `path_unsafe`, `entry_invalid`,
+`http_host_reserved`, `host_private_ip`, `name_homoglyph`, `text_invalid`, `i18n_en_required`, `path_unsafe`, `entry_invalid`,
 `specifier_invalid`, `version_not_comparable`, `manifest_too_large`,
 `manifest_not_json`, `config_schema_*`, `package_*`. The vectors list the ones the
 manifest can produce.

@@ -22,7 +22,10 @@ RESERVED_PERMISSIONS: frozenset[str] = frozenset(
 )
 
 _HOST_LABEL = r"(?!-)[a-z0-9-]{1,63}(?<!-)"
-_HOSTNAME_RE = re.compile(rf"^{_HOST_LABEL}(\.{_HOST_LABEL})*$")
+_HOSTNAME_RE = re.compile(rf"{_HOST_LABEL}(\.{_HOST_LABEL})*")
+# The last label of a hostname starts with a letter: numeric and hex forms such as
+# `127.1`, `2130706433` or `0x7f.1` are IP spellings that resolvers accept.
+_TLD_RE = re.compile(r"[a-z][a-z0-9-]*")
 
 
 def check_host(value: str) -> str:
@@ -38,11 +41,22 @@ def check_host(value: str) -> str:
             "host_range", "IP ranges and URLs are not allowed, list exact hosts"
         )
     try:
-        ipaddress.ip_address(value)
-        return value
+        ip = ipaddress.ip_address(value)
     except ValueError:
-        pass
-    if not _HOSTNAME_RE.match(value):
+        ip = None
+    if ip is not None:
+        if str(ip) != value or "%" in value:
+            raise PydanticCustomError(
+                "host_invalid", "write the IP literal in its canonical lowercase form, no scope id"
+            )
+        # Fail closed until a LAN host can be declared and consented to (MSHL-282).
+        if not ip.is_global or (ip.version == 6 and ip.ipv4_mapped is not None):
+            raise PydanticCustomError(
+                "host_private_ip",
+                "private, loopback, link-local and reserved IP literals are not allowed",
+            )
+        return value
+    if not _HOSTNAME_RE.fullmatch(value) or not _TLD_RE.fullmatch(value.rsplit(".", 1)[-1]):
         raise PydanticCustomError(
             "host_invalid", "host must be a lowercase hostname or an IP literal without port"
         )
@@ -57,7 +71,7 @@ Host = Annotated[str, AfterValidator(check_host)]
 
 
 class _Params(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class MessagesReadParams(_Params):
@@ -89,7 +103,7 @@ class HttpParams(_Params):
 class Permissions(BaseModel):
     """The declared permissions: each key is a registry name, each value its parameters."""
 
-    model_config = ConfigDict(extra="forbid", populate_by_name=False)
+    model_config = ConfigDict(extra="forbid", populate_by_name=False, strict=True)
 
     messages_read: MessagesReadParams | None = Field(default=None, alias="messages.read")
     messages_send: MessagesSendParams | None = Field(default=None, alias="messages.send")

@@ -10,6 +10,7 @@ the golden vectors in `docs/dev/plugins/vectors/`.
 
 import json
 import re
+import unicodedata
 from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -21,6 +22,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     ValidationError,
@@ -74,7 +76,7 @@ def safe_relative_path(value: str) -> str:
         or "\\" in value
         or "\x00" in value
         or value.startswith("/")
-        or re.match(r"^[A-Za-z]:", value)
+        or re.match(r"[A-Za-z]:", value)
     ):
         raise PydanticCustomError("path_unsafe", "must be a relative POSIX path inside the package")
     parts = PurePosixPath(value).parts
@@ -101,8 +103,27 @@ def _https_url(value: str) -> str:
 
 
 def _text(value: str) -> str:
-    if _CONTROL_RE.search(value) or value != value.strip():
-        raise PydanticCustomError("text_invalid", "no control characters or surrounding blanks")
+    if (
+        _CONTROL_RE.search(value)
+        or value != value.strip()
+        or any(unicodedata.category(c) in ("Cc", "Cf", "Cs", "Co", "Cn") for c in value)
+    ):
+        raise PydanticCustomError(
+            "text_invalid", "no control, invisible (bidi, zero-width) or unassigned characters"
+        )
+    return value
+
+
+def _identity_text(value: str) -> str:
+    """Names shown as identities: also refuse a word that mixes Latin letters with
+    Cyrillic or Greek ones (the homoglyph spelling of 'meshloom' and friends)."""
+    _text(value)
+    for word in re.findall(r"[^\W\d_]+", value):
+        scripts = {unicodedata.name(c, "?").split(" ", 1)[0] for c in word}
+        if "LATIN" in scripts and scripts & {"CYRILLIC", "GREEK"}:
+            raise PydanticCustomError(
+                "name_homoglyph", "a word mixes Latin letters with Cyrillic or Greek ones"
+            )
     return value
 
 
@@ -114,6 +135,13 @@ def _semver_comparable(value: str) -> str:
             "version_not_comparable",
             "version has a pre-release form that cannot be ordered (use e.g. 1.0.0-rc.1)",
         ) from None
+    return value
+
+
+def _not_bool(value: object) -> object:
+    # Literal[1] matches True in Python; JSON Schema's const 1 does not.
+    if isinstance(value, bool):
+        raise PydanticCustomError("literal_error", "Input should be 1")
     return value
 
 
@@ -139,18 +167,18 @@ def _icon(value: str) -> str:
     return value
 
 
-def _i18n_texts(max_len: int):
+def _i18n_texts(max_len: int, item_check=_text):
     def check(value: dict[str, str]) -> dict[str, str]:
         if "en" not in value:
             raise PydanticCustomError("i18n_en_required", "the 'en' entry is required")
         for lang, text in value.items():
-            if not re.match(_LANG_PATTERN, lang):
+            if not re.fullmatch(_LANG_PATTERN, lang):
                 raise PydanticCustomError("i18n_language_invalid", "invalid language code")
             if not text or len(text) > max_len:
                 raise PydanticCustomError(
                     "text_invalid", "text must be 1 to {max_len} characters", {"max_len": max_len}
                 )
-            _text(text)
+            item_check(text)
         return value
 
     return check
@@ -161,7 +189,7 @@ def _lang_paths(suffix: str, require_en: bool):
         if require_en and "en" not in value:
             raise PydanticCustomError("i18n_en_required", "the 'en' entry is required")
         for lang, path in value.items():
-            if not re.match(_LANG_PATTERN, lang):
+            if not re.fullmatch(_LANG_PATTERN, lang):
                 raise PydanticCustomError("i18n_language_invalid", "invalid language code")
             safe_relative_path(path)
             if not path.endswith(suffix):
@@ -175,7 +203,9 @@ def _lang_paths(suffix: str, require_en: bool):
 
 HttpsUrl = Annotated[str, Field(max_length=2048), AfterValidator(_https_url)]
 I18nName = Annotated[
-    dict[str, str], Field(min_length=1, max_length=32), AfterValidator(_i18n_texts(60))
+    dict[str, str],
+    Field(min_length=1, max_length=32),
+    AfterValidator(_i18n_texts(60, _identity_text)),
 ]
 I18nSummary = Annotated[
     dict[str, str], Field(min_length=1, max_length=32), AfterValidator(_i18n_texts(200))
@@ -183,11 +213,11 @@ I18nSummary = Annotated[
 
 
 class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class Author(_Model):
-    name: Annotated[str, Field(min_length=1, max_length=80), AfterValidator(_text)]
+    name: Annotated[str, Field(min_length=1, max_length=80), AfterValidator(_identity_text)]
     url: HttpsUrl | None = None
 
 
@@ -207,7 +237,7 @@ class Privacy(_Model):
 
 
 class Manifest(_Model):
-    manifest: Literal[1]
+    manifest: Annotated[Literal[1], BeforeValidator(_not_bool)]
     id: Annotated[str, Field(max_length=64, pattern=_ID_RE)]
     version: Annotated[
         str, Field(max_length=64, pattern=_SEMVER_RE), AfterValidator(_semver_comparable)
@@ -264,7 +294,7 @@ class Manifest(_Model):
             )
         if namespace != "meshloom":
             for text in self.name.values():
-                folded = text.casefold()
+                folded = unicodedata.normalize("NFKC", text).casefold()
                 if any(word in folded for word in MISLEADING_NAME_WORDS):
                     raise PydanticCustomError(
                         "name_misleading",

@@ -307,6 +307,60 @@ FAILING: list[tuple[str, str, Mutation, list[tuple[str, str]]]] = [
     ("privacy-missing", "third_party", _drop("privacy"), [("missing", "privacy")]),
 ]
 FAILING += [
+    ("manifest-true", "third_party", _set("manifest", True), [("literal_error", "manifest")]),
+    ("runtime-api-string", "third_party", _set("runtime/api", "1"), [("int_type", "runtime.api")]),
+    (
+        "privacy-bool-as-string",
+        "third_party",
+        _set("privacy/stores_message_content", "yes"),
+        [("bool_type", "privacy.stores_message_content")],
+    ),
+    (
+        "permission-bool-as-int",
+        "third_party",
+        _perm("messages.read", {"direct": 1}),
+        [("bool_type", "permissions.messages.read.direct")],
+    ),
+    (
+        "language-key-trailing-newline",
+        "third_party",
+        _set("name", {"en": "Weather", "fr\n": "Meteo"}),
+        [("i18n_language_invalid", "name")],
+    ),
+    (
+        "name-homoglyph",
+        "third_party",
+        _set("name", {"en": "Me\u0455hloom Echo"}),
+        [("name_homoglyph", "name")],
+    ),
+    (
+        "name-bidi-control",
+        "third_party",
+        _set("name", {"en": "Weather\u202e"}),
+        [("text_invalid", "name")],
+    ),
+]
+for _label, _host, _code in [
+    ("trailing-newline", "example.com\n", "host_invalid"),
+    ("numeric-short", "127.1", "host_invalid"),
+    ("numeric-decimal", "2130706433", "host_invalid"),
+    ("numeric-hex", "0x7f.1", "host_invalid"),
+    ("ipv6-scope-id", "fe80::1%eth0", "host_invalid"),
+    ("ipv6-uppercase", "2A00:1450:4001:81B::200E", "host_invalid"),
+    ("loopback", "127.0.0.1", "host_private_ip"),
+    ("ipv6-loopback", "::1", "host_private_ip"),
+    ("private-range", "192.168.1.10", "host_private_ip"),
+    ("link-local-metadata", "169.254.169.254", "host_private_ip"),
+]:
+    FAILING.append(
+        (
+            f"http-host-{_label}",
+            "third_party",
+            _perm("http", {"hosts": [_host]}),
+            [(_code, "permissions.http.hosts.0")],
+        )
+    )
+FAILING += [
     (
         f"permission-reserved-{name.replace('.', '-')}",
         "third_party",

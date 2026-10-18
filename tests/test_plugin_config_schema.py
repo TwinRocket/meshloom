@@ -89,3 +89,45 @@ def test_values_validated_by_the_library_without_echoing_them():
     missing = validate_config_values(GOOD, {"city": "Paris"})
     assert [i.code for i in missing] == ["config_value_missing"]
     assert all("hunter2" not in i.message for i in issues)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"type": "object", "properties": {"x": {"type": ["string"]}}},
+        {"type": "object", "properties": {"x": {"type": {"a": 1}}}},
+        {"type": "object", "properties": {"x": {"type": "string"}}, "required": [{}]},
+        {"type": "object", "properties": {"x": {"type": "string"}}, "required": [["x"]]},
+        {"type": "object", "properties": {"x": {"type": "string"}}, "required": "x"},
+        {"type": "object", "properties": {"x": {"type": "string", "enum": [[1], {}]}}},
+        {"type": "object", "properties": {"x": {"type": "string", "enum": "abc"}}},
+        {"type": "object", "properties": {"x": {"type": "array", "items": []}}},
+        {"type": "object", "properties": {"x": {"type": "array", "items": {"type": ["string"]}}}},
+        {"type": "object", "properties": []},
+        {"type": "object", "properties": {"x": None}},
+        {"type": "object", "properties": {"x": {"type": "string", "title": 3}}},
+        {"type": "object", "properties": {"x": {"type": "string", "title": {"en": 3}}}},
+        {"type": "object", "properties": {"x": {"type": "string", "title": {1: "a"}}}},
+        {"type": "object", "properties": {"x": {"type": "string", "writeOnly": []}}},
+        {"type": "object", "properties": {"x": {"type": "string", "default": {}}}},
+        {"type": "object", "properties": {"x": {"type": "integer", "minimum": "1"}}},
+        {"type": ["object"]},
+        {"type": "object", "$schema": []},
+        {"type": "object", "properties": {"x": {"type": "string", "maxLength": [1]}}},
+        None,
+        "x",
+        3,
+    ],
+)
+def test_malformed_schemas_raise_typed_errors_only(schema):
+    with pytest.raises(PluginValidationError):
+        check_config_schema(schema)
+
+
+def test_deeply_nested_default_does_not_escape():
+    deep: object = "x"
+    for _ in range(5000):
+        deep = [deep]
+    schema = {"type": "object", "properties": {"x": {"type": "array", "default": deep}}}
+    with pytest.raises(PluginValidationError):
+        check_config_schema(schema)

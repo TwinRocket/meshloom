@@ -8,8 +8,11 @@ magic bytes) only within hard caps. Layout and limits: docs/dev/plugins.md.
 import io
 import json
 import re
+import shutil
 import stat
+import unicodedata
 import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
@@ -34,6 +37,7 @@ NESTED_ARCHIVE_SUFFIXES = (".zip", ".whl", ".egg", ".jar", ".pyz", ".apk")
 _ALLOWED_COMPRESSION = (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:")
 _ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06")
+_EOCD = b"PK\x05\x06"
 _MACHO_MAGICS = {
     bytes.fromhex(h)
     for h in ("feedface", "feedfacf", "cefaedfe", "cffaedfe", "cafebabe", "bebafeca")
@@ -58,9 +62,11 @@ def _check_name(info: zipfile.ZipInfo) -> str:
     shown = name[:80]
     if not name or len(name) > MAX_NAME_LENGTH:
         raise _fail("package_unsafe_path", shown, "entry name is empty or too long")
-    if "\x00" in name or "\\" in name or any(ord(c) < 32 or ord(c) == 127 for c in name):
+    if "\\" in name or any(unicodedata.category(c) in ("Cc", "Cf") for c in name):
         raise _fail(
-            "package_unsafe_path", shown, "entry name has control characters or a backslash"
+            "package_unsafe_path",
+            shown,
+            "entry name has control or invisible characters or a backslash",
         )
     if name.startswith("/") or _WINDOWS_DRIVE.match(name):
         raise _fail("package_unsafe_path", shown, "absolute paths are refused")
@@ -90,13 +96,30 @@ def _check_entry_kind(info: zipfile.ZipInfo, name: str) -> bool:
 
 
 def _native_magic(head: bytes) -> bool:
-    if head[:4] == b"\x7fELF" or head[:4] in _MACHO_MAGICS:
-        return True
-    # A PE executable: 'MZ' header whose e_lfanew points at 'PE\0\0'.
-    if head[:2] == b"MZ" and len(head) >= 0x40:
-        off = int.from_bytes(head[0x3C:0x40], "little")
-        return off + 4 <= len(head) and head[off : off + 4] == b"PE\x00\x00"
-    return False
+    """ELF, Mach-O and anything starting with 'MZ' (PE/DOS): refused outright, since a
+    PE header can point anywhere and a text file starting with 'MZ' is not worth a parser."""
+    return head[:4] == b"\x7fELF" or head[:4] in _MACHO_MAGICS or head[:2] == b"MZ"
+
+
+def _foreign_archive(head: bytes) -> bool:
+    """gzip, bzip2, xz and tar: not scanned, so not accepted."""
+    return (
+        head[:2] == b"\x1f\x8b"
+        or head[:3] == b"BZh"
+        or head[:6] == b"\xfd7zXZ\x00"
+        or head[257:262] == b"ustar"
+    )
+
+
+def _looks_like_zip(data: bytes) -> bool:
+    """A zip starts with a local header, or has an end-of-central-directory record near
+    its tail (zipfile opens archives with junk prepended)."""
+    return data[:4] in _ZIP_MAGIC or _EOCD in data[-(0xFFFF + 22) :]
+
+
+def _fold(name: str) -> str:
+    """Collision key: names that a case- or normalisation-insensitive filesystem merges."""
+    return unicodedata.normalize("NFC", name).casefold()
 
 
 def _check_name_content(name: str) -> None:
@@ -124,21 +147,23 @@ class _Budget:
 def _scan_content(
     zf: zipfile.ZipFile, info: zipfile.ZipInfo, name: str, budget: _Budget, depth: int
 ) -> None:
-    """Magic-byte checks on one file; opens nested zips (their entries share the budget)."""
+    """Content checks on one file (best effort): native and foreign archive signatures,
+    nested zips (their entries share the budget). Reading it all also checks its CRC."""
     if info.file_size == 0:
         return
     with zf.open(info) as fh:
-        head = fh.read(256)
-        if _native_magic(head):
-            raise _fail("package_native_extension", name, "native binaries are refused anywhere")
-        is_zip = head[:4] in _ZIP_MAGIC
-        if not is_zip and not name.lower().endswith(NESTED_ARCHIVE_SUFFIXES):
-            return
-        if not is_zip:
+        data = fh.read()  # bounded: declared sizes were added to the 20 MiB budget
+    head = data[:512]
+    if _native_magic(head):
+        raise _fail("package_native_extension", name, "native binaries are refused anywhere")
+    if _foreign_archive(head):
+        raise _fail("package_nested_archive", name, "tar, gzip, bzip2 and xz are refused")
+    if not _looks_like_zip(data):
+        if name.lower().endswith(NESTED_ARCHIVE_SUFFIXES):
             raise _fail("package_bad_zip", name, "nested archive is not a readable zip")
-        if depth >= MAX_NESTING_DEPTH:
-            raise _fail("package_nested_too_deep", name, "zip files are nested too deeply")
-        data = head + fh.read(MAX_UNCOMPRESSED_BYTES)  # bounded by the declared, capped size
+        return
+    if depth >= MAX_NESTING_DEPTH:
+        raise _fail("package_nested_too_deep", name, "zip files are nested too deeply")
     try:
         inner = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
@@ -157,17 +182,18 @@ def _walk(
         name = _check_name(info)
         shown = prefix + name
         is_dir = _check_entry_kind(info, shown)
-        if name.casefold() in folded:
-            raise _fail("package_duplicate_entry", shown, "duplicate entry (case-insensitive)")
-        folded.add(name.casefold())
+        if _fold(name) in folded:
+            raise _fail("package_duplicate_entry", shown, "duplicate entry (case or Unicode form)")
+        folded.add(_fold(name))
         if is_dir:
             continue
         _check_name_content(prefix + name)
         budget.add(0, info.file_size)
         seen[name] = info
+    file_keys = {_fold(n) for n in seen}
     for name in seen:
         parts = name.split("/")
-        if any("/".join(parts[:i]) in seen for i in range(1, len(parts))):
+        if any(_fold("/".join(parts[:i])) in file_keys for i in range(1, len(parts))):
             raise _fail(
                 "package_duplicate_entry", prefix + name, "a file is also used as a directory"
             )
@@ -210,6 +236,9 @@ def _open(source: Path | bytes | BinaryIO) -> zipfile.ZipFile:
         raise _fail("package_bad_zip", "", "not a readable zip archive") from None
 
 
+_ZIP_ERRORS = (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError)
+
+
 def validate_package(
     source: Path | bytes | BinaryIO, *, origin: Origin = "third_party"
 ) -> ValidatedPackage:
@@ -217,7 +246,15 @@ def validate_package(
 
     Structural and safety failures raise at the first problem (nothing else in the
     archive is trusted); manifest and config-schema problems list every issue.
+    Every file is read once (CRC included); a corrupt archive is `package_bad_zip`.
     """
+    try:
+        return _validate_package(source, origin)
+    except _ZIP_ERRORS:
+        raise _fail("package_bad_zip", "", "the archive is corrupt or unreadable") from None
+
+
+def _validate_package(source: Path | bytes | BinaryIO, origin: Origin) -> ValidatedPackage:
     with _open(source) as zf:
         files = _walk(zf, _Budget(), 0, "")
         for required in ("manifest.json", "README.md", "LICENSE"):
@@ -302,19 +339,36 @@ def extract_package(
     root = dest.resolve()
     if root.exists() and any(root.iterdir()):
         raise _fail("package_destination_not_empty", str(dest), "destination must be empty")
+    existed = root.exists()
     root.mkdir(parents=True, exist_ok=True)
-    with zf:
-        for name in result.files:
-            target = (root / PurePosixPath(name)).resolve()
-            if not target.is_relative_to(root):
-                raise _fail("package_unsafe_path", name, "entry escapes the destination")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            written = 0
-            with zf.open(name) as src, open(target, "xb") as out:
-                while chunk := src.read(64 * 1024):
-                    written += len(chunk)
-                    if written > MAX_UNCOMPRESSED_BYTES:
-                        raise _fail("package_uncompressed_too_large", name, "entry is too large")
-                    out.write(chunk)
-            target.chmod(0o644)
+    try:
+        with zf:
+            for name in result.files:
+                target = (root / PurePosixPath(name)).resolve()
+                if not target.is_relative_to(root):
+                    raise _fail("package_unsafe_path", name, "entry escapes the destination")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                written = 0
+                with zf.open(name) as src, open(target, "xb") as out:
+                    while chunk := src.read(64 * 1024):
+                        written += len(chunk)
+                        if written > MAX_UNCOMPRESSED_BYTES:
+                            raise _fail(
+                                "package_uncompressed_too_large", name, "entry is too large"
+                            )
+                        out.write(chunk)
+                target.chmod(0o644)
+        for directory in [root, *(p for p in root.rglob("*") if p.is_dir())]:
+            if directory != root or not existed:
+                directory.chmod(0o755)
+    except BaseException as exc:
+        # No partial tree, whatever went wrong.
+        if existed:
+            for child in root.iterdir():
+                shutil.rmtree(child) if child.is_dir() else child.unlink()
+        else:
+            shutil.rmtree(root, ignore_errors=True)
+        if isinstance(exc, _ZIP_ERRORS + (OSError,)):
+            raise _fail("package_extract_failed", "", "the archive could not be extracted") from exc
+        raise
     return result
