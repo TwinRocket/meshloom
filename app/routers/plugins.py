@@ -420,6 +420,33 @@ def _status_block(row: dict[str, Any], *, acknowledged: bool = False) -> HTTPExc
     return None
 
 
+def _status_changes(
+    row: dict[str, Any],
+    *,
+    missing: list[str],
+    will_run: bool,
+    acknowledged: bool,
+    config_changed: bool,
+) -> dict[str, Any]:
+    """The one place a PATCH may move ``status``/``attention`` (the supervisor owns the
+    rest). ``revoked`` and ``incompatible`` are frozen: only an update (M2) leaves them."""
+    status = row["status"]
+    if status in ("revoked", "incompatible"):
+        return {}
+    cleared = {"attention": None, "status": "installed"}
+    if (row["attention"] or {}).get("type") == "config_required" and not missing:
+        return cleared
+    if will_run and acknowledged and status == "needs_attention":
+        return cleared
+    if not will_run and missing and config_changed and status != "needs_attention":
+        # Cleared a required field on a stopped instance: it waits for its config.
+        return {
+            "attention": {"type": "config_required", "fields": missing},
+            "status": "needs_attention",
+        }
+    return {}
+
+
 def _stored_missing(row: dict[str, Any]) -> list[str]:
     """The required config fields the stored config lacks (checked at every start)."""
     return _check_config(row["config_schema"], row["config"], frozenset(row["secret_fields"]))[1]
@@ -590,7 +617,6 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
     stored_secrets = frozenset(row["secret_fields"])
     schema = row["config_schema"]
     attention = row["attention"]
-    awaiting_config = bool(attention and attention.get("type") == "config_required")
     # Re-evaluated from the stored config on every call, never trusted from the flag.
     missing = _stored_missing(row)
     if "config" in fields and body.config is not None:
@@ -649,19 +675,15 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
             )
     if body.enabled is not None:
         changes["enabled"] = body.enabled
-    if (
-        awaiting_config
-        and not missing
-        or will_run
-        and acknowledged
-        and row["status"] == "needs_attention"
-    ):
-        changes.update(attention=None, status="installed")
-    elif not will_run and missing and "config" in changes and row["status"] != "needs_attention":
-        # Cleared a required field on a stopped instance: it waits for its config.
-        changes.update(
-            attention={"type": "config_required", "fields": missing}, status="needs_attention"
+    changes.update(
+        _status_changes(
+            row,
+            missing=missing,
+            will_run=will_run,
+            acknowledged=acknowledged,
+            config_changed="config" in changes,
         )
+    )
     if not changes:
         return await _view(row, True)
     try:

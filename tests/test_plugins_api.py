@@ -924,3 +924,29 @@ async def test_local_plugin_permissions_are_editable_through_the_manifest(api, m
         f"/api/plugins/{iid}", json={"granted_permissions": {"notifications.send": {}}}
     )
     assert bad.status_code == 400 and code_of(bad) == "manifest_invalid"
+
+
+@pytest.mark.parametrize("status", ["revoked", "incompatible"])
+async def test_frozen_status_survives_the_config_required_detour(api, manager, status):
+    iid = await _greeter(api, manager)
+    await api.patch(f"/api/plugins/{iid}", json={"enabled": False})
+    await PluginRepository.update(iid, status=status)
+
+    cleared = await api.patch(f"/api/plugins/{iid}", json={"config": {}})
+    assert cleared.status_code == 200
+    assert cleared.json()["status"] == status and cleared.json()["attention"] is None
+
+    filled = await api.patch(
+        f"/api/plugins/{iid}", json={"config": {"greeting": "x"}, "enabled": True}
+    )
+    assert filled.status_code == 409 and code_of(filled) == f"plugin_{status}"
+    assert manager.get(iid) is None
+    row = await PluginRepository.get(iid)
+    assert row["status"] == status and row["enabled"] is False  # type: ignore[index]
+
+    # Same for restart, even with the config complete and the row enabled.
+    await PluginRepository.update(iid, enabled=True)
+    restart = await api.post(f"/api/plugins/{iid}/restart")
+    assert restart.status_code == 409 and code_of(restart) == f"plugin_{status}"
+    assert (await PluginRepository.get(iid))["status"] == status  # type: ignore[index]
+    assert manager.get(iid) is None
