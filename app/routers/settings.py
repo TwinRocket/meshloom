@@ -176,6 +176,9 @@ class AppSettingsUpdate(BaseModel):
     share_preview_policy: Literal["always", "private", "never"] | None = Field(
         default=None, description="When a shared image or link preview is fetched automatically"
     )
+    notification_language: Literal["auto", "fr", "en"] | None = Field(
+        default=None, description="Language of the e-mail and Apprise notifications"
+    )
     push_private_endpoints_grandfathered: bool | None = Field(
         default=None,
         description="Set to false to dismiss the upgrade notice (setting it also clears it)",
@@ -538,6 +541,8 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         kwargs["share_enabled"] = update.share_enabled
     if update.share_shorten_mode is not None:
         kwargs["share_shorten_mode"] = update.share_shorten_mode
+    if update.notification_language is not None:
+        kwargs["notification_language"] = update.notification_language
     if update.share_preview_policy is not None:
         kwargs["share_preview_policy"] = update.share_preview_policy
     if update.push_private_endpoints_grandfathered is False:

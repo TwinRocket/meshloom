@@ -120,6 +120,7 @@ V1_SETTING_COLUMNS: tuple[str, ...] = (
     "radio_offline_grace_s",
     "share_shorten_mode",
     "share_preview_policy",
+    "notification_language",
     "ui_preferences",
 )
 BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {

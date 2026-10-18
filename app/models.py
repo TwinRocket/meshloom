@@ -1665,6 +1665,13 @@ class AppSettings(BaseModel):
             "private (conversations that are not public), never"
         ),
     )
+    notification_language: Literal["auto", "fr", "en"] = Field(
+        default="auto",
+        description=(
+            "Language of the e-mail and Apprise notifications: fr, en, or auto (English only "
+            "with a strict majority of English push subscriptions, a tie is French)"
+        ),
+    )
     push_private_endpoints_grandfathered: bool = Field(
         default=False,
         description=(

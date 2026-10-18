@@ -15,11 +15,15 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from html import escape
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from app.channel_constants import is_public_channel_key
 from app.data.meshcore_channels import is_public_hashtag_channel
+
+if TYPE_CHECKING:
+    from app.notifications.events import NotificationEvent
 
 # Inline logo name: the HTML refers to it by ``cid:`` (``app/email_template.py``).
 LOGO_CID = "meshloom-mark.png"
@@ -758,3 +762,49 @@ def render_html_email(payload: Mapping[str, Any], lang: AppLanguage) -> str:
 </body>
 </html>
 """
+
+
+TextPolicy = Literal["always", "public_only", "never"]
+
+
+@dataclass(frozen=True)
+class Rendered:
+    """One event, rendered once for every transport.
+
+    ``body_html`` is the whole HTML e-mail document (the intro and detail lines
+    are ``html.escape``d); ``body_markdown`` escapes user text; ``tag`` and
+    ``url_hash`` are the push tag (replaces a notification of the same
+    conversation) and the in-app link ("" when there is none).
+    """
+
+    title: str
+    body_text: str
+    body_markdown: str
+    body_html: str
+    tag: str
+    url_hash: str
+
+
+def render(event: NotificationEvent, lang: str, *, text_policy: TextPolicy = "always") -> Rendered:
+    """Render a catalogue event in ``lang`` (``fr`` or ``en``; anything else is French).
+
+    ``text_policy`` is the ``include_message_text`` policy of the Apprise text,
+    applied here once, to messages only: ``public_only`` keeps the text of Public
+    and ``#`` channels and gives DMs and private channels a title-only body.
+    Mention tokens are neutralised in every output.
+    """
+    language: AppLanguage = "en" if lang == "en" else "fr"
+    payload = event.to_payload()
+    title, body_text = event_notification_text(payload, language, include_message_text=text_policy)
+    _, body_markdown = event_notification_text(
+        payload, language, include_message_text=text_policy, markdown=True
+    )
+    pushed = json.loads(build_push_payload(payload, language))
+    return Rendered(
+        title=title,
+        body_text=body_text,
+        body_markdown=body_markdown,
+        body_html=render_html_email(payload, language),
+        tag=str(pushed.get("tag") or ""),
+        url_hash=str(pushed.get("url_hash") or ""),
+    )

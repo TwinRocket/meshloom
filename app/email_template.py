@@ -37,7 +37,20 @@ def email_subject(payload: Mapping[str, Any], lang: AppLanguage) -> str:
 
 
 async def resolve_instance_language() -> AppLanguage:
-    """Best instance-language proxy: majority of subscribed browsers, else French."""
+    """The language of the e-mail and Apprise text.
+
+    ``app_settings.notification_language`` when it is ``fr`` or ``en``; with
+    ``auto`` (the default), the browsers' language: English only with a strict
+    majority of English push subscriptions, a tie is French.
+    """
+    try:
+        from app.repository.settings import AppSettingsRepository
+
+        chosen = (await AppSettingsRepository.get()).notification_language
+    except Exception:
+        chosen = "auto"
+    if chosen in ("fr", "en"):
+        return chosen
     try:
         from app.repository.push_subscriptions import PushSubscriptionRepository
 
