@@ -5,10 +5,13 @@ trusted proxies, the trusted networks, the audit retention, the role of new
 Home Assistant users);
 ``/auth/users`` is the admin's account management (create, change the role,
 disable, delete, set a password, sign out); ``/auth/tokens`` (API and device
-tokens) lives in ``app/routers/auth_tokens.py``. Every change writes an audit row;
+tokens) lives in ``app/routers/auth_tokens.py``, the kiosk launcher's sign-in
+(``/auth/kiosk-bootstrap``, ``/auth/kiosk-session``) in
+``app/routers/auth_kiosk.py``. Every change writes an audit row;
 no change may leave the instance without an enabled administrator (409
 ``auth_last_admin``). Contract and rules: ``docs/dev/auth.md``. ``GET /auth/session``,
-``POST /auth/setup``, ``POST /auth/login`` and ``POST /auth/logout`` are public
+``POST /auth/setup``, ``POST /auth/login``, ``POST /auth/logout`` and ``GET
+/auth/kiosk-session`` are public
 (``PUBLIC_ROUTES``, ``app/auth/middleware.py``); the others need a principal.
 Errors are coded (``{"detail": {"code", "message", "params"?}}``), translated
 by the frontend from ``errors.<code>``. Nothing here logs a password, a code or
@@ -73,7 +76,7 @@ from app.repository.auth import (
     UsernameTakenError,
     UserRepository,
 )
-from app.routers import auth_tokens
+from app.routers import auth_kiosk, auth_tokens
 from app.security import basic_compat_active, invalidate_basic_cache
 
 logger = logging.getLogger(__name__)
@@ -1388,3 +1391,5 @@ async def get_audit(
 
 # ``/auth/tokens``: API and device tokens (``app/routers/auth_tokens.py``).
 router.include_router(auth_tokens.router)
+# ``/auth/kiosk-*``: the kiosk launcher's device-token sign-in (``app/routers/auth_kiosk.py``).
+router.include_router(auth_kiosk.router)

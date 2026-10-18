@@ -130,13 +130,15 @@ async def prepare_first_run(
     when one is already stored.
     """
     global _existing_database, _last_args
-    from app.services.kiosk import ensure_kiosk_user
+    from app.services.kiosk import ensure_kiosk_token, ensure_kiosk_user
 
     try:
         await ensure_kiosk_user()
+        # The launcher's device token (T60): the screen signs in with it.
+        await ensure_kiosk_token()
     except Exception:
         # The screen only lacks its account; setup does not depend on it.
-        logger.exception("Failed to create the kiosk account")
+        logger.exception("Failed to create the kiosk account or its device token")
     _last_args = {
         "existing_database": existing_database,
         "basic_username": basic_username,

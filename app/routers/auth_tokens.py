@@ -5,7 +5,8 @@ signed-in account, never a token (a scoped principal cannot mint, list or
 revoke tokens), then holds ``TOKEN_ROLES`` (``member`` and ``admin``, else 403
 ``auth_forbidden``). A member sees and revokes its own tokens; an admin sees
 and revokes everyone's (404 ``auth_token_not_found`` for a token the caller may
-not see). The secret is in the creation answer only. Every creation and
+not see). Revoking the kiosk's device token writes a new one to the host
+(rotation, ``app/services/kiosk.py``). The secret is in the creation answer only. Every creation and
 revocation writes a ``token.created`` / ``token.revoked`` row, refusals
 included. Rules: ``app/auth/providers/token.py``, ``docs/dev/auth.md``, "API and
 device tokens".
@@ -13,6 +14,7 @@ device tokens".
 
 from __future__ import annotations
 
+import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -30,6 +32,8 @@ from app.repository.auth import (
     TokenLimitError,
     UserRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tokens")
 
@@ -212,3 +216,18 @@ async def revoke_token(token_id: str, request: Request) -> None:
         target=target,
         details={"owner": row.user_id} if row.user_id != principal.user_id else None,
     )
+    await _reprovision_kiosk(row.user_id)
+
+
+async def _reprovision_kiosk(owner_id: int) -> None:
+    """Revoking the kiosk's device token rotates it: the host file gets a new
+    one at once (``app/services/kiosk.py``). Disable the ``kiosk`` account to
+    keep the screen signed out."""
+    from app.services import kiosk
+
+    try:
+        if kiosk.is_kiosk_account(await UserRepository.get(owner_id)):
+            await kiosk.ensure_kiosk_token()
+    except Exception:
+        # The revocation stands; the next start writes the new token.
+        logger.exception("Could not write a new kiosk device token after a revocation")
