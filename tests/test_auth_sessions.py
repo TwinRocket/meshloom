@@ -91,14 +91,20 @@ async def test_password_change_needs_the_current_one_applies_the_policy_and_revo
         await login(client, ADMIN, "a new long phrase")
 
 
-async def test_kiosk_accounts_cannot_change_their_profile():
+async def test_kiosk_accounts_have_no_profile_and_no_sessions():
     kiosk = await UserRepository.create("screen", "kiosk", provider="system")
     from app.auth.sessions import issue_session
 
     issued = await issue_session(kiosk, ip=None, user_agent=None, via="lan")
     async with make_client() as client:
         client.cookies.set("meshloom_session", issued.token)
-        assert (await client.get("/api/auth/me")).json()["role"] == "kiosk"
-        response = await client.patch("/api/auth/me", json={"display_name": "x"})
-        assert response.status_code == 403
-        assert response.json()["detail"]["code"] == "auth_forbidden"
+        assert (await client.get("/api/auth/session")).json()["user"]["role"] == "kiosk"
+        for method, path in [
+            ("GET", "/api/auth/me"),
+            ("PATCH", "/api/auth/me"),
+            ("GET", "/api/auth/sessions"),
+            ("DELETE", "/api/auth/sessions"),
+        ]:
+            response = await client.request(method, path, json={"display_name": "x"})
+            assert response.status_code == 403, path
+            assert response.json()["detail"]["code"] == "auth_forbidden", path

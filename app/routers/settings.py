@@ -5,10 +5,11 @@ import time
 from typing import Any, Literal
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+from app.auth.permissions import require
 from app.background_tasks import spawn
 from app.cors import normalize_origins
 from app.database import db
@@ -359,13 +360,13 @@ async def _settings_response() -> AppSettings:
     return await _present_settings(await AppSettingsRepository.get())
 
 
-@router.get("", response_model=AppSettings)
+@router.get("", response_model=AppSettings, dependencies=[Depends(require("admin"))])
 async def get_settings() -> AppSettings:
     """Get current application settings."""
     return await _settings_response()
 
 
-@router.patch("", response_model=AppSettings)
+@router.patch("", response_model=AppSettings, dependencies=[Depends(require("admin"))])
 async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     """Update application settings.
 
@@ -555,7 +556,11 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     return await _settings_response()
 
 
-@router.post("/favorites/toggle", response_model=FavoriteToggleResponse)
+@router.post(
+    "/favorites/toggle",
+    response_model=FavoriteToggleResponse,
+    dependencies=[Depends(require("send"))],
+)
 async def toggle_favorite(request: FavoriteRequest) -> FavoriteToggleResponse:
     """Toggle a conversation's favorite status."""
     if request.type == "contact":
@@ -581,7 +586,9 @@ async def toggle_favorite(request: FavoriteRequest) -> FavoriteToggleResponse:
     return FavoriteToggleResponse(type=request.type, id=request.id, favorite=new_value)
 
 
-@router.post("/pins/toggle", response_model=PinToggleResponse)
+@router.post(
+    "/pins/toggle", response_model=PinToggleResponse, dependencies=[Depends(require("send"))]
+)
 async def toggle_pin(request: PinRequest) -> PinToggleResponse:
     """Toggle a conversation's pinned status."""
     if request.type == "contact":
@@ -602,7 +609,11 @@ async def toggle_pin(request: PinRequest) -> PinToggleResponse:
     return PinToggleResponse(type=request.type, id=request.id, pinned=new_value)
 
 
-@router.post("/muted-channels/toggle", response_model=MuteChannelToggleResponse)
+@router.post(
+    "/muted-channels/toggle",
+    response_model=MuteChannelToggleResponse,
+    dependencies=[Depends(require("send"))],
+)
 async def toggle_muted_channel(request: MuteChannelRequest) -> MuteChannelToggleResponse:
     """Set or toggle a channel's muted status, optionally with an expiry."""
     channel = await ChannelRepository.get_by_key(request.key)
@@ -641,21 +652,29 @@ async def toggle_muted_channel(request: MuteChannelRequest) -> MuteChannelToggle
     return MuteChannelToggleResponse(key=request.key, muted=muted, muted_until=muted_until)
 
 
-@router.post("/blocked-keys/toggle", response_model=AppSettings)
+@router.post(
+    "/blocked-keys/toggle", response_model=AppSettings, dependencies=[Depends(require("admin"))]
+)
 async def toggle_blocked_key(request: BlockKeyRequest) -> AppSettings:
     """Toggle a public key's blocked status."""
     logger.info("Toggling blocked key: %s", request.key[:12])
     return await _present_settings(await AppSettingsRepository.toggle_blocked_key(request.key))
 
 
-@router.post("/blocked-names/toggle", response_model=AppSettings)
+@router.post(
+    "/blocked-names/toggle", response_model=AppSettings, dependencies=[Depends(require("admin"))]
+)
 async def toggle_blocked_name(request: BlockNameRequest) -> AppSettings:
     """Toggle a display name's blocked status."""
     logger.info("Toggling blocked name: %s", request.name)
     return await _present_settings(await AppSettingsRepository.toggle_blocked_name(request.name))
 
 
-@router.post("/tracked-telemetry/toggle", response_model=TrackedTelemetryResponse)
+@router.post(
+    "/tracked-telemetry/toggle",
+    response_model=TrackedTelemetryResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def toggle_tracked_telemetry(request: TrackedTelemetryRequest) -> TrackedTelemetryResponse:
     """Toggle periodic telemetry collection for a repeater.
 
@@ -725,7 +744,11 @@ async def toggle_tracked_telemetry(request: TrackedTelemetryRequest) -> TrackedT
     )
 
 
-@router.get("/tracked-telemetry/schedule", response_model=TelemetrySchedule)
+@router.get(
+    "/tracked-telemetry/schedule",
+    response_model=TelemetrySchedule,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_telemetry_schedule() -> TelemetrySchedule:
     """Return the current telemetry scheduling derivation.
 
@@ -757,7 +780,11 @@ class TrackedTelemetryContactsResponse(BaseModel):
     schedule: TelemetrySchedule = Field(description="Current scheduling state")
 
 
-@router.post("/tracked-telemetry-contacts/toggle", response_model=TrackedTelemetryContactsResponse)
+@router.post(
+    "/tracked-telemetry-contacts/toggle",
+    response_model=TrackedTelemetryContactsResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def toggle_tracked_telemetry_contact(
     request: TrackedTelemetryRequest,
 ) -> TrackedTelemetryContactsResponse:
@@ -861,7 +888,11 @@ class NotificationDestTestResponse(BaseModel):
     channel: Literal["email", "webhook", "apprise"]
 
 
-@router.get("/telemetry-alert-catalog", response_model=TelemetryAlertCatalog)
+@router.get(
+    "/telemetry-alert-catalog",
+    response_model=TelemetryAlertCatalog,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_telemetry_alert_catalog() -> TelemetryAlertCatalog:
     """Available metrics from last tracked snapshots, plus current latches."""
     from app.repository.contact_telemetry import ContactTelemetryRepository
@@ -959,6 +990,7 @@ async def _check_webhook_destination(patch: NotificationDestinationsUpdate) -> N
 @router.post(
     "/notification-destinations/test",
     response_model=NotificationDestTestResponse,
+    dependencies=[Depends(require("admin"))],
 )
 async def test_notification_destinations(
     request: NotificationDestTestRequest,
@@ -1019,7 +1051,11 @@ async def test_notification_destinations(
     return NotificationDestTestResponse(status="ok", channel=request.channel)
 
 
-@router.get("/tracked-telemetry-contacts/schedule", response_model=TelemetrySchedule)
+@router.get(
+    "/tracked-telemetry-contacts/schedule",
+    response_model=TelemetrySchedule,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_contact_telemetry_schedule() -> TelemetrySchedule:
     """Return the current telemetry scheduling derivation for contacts."""
     app_settings = await AppSettingsRepository.get()
@@ -1030,7 +1066,7 @@ async def get_contact_telemetry_schedule() -> TelemetrySchedule:
     )
 
 
-@router.get("/backup/database")
+@router.get("/backup/database", dependencies=[Depends(require("admin"))])
 async def download_database_backup(background_tasks: BackgroundTasks) -> FileResponse:
     """Download a consistent snapshot of meshcore.db.
 
@@ -1056,7 +1092,7 @@ async def download_database_backup(background_tasks: BackgroundTasks) -> FileRes
     )
 
 
-@router.get("/backup/json", response_model=BackupExport)
+@router.get("/backup/json", response_model=BackupExport, dependencies=[Depends(require("admin"))])
 async def download_json_backup() -> BackupExport:
     """Meshloom data only (``meshloom-backup-v1``): contacts, channels, settings,
     groups. No radio identity or radio settings: the full backup has them."""
@@ -1070,7 +1106,7 @@ def _backup_http_error(exc: BackupError) -> HTTPException:
     return HTTPException(status_code=exc.status, detail=exc.detail())
 
 
-@router.post("/backup/export")
+@router.post("/backup/export", dependencies=[Depends(require("admin"))])
 async def export_full_backup(request: BackupExportRequest | None = None) -> JSONResponse:
     """The full backup (``meshloom-backup-v2``), optionally encrypted.
 
@@ -1128,7 +1164,10 @@ _BACKUP_BODY_OPENAPI = {
 
 
 @router.post(
-    "/backup/inspect", response_model=BackupInspectResult, openapi_extra=_BACKUP_BODY_OPENAPI
+    "/backup/inspect",
+    response_model=BackupInspectResult,
+    openapi_extra=_BACKUP_BODY_OPENAPI,
+    dependencies=[Depends(require("admin"))],
 )
 async def inspect_full_backup(http_request: Request) -> BackupInspectResult:
     """Summarise a backup file and what restoring it would do; writes nothing.
@@ -1169,6 +1208,7 @@ async def restore_json_backup(request: BackupRestoreRequest) -> BackupRestoreRes
         413: {"description": "Body over 64 MiB: `backup_too_large`"},
     },
     openapi_extra=_BACKUP_BODY_OPENAPI,
+    dependencies=[Depends(require("admin"))],
 )
 async def restore_backup(http_request: Request) -> Any:
     """Restore a backup.
@@ -1232,7 +1272,11 @@ def _job_not_found() -> HTTPException:
     )
 
 
-@router.get("/backup/restore/jobs/latest", response_model=BackupRestoreJob)
+@router.get(
+    "/backup/restore/jobs/latest",
+    response_model=BackupRestoreJob,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_latest_backup_restore_job() -> BackupRestoreJob:
     """The most recent restore job, running or finished (lets the UI find it
     again after a reload). Holds step statuses, counts and warnings only."""
@@ -1244,7 +1288,11 @@ async def get_latest_backup_restore_job() -> BackupRestoreJob:
     return job
 
 
-@router.get("/backup/restore/jobs/{job_id}", response_model=BackupRestoreJob)
+@router.get(
+    "/backup/restore/jobs/{job_id}",
+    response_model=BackupRestoreJob,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_backup_restore_job(job_id: str) -> BackupRestoreJob:
     from app.services.backup_restore import get_restore_job
 

@@ -11,15 +11,16 @@ scope it:
    argon2id queue is full (``VerificationBusy``) it answers 503 ``auth_busy``;
 2. applies the CSRF rule to unsafe methods (``origin_policy.unsafe_request_allowed``):
    403 ``auth_origin_rejected`` unless a bearer token resolved;
-3. refuses any ``/api`` route outside ``PUBLIC_ROUTES`` without a principal:
-   401 ``auth_setup_required`` while no account exists, else 401
+3. refuses any ``/api`` route outside ``PUBLIC_ROUTES``, and the API docs
+   (``AUTHENTICATED_NON_API_PATHS``), without a principal: 401
+   ``auth_setup_required`` while no account exists, else 401
    ``auth_required`` (or ``auth_invalid_credentials`` when a credential was
    sent and did not check). A WebSocket upgrade is refused **before**
    ``accept()``, with close code 1008 (uvicorn answers HTTP 403, no frame).
 
-Every route requires a principal of any role until the permission registry
-lands (a later Access ticket). Paths outside ``/api`` (the frontend, ``/docs``,
-``/openapi.json``) stay public: the login page must load.
+Which role may call which route is the permission registry's decision
+(``app/auth/permissions.py``), once a principal is known. The other paths
+outside ``/api`` (the frontend) stay public: the login page must load.
 
 ``/api/auth/*`` answers carry ``Cache-Control: no-store``; a session whose
 expiry slid on this request gets its cookie again.
@@ -64,6 +65,22 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/auth/login"),
         ("POST", "/api/auth/logout"),
     }
+)
+
+# Every route outside ``/api``, by its path template: ``public`` (the frontend,
+# so the login page loads) or ``authenticated`` (any signed-in principal).
+# ``tests/test_auth_route_coverage.py`` fails on a route missing here.
+NON_API_ACCESS: dict[str, str] = {
+    "/docs": "authenticated",
+    "/redoc": "authenticated",
+    "/openapi.json": "authenticated",
+    "/": "public",
+    "/assets": "public",
+    "/site.webmanifest": "public",
+    "/{path:path}": "public",
+}
+AUTHENTICATED_NON_API_PATHS: frozenset[str] = frozenset(
+    path for path, access in NON_API_ACCESS.items() if access == "authenticated"
 )
 
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -225,10 +242,9 @@ class AuthMiddleware:
             await self._respond(send, 403, "auth_origin_rejected", path)
             return
 
-        if (
-            is_api_path(path)
-            and result.principal is None
-            and (method, path.rstrip("/") or "/") not in PUBLIC_ROUTES
+        if result.principal is None and (
+            (is_api_path(path) and (method, path.rstrip("/") or "/") not in PUBLIC_ROUTES)
+            or (path.rstrip("/") or "/") in AUTHENTICATED_NON_API_PATHS
         ):
             if not await users_exist():
                 code = "auth_setup_required"

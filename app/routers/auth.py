@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from app.auth import sessions
@@ -26,6 +26,7 @@ from app.auth.passwords import (
     password_policy_violation,
     verify_password_async,
 )
+from app.auth.permissions import own_account, public
 from app.auth.principal import Principal, Via, get_principal
 from app.auth.providers.password import VerificationBusy, authenticate
 from app.auth.setup_code import (
@@ -277,13 +278,23 @@ def _me(user: User) -> MeResponse:
 # --- Routes -------------------------------------------------------------------
 
 
-@router.get("/session", response_model=AuthSessionResponse, response_model_exclude_none=True)
+@router.get(
+    "/session",
+    response_model=AuthSessionResponse,
+    response_model_exclude_none=True,
+    dependencies=[Depends(public())],
+)
 async def get_session(request: Request) -> AuthSessionResponse:
     """Who is signed in, and what the login page needs. Public."""
     return await _session_payload(get_principal(request))
 
 
-@router.post("/setup", response_model=AuthSessionResponse, response_model_exclude_none=True)
+@router.post(
+    "/setup",
+    response_model=AuthSessionResponse,
+    response_model_exclude_none=True,
+    dependencies=[Depends(public())],
+)
 async def setup(body: SetupRequest, request: Request, response: Response) -> AuthSessionResponse:
     """Create the first administrator. Public while no account exists, 409 after."""
     async with _setup_lock:
@@ -318,7 +329,12 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
     return await _session_payload(principal, opened=principal is not None)
 
 
-@router.post("/login", response_model=AuthSessionResponse, response_model_exclude_none=True)
+@router.post(
+    "/login",
+    response_model=AuthSessionResponse,
+    response_model_exclude_none=True,
+    dependencies=[Depends(public())],
+)
 async def login(body: LoginRequest, request: Request, response: Response) -> AuthSessionResponse:
     """Check a username and password and open a session. Public.
 
@@ -337,7 +353,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     return await _session_payload(principal, opened=principal is not None)
 
 
-@router.post("/logout", response_model=OkResponse)
+@router.post("/logout", response_model=OkResponse, dependencies=[Depends(public())])
 async def logout(request: Request, response: Response) -> OkResponse:
     """End the current session and clear the cookie. Public (idempotent)."""
     principal = get_principal(request)
@@ -350,7 +366,7 @@ async def logout(request: Request, response: Response) -> OkResponse:
     return OkResponse()
 
 
-@router.get("/sessions", response_model=list[SessionInfo])
+@router.get("/sessions", response_model=list[SessionInfo], dependencies=[Depends(own_account())])
 async def list_sessions(request: Request) -> list[SessionInfo]:
     """The signed-in user's active sessions, newest first."""
     principal = _require(request)
@@ -364,7 +380,7 @@ async def list_sessions(request: Request) -> list[SessionInfo]:
     ]
 
 
-@router.delete("/sessions", response_model=RevokedCount)
+@router.delete("/sessions", response_model=RevokedCount, dependencies=[Depends(own_account())])
 async def revoke_other_sessions(request: Request) -> RevokedCount:
     """Sign out everywhere except here."""
     principal = _require(request)
@@ -381,7 +397,9 @@ async def revoke_other_sessions(request: Request) -> RevokedCount:
     return RevokedCount(revoked=count)
 
 
-@router.delete("/sessions/{session_id}", response_model=OkResponse)
+@router.delete(
+    "/sessions/{session_id}", response_model=OkResponse, dependencies=[Depends(own_account())]
+)
 async def revoke_session(session_id: str, request: Request) -> OkResponse:
     """Revoke one of the signed-in user's sessions (404 for anyone else's)."""
     principal = _require(request)
@@ -399,13 +417,13 @@ async def revoke_session(session_id: str, request: Request) -> OkResponse:
     return OkResponse()
 
 
-@router.get("/me", response_model=MeResponse)
+@router.get("/me", response_model=MeResponse, dependencies=[Depends(own_account())])
 async def get_me(request: Request) -> MeResponse:
     """The signed-in user's profile."""
     return _me(_require(request).user)
 
 
-@router.patch("/me", response_model=MeResponse)
+@router.patch("/me", response_model=MeResponse, dependencies=[Depends(own_account())])
 async def patch_me(body: MePatch, request: Request) -> MeResponse:
     """Change the display name or the password (the current one is required).
 

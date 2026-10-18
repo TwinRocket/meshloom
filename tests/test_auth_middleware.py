@@ -76,10 +76,17 @@ async def test_public_routes_answer_anonymously_and_minimally():
         assert session.headers["cache-control"] == "no-store"
 
 
-async def test_frontend_paths_stay_public():
+async def test_frontend_paths_stay_public_and_api_docs_need_an_account():
+    await create_user()
     async with make_client() as client:
-        response = await client.get("/docs")
-    assert response.status_code == 200
+        assert (await client.get("/")).status_code != 401
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            response = await client.get(path)
+            assert response.status_code == 401, path
+            assert _code(response) == "auth_required", path
+        await login(client)
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert (await client.get(path)).status_code == 200, path
 
 
 async def test_login_sets_a_plain_cookie_over_http_and_unlocks_the_api():

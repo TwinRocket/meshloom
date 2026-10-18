@@ -6,9 +6,10 @@ import logging
 import re
 import string
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import require
 from app.fanout.bot_exec import _analyze_bot_signature
 from app.fanout.manager import fanout_manager, is_reserved_fanout_id
 from app.net.apprise_urls import (
@@ -524,14 +525,14 @@ def present_fanout_config(cfg: dict) -> dict:
     return {**cfg, "config": redact_config(cfg["type"], cfg.get("config") or {})}
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require("admin"))])
 async def list_fanout_configs() -> list[dict]:
     """List all fanout configs."""
     configs = await FanoutConfigRepository.get_all()
     return [present_fanout_config(cfg) for cfg in configs if not is_reserved_fanout_id(cfg["id"])]
 
 
-@router.get("/{config_id}")
+@router.get("/{config_id}", dependencies=[Depends(require("admin"))])
 async def get_fanout_config(config_id: str) -> dict:
     """One fanout config."""
     existing = (
@@ -592,7 +593,7 @@ def prepare_refused_apprise_config(config: dict, scope: dict) -> tuple[dict, dic
     return normalized, _enforce_scope("apprise", scope)
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require("admin"))])
 async def create_fanout_config(body: FanoutConfigCreate) -> dict:
     """Create a new fanout config."""
     if body.type not in _VALID_TYPES:
@@ -628,7 +629,7 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
     return present_fanout_config(cfg)
 
 
-@router.patch("/{config_id}")
+@router.patch("/{config_id}", dependencies=[Depends(require("admin"))])
 async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict:
     """Update a fanout config. Triggers module reload."""
     if is_reserved_fanout_id(config_id):
@@ -682,7 +683,7 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     return present_fanout_config(updated)
 
 
-@router.delete("/{config_id}")
+@router.delete("/{config_id}", dependencies=[Depends(require("admin"))])
 async def delete_fanout_config(config_id: str) -> dict:
     """Delete a fanout config."""
     if is_reserved_fanout_id(config_id):
@@ -699,7 +700,7 @@ async def delete_fanout_config(config_id: str) -> dict:
     return {"deleted": True}
 
 
-@router.post("/bots/disable-until-restart")
+@router.post("/bots/disable-until-restart", dependencies=[Depends(require("admin"))])
 async def disable_bots_until_restart() -> dict:
     """Stop active bot modules and prevent them from running again until restart."""
     source = await fanout_manager.disable_bots_until_restart()

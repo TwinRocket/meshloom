@@ -2,8 +2,10 @@
 
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+from app.auth.permissions import require
+from app.auth.principal import get_principal
 from app.routers.health import build_health_data
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.websocket import reject_foreign_origin, ws_manager
@@ -12,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.websocket("/ws")
+@router.websocket("/ws", dependencies=[Depends(require("read"))])
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket endpoint for real-time updates.
 
@@ -23,7 +25,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     """
     if await reject_foreign_origin(websocket):
         return
-    await ws_manager.connect(websocket)
+    await ws_manager.connect(websocket, get_principal(websocket))
 
     # Send initial health status
     try:

@@ -4,9 +4,19 @@ from hashlib import sha256
 from sqlite3 import OperationalError
 
 import aiosqlite
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from app.auth.permissions import can_read_private, require
 from app.database import db
 from app.decoder import PayloadType, parse_packet, try_decrypt_packet_with_channel_key
 from app.models import (
@@ -134,7 +144,7 @@ async def _run_historical_channel_decryption(
         )
 
 
-@router.get("/undecrypted/count")
+@router.get("/undecrypted/count", dependencies=[Depends(require("read"))])
 async def get_undecrypted_count() -> dict:
     """Get the count of undecrypted packets."""
     count = await RawPacketRepository.get_undecrypted_count()
@@ -144,6 +154,7 @@ async def get_undecrypted_count() -> dict:
 @router.get(
     "/undecrypted/group-text-samples",
     response_model=UndecryptedGroupTextSamplesResponse,
+    dependencies=[Depends(require("read"))],
 )
 async def get_undecrypted_group_text_samples(
     max_hashes: int = 80,
@@ -184,7 +195,7 @@ async def get_undecrypted_group_text_samples(
     )
 
 
-@router.post("/region-backfill")
+@router.post("/region-backfill", dependencies=[Depends(require("admin"))])
 async def backfill_regions() -> dict:
     """Re-resolve region scope for stored channel messages that still have a raw packet.
 
@@ -221,6 +232,14 @@ def _payload_type_filter(value: str | None) -> PayloadType | None:
         ) from None
 
 
+def _visible_detail(request: Request, detail: RawPacketDetail) -> RawPacketDetail:
+    """Without ``read_private`` a packet decrypted from a DM is shown undecrypted."""
+    info = detail.decrypted_info
+    if info is None or info.contact_key is None or can_read_private(request):
+        return detail
+    return detail.model_copy(update={"decrypted": False, "decrypted_info": None})
+
+
 async def _history_item_detail(
     packet_id: int,
     packet_data: bytes,
@@ -253,8 +272,11 @@ async def _history_item_detail(
     )
 
 
-@router.get("/history", response_model=RawPacketHistoryResponse)
+@router.get(
+    "/history", response_model=RawPacketHistoryResponse, dependencies=[Depends(require("read"))]
+)
 async def get_raw_packet_history(
+    request: Request,
     payload_type: str | None = Query(default=None),
     since: int | None = Query(default=None),
     until: int | None = Query(default=None),
@@ -280,8 +302,11 @@ async def get_raw_packet_history(
     )
     known_regions = (await AppSettingsRepository.get()).known_regions
     items = [
-        await _history_item_detail(
-            packet_id, packet_data, packet_timestamp, message_id, known_regions
+        _visible_detail(
+            request,
+            await _history_item_detail(
+                packet_id, packet_data, packet_timestamp, message_id, known_regions
+            ),
         )
         for packet_id, packet_data, packet_timestamp, message_id in rows
     ]
@@ -293,8 +318,8 @@ async def get_raw_packet_history(
     )
 
 
-@router.get("/{packet_id}", response_model=RawPacketDetail)
-async def get_raw_packet(packet_id: int) -> RawPacketDetail:
+@router.get("/{packet_id}", response_model=RawPacketDetail, dependencies=[Depends(require("read"))])
+async def get_raw_packet(request: Request, packet_id: int) -> RawPacketDetail:
     """Fetch one stored raw packet by row ID for on-demand inspection."""
     packet_row = await RawPacketRepository.get_by_id(packet_id)
     if packet_row is None:
@@ -321,7 +346,7 @@ async def get_raw_packet(packet_id: int) -> RawPacketDetail:
 
     _, decrypted_info = await attach_raw_packet_decrypted_info(packet_data, message_id)
 
-    return RawPacketDetail(
+    detail = RawPacketDetail(
         id=stored_packet_id,
         timestamp=packet_timestamp,
         data=packet_data.hex(),
@@ -331,9 +356,12 @@ async def get_raw_packet(packet_id: int) -> RawPacketDetail:
         transport_code=transport_code,
         region=region,
     )
+    return _visible_detail(request, detail)
 
 
-@router.post("/decrypt/historical", response_model=DecryptResult)
+@router.post(
+    "/decrypt/historical", response_model=DecryptResult, dependencies=[Depends(require("admin"))]
+)
 async def decrypt_historical_packets(
     request: DecryptRequest, background_tasks: BackgroundTasks, response: Response
 ) -> DecryptResult:
@@ -448,7 +476,9 @@ class MaintenanceResult(BaseModel):
     vacuumed: bool
 
 
-@router.post("/maintenance", response_model=MaintenanceResult)
+@router.post(
+    "/maintenance", response_model=MaintenanceResult, dependencies=[Depends(require("admin"))]
+)
 async def run_maintenance(request: MaintenanceRequest) -> MaintenanceResult:
     """
     Run packet maintenance tasks and reclaim disk space.

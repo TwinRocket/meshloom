@@ -1,9 +1,10 @@
 import os
 from typing import Any, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import public
 from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
@@ -260,7 +261,11 @@ class MinimalHealthResponse(BaseModel):
     ok: bool = True
 
 
-@router.get("/health", response_model=HealthResponse | MinimalHealthResponse)
+@router.get(
+    "/health",
+    response_model=HealthResponse | MinimalHealthResponse,
+    dependencies=[Depends(public())],
+)
 async def healthcheck(request: Request) -> HealthResponse | MinimalHealthResponse:
     """Check if the API is running and if the radio is connected.
 
