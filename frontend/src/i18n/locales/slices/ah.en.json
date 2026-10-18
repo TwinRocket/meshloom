@@ -1,0 +1,15 @@
+{
+  "errors": {
+    "share_disabled": "Sharing is turned off on this Meshloom. An administrator can turn it on in the settings.",
+    "share_unavailable": "The share service cannot be reached right now. Try again later.",
+    "share_quota_exceeded": "This Meshloom has reached its share quota. Try again later.",
+    "share_rate_limited": "Too many share requests at once. Wait a moment and try again.",
+    "share_banned": "The share service has banned this Meshloom. Writing is refused; existing links still open.",
+    "share_too_large": "This file is too large to share.",
+    "share_type_refused": "This type of file cannot be shared.",
+    "share_not_found": "This link or file does not exist.",
+    "share_gone": "This link or file expired or was removed.",
+    "share_target_blocked": "The share service refuses links to this address.",
+    "share_invalid_url": "This address cannot be shortened."
+  }
+}
