@@ -63,9 +63,13 @@ Home Assistant, or if anyone you do not fully trust can sign in, turn bots off.
 
 Opened from the sidebar, Meshloom signs you in with your Home Assistant user:
 no Meshloom password and no account creation page, also after an update from
-4.18. The first Home Assistant user to open it becomes its administrator; the
-next ones get the **Member** role, which can read and send but not change
-settings. Meshloom keeps one account per Home Assistant user (its display name
+4.18. The first Home Assistant user to open it becomes its administrator, even
+if a Meshloom administrator already exists (one made from `basic_auth_*` or with
+`meshloom-admin`): the sidebar is the add-on's way in and must always reach an
+administrator. The next ones get the **Member** role, which can read and send
+but not change settings. Only Home Assistant administrators see the Meshloom
+panel (the add-on keeps it admin-only), so these are always people who
+already administer your Home Assistant. Meshloom keeps one account per Home Assistant user (its display name
 follows Home Assistant's), and sets no cookie of its own under ingress: Home
 Assistant's address is shared by every add-on.
 

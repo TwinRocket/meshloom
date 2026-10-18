@@ -41,6 +41,24 @@ RETIRED_PASS_THROUGH = {
 }
 
 
+# ``--no-proxy-headers``: uvicorn would otherwise take the client address from
+# ``X-Forwarded-For`` sent by any loopback caller (its default
+# ``forwarded_allow_ips`` is 127.0.0.1), so a bot or a webhook aimed at
+# 127.0.0.1:8000 could pass for the Supervisor and mint a Home Assistant
+# identity. The app reads proxy headers in one place (app/origin_policy.py).
+UVICORN_ARGV = [
+    "uv",
+    "run",
+    "uvicorn",
+    "app.main:app",
+    "--host",
+    "0.0.0.0",
+    "--port",
+    "8000",
+    "--no-proxy-headers",
+]
+
+
 def read_options(path: Path = OPTIONS_FILE) -> dict[str, object]:
     """The options Home Assistant wrote, or none at all.
 
@@ -97,10 +115,7 @@ def main() -> None:
     proxy_port = environment.get("MESHCORE_RADIO_PROXY_PORT", "unset")
     print(f"Starting Meshloom on port 8000, radio proxy on {proxy_port}", file=sys.stderr)
 
-    os.execvp(
-        "uv",
-        ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
-    )
+    os.execvp("uv", UVICORN_ARGV)
 
 
 if __name__ == "__main__":

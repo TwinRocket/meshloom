@@ -263,7 +263,10 @@ class AuthMiddleware:
                 code = "auth_invalid_credentials"
             else:
                 code = "auth_required"
-            await self._respond(send, 401, code, path, challenge=not result.bearer_sent)
+            # No Basic challenge under ingress: the browser would prompt for a
+            # password inside the Home Assistant panel.
+            challenge = not result.bearer_sent and via != "ingress"
+            await self._respond(send, 401, code, path, challenge=challenge)
             return
 
         await self.app(

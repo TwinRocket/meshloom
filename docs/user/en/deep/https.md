@@ -25,7 +25,7 @@ Uvicorn is the program that serves Meshloom. Make a certificate, then start it w
 
 ```bash
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 ```
 
 The browser shows a warning because nobody known signed the certificate. Accept it once. [mkcert](https://github.com/FiloSottile/mkcert) makes certificates your own devices trust, which avoids the warning.
@@ -41,7 +41,7 @@ services:
       - ./data:/app/data
       - ./cert.pem:/app/cert.pem:ro
       - ./key.pem:/app/key.pem:ro
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
 ```
 
 The certificate mounts are read-only. `command` replaces the one built into the image, so it must contain the whole line, host and port included.

@@ -109,4 +109,4 @@ EXPOSE 8000
 # Run the application. The entrypoint only execs CMD unless
 # MESHLOOM_RUN_AS_USER is set, so the Home Assistant add-on's CMD is unchanged.
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

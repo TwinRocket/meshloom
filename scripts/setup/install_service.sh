@@ -243,7 +243,7 @@ generate_service_file() {
     echo "Type=simple"
     echo "User=${CURRENT_USER}"
     echo "WorkingDirectory=${REPO_DIR}"
-    echo "ExecStart=${UVICORN_BIN} app.main:app --host 0.0.0.0 --port 8000"
+    echo "ExecStart=${UVICORN_BIN} app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers"
     echo "Restart=always"
     echo "RestartSec=5"
     echo "Environment=MESHCORE_DATABASE_PATH=${REPO_DIR}/data/meshcore.db"

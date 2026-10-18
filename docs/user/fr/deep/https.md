@@ -25,7 +25,7 @@ Uvicorn est le programme qui sert Meshloom. Fabriquez un certificat, puis lancez
 
 ```bash
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 ```
 
 Le navigateur affiche un avertissement, puisque personne de connu n’a signé le certificat. Acceptez-le une fois. [mkcert](https://github.com/FiloSottile/mkcert) fabrique des certificats que vos propres appareils approuvent, ce qui supprime l’avertissement.
@@ -41,7 +41,7 @@ services:
       - ./data:/app/data
       - ./cert.pem:/app/cert.pem:ro
       - ./key.pem:/app/key.pem:ro
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
 ```
 
 Les montages du certificat sont en lecture seule. `command` remplace celle de l’image : elle doit donc contenir toute la ligne, hôte et port compris.

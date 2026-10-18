@@ -15,8 +15,10 @@ by the browser). Those headers are trusted only when all of these hold:
 
 The HA user is mapped to a local account ``provider = "ingress"``,
 ``external_id = <HA user id>``, created on first sight: the first ingress
-identity of the instance as ``admin`` (HA may show the add-on to every
-household account, ``panel_admin: false``), the next ones with
+identity of the instance as ``admin`` even when a local admin exists
+(cadrage R3: the sidebar must reach an administrator; safe because the
+manifest keeps ``panel_admin`` true, so only HA administrators see the
+panel), the next ones with
 ``auth_settings.ingress_default_role`` (``member`` by default). The account
 has no password; its display name follows HA's. No session cookie is ever set
 or read under ingress (the HA origin is shared by every add-on): the identity

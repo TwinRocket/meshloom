@@ -213,9 +213,14 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
 - The HA user maps to `users.provider = 'ingress'`, `external_id = <HA id>`
   (unique per provider), created on first sight with no password. The first
   ingress identity of the instance is `admin`, whatever local accounts exist
-  (a 4.18.x add-on with `basic_auth_*` has an imported local admin, and the
-  sidebar must still reach an administrator); the next ones get
-  `auth_settings.ingress_default_role` (`member` by default). A lock makes the
+  (cadrage R3: a 4.18.x add-on with `basic_auth_*` has an imported local admin,
+  or one made with `meshloom-admin`, and the sidebar, the add-on's only way in
+  by default, must still reach an administrator); the next ones get
+  `auth_settings.ingress_default_role` (`member` by default). This is safe
+  because the manifest leaves `panel_admin` at its default (true): only Home
+  Assistant administrators see the panel, so the first ingress user is one of
+  them. `panel_admin` is a manifest key, not a user option; never set it to
+  false without revisiting this rule. A lock makes the
   check and the insert one step. When it is the first account, the
   installation code is cleared, so a 4.18.x add-on lands signed in with no
   setup step. Audit row `ingress_user_created` (`details.role`).
@@ -250,13 +255,19 @@ MSHL-279).** Not run yet; record the result here.
 2. Temporary log line, or `docker logs` with `log_level: DEBUG`: confirm the
    peer address is `172.30.32.2` and the three `X-Remote-User-*` headers arrive
    (and `X-Forwarded-Host`); note a non-ASCII display name renders correctly.
-3. Sign in to HA as a second, non-admin user (with `panel_admin: false`): the
-   account gets the Member role.
-4. Upgrade a 4.18.x add-on (with and without `basic_auth_*`): the sidebar lands
+3. Sign in to HA as a second Home Assistant administrator: the account gets
+   the Member role.
+4. Sign in to HA as a non-administrator and open the ingress URL copied from
+   an administrator's session: no access (the panel is admin-only through
+   `panel_admin`, which users cannot change).
+5. Upgrade a 4.18.x add-on (with and without `basic_auth_*`): the sidebar lands
    signed in with no setup step.
-5. Publish port 8000: `curl -H 'X-Remote-User-Id: x' http://<ha>:<port>/api/contacts`
+6. Publish port 8000: `curl -H 'X-Remote-User-Id: x' http://<ha>:<port>/api/contacts`
    answers 401, and the login page asks for a password there.
-6. Live updates through the sidebar, Nabu Casa and the Companion app (the
+7. After `meshloom-admin disable-user <name>` on an ingress account, the
+   sidebar shows the Home Assistant sign-in page, with no browser password
+   prompt.
+8. Live updates through the sidebar, Nabu Casa and the Companion app (the
    WebSocket checks of MSHL-279).
 
 ### Proxy headers
@@ -265,7 +276,15 @@ MSHL-279).** Not run yet; record the result here.
 `X-Forwarded-Host` for same-origin (WebSocket and CSRF), `X-Forwarded-Proto`
 for `request_is_secure()` (cookie flavour only). The client IP stored in
 sessions and audit rows is the ASGI peer (`scope["client"]`). Trusted proxies
-and `X-Forwarded-For` come with a later ticket.
+and `X-Forwarded-For` come with a later ticket. Every launcher starts uvicorn
+with `--no-proxy-headers` (`meshloom/run.py`, `Dockerfile`,
+`pkg/nfpm/meshloom.service`, `scripts/setup/install_service.sh`, the snake-oil
+compose of `install_docker.sh`, and the documented commands): with uvicorn's
+default (`forwarded_allow_ips=127.0.0.1`) a loopback caller's
+`X-Forwarded-For: 172.30.32.2` would become the peer and pass for the
+Supervisor. `tests/test_auth_ingress.py` checks the launchers and that stack.
+A 401 under ingress never carries the Basic challenge (the browser would
+prompt inside the Home Assistant panel).
 
 ## Permissions
 

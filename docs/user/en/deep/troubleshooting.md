@@ -16,7 +16,7 @@ Set `MESHCORE_LOG_LEVEL=DEBUG`, then restart Meshloom.
 - **From a source checkout:**
 
 ```bash
-MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 ## Support snapshot

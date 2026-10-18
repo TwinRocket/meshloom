@@ -1,9 +1,16 @@
 """Home Assistant ingress identities (app/auth/providers/ingress.py) through the real gate."""
 
+import importlib.util
+import re
+from pathlib import Path
+
+import httpx
 import pytest
+import uvicorn
 from fastapi import FastAPI, WebSocket
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from uvicorn.main import main as uvicorn_main
 
 from app.auth import middleware, setup_code
 from app.auth.middleware import AuthMiddleware
@@ -254,3 +261,74 @@ def test_websocket_upgrade_through_ingress_carries_the_identity(monkeypatch):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/api/ws"):
             pass
+
+
+async def test_no_basic_challenge_under_ingress():
+    await create_user()
+    await AuthSettingsRepository.update(basic_imported=True)
+    async with make_client(client=LAN_PEER) as client:
+        assert "www-authenticate" in (await client.get("/api/contacts")).headers
+    async with make_client(client=SUPERVISOR) as client:
+        anonymous = await client.get("/api/contacts")
+        assert anonymous.status_code == 401
+        assert "www-authenticate" not in anonymous.headers
+        first = (await client.get("/api/auth/session", headers=ha_headers())).json()
+        await UserRepository.update(first["user"]["id"], disabled=True)
+        disabled = await client.get("/api/contacts", headers=ha_headers())
+        assert disabled.status_code == 401
+        assert "www-authenticate" not in disabled.headers
+
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _uvicorn_args(launcher: str) -> list[str]:
+    """The uvicorn arguments after ``app.main:app`` in a launcher's command line."""
+    if launcher == "meshloom/run.py":
+        spec = importlib.util.spec_from_file_location("addon_run", REPO / launcher)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        argv = list(module.UVICORN_ARGV)
+    else:
+        text = (REPO / launcher).read_text(encoding="utf-8")
+        line = next(line for line in text.splitlines() if "app.main:app" in line)
+        argv = re.findall(r"[\w.:/-]+", line.split("app.main:app", 1)[1])
+        argv = ["app.main:app", *argv]
+    return argv[argv.index("app.main:app") + 1 :]
+
+
+LAUNCHERS = [
+    "meshloom/run.py",
+    "Dockerfile",
+    "pkg/nfpm/meshloom.service",
+    "scripts/setup/install_service.sh",
+]
+
+
+@pytest.mark.parametrize("launcher", LAUNCHERS)
+def test_every_launcher_disables_uvicorn_proxy_headers(launcher):
+    """``app/origin_policy.py`` is the one proxy-header interpreter: uvicorn must not
+    rewrite ``scope["client"]`` from ``X-Forwarded-For`` (docs/dev/auth.md)."""
+    params = uvicorn_main.make_context("uvicorn", ["app.main:app", *_uvicorn_args(launcher)]).params
+    assert params["proxy_headers"] is False, launcher
+
+
+@pytest.mark.parametrize("proxy_headers", [False, True])
+async def test_a_loopback_caller_forging_x_forwarded_for_is_not_the_supervisor(proxy_headers):
+    """The add-on's uvicorn stack: a bot or a webhook aimed at 127.0.0.1:8000 cannot pass
+    for the Supervisor. ``True`` shows what ``--no-proxy-headers`` prevents."""
+    from app.main import app
+
+    await create_user()
+    config = uvicorn.Config(app, proxy_headers=proxy_headers, lifespan="off")
+    config.load()
+    transport = httpx.ASGITransport(app=config.loaded_app, client=("127.0.0.1", 50000))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        session = await client.get(
+            "/api/auth/session",
+            headers={**ha_headers(), "X-Forwarded-For": ingress.SUPERVISOR_IP},
+        )
+    assert session.json()["authenticated"] is proxy_headers
+    created = await UserRepository.get_by_external_id("ingress", ALICE_ID)
+    assert (created is not None) is proxy_headers
