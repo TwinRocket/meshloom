@@ -752,6 +752,7 @@ describe('BackupRestoreFlow', () => {
       'accounts_restored',
       'accounts_no_admin',
       'trusted_network_dropped:192.168.1.0/24',
+      'api_token_dropped:0123456789abcdef0123456789abcdef',
     ];
     for (const language of ['en', 'fr']) {
       const t = i18n.getFixedT(language);

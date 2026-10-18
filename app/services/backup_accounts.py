@@ -25,11 +25,16 @@ Rules (``docs/dev/backup.md``, "Accounts"):
   names the same username before and after (``trusted_network_dropped:<cidr>``).
   The ``accounts`` restore hook reloads the trusted network rules.
 - **Never log** a hash, a TOTP secret or a row: log lines carry counts only.
-- **Extension point.** API tokens (Access T27) are not a table yet. They will be
-  their own section ``api_tokens`` (hashes and scopes, ``sensitive``) registered
-  with ``requires=["users"]`` and added to ``ACCOUNT_SECTIONS``, so the same box
-  leaves them out and a file without accounts never restores tokens. Passkeys
-  and recovery codes (T50, T52) go inside this section, as a new ``version``.
+- **API tokens** (``api_tokens``, Access T27): every live token (not revoked,
+  not expired) with its SHA-256 hash, scopes, expiry and origin, never a
+  secret (the database has none). ``sensitive``, ``requires=["users"]`` and in
+  ``ACCOUNT_SECTIONS``, so the same box leaves it out and a file without
+  accounts never restores tokens. Its restore replaces the tokens and keeps
+  only the rows whose owner exists after the accounts restore and whose
+  scopes that owner's role grants (``api_token_dropped:<id>`` otherwise). A
+  restore of ``users`` without this section leaves no token (the accounts'
+  rows cascade). Passkeys and recovery codes (T50, T52) go inside the
+  ``users`` section, as a new ``version``.
 """
 
 import json
@@ -39,13 +44,14 @@ import time
 
 import aiosqlite
 import nacl.pwhash.argon2id as argon2id
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from app.auth.models import (
     USERNAME_MAX_LENGTH,
     AuthSettings,
     Provider,
     Role,
+    TokenOrigin,
     TrustedNetworkRule,
 )
 from app.models import BackupSection
@@ -59,8 +65,10 @@ from app.services.backup_sections import (
 logger = logging.getLogger(__name__)
 
 USERS_SECTION = "users"
-# Sections the "Include accounts" box covers (T27 adds "api_tokens").
-ACCOUNT_SECTIONS: tuple[str, ...] = (USERS_SECTION,)
+API_TOKENS_SECTION = "api_tokens"
+# Sections the "Include accounts" box covers.
+ACCOUNT_SECTIONS: tuple[str, ...] = (USERS_SECTION, API_TOKENS_SECTION)
+MAX_BACKUP_TOKENS = 100_000
 
 # A bound on a file, not a policy.
 MAX_BACKUP_USERS = 10_000
@@ -317,3 +325,118 @@ register_backup_section(
     sensitive=True,
 )
 register_on_restore("accounts", _reload_access_state)
+
+
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+_TOKEN_COLUMNS = (
+    "id",
+    "user_id",
+    "name",
+    "token_hash",
+    "scopes",
+    "created_at",
+    "last_used_at",
+    "expires_at",
+    "origin",
+)
+
+
+class BackupApiToken(BaseModel):
+    """One API or device token as the file holds it: a hash, never a secret."""
+
+    model_config = ConfigDict(hide_input_in_errors=True, extra="ignore")
+
+    id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    user_id: int = Field(ge=1)
+    name: str = Field(min_length=1, max_length=64)
+    token_hash: SecretStr
+    scopes: list[str] = Field(min_length=1, max_length=5)
+    created_at: int = Field(ge=0)
+    last_used_at: int | None = None
+    expires_at: int | None = None
+    origin: TokenOrigin = "ui"
+
+    @field_validator("token_hash")
+    @classmethod
+    def _sha256_hex(cls, value: SecretStr) -> SecretStr:
+        if not _SHA256_HEX.fullmatch(value.get_secret_value()):
+            raise ValueError("token_hash is not a SHA-256 hex digest")
+        return value
+
+
+class BackupApiTokensData(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True, extra="ignore")
+
+    tokens: list[BackupApiToken] = Field(max_length=MAX_BACKUP_TOKENS)
+
+
+async def export_api_tokens() -> BackupSection | None:
+    from app.database import db
+
+    now = int(time.time())
+    async with db.readonly() as conn:
+        async with conn.execute(
+            f"SELECT {', '.join(_TOKEN_COLUMNS)} FROM api_tokens WHERE revoked_at IS NULL"
+            " AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at, id",
+            (now,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    if not rows:
+        return None
+    tokens = []
+    for row in rows:
+        token = {column: row[column] for column in _TOKEN_COLUMNS}
+        token["scopes"] = json.loads(token["scopes"] or "[]")
+        tokens.append(token)
+    return BackupSection(data={"tokens": tokens})
+
+
+async def restore_api_tokens(section: BackupSection, conn: aiosqlite.Connection) -> list[str]:
+    from app.auth.providers.token import close_token_sockets, scope_violation
+
+    data = BackupApiTokensData.model_validate(section.data)
+    async with conn.execute("SELECT id, role FROM users") as cursor:
+        roles = {int(row[0]): str(row[1]) for row in await cursor.fetchall()}
+    async with conn.execute("SELECT id FROM api_tokens") as cursor:
+        replaced = [str(row[0]) for row in await cursor.fetchall()]
+    await conn.execute("DELETE FROM api_tokens")
+    warnings: list[str] = []
+    restored = 0
+    for token in data.tokens:
+        role = roles.get(token.user_id)
+        if role is None or scope_violation(role, token.scopes) is not None:  # type: ignore[arg-type]
+            warnings.append(f"api_token_dropped:{token.id}")
+            continue
+        await conn.execute(
+            f"INSERT OR IGNORE INTO api_tokens ({', '.join(_TOKEN_COLUMNS)})"
+            f" VALUES ({', '.join('?' for _ in _TOKEN_COLUMNS)})",
+            (
+                token.id,
+                token.user_id,
+                token.name.strip() or "token",
+                token.token_hash.get_secret_value(),
+                json.dumps(sorted(set(token.scopes))),
+                token.created_at,
+                token.last_used_at,
+                token.expires_at,
+                token.origin,
+            ),
+        )
+        restored += 1
+    # In memory only, and fail closed: a rolled-back commit just closed sockets.
+    close_token_sockets(replaced)
+    logger.info("Backup restore: %d API token(s) restored", restored)
+    return warnings
+
+
+register_backup_section(
+    API_TOKENS_SECTION,
+    export_api_tokens,
+    restore_api_tokens,
+    description={
+        "en": "API and device tokens: names, scopes and hashes (never the tokens themselves)",
+        "fr": "Jetons d'API et d'appareil : noms, portées et hachés (jamais les jetons eux-mêmes)",
+    },
+    sensitive=True,
+    requires=[USERS_SECTION],
+)
