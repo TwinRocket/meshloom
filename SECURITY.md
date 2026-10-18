@@ -35,19 +35,22 @@ deliberate. These are documented and are not treated as vulnerabilities:
 - **No user accounts.** Anyone who can reach the web interface controls the
 - **No user accounts.** Anyone who can reach the web interface controls the
   node. The WebSocket (`/api/ws`) is the exception to cross-origin access: an
-  upgrade whose `Origin` does not match `Host` (or `X-Forwarded-Host`) is
-  refused with 403 before it is accepted; one without `Origin` (scripts, native
-  clients) is accepted.
+  upgrade whose `Origin` neither matches `Host` (or the first
+  `X-Forwarded-Host`) nor is in the allowed-origins list is refused with 403
+  before it is accepted; one without `Origin` (scripts, native clients) is
+  accepted.
 - **Other web pages are only partly kept out.** CORS is same-origin, plus the
   origins listed in **Settings > Local Configuration > Allowed origins** (empty
   by default), so another site cannot read API answers or send JSON requests.
   It can still send requests that need no preflight (a `POST` with no body)
   without reading the answer. Nothing checks `Host` for the HTTP API either
   (DNS rebinding).
-  The WebSocket `Origin` rule (MSHL-7) does not use the allowed-origins list
-  yet, so a listed site gets the HTTP API but its `/api/ws` connection is
-  refused; a shared `app/origin_policy.py` for both rules is the follow-up.
-  The stored list is re-validated when read: an entry written outside the API
+  CORS and the WebSocket share one origin policy (`app/origin_policy.py`): the
+  same list and the same parsing (lowercase, punycode host, default port
+  dropped), so a listed site gets both the HTTP API and `/api/ws`.
+  `X-Forwarded-Host` counts only for the WebSocket's same-origin match, and is
+  trusted from any client: a browser page cannot set it, but a non-browser
+  client sends no `Origin` and is accepted anyway. The stored list is re-validated when read: an entry written outside the API
   (SQL, a restore) that is a wildcard, `null`, or not a plain `http(s)` origin is
   ignored and logged.
 - **Bots run Python with no sandbox.** Anyone who can reach the interface can

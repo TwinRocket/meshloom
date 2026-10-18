@@ -13,7 +13,7 @@ There are no user accounts, sessions, roles or per-feature permissions. Anyone w
 
 That means reading the whole history of direct messages and channels, writing as your node, changing its name and radio settings, deleting contacts and emptying the database. There is no middle ground between "cannot open the page" and "controls everything". It also includes changing the radio's Wi-Fi network and rebooting the radio.
 
-Other web sites open in the same browser cannot read Meshloom's answers: the server only talks to its own address, plus any site you list in **Settings > Local Configuration > Allowed origins** (empty by default). They can still trigger a few simple requests blind and watch the live feed, so this too relies on the trusted network (see [Security](/en/docs/deep/security/#what-does-not-exist)).
+Other web sites open in the same browser cannot read Meshloom's answers: the server only talks to its own address, plus any site you list in **Settings > Local Configuration > Allowed origins** (empty by default). Nor can they open the live feed. They can still trigger a few simple requests blind, so this too relies on the trusted network (see [Security](/en/docs/deep/security/#what-does-not-exist)).
 
 ## Bots run code
 
