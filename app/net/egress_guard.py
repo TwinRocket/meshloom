@@ -44,6 +44,7 @@ EgressCode = Literal[
     "egress_too_many_redirects",
     "egress_request_too_large",
     "egress_response_too_large",
+    "egress_response_encoding",
 ]
 
 DEFAULT_SCHEMES = frozenset({"http", "https"})
@@ -123,6 +124,7 @@ EGRESS_MESSAGES: dict[str, str] = {
     "egress_too_many_redirects": "The destination redirected too many times",
     "egress_request_too_large": "The request body is larger than allowed",
     "egress_response_too_large": "The answer is larger than allowed",
+    "egress_response_encoding": "The answer is compressed, which is not allowed here",
 }
 
 
@@ -248,6 +250,10 @@ class HostAllowlist:
     literal (``[v6]`` with a port). An entry without a port allows only the
     default port of the URL's scheme. Wildcards, CIDR ranges, schemes, paths
     and user info are refused with ``ValueError`` when the list is built.
+
+    The list does not restrict the scheme: a fixed-host caller (the Store
+    client, the plugin ``http`` capability) must also pass
+    ``schemes=frozenset({"https"})``, or ``http://github.com`` is allowed too.
     """
 
     entries: frozenset[tuple[str, int | None]] = field(default_factory=frozenset)
@@ -458,6 +464,12 @@ DROPPED_REQUEST_HEADERS = frozenset(
     }
 )
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+# The only caller headers that follow a hop to another origin, unless the
+# caller names more in ``cross_origin_headers``: anything else may be a
+# credential (``Authorization``, ``X-Api-Key``, ``PRIVATE-TOKEN``...).
+CROSS_ORIGIN_HEADERS = frozenset({"accept", "user-agent", "accept-encoding", "content-type"})
+# Responses that carry no body whatever their headers say.
+_BODYLESS_STATUSES = frozenset({204, 304})
 
 
 def filter_request_headers(
@@ -505,6 +517,7 @@ async def follow_checked_redirects(
     content: bytes | None = None,
     headers: Mapping[str, str] | None = None,
     header_filter: Callable[[str, str], bool] | None = None,
+    cross_origin_headers: Iterable[str] = (),
     verify_tls: bool = True,
 ) -> CheckedResponse:
     """Send through the guard and follow redirects one validated hop at a time.
@@ -517,17 +530,25 @@ async def follow_checked_redirects(
     ``total_timeout`` (seconds) to the whole chain, so a server dripping bytes
     cannot hold the call open. With ``max_redirects=0`` a redirect is returned
     as is; one more redirect than allowed raises ``egress_too_many_redirects``.
-    Cookies are never stored nor sent, and ``Authorization`` is dropped when a
-    hop leaves the origin. Raises ``EgressBlocked``, ``httpx`` transport errors
-    or ``TimeoutError``.
+    The request always asks for ``Accept-Encoding: identity`` (a caller's own
+    value is replaced) and a compressed answer is refused
+    (``egress_response_encoding``), so the cap counts the bytes on the wire.
+    Cookies are never stored nor sent. When a hop leaves the origin, only
+    ``CROSS_ORIGIN_HEADERS`` and the names in ``cross_origin_headers`` follow
+    it. Raises ``EgressBlocked``, ``httpx`` transport errors or
+    ``TimeoutError``.
     """
     if max_request_bytes is not None and content is not None and len(content) > max_request_bytes:
         raise EgressBlocked("egress_request_too_large")
-    sent_headers = filter_request_headers(headers, header_filter)
-    # The cap counts decoded bytes; asking for no compression keeps a small
-    # compressed chunk from inflating far past it before it is counted.
-    if not any(k.lower() == "accept-encoding" for k in sent_headers):
-        sent_headers["Accept-Encoding"] = "identity"
+    sent_headers = {
+        k: v
+        for k, v in filter_request_headers(headers, header_filter).items()
+        if k.lower() != "accept-encoding"
+    }
+    # Set after the filter, never the caller's: a compressed body could
+    # inflate far past the cap before a decoded chunk is counted.
+    sent_headers["Accept-Encoding"] = "identity"
+    kept_cross_origin = CROSS_ORIGIN_HEADERS | {n.lower() for n in cross_origin_headers}
     async with asyncio.timeout(total_timeout):
         redirects = 0
         while True:
@@ -544,7 +565,7 @@ async def follow_checked_redirects(
             ):
                 location = response.headers.get("location")
                 if response.status_code not in _REDIRECT_STATUSES or not location:
-                    body = await _read_capped(response, max_response_bytes)
+                    body = await _read_capped(response, method, max_response_bytes)
                     return CheckedResponse(
                         status_code=response.status_code,
                         headers=response.headers,
@@ -581,20 +602,30 @@ async def follow_checked_redirects(
                 previous.port,
             ):
                 sent_headers = {
-                    k: v for k, v in sent_headers.items() if k.lower() != "authorization"
+                    k: v for k, v in sent_headers.items() if k.lower() in kept_cross_origin
                 }
             url = str(next_url)
 
 
-async def _read_capped(response: httpx.Response, limit: int | None) -> bytes:
-    """The body, aborted (connection closed) once it exceeds ``limit`` bytes."""
+async def _read_capped(response: httpx.Response, method: str, limit: int | None) -> bytes:
+    """The raw body, aborted (connection closed) once it exceeds ``limit`` bytes.
+
+    Never decoded: a ``Content-Encoding`` other than ``identity`` is refused.
+    A HEAD, 204 or 304 answer has no body, so its ``Content-Length`` (the
+    size of the resource) is not checked against the cap.
+    """
+    if method.upper() == "HEAD" or response.status_code in _BODYLESS_STATUSES:
+        return b""
+    encodings = response.headers.get("content-encoding", "").split(",")
+    if any(e.strip().lower() not in ("", "identity") for e in encodings):
+        raise EgressBlocked("egress_response_encoding")
     if limit is not None:
         declared = response.headers.get("content-length")
         if declared is not None and declared.strip().isdigit() and int(declared) > limit:
             raise EgressBlocked("egress_response_too_large")
     chunks: list[bytes] = []
     size = 0
-    async for chunk in response.aiter_bytes():
+    async for chunk in response.aiter_raw():
         size += len(chunk)
         if limit is not None and size > limit:
             raise EgressBlocked("egress_response_too_large")

@@ -64,6 +64,8 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   IP literal compressed). An entry without a port allows only the scheme's
   default port (`github.com` does not allow `github.com:8443`). `*`, a CIDR,
   a scheme, a path or user info raise `ValueError` when the list is built.
+  The list does not restrict the scheme: a fixed-host caller must also pass
+  `schemes=frozenset({"https"})`, or `http://github.com` is allowed too.
 - `validate_destination(..., allowed_hosts=...)` refuses a host outside the
   list with `egress_host_not_allowed` **before the DNS lookup**; a listed host
   still meets the address rules (private refused unless opted in, metadata
@@ -71,23 +73,31 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
 - `follow_checked_redirects(method, url, *, timeout, allowed_hosts=None,
   allow_private_network=False, schemes=..., max_redirects=0,
   max_request_bytes=None, max_response_bytes=None, total_timeout=None,
-  content=None, headers=None, header_filter=None, verify_tls=True)` returns a
+  content=None, headers=None, header_filter=None, cross_origin_headers=(),
+  verify_tls=True)` returns a
   `CheckedResponse` (status, headers, body, last hop URL, redirect count):
   - every hop, the first included, goes through `validate_destination` with
     the same allowlist, schemes and private rule, then a fresh pinned client
     (no cookie jar from one hop to the next). `Location` is joined to the URL
     the caller asked for, never the pinned IP URL; the fragment is dropped.
     303 (and 301/302 after a POST) becomes a GET without body or
-    `Content-Type`; 307/308 keep both. `Authorization` is dropped once a hop
-    leaves the origin (scheme, host, port).
+    `Content-Type`; 307/308 keep both. Once a hop leaves the origin (scheme,
+    host, port), only `CROSS_ORIGIN_HEADERS` (`Accept`, `User-Agent`,
+    `Accept-Encoding`, `Content-Type`) and the names the caller lists in
+    `cross_origin_headers` follow it: `Authorization`, `X-Api-Key`,
+    `PRIVATE-TOKEN` and any other header are dropped.
   - `max_redirects=0` (default) returns a redirect as is; one more redirect
     than allowed raises `egress_too_many_redirects`.
   - a body above `max_request_bytes` is refused before any DNS lookup
     (`egress_request_too_large`). The response is refused unread when its
     `Content-Length` is above `max_response_bytes`, and aborted (connection
     closed) as soon as the streamed body passes it
-    (`egress_response_too_large`). The cap counts decoded bytes; the request
-    asks for `Accept-Encoding: identity` unless the caller sets one.
+    (`egress_response_too_large`). The body is read raw, never decoded: the
+    request always sends `Accept-Encoding: identity` (set after the header
+    filter, a caller's own value is replaced) and an answer with any other
+    `Content-Encoding` is refused unread (`egress_response_encoding`), so a
+    small compressed body cannot inflate past the cap. A HEAD, 204 or 304
+    answer has no body: its `Content-Length` is not checked.
   - `timeout` is httpx's per-operation timeout; `total_timeout` (seconds)
     bounds the whole chain, so a server dripping bytes cannot hold the call
     (raises `TimeoutError`, `error_code` gives `timeout`).
@@ -132,8 +142,9 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   disabled, with the warning `apprise_restored_disabled:<name>`
   (`prepare_refused_apprise_config`), as migration 100 keeps it.
 - Planned: the Store client (custom GitHub repositories: `github.com` and the
-  exact release-asset redirect host `objects.githubusercontent.com`, HTTPS
-  only; later `store.meshloom.app`) and the plugin `http` capability (the
+  exact release-asset redirect hosts `objects.githubusercontent.com` and
+  `release-assets.githubusercontent.com`, both listed, HTTPS only
+  (`schemes=frozenset({"https"})`); later `store.meshloom.app`) and the plugin `http` capability (the
   plugin's declared hosts, 10 s, 1 MB response, 256 KB body, redirects
   re-validated to a declared host) both send through
   `follow_checked_redirects` with a `HostAllowlist`. Also Links & Files

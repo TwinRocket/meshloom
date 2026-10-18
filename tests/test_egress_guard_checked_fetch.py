@@ -6,6 +6,7 @@ are covered by ``tests/test_egress_guard.py``.
 """
 
 import asyncio
+import gzip
 import ipaddress
 import socket
 
@@ -52,6 +53,14 @@ class Dns:
         return out
 
 
+class _Stream(httpx.AsyncByteStream):
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+
+    async def __aiter__(self):
+        yield self.body
+
+
 class Transport:
     """Routes ``httpx.AsyncClient`` to a handler and records every request it gets."""
 
@@ -63,7 +72,16 @@ class Transport:
 
         def record(request: httpx.Request) -> httpx.Response:
             outer.requests.append(request)
-            return handler(request)
+            response = handler(request)
+            if isinstance(response.stream, httpx.ByteStream):
+                # httpx reads a bytes body when the Response is built; a socket
+                # does not, and the guard reads it raw: stream it again.
+                return httpx.Response(
+                    response.status_code,
+                    headers=response.headers,
+                    stream=_Stream(response.content),
+                )
+            return response
 
         class Recording(real):
             def __init__(self, **kwargs):
@@ -367,6 +385,45 @@ class TestRedirects:
             None,
         ]
 
+    @pytest.mark.asyncio
+    async def test_only_safe_headers_follow_a_hop_to_another_origin(self, monkeypatch):
+        Dns(monkeypatch, PUBLIC)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/a":
+                return httpx.Response(
+                    302, headers={"Location": "https://objects.githubusercontent.com/c"}
+                )
+            return httpx.Response(200)
+
+        transport = Transport(monkeypatch, handler)
+        await follow_checked_redirects(
+            "GET",
+            "https://github.com/a",
+            allowed_hosts=GITHUB,
+            max_redirects=1,
+            headers={
+                "Accept": "application/octet-stream",
+                "User-Agent": "Meshloom",
+                "X-Api-Key": "k",
+                "PRIVATE-TOKEN": "t",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "X-Trace": "1",
+            },
+            cross_origin_headers=["x-trace"],
+            timeout=5,
+        )
+        first, second = (r.headers for r in transport.requests)
+        assert first["x-api-key"] == "k"
+        assert first["private-token"] == "t"
+        assert "x-api-key" not in second
+        assert "private-token" not in second
+        assert "x-github-api-version" not in second
+        assert second["accept"] == "application/octet-stream"
+        assert second["user-agent"] == "Meshloom"
+        assert second["accept-encoding"] == "identity"
+        assert second["x-trace"] == "1"
+
 
 def _chunks(counter: list[int], n: int, size: int = 1024):
     async def body():
@@ -423,6 +480,66 @@ class TestCaps:
         transport = Transport(monkeypatch, lambda request: httpx.Response(200))
         await follow_checked_redirects("GET", "https://github.com/", timeout=5)
         assert transport.requests[0].headers["accept-encoding"] == "identity"
+
+    @pytest.mark.asyncio
+    async def test_a_caller_cannot_ask_for_compression(self, monkeypatch):
+        Dns(monkeypatch, PUBLIC)
+        transport = Transport(monkeypatch, lambda request: httpx.Response(200))
+        await follow_checked_redirects(
+            "GET",
+            "https://github.com/",
+            headers={"accept-encoding": "gzip", "Accept-Encoding": "br"},
+            timeout=5,
+        )
+        assert transport.requests[0].headers.get_list("accept-encoding") == ["identity"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("encoding", ["gzip", "GZIP", "identity, gzip", "br"])
+    async def test_a_compressed_answer_is_refused_undecoded(self, monkeypatch, encoding):
+        # The server ignores "identity": 50 KB of gzip that would inflate to 50 MB.
+        Dns(monkeypatch, PUBLIC)
+        bomb = gzip.compress(b"\0" * 50_000_000)
+        assert len(bomb) < 1048576
+        Transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200, headers={"Content-Encoding": encoding}, content=bomb
+            ),
+        )
+        with pytest.raises(EgressBlocked) as err:
+            await follow_checked_redirects(
+                "GET", "https://github.com/bomb", max_response_bytes=1048576, timeout=5
+            )
+        assert err.value.code == "egress_response_encoding"
+
+    @pytest.mark.asyncio
+    async def test_an_identity_encoded_answer_is_read_raw(self, monkeypatch):
+        Dns(monkeypatch, PUBLIC)
+        Transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200, headers={"Content-Encoding": "identity"}, content=b"plain"
+            ),
+        )
+        resp = await follow_checked_redirects(
+            "GET", "https://github.com/", max_response_bytes=5, timeout=5
+        )
+        assert resp.content == b"plain"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("method", "status"), [("HEAD", 200), ("GET", 204), ("GET", 304)])
+    async def test_a_bodyless_answer_skips_the_declared_length(self, monkeypatch, method, status):
+        Dns(monkeypatch, PUBLIC)
+        Transport(
+            monkeypatch,
+            lambda request: httpx.Response(status, headers={"Content-Length": "104857600"}),
+        )
+        resp = await follow_checked_redirects(
+            method, "https://github.com/asset.zip", max_response_bytes=1048576, timeout=5
+        )
+        assert resp.status_code == status
+        assert resp.headers["content-length"] == "104857600"
+        assert resp.content == b""
 
     @pytest.mark.asyncio
     async def test_request_body_above_the_cap_is_refused_before_dns(self, monkeypatch):

@@ -7,6 +7,7 @@
     "egress_too_many_redirects": "La destination a redirigé trop de fois.",
     "egress_request_too_large": "La requête dépasse la taille autorisée.",
     "egress_response_too_large": "La réponse dépasse la taille autorisée.",
+    "egress_response_encoding": "La réponse est compressée, ce qui n'est pas autorisé ici.",
     "timeout": "La destination n'a pas répondu à temps.",
     "tls_error": "La connexion sécurisée (TLS) a échoué : vérifiez le certificat, ou utilisez http:// si la destination n'a pas de TLS.",
     "service_error": "La destination a répondu par une erreur HTTP {{status}}."
