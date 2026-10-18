@@ -443,6 +443,45 @@ def test_runner_serves_under_each_isolation_level(level: str, work: Path) -> Non
         runner.close()
 
 
+_SIBLING = """
+import sys
+try:
+    with open("/proc/%s/mem" % sys.argv[1], "r+b"):
+        print("allowed")
+except OSError as exc:
+    print("denied: " + type(exc).__name__)
+"""
+
+
+@pytest.mark.skipif(not LINUX, reason="/proc/<pid>/mem and prctl are Linux only")
+@pytest.mark.parametrize("level", ["none", "bwrap", "setuid"])
+def test_a_sibling_under_the_same_uid_cannot_open_the_child_memory(level: str, work: Path) -> None:
+    # Another instance (same uid under setuid, the server's uid otherwise) escaping
+    # its hooks must not reach this child's memory: the runner is not dumpable.
+    backend = available_backends().get(level)
+    if backend is None:
+        pytest.skip(f"the {level} backend is not available here")
+    if level == "none" and os.geteuid() == 0:
+        pytest.skip("a root sibling bypasses dumpable checks; covered by the setuid case")
+    root = shared_tmp_dir("meshloom-plugin-") if level == "setuid" else work
+    runner = Runner(make_plugin(root, HOSTILE), work, backend=backend)
+    try:
+        assert runner.event({"case": "ping"})["result"] == "pong"
+        sibling_work = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-sibling-")))
+        sibling = backend.spawn(
+            [sys.executable, "-I", "-S", "-c", _SIBLING, str(runner.proc.pid)],
+            shared_tmp_dir("meshloom-sibling-plugin-"),
+            sibling_work,
+            stdin=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        out, err = sibling.communicate(timeout=30)
+        assert sibling.returncode == 0, err
+        assert out.decode().strip().startswith("denied"), out
+    finally:
+        runner.close()
+
+
 def test_setuid_announced_to_a_root_child_is_refused(work: Path) -> None:
     if not hasattr(os, "geteuid") or os.geteuid() != 0:
         pytest.skip("needs root: the runner checks it really dropped to another uid")

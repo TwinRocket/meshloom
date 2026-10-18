@@ -10,7 +10,7 @@ the bootstrap sets `sys.path = [app_root] + stdlib` and runs this module as
    fd 1 (and `sys.stdout`) becomes stderr, so a `print()` never reaches the RPC
    stream.
 3. Scrub `os.environ`, set hard rlimits, a small thread stack size and
-   `PR_SET_NO_NEW_PRIVS` (Linux), then import `asyncio`: it loads `socket`,
+   `PR_SET_NO_NEW_PRIVS` and `PR_SET_DUMPABLE` 0 (Linux), then import `asyncio`: it loads `socket`,
    `ssl` and `subprocess` at module level, which is why it comes before the
    purge rather than after it.
 4. Install the audit hook (`_HOOK_SOURCE`): no reachable mutable state.
@@ -58,6 +58,7 @@ MAX_DEFERRED_LINES = MAX_PENDING
 MAX_DEFERRED_BYTES = 1024 * 1024
 THREAD_STACK_SIZE = 256 * 1024
 PR_SET_NO_NEW_PRIVS = 38
+PR_SET_DUMPABLE = 4
 
 SYNC_CALL_TIMEOUT = 25.0
 EXIT_START_FAILED = 3
@@ -214,6 +215,11 @@ def _apply_limits(params: dict[str, Any]) -> None:
             raise RunnerStartError(
                 "limits_failed", f"PR_SET_NO_NEW_PRIVS: errno {ctypes.get_errno()}"
             )
+        # execve made the child dumpable again (setuid drop included): without this
+        # a sibling instance under the same uid could open /proc/<pid>/mem
+        # read-write and take over this child's RPC channel.
+        if libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+            raise RunnerStartError("limits_failed", f"PR_SET_DUMPABLE: errno {ctypes.get_errno()}")
 
 
 # --- stage 4: the audit hook ----------------------------------------------------
