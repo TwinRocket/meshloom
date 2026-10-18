@@ -157,6 +157,20 @@ class TestKiosk:
         _forbidden(await client.get("/api/auth/sessions"), "account")
         _forbidden(await client.delete("/api/auth/sessions"), "account")
 
+    async def test_a_scoped_token_never_reaches_the_account_routes(self, sign_in_as, client):
+        for role, scopes in [
+            ("viewer", {"read"}),
+            ("admin", {"repeater_admin"}),
+            ("admin", {"admin"}),
+        ]:
+            sign_in_as(role, scopes=frozenset(scopes))
+            _forbidden(await client.get("/api/auth/me"), "account")
+            _forbidden(await client.patch("/api/auth/me", json={}), "account")
+            _forbidden(await client.get("/api/auth/sessions"), "account")
+            _forbidden(await client.delete("/api/auth/sessions"), "account")
+        sign_in_as("viewer")
+        assert (await client.get("/api/auth/me")).status_code != 403
+
     async def test_kiosk_is_read_only(self, sign_in_as, client):
         sign_in_as("kiosk")
         _forbidden(await client.post("/api/messages/channel", json={}), "send")
@@ -253,6 +267,38 @@ class TestKiosk:
         history = (await client.get("/api/packets/history")).json()
         assert history["items"] and all(i["decrypted_info"] is None for i in history["items"])
 
+    async def test_kiosk_sees_channel_and_control_packets_decrypted(
+        self, sign_in_as, client, monkeypatch
+    ):
+        from app.repository.raw_packets import RawPacketRepository
+        from app.routers import packets
+
+        # GROUP_TEXT (0x15) whose sender resolved to a contact, and a REQUEST
+        # (0x01) control packet with no decryption.
+        chan_id, _ = await RawPacketRepository.create(b"\x15\x00" + b"\x01" * 20, 1_700_000_000)
+        control_id, _ = await RawPacketRepository.create(b"\x01\x00" + b"\x02" * 20, 1_700_000_001)
+
+        async def attach(raw, message_id):
+            if raw[0] != 0x15:
+                return False, None
+            return True, RawPacketDecryptedInfo(
+                channel_key=CHANNEL_KEY, contact_key=CONTACT_KEY, sender="Alice", message="hi"
+            )
+
+        monkeypatch.setattr(packets, "attach_raw_packet_decrypted_info", attach)
+        sign_in_as("kiosk")
+        detail = (await client.get(f"/api/packets/{chan_id}")).json()
+        assert detail["payload_type"] == "GROUP_TEXT"
+        assert detail["decrypted"] is True
+        assert detail["decrypted_info"]["contact_key"] == CONTACT_KEY
+        assert detail["decrypted_info"]["message"] == "hi"
+        control = (await client.get(f"/api/packets/{control_id}")).json()
+        assert control["payload_type"] == "REQUEST"
+        history = (await client.get("/api/packets/history")).json()
+        by_id = {item["id"]: item for item in history["items"]}
+        assert by_id[chan_id]["decrypted_info"]["message"] == "hi"
+        assert control_id in by_id
+
     async def test_kiosk_reads_muted_and_pending_channels_and_packets(self, sign_in_as, client):
         chan_id, _ = await _seed_messages()
         await ChannelRepository.set_muted(CHANNEL_KEY, True, None)
@@ -324,6 +370,35 @@ class TestWebSocketDelivery:
         assert viewer_frame["data"]["decrypted_info"]["message"] == "secret"
         for ws in (kiosk, viewer):
             await manager.disconnect(ws)
+
+    async def test_channel_and_control_raw_packets_reach_a_kiosk_whole(self):
+        manager = WebSocketManager()
+        [kiosk] = await self._connect(manager, "kiosk")
+        base = {"timestamp": 1, "data": "00"}
+        channel = {
+            **base,
+            "id": 1,
+            "observation_id": 1,
+            "payload_type": "GROUP_TEXT",
+            "decrypted": True,
+            # A channel message whose sender resolved to a contact.
+            "decrypted_info": {
+                "channel_key": CHANNEL_KEY,
+                "contact_key": CONTACT_KEY,
+                "sender": "Alice",
+                "message": "hi",
+            },
+        }
+        control = {**base, "id": 2, "observation_id": 2, "payload_type": "REQUEST"}
+        manager.broadcast_nowait("raw_packet", channel)
+        manager.broadcast_nowait("raw_packet", control)
+        await self._drain(manager)
+        first, second = _sent(kiosk)
+        assert first["data"]["decrypted"] is True
+        assert first["data"]["decrypted_info"]["contact_key"] == CONTACT_KEY
+        assert first["data"]["decrypted_info"]["message"] == "hi"
+        assert second["data"]["payload_type"] == "REQUEST"
+        await manager.disconnect(kiosk)
 
     async def test_admin_events_and_unknown_types_reach_admins_only(self):
         manager = WebSocketManager()

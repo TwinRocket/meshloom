@@ -236,7 +236,8 @@ the repeater and room routes and nothing else.
 
 `public()` marks a route reachable without a principal; it must also be in
 `PUBLIC_ROUTES` (the test checks both lists agree). `own_account()` is for the
-caller's own profile and sessions: every role but `kiosk`. A route outside
+caller's own profile and sessions: every role but `kiosk`, and never through
+a scoped principal (a scope only narrows, and none grants the account). A route outside
 `/api` goes in `NON_API_ACCESS` (`public` or `authenticated`) in
 `app/auth/middleware.py`.
 
@@ -266,7 +267,10 @@ body validation, so a refused caller never gets a 422.
   (`dm_message_count` 0, `includes_direct_messages` false, channel-only
   activity).
 - `GET /packets/{id}` and `GET /packets/history` show a packet decrypted from a
-  DM (its `decrypted_info` has a `contact_key`) as undecrypted.
+  DM as undecrypted: a `TEXT_MESSAGE` packet, or a decryption that names no
+  channel (`packet_decryption_is_private()`, fail closed). Never `contact_key`:
+  a channel packet keeps its resolved sender there, so channel and control
+  packets stay whole for `kiosk`. The live `raw_packet` frame uses the same rule.
 - The JSON and full backups, the debug snapshot and the database download are
   `admin` routes.
 

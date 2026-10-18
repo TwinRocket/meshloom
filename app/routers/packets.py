@@ -16,7 +16,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
-from app.auth.permissions import can_read_private, require
+from app.auth.permissions import can_read_private, packet_decryption_is_private, require
 from app.database import db
 from app.decoder import PayloadType, parse_packet, try_decrypt_packet_with_channel_key
 from app.models import (
@@ -235,7 +235,11 @@ def _payload_type_filter(value: str | None) -> PayloadType | None:
 def _visible_detail(request: Request, detail: RawPacketDetail) -> RawPacketDetail:
     """Without ``read_private`` a packet decrypted from a DM is shown undecrypted."""
     info = detail.decrypted_info
-    if info is None or info.contact_key is None or can_read_private(request):
+    if (
+        info is None
+        or not packet_decryption_is_private(detail.payload_type, info.channel_key)
+        or can_read_private(request)
+    ):
         return detail
     return detail.model_copy(update={"decrypted": False, "decrypted_info": None})
 

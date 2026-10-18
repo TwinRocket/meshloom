@@ -10,7 +10,11 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from app.auth.permissions import has_permission, ws_event_permission
+from app.auth.permissions import (
+    has_permission,
+    packet_decryption_is_private,
+    ws_event_permission,
+)
 from app.auth.principal import Principal
 from app.background_tasks import spawn
 from app.events import dump_ws_event
@@ -62,7 +66,10 @@ def _reveals_direct_message(event_type: str, data: Any) -> bool:
         return data.get("type") != "CHAN"
     if event_type == "raw_packet":
         info = data.get("decrypted_info")
-        return isinstance(info, dict) and info.get("contact_key") is not None
+        # No decryption, nothing to hide: control packets stay readable.
+        return isinstance(info, dict) and packet_decryption_is_private(
+            data.get("payload_type"), info.get("channel_key")
+        )
     return False
 
 

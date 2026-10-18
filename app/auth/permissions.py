@@ -137,13 +137,15 @@ def public() -> AccessDependency:
 
 @functools.cache
 def own_account() -> AccessDependency:
-    """The caller's own profile, sessions and tokens: every role but ``kiosk``."""
+    """The caller's own profile, sessions and tokens: every role but ``kiosk``.
+
+    Never through a scoped token: a scope only narrows (cadrage §4.2), and none
+    of the five grants the profile, the password or the sessions.
+    """
     return _declared(
         "account",
         lambda principal: (
-            principal is not None
-            and principal.role in ACCOUNT_ROLES
-            and bool(permissions_of(principal))
+            principal is not None and principal.role in ACCOUNT_ROLES and not principal.scopes
         ),
     )
 
@@ -190,6 +192,21 @@ WS_EVENT_PERMISSIONS: Mapping[str, Permission] = {
     "error": "read",
     "success": "read",
 }
+
+
+# A direct message travels as a TEXT_MESSAGE packet, a channel message as
+# GROUP_TEXT (``app/decoder.py``, ``PayloadType``).
+DIRECT_MESSAGE_PAYLOAD_TYPE = "TEXT_MESSAGE"
+
+
+def packet_decryption_is_private(payload_type: str | None, channel_key: str | None) -> bool:
+    """Whether a decrypted raw packet reveals a DM (``read_private``).
+
+    Decided by the packet type, not by ``contact_key``: a channel message keeps
+    its resolved sender there. A decryption that names no channel is private
+    too (fail closed). Control packets carry no decryption and stay readable.
+    """
+    return payload_type == DIRECT_MESSAGE_PAYLOAD_TYPE or channel_key is None
 
 
 def ws_event_permission(event_type: str) -> Permission:
