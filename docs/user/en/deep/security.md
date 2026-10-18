@@ -9,19 +9,19 @@ Meshloom is designed for a network whose users you know. Several design choices 
 
 ## What does not exist
 
-**No user accounts.** There are no logins, sessions, roles or per-feature permissions. Anyone who can reach the server can read the history, send messages as your node, change radio settings and edit bots.
+**Accounts are the only gate, and a trusted network is still the design.** From Meshloom 5.0 every request needs a signed-in account with one of four roles (see [Recover access](/en/docs/deep/access/#roles)), but there is no finer permission than the role and no protection against someone you gave an account to. An administrator can read the history, send messages as your node, change radio settings and edit bots; a member can send as your node. The radio proxy (below) has no login at all.
 
-**Other web pages get only partial protection.** The interface works from any device that opens Meshloom's own address. Another web site open in the same browser is a different *origin*: the server gives it no CORS access (same-origin only), so it cannot read the API's answers or send it JSON requests. It can still fire requests a browser sends without asking first (a `POST` with no body, such as a reboot) without seeing the answer. If you use a dashboard or a script served from another address, list that address in **Settings > Local Configuration > Allowed origins** (one `scheme://host[:port]` per line, empty by default, no `*`). Each listed site can do everything you can, with your credentials, including the live connection below.
+**Other web pages get only partial protection.** The interface works from any device that opens Meshloom's own address. Another web site open in the same browser is a different *origin*: the server gives it no CORS access (same-origin only), so it cannot read the API's answers or send it JSON requests, and Meshloom refuses changes that come from another site. If you use a dashboard or a script served from another address, list that address in **Settings > Local Configuration > Allowed origins** (one `scheme://host[:port]` per line, empty by default, no `*`). Each listed site can do everything you can, with your credentials, including the live connection below.
 
 The live connection (`/api/ws`, the WebSocket) is the exception: the server refuses it when a browser opens it from a page of another site, so such a page cannot listen to your messages and packets as they arrive. Its `Origin` must match the address the browser asked for (`Host`, or `X-Forwarded-Host` behind a proxy that rewrites `Host`) or be one of the **Allowed origins**, compared the same way as for the API (case, default port and international domain names do not matter); clients that send no `Origin`, such as scripts, are accepted. See [HTTPS](/en/docs/deep/https/#websocket).
 
-**Bots run arbitrary Python.** A bot is a small Python program written in the interface. Meshloom runs it as-is, with full access to the language (`exec()` with the complete `__builtins__`). Anyone who can reach Meshloom can therefore run code on the host machine. This is intentional.
+**Bots run arbitrary Python.** A bot is a small Python program written in the interface. Meshloom runs it as-is, with full access to the language (`exec()` with the complete `__builtins__`). Any administrator can therefore run code on the host machine. This is intentional.
 
-None of this weakens MeshCore's own encryption over the air: direct messages and channel messages stay encrypted as usual. These points describe who can use the application, not what travels over the air. The node's private key is the exception on the server side: anyone who reaches the interface can read it (see [The node's private key](#the-nodes-private-key)).
+None of this weakens MeshCore's own encryption over the air: direct messages and channel messages stay encrypted as usual. These points describe who can use the application, not what travels over the air. The node's private key is the exception on the server side: an administrator can read it (see [The node's private key](#the-nodes-private-key)).
 
 ## The warning dialog
 
-While bots are enabled and no Basic auth is set, Meshloom opens a full-screen warning titled "Unprotected bot execution is enabled". It offers two ways out:
+While bots are enabled and no Basic login (the 4.x variables) is configured, Meshloom opens a full-screen warning titled "Unprotected bot execution is enabled". It offers two ways out:
 
 - **Disable Bots Until Server Restart** turns the bot system off immediately. It comes back at the next restart unless you turn it off for good (see below).
 - Tick the acknowledgement box, then **Do Not Warn Me On This Device Again**. The choice is remembered by this browser only, so another browser or phone sees the warning again.
@@ -33,9 +33,9 @@ MESHCORE_BASIC_AUTH_USERNAME=...
 MESHCORE_BASIC_AUTH_PASSWORD=...
 ```
 
-Set both, or neither: the server refuses to start with only one. Basic auth protects the pages, the API and the live connection (WebSocket). It is a single shared login with no roles. Without HTTPS the password travels in clear text, so pair it with [HTTPS](/en/docs/deep/https/).
+Set both, or neither: the server refuses to start with only one. Basic auth protects the pages, the API and the live connection (WebSocket). It is a single shared login with no roles, and from 5.0 only a compatibility path (below). Without HTTPS the password travels in clear text, so pair it with [HTTPS](/en/docs/deep/https/).
 
-From Meshloom 5.0, signing in is mandatory and uses accounts. On the first start of 5.0, these two variables become the administrator account (same name, same password), then Meshloom no longer reads them and logs a warning while they are still set: remove them. Scripts and Home Assistant sensors that send this user name and password with Basic auth keep working until 5.2. Known limitation of the 5.0 pre-release: the Home Assistant add-on cannot keep you signed in through the sidebar yet; open it on its own port (8000) until the Home Assistant sign-in arrives, which 5.0.0 requires. A browser page from another site can no longer change anything with your login: Meshloom refuses changes that come from another site.
+From Meshloom 5.0, signing in is mandatory and uses accounts. On the first start of 5.0, these two variables become the administrator account (same name, same password), then Meshloom no longer reads them and logs a warning while they are still set: remove them. Scripts and Home Assistant sensors that send this user name and password with Basic auth keep working until 5.2. Under the Home Assistant add-on, Home Assistant signs you in through the sidebar. A browser page from another site can no longer change anything with your login: Meshloom refuses changes that come from another site.
 
 ## Disable bots
 
@@ -47,7 +47,7 @@ The **Disable Bots Until Server Restart** button of the warning dialog does the 
 
 Meshloom reads the radio's private key each time it connects to the radio, if the radio's firmware allows it, and keeps it in the server's memory only. Meshloom never writes it to its database. If the firmware refuses, Meshloom works without it, but it can no longer decrypt direct messages on the server, and a backup then holds no identity.
 
-The key can always be read back by anyone who reaches the interface: `GET /api/radio/private-key` returns it as hexadecimal text, and both the configuration export in **Settings > Radio** and the full backup in **Settings > Database** contain it (see [Back up your radio](/en/docs/backup/)). There is no switch to turn this off. Another web site open in the same browser can no longer read them (see [What does not exist](#what-does-not-exist)), unless you listed it in **Allowed origins**. Keep Meshloom on a network you trust, and treat the backup file like the key itself: encrypt it with a passphrase when you keep it anywhere else than on that network.
+The key can always be read back by any administrator: `GET /api/radio/private-key` returns it as hexadecimal text, and both the configuration export in **Settings > Radio** and the full backup in **Settings > Database** contain it (see [Back up your radio](/en/docs/backup/)). There is no switch to turn this off. Another web site open in the same browser can no longer read them (see [What does not exist](#what-does-not-exist)), unless you listed it in **Allowed origins**. Keep Meshloom on a network you trust, and treat the backup file like the key itself: encrypt it with a passphrase when you keep it anywhere else than on that network.
 
 Importing a key (**Set Private Key**, write-only) never shows the key. A key that does not match the radio the database is bound to is refused until you confirm the identity change (see [First launch](/en/docs/first-run/)).
 
