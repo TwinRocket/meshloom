@@ -89,6 +89,15 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
         "description": "Aggregated mesh, message, packet, channel, and contact statistics.",
     },
     {
+        "name": "plugins",
+        "description": (
+            "Plugin instances: install a bundled plugin, create and edit a local one, "
+            "configure (secrets are write-only), enable, restart, check, test, logs and "
+            "diagnostic. Writes, logs and diagnostics are admin-only; status changes "
+            "arrive as `plugin_status` WebSocket events."
+        ),
+    },
+    {
         "name": "updates",
         "description": (
             "Cached latest Meshloom release from GitHub releases/latest, with the "

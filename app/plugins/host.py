@@ -82,6 +82,8 @@ HOOKS = ("message", "raw_packet", "contact", "telemetry", "health", "timer")
 # Persisted statuses that keep an enabled instance stopped at start-up until
 # someone acts (a manual restart, a review, an update).
 STICKY_STATUSES = frozenset({"crash_loop", "needs_attention", "incompatible", "revoked"})
+# What a disabled instance keeps showing: it waits for the user, not for a start.
+ATTENTION_STATUSES = STICKY_STATUSES - {"crash_loop"}
 API_VERSION = 1
 LANGUAGES = ("en", "fr")
 DEFAULT_LANGUAGE = "en"
@@ -179,6 +181,14 @@ class HostMethodError(Exception):
         super().__init__(message)
         self.code = code
         self.data = data
+
+
+def stored_attention(instance_id: str) -> dict[str, Any] | None:
+    """The instance's stored `attention` (the repository's cache), None when none."""
+    from app.repository.plugins import _instances_cache
+
+    row = _instances_cache.get(instance_id)
+    return row.get("attention") if row else None
 
 
 def sanitize_error(text: str | None) -> str | None:
@@ -828,6 +838,7 @@ class PluginInstance:
             "restarts": self.restarts,
             "summary": self.summary,
             "send_guard": send_guard.hits(self.instance_id),
+            "attention": stored_attention(self.instance_id),
         }
 
     # Capability state (`app/plugins/capabilities/`).
@@ -1378,12 +1389,15 @@ class PluginManager:
                 "instance_id": instance_id,
                 "plugin_id": row.get("plugin_id"),
                 "label": row.get("label"),
-                "status": row.get("status") if row.get("enabled") else "disabled",
+                "status": row.get("status")
+                if row.get("enabled") or row.get("status") in ATTENTION_STATUSES
+                else "disabled",
                 "last_error": row.get("last_error"),
                 "dropped_events": 0,
                 "restarts": 0,
                 "summary": None,
                 "send_guard": send_guard.hits(instance_id),
+                "attention": row.get("attention"),
             }
         for instance_id, instance in self._instances.items():
             result[instance_id] = instance.snapshot()
@@ -1496,6 +1510,13 @@ class PluginManager:
             await asyncio.sleep(budgets.cpu_sample_interval)
 
     # Status fan-out.
+
+    def announce(self, instance_id: str) -> None:
+        """Send `plugin_status` for an instance whose row the API just changed
+        (the supervisor announces its own transitions)."""
+        entry = self.statuses().get(instance_id)
+        if entry is not None:
+            _broadcast_status(entry)
 
     async def _status_changed(self, instance: PluginInstance) -> None:
         from app.repository.plugins import PluginRepository

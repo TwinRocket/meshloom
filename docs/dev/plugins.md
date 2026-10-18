@@ -6,7 +6,8 @@ bot shim, the supervisor, the capability API v1, the OS isolation and `http.fetc
 isolation: `docs/dev/plugins-security.md`, "OS isolation"). The server starts one
 supervised child per enabled instance, isolated by the OS, and answers its requests
 (see "Capabilities"); LAN hosts for `http` (MSHL-282), the global send budgets and loop guards
-(Store T6b) and the API and UI are later tickets, and nothing installs a plugin yet. Like every doc here, this
+(Store T6b) and the UI are later tickets; the REST API is described in "API" (MSHL-185), and no
+bundled package ships yet (Store T26). Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
 ## Package and manifest
@@ -788,6 +789,38 @@ holds; fixture plugins echo, sleep,
 ignore-cancel, crash, cpu-burn, ignore-shutdown, flood, deaf (never reads its
 stdin), spammer, sender; the `/proc` CPU test
 runs on Linux only).
+
+## API (`app/routers/plugins.py`)
+
+Prefix `/api/plugins`, tag `plugins`. Errors are `{detail: {code, message, params?}}`; `params` never
+holds a config value or a secret. Reads need `send` (member and up: `config`, `source`, `scope`,
+`quotas`, `secret_fields`, `last_error` and `attention` are emptied below admin); everything that installs,
+changes, runs or reads the logs of an instance is `admin`. `kiosk` and `viewer` are refused
+everywhere. While the host lock or the platform turns the system off, every write but `DELETE` is
+403 `plugins_disabled` (`params.source`).
+
+| Route | Role | Behaviour |
+|---|---|---|
+| `GET /plugins` | member | Instances with the live status (`summary`, `restarts`, `dropped_events`); secrets read `********`. |
+| `GET /plugins/bundled` | member | The valid packages of `meshloom_plugin/official/*` (`app/plugins/installer.py`, `BUNDLED_ROOT`): manifest texts, declared permissions, config schema, instance count. Empty today. |
+| `POST /plugins/install` | admin | `{kind: "bundled", plugin_id, label?, granted_permissions, config?}`. 404 `plugin_not_bundled`; 400 `consent_required` (`params.missing`: the declared permissions the grant does not cover in full); 400 `config_invalid` (`params.issues`: code and field); a required field missing creates the instance **disabled**, `status: needs_attention`, `attention: {type: "config_required", fields}`, no process. Otherwise it is enabled and started; 409 `instance_cap_reached` deletes it again. The code is copied (validated like an archive, origin `bundled`) to `<data>/plugins/<plugin_id>/` once per version, shared by the instances. Other kinds (`custom`, `store`) are M2. |
+| `POST /plugins` | admin | A local plugin: `{label, hooks?, permissions?, template: "echo"\|"blank"}`; the manifest is built and validated (`origin=local`, id `local.<slug>-<hex>`), the permissions are declared and granted together, created disabled. 400 `manifest_invalid`. |
+| `PATCH /plugins/{id}` | admin | `enabled` starts or stops the process (409 `config_required`, 409 `instance_cap_reached`: `enabled` is put back to false); a change of `config`, `scope`, `granted_permissions`, `quotas` or `label` restarts a running instance. `config` **replaces** the plain fields and merges the secrets (omitted, null or `********` keep, `""` clears; 400 `secret_required` for a mask with no stored value), validated against the stored schema (400 `config_invalid`; unknown fields refused; `language` is always allowed). `granted_permissions` must be a subset of the manifest (400 `permission_exceeds_manifest`); `quotas` only `messages.send.per_hour|per_day`, 1 to the caps 60 and 500 (400 `quota_invalid`); `scope` is `{messages: all\|none\|{channels, contacts}}` (400 `scope_invalid`). Completing a `config_required` config clears the attention. |
+| `PUT /plugins/{id}/source` | admin | Local plugins only (409 `not_local`); 400 `source_too_large` (1 MiB), `source_syntax_error` (`params.line`); restarts when enabled. Answers the instance and the `scan_source` reasons (a review aid). |
+| `POST /plugins/{id}/restart` | admin | New supervisor, failure count at zero (clears `crash_loop`). 409 when disabled or awaiting config. |
+| `POST /plugins/{id}/check` | admin | `dev check` stages 1 and 2 (package validation and static scan, `check_directory(dry_run=False)`; a local plugin: manifest and scan). **Nothing is executed**: the dry run uses `isolation: none`, so it stays a developer tool; `test` is the live check. |
+| `POST /plugins/{id}/test` | admin | `{text, channel?\|contact?}`: one `test: true` `event.message` through `dispatch_test` (no scope or `messages.read` filtering). The sends are captured by the host and never reach the radio send path; the answer is `{result, sends, truncated, logs}` with every string scrubbed of the instance's secrets. 409 `instance_not_running`, 404 `channel_not_found`/`contact_not_found`, 504 `test_timeout`. |
+| `GET /plugins/{id}/logs?limit=` | admin | Tail of the stderr ring (default 200, 1 to 500), lines cut at 1000 characters, scrubbed of the instance's secrets and passed through `redact_text`. Not part of `/api/debug` (asserted). |
+| `GET /plugins/{id}/diagnostic` | admin | Plugin id and version, kind, Meshloom and Python versions, isolation level, status, last error, restarts, effective permission names, the last 50 log lines. No config value. |
+| `DELETE /plugins/{id}?keep_data=` | admin | Stops the process, deletes the row and secrets (and the KV unless `keep_data`), and a local plugin's directory; 204. |
+
+There is no "disable until restart" route (Store T9 removes the bots' one) and the global pause is
+Store T43. Typed codes are shown by the UI as `errors.<code>` (texts: Store T11a).
+
+Every change of status the API makes is announced as `plugin_status` (admin-only,
+`PluginManager.announce`); the payload is the supervisor's snapshot plus `attention`.
+A disabled instance waiting for the user keeps `needs_attention`, `incompatible` or
+`revoked` as its status (`ATTENTION_STATUSES`); other disabled instances read `disabled`.
 
 ## Capabilities
 

@@ -59,7 +59,9 @@ class PluginStatusPayload(TypedDict):
     last_error: str | None
     dropped_events: int
     restarts: int
+    summary: NotRequired[str | None]
     send_guard: NotRequired[dict[str, Any]]
+    attention: NotRequired[dict[str, Any] | None]
 
 
 class ToastPayload(TypedDict):
