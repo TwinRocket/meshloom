@@ -620,7 +620,6 @@ type ConversationType =
   | 'contact'
   | 'channel'
   | 'raw'
-  | 'control'
   | 'map'
   | 'live'
   | 'visualizer'
@@ -640,7 +639,7 @@ export interface Conversation {
   mapFocusKey?: string;
   /** For locate view: key, prefix, or search token */
   locateKey?: string;
-  /** For the feed view: preset folded into it (`#control`) */
+  /** For the feed view: preset folded into it (`#control`, the Control preset) */
   feedPreset?: 'control';
 }
 

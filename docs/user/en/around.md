@@ -1,6 +1,6 @@
 ---
 title: Around the messages
-description: The map, the visualizer, the packet feed — what you watch without sending anything.
+description: The map, the visualizer, the packet feed, the feed — what you watch without sending anything.
 level: start
 order: 5
 ---
@@ -71,9 +71,19 @@ Meshloom Community can pause its public feed for a while. A small **Live paused*
 
 If Meshloom Community has banned your radio, the banner says so and the Community packets stop; see [If your radio is banned](/en/docs/deep/community/#if-your-radio-is-banned).
 
-## The control journal
+## The feed
 
-The **control journal** gathers traffic that is not a conversation: requests, responses, anonymous requests (such as logins) and group data. Packets are grouped by the node they talk to. When the content stays encrypted, you see the envelope, not the contents.
+The **Feed** puts everything in one timeline, newest at the bottom: the messages of all your channels and direct messages, and the control traffic (requests, responses, anonymous requests such as logins, and group data) between them, in time order. When the content of a control packet stays encrypted, you see the envelope, not the contents; click a row to open the packet inspector.
+
+- **Chips.** *Messages*, *Control* and *Events* (not available yet) choose the sources. Under *Messages*, *Channels*, *Direct messages*, *Received* and *Sent* narrow what is shown, and *Muted channels* and *Pending channels* bring back the ones hidden by default. The **Direct messages** chip is a display choice only: hiding them does not protect them, since anyone who can open Meshloom can read them (see [A trusted network](/en/docs/trust/)). Your choice is remembered in this browser.
+- **Nodes.** With *Control* on, a **Nodes** facet lists the repeaters and rooms, the channels, the packets addressed to you and the unresolved ones. Picking one narrows the control rows to it.
+- **Follow mode.** The feed stays at the newest row while you are at the bottom. Scroll up and a **Follow** button counts what arrived since and takes you back. Scrolling up also loads older messages.
+- **Since your last visit.** A line **New since your last visit** marks the first message that arrived after you last had the feed open, in this browser.
+- **Reading marks nothing as read.** Unread counts stay as they are until you open the conversation itself.
+
+### The Control preset
+
+**Control** opens the same feed with only the *Control* source on and the Nodes facet beside it: the old control journal. It is a preset, not a separate page: the address `#control` and bookmarks to it keep working, and the address bar still shows `#control`. Your changes to the chips there are not remembered, so the regular feed keeps the filters you chose for it. **Control** is not in the icon bar by default; add it in **Settings > Navigation**, or find it in the search palette (Ctrl/Cmd+K).
 
 ## RF locate
 

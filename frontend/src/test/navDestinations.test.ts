@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { Hash, Radio, ScrollText } from 'lucide-react';
 
-import { DEFAULT_RAIL, RAIL_ITEMS } from '../components/navDestinations';
+import { DEFAULT_RAIL, RAIL_ITEMS, resolveRail } from '../components/navDestinations';
 
 const frontendSrc = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -24,7 +24,17 @@ describe('navDestinations live chrome', () => {
     const control = RAIL_ITEMS[rawIndex + 2];
     expect(control?.id).toBe('control');
     expect(control?.Icon).toBe(ScrollText);
-    expect(control?.conversation).toEqual({ type: 'control', id: 'control', name: 'control' });
+    expect(control?.conversation).toEqual({
+      type: 'feed',
+      id: 'feed',
+      name: 'feed',
+      feedPreset: 'control',
+    });
+    // Still offered in Settings → Navigation, but not on a new install's rail.
+    expect(DEFAULT_RAIL).not.toContain('control');
+    expect(resolveRail(['conversations', 'map', 'control', 'raw']).map((i) => i.id)).toContain(
+      'control'
+    );
   });
 
   it('uses Hash for the discovered-channels tool', () => {

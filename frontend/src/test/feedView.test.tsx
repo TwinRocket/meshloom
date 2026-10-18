@@ -476,6 +476,22 @@ describe('FeedView filter chips', () => {
   });
 });
 
+describe('FeedView Control preset', () => {
+  it('opens with only the control source on, and writes nothing back to the feed filters', async () => {
+    localStorage.setItem(FEED_FILTERS_STORAGE_KEY, JSON.stringify({ includePending: true }));
+    mocks.getMessages.mockResolvedValue([]);
+    render(<FeedView preset="control" contacts={[]} channels={channels} />);
+    await waitFor(() => expect(chip(chipLabel('control'))).toBeInTheDocument());
+    expect(chip(chipLabel('control'))).toHaveAttribute('aria-pressed', 'true');
+    expect(chip(chipLabel('messages'))).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(chip(chipLabel('messages')));
+    expect(chip(chipLabel('messages'))).toHaveAttribute('aria-pressed', 'true');
+    expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toEqual({
+      includePending: true,
+    });
+  });
+});
+
 describe('FeedView hollow pages', () => {
   const hollowChannels = [channel(MUTED_KEY, 'Quiet', { muted: true })];
   const fullPage = (page: number) =>

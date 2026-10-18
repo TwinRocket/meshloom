@@ -24,8 +24,7 @@ rely on it. Community and `#live` detail: `docs/dev/frontend-community.md`.
 
 `stores/rawPacketStore.ts` is read through `useSyncExternalStore`
 (`useRawPackets()`, `useRawPacketStatsSession()`). Only leaf views subscribe:
-`RawPacketFeedView`, `VisualizerView`, `LiveView`, `ControlJournalView`,
-`CrackerPanel`. `FeedView` reads `feedStore`, which holds its own copy of the control
+`RawPacketFeedView`, `VisualizerView`, `LiveView`, `CrackerPanel`. `FeedView` reads `feedStore`, which holds its own copy of the control
 packets (see below), but `useRawPackets()` only through the activation seed. **No ancestor
 of `MessageList` (`App`, `AppShell`,
 `ConversationPane`) may subscribe**, or every packet re-renders the whole tree.
@@ -58,9 +57,16 @@ feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
 ### Feed
 
 `#feed` (`components/feed/FeedView.tsx`, `lazy()` behind `LazyBoundary`, not in the
-entry chunk) is the only subscriber of `feedStore`; it sits beside `control`
-(`ControlJournalView`, still the Control journal until the Control preset folds it in).
-The feed now carries the control source itself: see _Control rows_ above and below.
+entry chunk) is the only subscriber of `feedStore`. `#control` is not a view of its own: it parses as
+`{type: 'feed', feedPreset: 'control'}` and `FeedView` opens with `controlPreset`
+(`utils/feedFilters.ts`: only the Control source, Nodes facet) through its `preset` prop,
+keyed on the preset so switching remounts it. A preset's filters are never written to
+`meshloom-feed-filters`. `getConversationHash` emits `#control` for it (never rewritten
+to `#feed`); `toolIdOf()` (`feedConversation.ts`) maps it back to the `control` tool so the
+rail and the Tools list light the right entry. `RailItemId` `'control'` stays registered
+(Settings → Navigation, stored rails) but is not in `DEFAULT_RAIL`. A stored
+`{type: 'control'}` (4.18.x `localStorage`) is read as the preset in
+`lastViewedConversation.ts`; `ConversationType` no longer has `'control'`.
 
 - **Pagination.** On mount: `activateFeedStore()`, then `loadFeedPage(null)`
   (`GET /api/messages?limit=200`, `FEED_PAGE_SIZE`). Scrolling within ~300 px of the
@@ -79,7 +85,7 @@ The feed now carries the control source itself: see _Control rows_ above and bel
   invariants below (`scrollMargin`, string sentinel keys, zero-height fallback).
   A prepended page keeps the reader's position by the growth of `scrollHeight`.
 - **Navigation type.** `'feed'` is in `ConversationType` (`types.ts`), with the optional
-  `feedPreset?: 'control'` on `Conversation`. `components/feed/feedConversation.ts` holds
+  `feedPreset?: 'control'` on `Conversation` (the Control page is that preset). `components/feed/feedConversation.ts` holds
   `isFeedConversation()` and `makeFeedConversation()`.
 - **Filters: one evaluator.** `utils/feedFilters.ts` holds `FeedFilters`, the defaults
   (muted and pending hidden, DMs shown) and `rowPassesFilters(row, filters, channels,
@@ -157,7 +163,7 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   sorted lists by `received_at` / `packet.timestamp` (a message first on a tie).
   `buildJournalEntries` (incremental, `utils/controlJournal.ts`) turns the held packets
   into entries (classification, pairing, never decrypting third-party Request / Anon
-  payloads); `controlParts.tsx` holds the labels shared with `ControlJournalView`. A row
+  payloads); `controlParts.tsx` holds the labels (`ControlJournalView` was removed with the Control preset). A row
   click opens `RawPacketInspectorDialog`; the peers open the contact sheet; the GroupData
   channel opens the conversation; the "Paired" badge scrolls to the twin (a plain badge
   when the twin is filtered out). The follow counter counts control rows by the browser
@@ -456,7 +462,8 @@ utilities`, and an unlayered rule beats every utility whatever its specificity.
 
 1. When an API or WS payload changes, update `types.ts`, `wsEvents.ts` and its
    handlers, and the tests (`src/test/fixtures/websocket_events.json` holds WS samples).
-2. When hash routing changes, update `utils/urlHash.ts` and `urlHash.test.ts`.
+2. When hash routing changes, update `utils/urlHash.ts` and `urlHash.test.ts`. A preset of an
+   existing view (`#control`) is a `feedPreset`, not a new `ConversationType`.
    A new tool id goes through every surface keyed by it: `navDestinations.ts`
    (`RailItemId`, `RAIL_ITEMS`), `ToolsView.tsx`, `CommandPalette.tsx`, `AppShell.tsx`
    (`TOOL_TYPES`), `lastViewedConversation.ts`, `useConversationRouter.ts`,

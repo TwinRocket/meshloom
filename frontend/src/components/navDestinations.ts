@@ -77,12 +77,25 @@ export interface RailItem {
   overlay?: boolean;
 }
 
-const tool = (id: Exclude<RailItemId, BottomNavTarget>, labelKey: string, Icon: LucideIcon) => ({
+const tool = (
+  id: Exclude<RailItemId, BottomNavTarget | 'control'>,
+  labelKey: string,
+  Icon: LucideIcon
+) => ({
   id,
   labelKey,
   Icon,
   permanent: false,
   conversation: { type: id, id, name: id } as Conversation,
+});
+
+/** `control` is the feed opened with the Control preset, not a view of its own. */
+const controlTool = (): RailItem => ({
+  id: 'control',
+  labelKey: 'sidebar.controlJournal',
+  Icon: ScrollText,
+  permanent: false,
+  conversation: { type: 'feed', id: 'feed', name: 'feed', feedPreset: 'control' },
 });
 
 /**
@@ -118,7 +131,7 @@ export const RAIL_ITEMS: RailItem[] = [
   ),
   tool('raw', 'sidebar.packetFeed', List),
   tool('feed', 'sidebar.feed', Newspaper),
-  tool('control', 'sidebar.controlJournal', ScrollText),
+  controlTool(),
   tool('live', 'sidebar.live', Radio),
   tool('visualizer', 'sidebar.meshVisualizer', Waypoints),
   tool('trace', 'sidebar.trace', Spline),
@@ -138,7 +151,10 @@ const RAIL_BY_ID = new Map(RAIL_ITEMS.map((item) => [item.id, item]));
  * having to learn that the rail can be arranged at all — removing what you do not
  * use is an easier thing to think of than adding what you never saw.
  */
-export const DEFAULT_RAIL: RailItemId[] = RAIL_ITEMS.map(({ id }) => id);
+export const DEFAULT_RAIL: RailItemId[] = RAIL_ITEMS.map(({ id }) => id).filter(
+  // The preset is a way into the feed, offered in Settings → Navigation, not a default.
+  (id) => id !== 'control'
+);
 
 /** localStorage flag so a stored rail is only given the discovered tool once. */
 export const RAIL_DISCOVERED_BACKFILL_KEY = 'meshloom-rail-tool-discovered';

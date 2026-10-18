@@ -39,6 +39,7 @@ import type { CrackerPanelProps } from './CrackerPanel';
 import type { SearchViewProps } from './SearchView';
 import type { SettingsModalProps } from './SettingsModal';
 import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
+import { toolIdOf } from './feed/feedConversation';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { LazyBoundary } from './LazyBoundary';
@@ -243,7 +244,6 @@ export function AppShell({
   const TOOL_TYPES = [
     'raw',
     'feed',
-    'control',
     'live',
     'visualizer',
     'trace',
@@ -443,7 +443,7 @@ export function AppShell({
           order={navRailOrder}
           // Settings render over whatever was open, so the pane underneath must not
           // keep the rail lit: two places cannot both be where you are.
-          activeToolId={showSettings ? null : (activeType ?? null)}
+          activeToolId={showSettings ? null : toolIdOf(conversationPaneProps.activeConversation)}
           directoryEnabled={directoryEnabled}
           onOpenRadioStatus={() => setRadioStatusOpen(true)}
           onSelectTool={(id) => {
