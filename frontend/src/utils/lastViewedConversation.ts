@@ -6,7 +6,8 @@ import { parseHashConversation } from './urlHash';
 export const REOPEN_LAST_CONVERSATION_KEY = 'meshloom-reopen-last-conversation';
 export const LAST_VIEWED_CONVERSATION_KEY = 'meshloom-last-viewed-conversation';
 
-type StoredType = Conversation['type'] | 'feed';
+// 'control' is the 4.18.x Control page, now a preset of the feed: stored values still read.
+type StoredType = Conversation['type'] | 'control';
 
 const SUPPORTED_TYPES: StoredType[] = [
   'contact',
@@ -72,6 +73,10 @@ export function getLastViewedConversation(): Conversation | null {
       return null;
     }
 
+    if (parsed.type === 'control') {
+      return makeFeedConversation(i18n.t('sidebar.feed'), 'control');
+    }
+
     if (parsed.type === 'feed') {
       return makeFeedConversation(
         parsed.name,
@@ -116,15 +121,9 @@ export function captureLastViewedConversationFromHash(): void {
     return;
   }
   if (hashConversation.type === 'feed') {
-    saveLastViewedConversation(makeFeedConversation(i18n.t('sidebar.feed')));
-    return;
-  }
-  if (hashConversation.type === 'control') {
-    saveLastViewedConversation({
-      type: 'control',
-      id: 'control',
-      name: i18n.t('sidebar.controlJournal'),
-    });
+    saveLastViewedConversation(
+      makeFeedConversation(i18n.t('sidebar.feed'), hashConversation.feedPreset)
+    );
     return;
   }
   if (hashConversation.type === 'map') {

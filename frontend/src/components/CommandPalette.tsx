@@ -108,7 +108,7 @@ const DIRECTORY_ONLY_TOOLS: readonly string[] = ['test'];
 const TOOL_NAME_KEYS: Record<string, string> = {
   raw: 'commandPalette.rawPacketFeed',
   feed: 'sidebar.feed',
-  control: 'sidebar.controlJournal',
+  control: 'commandPalette.controlPreset',
   map: 'commandPalette.mapView',
   live: 'commandPalette.liveRain',
   visualizer: 'commandPalette.networkVisualizer',
@@ -121,6 +121,7 @@ const TOOL_NAME_KEYS: Record<string, string> = {
 
 const TOOL_SEARCH_EXTRA: Record<string, string> = {
   feed: 'feed fil activity activite timeline messages',
+  control: 'control controle journal feed fil preset prereglage',
   locate: 'rf locate zone community',
   test: 'test radio flood reach portee',
 };
@@ -310,8 +311,11 @@ export function CommandPalette({
                     onSelect={() =>
                       select(() =>
                         onSelectConversation(
-                          tool.type === 'feed'
-                            ? makeFeedConversation(tool.name)
+                          tool.type === 'feed' || tool.type === 'control'
+                            ? makeFeedConversation(
+                                tool.name,
+                                tool.type === 'control' ? 'control' : undefined
+                              )
                             : { type: tool.type, id: tool.id, name: tool.name }
                         )
                       )

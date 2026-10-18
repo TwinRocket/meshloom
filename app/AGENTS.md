@@ -43,10 +43,34 @@ and the OpenAPI page (`/docs`), not a table here.
 - `services/test_channel.py` (`#meshloom-testing`, radio self-test and
   `POST /tools/mesh-test`) stores no channel and no message.
 - `plugins/` is the plugin package format: manifest model, permission registry, config
-  schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`).
-  No runtime yet. Change the contract only through `scripts/build/export_plugin_contract.py`.
+  schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`),
+  plus the static attention scan of local sources (`plugins/attention.py`). The data
+  model is `repository/plugins.py` (instances, KV, write-only secrets: only
+  `config_for_init()` returns a secret in clear). No runtime yet. Change the contract
+  only through `scripts/build/export_plugin_contract.py`.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
+
+## Recovery CLI (`app/cli.py`)
+
+- `meshloom-admin` is `python -m app.cli` behind the wrapper `pkg/nfpm/meshloom-admin`:
+  `pyproject.toml` has no build backend, so the venv never gets a console script.
+  The wrapper is shipped at `/opt/meshloom/.venv/bin/meshloom-admin` (`nfpm.yaml.tmpl`)
+  and `/usr/local/bin/meshloom-admin` (`Dockerfile`; the add-on is `FROM` that image).
+  On the package it must run as root (also linked as `/usr/bin/meshloom-admin`): it parses
+  `/etc/meshloom/meshloom.env` (root:root 0640) as data, never sources it, then drops to
+  `meshloom` with `runuser`. It runs python with `-P` so a local `app/` cannot shadow the
+  install. It finds the database the way the service does (that env file, `/config` for the
+  add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
+- It opens the file itself (`mode=rw`, never created, no schema script, no migration:
+  the server owns those) and attaches `app.database.db` to that connection, then uses the
+  repositories of `app/repository/auth.py`. Changes are WAL commits, seen by a running
+  server on its next read. Every command writes an `auth_audit` row (`via = "cli"`; outcome `refused` for a refusal).
+- Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
+  new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
+- Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
+  policy belongs to the login routes, which should share it with this file.
+- Tests: `tests/test_cli.py`. User docs: `docs/user/{en,fr}/deep/access.md`.
 
 ## Process hardening
 
@@ -81,6 +105,22 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 102 adds the share settings to `app_settings` (`share_enabled`,
+  `share_shorten_mode`, `share_preview_policy`, `share_instance_seed`). Fresh databases get
+  them from the migration, not from `SCHEMA_TABLES` (later columns are all added that
+  way). `share_instance_seed` is outside `AppSettings`, read and written only through
+  `AppSettingsRepository.get_share_seed()/set_share_seed()`; the `*_seed` rule of
+  `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
+  the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
+  behaviours are restored.
+- Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
+  also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
+  and `app_settings.store_online` (Store consent, off, outside `AppSettings`, excluded
+  from backups and reset to 0 in a database copy). Additive: bots in `fanout_configs`
+  are untouched until the switch. One `plugin_id` can have several instances, each
+  with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
+  never exported (`plugin_secrets` emptied in the database download). Rules:
+  `docs/dev/plugins.md`, "Data model".
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
@@ -406,7 +446,7 @@ be wrong, because historical decryption inserts old messages with new ids.
   `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
   the BLE PIN, the previous-transport snapshot, `users.password_hash`,
   `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
-  `sessions` emptied (under `secure_delete`): instance identity seeds and
+  `sessions` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
   login secrets are never exported. Inspect and
   restore bodies over 64 MiB are a 413 `backup_too_large`.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every

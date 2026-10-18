@@ -31,7 +31,6 @@ import type {
 } from '../types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, CONTACT_TYPE_SENSOR } from '../types';
 import { isPendingChannel } from '../utils/channelMembership';
-import { ControlJournalView } from './ControlJournalView';
 import { DiscoveredChannelsView } from './DiscoveredChannelsView';
 import {
   getContactDisplayName,
@@ -446,28 +445,19 @@ export function ConversationPane({
     return (
       <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingFeed')} />}>
         <FeedView
+          // A preset is applied when the view opens, so another preset is another view.
+          key={activeConversation.feedPreset ?? 'feed'}
+          preset={activeConversation.feedPreset}
           contacts={contacts}
           channels={channels}
           radioName={config?.name}
+          publicKey={config?.public_key}
           onBackToTools={onBackToTools}
           onNavigateToMessage={onNavigateToMessage}
           onSelectConversation={onSelectConversation}
           onOpenContactInfo={onOpenContactInfo}
         />
       </LazyBoundary>
-    );
-  }
-
-  if (activeConversation.type === 'control') {
-    return (
-      <ControlJournalView
-        contacts={contacts}
-        channels={channels}
-        onOpenContactInfo={onOpenContactInfo}
-        onSelectConversation={onSelectConversation}
-        publicKey={config?.public_key}
-        onBackToTools={onBackToTools}
-      />
     );
   }
 

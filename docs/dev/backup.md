@@ -135,7 +135,7 @@ These hold for every section; a restore function must keep them:
 4. **Identity seeds are never exported.** The per-service instance identity
    seeds (share, Remote: `app/services/instance_identity.py` once it lands) are
    never in a file, even though the radio private key is. Name their columns
-   `app_settings.<service>_seed` and mark them `excluded` in `BACKUP_COVERAGE`:
+   `app_settings.<service>_instance_seed` and mark them `excluded` in `BACKUP_COVERAGE`:
    - the JSON export reads every `app_settings.*_seed` value and refuses a
      document (v1 or v2, sections included) that contains one, with a 500
      `backup_identity_seed_leak` (coded on both `GET /settings/backup/json` and
@@ -146,9 +146,18 @@ These hold for every section; a restore function must keep them:
      previous-transport snapshot that holds it) and the local accounts
      secrets (`SNAPSHOT_SCRUBBED_AUTH_COLUMNS`: `users.password_hash`,
      `users.totp_secret`, `auth_settings.setup_code_hash`; the `sessions`
-     table is emptied, `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
+     table and the plugin config secrets in `plugin_secrets` are emptied,
+     `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
      so the old values do not stay in the file's free space. The live database
      keeps them.
+
+   The sharing consent (`app_settings.share_enabled`) and the Store consent
+   (`app_settings.store_online`, not in `AppSettings` yet) are not seeds but follow the
+   same rule: they are left out of the JSON export (`BackupExport` serializes
+   `settings` without `share_enabled`; `store_online` is not in `AppSettings`),
+   never restored, and set to 0 in the SQLite snapshot
+   copy (`SNAPSHOT_RESET_COLUMNS`), so a copy put back elsewhere cannot enable the
+   sharing or Store egress.
 
    The seeds are regenerated after a restore, through the hook below.
 5. **Secrets in `data` are plain JSON.** Unlike `identity`, `wifi` and

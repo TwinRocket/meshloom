@@ -162,6 +162,16 @@ class AppSettingsUpdate(BaseModel):
             "Seconds the radio may stay unreachable before radio_offline is sent (0 = at once)"
         ),
     )
+    share_enabled: bool | None = Field(
+        default=None,
+        description="Consent to the link and file sharing service (off by default)",
+    )
+    share_shorten_mode: Literal["auto", "always", "never"] | None = Field(
+        default=None, description="When the composer shortens a link"
+    )
+    share_preview_policy: Literal["always", "private", "never"] | None = Field(
+        default=None, description="When a shared image or link preview is fetched automatically"
+    )
     push_private_endpoints_grandfathered: bool | None = Field(
         default=None,
         description="Set to false to dismiss the upgrade notice (setting it also clears it)",
@@ -489,6 +499,13 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     if update.radio_offline_grace_s is not None:
         logger.info("Updating radio_offline_grace_s to %s", update.radio_offline_grace_s)
         kwargs["radio_offline_grace_s"] = update.radio_offline_grace_s
+    if update.share_enabled is not None:
+        logger.info("Updating share_enabled to %s", update.share_enabled)
+        kwargs["share_enabled"] = update.share_enabled
+    if update.share_shorten_mode is not None:
+        kwargs["share_shorten_mode"] = update.share_shorten_mode
+    if update.share_preview_policy is not None:
+        kwargs["share_preview_policy"] = update.share_preview_policy
     if update.push_private_endpoints_grandfathered is False:
         kwargs["push_private_endpoints_grandfathered"] = False
 

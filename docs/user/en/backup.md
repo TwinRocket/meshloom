@@ -84,6 +84,7 @@ Newer versions of Meshloom add more parts to this file. A part the running versi
 - Messages, raw packets and telemetry history: use **Download meshcore.db** for those.
 - The radio connection settings (port, address, Bluetooth device): they belong to the machine.
 - Meshloom Community participation and its region code: joining is your choice, made again.
+- The link and file sharing consent: a backup restored on another machine would otherwise switch on a service nobody agreed to there, so sharing stays off (or as it is) after a restore. How links are shortened and when previews load are restored.
 - The radio's clock (Meshloom sets it) and a few settings no command reaches (buzzer and vibration).
 - The keys Meshloom uses to identify itself to online services (remote access, link sharing). They never leave the server, not even in a full backup that holds the radio's private key, nor in a `meshcore.db` download: Meshloom creates new ones after every restore, including a `meshcore.db` copy put back in place (made by this version or a later one), so those services need linking again.
 

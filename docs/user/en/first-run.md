@@ -95,7 +95,7 @@ The conversation list is split into sections: **Favorites**, **Channels**, **Con
 The **Tools** screen (or the icon bar) opens:
 
 - **Packet Feed**: every packet the radio hears, whether or not it can be decrypted.
-- **Control journal**: requests, replies and group data, kept apart from conversations.
+- **Feed**: every message and the control traffic (requests, replies, group data) in one timeline. The **Control** preset (`#control`) shows the control traffic alone.
 - **Live**: packets appear on a map as they are heard.
 - **Mesh Visualizer**: the paths packets actually took.
 - **Trace**: a route test through chosen repeaters.
