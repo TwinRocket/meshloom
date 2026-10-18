@@ -290,6 +290,14 @@ def _uvicorn_args(launcher: str) -> list[str]:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         argv = list(module.UVICORN_ARGV)
+    elif launcher == "scripts/setup/install_docker.sh":
+        # The snake-oil compose: one ``echo "      - <arg>"`` per list item after ``command:``.
+        text = (REPO / launcher).read_text(encoding="utf-8")
+        block = text.split('echo "    command:"', 1)[1].split("\n    fi", 1)[0]
+        argv = [
+            item.replace('\\"', "")
+            for item in re.findall(r'echo "      - (.*)"$', block, flags=re.MULTILINE)
+        ]
     else:
         text = (REPO / launcher).read_text(encoding="utf-8")
         line = next(line for line in text.splitlines() if "app.main:app" in line)
@@ -303,6 +311,7 @@ LAUNCHERS = [
     "Dockerfile",
     "pkg/nfpm/meshloom.service",
     "scripts/setup/install_service.sh",
+    "scripts/setup/install_docker.sh",
 ]
 
 

@@ -10,7 +10,9 @@ At startup, while no account exists (``prepare_first_run``, called by the lifesp
   ``auth_settings.setup_code_hash``, and the code logged at WARNING.
   ``POST /api/auth/setup`` then requires it, so the first person on the LAN
   cannot claim the instance. A new code replaces the old one at every start;
-  ``meshloom-admin setup-code`` prints a fresh one too;
+  ``meshloom-admin setup-code`` prints a fresh one too. A retry from the setup
+  route (below) keeps a code that is already stored: it may be the one the
+  CLI printed while the startup preparation was failing;
 - a database created by this start asks for no code: whoever installed it is
   in front of it, the same trust as before accounts existed.
 
@@ -22,8 +24,9 @@ start and no code hash is stored (cleared by hand, or a failed write), so an
 error never leaves an existing instance open to the first visitor.
 
 Once an account exists the stored hash is cleared. Wrong codes are answered
-one at a time, ``SETUP_FAILURE_DELAY_S`` apart (``app/routers/auth.py``),
-until the login limiter of a later Access ticket.
+one at a time, ``SETUP_FAILURE_DELAY_S`` apart (``app/routers/auth.py``): at
+most one guess a second against 10**8 codes, so the login delays
+(``app/auth/ratelimit.py``) do not apply to setup.
 """
 
 from __future__ import annotations
@@ -79,7 +82,7 @@ async def ensure_first_run_ready() -> None:
     if _last_args is None:
         raise SetupUnavailable("first run was never prepared")
     try:
-        await prepare_first_run(**_last_args)
+        await prepare_first_run(**_last_args, keep_stored_code=True)
     except Exception as exc:
         logger.warning("First-run preparation failed again; setup stays refused")
         raise SetupUnavailable("first run preparation failed") from exc
@@ -109,11 +112,17 @@ async def clear_setup_code() -> None:
 
 
 async def prepare_first_run(
-    *, existing_database: bool, basic_username: str, basic_password: str
+    *,
+    existing_database: bool,
+    basic_username: str,
+    basic_password: str,
+    keep_stored_code: bool = False,
 ) -> None:
     """Import Basic, or issue the installation code, while no account exists.
 
     Setup stays refused until this returns without raising (module docstring).
+    ``keep_stored_code`` (the retry from the setup route) issues no new code
+    when one is already stored.
     """
     global _existing_database, _last_args
     _last_args = {
@@ -122,11 +131,13 @@ async def prepare_first_run(
         "basic_password": basic_password,
     }
     _existing_database = None
-    await _prepare(existing_database, basic_username, basic_password)
+    await _prepare(existing_database, basic_username, basic_password, keep_stored_code)
     _existing_database = existing_database
 
 
-async def _prepare(existing_database: bool, basic_username: str, basic_password: str) -> None:
+async def _prepare(
+    existing_database: bool, basic_username: str, basic_password: str, keep_stored_code: bool
+) -> None:
     from app.security import import_basic_credentials, warn_retired_basic_env
 
     basic_configured = bool(basic_username and basic_password)
@@ -142,6 +153,13 @@ async def _prepare(existing_database: bool, basic_username: str, basic_password:
     if not existing_database:
         await clear_setup_code()
         logger.info("No account yet: open Meshloom to create the administrator")
+        return
+    if keep_stored_code and await AuthSettingsRepository.get_setup_code_hash() is not None:
+        logger.warning(
+            "No account exists yet on this existing database. Keeping the installation "
+            "code already issued (in an earlier log line, or printed by "
+            "`meshloom-admin setup-code`, which prints a new one)."
+        )
         return
     code = await issue_setup_code()
     logger.warning(

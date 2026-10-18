@@ -27,7 +27,10 @@ anywhere else.
    machine.
 2. Install and start the add-on, then open it from the sidebar. The first install
    builds one small layer on top of the published Meshloom image, so it takes a
-   little longer than starting it again later does.
+   little longer than starting it again later does. Home Assistant signs you in
+   there. Port 8000 is not published by default: to reach Meshloom, or create its
+   first account, without the sidebar, give `8000/tcp` a host port in the
+   add-on's **Network** panel first (see *Reaching it from outside*).
 3. Go to **Settings → Radio** and choose the transport — the serial device, the
    host and port of a radio reachable over the network, or a Bluetooth radio
    (**Scan**, then its PIN).
