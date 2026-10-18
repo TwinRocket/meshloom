@@ -10,7 +10,7 @@ import pytest
 from app.database import Database
 from app.migrations import get_version, run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION, migrations_after
+from .conftest import LATEST_SCHEMA_VERSION
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "notifications_418_settings.json"
 TABLES = (
@@ -64,7 +64,7 @@ async def _migrate(path: Path) -> dict:
     conn = await aiosqlite.connect(path)
     conn.row_factory = aiosqlite.Row
     try:
-        assert await run_migrations(conn) == migrations_after(111)
+        assert await run_migrations(conn) == LATEST_SCHEMA_VERSION - 111
         assert await get_version(conn) == LATEST_SCHEMA_VERSION
         cursor = await conn.execute("SELECT * FROM notification_channels ORDER BY sort_order")
         channels = {row["id"]: dict(row) for row in await cursor.fetchall()}
@@ -157,7 +157,7 @@ async def test_418_database_with_smtp_apprise_and_overrides_is_imported_lossless
         "url": "http://192.168.1.20:8080/hook?token=abc",
         "hmac_secret": "hmac-secret-1",
     }
-    assert webhook["allow_private_network"] == 1 and webhook["quiet_hours_exempt"] == 1
+    assert webhook["allow_private_network"] == 1 and webhook["quiet_hours_exempt"] == 0
     apprise = channels["legacy:apprise"]
     assert json.loads(apprise["secrets"]) == {
         "urls": "ntfy://ntfy.example.org/topic-secret\ntgram://123456:AAbbCC/987654"

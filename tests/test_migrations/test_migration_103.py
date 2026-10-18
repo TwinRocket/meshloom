@@ -7,7 +7,7 @@ import pytest
 from app.database import Database
 from app.migrations import get_version, run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION, migrations_after
+from .conftest import LATEST_SCHEMA_VERSION
 
 _PLUGIN_TABLES = ("plugins", "plugin_kv", "plugin_secrets")
 
@@ -47,7 +47,7 @@ async def test_fresh_database_has_the_tables_and_the_bumped_version(tmp_path):
     conn = await aiosqlite.connect(migrated)
     try:
         await set_version(conn, 102)
-        assert await run_migrations(conn) == migrations_after(102)
+        assert await run_migrations(conn) == LATEST_SCHEMA_VERSION - 102
     finally:
         await conn.close()
 

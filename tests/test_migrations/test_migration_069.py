@@ -8,7 +8,7 @@ import pytest
 from app.decoder import encrypt_group_text
 from app.migrations import get_version, run_migrations, set_version
 from app.path_utils import calculate_packet_hash, canonical_packet_hash
-from tests.test_migrations.conftest import LATEST_SCHEMA_VERSION, migrations_after
+from tests.test_migrations.conftest import LATEST_SCHEMA_VERSION
 
 
 def _group_text_packet(channel_key: bytes, timestamp: int, text: str) -> bytes:
@@ -61,7 +61,7 @@ class TestMigration069:
             await conn.commit()
 
             applied = await run_migrations(conn)
-            assert applied == migrations_after(68)
+            assert applied == LATEST_SCHEMA_VERSION - 68
             assert await get_version(conn) == LATEST_SCHEMA_VERSION
 
             columns = {

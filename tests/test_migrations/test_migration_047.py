@@ -4,7 +4,7 @@ import aiosqlite
 import pytest
 
 from app.migrations import get_version, run_migrations, set_version
-from tests.test_migrations.conftest import LATEST_SCHEMA_VERSION, migrations_after
+from tests.test_migrations.conftest import LATEST_SCHEMA_VERSION
 
 
 class TestMigration047:
@@ -45,7 +45,7 @@ class TestMigration047:
 
             applied = await run_migrations(conn)
 
-            assert applied == migrations_after(46)
+            assert applied == LATEST_SCHEMA_VERSION - 46
             assert await get_version(conn) == LATEST_SCHEMA_VERSION
 
             cursor = await conn.execute(

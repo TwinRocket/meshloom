@@ -65,6 +65,11 @@ This file is a hypothesis: check it against the code.
 - **Journal.** 200 `notification_deliveries` rows per channel (trimmed at insert, plus the
   daily `prune_deliveries()`); successes are counted per channel and hour
   (`notification_counters`); `notification_state` holds dedup timestamps with an expiry.
+- **The import runs once.** Until the dispatcher ticket (MSHL-109) the legacy columns
+  (`push_defaults`, `push_conversation_overrides`, `notification_destinations`) stay the
+  delivery source and stay editable; a change made there after migration 113 is not mirrored
+  into the channels and rules. MSHL-109 must re-run the import (`build_channels`,
+  `build_rules`) or switch the writers over.
 - This version only stores and reads: delivery still follows the legacy columns until the
   dispatcher ticket. The legacy columns are no longer written by the new model.
 

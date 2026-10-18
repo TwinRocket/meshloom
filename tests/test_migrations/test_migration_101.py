@@ -6,7 +6,7 @@ import pytest
 from app.database import Database
 from app.migrations import get_version, run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION, migrations_after
+from .conftest import LATEST_SCHEMA_VERSION
 
 _AUTH_TABLES = ("users", "sessions", "auth_audit", "auth_settings")
 
@@ -41,7 +41,7 @@ async def test_fresh_and_migrated_databases_have_the_same_auth_schema(tmp_path):
     try:
         await set_version(conn, 100)
         applied = await run_migrations(conn)
-        assert applied == migrations_after(100)
+        assert applied == LATEST_SCHEMA_VERSION - 100
         assert await get_version(conn) == LATEST_SCHEMA_VERSION
     finally:
         await conn.close()

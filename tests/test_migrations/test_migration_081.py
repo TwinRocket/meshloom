@@ -6,7 +6,7 @@ import pytest
 from app.migrations import run_migrations, set_version
 from app.migrations._081_telemetry_alert_v2 import migrate as migrate_081
 
-from .conftest import migrations_after
+from .conftest import LATEST_SCHEMA_VERSION
 
 
 class TestMigration081:
@@ -99,6 +99,6 @@ class TestMigration081:
             await conn.execute("INSERT INTO app_settings (id) VALUES (1)")
             await conn.commit()
             applied = await run_migrations(conn)
-            assert applied == migrations_after(80)
+            assert applied == LATEST_SCHEMA_VERSION - 80
         finally:
             await conn.close()

@@ -5,7 +5,7 @@ import pytest
 
 from app.migrations import get_version, run_migrations, set_version
 from app.migrations._072_seed_meshloom_channel import MESHLOOM_CHANNEL_KEY
-from tests.test_migrations.conftest import LATEST_SCHEMA_VERSION, migrations_after
+from tests.test_migrations.conftest import LATEST_SCHEMA_VERSION
 
 
 class TestMigration072:
@@ -32,7 +32,7 @@ class TestMigration072:
             await conn.commit()
 
             applied = await run_migrations(conn)
-            assert applied == migrations_after(71)
+            assert applied == LATEST_SCHEMA_VERSION - 71
             assert await get_version(conn) == LATEST_SCHEMA_VERSION
 
             row = await (
