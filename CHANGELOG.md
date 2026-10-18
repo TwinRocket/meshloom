@@ -61,6 +61,8 @@ The server now enforces the radio's message size limit for every way of sending.
 
 ### Changed
 
+- **The "Recover access" help page is now "Accounts and access", and the security pages describe 5.0.** One page covers roles, sessions, trusted networks, tokens, two-factor authentication and passkeys, Home Assistant, the kiosk screen, the 4.x Basic login window (until 5.2), the audit log and `meshloom-admin`; "A trusted network", "Security", the install pages, the README and `SECURITY.md` no longer say there are no accounts or that CORS is open, and say plainly that the radio proxy has no login.
+
 - **`/api/health` and `/api/debug` no longer report `basic_auth_enabled`; the retired Basic variables only warn.** The field is gone from both payloads (the interface already reads `GET /api/auth/session`). `MESHCORE_BASIC_AUTH_USERNAME` and `_PASSWORD` are listed with the other retired variables: the first start with no account still turns them into the administrator, and every start logs a warning pointing to **Settings → Users & Access**. Setting only one no longer stops Meshloom from starting; it imports nothing. `Authorization: Basic` stays accepted until 5.2 and logs a deprecation warning the first time it is used after each start.
 
 - **Bulk room decryption shows a translated completion message.** After decrypting old packets for several rooms at once, the confirmation now follows your language like the single-room one. Messages decrypted this way are also flagged as old on the live connection (`historical: true`, never sent to bots or webhooks), so a future client can tell them from new ones.
@@ -160,6 +162,8 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 - **Une page de changement de mot de passe obligatoire.** Quand un administrateur définit votre mot de passe, Meshloom affiche une page demandant le mot de passe actuel et un nouveau (avec les règles) à la place de l’application, puis continue une fois le changement fait. Toute requête refusée avec « changement de mot de passe requis » vous y amène aussi.
 
 #### Modifications
+
+- **La page d’aide « Récupérer l’accès » devient « Comptes et accès », et les pages de sécurité décrivent la 5.0.** Une seule page couvre les rôles, les sessions, les réseaux de confiance, les jetons, la double authentification et les passkeys, Home Assistant, l’écran kiosque, la fenêtre de la connexion Basic de la 4.x (jusqu’à la 5.2), le journal d’audit et `meshloom-admin` ; « Un réseau de confiance », « Sécurité », les pages d’installation, le README et `SECURITY.md` ne disent plus qu’il n’y a pas de comptes ni que le CORS est ouvert, et disent clairement que le proxy radio n’a aucune connexion.
 
 - **`/api/health` et `/api/debug` n'exposent plus `basic_auth_enabled` ; les variables Basic retirées ne font que prévenir.** Le champ disparaît des deux réponses (l'interface lit déjà `GET /api/auth/session`). `MESHCORE_BASIC_AUTH_USERNAME` et `_PASSWORD` rejoignent les autres variables retirées : le premier démarrage sans compte en fait toujours l'administrateur, et chaque démarrage journalise un avertissement qui renvoie vers **Réglages → Utilisateurs et accès**. En définir une seule n'empêche plus Meshloom de démarrer ; rien n'est importé. `Authorization: Basic` reste accepté jusqu'à la 5.2 et journalise un avertissement de dépréciation à sa première utilisation après chaque démarrage.
 

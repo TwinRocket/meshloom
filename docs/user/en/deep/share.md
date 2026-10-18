@@ -52,7 +52,7 @@ The hint needs sharing to be on: with sharing off, a short link is just a link a
 
 ## Who can do what
 
-Turning sharing on or off and setting the modes needs the **administrator** role. Shortening a link needs the **member** role or above. Viewers and kiosks can read the hints (see [Recover access](/en/docs/deep/access/) for the roles). The server checks this on every request, whatever the interface shows, and refuses a request that the browser marks as coming from another web site.
+Turning sharing on or off and setting the modes needs the **administrator** role. Shortening a link needs the **member** role or above. Viewers and kiosks can read the hints (see [Accounts and access](/en/docs/deep/access/) for the roles). The server checks this on every request, whatever the interface shows, and refuses a request that the browser marks as coming from another web site.
 
 ## When something goes wrong
 

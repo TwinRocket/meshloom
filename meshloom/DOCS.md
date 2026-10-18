@@ -130,8 +130,12 @@ provide one:
 3. Open Meshloom through that hostname (over HTTPS) to subscribe to Web Push.
 
 The hostname does not have to resemble Home Assistant's: the tunnel connects to an
-address and a port, and Meshloom answers to whatever name it is asked for. Ingress
-keeps working meanwhile; the two ways in are independent. A published port is
+address and a port. Meshloom looks at the name in the browser's address (DNS
+rebinding): in 5.0.0 an unknown name is only logged, and from 5.1 it is refused
+unless declared in **Settings → Users & Access → Public addresses**, so declare
+yours (and list the tunnel or proxy in **Trusted proxies**, so Meshloom sees
+HTTPS and the real visitor). Ingress is never refused for its name and keeps
+working meanwhile; the two ways in are independent. A published port is
 reachable by anything that can route to that machine: it asks for a Meshloom
 account and password (the one made from `basic_auth_*`, or one created with
 `meshloom-admin`, see *Recovering access*).
@@ -161,7 +165,8 @@ in-app updater only tells you a new version exists.
 ## Recovering access
 
 Home Assistant signs you in, so a lost Meshloom password does not lock you out of
-the add-on. The image still carries `meshloom-admin` for the rare case where you
+the add-on (it matters only for the published port, where the lost password of
+an account is reset with `meshloom-admin reset-password <user>`). The image still carries `meshloom-admin` for the rare case where you
 need to list, disable or reset accounts. With the *Advanced SSH & Web Terminal*
 add-on (Protection mode off):
 

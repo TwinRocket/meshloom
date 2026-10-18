@@ -1,13 +1,17 @@
 ---
-title: Recover access
-description: Roles, accounts, two-factor authentication, tokens and meshloom-admin, the command that resets a password, removes a lost second factor, creates an administrator or issues the installation code from the machine, for each way of installing Meshloom.
+title: Accounts and access
+description: Accounts, roles, sessions, trusted networks, tokens, two-factor authentication and passkeys, Home Assistant and the kiosk screen, the 4.x Basic login, the audit log, and meshloom-admin, the command that gets you back in from the machine, for each way of installing Meshloom.
 level: deep
 order: 21
 ---
 
-From Meshloom 5.0, signing in needs a user account (see [Security](/en/docs/deep/security/)). If you lose the administrator's password, you do not need the web interface to get back in: `meshloom-admin` works on the machine that holds the database. Whoever can run it there already controls Meshloom's data, so it asks for no login.
+From Meshloom 5.0, nothing is shown before you sign in: every page and every API route needs an account, and the server checks the account's role on each request. This page is the whole picture: who can do what, how sessions, tokens, second factors and trusted networks work, how Home Assistant and a wall screen sign in, what happens to a 4.x login, the audit log, and how to get back in when you are locked out. The short version of the trust model is in [A trusted network](/en/docs/trust/) and [Security](/en/docs/deep/security/).
 
-It changes the database file directly. A running Meshloom sees the change on its next request: no restart.
+If you lose the administrator's password, you do not need the web interface to get back in: `meshloom-admin` works on the machine that holds the database. Whoever can run it there already controls Meshloom's data, so it asks for no login. It changes the database file directly. A running Meshloom sees the change on its next request: no restart.
+
+## First sign-in
+
+The first time Meshloom opens, it asks for the administrator account (see [First launch](/en/docs/first-run/)). A Meshloom that already held data before it asked for accounts also asks for an [installation code](#the-installation-code), so nobody else on the network can claim it first. Under Home Assistant, the first Home Assistant user to open Meshloom becomes its administrator and nothing is asked ([Home Assistant](#home-assistant)). A kiosk screen has its own way in ([Kiosk screen](#kiosk-screen)).
 
 ## Roles
 
@@ -35,7 +39,7 @@ Every role receives the instance's theme, its blocked contacts and names and the
 
 An action the server refuses anyway (for example from a page left open before a role change) shows one message, “This account is not allowed to do that.”
 
-The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.
+The first administrator, and the account Meshloom creates from the Basic login of a 4.x installation ([below](#the-4x-basic-login)), are `admin`: an installation with a single administrator works as before.
 
 ## Managing accounts
 
@@ -60,6 +64,16 @@ Every user (the kiosk excepted) sees **My account** and **My sessions** on the s
 ### When an administrator sets your password
 
 If an administrator sets your password (or `meshloom-admin reset-password --must-change` does), Meshloom shows **Change your password** instead of the app: type the current password, then a new one (at least 12 characters, with the rules shown if it is refused). Nothing else works until it is changed, then the app opens where you were. Other devices of that account are signed out. A kiosk display has no password and never gets this page; if it ever shows, ask an administrator.
+
+## Sessions
+
+Signing in opens a **session**: Meshloom sets a cookie on that browser and keeps only a fingerprint of its secret. The cookie lasts 30 days and slides: each visit pushes the end back, so a browser you use is never signed out, and neither is a page that only keeps its live connection open, such as a wall screen. After 30 days without any visit, you sign in again. Over HTTPS the cookie is `__Host-meshloom_session` (secure, host-only); over plain `http://` it is `meshloom_session`, which a browser sends in clear: use [HTTPS](/en/docs/deep/https/) beyond a network you trust.
+
+- **My sessions** (**Settings → Users & Access**) lists the browsers signed in to your account, with system, address and last visit. **Revoke** signs one out, **Sign out everywhere else** all but this one. The live connection of a revoked session closes at once.
+- **Sign out** revokes the session and clears the cookie.
+- An account keeps at most 50 sessions: signing in once more signs out the oldest.
+- A disabled or deleted account, a changed role or password, or `meshloom-admin revoke-sessions` ends its sessions; a page already open loses its live connection within 30 seconds at most.
+- Other web sites cannot act with your session: the cookie is `SameSite=Lax`, and Meshloom refuses changes that come from another site. Under Home Assistant there is no Meshloom cookie at all (Home Assistant's own session is used).
 
 ## Sign-in delays
 
@@ -141,7 +155,7 @@ Signed in through Home Assistant, or with an account that has no Meshloom passwo
 - **Signing in.** After a correct password, `POST /api/auth/login` answers `"authenticated": false` with a `second_factor.pending_token`; send it with the code to `POST /api/auth/login/2fa` within 5 minutes to get the session. A recovery code works in place of the app's code, once each. Five wrong codes, or a change to the account, mean starting again with the password.
 - **A code works once.** A code already used, or an older one, is refused even while it is still shown in the app: wait for the next one.
 - **Wrong codes count like wrong passwords**, with the same delays (above).
-- **Scripts.** `Authorization: Basic` stops working for an account with a second factor: use an [API token](#api-and-device-tokens).
+- **Scripts.** `Authorization: Basic` ([the 4.x window](#the-4x-basic-login)) stops working for an account with a second factor: use an [API token](#api-and-device-tokens).
 - **Require it for administrators.** `PATCH /api/auth/settings` with `{"require_2fa_for_admins": true}` (off by default). An administrator without a second factor can then only set one up (and sign out) until it is done; members, viewers, the kiosk and Home Assistant users are not affected. Recommended when Meshloom is reachable from the Internet.
 - **Lost phone.** Use a recovery code. Without one, an administrator runs `meshloom-admin disable-2fa <user>` on the machine (below), then the user signs in with the password alone and sets it up again.
 
@@ -180,6 +194,30 @@ The same things through the API (accounts with a password, not the kiosk or Home
 - **Lost device.** Sign in with your password and remove its passkey. An administrator can remove all of a user's passkeys on the machine with `meshloom-admin remove-passkeys <user>` (below).
 
 Meshloom stores only the public part of each passkey. The full backup carries them only when **Include accounts** is checked; the database download keeps them.
+
+## Home Assistant
+
+On the Home Assistant add-on, Home Assistant signs you in. Opened from the sidebar, Meshloom accepts the Home Assistant user who opens it, with no password and no Meshloom cookie. Meshloom trusts the identity only when the request comes from the Home Assistant Supervisor itself; the same headers sent to a published port 8000 are ignored, and that address asks for a Meshloom account like any other install.
+
+- The first Home Assistant user ever to open Meshloom becomes its administrator, even if a Meshloom administrator already exists, so the sidebar always reaches an administrator. The next ones get `ingress_default_role` (`member` by default, changed in **Users & Access**). Only Home Assistant administrators see the panel, so these are people who already administer your Home Assistant.
+- One Meshloom account per Home Assistant user; its display name follows Home Assistant's. Such an account has no password, no second factor and no passkey. You change its role, disable it or delete it in **Users & Access** (a deleted one comes back at its next visit: disable it instead).
+- Home Assistant and its add-ons trust each other: an add-on you would not trust with your Home Assistant should not run next to Meshloom.
+- Through the sidebar, trusted networks, passkeys and API tokens do not apply (see each section). To reach Meshloom from a phone app or a script, give `8000/tcp` a host port in the add-on's **Network** panel; that address asks for a Meshloom account. If a reverse proxy or tunnel serves it under a name, declare the name in **Public addresses** ([HTTPS](/en/docs/deep/https/#host-names-meshloom-answers-to)).
+
+## Kiosk screen
+
+The `kiosk` role is for a screen on a wall (a club, a workshop): it reads channels, contacts, packets, statistics and the map, never a direct message, and has no password and no settings. Two ways to use it:
+
+- **The Raspberry Pi kiosk image** creates the `kiosk` account itself and signs the screen in with a **device token** it writes on the Pi, readable only by the desktop user, working only from the Pi itself and never shown in an address (see [Raspberry Pi](/en/docs/rpi/#kiosk-image-screen-on-the-wall)). An administrator sees it as **Kiosk screen** in **API and device tokens**; **Revoke** replaces it, and disabling the `kiosk` account keeps the screen signed out.
+- **Any other screen**: create a `kiosk` account in **Users & Access**, then add a trusted-network rule that maps the screen's own address to it ([below](#trusted-networks)). A `kiosk` account has no password, so it cannot sign in any other way.
+
+## The 4.x Basic login
+
+Up to 4.18, `MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` (the add-on's `basic_auth_username` and `basic_auth_password`) were one shared login. From 5.0:
+
+- At the **first start with no account**, when both are set, they become the administrator account (same name, same password, no installation code needed). Meshloom never reads them again; it logs a warning at every start while they are set: remove them. Only one set imports nothing.
+- **Compatibility window.** Until 5.2, scripts that send that user name and password with `Authorization: Basic` keep working, for any account that has a password and no second factor, with a short pause after a failure. It logs a deprecation warning. In 5.2 the header is removed: move scripts to an [API token](#api-and-device-tokens) now.
+- A 4.x user name longer than 64 characters cannot become an account: the import is skipped, with an error in the log, and the normal first sign-in applies.
 
 ## Audit log
 
