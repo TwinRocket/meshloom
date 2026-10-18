@@ -66,5 +66,6 @@ class AppriseTransport:
         first = failures[0]
         assert first.error is not None
         return SendResult(
-            "failed", error_code=f"line {first.line} ({first.url}): {first.error.code}"
+            "failed",
+            error_code=f"line {first.line} ({first.url}): {getattr(first.error, 'delivery_code', first.error.code)}",
         )

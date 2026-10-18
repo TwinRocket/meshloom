@@ -271,6 +271,14 @@ def _store_push_overrides(overrides: Mapping[str, object]) -> dict[str, Conversa
     return stored
 
 
+async def _mirror_legacy_rules() -> None:
+    """The 4.18.x preference columns are still the delivery source (MSHL-112 switches
+    the producers): mirror each write into the notification rules."""
+    from app.notifications.legacy_sync import sync_rules
+
+    await sync_rules()
+
+
 class AppSettingsRepository:
     """Repository for app_settings table (single-row pattern).
 
@@ -874,6 +882,9 @@ class AppSettingsRepository:
             from app.notify import notify_destination_changed
 
             notify_destination_changed(destinations_before, result.notification_destinations)
+            from app.notifications.legacy_sync import sync_destinations
+
+            await sync_destinations()
         return result
 
     @staticmethod
@@ -1170,6 +1181,7 @@ class AppSettingsRepository:
                 "UPDATE app_settings SET telemetry_alert_rules = ? WHERE id = 1",
                 (json.dumps(stored_rules_dict(rules)),),
             )
+        await _mirror_legacy_rules()
         return merged
 
     @staticmethod
@@ -1199,6 +1211,7 @@ class AppSettingsRepository:
                 "UPDATE app_settings SET push_conversation_overrides = ? WHERE id = 1",
                 (json.dumps(stored),),
             )
+        await _mirror_legacy_rules()
         return stored
 
     @staticmethod
@@ -1225,6 +1238,7 @@ class AppSettingsRepository:
                 "UPDATE app_settings SET push_conversation_overrides = ? WHERE id = 1",
                 (json.dumps(current),),
             )
+        await _mirror_legacy_rules()
         return current
 
     @staticmethod

@@ -99,5 +99,7 @@ class LegacyAppriseTransport:
             return SendResult("failed", error_code=f"line {exc.line}: {exc.code}")
         except AppriseSendFailed as exc:
             # Logged per URL by send_apprise_alert; the URL here is redacted.
-            return SendResult("failed", error_code=f"line {exc.line} ({exc.url}): {exc.code}")
+            return SendResult(
+                "failed", error_code=f"line {exc.line} ({exc.url}): {exc.delivery_code}"
+            )
         return SEND_OK
