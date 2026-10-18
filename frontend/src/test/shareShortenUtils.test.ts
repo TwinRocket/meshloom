@@ -1,9 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
   findLongUrls,
   isOpenPayload,
   isShareLink,
+  isShortenable,
   rewriteUrls,
   shortFormBytes,
 } from '../utils/share';
@@ -50,5 +53,21 @@ describe('share utils', () => {
     const other = 'https://other.org/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const out = rewriteUrls(`@[Ann] go ${LONG}. and ${other}!`, new Map([[LONG, short]]));
     expect(out).toBe(`@[Ann] go ${short}. and ${other}!`);
+  });
+
+  describe('isShortenable mirrors the backend URL rules', () => {
+    const { cases } = JSON.parse(
+      readFileSync(resolve(process.cwd(), '../tests/fixtures/share_url_cases.json'), 'utf8')
+    ) as { cases: { url: string; ok: boolean }[] };
+
+    it.each(cases)('$url -> $ok', ({ url, ok }) => {
+      expect(isShortenable(url)).toBe(ok);
+    });
+
+    it('skips unshortenable URLs and keeps the public one', () => {
+      const lan = 'http://192.168.1.10:8123/dashboard/overview/with/a/long/path/segment';
+      expect(findLongUrls(`${lan} ${LONG}`)).toEqual([LONG]);
+      expect(findLongUrls(lan)).toEqual([]);
+    });
   });
 });

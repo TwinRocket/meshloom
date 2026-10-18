@@ -310,6 +310,8 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     try {
       const shortened = await shortenText(original);
       if (shortened === null || shortened === original) return;
+      // Typed meanwhile: keep what the user wrote rather than overwrite it.
+      if (textRef.current !== original) return;
       applyShortened(original, shortened, true);
     } finally {
       setShortening(false);
@@ -327,6 +329,8 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       if (shortenOnSend) {
         const shortened = await shortenText(trimmed);
         if (shortened === null) return;
+        // Edited while waiting: do not send or overwrite, let the user re-read.
+        if (textRef.current.trim() !== trimmed) return;
         const rewritten = shortened.trim();
         const stillTooLong = limits !== null && byteLen(rewritten) >= limits.hardLimit;
         // Nothing sent when the shortened text still fails the guard: the user
@@ -523,6 +527,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
       size="sm"
       className="h-6 gap-1 px-2 text-xs"
       data-testid="composer-shorten"
+      aria-busy={shortening}
       disabled={disabled || sending || shortening}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => void handleShorten()}

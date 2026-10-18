@@ -211,4 +211,65 @@ describe('MessageInput link shortening', () => {
     expect(input.value).toBe(LONG);
     expect(onSend).not.toHaveBeenCalled();
   });
+
+  const LAN = 'http://192.168.1.10:8123/dashboard/overview/with/a/long/path/segment/x';
+
+  it('a LAN URL never shows the button nor blocks a send in always mode', async () => {
+    const input = setup(true, 'always');
+    fireEvent.change(input, { target: { value: `see ${LAN}` } });
+    expect(screen.queryAllByTestId('composer-shorten')).toHaveLength(0);
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith(`see ${LAN}`));
+    expect(shortenLink).not.toHaveBeenCalled();
+  });
+
+  it('always: shortens the public URL and sends the LAN one unchanged', async () => {
+    const input = setup(true, 'always');
+    fireEvent.change(input, { target: { value: `${LAN} ${LONG}` } });
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith(`${LAN} ${SHORT}`));
+    expect(shortenLink).toHaveBeenCalledTimes(1);
+  });
+
+  it('auto: no button when the only long URL is a LAN one', () => {
+    const input = setup();
+    fireEvent.change(input, { target: { value: `${LAN} ${'word '.repeat(30)}` } });
+    expect(screen.queryAllByTestId('composer-shorten')).toHaveLength(0);
+  });
+
+  it('keeps text typed while shortening, and marks the button busy', async () => {
+    let release: (v: { id: string; url: string; expires_at: number }) => void = () => {};
+    shortenLink.mockImplementationOnce(
+      () => new Promise((resolve) => (release = resolve as typeof release))
+    );
+    const input = setup();
+    fireEvent.change(input, { target: { value: OVER } });
+    fireEvent.click(screen.getAllByTestId('composer-shorten')[0]);
+    await waitFor(() =>
+      expect(screen.getAllByTestId('composer-shorten')[0]).toHaveAttribute('aria-busy', 'true')
+    );
+    fireEvent.change(input, { target: { value: `${OVER} typed meanwhile` } });
+    release({ id: 'AbCdEfG', url: SHORT, expires_at: 0 });
+    await waitFor(() =>
+      expect(screen.getAllByTestId('composer-shorten')[0]).toHaveAttribute('aria-busy', 'false')
+    );
+    expect(input.value).toBe(`${OVER} typed meanwhile`);
+    expect(mockToast.success).not.toHaveBeenCalled();
+  });
+
+  it('always: text edited while shortening is not sent nor overwritten', async () => {
+    let release: (v: { id: string; url: string; expires_at: number }) => void = () => {};
+    shortenLink.mockImplementationOnce(
+      () => new Promise((resolve) => (release = resolve as typeof release))
+    );
+    const input = setup(true, 'always');
+    fireEvent.change(input, { target: { value: LONG } });
+    fireEvent.click(sendButton());
+    await waitFor(() => expect(shortenLink).toHaveBeenCalled());
+    fireEvent.change(input, { target: { value: `${LONG} more` } });
+    release({ id: 'AbCdEfG', url: SHORT, expires_at: 0 });
+    await waitFor(() => expect(sendButton()).toBeEnabled());
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe(`${LONG} more`);
+  });
 });
