@@ -22,8 +22,10 @@ Three layers, all always on:
 - ``secret_scope()`` registers literal secrets for the duration of a call; every
   registered form (text, hex, repr escapes) is replaced wherever it appears.
 
-The ``bleak`` and ``dbus_fast`` loggers print every BLE frame at DEBUG, so their
-level is clamped to INFO whatever ``MESHCORE_LOG_LEVEL`` says.
+The ``bleak`` and ``dbus_fast`` loggers print every BLE frame at DEBUG, and
+``aiosqlite`` prints every statement with its parameters (password and token
+hashes, VAPID and fanout secrets), so their level is clamped to INFO whatever
+``MESHCORE_LOG_LEVEL`` says.
 
 Both the filter and the formatter are total: a redaction bug must never kill
 the meshcore dispatcher task or let ``Handler.handleError`` print the raw record.
@@ -43,7 +45,7 @@ from contextlib import contextmanager
 REDACTED = "[redacted]"
 REDACTION_FAILED = "[log record dropped: redaction error]"
 UNFORMATTABLE_RECORD = "[unformattable meshcore record]"
-QUIET_THIRD_PARTY_LOGGERS = ("bleak", "dbus_fast")
+QUIET_THIRD_PARTY_LOGGERS = ("bleak", "dbus_fast", "aiosqlite")
 SECRET_MIN_LITERAL_BYTES = 4
 
 # Companion frame codes whose payload is secret. Outgoing: command codes.
@@ -458,7 +460,8 @@ _meshcore_filter: MeshcoreSecretFilter | None = None
 
 
 def clamp_quiet_third_party_loggers() -> None:
-    """Keep the BLE libraries' frame dumps off, whatever the root level is.
+    """Keep the BLE frame dumps and aiosqlite's statement dumps off, whatever
+    the root level is.
 
     ``BLEAK_LOGGING`` sets ``bleak`` to DEBUG when bleak is imported, so this
     runs again after that import (``app/radio.py``) and at the end of
