@@ -21,7 +21,7 @@ Rien de tout cela n’affaiblit le chiffrement propre à MeshCore par radio : le
 
 ## La fenêtre d’avertissement
 
-Tant que les bots sont activés et qu’aucun accès Basic n’est défini, Meshloom affiche une fenêtre d’avertissement plein écran, intitulée « L’exécution non protégée de bots est activée ». Elle propose deux issues :
+Tant que les bots sont activés et qu’aucun compte ne protège l’instance, Meshloom affiche une fenêtre d’avertissement plein écran, intitulée « L’exécution non protégée de bots est activée ». Elle propose deux issues :
 
 - **Désactiver les bots jusqu’au redémarrage du serveur** coupe le système de bots tout de suite. Il revient au prochain redémarrage, sauf si vous le désactivez définitivement (voir plus bas).
 - Cochez la case de reconnaissance, puis **Ne plus m’avertir sur cet appareil**. Ce choix est retenu par ce navigateur seulement : un autre navigateur ou un téléphone verra de nouveau l’avertissement.

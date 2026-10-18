@@ -42,6 +42,11 @@ The server now enforces the radio's message size limit for every way of sending.
 - **Bulk room decryption shows a translated completion message.** After decrypting old packets for several rooms at once, the confirmation now follows your language like the single-room one. Messages decrypted this way are also flagged as old on the live connection (`historical: true`, never sent to bots or webhooks), so a future client can tell them from new ones.
 - **The meshcore.db download no longer holds the Bluetooth PIN.** The database copy from **Settings → Database** now leaves out the Bluetooth PIN, like the full backup, and the keys Meshloom will use to identify itself to online services. Putting such a copy back in place counts as a restore when Meshloom next starts.
 - **Restore files are limited to 64 MiB.** A larger file is refused with a clear error.
+- **Restoring an old backup no longer leaves a stale warning about local-network push.** When a restore turns local-network push back on for your subscriptions, the notice asking you to review it is cleared too.
+
+### Fixed
+
+- **The bot warning now follows accounts.** The "Unprotected bot execution is enabled" dialog used to depend on the 4.x Basic auth setting. It now reads the real sign-in state (`GET /api/auth/session`): no warning while an account is signed in, however it signed in.
 
 ### Security
 
@@ -111,6 +116,11 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 - **Le déchiffrement groupé des salons affiche un message de fin traduit.** Après le déchiffrement d'anciens paquets pour plusieurs salons à la fois, la confirmation suit désormais votre langue, comme pour un seul salon. Les messages ainsi déchiffrés sont aussi marqués comme anciens sur la connexion en direct (`historical: true`, jamais envoyé aux bots ni aux webhooks), pour qu'un client puisse les distinguer des nouveaux.
 - **Le téléchargement de meshcore.db ne contient plus le code PIN Bluetooth.** La copie de la base depuis **Réglages → Base de données** laisse désormais de côté le code PIN Bluetooth, comme la sauvegarde complète, ainsi que les clés avec lesquelles Meshloom s'identifiera auprès des services en ligne. Remettre une telle copie en place compte comme une restauration au prochain démarrage de Meshloom.
 - **Les fichiers à restaurer sont limités à 64 Mio.** Un fichier plus gros est refusé avec une erreur claire.
+- **Restaurer une ancienne sauvegarde ne laisse plus d’avertissement obsolète sur le push du réseau local.** Quand une restauration réactive le push vers le réseau local pour vos abonnements, l’avis qui demandait de le vérifier est aussi effacé.
+
+#### Corrections
+
+- **L’avertissement sur les bots suit désormais les comptes.** La fenêtre « L’exécution non protégée de bots est activée » dépendait du réglage Basic de la 4.x. Elle regarde maintenant la vraie connexion (`GET /api/auth/session`) : plus d’avertissement quand un compte est connecté, quelle que soit la façon de se connecter.
 
 #### Sécurité
 
