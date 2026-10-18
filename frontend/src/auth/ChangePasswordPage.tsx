@@ -15,10 +15,12 @@ import { PASSWORD_MIN_LENGTH } from './types';
  */
 export function ChangePasswordPage({
   username,
+  role,
   onChanged,
   onSignOut,
 }: {
   username: string;
+  role?: string;
   /** The password changed: re-read the session. */
   onChanged: () => void;
   onSignOut?: () => void;
@@ -56,6 +58,22 @@ export function ChangePasswordPage({
       );
       setBusy(false);
     }
+  }
+
+  if (role === 'kiosk') {
+    // A display has no password to change (the server never sets the flag on one).
+    return (
+      <AuthLayout
+        title={t('auth.changePassword.kioskTitle')}
+        description={t('auth.changePassword.kioskMessage')}
+      >
+        {onSignOut && (
+          <Button type="button" variant="outline" className="w-full" onClick={onSignOut}>
+            {t('auth.userMenu.signOut')}
+          </Button>
+        )}
+      </AuthLayout>
+    );
   }
 
   return (

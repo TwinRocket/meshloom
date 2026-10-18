@@ -35,6 +35,10 @@ Une action que le serveur refuse malgré tout (par exemple depuis une page rest�
 
 Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
 
+### Quand un administrateur définit votre mot de passe
+
+Si un administrateur définit votre mot de passe (ou `meshloom-admin reset-password --must-change`), Meshloom affiche **Changez votre mot de passe** à la place de l’application : saisissez le mot de passe actuel, puis un nouveau (12 caractères minimum, avec les règles rappelées en cas de refus). Rien d’autre ne fonctionne avant le changement, puis l’application s’ouvre là où vous étiez. Les autres appareils de ce compte sont déconnectés. Un écran kiosque n’a pas de mot de passe et n’a jamais cette page ; si elle s’affichait, demandez à un administrateur.
+
 ## Les délais de connexion
 
 Les mauvais mots de passe ralentissent les tentatives suivantes ; ils ne verrouillent jamais un compte.

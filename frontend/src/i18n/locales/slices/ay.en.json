@@ -12,7 +12,9 @@
       "description": "An administrator set the password of {{username}}. Choose your own before you continue.",
       "current": "Current password",
       "new": "New password",
-      "submit": "Change password"
+      "submit": "Change password",
+      "kioskTitle": "Password change required",
+      "kioskMessage": "This display account cannot change a password itself. Ask an administrator to fix the account."
     }
   }
 }

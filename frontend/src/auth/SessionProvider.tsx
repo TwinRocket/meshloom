@@ -250,23 +250,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  if (session.user && (session.user.must_change_password || passwordChangeForced)) {
-    return (
-      <ChangePasswordPage
-        username={session.user.username}
-        onChanged={() => {
-          setPasswordChangeForced(false);
-          setState({ status: 'loading' });
-          void load();
-        }}
-        onSignOut={() => void signOut()}
-      />
-    );
-  }
+  const changePage = session.user && (
+    <ChangePasswordPage
+      username={session.user.username}
+      role={session.user.role}
+      onChanged={() => {
+        // No loading screen: a page raised mid-session sits over the mounted app, which
+        // keeps its state once the session is re-read.
+        void load().then(() => setPasswordChangeForced(false));
+      }}
+      onSignOut={() => void signOut()}
+    />
+  );
+  // The session itself says so (a fresh load): nothing of the app is worth mounting.
+  if (session.user?.must_change_password) return changePage;
 
   return (
     <SessionContext.Provider value={value}>
       {children}
+      {passwordChangeForced && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-background">{changePage}</div>
+      )}
       {expired && (
         <ReloginDialog
           username={session.user?.username ?? ''}

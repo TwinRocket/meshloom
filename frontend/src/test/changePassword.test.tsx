@@ -124,6 +124,57 @@ describe('forced password change', () => {
         screen.getByRole('heading', { name: t('auth.changePassword.title') })
       ).toBeInTheDocument()
     );
-    expect(screen.queryByTestId('app')).toBeNull();
+    // Over the app, not instead of it: its state survives the change.
+    expect(screen.getByTestId('app')).toBeInTheDocument();
+  });
+
+  it('keeps the app mounted under the page after a mid-session refusal, with no loading screen', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input).replace('./api', '');
+        if (url === '/auth/me' && init?.method === 'PATCH') return json({ ok: true });
+        return json(session(false));
+      })
+    );
+    render(
+      <SessionProvider>
+        <p data-testid="app">app</p>
+      </SessionProvider>
+    );
+    const app = await screen.findByTestId('app');
+    act(() => reportPasswordChangeRequired());
+    await fill(user, 'temporary-secret', 'a much better secret');
+    await waitFor(() =>
+      expect(screen.queryByLabelText(t('auth.changePassword.current'))).toBeNull()
+    );
+    expect(screen.queryByText(t('auth.loading'))).toBeNull();
+    expect(screen.getByTestId('app')).toBe(app);
+  });
+
+  it('tells a kiosk to ask an administrator instead of showing the form', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        json({
+          ...session(true),
+          user: {
+            id: 3,
+            username: 'wall',
+            display_name: 'Wall',
+            role: 'kiosk',
+            must_change_password: true,
+          },
+        })
+      )
+    );
+    render(
+      <SessionProvider>
+        <p data-testid="app">app</p>
+      </SessionProvider>
+    );
+    expect(await screen.findByText(t('auth.changePassword.kioskMessage'))).toBeInTheDocument();
+    expect(screen.queryByLabelText(t('auth.changePassword.current'))).toBeNull();
   });
 });

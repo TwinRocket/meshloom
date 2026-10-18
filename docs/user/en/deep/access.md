@@ -35,6 +35,10 @@ An action the server refuses anyway (for example from a page left open before a 
 
 The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.
 
+### When an administrator sets your password
+
+If an administrator sets your password (or `meshloom-admin reset-password --must-change` does), Meshloom shows **Change your password** instead of the app: type the current password, then a new one (at least 12 characters, with the rules shown if it is refused). Nothing else works until it is changed, then the app opens where you were. Other devices of that account are signed out. A kiosk display has no password and never gets this page; if it ever shows, ask an administrator.
+
 ## Sign-in delays
 
 Wrong passwords slow the next attempts down; they never lock an account.
