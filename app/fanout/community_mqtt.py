@@ -22,6 +22,7 @@ import json
 import logging
 import ssl
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -99,12 +100,17 @@ def _base64url_encode(data: bytes) -> str:
 
 
 def _generate_jwt_token(
-    private_key: bytes,
+    private_key: bytes | None,
     public_key: bytes,
     *,
     audience: str = _DEFAULT_BROKER,
     email: str = "",
     iata: str = "",
+    sign: Callable[[bytes], bytes] | None = None,
+    lifetime: int = _TOKEN_LIFETIME,
+    extra_claims: dict[str, object] | None = None,
+    owner: bool = True,
+    client: str | None = None,
 ) -> str:
     """Generate a JWT token for community MQTT authentication.
 
@@ -116,6 +122,13 @@ def _generate_jwt_token(
 
     Optional ``iata`` is required by Meshloom Stats MQTT/API. LetsMesh tokens
     omit it — do not add a default IATA here.
+
+    The instance identities (``app/services/instance_identity.py``) mint in the
+    same wire format: ``sign`` replaces the expanded radio key (``private_key``
+    is then ignored), ``lifetime`` the 3300 s default, ``extra_claims`` are
+    appended after the standard claims, ``owner=False`` drops the ``owner``
+    claim and ``client`` replaces the Community client string. The Community
+    call sites pass none of them: their tokens stay byte-identical.
     """
     header = {"alg": "Ed25519", "typ": "JWT"}
     now = int(time.time())
@@ -123,25 +136,33 @@ def _generate_jwt_token(
     payload: dict[str, object] = {
         "publicKey": pubkey_hex,
         "iat": now,
-        "exp": now + _TOKEN_LIFETIME,
+        "exp": now + lifetime,
         "aud": audience,
-        "owner": pubkey_hex,
-        "client": _get_client_version(),
     }
+    if owner:
+        payload["owner"] = pubkey_hex
+    payload["client"] = client if client is not None else _get_client_version()
     if email:
         payload["email"] = email
     iata_code = iata.upper().strip()
     if iata_code:
         payload["iata"] = iata_code
+    if extra_claims:
+        payload.update(extra_claims)
 
     header_b64 = _base64url_encode(json.dumps(header, separators=(",", ":")).encode())
     payload_b64 = _base64url_encode(json.dumps(payload, separators=(",", ":")).encode())
 
     signing_input = f"{header_b64}.{payload_b64}".encode()
 
-    scalar = private_key[:32]
-    prefix = private_key[32:]
-    signature = ed25519_sign_expanded(signing_input, scalar, prefix, public_key)
+    if sign is not None:
+        signature = sign(signing_input)
+    else:
+        if private_key is None:
+            raise ValueError("a private key or a signer is required")
+        scalar = private_key[:32]
+        prefix = private_key[32:]
+        signature = ed25519_sign_expanded(signing_input, scalar, prefix, public_key)
 
     return f"{header_b64}.{payload_b64}.{signature.hex()}"
 
