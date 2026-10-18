@@ -47,6 +47,13 @@ FAST = Budgets(
     message_settle=0.0,
 )
 
+# What a migrated bot holds (the supervisor tests are not about the filters, which
+# tests/test_plugin_capabilities.py covers): every message, sends anywhere.
+BOT_PERMISSIONS: dict[str, Any] = {
+    "messages.read": {"channels": "all", "direct": True, "outgoing": True},
+    "messages.send": {"targets": "any"},
+}
+
 PLUGINS = {
     "echo": """
         import sys
@@ -128,7 +135,8 @@ PLUGINS = {
             for n in range(100):
                 try:
                     await meshloom_plugin.host().call(
-                        "messages.send", {"event_id": params["event_id"], "text": "x" * 4000}
+                        "messages.send",
+                        {"event_id": params["event_id"], "to": "reply", "text": "x" * 150},
                     )
                 except Exception:
                     return n
@@ -167,7 +175,8 @@ async def create_instance(
         label=kind,
         kind="store",
         version="1.0.0",
-        manifest={"entry": "plugin.py", "hooks": list(hooks)},
+        manifest={"entry": "plugin.py", "hooks": list(hooks), "permissions": BOT_PERMISSIONS},
+        granted_permissions=BOT_PERMISSIONS,
         enabled=True,
         **kwargs,
     )
@@ -556,7 +565,7 @@ async def test_fanout_broadcasts_reach_the_plugin_host(monkeypatch):
 async def test_test_events_capture_sends(manager, tmp_path):
     instance_id = await create_instance(tmp_path / "plugins", "sender")
     await running(manager, instance_id)
-    outcome = await manager.dispatch_test(instance_id, "message", {"text": "ping"})
+    outcome = await manager.dispatch_test(instance_id, "message", dm_params("ping"))
     assert outcome == {
         "result": "sent",
         "sends": [{"to": "reply", "text": "pong"}],
@@ -578,11 +587,12 @@ async def test_test_event_sends_without_event_id_are_captured(manager, tmp_path)
         label="sdk sender",
         kind="store",
         version="1.0.0",
-        manifest={"entry": "plugin.py", "hooks": ["message"]},
+        manifest={"entry": "plugin.py", "hooks": ["message"], "permissions": BOT_PERMISSIONS},
+        granted_permissions=BOT_PERMISSIONS,
         enabled=True,
     )
     await running(manager, row["instance_id"])
-    outcome = await manager.dispatch_test(row["instance_id"], "message", {})
+    outcome = await manager.dispatch_test(row["instance_id"], "message", dm_params("ping"))
     assert outcome["sends"] == [{"to": "reply", "text": "hi"}]
 
 
@@ -607,24 +617,42 @@ async def test_sdk_replies_of_a_test_event_are_captured_beside_a_busy_event(mana
         label="sdk reply",
         kind="store",
         version="1.0.0",
-        manifest={"entry": "plugin.py:Bot", "hooks": ["message"]},
+        manifest={"entry": "plugin.py:Bot", "hooks": ["message"], "permissions": BOT_PERMISSIONS},
+        granted_permissions=BOT_PERMISSIONS,
         enabled=True,
     )
     instance = await running(manager, row["instance_id"])
     manager.dispatch("message", msg("wait"))  # a real event stays in flight
     await wait_until(lambda: len(instance._in_flight) == 1)
-    outcome = await manager.dispatch_test(
-        row["instance_id"], "message", {"message_text": "ping", "is_dm": True, "sender_key": "ab"}
-    )
-    assert outcome["sends"] == [{"to": {"contact_key": "ab"}, "text": "pong"}]
+    outcome = await manager.dispatch_test(row["instance_id"], "message", dm_params("ping"))
+    assert outcome["sends"] == [{"to": {"contact_key": "ab" * 32}, "text": "pong"}]
 
 
 async def test_unknown_host_method_is_refused_to_the_child(manager, tmp_path):
-    instance_id = await create_instance(tmp_path / "plugins", "sender")
-    instance = await running(manager, instance_id)
-    manager.dispatch("message", msg(0))  # not a test event: no capability yet
-    await wait_until(lambda: (instance.last_error or "").startswith("handler_error"))
-    assert instance.last_error == "handler_error: event.message raised HostError"
+    root = tmp_path / "plugins"
+    write_plugin(root, "test.unknown", "echo")
+    (root / "test.unknown" / "plugin.py").write_text(
+        "import meshloom_plugin\n"
+        "from meshloom_plugin.errors import HostError\n\n"
+        "async def on_message(params):\n"
+        "    try:\n"
+        "        await meshloom_plugin.host().call('no.such.method', {})\n"
+        "    except HostError as exc:\n"
+        "        return exc.error['code']\n",
+        encoding="utf-8",
+    )
+    row = await PluginRepository.create(
+        plugin_id="test.unknown",
+        label="unknown",
+        kind="store",
+        version="1.0.0",
+        manifest={"entry": "plugin.py", "hooks": ["message"], "permissions": BOT_PERMISSIONS},
+        granted_permissions=BOT_PERMISSIONS,
+        enabled=True,
+    )
+    instance = await running(manager, row["instance_id"])
+    outcome = await manager.dispatch_test(row["instance_id"], "message", dm_params("x"))
+    assert outcome["result"] == -32601
     assert instance.status == "running"
 
 
@@ -676,7 +704,8 @@ async def test_status_changes_are_broadcast_stored_and_scrubbed(
         label="leak",
         kind="store",
         version="1.0.0",
-        manifest={"entry": "plugin.py", "hooks": ["message"]},
+        manifest={"entry": "plugin.py", "hooks": ["message"], "permissions": BOT_PERMISSIONS},
+        granted_permissions=BOT_PERMISSIONS,
         config_schema={
             "type": "object",
             "properties": {"api_key": {"type": "string", "writeOnly": True}},
@@ -729,7 +758,8 @@ async def test_local_plugins_run_from_their_source(manager, tmp_path):
         label="local echo",
         kind="local",
         version="0.0.1",
-        manifest={"entry": "bot.py", "hooks": ["message"]},
+        manifest={"entry": "bot.py", "hooks": ["message"], "permissions": BOT_PERMISSIONS},
+        granted_permissions=BOT_PERMISSIONS,
         source="def on_message(params):\n    return 'local'\n",
         enabled=True,
     )
@@ -812,6 +842,12 @@ def test_the_lifespan_stops_plugins_before_the_fanout_modules():
 # --- children that do not read stdin, bounded captures, sanitized errors ---------
 
 
+def dm_params(text: object) -> dict[str, Any]:
+    """`event.message` params of a direct message (what a test event carries)."""
+    key = "ab" * 32
+    return {"is_dm": True, "sender_key": key, "conversation_key": key, "message_text": str(text)}
+
+
 def big_msg(n: int) -> dict[str, Any]:
     """A message large enough that a few of them fill a pipe the child never reads."""
     return msg(f"{n}" + "x" * 90_000)
@@ -874,7 +910,7 @@ async def test_a_full_stdin_uses_up_the_event_budget(test_db, tmp_path, statuses
 async def test_test_event_captures_are_bounded(manager, tmp_path):
     instance_id = await create_instance(tmp_path / "plugins", "spammer")
     await running(manager, instance_id)
-    outcome = await manager.dispatch_test(instance_id, "message", msg(0), timeout=10)
+    outcome = await manager.dispatch_test(instance_id, "message", dm_params(0), timeout=10)
     assert outcome["truncated"] is True
     assert len(outcome["sends"]) == outcome["result"] <= host_module.MAX_TEST_SENDS
     size = sum(len(json.dumps(s).encode()) for s in outcome["sends"])

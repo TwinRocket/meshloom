@@ -67,7 +67,12 @@ and the OpenAPI page (`/docs`), not a table here.
   through `plugins/lifecycle.py` (lifespan `start()`, the bounded `stop()`
   shutdown step, `health_fields()`) and `plugin_manager.dispatch()` from the
   fanout bus. Its long-lived tasks (one per instance and per child) are kept in
-  attributes and cancelled at stop, per the background-work rule. Host lock:
+  attributes and cancelled at stop, per the background-work rule. What a child
+  may ask and read is `plugins/capabilities/` (one module per capability, every
+  method checked against the instance's effective permissions before any side
+  effect, typed refusals) and `plugins/quotas.py` (per-instance send quotas in
+  `plugin_send_quota`, and `send_spacer`, the 2 s spacing of every automatic
+  send, which `fanout/bot_exec.py` shares); `docs/dev/plugins.md`, "Capabilities". Host lock:
   `MESHCORE_DISABLE_PLUGINS`, a user variable (`docs/user/*/deep/environment.md`).
   Every artefact that copies `app/` copies
   `meshloom_plugin/` too (`Dockerfile`, `copy_project_files` in
@@ -253,6 +258,9 @@ run as root).
   with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
   never exported (`plugin_secrets` emptied in the database download). Rules:
   `docs/dev/plugins.md`, "Data model".
+- Migration 105 adds `plugin_send_quota` (the per-instance send counters of the
+  plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
+  `tests/test_migrations/test_migration_105.py`), excluded from backups.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or

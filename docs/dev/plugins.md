@@ -1,10 +1,11 @@
 # Plugins
 
 Status: **format, validators, data model, the child runtime, the SDK, the legacy
-bot shim and the supervisor** (MSHL-175, MSHL-184, MSHL-176, MSHL-177, MSHL-179).
-The server starts one supervised child per enabled instance; the OS isolation
-(MSHL-180), the host capabilities (`messages.send`, `storage.*`, `http.fetch`...)
-and the API and UI are later tickets, and nothing installs a plugin yet. Like every doc here, this
+bot shim, the supervisor and the capability API v1** (MSHL-175, MSHL-184, MSHL-176,
+MSHL-177, MSHL-179, MSHL-181). The server starts one supervised child per enabled
+instance and answers its requests (see "Capabilities"); the OS isolation
+(MSHL-180), `http.fetch` (Store T7), the global send budgets and loop guards
+(Store T6b) and the API and UI are later tickets, and nothing installs a plugin yet. Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
 ## Package and manifest
@@ -449,9 +450,8 @@ Child → server: `await meshloom_plugin.host().call(method, params)` sends a
 request with an integer id and returns its `result`, or raises
 `meshloom_plugin.errors.HostError` carrying the `error` object;
 `host().notify(method, params)` sends a notification. The methods themselves
-(`messages.send`, `storage.*`, `http.fetch`...) and their checks are the
-supervisor's (see "Supervisor"; the capabilities are MSHL-181 and later). The SDK
-wraps `host()`.
+(`messages.send`, `storage.*`...) and their checks are the host's (see
+"Capabilities"). The SDK wraps `host()`.
 
 `host().call_sync(method, params, timeout=25)` is the blocking variant, for
 synchronous plugin code that cannot await (the legacy shim): it writes the
@@ -502,6 +502,8 @@ permissions and quotas and answers a typed error, raised as
 | `self.send(text, channel_key=\|contact_key=, region=..., event_id=None)` | `messages.send` | exactly one target; `event_id` as for `reply()` |
 | `self.fit(text)` / `sdk.fit(text, limit)` | none | cut to `limits.message_bytes` of `plugin.init` (default 156) on a UTF-8 boundary |
 | `self.storage.get/set/delete/list` | `storage.get {key}`, `storage.set {key, value}`, `storage.delete {key}`, `storage.list {prefix}` | JSON values; `get` returns the value or `null` (a stored `null` reads as absent) |
+| `self.contacts.list(limit, offset)` / `self.contacts.get(key)` | `contacts.list {limit, offset}`, `contacts.get {key}` | dicts (see "Capabilities"); `get` returns `None` when unknown |
+| `self.channels.list()` | `channels.list {}` | dicts `key`, `name`, `is_public` |
 | `self.http.fetch/get_json/post_json` | `http.fetch {url, method, headers?, body?, timeout}` | `get_json`/`post_json` raise `HttpStatusError` from status 400, without the query string |
 | `await self.timer(seconds)` | `timer.set {seconds}` | answered later by `on_timer` |
 | `self.log(level, message)` | notification `log {level, message}` | stderr when there is no host |
@@ -510,8 +512,8 @@ permissions and quotas and answers a typed error, raised as
 What the supervisor (MSHL-179) must provide, as the SDK uses it:
 
 - `plugin.init` params: `api` (int), `instance` (object), `config` (object, secret
-  values included), `lang`, `granted` (permission names), `limits` (`message_bytes`
-  int, others free), `isolation`. Missing fields are tolerated.
+  values included), `lang`, `granted` (the effective permission names), `limits`
+  (`message_bytes` int, others free), `isolation`. Missing fields are tolerated.
 - `limits.message_bytes` is the **smallest** text allowance the instance may meet,
   because `self.fit()` knows no target: a direct message allows 156 bytes, but a
   channel message allows `156 - len(sender name) - 2` (`app/message_limits.py`,
@@ -543,8 +545,9 @@ What the supervisor (MSHL-179) must provide, as the SDK uses it:
 - **`http.fetch` timeout.** The server clamps `timeout` to at most 10 s (cadrage §4.3)
   whatever the child sends: it must stay below the 25 s `call_sync` timeout and the 30 s
   event deadline. The shim and the SDK pass the value through unchanged.
-- Refusals carry `error.data.code` (`permission_denied`, `host_not_allowed`,
-  `quota_exceeded`, `target_not_allowed`, `message_too_long`, `invalid_params`).
+- Refusals carry `error.data.code` (`permission_denied`, `host_not_allowed` (T7),
+  `quota_exceeded`, `target_not_allowed`, `target_unknown`, `region_unknown`,
+  `message_too_long`, `send_failed`, `invalid_params`; "Capabilities", "Error codes").
 
 Tests: `tests/test_plugin_sdk.py` (the test is the server, over a real child).
 
@@ -626,20 +629,22 @@ is `none` (hooks only) until MSHL-180: `isolation_level()` and `_spawn_argv()`
 are its seam.
 
 `plugin.init` carries `api`, `instance` (`id`, `plugin_id`, `label`), `config`
-(secrets in clear, from `config_for_init()`), `granted` (the granted permission
-names), `limits` (`message_bytes`: the channel allowance of
-`app/message_limits.py` for the radio's name at start, 144 when it is unknown;
-`message_bytes_limit()`),
-`scope`, `quotas` and `isolation` (no `lang` yet: the SDK defaults to `en`), and
-must answer within 20 s. Then the status is `running`.
+(secrets in clear, from `config_for_init()`, plus the standard field `language`),
+`lang` (the config's `language` when it is `en` or `fr`, else `en`), `granted`
+(the names of the effective permissions, see "Capabilities"), `limits`
+(`message_bytes`: the channel allowance of `app/message_limits.py` for the radio's
+name at start, 144 when it is unknown; `message_bytes_limit()`), `scope`, `quotas`
+(the effective send limits, `{"messages.send": {"per_hour", "per_day"}}`, empty
+without `messages.send`) and `isolation` (the effective level), and must answer
+within 20 s. Then the status is `running`.
 
 ### Events
 
 - `FanoutManager.broadcast_*` call `plugin_manager.dispatch(hook, data)`
   (`message` after the pending-channel check, `raw_packet`, `contact`,
   `telemetry`, `health`). Only running instances whose manifest lists the hook
-  get it, after `accepts()`, the permission and scope filter (a seam that lets
-  everything through until MSHL-181). `event.message` keeps the bots' 2 s settle,
+  get it, after the permission and scope filter ("Capabilities", "Reads").
+  `event.message` keeps the bots' 2 s settle,
   then carries the fields the SDK reads (`app/plugins/events.py`, the bots'
   derivation: `message_text` without the `"Name: "` prefix, `is_dm`,
   `channel_key`, `path_bytes_per_hop`, `scoped`... plus `conversation_key`,
@@ -652,7 +657,8 @@ must answer within 20 s. Then the status is `running`.
   also carries `test: true`. `dispatch_test()` returns `{"result", "sends",
   "truncated"}`: a child request `messages.send` naming the `event_id` of a test
   event (or carrying no `event_id` while that test event is the only one in
-  flight) is captured there (answer `{"captured": true}`) and never sent. At most
+  flight) passes every check of the capability, then is captured there (answer
+  `{"captured": true}`, no quota used) and never sent. At most
   `MAX_TEST_SENDS` (32) sends and `MAX_TEST_SEND_BYTES` (64 KiB of JSON) are
   captured; past either, the child gets `-32001` with `data.code`
   `test_sends_truncated` and `truncated` is true.
@@ -666,8 +672,10 @@ must answer within 20 s. Then the status is `running`.
 - A handler error (`-32000`) sets `last_error` (`handler_error: event.<hook>
   raised <ExceptionType>`) and the instance keeps running; the child's own message
   goes to the server log only (scrubbed, capped, at most once per 10 s per instance).
-- Child requests go to `PluginManager.host_methods` (name to coroutine, filled
-  by the capability tickets); an unknown method is `-32601`. A child has at most
+- Child requests go to `capabilities.dispatch()` ("Capabilities");
+  `PluginManager.host_methods` (name to coroutine) overrides it, for tests. A
+  child notification `log` lands in the log ring; other notifications are
+  ignored. An unknown method is `-32601`. A child has at most
   `MAX_CHILD_REQUESTS` (32) requests pending at the host; past that each one is
   answered `-32001` (overloaded) at once.
 
@@ -704,7 +712,8 @@ that is a short identifier; it is scrubbed of the instance's secret values, then
 `needs_attention`, `incompatible`, `revoked`. Each change of status or
 `last_error` is stored in `plugins.status`/`last_error`, sent to the WebSocket
 clients as `plugin_status` (`instance_id`, `plugin_id`, `label`, `status`,
-`last_error`, `dropped_events`, `restarts`; `realtime=False`, so not to the
+`last_error`, `dropped_events`, `restarts`, `summary`: the plugin's `status.set`
+line, in memory only; `realtime=False`, so not to the
 proxy or fanout) and triggers a `health` broadcast. `statuses()` covers every
 instance of the repository cache (stored status, `disabled` when not enabled),
 with live values for the running ones. Health carries `plugins_isolation`,
@@ -726,7 +735,129 @@ run (`finally`), and the supervision task is cancelled if it is still running.
 lifespan); any instance whose stop is still pending or failed is killed, its task
 cancelled and its child reaped. A stopped instance's pending events are dropped.
 
-Tests: `tests/test_plugin_host.py` (real children; fixture plugins echo, sleep,
+Tests: `tests/test_plugin_host.py` (real children, granted what a migrated bot
+holds; fixture plugins echo, sleep,
 ignore-cancel, crash, cpu-burn, ignore-shutdown, flood, deaf (never reads its
 stdin), spammer, sender; the `/proc` CPU test
 runs on Linux only).
+
+## Capabilities
+
+`app/plugins/capabilities/`: one module per capability (`messages.py`,
+`storage.py`, `timer.py`, `contacts.py`, `channels.py`, `status.py`, `log.py`),
+each registering its methods in `base.REGISTRY` with the permission it needs;
+`grants.py` holds the effective permissions and the read filters;
+`app/plugins/quotas.py` the send quotas and the global spacing. The supervisor's
+only entry point is `capabilities.dispatch(instance, method, params, event)`.
+Tests: `tests/test_plugin_capabilities.py` (real children through the host, the
+radio send replaced by a recorder, quota windows on a controlled clock).
+
+### Effective permissions
+
+A permission is effective when the manifest declares it **and** the user granted
+it (`plugins.granted_permissions`); its parameters are the narrower of the two
+(`messages.read` `channels: all`, `direct` and `outgoing` need both;
+`messages.send` `targets` is the lower of `reply` < `scope` < `any`, `per_hour` and
+`per_day` the smaller; `http` the hosts both list). Parameters that fail the
+registry's validation drop the permission. They are computed when the instance
+starts: a changed grant takes effect at the next start (`reload()`).
+
+### Methods
+
+Every method is checked against the effective permissions **before** anything
+else: a refusal has no side effect, uses no quota and touches no network.
+
+| Method | Permission | Params | Result |
+|---|---|---|---|
+| `messages.send` | `messages.send` | `to` (`"reply"`, `{"channel_key": <32 hex>}` or `{"contact_key": <64 hex>}`), `text` (1 to 1024 characters), `region?`, `event_id?` | `{"sent": true, "message_id"}`, or `{"captured": true}` for a test event |
+| `storage.get` | `storage` | `key` | the stored value, `null` when absent |
+| `storage.set` | `storage` | `key`, `value` (JSON) | `null` |
+| `storage.delete` | `storage` | `key` | `null` |
+| `storage.list` | `storage` | `prefix?`, `after?`, `limit?` (1 to 200, default 200) | the keys in order, after `after` |
+| `timer.set` | `timer` | `seconds` (10 to 86400) | `{"timer_id"}`; later `event.timer {timer_id, seconds}` |
+| `contacts.list` | `contacts.read` | `limit?` (1 to 200, default 100), `offset?` | contacts |
+| `contacts.get` | `contacts.read` | `key` (64 hex) | a contact or `null` |
+| `channels.list` | `channels.read` | none | `{key, name, is_public}` per channel |
+| `status.set` | none | `summary` (`""` clears) | `null` |
+| `log` | none | `level` (`debug`, `info`, `warning`, `error`), `message` | `null` (usually sent as a notification) |
+
+- **`messages.send`**, checks in order: the params (`invalid_params`,
+  `params.fields`), the destination exists and is not a pending channel
+  (`target_unknown`), the permission's `targets` (`target_not_allowed`,
+  `params.targets`), the region (`region_unknown`), the server byte rule of
+  `app/message_limits.py` (`message_too_long`, `params.limit` and `params.bytes`),
+  then the quotas (`quota_exceeded`, `params.period` `hour` or `day`,
+  `params.limit`, `params.retry_after` in seconds). `targets`: `reply` allows
+  only the conversation of the message event being handled (named by `event_id`,
+  or the only event in flight; a timer has none); `scope` also allows the
+  channels and contacts the instance may read ("Reads"); `any` every known
+  channel and contact. `region` applies to channels: absent keeps the channel's
+  default, `null` or `""` sends unscoped, a name must be in `known_regions`, the
+  default flood scope or the channel's own override. A test event's send stops
+  after the checks (captured, no quota used; the destination need not exist). A
+  real send waits for the global spacing, re-checks the quotas, then goes
+  through the REST send services (radio connected, pending channel, byte
+  limit); a refusal there is `message_too_long` or `send_failed`
+  (`params.status`). Only a send that went out counts.
+- **Own sends.** While a send runs, `capabilities.messages.SENDING_INSTANCE` holds
+  the instance id; the fanout dispatch of the outgoing message it produces reads
+  it. An outgoing message reaches an instance only with `messages.read`
+  `outgoing: true`, and carries `own_send: true` for the instance that sent it.
+- **Storage**: the instance's `plugin_kv` rows ("Data model"); a write past the
+  5 MiB is `quota_exceeded` (`params.limit`), a bad key or a value over 256 KiB
+  or not JSON is `invalid_params`. An RPC line is at most 100 KiB, so a value
+  sent by a child is smaller than that.
+- **Timer**: under 10 s (or a boolean, NaN) is `invalid_params` with
+  `params.min`/`params.max`; at most 16 pending per instance (`quota_exceeded`).
+  Timers belong to the running child: a restart or a stop drops them.
+- **Contacts**: `public_key`, `name`, `type`, `last_seen`, `last_advert`, `lat`,
+  `lon`, `favorite`; never routes or read state.
+- **Channels**: a channel key is its secret. Public channels (the Public channel
+  and the `#` channels whose key derives from their name) are listed; a private
+  channel only when the instance has `messages.read` with `channels: all`.
+  Pending channels are left out.
+- **Status**: control characters dropped, cut at 140 characters, kept in memory
+  and sent in `plugin_status` (`summary`); at most one change per 2 s
+  (`quota_exceeded`, `params.retry_after`).
+
+### Reads
+
+- `event.message` needs `messages.read`: a channel message only when the channel
+  is public (as above) or with `channels: all`; a direct message only with
+  `direct: true`; an outgoing message only with `outgoing: true`. Then the user's
+  scope (`plugins.scope`, the fanout `ScopeSelector` shape): no `messages` entry
+  means no restriction, else `all`, `none` or `{"channels": ..., "contacts": ...}`
+  with the fanout filters (`all`, `none`, a key list, `{"except": [...]}`), keys
+  compared case-insensitively.
+- `event.raw_packet` needs `raw_packets.read` (and a scope whose `raw_packets` is
+  not `none`); the packet keeps its decryption (`decrypted_info`) only when the
+  instance could read that message, else it arrives with `decrypted: false`.
+- `event.contact` needs `contacts.read`; `event.telemetry` and `event.health`
+  need `telemetry.read`. `event.timer` comes from the instance's own timers.
+
+### Quotas and spacing (`app/plugins/quotas.py`)
+
+- Per instance: `per_hour` (default 30, cap 60) and `per_day` (default 200, cap
+  500): the manifest's `messages.send` request or the default, capped, then
+  lowered by the user's `plugins.quotas` `{"messages.send": {"per_hour",
+  "per_day"}}` (never raised). Fixed windows (clock hour, UTC day) counted in
+  `plugin_send_quota` (`PluginSendQuotaRepository`), so a restart keeps them;
+  `SendQuota.clock` is injectable. Deleting an instance deletes its counters.
+- Global spacing: `send_spacer` keeps 2 s (`SEND_SPACING_SECONDS`) between two
+  automatic sends, plugins and legacy bots alike (`app/fanout/bot_exec.py` uses
+  it); a failed send does not move it. The quota check runs once before waiting
+  (a full quota is refused at once) and again inside the spacing slot.
+- Not here (Store T6b): the budget per Meshloom instance, the per-destination
+  quotas and the loop guards.
+
+### Error codes
+
+A refusal is a JSON-RPC error whose `data.code` is stable and whose `data.params`
+carries the values above: `-32602` for `invalid_params`, `-32010` (`REFUSED`) for
+`permission_denied` (`params.permission`), `quota_exceeded`,
+`target_not_allowed`, `target_unknown`, `region_unknown`, `message_too_long` and
+`send_failed`. An unknown method is `-32601`; a test event's capture past its
+bound is `-32001` (`test_sends_truncated`). The SDK's `error_code(exc)` returns
+`data.code`. The user-facing wording of the permissions and of these codes is
+the i18n slice `al` (`plugins.permissions.*`, `plugins.capabilityErrors.*`, FR and
+EN); `tests/test_plugin_capabilities.py` checks every registry permission has it.
