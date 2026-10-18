@@ -129,7 +129,7 @@ async def _check_destination(
                 secrets["url"], allow_private_network=allow_private_network
             )
             if not verify_tls and not tls_check_may_be_off(dest.ips):
-                raise EgressBlocked("verify_tls_requires_private_destination")
+                raise ChannelError("verify_tls_requires_private_destination")
         elif entry.id == "apprise" and secrets.get("urls"):
             validated = await validate_apprise_urls(
                 split_apprise_urls(secrets["urls"]), allow_private_network=allow_private_network
@@ -151,10 +151,10 @@ async def _check_destination(
             )
             private = tls_check_may_be_off(dest.ips)
             if not verify_tls and not private:
-                raise EgressBlocked("verify_tls_requires_private_destination")
+                raise ChannelError("verify_tls_requires_private_destination")
             has_login = public.get("user") or secrets.get("password")
             if public.get("mode") == "none" and has_login and not private:
-                raise EgressBlocked("smtp_plaintext_auth_refused")
+                raise ChannelError("smtp_plaintext_auth_refused")
     except EgressBlocked as exc:
         raise ChannelError(exc.code) from None
     except AppriseUrlRefused as exc:
