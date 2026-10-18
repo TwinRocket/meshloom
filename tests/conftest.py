@@ -109,6 +109,16 @@ async def _reset_hashtag_catalogue():
 
 
 @pytest.fixture(autouse=True)
+def _reset_host_guard():
+    """The Host guard keeps its mode and the names it observed in memory."""
+    from app.middleware import host_guard
+
+    host_guard.reset()
+    yield
+    host_guard.reset()
+
+
+@pytest.fixture(autouse=True)
 def _quiet_oss_update_fetch(monkeypatch):
     """Lifespan starts the release poll; never hit GitHub or Community from tests."""
     from app.services.oss_updates import reset_oss_update_cache

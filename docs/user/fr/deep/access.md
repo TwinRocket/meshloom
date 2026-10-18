@@ -83,7 +83,7 @@ Les délais sont gardés en mémoire et repartent de zéro au redémarrage de Me
 
 ## Derrière un reverse-proxy
 
-Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. N’indiquez que l’adresse du proxy lui-même, jamais un réseau Docker ni sa passerelle. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance).
+Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. N’indiquez que l’adresse du proxy lui-même, jamais un réseau Docker ni sa passerelle. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance). Meshloom regarde aussi le nom saisi dans le navigateur : en 5.0.0, un nom inconnu (le nom DNS de votre proxy, par exemple) est seulement noté ; à partir de la 5.1 il sera refusé s’il n’est pas déclaré. Voir [Les noms auxquels Meshloom répond](/docs/deep/https/#les-noms-auxquels-meshloom-répond).
 
 ## Les réseaux de confiance
 

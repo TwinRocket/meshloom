@@ -56,6 +56,13 @@ and the OpenAPI page (`/docs`), not a table here.
   No lockout by name. 429
   `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
   every table bounded (`docs/dev/auth.md`, "Login delays").
+- `middleware/host_guard.py` is the `Host` guard (docs/dev/auth.md, "Host guard"):
+  `host_allowed` is the one rule (trusted-network auto-login calls it directly and
+  stays strict in both modes); `HostGuardMiddleware` (inside the proxy-headers
+  middleware) follows `auth_settings.host_guard_mode`: `observe` (5.0.0 default)
+  records unknown names in a bounded in-memory list (`rejected_hosts`, in `GET
+  /api/auth/settings`) and logs each once, `enforce` answers 421
+  `auth_host_rejected`. Ingress and relay-tagged requests are exempt.
 - `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
   middleware): HSTS only over direct https (never ingress or relay), `no-store` on
   `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).

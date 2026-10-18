@@ -34,6 +34,7 @@ from app.auth.models import (
     USERNAME_MAX_LENGTH,
     AuthAuditEntry,
     AuthSettings,
+    HostGuardMode,
     Role,
     TrustedNetworkRule,
     User,
@@ -58,6 +59,8 @@ from app.auth.setup_code import (
     clear_setup_code,
     setup_code_required,
 )
+from app.middleware import host_guard
+from app.middleware.host_guard import RejectedHost
 from app.middleware.proxy_headers import MAX_TRUSTED_PROXIES, normalize_proxies
 from app.repository.auth import (
     AuthAuditRepository,
@@ -706,6 +709,18 @@ class AuthSettingsView(BaseModel):
             "(always admin)."
         )
     )
+    host_guard_mode: HostGuardMode = Field(
+        description=(
+            "'observe' (default in 5.0.0): a Host header that is not one of this instance's "
+            "addresses is recorded in rejected_hosts and let through; 'enforce': answered 421."
+        )
+    )
+    rejected_hosts: list[RejectedHost] = Field(
+        description=(
+            "Host names the guard would refuse, seen since the last restart, most recently "
+            "seen first (at most 64). Read-only; declare a name as a public address."
+        )
+    )
     security_notices: list[SecurityNotice] = Field(
         description=(
             "The Access security notice: a trusted network signs in an administrator while "
@@ -777,6 +792,8 @@ async def _settings_view(settings: AuthSettings) -> AuthSettingsView:
         ],
         audit_retention_days=settings.audit_retention_days,
         ingress_default_role=settings.ingress_default_role,
+        host_guard_mode=settings.host_guard_mode,
+        rejected_hosts=host_guard.rejected_hosts(),
         security_notices=await _security_notices(settings),
     )
 

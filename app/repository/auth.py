@@ -851,8 +851,10 @@ class AuthSettingsRepository:
         # and so are the trusted network rules.
         proxy_headers.apply(updated)
         from app.auth.providers import trusted_network
+        from app.middleware import host_guard
 
         trusted_network.apply(updated)
+        host_guard.apply(updated)
         return updated
 
     @staticmethod

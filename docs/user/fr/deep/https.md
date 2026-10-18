@@ -46,6 +46,12 @@ services:
 
 Les montages du certificat sont en lecture seule. `command` remplace celle de l’image : elle doit donc contenir toute la ligne, hôte et port compris.
 
+## Les noms auxquels Meshloom répond
+
+Une page web d’un autre domaine peut être redirigée vers votre réseau local (rebinding DNS) puis parler à Meshloom sous le nom de ce domaine. Meshloom regarde donc le nom saisi dans le navigateur (le `Host`) et reconnaît comme siens : une adresse IP, `localhost`, les noms finissant par `.local`, `.home.arpa`, `.lan` ou `.internal`, le nom de cette machine, une adresse publique que vous avez déclarée et le nom de Meshloom Remote.
+
+En 5.0.0 c’est de l’**observation seulement** : tout autre nom (par exemple le nom DNS de votre reverse-proxy) fonctionne encore, Meshloom le note simplement dans son journal et garde la liste des noms vus. À partir de la 5.1, un nom inconnu sera refusé avec une erreur qui le nomme : déclarez l’adresse publique de votre reverse-proxy d’ici là. L’exception est déjà stricte : un [réseau de confiance](/docs/deep/access/#les-réseaux-de-confiance) ne connecte personne quand le navigateur utilise un nom inconnu.
+
 ## Proxies de confiance
 
 Derrière un reverse-proxy, chaque requête arrive à Meshloom depuis l’adresse du proxy. L’adresse du visiteur et le fait qu’il soit passé en HTTPS n’arrivent que dans les en-têtes `X-Forwarded-For` et `X-Forwarded-Proto`, que n’importe qui peut envoyer. Meshloom ne les croit que depuis les adresses listées dans **Réglages → Configuration locale → Proxies de confiance** (administrateurs seulement). La liste est vide par défaut, et `127.0.0.1` n’est pas de confiance tant que vous ne l’ajoutez pas.
