@@ -390,7 +390,7 @@ async def test_logs_never_carry_userinfo_query_or_fragment(url: str, host: FakeH
         message = host.logs[-1][1]
         for secret in ("s3cret", "SECRET", "TOKEN", "tok@", "user"):
             assert secret not in message
-        assert "api.example.org" in message.replace("https://", "")  # noqa: S105
+        assert message.startswith("Bot function execution failed: ")
 
 
 def test_safe_url_shapes() -> None:
