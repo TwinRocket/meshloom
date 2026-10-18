@@ -9,7 +9,7 @@ import { AdvancedBlock, SettingsGroupHeader } from './settingsPrimitives';
 /**
  * The form a browser sends in `Origin`, or null when `raw` is not one.
  *
- * Mirrors `normalize_origin` in `app/cors.py`, which has the final say: http or
+ * Mirrors `normalize_origin` in `app/origin_policy.py`, which has the final say: http or
  * https, no path, query, fragment, credentials or wildcard.
  */
 export function normalizeOrigin(raw: string): string | null {
