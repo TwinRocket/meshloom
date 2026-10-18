@@ -105,7 +105,7 @@ const MEDIA_COLUMNS: Array<{
   { channel: 'apprise', label: 'settings.notifications.mediaApprise' },
 ];
 
-const APPRISE_SERVICES_URL = 'https://appriseit.com/services/';
+const APPRISE_SERVICES_URL = 'https://appriseit.com/getting-started/universal-syntax/';
 const APPRISE_URL_EXAMPLES = [
   'ntfys://ntfy.sh/my-meshloom-topic',
   'tgram://bot_token/chat_id',

@@ -74,7 +74,7 @@ The server now enforces the radio's message size limit for every way of sending.
 
 ### Fixed
 
-- **Apprise links point to the current documentation.** The "Apprise URL formats" links in Settings → Notifications and Settings → Fanout, and in the push documentation, went to the archived Apprise wiki. They now open the list of services on appriseit.com.
+- **Apprise links point to the current documentation.** The "Apprise URL formats" links in Settings → Notifications and Settings → Fanout, and in the push documentation, went to the archived Apprise wiki. They now open the Apprise URL syntax page on appriseit.com.
 - **The bot warning now follows accounts.** The "Unprotected bot execution is enabled" dialog used to depend on the 4.x Basic auth setting. It now reads the real sign-in state (`GET /api/auth/session`): no warning while an account is signed in, however it signed in.
 
 ### Security
@@ -180,7 +180,7 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 
 #### Corrections
 
-- **Les liens Apprise mènent à la documentation actuelle.** Les liens « Formats d’URL Apprise » de Réglages → Notifications et Réglages → Fanout, ainsi que ceux de la documentation push, menaient au wiki Apprise archivé. Ils ouvrent désormais la liste des services sur appriseit.com.
+- **Les liens Apprise mènent à la documentation actuelle.** Les liens « Formats d’URL Apprise » de Réglages → Notifications et Réglages → Fanout, ainsi que ceux de la documentation push, menaient au wiki Apprise archivé. Ils ouvrent désormais la page de syntaxe des URL Apprise sur appriseit.com.
 - **L’avertissement sur les bots suit désormais les comptes.** La fenêtre « L’exécution non protégée de bots est activée » dépendait du réglage Basic de la 4.x. Elle regarde maintenant la vraie connexion (`GET /api/auth/session`) : plus d’avertissement quand un compte est connecté, quelle que soit la façon de se connecter.
 
 #### Sécurité

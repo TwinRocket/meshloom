@@ -2797,7 +2797,7 @@ function AppriseConfigEditor({
             ),
             services: (
               <a
-                href="https://appriseit.com/services/"
+                href="https://appriseit.com/getting-started/universal-syntax/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-foreground"
