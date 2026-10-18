@@ -99,6 +99,15 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   (`feedNames.ts`): channel/contact by key from the client's lists, then the WebSocket
   frame's `channel_name` / `sender_name`, then the abbreviated key. Day separators
   (`feedDays.ts`) are virtualized items of their own; labels use `Intl` only.
+- **Row actions** (`FeedMessageRow` is the list item). Click or Enter on the row calls
+  `onNavigateToMessage` (the search payload; `targetMessageId` highlights it); the
+  channel/contact name calls `onSelectConversation` (bottom of the conversation);
+  the sender is a button for `feedContactKey(row)` (full 64-hex `sender_key`, or the
+  PRIV `conversation_key`) and plain text otherwise. `FeedRowMenu` (`...`, long press,
+  right click, ContextMenu / Shift+F10) mirrors `MessageActionMenu`; *Copy text* is
+  absent when `navigator.clipboard` is undefined (HTTP on the LAN). A view rendered
+  without the three callbacks is read-only. No reply, react or resend. Tests:
+  `src/test/feedRowActions.test.tsx`.
 - jsdom measures no layout: `src/test/feedView.test.tsx` fakes the scroller geometry.
   Virtualization and the single scroller need a check in a real browser.
 

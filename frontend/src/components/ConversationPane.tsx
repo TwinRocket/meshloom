@@ -5,6 +5,7 @@ import { Radio } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api, formatApiError } from '../api';
+import type { SearchNavigateTarget } from './SearchView';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { ChatHeader } from './ChatHeader';
@@ -96,6 +97,8 @@ interface ConversationPaneProps {
     pathHashModeOverride: number | null
   ) => Promise<void>;
   onSelectConversation: (conversation: Conversation) => void;
+  /** The feed's rows: the conversation, scrolled to the message. */
+  onNavigateToMessage?: (target: SearchNavigateTarget) => void;
   onOpenContactInfo: (publicKey: string, fromChannel?: boolean) => void;
   onOpenChannelInfo: (channelKey: string) => void;
   onSenderClick: (sender: string, quote?: string) => void;
@@ -201,6 +204,7 @@ export function ConversationPane({
   onSetChannelPathHashModeOverride,
   onSelectConversation,
   onOpenContactInfo,
+  onNavigateToMessage,
   onOpenChannelInfo,
   onSenderClick,
   onChannelReferenceClick,
@@ -446,6 +450,9 @@ export function ConversationPane({
           channels={channels}
           radioName={config?.name}
           onBackToTools={onBackToTools}
+          onNavigateToMessage={onNavigateToMessage}
+          onSelectConversation={onSelectConversation}
+          onOpenContactInfo={onOpenContactInfo}
         />
       </LazyBoundary>
     );
