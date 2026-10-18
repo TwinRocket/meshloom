@@ -11,6 +11,9 @@ import type {
   AuthLoginRequest,
   AuthMe,
   AuthSessionRow,
+  AuthPairingCreate,
+  AuthPairingCreated,
+  AuthPairingRow,
   AuthTokenCreate,
   AuthTokenCreated,
   AuthTokenRow,
@@ -390,6 +393,12 @@ export const api = {
     fetchJson<AuthTokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify(body) }),
   revokeAuthToken: (id: string) =>
     fetchJson<void>(`/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Device pairing codes (admin, own session)
+  listAuthPairings: () => fetchJson<AuthPairingRow[]>('/auth/pairings', { cache: 'no-store' }),
+  createAuthPairing: (body: AuthPairingCreate) =>
+    fetchJson<AuthPairingCreated>('/auth/pairings', { method: 'POST', body: JSON.stringify(body) }),
+  revokeAuthPairing: (id: string) =>
+    fetchJson<void>(`/auth/pairings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Users (admin)
   listAuthUsers: () => fetchJson<AuthUserRow[]>('/auth/users', { cache: 'no-store' }),
   createAuthUser: (body: AuthUserCreate) =>

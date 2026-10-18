@@ -1,0 +1,39 @@
+{
+  "settings": {
+    "access": {
+      "pairing": {
+        "title": "Appairer un appareil",
+        "help": "Appairez une application mobile comme meshenger en scannant un QR code : elle obtient son propre jeton d'appareil, avec les portées que vous choisissez, rattaché à votre compte, sans que personne ne saisisse de jeton. Un code ne sert qu'une fois et expire en quelques minutes.",
+        "ingressNotice": "Vous êtes connecté via Home Assistant. Un appareil ne peut pas s'appairer à travers l'ingress de Home Assistant : il doit joindre Meshloom à sa propre adresse, que porte le QR code.",
+        "none": "Aucun code d'appairage en attente.",
+        "add": "Appairer un appareil",
+        "createTitle": "Appairer un appareil",
+        "createHelp": "Nommez l'appareil, choisissez ce qu'il peut faire et la durée de validité du code. Meshloom affiche ensuite un QR code que l'appareil scanne.",
+        "label": "Nom de l'appareil",
+        "labelPlaceholder": "Téléphone de Nadia",
+        "scopes": "Portées",
+        "scopesHelp": "Cochez seulement ce dont l'appareil a besoin. Il n'obtient jamais plus que ce que votre rôle permet.",
+        "lifetime": "Le code est valable",
+        "lifetimeMinutes_one": "{{count}} minute",
+        "lifetimeMinutes_other": "{{count}} minutes",
+        "create": "Afficher le QR code",
+        "qrTitle": "Scanner pour appairer « {{label}} »",
+        "qrHelp": "Ouvrez meshenger (ou une autre application qui s'enrôle auprès de Meshloom) sur l'appareil et scannez ce QR code. Il n'est affiché que maintenant ; Meshloom ne garde qu'une empreinte du code et ne peut pas le réafficher.",
+        "secretWarning": "Ce QR code est un mot de passe pour un nouvel appareil. Ne le partagez pas, n'en publiez pas de capture d'écran et ne le scannez qu'avec votre propre appareil. Quiconque le scanne avant son expiration accède à votre compte avec ces portées.",
+        "qrAlt": "QR code pour appairer un appareil à Meshloom",
+        "countdown": "Expire dans {{time}}",
+        "expired": "Ce code a expiré et le QR code est masqué. Créez-en un nouveau.",
+        "scopesGiven": "L'appareil obtiendra : {{scopes}}.",
+        "regenerate": "Créer un nouveau code",
+        "cancelCode": "Annuler le code",
+        "cancelNamed": "Annuler le code de {{label}}",
+        "cancelled": "Code d'appairage annulé.",
+        "done": "Fermer",
+        "owner": "Par {{user}}",
+        "expiresAt": "Expire {{when}}",
+        "used": "Ce code a été utilisé par l'appareil : l'appairage est fait. Créez un nouveau code pour appairer un autre appareil.",
+        "closeRevokes": "Fermer et annuler le code"
+      }
+    }
+  }
+}

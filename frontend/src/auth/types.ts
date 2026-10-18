@@ -198,6 +198,31 @@ export interface AuthTokenCreate {
   expires_at?: number | null;
 }
 
+/** One pending pairing code of `GET /auth/pairings` (times in epoch seconds). */
+export interface AuthPairingRow {
+  id: string;
+  label: string;
+  scopes: string[];
+  urls: string[];
+  created_at: number;
+  expires_at: number;
+  created_by: number;
+  username: string | null;
+}
+
+/** The answer of `POST /auth/pairings`: the only one that carries the code and the QR text. */
+export interface AuthPairingCreated extends AuthPairingRow {
+  code: string;
+  qr_payload: string;
+}
+
+export interface AuthPairingCreate {
+  label: string;
+  scopes: string[];
+  /** Seconds, 30 to 600. */
+  ttl: number;
+}
+
 /** One row of `GET /auth/users` (admin). `provider` is `local` or `ingress`. */
 export interface AuthUserRow {
   id: number;
