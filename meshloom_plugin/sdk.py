@@ -386,14 +386,17 @@ class Plugin:
         `region` only applies to channel replies: leave it out for the channel's
         default, `None` to send unscoped, a name to scope this send to it.
         """
+        event_id = msg.raw.get("event_id")
         if msg.is_dm:
             if not msg.sender_key:
                 raise ValueError("cannot reply: the direct message has no sender_key")
-            await self.send(contact_key=msg.sender_key, text=text)
+            await self.send(contact_key=msg.sender_key, text=text, event_id=event_id)
         else:
             if not msg.channel_key:
                 raise ValueError("cannot reply: the message has no channel_key")
-            await self.send(channel_key=msg.channel_key, text=text, region=region)
+            await self.send(
+                channel_key=msg.channel_key, text=text, region=region, event_id=event_id
+            )
 
     async def send(
         self,
@@ -402,8 +405,14 @@ class Plugin:
         channel_key: str | None = None,
         contact_key: str | None = None,
         region: Any = _DEFAULT,
+        event_id: int | None = None,
     ) -> None:
-        """Send `text` to a channel or a contact (the manifest's permission decides where)."""
+        """Send `text` to a channel or a contact (the manifest's permission decides where).
+
+        `event_id` names the event this send answers (`reply()` passes the one the
+        host put in the message), so the host ties the send to it: a test event's
+        sends are captured, never sent.
+        """
         if (channel_key is None) == (contact_key is None):
             raise ValueError("give exactly one of channel_key and contact_key")
         params: dict[str, Any] = {
@@ -412,6 +421,8 @@ class Plugin:
         }
         if region is not _DEFAULT and channel_key:
             params["region"] = region
+        if type(event_id) is int:
+            params["event_id"] = event_id
         await meshloom_plugin.host().call("messages.send", params)
 
     async def timer(self, seconds: float) -> None:

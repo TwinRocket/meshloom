@@ -78,7 +78,14 @@ dispatch_telemetry_event(data)                    app/websocket.py (no WS event)
   -> broadcast_telemetry (all modules)
 radio_stats._stats_sampling_loop (every 60 s)
   -> broadcast_health_fanout (all modules)
+every broadcast_* above (message: after the pending-channel check)
+  -> plugin_manager.dispatch(hook, data)          app/plugins/host.py (queues, never blocks)
 ```
+
+Plugins get the same events through the plugin host, not as fanout modules:
+`message`, `raw_packet`, `contact`, `telemetry`, `health`, each to the running
+instances that subscribe that hook (`docs/dev/plugins.md`, "Supervisor"). The
+legacy `bot` module is unchanged.
 
 `realtime=False` (historical decrypt) skips the proxy, fanout and push.
 

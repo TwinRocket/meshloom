@@ -35,6 +35,7 @@ WsEventType = Literal[
     "message_acked",
     "message_deleted",
     "radio_wifi",
+    "plugin_status",
     "error",
     "success",
 ]
@@ -66,6 +67,18 @@ class MessageDeletedPayload(TypedDict):
     message_id: int
 
 
+class PluginStatusPayload(TypedDict):
+    """A plugin instance's status change (`app/plugins/host.py`)."""
+
+    instance_id: str
+    plugin_id: str
+    label: str
+    status: str
+    last_error: str | None
+    dropped_events: int
+    restarts: int
+
+
 class ToastPayload(TypedDict):
     message: str
     details: NotRequired[str]
@@ -87,6 +100,7 @@ _PAYLOAD_ADAPTERS: dict[WsEventType, TypeAdapter[Any]] = {
     "message_acked": TypeAdapter(MessageAckedPayload),
     "message_deleted": TypeAdapter(MessageDeletedPayload),
     "radio_wifi": TypeAdapter(RadioWifiState),
+    "plugin_status": TypeAdapter(PluginStatusPayload),
     "error": TypeAdapter(ToastPayload),
     "success": TypeAdapter(ToastPayload),
 }
