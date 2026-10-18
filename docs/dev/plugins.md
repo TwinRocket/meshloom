@@ -462,9 +462,11 @@ log; the runner's typed start error is kept for `last_error`. The isolation leve
 is `none` (hooks only) until MSHL-180: `isolation_level()` and `_spawn_argv()`
 are its seam.
 
-`plugin.init` carries `api`, `instance_id`, `plugin_id`, `label`, `config`
-(secrets in clear, from `config_for_init()`), `scope`, `permissions`, `quotas`
-and `isolation`, and must answer within 20 s. Then the status is `running`.
+`plugin.init` carries `api`, `instance` (`id`, `plugin_id`, `label`), `config`
+(secrets in clear, from `config_for_init()`), `granted` (the granted permission
+names), `limits` (`message_bytes`: the DM limit of `app/message_limits.py`),
+`scope`, `quotas` and `isolation` (no `lang` yet: the SDK defaults to `en`), and
+must answer within 20 s. Then the status is `running`.
 
 ### Events
 
@@ -472,7 +474,11 @@ and `isolation`, and must answer within 20 s. Then the status is `running`.
   (`message` after the pending-channel check, `raw_packet`, `contact`,
   `telemetry`, `health`). Only running instances whose manifest lists the hook
   get it, after `accepts()`, the permission and scope filter (a seam that lets
-  everything through until MSHL-181). `event.message` keeps the bots' 2 s settle.
+  everything through until MSHL-181). `event.message` keeps the bots' 2 s settle,
+  then carries the fields the SDK reads (`app/plugins/events.py`, the bots'
+  derivation: `message_text` without the `"Name: "` prefix, `is_dm`,
+  `channel_key`, `path_bytes_per_hop`, `scoped`... plus `conversation_key`,
+  `is_public_channel`, `received_at`); the other hooks get the fanout dict as is.
 - Each instance has an inbox of 100 events; a full inbox drops its oldest event,
   counts it (`dropped_events`) and logs a warning at most every 10 s with the
   total. At most `policy.MAX_CONCURRENT_HANDLERS` (8) events are in flight, so the

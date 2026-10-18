@@ -51,8 +51,8 @@ PLUGINS = {
         import sys
 
         def on_message(params):
-            print("got", params.get("n"), file=sys.stderr, flush=True)
-            return {"echo": params.get("text")}
+            print("got", params.get("message_text"), file=sys.stderr, flush=True)
+            return {"echo": params.get("message_text")}
     """,
     "sleep": """
         import asyncio
@@ -65,7 +65,7 @@ PLUGINS = {
         import sys
 
         async def on_message(params):
-            print("got", params.get("n"), file=sys.stderr, flush=True)
+            print("got", params.get("message_text"), file=sys.stderr, flush=True)
             while True:
                 try:
                     await asyncio.sleep(60)
@@ -124,6 +124,11 @@ PLUGINS = {
             return "sent"
     """,
 }
+
+
+def msg(text: object) -> dict[str, Any]:
+    """A fanout DM dict (no repository lookup: the sender name is given)."""
+    return {"type": "PRIV", "conversation_key": "ab" * 32, "sender_name": "Ann", "text": str(text)}
 
 
 def write_plugin(root: Path, plugin_id: str, kind: str) -> None:
@@ -215,8 +220,8 @@ async def test_ignored_cancel_kills_restarts_and_drops_without_replay(manager, t
     instance = await running(manager, instance_id)
     first_pid = instance.pid
 
-    manager.dispatch("message", {"n": 1})
-    manager.dispatch("message", {"n": 2})
+    manager.dispatch("message", msg(1))
+    manager.dispatch("message", msg(2))
     await wait_until(lambda: instance.restarts == 1 and instance.status == "running")
 
     assert instance.pid != first_pid
@@ -236,7 +241,7 @@ async def test_inbox_is_bounded_and_drops_are_logged(manager, tmp_path, caplog):
     caplog.set_level(logging.WARNING, logger="app.plugins.host")
 
     for n in range(150):
-        manager.dispatch("message", {"n": n})
+        manager.dispatch("message", msg(n))
         if n == 10:
             await asyncio.sleep(0.1)  # the first ones go in flight
     await asyncio.sleep(0.1)
@@ -277,7 +282,7 @@ async def test_five_consecutive_crashes_is_a_crash_loop_until_manual_restart(man
 async def test_crash_on_event_counts_and_restarts(manager, tmp_path):
     instance_id = await create_instance(tmp_path / "plugins", "crash_event")
     instance = await running(manager, instance_id)
-    manager.dispatch("message", {})
+    manager.dispatch("message", msg(0))
     await wait_until(lambda: instance.restarts == 1 and instance.status == "running")
     assert "exited unexpectedly (code 7)" in (instance.last_error or "")
     assert instance.dropped_events == 1
@@ -339,7 +344,7 @@ async def test_rolling_cpu_budget_with_the_proc_reader(test_db, tmp_path, status
     try:
         instance_id = await create_instance(tmp_path / "plugins", "cpu_burn")
         instance = await running(mgr, instance_id)
-        mgr.dispatch("message", {})
+        mgr.dispatch("message", msg(0))
         await wait_until(lambda: "CPU budget exceeded" in (instance.last_error or ""))
     finally:
         await mgr.stop_all(5.0)
@@ -362,7 +367,7 @@ async def test_rlimit_cpu_is_set_in_the_child(test_db, tmp_path, statuses):
     try:
         instance_id = await create_instance(tmp_path / "plugins", "cpu_burn")
         instance = await running(mgr, instance_id)
-        mgr.dispatch("message", {})
+        mgr.dispatch("message", msg(0))
         await wait_until(lambda: instance.status == "error", timeout=20)
         assert instance.last_error in (
             "CPU time limit reached (RLIMIT_CPU)",
@@ -407,7 +412,7 @@ async def test_shutdown_ends_every_child_within_the_bound(manager, tmp_path):
         await create_instance(root, "ignore_cancel"),
     ]
     instances = [await running(manager, i) for i in ids]
-    manager.dispatch("message", {"n": 1})
+    manager.dispatch("message", msg(1))
     pids = [i.pid for i in instances]
     assert all(pids)
 
@@ -462,9 +467,9 @@ async def test_events_reach_only_subscribed_hooks(manager, tmp_path):
     instance = await running(manager, instance_id)
 
     manager.dispatch("raw_packet", {"n": 0})
-    manager.dispatch("message", {"n": 1})
+    manager.dispatch("message", msg(1))
     await wait_until(lambda: any(line == "got 1" for line in instance.log.lines()))
-    assert "got 0" not in instance.log.lines()
+    assert instance.log.lines() == ["got 1"]
 
 
 async def test_message_settle_delays_delivery(test_db, tmp_path, statuses):
@@ -477,7 +482,7 @@ async def test_message_settle_delays_delivery(test_db, tmp_path, statuses):
     try:
         instance_id = await create_instance(tmp_path / "plugins", "echo")
         instance = await running(mgr, instance_id)
-        mgr.dispatch("message", {"n": 5})
+        mgr.dispatch("message", msg(5))
         await asyncio.sleep(0.2)
         assert "got 5" not in instance.log.lines()
         await wait_until(lambda: "got 5" in instance.log.lines())
@@ -511,7 +516,7 @@ async def test_test_events_capture_sends(manager, tmp_path):
 async def test_unknown_host_method_is_refused_to_the_child(manager, tmp_path):
     instance_id = await create_instance(tmp_path / "plugins", "sender")
     instance = await running(manager, instance_id)
-    manager.dispatch("message", {})  # not a test event: no capability yet
+    manager.dispatch("message", msg(0))  # not a test event: no capability yet
     await wait_until(lambda: "messages.send is not available" in (instance.last_error or ""))
     assert instance.status == "running"
 
@@ -553,7 +558,7 @@ async def test_status_changes_are_broadcast_stored_and_scrubbed(manager, tmp_pat
     (root / "test.leak" / "plugin.py").write_text(
         "def on_init(params):\n    pass\n\n"
         "def on_message(params):\n"
-        "    raise ValueError('bad key ' + params['key'])\n",
+        "    raise ValueError('bad key ' + params['message_text'])\n",
         encoding="utf-8",
     )
     row = await PluginRepository.create(
@@ -570,7 +575,7 @@ async def test_status_changes_are_broadcast_stored_and_scrubbed(manager, tmp_pat
         enabled=True,
     )
     instance = await running(manager, row["instance_id"])
-    manager.dispatch("message", {"key": secret})
+    manager.dispatch("message", msg(secret))
     await wait_until(lambda: "bad key" in (instance.last_error or ""))
 
     assert secret not in (instance.last_error or "")
@@ -616,6 +621,34 @@ async def test_local_plugins_run_from_their_source(manager, tmp_path):
     await running(manager, row["instance_id"])
     outcome = await manager.dispatch_test(row["instance_id"], "message", {})
     assert outcome["result"] == "local"
+
+
+async def test_message_event_params_follow_the_bot_fields(test_db):
+    from app.channel_constants import PUBLIC_CHANNEL_KEY
+    from app.plugins.events import message_event_params
+
+    channel = await message_event_params(
+        {
+            "type": "CHAN",
+            "conversation_key": PUBLIC_CHANNEL_KEY,
+            "channel_name": "Public",
+            "sender_name": "Ann",
+            "text": "Ann: hello",
+            "paths": [{"path": "aabb", "path_len": 2}],
+            "transport_code": 7,
+            "received_at": 100,
+        }
+    )
+    assert channel["message_text"] == "hello"
+    assert channel["is_public_channel"] is True
+    assert channel["is_dm"] is False and channel["sender_key"] is None
+    assert (channel["path"], channel["path_bytes_per_hop"], channel["scoped"]) == ("aabb", 1, True)
+    assert channel["received_at"] == 100
+
+    dm = await message_event_params(msg("hi Ann: x"))
+    assert dm["is_dm"] is True and dm["message_text"] == "hi Ann: x"
+    assert dm["sender_key"] == "ab" * 32 and dm["channel_key"] is None
+    assert dm["is_public_channel"] is False
 
 
 # --- stderr ring ---------------------------------------------------------------------

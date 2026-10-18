@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from app.message_limits import DM_HARD_LIMIT
 from app.plugins import launch
 from app.secret_fields import scrub_error
 from meshloom_plugin import policy, rpc
@@ -690,12 +691,15 @@ class PluginInstance:
         self._secrets = [str(v) for k, v in config.items() if k in secret_names and v]
         return {
             "api": API_VERSION,
-            "instance_id": self.instance_id,
-            "plugin_id": self.plugin_id,
-            "label": self.label,
+            "instance": {
+                "id": self.instance_id,
+                "plugin_id": self.plugin_id,
+                "label": self.label,
+            },
             "config": config,
+            "granted": sorted(row.get("granted_permissions") or {}),
+            "limits": {"message_bytes": DM_HARD_LIMIT},
             "scope": row.get("scope") or {},
-            "permissions": row.get("granted_permissions") or {},
             "quotas": row.get("quotas") or {},
             "isolation": isolation_level(),
         }
@@ -1048,7 +1052,8 @@ class PluginManager:
     def dispatch(self, hook: str, data: dict[str, Any]) -> None:
         """Queue a fanout event for every running instance that subscribes `hook`.
 
-        Never blocks. `event.message` keeps the bots' 2 s settle (echo dedup).
+        Never blocks. `event.message` keeps the bots' 2 s settle (echo dedup) and
+        carries the bots' fields (`app/plugins/events.py`); other hooks get `data`.
         """
         targets = [
             i
@@ -1057,20 +1062,22 @@ class PluginManager:
         ]
         if not targets:
             return
-        if hook == "message" and self.budgets.message_settle > 0:
+        if hook == "message":
             from app.background_tasks import spawn
 
-            spawn(self._settle_then_enqueue(targets, hook, data))
+            spawn(self._enqueue_message(targets, data))
             return
         for instance in targets:
             instance.enqueue(_Event(hook, data))
 
-    async def _settle_then_enqueue(
-        self, targets: list[PluginInstance], hook: str, data: dict[str, Any]
-    ) -> None:
-        await asyncio.sleep(self.budgets.message_settle)
+    async def _enqueue_message(self, targets: list[PluginInstance], data: dict[str, Any]) -> None:
+        from app.plugins.events import message_event_params
+
+        if self.budgets.message_settle > 0:
+            await asyncio.sleep(self.budgets.message_settle)
+        params = await message_event_params(data)
         for instance in targets:
-            instance.enqueue(_Event(hook, data))
+            instance.enqueue(_Event("message", params))
 
     def accepts(self, instance: PluginInstance, hook: str, data: dict[str, Any]) -> bool:
         """Permission and scope filter: the seam MSHL-181 (T6) fills. Everything passes."""
