@@ -67,7 +67,7 @@ See [Meshloom Community](/en/docs/deep/community/).
 | `MESHCORE_BASIC_AUTH_USERNAME` | *(empty)* | User name asked by the browser for the whole application, the live connection (WebSocket) included. Use it with [HTTPS](/en/docs/deep/https/) |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(empty)* | Matching password |
 
-The two password variables must be set together. Setting only one stops Meshloom at startup. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
+The two password variables must be set together. Setting only one stops Meshloom at startup. From 5.0 they are retired: the first start creates the administrator account from them, then they are no longer read and a warning is logged while they are set. Basic auth with that user name and password is still accepted until 5.2. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
 
 ## Installation and updates
 

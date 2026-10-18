@@ -35,6 +35,8 @@ MESHCORE_BASIC_AUTH_PASSWORD=...
 
 Set both, or neither: the server refuses to start with only one. Basic auth protects the pages, the API and the live connection (WebSocket). It is a single shared login with no roles. Without HTTPS the password travels in clear text, so pair it with [HTTPS](/en/docs/deep/https/).
 
+From Meshloom 5.0, signing in is mandatory and uses accounts. On the first start of 5.0, these two variables become the administrator account (same name, same password), then Meshloom no longer reads them and logs a warning while they are still set: remove them. Scripts and Home Assistant sensors that send this user name and password with Basic auth keep working until 5.2. A browser page from another site can no longer change anything with your login: Meshloom refuses changes that come from another site.
+
 ## Disable bots
 
 `MESHCORE_DISABLE_BOTS=true` switches the bot system off at startup. No bot runs, the server answers `403` to any attempt to change bots, and the interface shows the feature as unavailable. The Linux package already sets this in `/etc/meshloom/meshloom.env`.
