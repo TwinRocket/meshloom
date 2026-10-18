@@ -97,13 +97,38 @@ class TestLinks:
 
     @pytest.mark.parametrize(
         "url",
-        ["", "ftp://example.com/a", "javascript:alert(1)", "https://", "https://a b", "x" * 3000],
+        [
+            "",
+            "ftp://example.com/a",
+            "javascript:alert(1)",
+            "https://",
+            "https://a b",
+            "x" * 3000,
+            "https://user:pass@example.com/a",
+            "https://user@example.com/a",
+            "http://192.168.1.10/admin",
+            "http://127.0.0.1:8000/",
+            "http://[::1]/",
+            "http://[fd00::1]/x",
+            "http://localhost/a",
+            "http://localhost:8000/a",
+            "http://printer.local/a",
+            "http://nas.lan/a",
+            "http://router.internal/a",
+            "http://app.localhost/a",
+            "http://intranet/a",
+            "http://example.com:notaport/a",
+        ],
     )
     async def test_invalid_url_is_refused_locally(self, on, client, url):
         response = await client.post("/api/share/links", json={"url": url})
         assert response.status_code == 400
         assert response.json()["detail"]["code"] == "share_invalid_url"
         assert on.requests == []
+
+    async def test_public_hosts_with_ports_and_paths_pass(self, on, client):
+        for url in ("http://example.com:8080/a?b=c#d", "https://sub.example.co.uk/"):
+            assert (await client.post("/api/share/links", json={"url": url})).status_code == 201
 
     async def test_service_error_is_coded(self, test_db, monkeypatch, client):
         await AppSettingsRepository.update(share_enabled=True)

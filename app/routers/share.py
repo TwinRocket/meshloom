@@ -8,6 +8,7 @@ request. Writes refuse a request the browser marks ``Sec-Fetch-Site: cross-site`
 
 from __future__ import annotations
 
+import ipaddress
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request
@@ -36,17 +37,39 @@ def refuse_cross_site(request: Request) -> None:
         raise ShareError("share_cross_site")
 
 
+# Hosts the contract's target URL rules always refuse (``invalid_url``): refused here
+# first, so credentials and LAN addresses never leave the instance.
+_PRIVATE_SUFFIXES = (".localhost", ".local", ".lan", ".internal", ".home.arpa")
+
+
 def _checked_url(raw: str) -> str:
-    """The URL when it is a plain http(s) one of sane length, else ``share_invalid_url``."""
+    """The URL when the contract would accept it, else ``share_invalid_url``.
+
+    http(s) only, a sane length, no whitespace, no user info, no IP literal, and a
+    public-looking name (at least two labels, no ``localhost``/``.local``/``.lan``/
+    ``.internal`` host).
+    """
     url = raw.strip()
     if not url or len(url) > MAX_URL_LENGTH or any(ch.isspace() or ord(ch) < 32 for ch in url):
         raise ShareError("share_invalid_url")
     try:
         parts = urlsplit(url)
         hostname = parts.hostname
+        parts.port  # noqa: B018 - raises ValueError on a bad port
     except ValueError:
         raise ShareError("share_invalid_url") from None
     if parts.scheme not in ("http", "https") or not hostname:
+        raise ShareError("share_invalid_url")
+    if parts.username is not None or parts.password is not None:
+        raise ShareError("share_invalid_url")
+    host = hostname.lower().rstrip(".")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        raise ShareError("share_invalid_url")
+    if "." not in host or host == "localhost" or host.endswith(_PRIVATE_SUFFIXES):
         raise ShareError("share_invalid_url")
     return url
 
