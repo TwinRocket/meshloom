@@ -52,6 +52,16 @@ Une page web d’un autre domaine peut être redirigée vers votre réseau local
 
 En 5.0.0 c’est de l’**observation seulement** : tout autre nom (par exemple le nom DNS de votre reverse-proxy) fonctionne encore, Meshloom le note simplement dans son journal et garde la liste des noms vus. À partir de la 5.1, un nom inconnu sera refusé avec une erreur qui le nomme : déclarez l’adresse publique de votre reverse-proxy d’ici là. L’exception est déjà stricte : un [réseau de confiance](/docs/deep/access/#les-réseaux-de-confiance) ne connecte personne quand le navigateur utilise un nom inconnu.
 
+### Déclarer les adresses publiques
+
+Un administrateur les gère dans **Réglages → Utilisateurs et accès → Adresses publiques** ; il n’existe aucune variable d’environnement pour cela.
+
+- Les **adresses publiques** s’écrivent `https://nom[:port][/préfixe]` (lettres, chiffres, points et tirets ; ni identifiant, ni paramètres, ni fragment ; 16 au plus). Meshloom les enregistre sous forme canonique (minuscules, `:443` retiré). Seul le nom compte pour le contrôle du Host.
+- **Noms inconnus vus récemment** liste les noms utilisés pour atteindre Meshloom et non déclarés (depuis le dernier redémarrage, le plus récent d’abord, avec un compteur). **Autoriser** en déclare un comme adresse publique et le retire de la liste.
+- **Refuser les noms inconnus (strict)** fait passer le contrôle de l’observation au mode strict : une requête sous un nom non déclaré reçoit une erreur (421) qui le nomme. Meshloom refuse de l’activer s’il rejetterait l’adresse que vous utilisez en ce moment, et de retirer cette adresse tant que le mode strict est actif. Si un nom cesse malgré tout de fonctionner, ouvrez Meshloom par son adresse IP (toujours acceptée) et désactivez l’option.
+
+Seuls les noms simples (lettres, chiffres, points, tirets) sont listés et journalisés ; les autres valeurs de `Host` ne sont jamais enregistrées. Le journal garde une seule ligne par nouveau nom, et une ligne de synthèse quand beaucoup de noms différents arrivent en une minute.
+
 ## Proxies de confiance
 
 Derrière un reverse-proxy, chaque requête arrive à Meshloom depuis l’adresse du proxy. L’adresse du visiteur et le fait qu’il soit passé en HTTPS n’arrivent que dans les en-têtes `X-Forwarded-For` et `X-Forwarded-Proto`, que n’importe qui peut envoyer. Meshloom ne les croit que depuis les adresses listées dans **Réglages → Configuration locale → Proxies de confiance** (administrateurs seulement). La liste est vide par défaut, et `127.0.0.1` n’est pas de confiance tant que vous ne l’ajoutez pas.

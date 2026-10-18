@@ -34,8 +34,16 @@ The list of observed names is what the access settings screen reads
 (``rejected_hosts`` in ``GET /api/auth/settings``): newest first, at most
 ``MAX_REJECTED_HOSTS``, the least recently seen dropped when full. It lives in
 memory, so a restart empties it (a name is seen again on its next request).
-Only a well-formed name is recorded; a header that does not parse is refused in
-``enforce`` mode and ignored in ``observe`` mode.
+Only a name of letters, digits, dots and hyphens (LDH) is recorded, so a hostile
+header never reaches the screen or the log as markup; a header that does not parse
+is refused in ``enforce`` mode and ignored in ``observe`` mode. The first-sighting
+warning is rate limited (``WARNING_BURST`` a minute, then one summary line), so
+cycling through names cannot flood the log.
+
+``normalize_public_url`` is the one validator of a declared public address
+(``PATCH /api/auth/settings``, MSHL-65): ``https://host[:port][/prefix]``, canonical
+form. ``would_lock_out`` tells whether a mode and list would reject the request being
+answered, which the route refuses before saving.
 
 The mode and the public URLs are kept in memory like the trusted proxies:
 ``AuthSettingsRepository.update()`` calls ``apply()`` after every write and the
@@ -47,6 +55,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
+import re
 import socket
 import time
 from collections import OrderedDict
@@ -69,6 +78,14 @@ LOCAL_HOST_SUFFIXES = (".local", ".home.arpa", ".lan", ".internal")
 MAX_REJECTED_HOSTS = 64
 MAX_HOST_NAME_LENGTH = 253
 WS_REFUSED_CLOSE_CODE = 1008
+MAX_PUBLIC_URLS = 16
+MAX_PUBLIC_URL_LENGTH = 253 + 64
+
+# Letters, digits, dots and hyphens: what a DNS name or an IPv4 literal is made of.
+_LDH = re.compile(r"[a-z0-9][a-z0-9.-]*")
+# New-name warnings: at most this many per window, the rest counted in one line.
+WARNING_BURST = 5
+WARNING_WINDOW_S = 60
 
 
 class RejectedHost(BaseModel):
@@ -85,6 +102,13 @@ _public_urls: tuple[str, ...] = ()
 _loaded = False
 _remote_hostnames: frozenset[str] = frozenset()
 _rejected: OrderedDict[str, RejectedHost] = OrderedDict()
+_warn_window_start = 0.0
+_warn_count = 0
+_warn_suppressed = 0
+
+
+class PublicUrlError(ValueError):
+    """A declared public address is not ``https://host[:port][/prefix]``."""
 
 
 # ---------------------------------------------------------------- the rule
@@ -154,6 +178,66 @@ def set_remote_hostname(hostname: str | None) -> None:
     _remote_hostnames = frozenset({host}) if host else frozenset()
 
 
+def normalize_public_url(raw: str) -> str:
+    """The canonical form of a declared public address, or ``PublicUrlError``.
+
+    ``https`` only, a DNS name or IP literal host (no credentials, query or fragment),
+    an optional port (443 dropped) and path prefix (no trailing slash). The guard only
+    compares the host; the rest is kept for the pairing payloads and the Remote page.
+    """
+    text = raw.strip()
+    if (
+        not text
+        or len(text) > MAX_PUBLIC_URL_LENGTH
+        or any(c.isspace() or ord(c) < 32 for c in text)
+    ):
+        raise PublicUrlError(raw)
+    try:
+        parts = urlsplit(text)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        raise PublicUrlError(raw) from None
+    if (
+        parts.scheme != "https"
+        or not host
+        or parts.username is not None
+        or parts.password is not None
+        or parts.query
+        or parts.fragment
+        or "?" in text
+        or "#" in text
+        or "\\" in text
+    ):
+        raise PublicUrlError(raw)
+    host = host.rstrip(".").lower()
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if not _LDH.fullmatch(host) or len(host) > MAX_HOST_NAME_LENGTH or ".." in host:
+            raise PublicUrlError(raw) from None
+        shown = host
+    else:
+        shown = f"[{address}]" if address.version == 6 else str(address)
+    path = parts.path.rstrip("/")
+    if path and (not path.startswith("/") or "//" in path or ".." in path.split("/")):
+        raise PublicUrlError(raw)
+    netloc = shown if port in (None, 443) else f"{shown}:{port}"
+    return f"https://{netloc}{path}"
+
+
+def normalize_public_urls(raw: Iterable[str]) -> list[str]:
+    """Canonical, deduplicated, order kept; at most ``MAX_PUBLIC_URLS``."""
+    urls: list[str] = []
+    for item in raw:
+        url = normalize_public_url(item)
+        if url not in urls:
+            urls.append(url)
+    if len(urls) > MAX_PUBLIC_URLS:
+        raise PublicUrlError("too many")
+    return urls
+
+
 # ---------------------------------------------------------------- settings
 
 
@@ -187,13 +271,41 @@ def reset() -> None:
     _mode, _public_urls, _loaded = "observe", (), False
     _remote_hostnames = frozenset()
     _rejected.clear()
+    _reset_warning_budget()
 
 
 # ---------------------------------------------------------------- observed names
 
 
 def _recordable(host: str) -> bool:
-    return len(host) <= MAX_HOST_NAME_LENGTH and host.isascii() and host.isprintable()
+    return len(host) <= MAX_HOST_NAME_LENGTH and _LDH.fullmatch(host) is not None
+
+
+def _reset_warning_budget() -> None:
+    global _warn_window_start, _warn_count, _warn_suppressed
+    _warn_window_start, _warn_count, _warn_suppressed = 0.0, 0, 0
+
+
+def _warn_first_sighting(host: str, now: float) -> None:
+    """Log a new name, at most ``WARNING_BURST`` per window; summarise the rest."""
+    global _warn_window_start, _warn_count, _warn_suppressed
+    if now - _warn_window_start >= WARNING_WINDOW_S:
+        if _warn_suppressed:
+            logger.warning(
+                "%d more unknown Host names were seen and not logged individually "
+                "(see rejected_hosts in the access settings)",
+                _warn_suppressed,
+            )
+        _warn_window_start, _warn_count, _warn_suppressed = now, 0, 0
+    if _warn_count >= WARNING_BURST:
+        _warn_suppressed += 1
+        return
+    _warn_count += 1
+    logger.warning(
+        "Host header %r is not a declared address of this instance "
+        "(observation mode lets it through; declare it in the access settings)",
+        host,
+    )
 
 
 def record_rejected(host: str, now: int | None = None) -> None:
@@ -201,11 +313,7 @@ def record_rejected(host: str, now: int | None = None) -> None:
     stamp = int(time.time()) if now is None else now
     entry = _rejected.get(host)
     if entry is None:
-        logger.warning(
-            "Host header %r is not a declared address of this instance "
-            "(observation mode lets it through; declare it in the access settings)",
-            host,
-        )
+        _warn_first_sighting(host, time.monotonic())
         entry = RejectedHost(host=host, count=0, first_seen=stamp, last_seen=stamp)
         if len(_rejected) >= MAX_REJECTED_HOSTS:
             _rejected.popitem(last=False)
@@ -237,6 +345,13 @@ def _exempt(scope: Scope) -> bool:
     return ingress.is_ingress_request(scope)
 
 
+def would_lock_out(scope: Scope, new_mode: str, new_public_urls: Iterable[str]) -> bool:
+    """Whether ``new_mode`` and ``new_public_urls`` would reject the request in ``scope``."""
+    if new_mode != "enforce" or _exempt(scope):
+        return False
+    return not host_allowed(_raw_host(scope), new_public_urls)
+
+
 def _raw_host(scope: Scope) -> str | None:
     for name, value in scope.get("headers") or ():
         if name == b"host":
@@ -258,6 +373,22 @@ def rejection_body(host: str | None) -> bytes:
             }
         }
     ).encode()
+
+
+def _refusal_headers() -> list[tuple[bytes, bytes]]:
+    """The static security headers: this layer answers outside ``app/main.py``'s.
+
+    No HSTS: the name is not ours, and pinning it to https is not this layer's call.
+    """
+    from app.middleware.security_headers import PERMISSIONS_POLICY
+
+    return [
+        (b"x-content-type-options", b"nosniff"),
+        (b"referrer-policy", b"strict-origin-when-cross-origin"),
+        (b"x-frame-options", b"DENY"),
+        (b"content-security-policy", b"frame-ancestors 'none'"),
+        (b"permissions-policy", PERMISSIONS_POLICY.encode("ascii")),
+    ]
 
 
 class HostGuardMiddleware:
@@ -292,6 +423,7 @@ class HostGuardMiddleware:
                 "headers": [
                     (b"content-type", b"application/json"),
                     (b"cache-control", b"no-store"),
+                    *_refusal_headers(),
                     (b"content-length", str(len(body)).encode("ascii")),
                 ],
             }

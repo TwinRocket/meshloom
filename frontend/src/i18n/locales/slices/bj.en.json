@@ -1,0 +1,32 @@
+{
+  "errors": {
+    "auth_public_urls_invalid": "Not a valid public address. Use https://name[:port][/prefix] (letters, digits, dots and hyphens; no login, query or fragment; at most 16 addresses).",
+    "auth_host_guard_would_lock_out": "Enforcing would reject the address you are using now ({{host}}). Add it as a public address first."
+  },
+  "settings": {
+    "access": {
+      "public": {
+        "title": "Public addresses",
+        "help": "The addresses people reach Meshloom under from outside, such as the name of your reverse proxy or Tailscale. Meshloom answers only to these names, to IP addresses and to local names (.local, .lan, .home.arpa, .internal) when the Host guard is enforced.",
+        "none": "No public address declared.",
+        "address": "Public address",
+        "add": "Add",
+        "remove": "Remove",
+        "removeFor": "Remove {{url}}",
+        "saved": "Public addresses saved.",
+        "rejectedTitle": "Recently seen unknown names",
+        "rejectedHelp": "Names used to reach Meshloom that are not declared. Since the last restart, most recent first.",
+        "rejectedNone": "No unknown name seen.",
+        "seen": "{{count}} request(s), last {{last}}",
+        "allow": "Allow",
+        "allowFor": "Allow {{host}}",
+        "allowed": "{{host}} declared as a public address.",
+        "enforce": "Refuse unknown names (enforce)",
+        "enforceHelpOff": "Observation mode: unknown names are listed above and still work. Enforcement will become the default in 5.1.",
+        "enforceHelpOn": "Enforced: a request under an undeclared name is refused with an error (421) naming it. If a name stops working, open Meshloom by its IP address (always accepted) and turn this off.",
+        "enforceOn": "Unknown names are now refused.",
+        "enforceOff": "Observation mode restored."
+      }
+    }
+  }
+}

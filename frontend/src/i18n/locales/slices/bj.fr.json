@@ -1,0 +1,32 @@
+{
+  "errors": {
+    "auth_public_urls_invalid": "Adresse publique invalide. Utilisez https://nom[:port][/préfixe] (lettres, chiffres, points et tirets ; ni identifiant, ni paramètres, ni fragment ; 16 adresses au plus).",
+    "auth_host_guard_would_lock_out": "Le refus strict rejetterait l'adresse que vous utilisez en ce moment ({{host}}). Ajoutez-la d'abord comme adresse publique."
+  },
+  "settings": {
+    "access": {
+      "public": {
+        "title": "Adresses publiques",
+        "help": "Les adresses sous lesquelles on atteint Meshloom depuis l'extérieur, comme le nom de votre reverse-proxy ou de Tailscale. Quand le contrôle du Host est strict, Meshloom ne répond qu'à ces noms, aux adresses IP et aux noms locaux (.local, .lan, .home.arpa, .internal).",
+        "none": "Aucune adresse publique déclarée.",
+        "address": "Adresse publique",
+        "add": "Ajouter",
+        "remove": "Retirer",
+        "removeFor": "Retirer {{url}}",
+        "saved": "Adresses publiques enregistrées.",
+        "rejectedTitle": "Noms inconnus vus récemment",
+        "rejectedHelp": "Noms utilisés pour atteindre Meshloom et non déclarés. Depuis le dernier redémarrage, le plus récent d'abord.",
+        "rejectedNone": "Aucun nom inconnu vu.",
+        "seen": "{{count}} requête(s), dernière {{last}}",
+        "allow": "Autoriser",
+        "allowFor": "Autoriser {{host}}",
+        "allowed": "{{host}} déclaré comme adresse publique.",
+        "enforce": "Refuser les noms inconnus (strict)",
+        "enforceHelpOff": "Mode observation : les noms inconnus sont listés ci-dessus et fonctionnent toujours. Le mode strict deviendra le défaut en 5.1.",
+        "enforceHelpOn": "Mode strict : une requête sous un nom non déclaré est refusée avec une erreur (421) qui le nomme. Si un nom cesse de fonctionner, ouvrez Meshloom par son adresse IP (toujours acceptée) et désactivez-le.",
+        "enforceOn": "Les noms inconnus sont désormais refusés.",
+        "enforceOff": "Mode observation rétabli."
+      }
+    }
+  }
+}

@@ -245,3 +245,99 @@ def test_trusted_network_stays_strict_in_both_modes(mode):
     headers = {"host": "attacker.example"}
     assert trusted_network.rule_blocker(scope, headers, "lan", **kwargs) == "host"
     assert trusted_network.rule_blocker(scope, {"host": "192.168.1.10"}, "lan", **kwargs) is None
+
+
+# ---------------------------------------------------------------- MSHL-65
+
+
+@pytest.mark.parametrize(
+    ("raw", "canonical"),
+    [
+        ("https://Meshloom.Example.COM", "https://meshloom.example.com"),
+        ("https://meshloom.example.com:443/", "https://meshloom.example.com"),
+        ("https://meshloom.example.com:8443/mesh/", "https://meshloom.example.com:8443/mesh"),
+        ("  https://192.0.2.7  ", "https://192.0.2.7"),
+        ("https://[2001:db8::1]:8443", "https://[2001:db8::1]:8443"),
+    ],
+)
+def test_public_urls_are_normalized(raw, canonical):
+    assert host_guard.normalize_public_url(raw) == canonical
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",
+        "meshloom.example.com",
+        "http://meshloom.example.com",
+        "ftp://meshloom.example.com",
+        "https://user:pw@meshloom.example.com",
+        "https://meshloom.example.com?x=1",
+        "https://meshloom.example.com#frag",
+        "https://meshloom.example.com:99999",
+        "https://meshloom.example.com/a/../b",
+        "https://meshloom.example.com//x",
+        "https://mesh loom.example.com",
+        "https://mesh_loom.example.com",
+        'https://a"b.example.com',
+        "https:///path",
+    ],
+)
+def test_invalid_public_urls_are_refused(raw):
+    with pytest.raises(host_guard.PublicUrlError):
+        host_guard.normalize_public_url(raw)
+
+
+def test_public_urls_are_deduplicated_and_bounded():
+    assert host_guard.normalize_public_urls(
+        ["https://a.example.com", "https://A.example.com:443"]
+    ) == ["https://a.example.com"]
+    with pytest.raises(host_guard.PublicUrlError):
+        host_guard.normalize_public_urls(
+            [f"https://h{i}.example.com" for i in range(host_guard.MAX_PUBLIC_URLS + 1)]
+        )
+
+
+async def test_only_ldh_names_are_recorded():
+    _settings()
+    for host in ("a'b.example.com", "a;b.example.com", "{x}.example.com", "a_b.example.com"):
+        async with _client(host) as client:
+            assert (await client.get("/api/x")).status_code == 200
+    assert host_guard.rejected_hosts() == []
+    async with _client("proxy.example.com") as client:
+        await client.get("/api/x")
+    assert [e.host for e in host_guard.rejected_hosts()] == ["proxy.example.com"]
+
+
+def test_the_first_sighting_warning_is_rate_limited(caplog):
+    caplog.set_level("WARNING", logger=host_guard.logger.name)
+    for i in range(host_guard.MAX_REJECTED_HOSTS * 2):
+        host_guard.record_rejected(f"h{i}.example.com")
+    lines = [r for r in caplog.records if "not a declared address" in r.getMessage()]
+    assert len(lines) == host_guard.WARNING_BURST
+    # The names are all still recorded (bounded), only the log is limited.
+    assert len(host_guard.rejected_hosts()) == host_guard.MAX_REJECTED_HOSTS
+
+
+def test_the_warning_budget_comes_back_with_a_summary(caplog):
+    caplog.set_level("WARNING", logger=host_guard.logger.name)
+    for i in range(7):
+        host_guard._warn_first_sighting(f"h{i}.example.com", 1000.0)
+    host_guard._warn_first_sighting("later.example.com", 1000.0 + host_guard.WARNING_WINDOW_S)
+    messages = [r.getMessage() for r in caplog.records]
+    assert sum("not a declared address" in m for m in messages) == host_guard.WARNING_BURST + 1
+    assert any("2 more unknown Host names" in m for m in messages)
+
+
+async def test_the_421_carries_the_security_headers():
+    _settings("enforce")
+    async with _client("attacker.example") as client:
+        response = await client.get("/api/x")
+    assert response.status_code == 421
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"]
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert response.headers["permissions-policy"]
+    assert response.headers["cache-control"] == "no-store"
+    assert "strict-transport-security" not in response.headers

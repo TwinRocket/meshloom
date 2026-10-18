@@ -5,6 +5,7 @@ import type { AccessSecurityNotice } from '../../auth/types';
 import { AccessAuditPanel } from './AccessAuditPanel';
 import { AccessIngressPanel } from './AccessIngressPanel';
 import { AccessProfilePanel } from './AccessProfilePanel';
+import { AccessPublicAddressesPanel } from './AccessPublicAddressesPanel';
 import { AccessSessionsPanel } from './AccessSessionsPanel';
 import {
   AccessSecurityNoticeBanner,
@@ -14,7 +15,7 @@ import { AccessUsersPanel } from './AccessUsersPanel';
 
 /**
  * Settings → Users & Access. Every account sees its own profile and sessions; the
- * user list, the trusted networks, the Home Assistant default role and the Access
+ * user list, the trusted networks, the public addresses and the Host guard, the Home Assistant default role and the Access
  * security notice are for an administrator (the server refuses them to anyone else,
  * `app/auth/permissions.py`).
  */
@@ -28,6 +29,7 @@ export function SettingsAccessSection({ className }: { className?: string }) {
       {hasProfile && <AccessSessionsPanel />}
       {isAdmin && <AccessUsersPanel />}
       {isAdmin && <AccessTrustedNetworksPanel onNotices={setNotices} />}
+      {isAdmin && <AccessPublicAddressesPanel />}
       {isAdmin && <AccessIngressPanel />}
       {isAdmin && <AccessAuditPanel />}
     </div>

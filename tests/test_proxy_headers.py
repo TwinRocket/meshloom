@@ -310,6 +310,7 @@ class TestSettingsRoute:
             "audit_retention_days": 366,
             "ingress_default_role": "member",
             "trusted_networks": [],
+            "public_urls": [],
             "host_guard_mode": "observe",
             "security_notices": [],
         }
