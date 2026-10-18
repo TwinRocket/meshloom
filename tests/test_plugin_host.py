@@ -997,8 +997,16 @@ async def test_a_start_failure_names_no_path(manager, tmp_path, monkeypatch, cap
 
 
 def test_health_hides_plugin_errors_below_send():
-    data = {"plugin_statuses": {"a": {"instance_id": "a", "status": "error", "last_error": "x"}}}
-    assert lifecycle.without_plugin_errors(data)["plugin_statuses"]["a"]["last_error"] is None
+    guard = {"total": 2, "by_scope": {"instance": 2}, "last": {"scope": "instance", "at": 1}}
+    data = {
+        "plugin_statuses": {
+            "a": {"instance_id": "a", "status": "error", "last_error": "x", "send_guard": guard}
+        }
+    }
+    hidden = lifecycle.without_plugin_errors(data)["plugin_statuses"]["a"]
+    assert hidden["last_error"] is None
+    assert hidden["send_guard"] == {}
+    assert data["plugin_statuses"]["a"]["send_guard"] == guard
     assert data["plugin_statuses"]["a"]["last_error"] == "x"
     from app.auth.permissions import ROLE_PERMISSIONS, ws_event_permission
 

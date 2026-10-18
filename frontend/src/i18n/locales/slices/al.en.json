@@ -55,6 +55,7 @@
       "region_unknown": "The plugin asked for a region Meshloom does not know.",
       "message_too_long": "The plugin's message was too long for the radio.",
       "send_failed": "The radio did not send the plugin's message.",
+      "quota_unavailable": "Meshloom could not check the sending limits, so the plugin's message was not sent.",
       "invalid_params": "The plugin made an invalid request."
     }
   }

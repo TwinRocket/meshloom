@@ -51,13 +51,15 @@ Combined with reading private channels or direct messages, this permission lets 
 ## Limits
 
 - **Messages sent.** By default 30 per hour and 200 per day for each copy of a plugin. A plugin may ask for more, up to 60 per hour and 500 per day, and you can always lower it. The counters survive a restart of Meshloom.
+- **All plugins together.** Whatever the copies are allowed individually, together they send at most 120 messages per hour from your Meshloom. Each channel receives at most 20 messages per hour from plugins and each contact 10 per hour, counted across all plugins. These three limits can be lowered, never raised; the control for it comes with the plugin settings screen (a later release). Plugins only: the bots keep their own 2-second spacing and are not counted. The counters survive a restart of Meshloom.
+- **Loops.** A plugin copy answers the same sender at most once every 30 seconds, and does not answer a message that arrived less than 5 seconds after it sent one to the same channel or contact. This stops two auto-responders, even on two different Meshloom, from answering each other forever.
 - **Spacing.** Meshloom waits at least 2 seconds between two automatic messages, whichever plugin or bot sends them, so repeaters have time to listen again.
 - **Size.** A message is limited to what the radio can carry: 156 bytes for a direct message, less on a channel, where your node's name comes first.
 - **Regions.** A plugin can scope a channel message only to a region Meshloom already knows.
 - **Storage.** 5 MB per copy of a plugin.
 - **Internet.** 60 requests per hour per copy of a plugin, 10 seconds each, answers cut at 1 MB. This counter starts again when Meshloom restarts.
 
-A refused request shows up in the plugin's log with its reason, such as "not allowed", "limit reached", "message too long" or "server not allowed".
+A refused request shows up in the plugin's log with its reason, such as "not allowed", "limit reached", "message too long" or "server not allowed". For the limits above, the reason says which one fired: the copy's own limit, all plugins together, the channel or contact, the sender delay or the quiet delay.
 
 ## Isolation
 

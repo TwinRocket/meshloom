@@ -243,6 +243,14 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "plugin_kv": ("excluded", "plugin storage: backup section with the plugins API"),
     "plugin_secrets": ("excluded", "plugin config secrets, never exported"),
     "plugin_send_quota": ("excluded", "plugin send counters: runtime state"),
+    "plugin_send_guard": (
+        "excluded",
+        "plugin send budget counters and loop-guard stamps: runtime state",
+    ),
+    "plugin_send_limits": (
+        "excluded",
+        "limits the user lowered for the plugin send guards: instance tuning",
+    ),
 }
 
 

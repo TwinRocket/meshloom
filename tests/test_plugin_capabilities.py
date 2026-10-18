@@ -20,7 +20,7 @@ import pytest
 from app.channel_constants import PUBLIC_CHANNEL_KEY
 from app.data.meshcore_channels import hashtag_key_from_name
 from app.plugins import host as host_module
-from app.plugins import isolation
+from app.plugins import isolation, quotas
 from app.plugins.capabilities import REGISTRY, messages
 from app.plugins.capabilities.grants import (
     effective_permissions,
@@ -128,6 +128,11 @@ async def manager(test_db, tmp_path, statuses, monkeypatch):
     monkeypatch.setattr(host_module, "plugin_manager", mgr)
     monkeypatch.setattr(send_spacer, "spacing", 0.0)
     monkeypatch.setattr(send_spacer, "last_send", None)
+    # These tests send in bursts: the host-side loop guards have their own tests
+    # (tests/test_plugin_quotas.py).
+    monkeypatch.setattr(quotas, "SENDER_COOLDOWN_SECONDS", 0)
+    monkeypatch.setattr(quotas, "QUIET_WINDOW_SECONDS", 0)
+    monkeypatch.setattr(quotas, "GUARD_LIMITS", dict.fromkeys(quotas.GUARD_LIMITS, (10000, 10000)))
     await ContactRepository.upsert({"public_key": ANN, "name": "Ann"})
     await ContactRepository.upsert({"public_key": BOB, "name": "Bob"})
     await ChannelRepository.upsert(PUBLIC_TAG_KEY, PUBLIC_TAG, is_hashtag=True)
@@ -342,11 +347,62 @@ async def test_the_31st_send_in_an_hour_is_quota_exceeded(manager, tmp_path, sen
     (result,) = lines(instance, "result")
     assert [r.get("ok", {}).get("sent") for r in result[:30]] == [True] * 30
     assert result[30]["error"] == "quota_exceeded"
+    assert result[30]["params"]["scope"] == "plugin"
     assert result[30]["params"]["period"] == "hour"
     assert result[30]["params"]["limit"] == DEFAULT_PER_HOUR
     assert 0 < result[30]["params"]["retry_after"] <= 3600
     assert len(sent) == 30
     assert {s["instance"] for s in sent} == {instance.instance_id}
+
+
+async def test_the_loop_guards_answer_quota_exceeded_with_their_scope(
+    manager, tmp_path, sent, monkeypatch
+):
+    monkeypatch.setattr(quotas, "SENDER_COOLDOWN_SECONDS", 30)
+    instance = await probe(
+        manager,
+        tmp_path,
+        "guards",
+        {"messages.read": READ_ALL, "messages.send": {"targets": "reply"}},
+    )
+    manager.dispatch(
+        "message",
+        fanout_dm(
+            calls(
+                ("messages.send", {"to": "reply", "text": "one"}),
+                ("messages.send", {"to": "reply", "text": "two"}),
+            )
+        ),
+    )
+    await wait_until(lambda: lines(instance, "result"), what="the result")
+    (result,) = lines(instance, "result")
+    assert result[0]["ok"]["sent"] is True
+    assert result[1]["error"] == "quota_exceeded"
+    assert result[1]["params"]["scope"] == "sender_cooldown"
+    assert 0 < result[1]["params"]["retry_after"] <= 30
+    assert [s["text"] for s in sent] == ["one"]
+    assert quotas.send_guard.hits(instance.instance_id)["by_scope"] == {"sender_cooldown": 1}
+    # ... and the plugin status says so, live and for the health listing.
+    assert instance.snapshot()["send_guard"]["last"]["scope"] == "sender_cooldown"
+    assert manager.statuses()[instance.instance_id]["send_guard"]["total"] == 1
+
+
+async def test_a_guard_that_cannot_count_fails_closed(manager, tmp_path, sent, monkeypatch):
+    async def broken(*args, **kwargs):
+        raise OSError("disk")
+
+    monkeypatch.setattr(quotas.send_guard, "record", broken)
+    instance = await probe(
+        manager,
+        tmp_path,
+        "closed",
+        {"messages.read": READ_ALL, "messages.send": {"targets": "reply"}},
+    )
+    manager.dispatch("message", fanout_dm(calls(("messages.send", {"to": "reply", "text": "x"}))))
+    await wait_until(lambda: lines(instance, "result"), what="the result")
+    (result,) = lines(instance, "result")
+    assert result[0]["error"] == "quota_unavailable"
+    assert sent == []
 
 
 async def test_quota_counters_survive_a_restart_and_follow_the_window(test_db):
