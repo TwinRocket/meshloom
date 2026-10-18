@@ -360,3 +360,23 @@ def test_isolation_package_uses_only_the_standard_library() -> None:
                 assert name.startswith(("app.plugins.isolation", "app.plugins.launch")) or (
                     name == "app.plugins"
                 ), f"{path.name} imports {name}"
+
+
+def test_setuid_opens_plugin_dirs_created_after_startup(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    backend = SetuidBackend(999, 998)
+    old = os.umask(0o022)
+    try:
+        backend.prepare_data_dir(data)
+        # Created later under the server's umask 077, as an install would.
+        code = data / "plugins" / "local" / "inst-1"
+        code.mkdir(parents=True)
+        (code / "plugin.py").write_text("x = 1")
+    finally:
+        os.umask(old)
+    assert _mode(data / "plugins") == 0o700
+    backend.prepare_plugin_dir(code)
+    assert _mode(data) == 0o711
+    assert _mode(data / "plugins") == _mode(data / "plugins" / "local") == 0o755
+    assert _mode(code) == 0o755 and _mode(code / "plugin.py") == 0o644

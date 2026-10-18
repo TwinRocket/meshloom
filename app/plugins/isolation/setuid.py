@@ -32,6 +32,11 @@ class SetuidBackend(IsolationBackend):
             raise ValueError(f"{ACCOUNT} must not be root")
         self.uid = uid
         self.gid = gid
+        self.data_dir: Path | None = None
+
+    def prepare_data_dir(self, data_dir: Path) -> None:
+        permissions.apply(data_dir)
+        self.data_dir = Path(data_dir).resolve()
 
     def prepare_work_dir(self, work_dir: Path) -> Path:
         path = launch.prepare_work_dir(work_dir)
@@ -39,7 +44,13 @@ class SetuidBackend(IsolationBackend):
         return path
 
     def prepare_plugin_dir(self, plugin_dir: Path) -> None:
-        permissions.make_tree_readable(Path(plugin_dir))
+        # `plugins/` and `plugins/local/` may be created after startup, under the
+        # server's umask 077: open the directories between the data dir and the code.
+        plugin_dir = Path(plugin_dir).resolve()
+        if self.data_dir is not None and plugin_dir.is_relative_to(self.data_dir):
+            for parent in reversed(plugin_dir.relative_to(self.data_dir).parents[:-1]):
+                permissions.make_dir_traversable(self.data_dir / parent)
+        permissions.make_tree_readable(plugin_dir)
 
     def popen_kwargs(self, work_dir: Path) -> dict[str, Any]:
         return {

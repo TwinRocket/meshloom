@@ -9,7 +9,6 @@ What each level closes: docs/dev/plugins-security.md, "OS isolation".
 
 from pathlib import Path
 
-from app.plugins.isolation import permissions
 from app.plugins.isolation.base import LEVEL_LABELS, IsolationBackend
 from app.plugins.isolation.selection import Selection, current, detect
 
@@ -26,6 +25,5 @@ __all__ = [
 def startup(data_dir: Path) -> Selection:
     """Detect (once) and prepare the data directory for the selected level."""
     selection = current()
-    if selection.level == "setuid":
-        permissions.apply(data_dir)
+    selection.backend.prepare_data_dir(data_dir)
     return selection

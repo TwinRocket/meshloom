@@ -51,6 +51,12 @@ def _chmod(path: Path, mode: int) -> None:
         logger.warning("Could not set mode %o on %s: %s", mode, path, exc.strerror)
 
 
+def make_dir_traversable(path: Path) -> None:
+    """A code directory on the way to a plugin: `0755`."""
+    if path.is_dir() and not path.is_symlink():
+        _chmod(path, CODE_DIR_MODE)
+
+
 def make_tree_readable(root: Path) -> None:
     """Directories `0755`, files `0644`, below and including `root`."""
     if not root.is_dir() or root.is_symlink():

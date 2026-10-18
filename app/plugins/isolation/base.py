@@ -35,6 +35,9 @@ class IsolationBackend:
         """Create the child's private work directory, owned by whoever the child runs as."""
         return launch.prepare_work_dir(work_dir)
 
+    def prepare_data_dir(self, data_dir: Path) -> None:
+        """Startup work on the data directory for this level. No-op by default."""
+
     def prepare_plugin_dir(self, plugin_dir: Path) -> None:
         """Make the plugin's code readable by the child (and nothing more). No-op by default."""
 
