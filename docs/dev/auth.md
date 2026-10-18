@@ -7,8 +7,8 @@ that resolves a principal for every request, the CSRF rule, the first-run
 setup with its installation code, the `/api/auth/*` routes and the permission
 registry (which role may call which route, and receive which WebSocket event).
 The login and setup pages are in `frontend/src/auth/` (`frontend/AGENTS.md`,
-"Session gate"). Device tokens, ingress identities,
-trusted networks and 2FA come with later Access tickets. Like every doc here
+"Session gate"). Home Assistant ingress identities are in "Ingress" below.
+Device tokens, trusted networks and 2FA come with later Access tickets. Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
 
@@ -27,12 +27,13 @@ works on the same tables.
 | Permissions (roles, `require()`, default deny, WebSocket event classes) | `app/auth/permissions.py` |
 | Sessions and the cookie | `app/auth/sessions.py` |
 | Username + password provider | `app/auth/providers/password.py` |
+| Home Assistant ingress provider | `app/auth/providers/ingress.py` |
 | `Authorization: Basic` compatibility, Basic import | `app/security.py` |
 | Installation code, first run | `app/auth/setup_code.py` |
 | CSRF rule, https detection (the one reader of proxy headers) | `app/origin_policy.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -191,17 +192,72 @@ another role. Tests of the gate itself are marked `@pytest.mark.real_auth`. The
 
 ### `via`
 
-How the request reached the instance. `ingress` when `MESHLOOM_INSTALL_KIND`
-is `addon` and the peer is the Supervisor (`172.30.32.2`); `lan` otherwise.
-`trusted` and `relay` come with later tickets. Under ingress **no cookie is
-ever set or read**: the Home Assistant origin is shared by every add-on. Until
-the ingress identity provider lands (MSHL-51, a release gate for 5.0.0), a
-setup or a login through ingress checks out but opens no session: it answers
-`authenticated: false` with `session_reason: "auth_ingress_unsupported"`, never
-`authenticated: true`. **Known limitation of `preversion-5`:** the add-on
-cannot be used through the Home Assistant sidebar, only through its published
-port (8000). `preversion-5` never reaches 4.18.x users and the `:next` test
-instance is Docker.
+How the request reached the instance (`request_via`, `app/auth/middleware.py`).
+`relay` when the relay dispatched it (`scope["state"]["via"]`, set by the relay
+client of a later ticket); `ingress` when `MESHLOOM_INSTALL_KIND` is `addon`,
+the ASGI peer is the Supervisor (`SUPERVISOR_IP`, `172.30.32.2`) and the request
+was not relayed; `lan` otherwise. `trusted` comes with a later ticket. Under
+ingress **no cookie is ever set or read**: the Home Assistant origin is shared
+by every add-on, so the gate drops any `Set-Cookie` from an ingress answer.
+
+### Ingress
+
+`app/auth/providers/ingress.py`. On an `ingress` request the Supervisor's
+`X-Remote-User-Id`, `X-Remote-User-Name` and `X-Remote-User-Display-Name` name
+the Home Assistant user (the Supervisor strips copies sent by the browser, and
+only the Supervisor address is trusted: a published port 8000 reaches the
+add-on from the Docker gateway, so the same headers sent there are ignored and
+that address needs a normal login). They are read nowhere else; proxy headers
+stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
+
+- The HA user maps to `users.provider = 'ingress'`, `external_id = <HA id>`
+  (unique per provider), created on first sight with no password. The first
+  ingress identity of the instance is `admin`, whatever local accounts exist
+  (a 4.18.x add-on with `basic_auth_*` has an imported local admin, and the
+  sidebar must still reach an administrator); the next ones get
+  `auth_settings.ingress_default_role` (`member` by default). A lock makes the
+  check and the insert one step. When it is the first account, the
+  installation code is cleared, so a 4.18.x add-on lands signed in with no
+  setup step. Audit row `ingress_user_created` (`details.role`).
+- The username is HA's `X-Remote-User-Name` when free, else `<name>-ha`,
+  `<name>-ha-<id8>`, then `ha-<id>`. The display name follows HA's on every
+  request. Header values are re-decoded from latin-1 to UTF-8 (the Supervisor
+  writes UTF-8).
+- The principal has `credential = "ingress"`, which is ambient (it follows HA's
+  own ingress cookie): unsafe methods pass the CSRF rule like a session. The
+  HA frontend sends `Sec-Fetch-Site: same-origin`, and the Supervisor sets
+  `X-Forwarded-Host` (`same_origin`, MSHL-274).
+- A disabled ingress account, or an id the provider refuses (empty, over 128
+  characters, not printable ASCII), gives no principal: 401
+  `auth_invalid_credentials`. Without user headers (an anonymous ingress
+  session, a direct link) the request is anonymous: `/api` answers 401
+  `auth_required`, the frontend loads, and `GET /auth/session` says
+  `methods: {password: false, ingress: true}`, which the frontend shows as a
+  "sign in through Home Assistant" page instead of the login or setup form.
+- `POST /auth/login` and `POST /auth/setup` answer 403 `auth_ingress_only`
+  under ingress: no cookie could keep the session.
+- Not yet: the ingress list with role editing and the default-role setting
+  belong to the users API and the Users & Access section (MSHL-45, MSHL-47).
+  Until then `meshloom-admin disable-user` / `enable-user` work on ingress
+  accounts, and a role is changed with SQL only.
+
+**Manual check on a real Home Assistant (to record before 5.0.0, owner check
+MSHL-279).** Not run yet; record the result here.
+
+1. Install the add-on from a `preversion-5` image on a fresh Home Assistant
+   install, open it from the sidebar: Meshloom opens signed in, no setup page,
+   and the user menu shows your HA display name with the Administrator role.
+2. Temporary log line, or `docker logs` with `log_level: DEBUG`: confirm the
+   peer address is `172.30.32.2` and the three `X-Remote-User-*` headers arrive
+   (and `X-Forwarded-Host`); note a non-ASCII display name renders correctly.
+3. Sign in to HA as a second, non-admin user (with `panel_admin: false`): the
+   account gets the Member role.
+4. Upgrade a 4.18.x add-on (with and without `basic_auth_*`): the sidebar lands
+   signed in with no setup step.
+5. Publish port 8000: `curl -H 'X-Remote-User-Id: x' http://<ha>:<port>/api/contacts`
+   answers 401, and the login page asks for a password there.
+6. Live updates through the sidebar, Nabu Casa and the Companion app (the
+   WebSocket checks of MSHL-279).
 
 ### Proxy headers
 
@@ -387,9 +443,9 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}}`, **no instance name or version**. Signed in: plus `user {id, username, display_name, role}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
-| `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`; under ingress no session: `authenticated: false`, `session_reason: "auth_ingress_unsupported"` |
-| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session` (with `session_reason` under ingress) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}}` (`methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
+| `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
+| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
 | `GET /auth/sessions` | own account (not `kiosk`) | The user's active sessions, newest first, `current` marks this one |
 | `DELETE /auth/sessions` | own account (not `kiosk`) | Revokes all the user's sessions except this one: `{revoked}` |

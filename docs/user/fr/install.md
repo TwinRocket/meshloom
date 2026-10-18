@@ -90,7 +90,9 @@ Si Home Assistant tourne déjà sur la machine qui hébergera Meshloom, installe
 
 Le bouton ouvre la bonne fenêtre sur votre propre Home Assistant, avec l’adresse déjà remplie. C’est une simple redirection, qui n’apprend rien sur vous. À la main, allez dans **Paramètres > Modules complémentaires > Boutique > ⋮ > Dépôts**, ajoutez l’adresse du dépôt, puis installez **Meshloom** depuis la boutique.
 
-Deux choses fonctionnent différemment :
+Quelques choses fonctionnent différemment :
+
+**Home Assistant vous connecte.** Ouvert depuis la barre latérale, Meshloom ne demande aucun mot de passe et n’affiche pas de page de création de compte : le premier utilisateur Home Assistant qui l’ouvre en devient l’administrateur, les suivants reçoivent le rôle **Membre**. C’est aussi le cas d’un add-on mis à jour depuis la 4.18. Les options `basic_auth_username` et `basic_auth_password` sont dépréciées : si vous les aviez remplies, elles deviennent une fois un compte Meshloom (pour le port publié, plus bas), puis vous pouvez les vider ; elles seront retirées à la prochaine version.
 
 **Le port de partage de la radio se règle dans Home Assistant, pas dans Meshloom.** L’interface s’atteint par la barre latérale et ne publie rien : le proxy radio (voir [Transports radio](/docs/deep/transports/)) est donc la seule chose visible sur le réseau. Changez son port dans le panneau **Réseau** de l’add-on. Le champ dans Meshloom ne fait que l’afficher, car une valeur saisie là ferait écouter Meshloom à un endroit où rien n’est redirigé.
 

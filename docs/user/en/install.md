@@ -90,7 +90,9 @@ If Home Assistant already runs on the machine that will host Meshloom, install M
 
 The button opens the right dialog on your own Home Assistant, with the address filled in. It is only a redirect and learns nothing about you. To do it by hand, go to **Settings > Add-ons > Add-on store > ⋮ > Repositories**, add the repository address, then install **Meshloom** from the store.
 
-Two things work differently there:
+A few things work differently there:
+
+**Home Assistant signs you in.** Opened from the sidebar, Meshloom asks for no password and shows no account creation page: the first Home Assistant user to open it becomes its administrator, the next ones get the **Member** role. This includes an add-on updated from 4.18. The `basic_auth_username` and `basic_auth_password` options are deprecated: if you had set them, they become a Meshloom account once (for the published port, below), then you can empty them; they will be removed in the next release.
 
 **The radio-sharing port is set in Home Assistant, not in Meshloom.** The interface is reached through the sidebar and publishes nothing, so the radio proxy (see [Radio transports](/en/docs/deep/transports/)) is the only thing visible on the network. Change its port in the add-on's **Network** panel. The field inside Meshloom only displays it, because a value typed there would make Meshloom listen where nothing is forwarded.
 
