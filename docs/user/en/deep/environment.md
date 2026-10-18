@@ -64,6 +64,7 @@ See [Meshloom Community](/en/docs/deep/community/).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MESHCORE_DISABLE_BOTS` | `false` | Turns the bot system off at startup. Bots run Python code with full access to the machine. The Linux package sets it to `true` in `meshloom.env` |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Host lock of the plugin system: when `true`, no plugin is started, whatever the settings say. It is separate from `MESHCORE_DISABLE_BOTS` |
 | `MESHCORE_BASIC_AUTH_USERNAME` | *(empty)* | User name asked by the browser for the whole application, the live connection (WebSocket) included. Use it with [HTTPS](/en/docs/deep/https/) |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(empty)* | Matching password |
 

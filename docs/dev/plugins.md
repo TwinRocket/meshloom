@@ -1,9 +1,10 @@
 # Plugins
 
-Status: **format, validators, data model, the child runtime, the SDK and the legacy
-bot shim** (MSHL-175, MSHL-184, MSHL-176, MSHL-177). The runner that executes a
-plugin in its own process exists; nothing in the server starts it yet (the
-supervisor is MSHL-179, the OS isolation MSHL-180), and there is no API or UI. Like every doc here, this
+Status: **format, validators, data model, the child runtime, the SDK, the legacy
+bot shim and the supervisor** (MSHL-175, MSHL-184, MSHL-176, MSHL-177, MSHL-179).
+The server starts one supervised child per enabled instance; the OS isolation
+(MSHL-180), the host capabilities (`messages.send`, `storage.*`, `http.fetch`...)
+and the API and UI are later tickets, and nothing installs a plugin yet. Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
 ## Package and manifest
@@ -449,7 +450,8 @@ request with an integer id and returns its `result`, or raises
 `meshloom_plugin.errors.HostError` carrying the `error` object;
 `host().notify(method, params)` sends a notification. The methods themselves
 (`messages.send`, `storage.*`, `http.fetch`...) and their checks are the
-supervisor's (MSHL-179 and later). The SDK wraps `host()`.
+supervisor's (see "Supervisor"; the capabilities are MSHL-181 and later). The SDK
+wraps `host()`.
 
 `host().call_sync(method, params, timeout=25)` is the blocking variant, for
 synchronous plugin code that cannot await (the legacy shim): it writes the
@@ -496,8 +498,8 @@ permissions and quotas and answers a typed error, raised as
 
 | Helper | RPC | Notes |
 |---|---|---|
-| `self.reply(msg, text, region=...)` | `messages.send {to, text, region?}` | to the sender for a DM, else to the message's channel. `region` left out = the channel default, `None` = unscoped, a name = scoped; ignored for DMs |
-| `self.send(text, channel_key=\|contact_key=, region=...)` | `messages.send` | exactly one target |
+| `self.reply(msg, text, region=...)` | `messages.send {to, text, region?, event_id?}` | to the sender for a DM, else to the message's channel. `region` left out = the channel default, `None` = unscoped, a name = scoped; ignored for DMs. Forwards the message's `event_id`, so the host ties the send to its event (a test event's sends are captured) |
+| `self.send(text, channel_key=\|contact_key=, region=..., event_id=None)` | `messages.send` | exactly one target; `event_id` as for `reply()` |
 | `self.fit(text)` / `sdk.fit(text, limit)` | none | cut to `limits.message_bytes` of `plugin.init` (default 156) on a UTF-8 boundary |
 | `self.storage.get/set/delete/list` | `storage.get {key}`, `storage.set {key, value}`, `storage.delete {key}`, `storage.list {prefix}` | JSON values; `get` returns the value or `null` (a stored `null` reads as absent) |
 | `self.http.fetch/get_json/post_json` | `http.fetch {url, method, headers?, body?, timeout}` | `get_json`/`post_json` raise `HttpStatusError` from status 400, without the query string |
@@ -582,3 +584,149 @@ Differences, on purpose:
   structured entry.
 - A bot that does not load (syntax error, no callable `bot`, unsupported signature)
   is logged at `plugin.init` and at each message; it does not stop the instance.
+
+## Supervisor
+
+`app/plugins/host.py`: `PluginManager` (the `plugin_manager` singleton) owns one
+`PluginInstance` per running instance, and each instance runs one
+`PluginProcess` at a time. `app/plugins/lifecycle.py` is all the app sees:
+`start()` after the database opens and the fanout modules load, `stop()` as a
+shutdown step (never over 10 s), `health_fields()` for `/api/health`. Every
+bound below is a field of `Budgets`, so tests run real children with shorter
+ones.
+
+### Gates
+
+- **Host lock.** `MESHCORE_DISABLE_PLUGINS=true` (`Settings.disable_plugins`):
+  nothing starts, `start()` raises `PluginHostError("plugins_disabled")`, health
+  says `plugins_disabled_source: "env"`. It is not an alias of
+  `MESHCORE_DISABLE_BOTS`, which keeps driving the legacy bots until the switch.
+- **Platform.** No `resource` module (Windows): the system is off,
+  `plugins_disabled_source: "platform"`.
+- **Cap.** At most one running instance per 128 MB of `MemTotal` (sysconf
+  elsewhere), clamped to 3..20 (`instance_cap()`); one more is
+  `PluginCapacityError` (`code` `instance_cap_reached`, `cap`).
+- **Start-up.** `load_from_db()` starts the enabled instances 500 ms apart, in a
+  task the manager keeps (cancelled by `stop_all()`), and skips the ones whose
+  stored status is `crash_loop`, `needs_attention`, `incompatible` or `revoked`
+  until someone acts on them.
+
+### One child
+
+Spawned with `asyncio.create_subprocess_exec(launch.runner_command(),
+**launch.popen_kwargs(work_dir))`: its own session, `close_fds`, the scrubbed
+environment, a fresh `mkdtemp` work directory as cwd (removed when the child
+ends), the parameters line on stdin. The code directory is
+`<data>/plugins/<plugin_id>/` (shared by the instances of a plugin; `<data>` is
+the database's directory); a local plugin's `source` and manifest are written to
+`<data>/plugins/local/<instance_id>/` at each start. stderr goes to a ring of
+1 MiB per instance, each line cut at 2 KiB (`[truncated]`), never to the server
+log; the runner's typed start error is kept for `last_error`. The isolation level
+is `none` (hooks only) until MSHL-180: `isolation_level()` and `_spawn_argv()`
+are its seam.
+
+`plugin.init` carries `api`, `instance` (`id`, `plugin_id`, `label`), `config`
+(secrets in clear, from `config_for_init()`), `granted` (the granted permission
+names), `limits` (`message_bytes`: the channel allowance of
+`app/message_limits.py` for the radio's name at start, 144 when it is unknown;
+`message_bytes_limit()`),
+`scope`, `quotas` and `isolation` (no `lang` yet: the SDK defaults to `en`), and
+must answer within 20 s. Then the status is `running`.
+
+### Events
+
+- `FanoutManager.broadcast_*` call `plugin_manager.dispatch(hook, data)`
+  (`message` after the pending-channel check, `raw_packet`, `contact`,
+  `telemetry`, `health`). Only running instances whose manifest lists the hook
+  get it, after `accepts()`, the permission and scope filter (a seam that lets
+  everything through until MSHL-181). `event.message` keeps the bots' 2 s settle,
+  then carries the fields the SDK reads (`app/plugins/events.py`, the bots'
+  derivation: `message_text` without the `"Name: "` prefix, `is_dm`,
+  `channel_key`, `path_bytes_per_hop`, `scoped`... plus `conversation_key`,
+  `is_public_channel`, `received_at`); the other hooks get the fanout dict as is.
+- Each instance has an inbox of 100 events; a full inbox drops its oldest event,
+  counts it (`dropped_events`) and logs a warning at most every 10 s with the
+  total. At most `policy.MAX_CONCURRENT_HANDLERS` (8) events are in flight, so the
+  queue builds on the host side and every in-flight event is running.
+- Every event carries `event_id` (its JSON-RPC id) in its params; a test event
+  also carries `test: true`. `dispatch_test()` returns `{"result", "sends",
+  "truncated"}`: a child request `messages.send` naming the `event_id` of a test
+  event (or carrying no `event_id` while that test event is the only one in
+  flight) is captured there (answer `{"captured": true}`) and never sent. At most
+  `MAX_TEST_SENDS` (32) sends and `MAX_TEST_SEND_BYTES` (64 KiB of JSON) are
+  captured; past either, the child gets `-32001` with `data.code`
+  `test_sends_truncated` and `truncated` is true.
+- An event gets 30 s, counted from the moment the host starts writing it to the
+  child: every write to the child's stdin is bounded (`PluginProcess._write`, the
+  event budget by default), so a child that does not read its input cannot hold
+  the budget; past the bound its process group is killed (`stdin_blocked`). Once
+  the budget is spent the host sends `event.cancel {"id"}`. A handler that stops
+  within 5 s answers `-32800`: the instance keeps running and `last_error` says it
+  timed out. Otherwise the process group is killed (`SIGKILL`).
+- A handler error (`-32000`) sets `last_error` (`handler_error: event.<hook>
+  raised <ExceptionType>`) and the instance keeps running; the child's own message
+  goes to the server log only (scrubbed, capped, at most once per 10 s per instance).
+- Child requests go to `PluginManager.host_methods` (name to coroutine, filled
+  by the capability tickets); an unknown method is `-32601`. A child has at most
+  `MAX_CHILD_REQUESTS` (32) requests pending at the host; past that each one is
+  answered `-32001` (overloaded) at once.
+
+### Failures and restarts
+
+A child that exits, is killed from outside, breaks the framing, misses the init
+budget or is killed by a budget is a failure: everything pending (in flight or
+queued) is dropped and counted, never replayed; the status is `error` with the
+reason in `last_error`; the child is
+restarted after 1, 2, 4 ... 60 s. A run that handled an event or lived 60 s resets
+the consecutive count. Five consecutive failures: `crash_loop`, stored, no more
+restarts. `restart()` builds a new supervisor, so its count starts at zero. A stop
+during the backoff pause ends it at once.
+
+CPU: on Linux the host samples `utime + stime` from `/proc/<pid>/stat` every
+5 s and kills a child that used more than 20 CPU-seconds in the last 60 s. The
+runner's hard `RLIMIT_CPU` (3600 s, `policy.DEFAULT_LIMITS`) is the portable
+backstop: the kernel ends the child (`SIGXCPU`, `last_error` `cpu_rlimit`) and
+the restart starts a new process, so the count starts again.
+
+`last_error` is a stable code, a colon, then a short message the host writes:
+`start_failed`, `start_refused` (with the runner's typed code), `init_timeout`,
+`init_failed`, `event_timeout`, `event_cancel_ignored`, `handler_error`,
+`stdin_blocked`, `protocol_violation`, `cpu_budget`, `cpu_rlimit`, `killed`,
+`crash`, `stopped`. Nothing the child wrote reaches it beyond an exception type
+that is a short identifier; it is scrubbed of the instance's secret values, then
+`sanitize_error()` drops control characters and filesystem paths and caps it at
+`LAST_ERROR_MAX_CHARS` (200). Details (exception messages, the runner's message,
+`OSError` texts with paths) go to the server log only, capped at 2000 characters.
+
+### Statuses
+
+`installed`, `disabled`, `starting`, `running`, `error`, `crash_loop`,
+`needs_attention`, `incompatible`, `revoked`. Each change of status or
+`last_error` is stored in `plugins.status`/`last_error`, sent to the WebSocket
+clients as `plugin_status` (`instance_id`, `plugin_id`, `label`, `status`,
+`last_error`, `dropped_events`, `restarts`; `realtime=False`, so not to the
+proxy or fanout) and triggers a `health` broadcast. `statuses()` covers every
+instance of the repository cache (stored status, `disabled` when not enabled),
+with live values for the running ones. Health carries `plugins_isolation`,
+`plugins_disabled_source` and `plugin_statuses`.
+
+Who sees errors: `plugin_status` needs the `send` permission (members and
+admins). `health` (REST and WebSocket) keeps the statuses for every signed-in
+principal, but a principal without `send` (kiosk, viewer) gets each `last_error`
+as `null` (`lifecycle.without_plugin_errors()`, `PLUGIN_ERROR_PERMISSION`).
+
+### Shutdown
+
+Stopping one instance (`stop()`, `restart()`, `remove()`) is bounded as a whole
+by `Budgets.stop_timeout` (10 s): `plugin.shutdown` is written with a bounded
+write (at most 1 s: a child whose stdin is full cannot hold it), a grace for the
+exit, `SIGTERM` to the process group, then `SIGKILL` and the reap, which always
+run (`finally`), and the supervision task is cancelled if it is still running.
+`stop_all(timeout)` stops every instance at once within `timeout` (10 s from the
+lifespan); any instance whose stop is still pending or failed is killed, its task
+cancelled and its child reaped. A stopped instance's pending events are dropped.
+
+Tests: `tests/test_plugin_host.py` (real children; fixture plugins echo, sleep,
+ignore-cancel, crash, cpu-burn, ignore-shutdown, flood, deaf (never reads its
+stdin), spammer, sender; the `/proc` CPU test
+runs on Linux only).

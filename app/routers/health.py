@@ -4,11 +4,12 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from app.auth.permissions import public
+from app.auth.permissions import has_permission, public
 from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
 from app.notify import notification_statuses
+from app.plugins import lifecycle as plugin_lifecycle
 from app.repository import RawPacketRepository
 from app.services.radio_lifecycle import expected_reboot_reason
 from app.services.radio_runtime import radio_runtime as radio_manager
@@ -36,6 +37,18 @@ class FanoutStatusResponse(BaseModel):
     type: str
     status: str
     last_error: str | None = None
+
+
+class PluginStatusResponse(BaseModel):
+    """One plugin instance as the supervisor sees it (docs/dev/plugins.md, "Statuses")."""
+
+    instance_id: str
+    plugin_id: str | None = None
+    label: str | None = None
+    status: str | None = None
+    last_error: str | None = None
+    dropped_events: int = 0
+    restarts: int = 0
 
 
 class NotificationLastError(BaseModel):
@@ -96,6 +109,10 @@ class HealthResponse(BaseModel):
     notification_statuses: dict[str, NotificationStatusResponse] = Field(default_factory=dict)
     bots_disabled: bool = False
     bots_disabled_source: Literal["env", "until_restart"] | None = None
+    # The plugin host (app/plugins/lifecycle.py): None when the system is off.
+    plugins_isolation: Literal["none", "setuid", "bwrap"] | None = None
+    plugins_disabled_source: Literal["env", "platform"] | None = None
+    plugin_statuses: dict[str, PluginStatusResponse] = Field(default_factory=dict)
     basic_auth_enabled: bool = False
     radio_proxy: RadioProxyStatus | None = None
 
@@ -252,6 +269,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "transport_configured": transport_configured,
         "identity": identity,
         "radio_proxy": _radio_proxy_status(),
+        **plugin_lifecycle.health_fields(),
     }
 
 
@@ -276,4 +294,6 @@ async def healthcheck(request: Request) -> HealthResponse | MinimalHealthRespons
     if get_principal(request) is None:
         return MinimalHealthResponse()
     data = await build_health_data(radio_manager.is_connected, radio_manager.connection_info)
+    if not has_permission(get_principal(request), plugin_lifecycle.PLUGIN_ERROR_PERMISSION):
+        data = plugin_lifecycle.without_plugin_errors(data)
     return HealthResponse(**data)

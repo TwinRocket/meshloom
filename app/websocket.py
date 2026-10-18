@@ -78,6 +78,19 @@ def _without_direct_message(data: dict) -> dict:
     return {**data, "decrypted": False, "decrypted_info": None}
 
 
+def _sees_plugin_errors(principal: Principal | None) -> bool:
+    from app.plugins.lifecycle import PLUGIN_ERROR_PERMISSION
+
+    return has_permission(principal, PLUGIN_ERROR_PERMISSION)
+
+
+def _health_without_plugin_errors(data: Any) -> Any:
+    """`health` without the plugins' `last_error` (kiosk and viewer principals)."""
+    from app.plugins.lifecycle import without_plugin_errors
+
+    return without_plugin_errors(data) if isinstance(data, dict) else data
+
+
 def _backlog_limit(event_type: str) -> int:
     """Backlog at which a droppable frame is shed (read at call time for tests)."""
     if event_type == "community_packet":
@@ -405,8 +418,14 @@ class WebSocketManager:
         private = _reveals_direct_message(event_type, data)
         message = dump_ws_event(event_type, data)
         redacted: str | None = None
+        without_errors: str | None = None
         for client in list(self.active_connections.values()):
             if not has_permission(client.principal, permission):
+                continue
+            if event_type == "health" and not _sees_plugin_errors(client.principal):
+                if without_errors is None:
+                    without_errors = dump_ws_event(event_type, _health_without_plugin_errors(data))
+                self._enqueue(client, without_errors, event_type=event_type)
                 continue
             if private and not has_permission(client.principal, "read_private"):
                 if event_type != "raw_packet":
@@ -430,6 +449,8 @@ class WebSocketManager:
             client.principal, "read_private"
         ):
             return
+        if event_type == "health" and not _sees_plugin_errors(client.principal):
+            data = _health_without_plugin_errors(data)
         self._enqueue(client, dump_ws_event(event_type, data))
 
     def send_raw(self, websocket: WebSocket, message: str) -> None:
