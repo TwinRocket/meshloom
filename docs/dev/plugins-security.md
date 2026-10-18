@@ -129,7 +129,7 @@ The audit hook raises `PermissionError` on:
   site-packages are refused; writing a file with a native-module suffix (`.so`,
   `.dylib`, ...) is refused even in the temporary directory (renaming to one
   too). That only stops a native module from being imported by name: it does not
-  stop native code from being loaded (open path 4 below). `os.listdir` and
+  stop native code from being loaded; the `import` rule below does (bypass 4). `os.listdir` and
   `os.scandir` follow the read rule; `os.remove`, `rmdir`, `mkdir`, `chmod`,
   `truncate`, `utime` and `rename` the write rule.
 - every `socket.*` event, `http.client.*`, `urllib.Request`, the mail and FTP
@@ -148,6 +148,9 @@ The audit hook raises `PermissionError` on:
   3.12 and later only, see below);
 - `resource.setrlimit`, `resource.prlimit`;
 - the `import` event for every name in `policy.DENIED_MODULES`.
+- the `import` event of an extension module (it carries the file) whose file is
+  not under the standard library's directories as the bootstrap set them
+  (`native_roots`), or is in site-packages or the work dir.
 
 The hook is compiled per child from `_HOOK_SOURCE` with its roots and lists baked
 in as constants (tuples and frozenset displays), reads no global and no builtin
@@ -171,24 +174,27 @@ frame.
    which the deb/rpm packages ship), plugin code can rebuild the module from its
    spec through the import machinery kept in `sys.modules`
    (`importlib._bootstrap.module_from_spec` emits no `import` event) and call
-   `fork_exec`; checked on 3.11. Only the OS isolation closes this path: under
-   `bwrap` and `setuid` what it can exec stays in the box (corpus:
-   `posixsubprocess_spec_rebuild`, check `exec_escape`); under `none` it stays
-   open. Corpus: `posixsubprocess_reach` (the routes the runner does close).
+   `fork_exec`; checked on 3.11. Only the OS isolation contains this path, and
+   not equally: under `bwrap` what it execs has no database, no app code and no
+   network; under `setuid` it cannot read the `0600` database or the server's
+   environment, but **its network is open** (LAN, internet and the radio proxy
+   on loopback, outside the capability API and the send quotas; see "Known
+   limits of the OS layer"); under `none` nothing contains it (corpus:
+   `posixsubprocess_spec_rebuild`, check `exec_escape`, which checks network
+   only under `bwrap`). Corpus: `posixsubprocess_reach` (the routes the runner does close).
 3. **The hook's frame is reachable through the traceback** of the exception it
    raises. Answer: the frame holds only immutable values (the event name, the
    arguments tuple, strings, ints, types) and its globals and builtins are empty
    dicts, so there is nothing to patch to disable it. Corpus: `hook_frame`.
-4. **Native code from the work dir** (found by the MSHL-191 corpus). A plugin
-   writes a shared library under a harmless suffix (`libevil.txt`) into its work
-   dir and loads it with `ExtensionFileLoader` from the import machinery kept in
-   `sys.modules`: `dlopen` emits no audit event, so nothing in-process refuses
-   it, and the library then runs with no hook at all. **Not closed**
-   in-process, like bypass 2: under `bwrap` and `setuid` what it runs stays in
-   the box (corpus: `native_load_from_work_dir`, check `exec_escape`); under
-   `none` it stays open. A Store archive cannot carry native code (refused by
-   suffix and by magic bytes, nested archives included: `nested_zip_native`,
-   `native_magic`), so this needs code that writes the library itself.
+4. **Native code from the work dir** (found by the MSHL-191 corpus): a plugin
+   writing a shared library under a harmless suffix into its work dir and
+   loading it through the import machinery kept in `sys.modules`. **Closed at
+   every level**: the `import` audit event carries the file of every extension
+   module (3.11 to 3.14), and the hook refuses one that is not under the
+   interpreter's standard-library directories frozen at bootstrap (never
+   site-packages, never the work dir). Corpus: `native_load_from_work_dir`. A
+   Store archive cannot carry native code either (refused by suffix and by
+   magic bytes, nested archives included: `nested_zip_native`, `native_magic`).
 
 ## Other known limits
 
@@ -280,7 +286,7 @@ three levels are available.
 | `thread_start` | runner | `_thread.start_new_thread` | `PermissionError` on 3.12+; 3.11: open path, `nproc` at `setuid`, `xfail` elsewhere |
 | `ctypes_import` | runner | `ctypes`, `_ctypes` | `PermissionError` |
 | `extension_import` | runner | `mmap`, `fcntl`, `sqlite3` | `PermissionError` |
-| `native_load_from_work_dir` | runner | load native code written to the work dir (bypass 4) | open path: `xfail` at `none`, `exec_escape` at `bwrap`/`setuid` |
+| `native_load_from_work_dir` | runner | load native code written to the work dir (bypass 4) | `PermissionError` |
 | `zipimport` | runner | import `zipimport` | `PermissionError`, not in `sys.modules` |
 | `gc_objects` | runner | `gc.get_objects`, by import and by spec rebuild | `PermissionError` |
 | `code_patch` | runner | set `__code__`, `__class__` | `PermissionError` |
@@ -312,21 +318,28 @@ guards) are covered by `tests/test_plugin_quotas.py` and
 `tests/test_plugin_capabilities.py`, not by the corpus (they need a radio
 stand-in and a database, not a hostile child).
 
-**Mutation check** (MSHL-191, Python 3.11 in a privileged Linux arm64
-container, root, all three levels): each guard below was removed in turn and the
-cases pinning it failed: the `os.fork`, `sys.addaudithook`, `gc.get_objects`
-and `resource.setrlimit` refusals, the open read roots, the native-suffix write
-rule, the environment scrub, `RLIMIT_AS`, the host's stdout drain after a
-framing kill, cancel-then-kill, the timer minimum, the archive symlink check,
-the nesting cap, the partial-line bound and the NaN refusal of `rpc.decode`.
+**Mutation check** (`scripts/test/plugin_mutations.py`, MSHL-191; Python 3.11
+in a privileged Linux arm64 container, root, all three levels): each guard below
+was removed in turn and the cases pinning it failed: the `os.fork`,
+`sys.addaudithook`, `gc.get_objects` and `resource.setrlimit` refusals, the open
+read roots, the native-suffix write rule, the native load roots, the environment
+scrub, `RLIMIT_AS`, the host's two 3.11 pipe guards together (the stdout drain
+after a framing kill and the bounded wait for the pipes: either one alone
+keeps the instance restarting), cancel then kill, the timer minimum, the archive symlink check, the nesting cap, the
+partial-line bound and the NaN refusal of `rpc.decode`. The pipe mutant is
+caught only on 3.11 with bwrap (the hang needs both): in CI that is the 3.11
+backend job.
 
 **Found by the corpus** (MSHL-191): on Python 3.11 a child killed for a line over
 the cap left its instance shown `running` with no process, never restarted:
 the host stopped reading stdout, and 3.11's `Process.wait()` returns only once
 every pipe is closed (gh-119710, fixed in 3.12). The host now drains, then
 closes the pipe after such a kill (`PluginProcess._discard_stdout`, bounded by
-`STDOUT_DRAIN_SECONDS`), and the code is `rpc_framing`. The corpus also found
-bypass 4 above.
+`STDOUT_DRAIN_SECONDS`, the close in a `finally`), and the code is `rpc_framing`.
+The same 3.11 behaviour could still hang on a pipe a surviving grandchild
+holds (only bypass 2 can start one): once the child is reaped, `_wait_exit`
+waits `PIPE_CLOSE_SECONDS`, then kills the group and closes the host's ends
+of every pipe. The corpus also found bypass 4 above, now closed.
 
 ## Measurements
 
@@ -343,7 +356,8 @@ uv run python tests/plugin_corpus/measure_footprint.py --instances 8 --duration 
 Run as root with the `meshloom-plugin` account to include `setuid`, and with
 bubblewrap installed (and user namespaces allowed) to include `bwrap`.
 
-**No Raspberry Pi was available for MSHL-191.** The figures below come from a
+**These are not Raspberry Pi figures.** No Pi was available for MSHL-191; the
+real-Pi run is tracked separately. The figures below come from a
 Linux arm64 container (Debian bookworm, `python:3.11-slim`, Python 3.11.17, the
 same architecture and distribution as Raspberry Pi OS 64-bit) on an Apple M
 host: memory is comparable, start times are not (a Pi 3's Cortex-A53 is several
@@ -366,5 +380,10 @@ The instance cap (`host.instance_cap`: one instance per 128 MB of `MemTotal`,
 between 3 and 20; a Pi 3 with 1 GB gets 7) stays: a child costs about a tenth
 of its share, which leaves the rest to the server, the OS and a plugin's own
 data within its 256 MiB `RLIMIT_AS`. Eight children take about 95 MiB of PSS, a
-tenth of a Pi 3's memory. Still to do on a real Pi 3: the same run,
-start times, and the memory after an hour with the server running.
+tenth of a Pi 3's memory. To rerun on a Pi: install
+bubblewrap, check out the repository, `uv sync`, create the `meshloom-plugin`
+account (uid and gid 10002) to include `setuid`, then run the command above as
+root, and once more as the service user for `bwrap` alone; also note the start
+times, and `MemAvailable` with the server running. The deb/rpm packages ship
+python-build-standalone (and the armhf images a 32-bit build), whose figures may
+differ from this Debian interpreter's.
