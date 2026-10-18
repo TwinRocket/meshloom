@@ -57,3 +57,22 @@ async def test_period_is_checked():
             )
     finally:
         await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_running_migration_105_twice_is_harmless():
+    from app.migrations._105_plugin_send_quota import migrate
+
+    conn = await aiosqlite.connect(":memory:")
+    try:
+        await set_version(conn, 104)
+        await run_migrations(conn)
+        await conn.execute(
+            "INSERT INTO plugin_send_quota (instance_id, period, period_start, count)"
+            " VALUES ('a', 'hour', 0, 3)"
+        )
+        await migrate(conn)
+        async with conn.execute("SELECT count FROM plugin_send_quota") as cursor:
+            assert [row[0] for row in await cursor.fetchall()] == [3]
+    finally:
+        await conn.close()

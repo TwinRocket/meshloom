@@ -782,9 +782,11 @@ else: a refusal has no side effect, uses no quota and touches no network.
 | `log` | none | `level` (`debug`, `info`, `warning`, `error`), `message` | `null` (usually sent as a notification) |
 
 - **`messages.send`**, checks in order: the params (`invalid_params`,
-  `params.fields`), the destination exists and is not a pending channel
-  (`target_unknown`), the permission's `targets` (`target_not_allowed`,
-  `params.targets`), the region (`region_unknown`), the server byte rule of
+  `params.fields`), the permission's `targets` (`target_not_allowed`,
+  `params.targets`), the destination exists and is not a pending channel
+  (`target_unknown`, only under `targets: any`: under `reply` and `scope` an
+  unknown destination is `target_not_allowed` like a forbidden one, so a plugin
+  cannot probe which contacts exist), the region (`region_unknown`), the server byte rule of
   `app/message_limits.py` (`message_too_long`, `params.limit` and `params.bytes`),
   then the quotas (`quota_exceeded`, `params.period` `hour` or `day`,
   `params.limit`, `params.retry_after` in seconds). `targets`: `reply` allows
@@ -798,7 +800,9 @@ else: a refusal has no side effect, uses no quota and touches no network.
   real send waits for the global spacing, re-checks the quotas, then goes
   through the REST send services (radio connected, pending channel, byte
   limit); a refusal there is `message_too_long` or `send_failed`
-  (`params.status`). Only a send that went out counts.
+  (`params.status` for an HTTP refusal; any other error is `send_failed` without
+  params, logged with its type). Only a send that went out counts; once it went
+  out the spacing moves even if counting it fails (logged).
 - **Own sends.** While a send runs, `capabilities.messages.SENDING_INSTANCE` holds
   the instance id; the fanout dispatch of the outgoing message it produces reads
   it. An outgoing message reaches an instance only with `messages.read`

@@ -1,10 +1,13 @@
 """`messages.send {to, text, region?, event_id?}` (permission `messages.send`).
 
 Checks, in order, each before any side effect: the parameters (`invalid_params`),
-the destination exists (`target_unknown`), the permission's `targets`
-(`target_not_allowed`), the region (`region_unknown`), the byte limit of the
-server (`message_too_long` with `params.limit`), then the instance's hourly and
-daily quotas (`quota_exceeded` with `params.period`, `limit`, `retry_after`).
+the permission's `targets` (`target_not_allowed`), the destination exists
+(`target_unknown`, only under `targets: any`), the region (`region_unknown`), the
+byte limit of the server (`message_too_long` with `params.limit`), then the
+instance's hourly and daily quotas (`quota_exceeded` with `params.period`,
+`limit`, `retry_after`). Under `reply` and `scope` an unknown destination is
+`target_not_allowed` like any other refused one, so a plugin without
+`contacts.read` cannot probe which contacts exist.
 
 - `to` is `"reply"` (the conversation of the event being handled), or
   `{"channel_key": <32 hex>}` / `{"contact_key": <64 hex>}`.
@@ -28,6 +31,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -38,6 +42,8 @@ from app.plugins.capabilities.base import Call, CapabilityError, capability, inv
 from app.plugins.capabilities.grants import conversation_readable, is_public_channel
 from app.plugins.quotas import QuotaExceeded, effective_send_limits, send_quota, send_spacer
 from app.region_scope import is_unscoped, normalize_region_scope
+
+logger = logging.getLogger(__name__)
 
 # The plugin instance whose send is running in this context (set around the send,
 # copied into the tasks the send spawns, so the fanout dispatch of the outgoing
@@ -99,6 +105,8 @@ def _reply_target(call: Call) -> Target:
 
 
 async def _resolve(call: Call, params: SendParams) -> Target:
+    """The destination, its row looked up (None when unknown or pending); never refuses
+    an unknown one: `send()` decides, after the `targets` check."""
     from app.repository import ChannelRepository, ContactRepository
 
     if params.to == "reply":
@@ -117,8 +125,6 @@ async def _resolve(call: Call, params: SendParams) -> Target:
 
         channel = await ChannelRepository.get_by_key(target.key)
         target.row = None if is_pending_channel(channel) else channel
-    if target.row is None and not _is_test(call):
-        raise CapabilityError("target_unknown", "no such channel or contact")
     return target
 
 
@@ -134,23 +140,32 @@ def _event_conversation(call: Call) -> Target | None:
 
 
 def _check_target(call: Call, targets: str, target: Target) -> None:
+    """`targets` first, then existence. Under `reply` and `scope` an unknown
+    destination gets the same refusal as a forbidden one (no contact oracle)."""
+    known = target.row is not None or _is_test(call)
     if targets == "any":
+        if not known:
+            raise CapabilityError("target_unknown", "no such channel or contact")
         return
-    current = _event_conversation(call)
-    if current is not None and (current.is_dm, current.key) == (target.is_dm, target.key):
-        return
-    if targets == "scope" and conversation_readable(
-        call.instance.permissions,
-        call.instance.scope,
-        is_dm=target.is_dm,
-        key=target.key,
-        is_public=target.is_public,
-    ):
+    if known and _target_allowed(call, targets, target):
         return
     raise CapabilityError(
         "target_not_allowed",
         f"targets '{targets}' does not allow this destination",
         {"targets": targets},
+    )
+
+
+def _target_allowed(call: Call, targets: str, target: Target) -> bool:
+    current = _event_conversation(call)
+    if current is not None and (current.is_dm, current.key) == (target.is_dm, target.key):
+        return True
+    return targets == "scope" and conversation_readable(
+        call.instance.permissions,
+        call.instance.scope,
+        is_dm=target.is_dm,
+        key=target.key,
+        is_public=target.is_public,
     )
 
 
@@ -269,8 +284,17 @@ async def send(call: Call) -> dict[str, Any]:
             raise CapabilityError(
                 "send_failed", "the radio did not send the message", {"status": exc.status_code}
             ) from None
+        except Exception as exc:
+            logger.warning(
+                "Plugin %s: send failed (%s)", call.instance.instance_id, type(exc).__name__
+            )
+            raise CapabilityError("send_failed", "the radio did not send the message") from None
         finally:
             SENDING_INSTANCE.reset(token)
-        await send_quota.record(instance_id)
+        # The message went out: the spacing moves whatever happens to the counter.
         slot.sent()
+        try:
+            await send_quota.record(instance_id)
+        except Exception:
+            logger.exception("Plugin %s: could not count a send", instance_id)
     return {"sent": True, "message_id": getattr(message, "id", None)}

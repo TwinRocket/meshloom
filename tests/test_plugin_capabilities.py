@@ -863,3 +863,63 @@ def test_every_permission_has_its_wording(lang):
         "invalid_params",
     ):
         assert wording["capabilityErrors"][code], code
+
+
+async def test_reply_and_scope_do_not_reveal_which_contacts_exist(manager, tmp_path, sent):
+    for name, targets in (("probe-reply", "reply"), ("probe-scope", "scope")):
+        instance = await probe(
+            manager,
+            tmp_path,
+            name,
+            {"messages.read": READ_ALL, "messages.send": {"targets": targets}},
+            scope={"messages": {"channels": "none", "contacts": [ANN]}},
+        )
+        batch = calls(
+            ("messages.send", {"to": {"contact_key": BOB}, "text": "known"}),
+            ("messages.send", {"to": {"contact_key": "ef" * 32}, "text": "unknown"}),
+            ("messages.send", {"to": {"channel_key": "22" * 16}, "text": "unknown channel"}),
+        )
+        manager.dispatch("message", fanout_dm(batch))
+        await wait_until(lambda instance=instance: lines(instance, "result"))
+        (result,) = lines(instance, "result")
+        assert result == [{"error": "target_not_allowed", "params": {"targets": targets}}] * 3, (
+            targets
+        )
+    assert sent == []
+
+
+async def test_a_failed_count_still_moves_the_spacing_and_frees_the_slot(
+    manager, tmp_path, sent, monkeypatch
+):
+    async def broken_record(_instance_id):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(send_quota, "record", broken_record)
+    instance = await probe(
+        manager, tmp_path, "norecord", {"messages.read": READ_ALL, "messages.send": {}}
+    )
+    batch = calls(
+        ("messages.send", {"to": "reply", "text": "one"}),
+        ("messages.send", {"to": "reply", "text": "two"}),
+    )
+    manager.dispatch("message", fanout_dm(batch))
+    await wait_until(lambda: lines(instance, "result"))
+    (result,) = lines(instance, "result")
+    assert [r["ok"]["sent"] for r in result] == [True, True]  # the slot was released
+    assert len(sent) == 2
+    assert send_spacer.last_send is not None
+
+
+async def test_any_send_error_is_send_failed(manager, tmp_path, monkeypatch):
+    async def explode(target, text, region):
+        raise RuntimeError("serial port vanished")
+
+    monkeypatch.setattr(messages, "_transmit", explode)
+    instance = await probe(
+        manager, tmp_path, "explode", {"messages.read": READ_ALL, "messages.send": {}}
+    )
+    manager.dispatch("message", fanout_dm(calls(("messages.send", {"to": "reply", "text": "x"}))))
+    await wait_until(lambda: lines(instance, "result"))
+    assert lines(instance, "result") == [[{"error": "send_failed", "params": None}]]
+    assert send_spacer.last_send is None  # nothing went out: the spacing does not move
+    assert await send_quota.counts(instance.instance_id) == {"hour": 0, "day": 0}
