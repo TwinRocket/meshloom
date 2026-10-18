@@ -126,6 +126,7 @@ class TestValidation:
         [
             ("https://example.org", "https://example.org"),
             ("HTTPS://Example.ORG/", "https://example.org"),
+            ("https://a.example//", "https://a.example"),
             ("https://example.org:443", "https://example.org"),
             ("http://example.org:80", "http://example.org"),
             ("http://192.168.1.20:8000", "http://192.168.1.20:8000"),

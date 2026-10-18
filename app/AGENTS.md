@@ -19,7 +19,7 @@ and the OpenAPI page (`/docs`), not a table here.
   → Local Configuration → Allowed origins) the same way, and parses stored
   entries and request `Origin`/`Host` headers alike (pydantic `AnyHttpUrl`:
   lowercase, punycode, default port dropped). `normalize_origin()` refuses `*`,
-  paths and credentials (a typed trailing slash is dropped); a request `Origin`
+  paths and credentials (typed trailing slashes are dropped); a request `Origin`
   with a path, even `/`, or `null` matches nothing. `cors.py` feeds the list to
   Starlette's `CORSMiddleware` (rebuilt when the list changes, `is_allowed_origin`
   overridden by the policy). Empty means same-origin only.

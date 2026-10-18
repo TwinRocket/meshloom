@@ -10,7 +10,7 @@ async def migrate(conn: aiosqlite.Connection) -> None:
 
     A JSON list of origins (``scheme://host[:port]``), empty by default: no other
     site gets CORS headers, where the API used to reflect every ``Origin`` with
-    credentials. Read by ``app/cors.py``.
+    credentials. Read by ``app/origin_policy.py``.
     """
     tables_cursor = await conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     if "app_settings" not in {row[0] for row in await tables_cursor.fetchall()}:

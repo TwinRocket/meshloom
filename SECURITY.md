@@ -50,9 +50,10 @@ deliberate. These are documented and are not treated as vulnerabilities:
   dropped), so a listed site gets both the HTTP API and `/api/ws`.
   `X-Forwarded-Host` counts only for the WebSocket's same-origin match, and is
   trusted from any client: a browser page cannot set it, but a non-browser
-  client sends no `Origin` and is accepted anyway. The stored list is re-validated when read: an entry written outside the API
-  (SQL, a restore) that is a wildcard, `null`, or not a plain `http(s)` origin is
-  ignored and logged.
+  client sends no `Origin` and is accepted anyway. The stored list is
+  re-validated when read: an entry written outside the API (SQL, a restore)
+  that is a wildcard, `null`, or not a plain `http(s)` origin is ignored and
+  logged.
 - **Bots run Python with no sandbox.** Anyone who can reach the interface can
   make the host run code while bots are enabled. `MESHCORE_DISABLE_BOTS=true`
   turns them off; the Linux package does so by default.

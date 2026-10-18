@@ -8,7 +8,7 @@ lowercase, punycode host (IDN), no default port. The parser is pydantic's
 request's ``Origin`` and its ``Host`` all end up in one form.
 
 - **A stored entry** (``normalize_origin``) is user input: surrounding spaces
-  and a trailing slash are dropped, ``*``, paths and credentials are refused.
+  and trailing slashes are dropped, ``*``, paths and credentials are refused.
 - **A request's** ``Origin`` (``parse_request_origin``) is what a browser sent:
   nothing is dropped, a path (even ``/``), query, fragment, credentials or
   ``null`` make it unusable, which refuses it everywhere.
@@ -97,12 +97,10 @@ def _parse(text: str) -> Origin:
 def normalize_origin(raw: str) -> str:
     """Return a stored or typed origin in the form a browser sends, or raise ``ValueError``.
 
-    Surrounding spaces and one trailing slash are dropped. ``*`` is refused:
+    Surrounding spaces and trailing slashes are dropped. ``*`` is refused:
     with credentials it would let every site in again.
     """
-    text = raw.strip()
-    if text.endswith("/"):
-        text = text[:-1]
+    text = raw.strip().rstrip("/")
     if not text:
         raise ValueError("empty origin")
     return _parse(text).serialize()
