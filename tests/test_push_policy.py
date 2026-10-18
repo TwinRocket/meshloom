@@ -21,9 +21,9 @@ PRIVATE_CHAN_KEY = "dd" * 16
 
 
 def _media(
-    *, push: bool = True, email: bool = False, webhook: bool = False
+    *, push: bool = True, email: bool = False, webhook: bool = False, apprise: bool = False
 ) -> NotificationMediaFlags:
-    return NotificationMediaFlags(push=push, email=email, webhook=webhook)
+    return NotificationMediaFlags(push=push, email=email, webhook=webhook, apprise=apprise)
 
 
 _ALL_ON = PushDefaults(
@@ -213,6 +213,77 @@ POLICY_CASES = [
         is_public=True,
         overrides={f"channel-{PUBLIC_CHANNEL_KEY}": {"email": True}},
         channel="email",
+    ),
+    _case(
+        "dm_apprise_follows_new_dm_matrix",
+        expected=True,
+        state_key=f"contact-{DM_KEY}",
+        message_type="PRIV",
+        defaults=PushDefaults(
+            new_contact=_default_media(),
+            new_dm=_media(push=True, apprise=True),
+            advert_repeater=_default_media(),
+            advert_companion=_default_media(),
+            advert_sensor=_default_media(),
+            channel_found=_default_media(),
+            telemetry_alert=_default_media(),
+            oss_update=_default_media(),
+        ),
+        contact_type=1,
+        channel="apprise",
+    ),
+    _case(
+        "dm_apprise_off_by_default",
+        expected=False,
+        state_key=f"contact-{DM_KEY}",
+        message_type="PRIV",
+        contact_type=1,
+        channel="apprise",
+    ),
+    _case(
+        "dm_apprise_override_false_wins_over_matrix",
+        expected=False,
+        state_key=f"contact-{DM_KEY}",
+        message_type="PRIV",
+        defaults=PushDefaults(
+            new_contact=_default_media(),
+            new_dm=_media(push=True, apprise=True),
+            advert_repeater=_default_media(),
+            advert_companion=_default_media(),
+            advert_sensor=_default_media(),
+            channel_found=_default_media(),
+            telemetry_alert=_default_media(),
+            oss_update=_default_media(),
+        ),
+        overrides={f"contact-{DM_KEY}": {"apprise": False}},
+        contact_type=1,
+        channel="apprise",
+    ),
+    _case(
+        "public_channel_never_reaches_apprise_without_override",
+        expected=False,
+        state_key=f"channel-{PUBLIC_CHANNEL_KEY}",
+        message_type="CHAN",
+        is_public=True,
+        overrides={f"channel-{PUBLIC_CHANNEL_KEY}": True},
+        channel="apprise",
+    ),
+    _case(
+        "hashtag_channel_never_reaches_apprise_without_override",
+        expected=False,
+        state_key=f"channel-{HASHTAG_KEY}",
+        message_type="CHAN",
+        is_hashtag=True,
+        channel="apprise",
+    ),
+    _case(
+        "channel_apprise_override_enables_apprise",
+        expected=True,
+        state_key=f"channel-{HASHTAG_KEY}",
+        message_type="CHAN",
+        is_hashtag=True,
+        overrides={f"channel-{HASHTAG_KEY}": {"apprise": True}},
+        channel="apprise",
     ),
 ]
 

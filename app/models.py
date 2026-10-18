@@ -1220,6 +1220,7 @@ class TelemetryAlertChannels(BaseModel):
     push: bool = True
     email: bool = False
     webhook: bool = False
+    apprise: bool = False
 
 
 class TelemetryRuleSpec(BaseModel):
@@ -1387,9 +1388,26 @@ def grandfather_legacy_webhook(raw: Any) -> Any:
     return raw
 
 
+AppriseMessageText = Literal["always", "public_only", "never"]
+
+
+class NotificationAppriseDest(BaseModel):
+    """Apprise destination: one URL per line, a secret as a whole (``urls``)."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    urls: str = ""
+    # Egress guard opt-in for the hosts the URLs name (ntfy, Gotify, Home Assistant).
+    allow_private_network: bool = False
+    # Message text sent for messages: always, only for public/# channels, or never.
+    include_message_text: AppriseMessageText = "public_only"
+    format: Literal["text", "markdown"] = "text"
+
+
 class NotificationDestinations(BaseModel):
     email: NotificationEmailDest = Field(default_factory=NotificationEmailDest)
     webhook: NotificationWebhookDest = Field(default_factory=NotificationWebhookDest)
+    apprise: NotificationAppriseDest = Field(default_factory=NotificationAppriseDest)
 
 
 class NotificationEmailDestUpdate(BaseModel):
@@ -1413,9 +1431,19 @@ class NotificationWebhookDestUpdate(BaseModel):
     private_network_grandfathered: bool | None = None
 
 
+class NotificationAppriseDestUpdate(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    urls: str | None = None
+    allow_private_network: bool | None = None
+    include_message_text: AppriseMessageText | None = None
+    format: Literal["text", "markdown"] | None = None
+
+
 class NotificationDestinationsUpdate(BaseModel):
     email: NotificationEmailDestUpdate | None = None
     webhook: NotificationWebhookDestUpdate | None = None
+    apprise: NotificationAppriseDestUpdate | None = None
 
 
 class AppSettings(BaseModel):
@@ -1507,7 +1535,7 @@ class AppSettings(BaseModel):
     )
     notification_destinations: NotificationDestinations = Field(
         default_factory=NotificationDestinations,
-        description="SMTP and webhook destinations for system telemetry alerts",
+        description="SMTP, webhook and Apprise destinations for system notifications",
     )
 
     @field_validator("notification_destinations", mode="before")

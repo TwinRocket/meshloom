@@ -15,6 +15,7 @@ from app.net.apprise_urls import (
 )
 from app.path_utils import split_path_hex
 from app.secret_fields import config_secret_values, scrub_error
+from app.services.message_filters import is_filtered
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +207,10 @@ class AppriseModule(FanoutModule):
         # Skip outgoing messages by default. Operators can opt in when they
         # want Meshloom-originated manual/bot sends mirrored to Apprise.
         if data.get("outgoing") and not self.config.get("include_outgoing", False):
+            return
+        # Blocked senders and muted channels reach no person (MQTT, SQS and
+        # webhook outputs still get them: machine integrations).
+        if await is_filtered(data):
             return
 
         urls = self.config.get("urls", "")

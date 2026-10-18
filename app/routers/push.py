@@ -51,12 +51,14 @@ class NotificationMediaModel(BaseModel):
     push: bool = True
     email: bool = False
     webhook: bool = False
+    apprise: bool = False
 
 
 class NotificationMediaPatch(BaseModel):
     push: bool | None = None
     email: bool | None = None
     webhook: bool | None = None
+    apprise: bool | None = None
 
 
 class PushDefaultsModel(BaseModel):

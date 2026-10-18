@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -17,17 +18,25 @@ from typing import Any
 from pywebpush import WebPushException
 
 from app.channel_constants import is_public_channel_key
+from app.data.meshcore_channels import is_public_hashtag_channel
 from app.net.egress_guard import EgressBlocked
 from app.push.policy import conversation_is_enabled
 from app.push.send import send_push
 from app.push.vapid import get_vapid_claims, get_vapid_private_key
 from app.repository.channels import ChannelRepository
 from app.repository.push_subscriptions import PushSubscriptionRepository
-from app.repository.settings import AppSettingsRepository, any_media_enabled
+from app.repository.settings import (
+    NOTIFICATION_MEDIA_KEYS,
+    AppSettingsRepository,
+    any_media_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
 _SEND_TIMEOUT = 15  # seconds per push send
+
+# Proof of modification: sent to every subscription, not configurable.
+DESTINATION_CHANGED_EVENT = "notify.destination_changed"
 
 
 def _state_key_for_message(data: dict) -> str:
@@ -288,6 +297,32 @@ def _build_payload(data: dict, language: str = "fr") -> str:
             }
         )
 
+    if data.get("event") in ("notifications_grouped", "first_seen_grouped"):
+        count = int(data.get("count") or 0)
+        if data["event"] == "first_seen_grouped":
+            title = f"+{count} new contacts" if lang == "en" else f"+{count} nouveaux contacts"
+        else:
+            title = f"+{count} events" if lang == "en" else f"+{count} évènements"
+        return json.dumps({"title": title, "body": title, "tag": "meshcore-grouped"})
+
+    if data.get("event") == DESTINATION_CHANGED_EVENT:
+        labels = {"email": "e-mail", "webhook": "webhook", "apprise": "Apprise"}
+        kinds = ", ".join(labels.get(str(kind), str(kind)) for kind in data.get("kinds") or [])
+        if lang == "en":
+            title = "Notification destination changed"
+            body = f"Changed: {kinds}. If this was not you, check the settings."
+        else:
+            title = "Destination de notification modifiée"
+            body = f"Modifié : {kinds}. Si ce n'est pas vous, vérifiez les réglages."
+        return json.dumps(
+            {
+                "title": title,
+                "body": body,
+                "tag": "meshcore-destination-changed",
+                "url_hash": "#settings/notifications",
+            }
+        )
+
     if data.get("event") == "telemetry_alert":
         title, body = _telemetry_alert_titles(data, lang)
         pubkey = str(data.get("public_key") or "")
@@ -351,11 +386,67 @@ def _build_payload(data: dict, language: str = "fr") -> str:
     )
 
 
-def event_notification_text(data: dict, language: str = "en") -> tuple[str, str]:
-    """Title/body used by email and other non-push transports."""
-    parsed = json.loads(_build_payload(data, language))
+def _is_message(data: Mapping[str, Any]) -> bool:
+    return data.get("event") in (None, "message") and data.get("type") in ("PRIV", "CHAN")
+
+
+def message_text_is_public(data: Mapping[str, Any]) -> bool:
+    """A Public or ``#`` channel whose key is derived from its name: anyone can read it."""
+    if data.get("type") != "CHAN":
+        return False
+    key = str(data.get("conversation_key") or "")
+    name = str(data.get("channel_name") or "")
+    return is_public_channel_key(key) or is_public_hashtag_channel(name, key)
+
+
+def _title_only_body(data: Mapping[str, Any], lang: str) -> str:
+    sender = str(data.get("sender_name") or "").strip()
+    if lang == "en":
+        return f"Message from {sender}" if sender else "New message"
+    return f"Message de {sender}" if sender else "Nouveau message"
+
+
+_MENTION = re.compile(r"@(everyone|here)\b|<@", re.IGNORECASE)
+_MARKDOWN_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+\-.!|>~<])")
+
+
+def neutralise_mentions(text: str) -> str:
+    """``@everyone``, ``@here`` and ``<@id>`` no longer ping (a zero-width space after ``@``)."""
+    return _MENTION.sub(lambda m: m.group(0).replace("@", "@\u200b", 1), text)
+
+
+def escape_markdown(text: str) -> str:
+    """User text shown as text: no injected link, heading or emphasis."""
+    return _MARKDOWN_SPECIAL.sub(r"\\\1", text)
+
+
+def event_notification_text(
+    data: dict,
+    language: str = "en",
+    *,
+    include_message_text: str = "always",
+    markdown: bool = False,
+) -> tuple[str, str]:
+    """Title/body used by email and other non-push transports.
+
+    ``include_message_text`` (the Apprise text policy) applies to messages
+    only: ``public_only`` keeps the text of Public and ``#`` channels and
+    sends a title-only body ("Message from Léa") for DMs and private
+    channels; ``never`` does that everywhere. Mentions are always
+    neutralised; ``markdown`` also escapes the text.
+    """
+    lang = language if language in ("fr", "en") else "fr"
+    parsed = json.loads(_build_payload(data, lang))
     title = str(parsed.get("title") or "").strip() or "Meshloom"
     body = str(parsed.get("body") or "").strip() or title
+    if _is_message(data) and (
+        include_message_text == "never"
+        or (include_message_text == "public_only" and not message_text_is_public(data))
+    ):
+        body = _title_only_body(data, lang)
+    title, body = neutralise_mentions(title), neutralise_mentions(body)
+    if markdown:
+        title, body = escape_markdown(title), escape_markdown(body)
     return title, body
 
 
@@ -419,7 +510,7 @@ class PushManager:
                 is_public=is_public,
                 channel=media,
             )
-            for media in ("push", "email", "webhook")
+            for media in NOTIFICATION_MEDIA_KEYS
         }
         if not any(flags.values()):
             return
@@ -427,6 +518,16 @@ class PushManager:
         # Muted-channel circuit breaker — separate from conversation policy.
         if msg_type == "CHAN" and channel is not None and channel.muted:
             return
+
+        if flags["apprise"]:
+            from app.services.message_filters import is_blocked
+
+            try:
+                if is_blocked(data, await AppSettingsRepository.get()):
+                    flags["apprise"] = False
+            except Exception:
+                logger.debug("Push dispatch: failed to load block lists", exc_info=True)
+                flags["apprise"] = False
 
         from app.notify import dispatch_system_event
 

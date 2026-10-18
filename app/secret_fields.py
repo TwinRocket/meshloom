@@ -67,11 +67,12 @@ FANOUT_DESTINATION_KEYS: dict[str, dict[str, Any]] = {
 NOTIFICATION_SECRET_KEYS: dict[str, tuple[str, ...]] = {
     "email": ("password",),
     "webhook": ("hmac_secret",),
+    "apprise": ("urls",),
 }
 
-# Same rule for the telemetry alert destinations (merge_notification_destinations):
+# Same rule for the notification destinations (merge_notification_destinations):
 # a kept SMTP password never follows a new host, port or TLS mode, a kept HMAC
-# secret never follows a new webhook URL.
+# secret never follows a new webhook URL. Apprise URLs are their own destination.
 NOTIFICATION_DESTINATION_KEYS: dict[str, dict[str, Any]] = {
     "email": {"host": "", "port": 587, "mode": "starttls"},
     "webhook": {"url": ""},

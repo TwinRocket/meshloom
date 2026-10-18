@@ -547,6 +547,8 @@ async def test_dispatch_message_override_does_not_email_when_matrix_off(test_db,
     sent = _patch_push_send(monkeypatch)
     email = AsyncMock()
     monkeypatch.setattr("app.notify.send_email_alert", email)
+    # Only the message push is counted, not the destination-changed notice.
+    monkeypatch.setattr("app.notify.notify_destination_changed", lambda *_: None)
     await AppSettingsRepository.update(
         notification_destinations=NotificationDestinations(
             email=NotificationEmailDest(host="smtp.example", to="ops@example.com")
