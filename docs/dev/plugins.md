@@ -1,8 +1,10 @@
 # Plugins
 
-Status: **format and validators only** (MSHL-175). There is no runtime, host or UI
-yet; later tickets add them. Like every doc here, this file may be wrong: the code
-in `app/plugins/` wins.
+Status: **format, validators and the child runtime** (MSHL-175, MSHL-176). The
+runner that executes a plugin in its own process exists; nothing in the server
+starts it yet (the supervisor is MSHL-179, the OS isolation MSHL-180, the SDK
+MSHL-177), and there is no UI. Like every doc here, this file may be wrong: the
+code in `app/plugins/` and `meshloom_plugin/` wins.
 
 ## Package and manifest
 
@@ -170,3 +172,130 @@ code does not have. A change to either file is a contract change: put it in a
 dedicated `CONTRACTS:` commit and call it out in the PR. A pydantic upgrade that
 changes the generated schema is such a change too. Archive vectors are not JSON;
 `tests/test_plugin_package.py` builds its archives in code.
+
+## Runner (child process)
+
+One process per plugin instance runs `meshloom_plugin/`, a top-level package next
+to `app/` (standard library only: the child never sees site-packages). It ships
+wherever `app/` ships: the `Dockerfile` (`COPY meshloom_plugin/`), the deb/rpm
+staging (`copy_project_files` in `scripts/build/build_nfpm_packages.sh`), the
+armhf build image (`Dockerfile.nfpm-armhf`) and the tag overlay in
+`.github/workflows/nfpm-armhf.yml`, and the upgrade-matrix image;
+`tests/test_plugin_packaging.py` reads those files. Security model, what the
+hooks block and what they cannot: `docs/dev/plugins-security.md`.
+
+| Module | Role |
+|---|---|
+| `app/plugins/launch.py` | server side of the launch contract: `runner_command()`, `runner_env()`, `runner_params()`, `bootstrap_source()` |
+| `meshloom_plugin/runner.py` | the child: start-up stages, audit hook, import guard, JSON-RPC loop |
+| `meshloom_plugin/rpc.py` | NDJSON framing and JSON-RPC 2.0 helpers, used by both ends |
+| `meshloom_plugin/policy.py` | import allowlist and denylist, kept environment keys, default limits, handler concurrency |
+| `meshloom_plugin/__init__.py` | `host()`: the RPC channel to the server, for the SDK |
+
+### Launch contract
+
+```
+<python> -I -S -B -X utf8 -c "<bootstrap>"
+```
+
+The project is not an installed package and `-I` (which implies `-E -P -s`) drops
+the cwd, the script directory and `PYTHONPATH` from `sys.path`, so
+`python -m meshloom_plugin.runner` cannot work. The fixed bootstrap sets
+`sys.path = [app_root] + stdlib` (site-packages entries filtered out) and runs
+`runpy.run_module("meshloom_plugin.runner", run_name="__main__")`. `-S` (not in the
+cadrage's first draft) skips `site` too: no site-packages on the path and no
+`.pth` file executed before the runner freezes the process. `<python>` is
+`sys.executable`. The supervisor must pass `env=runner_env()` (`LANG=C.UTF-8`,
+`PYTHONHASHSEED=random`), `cwd` a private temporary directory (the only writable
+place), `close_fds=True` and `start_new_session=True`; stdin and stdout carry
+the RPC stream, stderr is the plugin's log.
+
+The first stdin line is one JSON object: `plugin_dir` (absolute), `instance_id`,
+`isolation` (`none`, `setuid` or `bwrap`) and `limits` (keys of
+`policy.DEFAULT_LIMITS`, positive integers). The runner reads `entry` from
+`plugin_dir/manifest.json` (already validated at install). What follows that
+line on stdin is the RPC stream.
+
+### Start-up order
+
+1. Close every descriptor from 3 up (whatever the parent passed), read the
+   parameters line with raw reads.
+2. `os.dup` the RPC descriptors and keep them private; fd 0 becomes `/dev/null`,
+   fd 1 and `sys.stdout` become stderr: `print()` or `os.write(1, ...)` in a
+   handler lands in the log and never corrupts the stream.
+3. Clear `os.environ` but `policy.ENV_KEYS`; hard rlimits (soft = hard):
+   `RLIMIT_NOFILE` 64, `RLIMIT_FSIZE` 50 MiB, `RLIMIT_CORE` 0, `RLIMIT_CPU`
+   3600 s, `RLIMIT_AS` 256 MiB on Linux only (macOS does not enforce it),
+   `RLIMIT_NPROC` only when `isolation == "setuid"`; `_thread.stack_size(256 KiB)`;
+   `PR_SET_NO_NEW_PRIVS` on Linux (through `ctypes`, purged afterwards). Then
+   `asyncio` is imported: it loads `socket`, `ssl` and `subprocess` at module
+   level, so it cannot come after the hook, and step 5 removes them again.
+4. Install the audit hook.
+5. Purge `sys.modules` of every module that is neither loaded at interpreter
+   start-up nor allowlisted (`importlib`, `runpy`, `pkgutil` and `zipimport` are
+   purged although loaded at start-up), clear the dicts of the denied modules and
+   replace every reference another module holds to them
+   (`asyncio.base_events.socket`) with a stub that raises `PermissionError`.
+   Install the import guard: a `sys.meta_path` finder and a
+   `builtins.__import__` wrapper.
+6. `sys.path = [plugin_dir, plugin_dir/vendor, stdlib]`, create the event loop
+   (a selector loop whose self-pipe is an `os.pipe`, so the child holds no
+   socket), set `meshloom_plugin.host()`, import `entry` and instantiate its
+   class when it names one, then serve.
+
+Any failure before serving is a typed line on stderr,
+`{"runner_error": "<code>", "message": "..."}`, and exit code 3. Codes:
+`params_invalid`, `platform_unsupported` (no `resource` module: Windows),
+`limits_failed`, `audit_hook_failed`, `entry_invalid`, `entry_load_failed` (the
+entry raised, including a refused import). Exit 2 is a framing violation,
+exit 0 a `plugin.shutdown` or stdin closed.
+
+### Imports
+
+`policy.ALLOWED_IMPORTS` lists the standard-library modules plugin code may
+import (with their submodules); any name that is not a stdlib module is the
+plugin's own code or `vendor/` and is allowed. `policy.DENIED_MODULES` (`socket`,
+`ssl`, `subprocess`, `_posixsubprocess`, `ctypes`, `multiprocessing`, `sqlite3`,
+`http`, `urllib.request`, `logging.handlers`...) is refused to every importer
+once the process is frozen. Plugin code is a frame whose file is under
+`plugin_dir` or that was compiled at run time (`exec`); the standard library
+importing what it needs is not checked against the allowlist. A refused import
+raises `PermissionError`, not `ImportError`: a vendored library that does
+`try: import ssl except ImportError:` needs `except (ImportError, PermissionError)`.
+
+### Protocol (child side)
+
+JSON-RPC 2.0, one object per line (`\n`), UTF-8, at most
+`rpc.MAX_MESSAGE_BYTES` (100 KiB) per line; no batches. A line over the cap ends
+the child (exit 2); a line that is not JSON or not a JSON-RPC 2.0 object gets an
+error with `id: null` (`-32700`, `-32600`) and the child keeps serving.
+
+| Server → child | Plugin attribute called with `params` |
+|---|---|
+| `plugin.init` | `on_init` |
+| `event.message`, `event.raw_packet`, `event.contact`, `event.telemetry`, `event.health`, `event.timer` | `on_message`, `on_raw_packet`, ... |
+| `config.changed` | `on_config_changed` |
+| `plugin.shutdown` | `on_shutdown`, then the child answers and exits 0 |
+| `event.cancel {"id": X}` | cancels the task of request X (answer `true` when it existed) |
+
+The target is the entry module, or an instance of the class `entry` names
+(`plugin.py:Weather`). A missing attribute answers `null`; a handler may be sync
+or async. At most `policy.MAX_CONCURRENT_HANDLERS` (8) handlers run at once, the
+others wait; past 128 pending requests the child answers `-32001` (overloaded).
+Errors: `-32601` unknown method, `-32000` the handler raised (`data:
+{"code": "handler_error", "type": "<exception class>"}`, traceback in stderr),
+`-32800` cancelled, `-32603` a result that is not JSON or is over the cap.
+
+Child → server: `await meshloom_plugin.host().call(method, params)` sends a
+request with an integer id and returns its `result`, or raises
+`meshloom_plugin.runner.HostError` carrying the `error` object;
+`host().notify(method, params)` sends a notification. The methods themselves
+(`messages.send`, `storage.*`, `http.fetch`...) and their checks are the
+supervisor's (MSHL-179 and later). The SDK (MSHL-177) wraps `host()`.
+
+Tests: `tests/test_plugin_runner.py` (real subprocesses; standard library and
+pytest only, so it also runs with `uv run --no-project --python 3.13 --with
+pytest pytest --noconftest tests/test_plugin_runner.py`), the seed corpus in
+`tests/plugin_corpus/` (one directory per hostile plugin with its `case.json`;
+MSHL-191 consolidates it and runs it under each isolation level) and
+`tests/test_plugin_packaging.py`.

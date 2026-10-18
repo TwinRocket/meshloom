@@ -1,0 +1,4 @@
+{
+  "description": "Bypass 3: the audit hook's frame is reachable through the traceback of the exception it raises. It must expose no mutable state.",
+  "events": [{"params": {}, "expect": {"check": "hook_frame"}}]
+}

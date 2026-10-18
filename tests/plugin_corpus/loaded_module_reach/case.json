@@ -1,0 +1,8 @@
+{
+  "description": "Bypass 1: the import audit event only fires when a module loads. socket was loaded by asyncio before the freeze; reach it without importing it.",
+  "events": [
+    {"params": {"via": "sys.modules"}, "expect": {"result": []}},
+    {"params": {"via": "asyncio"}, "expect": {"error_type": "PermissionError"}},
+    {"params": {"via": "open_connection"}, "expect": {"error_type": "PermissionError"}}
+  ]
+}

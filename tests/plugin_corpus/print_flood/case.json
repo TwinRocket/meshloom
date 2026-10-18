@@ -1,0 +1,4 @@
+{
+  "description": "print() and raw writes to fd 1 in a handler land in stderr; the RPC stream stays valid.",
+  "events": [{"params": {}, "expect": {"result": "done"}}]
+}
