@@ -1,0 +1,136 @@
+# Plugins
+
+Status: **format and validators only** (MSHL-175). There is no runtime, host or UI
+yet; later tickets add them. Like every doc here, this file may be wrong: the code
+in `app/plugins/` wins.
+
+## Package and manifest
+
+A plugin is a zip archive (`plugin.zip`), all files at the archive root:
+
+```
+manifest.json            required, <= 64 KiB
+plugin.py                entry module (or a package directory, see `entry`)
+README.md                required, <= 200 KiB; README.<lang>.md as listed in `readme`
+LICENSE                  required
+config.schema.json       optional, <= 64 KiB (subset of JSON Schema 2020-12)
+i18n/<lang>.json         optional, <= 256 KiB each, JSON objects
+vendor/                  optional, pure-Python dependencies
+```
+
+Code map:
+
+| Module | Role |
+|---|---|
+| `app/plugins/manifest.py` | pydantic `Manifest` model, `parse_manifest()`, `load_manifest_json()`, `manifest_json_schema()` |
+| `app/plugins/permissions.py` | permission registry: names, parameter models, caps, `http` host rules, reserved names |
+| `app/plugins/config_schema.py` | `check_config_schema()` (keyword subset pre-check, then the `jsonschema` metaschema), `validate_config_values()` |
+| `app/plugins/package.py` | `validate_package()` (nothing is extracted), `extract_package()` (validates first) |
+| `app/plugins/licenses.py` | `ACCEPTED_LICENSES`, the one SPDX list (decision Q13; also for `vendor/`) |
+| `app/plugins/errors.py` | `PluginValidationError` carrying `PluginIssue(code, path, message)` |
+| `app/data/plugin_icons.json` | closed icon list (lucide names); `frontend/src/test/pluginIcons.test.ts` checks every name exists in `lucide-react` |
+
+### Manifest rules
+
+Everything is validated by the pydantic models; unknown fields are refused. The rules
+JSON Schema cannot express are enforced in `Manifest._cross_rules` and exercised by
+the golden vectors.
+
+- `manifest: 1`; `id` matches `^[a-z0-9]+(-[a-z0-9]+)*\.[a-z0-9]+(-[a-z0-9]+)*$`
+  (`<publisher>.<name>`). `meshloom.*` and `local.*` are reserved: the caller says
+  who submits through `origin` (`third_party` by default, `bundled`, `local`), and
+  an origin must use its own namespace.
+- `name` and `summary` are language maps (`en` required, codes like `fr` or `pt-BR`).
+  Outside `meshloom.*` a name in any language must not contain `meshloom`,
+  `official` or `officiel` (case-insensitive).
+- `version` is strict SemVer (the semver.org expression) and must also be orderable
+  by `packaging`: `1.0.0-rc.1` passes, `1.0.0-alpha.beta` does not.
+- `license` is in `ACCEPTED_LICENSES`; `homepage` and `authors[].url` are absolute
+  `https:` URLs without credentials.
+- `icon` (optional) is in `plugin_icons.json`; `categories` are `bot`, `utility`,
+  `monitoring`, `integration`, `fun` (1 to 3).
+- `runtime.python` and `compat.meshloom` are PEP 440 specifier sets (`packaging`).
+- `entry` is `path[:Class]`, a relative path to a `.py` module or to a package
+  directory (`<path>/__init__.py`).
+- `hooks` is a subset of `message`, `raw_packet`, `contact`, `telemetry`, `health`,
+  `timer`. The host filters events by permission, so the manifest does not tie them.
+- `config_schema`, `i18n` and `readme` values are safe relative paths (no `..`, no
+  absolute path); `readme` requires `en`.
+
+### Permissions
+
+| Permission | Parameters |
+|---|---|
+| `messages.read` | `channels` `public` (default) or `all`; `direct`, `outgoing` (booleans, default false) |
+| `messages.send` | `targets` `reply` (default), `scope`, `any`; `per_hour` 1 to 60; `per_day` 1 to 500 |
+| `raw_packets.read`, `contacts.read`, `channels.read`, `telemetry.read`, `storage`, `timer` | none (`{}`) |
+| `http` | `hosts`: 1 to 20 exact lowercase hostnames or IP literals; never a wildcard, a range, a URL or a port. `meshloom.app` and its subdomains are refused unless the id is `meshloom.*` |
+
+Reserved and refused with `permission_reserved`: `notifications.send`, `feed.post`,
+`ui.panel`, `channels.manage`, `contacts.manage`. Any other name is `extra_forbidden`.
+
+### Config schema
+
+A subset of JSON Schema 2020-12: a flat `object` whose properties are `string`,
+`integer`, `number`, `boolean` or `array` of strings, with `enum`, `default`,
+bounds, `title` and `description` (a string or a `{"en": ..., "fr": ...}` map).
+Secrets are `"writeOnly": true` on a string (no default, no enum); the shared
+`SchemaForm` keys on it. No `$ref`, `pattern` (ReDoS), `oneOf` or nesting: any other
+keyword is `config_schema_keyword_not_allowed`. Value errors never echo the value.
+
+### Archive rules (`validate_package`)
+
+Checked from the central directory and bounded reads, before any extraction:
+
+- 5 MiB compressed, 20 MiB uncompressed (declared sizes, nested archives included),
+  2000 entries (nested ones included).
+- Entry names: no absolute path, drive letter, backslash, control character, `.` or
+  `..` segment, empty segment; case-insensitive duplicates and file-as-directory
+  clashes are refused.
+- No symlink or special file, no executable bit, no encryption, only stored and
+  deflated entries.
+- No native code anywhere, including `vendor/*.dist-info` and nested zips: names
+  ending `.so` (also `.so.N`), `.pyd`, `.dll`, `.dylib`, and files whose first bytes
+  are ELF, Mach-O or PE. Nested zips (up to 3 levels) are opened and scanned the same way.
+- No compiled bytecode (`.pyc`, `.pyo`, `__pycache__`): ship the source, reviewers read it.
+- `manifest.json`, `README.md` and `LICENSE` exist; every file the manifest references
+  exists; READMEs, i18n files and the config schema respect their size caps and parse.
+
+Structural failures stop at the first problem; manifest and config-schema problems
+list every issue. Not checked yet: the licences of files under `vendor/` (index CI,
+T16), Python syntax of the entry.
+
+### Error codes
+
+`PluginIssue.code` is stable. It is a pydantic error type (`missing`,
+`extra_forbidden`, `literal_error`, `string_pattern_mismatch`, `less_than_equal`,
+`too_short`) or one of ours: `id_namespace_reserved`, `id_namespace_mismatch`,
+`name_misleading`, `license_not_accepted`, `url_not_https`, `icon_unknown`,
+`permission_reserved`, `host_wildcard`, `host_range`, `host_invalid`,
+`http_host_reserved`, `i18n_en_required`, `path_unsafe`, `entry_invalid`,
+`specifier_invalid`, `version_not_comparable`, `manifest_too_large`,
+`manifest_not_json`, `config_schema_*`, `package_*`. The vectors list the ones the
+manifest can produce.
+
+## Contract
+
+`docs/dev/plugins/manifest.schema.json` is the contract shared with
+`TwinRocket/meshloom-plugins` (its CI copies the file and checks equality), and
+`docs/dev/plugins/vectors/manifest.json` holds the golden vectors: valid manifests and
+failing ones with the expected `(code, path)` pairs. The index CI and the site
+verify the same vectors. The JSON Schema alone cannot express the cross rules above, so
+a consumer must also run the vectors.
+
+Both files are generated:
+
+```bash
+uv run python scripts/build/export_plugin_contract.py          # regenerate
+uv run python scripts/build/export_plugin_contract.py --check  # fail if stale
+```
+
+`tests/test_plugin_manifest.py` fails when either file is stale, and every vector is
+run through the validator when generating, so a vector cannot record a behaviour the
+code does not have. A change to either file is a contract change: put it in a
+dedicated `CONTRACTS:` commit and call it out in the PR. A pydantic upgrade that
+changes the generated schema is such a change too. Archive vectors are not JSON;
+`tests/test_plugin_package.py` builds its archives in code.

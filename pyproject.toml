@@ -28,6 +28,8 @@ dependencies = [
     # BLE PIN pairing talks to BlueZ directly (app/services/ble_pairing.py).
     # Upper bound: [tool.uv] constraint-dependencies.
     "dbus-fast>=3.1; sys_platform == 'linux'",
+    # Plugin config.schema.json validation (app/plugins/config_schema.py); pulls rpds-py.
+    "jsonschema>=4.26,<5",
 ]
 
 [tool.pytest.ini_options]

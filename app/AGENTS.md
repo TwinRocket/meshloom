@@ -25,6 +25,9 @@ and the OpenAPI page (`/docs`), not a table here.
   from meshloom-community's snapshot: regenerate it, never edit it by hand.
 - `services/test_channel.py` (`#meshloom-testing`, radio self-test and
   `POST /tools/mesh-test`) stores no channel and no message.
+- `plugins/` is the plugin package format: manifest model, permission registry, config
+  schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`).
+  No runtime yet. Change the contract only through `scripts/build/export_plugin_contract.py`.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
 
