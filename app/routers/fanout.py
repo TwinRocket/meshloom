@@ -19,7 +19,7 @@ from app.net.apprise_urls import (
 )
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.repository.fanout import FanoutConfigRepository
-from app.secret_fields import merge_secrets, redact_config
+from app.secret_fields import SecretRequiredError, merge_secrets, redact_config
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/fanout", tags=["fanout"])
@@ -653,11 +653,15 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     # Secrets are write-only: ``********`` or an omitted key keeps the stored
     # value, ``""`` clears it. Merged before validation, so the grandfathered
     # same-destination check compares the real URLs.
-    config_to_validate = (
-        merge_secrets(existing["type"], existing["config"], body.config)
-        if body.config is not None
-        else existing["config"]
-    )
+    # A kept secret never follows a destination change: 400 secret_required.
+    try:
+        config_to_validate = (
+            merge_secrets(existing["type"], existing["config"], body.config)
+            if body.config is not None
+            else existing["config"]
+        )
+    except SecretRequiredError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
     normalized_config = _validate_and_normalize_config(existing["type"], config_to_validate)
     _carry_grandfathered_flag(existing["type"], normalized_config, existing["config"])
     # A disabled row sends nothing: it can be saved (or turned off) while its

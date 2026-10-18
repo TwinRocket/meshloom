@@ -225,7 +225,7 @@ class TestStoredListIsRevalidated:
 
         await AppSettingsRepository.update(auth_allowed_origins=[LISTED])
 
-        await _restore_settings(AppSettings(auth_allowed_origins=["*"]))
+        await _restore_settings(AppSettings(auth_allowed_origins=["*"]), [])
 
         assert cors.current() == (LISTED,)
         assert "*" not in (await AppSettingsRepository.get()).auth_allowed_origins

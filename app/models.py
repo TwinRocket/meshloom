@@ -2003,6 +2003,8 @@ class BackupRestoreResult(BaseModel):
     channels_upserted: int = 0
     settings_updated: bool = False
     groups_upserted: int = 0
+    # ``code:value`` strings, as in the full restore job's warnings.
+    warnings: list[str] = Field(default_factory=list)
     private_key_warning: str = (
         "This Meshloom-only restore never touches the radio or its private key "
         "(the full backup in Settings > Database carries both). It does not replace "

@@ -43,6 +43,7 @@ from app.models import (
     ContactGroup,
     ContactUpsert,
     MeshloomExtra,
+    NotificationDestinations,
 )
 from app.repository import (
     AppSettingsRepository,
@@ -379,8 +380,9 @@ async def restore_json(
         channels_upserted += 1
 
     settings_updated = False
+    warnings: list[str] = []
     if request.settings is not None:
-        await _restore_settings(request.settings)
+        await _restore_settings(request.settings, warnings)
         settings_updated = True
     if request.push_defaults is not None:
         await AppSettingsRepository.set_push_defaults(request.push_defaults)
@@ -417,6 +419,7 @@ async def restore_json(
         channels_upserted=channels_upserted,
         settings_updated=settings_updated,
         groups_upserted=groups_upserted,
+        warnings=warnings,
     )
 
 
@@ -425,13 +428,38 @@ async def restore_json(
 _RESTORED_SETTINGS = V1_SETTING_COLUMNS
 
 
-async def _restore_settings(settings: AppSettings) -> None:
+async def _restore_settings(settings: AppSettings, warnings: list[str]) -> None:
     """Write back only the fields the file carries: an older file without a
     later field (``ui_preferences``...) keeps the current value."""
     present = settings.model_fields_set
     updates = {name: getattr(settings, name) for name in _RESTORED_SETTINGS if name in present}
+    if "notification_destinations" in updates:
+        updates["notification_destinations"] = await _restorable_destinations(
+            updates["notification_destinations"], warnings
+        )
     if updates:
         await AppSettingsRepository.update(**updates)
+
+
+async def _restorable_destinations(
+    dest: NotificationDestinations, warnings: list[str]
+) -> NotificationDestinations:
+    """A file that points a destination somewhere else gets it without the kept
+    secret: the stored password or HMAC secret never follows a new host or URL."""
+    from app.secret_fields import SecretRequiredError
+    from app.telemetry_alerts import merge_notification_destinations
+
+    current = (await AppSettingsRepository.get()).notification_destinations
+    try:
+        merge_notification_destinations(current, dest)
+    except SecretRequiredError as exc:
+        dumped = dest.model_dump(by_alias=True)
+        for field in exc.keys:
+            kind, key = field.split(".", 1)
+            dumped[kind][key] = ""
+            warnings.append(f"secret_dropped_destination_changed:{field}")
+        return NotificationDestinations.model_validate(dumped)
+    return dest
 
 
 async def _restore_group(group: ContactGroup) -> None:
@@ -832,7 +860,7 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
         prepare_fanout_config,
         prepare_refused_apprise_config,
     )
-    from app.secret_fields import merge_secrets
+    from app.secret_fields import SecretRequiredError, merge_secrets
 
     written: list[str] = []
     restored_bots: list[str] = []
@@ -851,9 +879,15 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
             continue
         # A secret written as ******** (a file from an older JSON export, or
         # one edited by hand) keeps the stored value, else reads as unset.
-        file_config = merge_secrets(
-            entry.type, existing["config"] if existing is not None else None, entry.config
-        )
+        stored_config = existing["config"] if existing is not None else None
+        try:
+            file_config = merge_secrets(entry.type, stored_config, entry.config)
+        except SecretRequiredError as exc:
+            # The file points this row somewhere else: the stored secret stays
+            # here, the row comes back without it.
+            cleared = {**entry.config, **dict.fromkeys(exc.keys, "")}
+            file_config = merge_secrets(entry.type, stored_config, cleared)
+            warnings.append(f"secret_dropped_destination_changed:{label}")
         refused_apprise = False
         try:
             config, scope = prepare_fanout_config(

@@ -453,3 +453,37 @@ def redact_apprise_url(url: str) -> str:
         netloc = f"****@{netloc}"
     rest = "/****" if (parts.path.strip("/") or parts.query or parts.fragment) else ""
     return f"{scheme}://{netloc}{rest}"
+
+
+_TOKEN_SPLIT = re.compile(r"[/:@?&=#,;]+")
+
+
+def apprise_url_secret_parts(url: str) -> list[str]:
+    """The parts of an Apprise URL an error text must not show.
+
+    The host and port of a ``user_host`` scheme stay readable (as in
+    ``redact_apprise_url``); its user, password, path segments and query
+    values are masked. For any other scheme everything after ``://`` is a
+    token (``tgram://123:ABC/456`` gives ``123:ABC/456``, ``123``, ``ABC``,
+    ``456``).
+    """
+    line = url.strip()
+    scheme = _scheme_of(line)
+    rest = line.split("://", 1)[-1]
+    try:
+        parts = urlsplit(line) if ALLOWED_SCHEMES.get(scheme) == "user_host" else None
+        hostname = parts.hostname if parts is not None else None
+    except ValueError:
+        parts, hostname = None, None
+    if parts is None or not hostname:
+        return [rest, *_TOKEN_SPLIT.split(rest)]
+    secrets: list[str] = []
+    userinfo = parts.netloc.rpartition("@")[0] if "@" in parts.netloc else ""
+    if userinfo:
+        secrets.extend([userinfo, *userinfo.split(":", 1)])
+    secrets.extend(segment for segment in parts.path.split("/") if segment)
+    for item in parts.query.split("&"):
+        key, sep, value = item.partition("=")
+        secrets.append(value if sep else key)
+    secrets.append(parts.fragment)
+    return [secret for secret in secrets if secret]

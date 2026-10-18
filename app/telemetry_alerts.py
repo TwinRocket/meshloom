@@ -26,7 +26,14 @@ from app.repository.contact_telemetry import ContactTelemetryRepository
 from app.repository.repeater_telemetry import RepeaterTelemetryRepository
 from app.repository.settings import AppSettingsRepository
 from app.repository.telemetry_alert_state import TelemetryAlertStateRepository
-from app.secret_fields import NOTIFICATION_SECRET_KEYS, REDACTED, redact_secrets
+from app.secret_fields import (
+    NOTIFICATION_DESTINATION_KEYS,
+    NOTIFICATION_SECRET_KEYS,
+    REDACTED,
+    SecretRequiredError,
+    destination_changed,
+    redact_secrets,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -591,41 +598,61 @@ def merge_notification_destinations(
     stored: NotificationDestinations,
     incoming: NotificationDestinations | NotificationDestinationsUpdate | Mapping[str, Any],
 ) -> NotificationDestinations:
-    """Merge a PATCH. omit/null keeps a secret; empty string clears it."""
+    """Merge a PATCH. omit/null keeps a secret; empty string clears it.
+
+    A kept secret never follows a destination change (``NOTIFICATION_DESTINATION_KEYS``):
+    raises ``SecretRequiredError`` naming ``email.password`` / ``webhook.hmac_secret``.
+    """
     if isinstance(incoming, Mapping):
         payload = dict(incoming)
     else:
         payload = incoming.model_dump(exclude_unset=True, by_alias=True)  # type: ignore[union-attr]
     merged = stored.model_dump(by_alias=True)
+    refused: list[str] = []
 
     email_patch = payload.get("email")
     if isinstance(email_patch, Mapping):
-        email = dict(merged.get("email") or {})
+        previous_email = dict(merged.get("email") or {})
+        email = dict(previous_email)
+        password_kept = True
         for key, value in email_patch.items():
             if key == "password":
                 if value is None or value == REDACTED_SECRET:
                     continue
                 email["password"] = value
+                password_kept = False
             elif value is not None:
                 email[key] = value
+        if (
+            password_kept
+            and email.get("password")
+            and destination_changed("email", previous_email, email, NOTIFICATION_DESTINATION_KEYS)
+        ):
+            refused.append("email.password")
         merged["email"] = email
 
     webhook_patch = payload.get("webhook")
     if isinstance(webhook_patch, Mapping):
         webhook = dict(merged.get("webhook") or {})
-        previous_url = str(webhook.get("url") or "").strip()
+        previous_webhook = dict(webhook)
+        hmac_kept = True
         for key, value in webhook_patch.items():
             if key == "hmac_secret":
                 if value is None or value == REDACTED_SECRET:
                     continue
                 webhook["hmac_secret"] = value
+                hmac_kept = False
             elif value is not None:
                 webhook[key] = value
-        if str(webhook.get("url") or "").strip() != previous_url:
+        if destination_changed("webhook", previous_webhook, webhook, NOTIFICATION_DESTINATION_KEYS):
             # The banner was about the old destination.
             webhook["private_network_grandfathered"] = False
+            if hmac_kept and webhook.get("hmac_secret"):
+                refused.append("webhook.hmac_secret")
         merged["webhook"] = webhook
 
+    if refused:
+        raise SecretRequiredError(refused)
     return coerce_notification_destinations(merged)
 
 
