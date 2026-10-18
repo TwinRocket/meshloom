@@ -1,9 +1,11 @@
 """One origin policy for CORS (``app/cors.py``), the WebSocket upgrade (``app/websocket.py``)
 and the CSRF rule of the auth middleware (``app/auth/middleware.py``).
 
-It is also the one place that reads proxy headers: ``X-Forwarded-Host`` for
-same-origin, ``X-Forwarded-Proto`` for the cookie flavour
-(``request_is_secure``). Nothing else in the app interprets them.
+It reads one proxy header, ``X-Forwarded-Host``, for same-origin. The client
+address and the scheme (``X-Forwarded-For``, ``X-Forwarded-Proto``) are the
+trusted-proxy middleware's (``app/middleware/proxy_headers.py``), which
+rewrites the ASGI scope before anything here runs: ``request_is_secure``
+reads the scope's scheme only.
 
 Both rules read the same allowlist, ``app_settings.auth_allowed_origins``
 (Settings → Local Configuration → Allowed origins, ``PATCH /api/settings``),
@@ -211,18 +213,14 @@ def unsafe_request_allowed(headers: Mapping[str, str]) -> bool:
     return origin.serialize() in _current or same_origin(origin, headers)
 
 
-def request_is_secure(scope_scheme: str, headers: Mapping[str, str]) -> bool:
-    """Whether the browser reached this instance over https.
+def request_is_secure(scope_scheme: str) -> bool:
+    """Whether the browser reached this instance over https (``https``/``wss`` scheme).
 
-    The ASGI scheme (``https``/``wss``), or the first ``X-Forwarded-Proto``
-    from a TLS terminator. Read from any peer: it only picks the session
-    cookie's flavour (``__Host-`` and ``Secure``), and a client that lies about
-    it only gets a cookie its own browser refuses. Nothing grants access from it.
+    Behind a TLS terminator the scheme is https only when the proxy is listed
+    in the trusted proxies and says so in ``X-Forwarded-Proto``
+    (``app/middleware/proxy_headers.py``); the header is never read here.
     """
-    if scope_scheme in ("https", "wss"):
-        return True
-    forwarded = headers.get("x-forwarded-proto")
-    return bool(forwarded) and forwarded.split(",", 1)[0].strip().lower() == "https"
+    return scope_scheme in ("https", "wss")
 
 
 def _valid_stored_origins(stored: list[str]) -> tuple[str, ...]:

@@ -173,6 +173,16 @@ def _reset_cors_allowed_origins():
 
 
 @pytest.fixture(autouse=True)
+def _reset_trusted_proxies():
+    """A trusted proxy saved by one test must not leak into the next one."""
+    from app.middleware import proxy_headers
+
+    proxy_headers.reset()
+    yield
+    proxy_headers.reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_position_rebind():
     """A SELF_INFO seen by one test must not re-bind in the next one."""
     from app.services.observer_position import reset_position_rebind_for_tests

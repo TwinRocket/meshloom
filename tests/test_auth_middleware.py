@@ -114,7 +114,8 @@ async def test_login_sets_a_plain_cookie_over_http_and_unlocks_the_api():
 
 @pytest.mark.parametrize(
     ("base_url", "headers"),
-    [("https://test", {}), ("http://test", {"X-Forwarded-Proto": "https"})],
+    # X-Forwarded-Proto counts only from a trusted proxy: tests/test_proxy_headers.py.
+    [("https://test", {}), ("https://test", {"X-Forwarded-Proto": "http"})],
 )
 async def test_https_requests_get_a_host_prefixed_secure_cookie(base_url, headers):
     await create_user()

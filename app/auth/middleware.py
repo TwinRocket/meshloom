@@ -117,6 +117,8 @@ def request_via(scope: Scope) -> Via:
 
 
 def client_ip(scope: Scope) -> str | None:
+    """The client's address: the TCP peer, or the one a trusted proxy forwarded
+    (``scope["client"]`` as rewritten by ``app/middleware/proxy_headers.py``)."""
     client = scope.get("client")
     return client[0] if client else None
 
@@ -218,7 +220,7 @@ class AuthMiddleware:
         path: str = scope.get("path", "")
         headers = Headers(scope=scope)
         via = request_via(scope)
-        secure = origin_policy.request_is_secure(scope.get("scheme", "http"), headers)
+        secure = origin_policy.request_is_secure(scope.get("scheme", "http"))
         scope["auth_secure"] = secure
         scope["auth_via"] = via
 

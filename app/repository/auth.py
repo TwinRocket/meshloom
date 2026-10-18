@@ -32,6 +32,8 @@ from app.auth.models import (
     UserCredentials,
 )
 from app.database import db
+from app.middleware import proxy_headers
+from app.middleware.proxy_headers import valid_stored_proxies
 
 # Active sessions kept per user; creating one more revokes the oldest.
 MAX_SESSIONS_PER_USER = 50
@@ -687,7 +689,11 @@ async def _fetch_settings(conn: aiosqlite.Connection) -> AuthSettings:
             continue
     return AuthSettings(
         trusted_networks=rules,
-        trusted_proxies=[p for p in _json_list(row["trusted_proxies"]) if isinstance(p, str)],
+        trusted_proxies=list(
+            valid_stored_proxies(
+                p for p in _json_list(row["trusted_proxies"]) if isinstance(p, str)
+            )
+        ),
         public_urls=[u for u in _json_list(row["public_urls"]) if isinstance(u, str)],
         host_guard_mode=row["host_guard_mode"],
         ingress_default_role=row["ingress_default_role"],
@@ -755,7 +761,10 @@ class AuthSettingsRepository:
                 ) as cursor:
                     if cursor.rowcount != 1:
                         raise AuthSettingsMissingError("auth_settings row missing")
-            return await _fetch_settings(conn)
+            updated = await _fetch_settings(conn)
+        # The proxy list is read on every request (app/middleware/proxy_headers.py).
+        proxy_headers.apply(updated)
+        return updated
 
     @staticmethod
     async def get_setup_code_hash() -> str | None:
