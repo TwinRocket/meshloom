@@ -218,6 +218,18 @@ never stored), `created_at`, `last_seen_at` (written at most once a minute),
 `expires_at`, `ip`, `user_agent`, `via`, `revoked_at`. At most 50 active per user
 (creating one more revokes the oldest). `AuthSessionRepository` (`auth.py`).
 
+### `api_tokens`
+
+API and device tokens (migration 108, `app/auth/providers/token.py`,
+`docs/dev/auth.md`, "API and device tokens"): PK `id` (random, not a secret,
+the `actor_token_id` of audit rows), `user_id` (FK `users(id)`, cascade), `name`,
+`token_hash` (unique, SHA-256 hex of the `mlt_…` secret; the secret is never
+stored), `scopes` (JSON list of permissions, within the owner's role),
+`created_at`, `last_used_at` (written at most once a minute), `expires_at`
+(NULL: never), `revoked_at`, `origin` (`ui`/`pairing`, CHECK). At most 100 live
+per user. Revoked and expired rows stay, so a later use is audited.
+`ApiTokenRepository` (`auth.py`).
+
 ### `auth_audit`
 
 Audit trail (`app/auth/audit.py`, `docs/dev/auth.md`, "Audit log"): PK `id`, `ts`, `actor_user_id`, `actor_token_id`
@@ -292,8 +304,8 @@ default; a value above the default reads as the default. `PluginSendGuardReposit
 All foreign keys point at `contacts(public_key)` (children: advert paths, name
 history, both telemetry histories, pane cache, alert state, group members, all
 `ON DELETE CASCADE`), at `contact_groups(id)` (members, cascade) or at
-`messages(id)` (`raw_packets.message_id`, `SET NULL`), plus `sessions.user_id` on
-`users(id)` (cascade). `messages.conversation_key`
+`messages(id)` (`raw_packets.message_id`, `SET NULL`), plus `sessions.user_id` and
+`api_tokens.user_id` on `users(id)` (cascade). `messages.conversation_key`
 and `messages.sender_key` are plain text, not foreign keys: a message outlives its
 contact or channel. Enforcement requires `PRAGMA foreign_keys = ON`, which
 `Database` sets after migrations (migration 049 rebuilt the tables with cascades).
@@ -305,6 +317,7 @@ databases). The current set:
 
 | Index | On |
 |---|---|
+| `idx_api_tokens_user` | `api_tokens(user_id, created_at)` |
 | `idx_contact_advert_paths_recent` | `contact_advert_paths(public_key, last_seen DESC)` |
 | `idx_contact_group_members_key` | `contact_group_members(public_key)` |
 | `idx_contact_name_history_key` | `contact_name_history(public_key, last_seen DESC)` |
