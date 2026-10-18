@@ -5,6 +5,7 @@ import {
   Database,
   Globe,
   Info,
+  Link2,
   MonitorCog,
   RadioTower,
   RefreshCw,
@@ -22,6 +23,7 @@ export type SettingsSection =
   | 'notifications'
   | 'updates'
   | 'community'
+  | 'share'
   | 'radio-app'
   | 'alerts'
   | 'database'
@@ -37,6 +39,7 @@ export const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   'notifications',
   'updates',
   'community',
+  'share',
   'fanout',
   'radio-app',
   'alerts',
@@ -54,6 +57,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   notifications: 'settingsNav.notifications',
   updates: 'settingsNav.updates',
   community: 'settingsNav.community',
+  share: 'settingsNav.share',
   'radio-app': 'settingsNav.radioApp',
   alerts: 'settingsNav.alerts',
   database: 'settingsNav.database',
@@ -70,6 +74,7 @@ export const SETTINGS_SECTION_ICONS: Record<SettingsSection, LucideIcon> = {
   notifications: Bell,
   updates: RefreshCw,
   community: Globe,
+  share: Link2,
   'radio-app': SlidersHorizontal,
   alerts: TriangleAlert,
   database: Database,

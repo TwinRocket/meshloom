@@ -3237,6 +3237,12 @@ class ShareStatus(BaseModel):
         description="The radio private key is held, so shared files can be encrypted for a contact"
     )
     banned: bool = Field(description="The service banned this instance: writes are refused")
+    unreachable: bool = Field(
+        description=(
+            "The circuit breaker is open: recent calls to the service failed, so its terms "
+            "pages are probably unreadable too. Known locally, no request is made to find out"
+        )
+    )
     shorten_mode: Literal["auto", "always", "never"]
     preview_policy: Literal["always", "private", "never"]
 

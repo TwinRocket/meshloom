@@ -64,6 +64,7 @@ class TestStatus:
             "identity_ready": False,
             "dm_encryption_available": False,
             "banned": False,
+            "unreachable": False,
             "shorten_mode": "auto",
             "preview_policy": "private",
         }
@@ -80,6 +81,18 @@ class TestStatus:
         assert body["identity_ready"] is True
         assert body["dm_encryption_available"] is True
         assert on.requests == []
+
+    async def test_unreachable_follows_the_breaker_without_a_request(self, off, client):
+        breaker = share.share_breaker()
+        for _ in range(share.BREAKER_FAILURE_THRESHOLD):
+            breaker.record_failure()
+        try:
+            body = (await client.get("/api/share/status")).json()
+        finally:
+            breaker.record_success()
+        assert body["unreachable"] is True
+        assert off.requests == []
+        assert (await client.get("/api/share/status")).json()["unreachable"] is False
 
 
 class TestLinks:
