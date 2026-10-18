@@ -616,7 +616,6 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
     changes: dict[str, Any] = {}
     stored_secrets = frozenset(row["secret_fields"])
     schema = row["config_schema"]
-    attention = row["attention"]
     # Re-evaluated from the stored config on every call, never trusted from the flag.
     missing = _stored_missing(row)
     if "config" in fields and body.config is not None:
