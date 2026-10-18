@@ -101,7 +101,8 @@ jobs:
 
       - name: Create the plugin account and open the checkout to it
         run: |
-          useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin --user-group meshloom-plugin
+          groupadd --system --gid 10002 meshloom-plugin
+          useradd --system --uid 10002 --gid meshloom-plugin --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin meshloom-plugin
           chmod -R a+rX "$GITHUB_WORKSPACE"
           d="$GITHUB_WORKSPACE"; while [ "$d" != / ]; do chmod a+x "$d"; d=$(dirname "$d"); done
           pip install --no-cache-dir -q pytest

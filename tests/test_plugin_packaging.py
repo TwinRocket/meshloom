@@ -127,14 +127,19 @@ def test_runner_package_uses_only_the_standard_library() -> None:
 
 
 def test_image_creates_the_plugin_account() -> None:
-    from app.plugins.isolation.setuid import ACCOUNT
+    from app.plugins.isolation.setuid import ACCOUNT, ACCOUNT_UID
 
     stage = " ".join(_final_stage((ROOT / "Dockerfile").read_text())).replace("\\ ", "")
-    match = re.search(rf"RUN useradd ([^\n]*?) {ACCOUNT}\b", stage)
+    match = re.search(rf"useradd ([^;]*?) {ACCOUNT};", stage)
     assert match, "the image must create the dedicated plugin account"
     options = match.group(1)
     assert "--system" in options and "/usr/sbin/nologin" in options
     assert "--create-home" not in options.replace("--no-create-home", "")
+    # Pinned uid/gid, and an existing account is kept (no failing useradd).
+    assert f"ARG PLUGIN_UID={ACCOUNT_UID}" in stage
+    assert '--uid "${PLUGIN_UID}"' in options
+    assert f"getent passwd {ACCOUNT}" in stage
+    assert f'groupadd --system --gid "${{PLUGIN_UID}}" {ACCOUNT}' in stage
 
 
 def test_packages_recommend_bubblewrap() -> None:

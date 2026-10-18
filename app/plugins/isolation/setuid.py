@@ -22,6 +22,9 @@ from app.plugins.isolation import permissions
 from app.plugins.isolation.base import IsolationBackend
 
 ACCOUNT = "meshloom-plugin"
+# The uid and gid the Docker image gives it (Dockerfile, `PLUGIN_UID`). Any
+# non-root uid works; this one keeps clear of common host accounts.
+ACCOUNT_UID = 10002
 
 
 class SetuidBackend(IsolationBackend):

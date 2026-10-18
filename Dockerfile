@@ -92,8 +92,16 @@ RUN mkdir -p /app/data
 # here and in the Home Assistant add-on): app/plugins/isolation/setuid.py. No
 # shell, no home, no password; Docker's seccomp profile refuses the user
 # namespaces bubblewrap needs, so this is the isolation of the image.
-RUN useradd --system --no-create-home --home-dir /nonexistent \
-        --shell /usr/sbin/nologin --user-group meshloom-plugin
+# uid/gid pinned to 10002 (next to MESHLOOM_RUN_AS_USER's 10001): Docker does not
+# remap users, so this is that uid on the host too, and the first system uid
+# (999) is often a real host account. An existing account is kept as it is.
+ARG PLUGIN_UID=10002
+RUN if ! getent passwd meshloom-plugin >/dev/null; then \
+        getent group meshloom-plugin >/dev/null \
+            || groupadd --system --gid "${PLUGIN_UID}" meshloom-plugin; \
+        useradd --system --uid "${PLUGIN_UID}" --gid meshloom-plugin --no-create-home \
+            --home-dir /nonexistent --shell /usr/sbin/nologin meshloom-plugin; \
+    fi
 
 # Root by default, like every image before it. MESHLOOM_RUN_AS_USER=10001 opts
 # in to running as that uid (see docker-entrypoint.sh). setpriv comes with
