@@ -143,7 +143,10 @@ These hold for every section; a restore function must keep them:
    - the SQLite snapshot (`GET /settings/backup/database`) sets every
      `app_settings.*_seed` column to NULL in the copy, with the other secrets
      the full backup excludes (`SNAPSHOT_SCRUBBED_COLUMNS`: the BLE PIN and the
-     previous-transport snapshot that holds it), under `PRAGMA secure_delete`
+     previous-transport snapshot that holds it) and the local accounts
+     secrets (`SNAPSHOT_SCRUBBED_AUTH_COLUMNS`: `users.password_hash`,
+     `users.totp_secret`, `auth_settings.setup_code_hash`; the `sessions`
+     table is emptied, `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
      so the old values do not stay in the file's free space. The live database
      keeps them.
 

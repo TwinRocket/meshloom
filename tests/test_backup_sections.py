@@ -638,3 +638,37 @@ async def test_the_sqlite_snapshot_holds_no_seed_and_no_ble_pin(seeded, tmp_path
         assert secret.encode() not in raw, secret
     # The live database keeps them.
     assert SEED_REMOTE in await AppSettingsRepository.get_identity_seed_values()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
+    """Sessions, password and TOTP secrets and the setup code hash never leave
+    in the database download; the accounts themselves do."""
+    from app.auth.tokens import hash_token
+    from app.repository.auth import (
+        AuthSessionRepository,
+        AuthSettingsRepository,
+        UserRepository,
+    )
+
+    password_hash = "$argon2id$v=19$m=8,t=1,p=1$c2FsdHNhbHQ$aGFzaGhhc2g"
+    user = await UserRepository.create("admin", "admin", password_hash=password_hash)
+    async with test_db.tx() as conn:
+        await conn.execute("UPDATE users SET totp_secret = 'JBSWY3DPEHPK3PXP'")
+    await AuthSessionRepository.create(user.id, hash_token("cookie"), lifetime_s=60)
+    await AuthSettingsRepository.set_setup_code_hash(hash_token("setup"))
+
+    snapshot = tmp_path / "meshcore.db"
+    await write_sqlite_backup(test_db, str(snapshot))
+    async with aiosqlite.connect(snapshot) as conn:
+        async with conn.execute("SELECT username, password_hash, totp_secret FROM users") as c:
+            assert await c.fetchall() == [("admin", None, None)]
+        async with conn.execute("SELECT COUNT(*) FROM sessions") as c:
+            assert (await c.fetchone())[0] == 0
+        async with conn.execute("SELECT setup_code_hash FROM auth_settings") as c:
+            assert (await c.fetchone())[0] is None
+    raw = snapshot.read_bytes()
+    for secret in (password_hash, hash_token("cookie"), hash_token("setup"), "JBSWY3DPEHPK3PXP"):
+        assert secret.encode() not in raw
+    # The live database keeps them.
+    assert await AuthSettingsRepository.get_setup_code_hash() == hash_token("setup")

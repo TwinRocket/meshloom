@@ -31,6 +31,7 @@ def cleanup_test_db_dir():
 async def patched_database(path: str = ":memory:"):
     """A connected Database with schema + migrations, wired into every repository."""
     from app.repository import (
+        auth,
         channels,
         contact_groups,
         contact_telemetry,
@@ -52,6 +53,7 @@ async def patched_database(path: str = ":memory:"):
     await db.connect()
 
     submodules = [
+        auth,
         contacts,
         channels,
         contact_groups,

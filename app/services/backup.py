@@ -206,6 +206,13 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         ),
         ("excluded", _HISTORY),
     ),
+    # Local accounts (docs/dev/auth.md). Users come with the accounts section
+    # (Access T65). Sessions and the setup code never leave; the audit trail
+    # is not in the JSON backup but stays in the SQLite download.
+    "users": ("excluded", "accounts section: Access T65"),
+    "sessions": ("excluded", "login sessions, never exported"),
+    "auth_audit": ("excluded", "audit trail: not in the JSON backup, kept in the SQLite download"),
+    "auth_settings": ("excluded", "access settings and setup code hash: Access T65"),
 }
 
 

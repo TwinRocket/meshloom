@@ -280,10 +280,21 @@ async def run_on_restore_hooks(source: RestoreSource) -> None:
 # ``app_settings.*_seed`` column is cleared too, whatever its name.
 SNAPSHOT_SCRUBBED_COLUMNS: tuple[str, ...] = ("radio_ble_pin", "radio_previous_transport")
 
+# Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets and
+# the setup code hash are set to NULL, and the sessions are deleted. A restored
+# snapshot keeps the accounts but none can log in with a password: recovery
+# goes through the admin reset (Access tickets).
+SNAPSHOT_SCRUBBED_AUTH_COLUMNS: dict[str, tuple[str, ...]] = {
+    "users": ("password_hash", "totp_secret"),
+    "auth_settings": ("setup_code_hash",),
+}
+SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = ("sessions",)
+
 
 async def prepare_sqlite_snapshot(conn: aiosqlite.Connection, exported_at: int) -> list[str]:
     """Scrub and mark a snapshot copy (never the live database). Returns the
-    cleared columns."""
+    cleared ``app_settings`` columns, then the cleared ``table.column`` names
+    and the emptied tables."""
     async with conn.execute("PRAGMA table_info(app_settings)") as cursor:
         columns = [row[1] for row in await cursor.fetchall()]
     cleared = [
@@ -294,6 +305,18 @@ async def prepare_sqlite_snapshot(conn: aiosqlite.Connection, exported_at: int) 
     if cleared:
         assignments = ", ".join(f'"{column}" = NULL' for column in cleared)
         await conn.execute(f"UPDATE app_settings SET {assignments}")
+    async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
+        tables = {row[0] for row in await cursor.fetchall()}
+    for table, table_columns in SNAPSHOT_SCRUBBED_AUTH_COLUMNS.items():
+        if table not in tables:
+            continue
+        assignments = ", ".join(f'"{column}" = NULL' for column in table_columns)
+        await conn.execute(f'UPDATE "{table}" SET {assignments}')
+        cleared.extend(f"{table}.{column}" for column in table_columns)
+    for table in SNAPSHOT_EMPTIED_TABLES:
+        if table in tables:
+            await conn.execute(f'DELETE FROM "{table}"')
+            cleared.append(table)
     await conn.execute(
         f"CREATE TABLE IF NOT EXISTS {SQLITE_SNAPSHOT_MARKER} (exported_at INTEGER NOT NULL)"
     )
