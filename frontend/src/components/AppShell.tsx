@@ -393,6 +393,7 @@ export function AppShell({
       onOpenNotifySettings={sidebarProps.onOpenNotifySettings}
       emailReady={sidebarProps.emailReady}
       webhookReady={sidebarProps.webhookReady}
+      appriseReady={sidebarProps.appriseReady}
     />
   );
 

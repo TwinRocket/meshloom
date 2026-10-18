@@ -103,6 +103,7 @@ interface Props {
   onOpenNotifySettings?: () => void;
   emailReady?: boolean;
   webhookReady?: boolean;
+  appriseReady?: boolean;
 }
 
 interface Row {
@@ -222,6 +223,7 @@ export function ConversationListView({
   onOpenNotifySettings,
   emailReady = false,
   webhookReady = false,
+  appriseReady = false,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
@@ -636,6 +638,7 @@ export function ConversationListView({
                           notifyMediaEnabled={getNotifyMediaEnabled?.(row.conversation)}
                           emailReady={emailReady}
                           webhookReady={webhookReady}
+                          appriseReady={appriseReady}
                           canMute={row.kind === 'channel' && !!onMuteChannel}
                           muted={row.channel?.muted}
                           mutedUntil={row.channel?.muted_until}

@@ -51,6 +51,7 @@ import type {
 import {
   isEmailDestinationReady,
   isWebhookDestinationReady,
+  isAppriseDestinationReady,
   resolveNotificationDestinations,
 } from './types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM } from './types';
@@ -695,7 +696,12 @@ export function App() {
     onDeleteContact: handleDeleteContact,
     onSetChannelFloodScopeOverride: handleSetChannelFloodScopeOverride,
     getNotifyMediaEnabled: (conversation: Conversation): NotificationMediaFlags => {
-      const empty: NotificationMediaFlags = { push: false, email: false, webhook: false };
+      const empty: NotificationMediaFlags = {
+        push: false,
+        email: false,
+        webhook: false,
+        apprise: false,
+      };
       if (conversation.type !== 'contact' && conversation.type !== 'channel') {
         return empty;
       }
@@ -706,6 +712,7 @@ export function App() {
         push: pushSubscription.isConversationMediaEnabled(key, policy, 'push'),
         email: pushSubscription.isConversationMediaEnabled(key, policy, 'email'),
         webhook: pushSubscription.isConversationMediaEnabled(key, policy, 'webhook'),
+        apprise: pushSubscription.isConversationMediaEnabled(key, policy, 'apprise'),
       };
     },
     onSetConversationMediaFor: async (
@@ -736,6 +743,9 @@ export function App() {
     ),
     webhookReady: isWebhookDestinationReady(
       resolveNotificationDestinations(appSettings?.notification_destinations).webhook
+    ),
+    appriseReady: isAppriseDestinationReady(
+      resolveNotificationDestinations(appSettings?.notification_destinations).apprise
     ),
   };
   const bulkAddChannelResultModalProps = {
@@ -792,7 +802,12 @@ export function App() {
     onMessageDeleted: removeMessage,
     onDismissUnreadMarker: dismissChannelUnreadMarker,
     notifyMediaEnabled: (() => {
-      const empty: NotificationMediaFlags = { push: false, email: false, webhook: false };
+      const empty: NotificationMediaFlags = {
+        push: false,
+        email: false,
+        webhook: false,
+        apprise: false,
+      };
       if (
         !activeConversation ||
         (activeConversation.type !== 'contact' && activeConversation.type !== 'channel')
@@ -806,6 +821,7 @@ export function App() {
         push: pushSubscription.isConversationMediaEnabled(key, policy, 'push'),
         email: pushSubscription.isConversationMediaEnabled(key, policy, 'email'),
         webhook: pushSubscription.isConversationMediaEnabled(key, policy, 'webhook'),
+        apprise: pushSubscription.isConversationMediaEnabled(key, policy, 'apprise'),
       };
     })(),
     emailReady: isEmailDestinationReady(
@@ -813,6 +829,9 @@ export function App() {
     ),
     webhookReady: isWebhookDestinationReady(
       resolveNotificationDestinations(appSettings?.notification_destinations).webhook
+    ),
+    appriseReady: isAppriseDestinationReady(
+      resolveNotificationDestinations(appSettings?.notification_destinations).apprise
     ),
     onSetConversationMedia: async (channel: NotificationMediaChannel, enabled: boolean) => {
       if (

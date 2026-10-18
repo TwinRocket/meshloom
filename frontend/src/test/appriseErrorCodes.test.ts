@@ -12,12 +12,16 @@ import nEn from '../i18n/locales/slices/n.en.json';
 import nFr from '../i18n/locales/slices/n.fr.json';
 import oEn from '../i18n/locales/slices/p.en.json';
 import oFr from '../i18n/locales/slices/p.fr.json';
+import rEn from '../i18n/locales/slices/r.en.json';
+import rFr from '../i18n/locales/slices/r.fr.json';
 
 for (const [lang, slice] of [
   ['en', nEn],
   ['fr', nFr],
   ['en', oEn],
   ['fr', oFr],
+  ['en', rEn],
+  ['fr', rFr],
 ] as const) {
   i18n.addResourceBundle(lang, 'translation', slice, true, true);
 }
@@ -64,4 +68,28 @@ describe('Apprise URL error codes', () => {
       expect(oFr.errors[key]).not.toBe(oEn.errors[key]);
     }
   });
+
+  it.each(['en', 'fr'] as const)(
+    'translates the notification send failures with line, URL and status in %s',
+    (lang) => {
+      const t = i18n.getFixedT(lang);
+      for (const code of [
+        'network_error',
+        'rate_limited',
+        'service_error',
+        'service_rejected',
+        'send_failed',
+      ]) {
+        const err = new ApiError('backend message', 502, {
+          code,
+          message: 'backend message',
+          params: { line: 2, context: 'apprise', url: 'tgram://****', status: 401 },
+        });
+        const text = formatApiError(err, t);
+        expect(text).not.toBe('backend message');
+        expect(text).toContain('2');
+        expect(text).toContain('tgram://****');
+      }
+    }
+  );
 });
