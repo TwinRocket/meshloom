@@ -16,7 +16,7 @@ export const WS_EVENT_PERMISSIONS = {
   message_acked: 'read',
   message_deleted: 'read',
   radio_wifi: 'admin',
-  plugin_status: 'send',
+  plugin_status: 'admin',
   error: 'read',
   success: 'read',
 } as const;
