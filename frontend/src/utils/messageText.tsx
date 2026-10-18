@@ -3,10 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { ShareLinkAnchor } from '../components/message/ShareLinkAnchor';
 import { findLinkedChannelReferences } from './messageParser';
-
-// URL regex for linkifying plain text
-const URL_PATTERN =
-  /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_+.~#?&//=]*)/g;
+import { URL_PATTERN } from './share';
 
 export function renderChannelReferences(
   text: string,
