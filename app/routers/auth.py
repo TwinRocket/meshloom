@@ -23,6 +23,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -118,6 +119,13 @@ _MESSAGES = {
         "or too many trusted networks"
     ),
     "auth_trusted_network_user_invalid": "A trusted network names no enabled account",
+    "auth_public_urls_invalid": (
+        "Not an address of the form https://host[:port][/prefix], or too many public addresses"
+    ),
+    "auth_host_guard_would_lock_out": (
+        "Enforcing the Host guard would reject the address you are using now: "
+        "declare it as a public address first"
+    ),
     "auth_trusted_network_overlaps_proxy": "A trusted network overlaps a trusted proxy",
     "auth_trusted_network_loopback": (
         "A trusted network covers loopback, where a local proxy or tunnel would bring every visitor"
@@ -711,6 +719,12 @@ class AuthSettingsView(BaseModel):
             "(always admin)."
         )
     )
+    public_urls: list[str] = Field(
+        description=(
+            "Declared public addresses, canonical 'https://host[:port][/prefix]'. Their hosts "
+            "pass the Host guard."
+        )
+    )
     host_guard_mode: HostGuardMode = Field(
         description=(
             "'observe' (default in 5.0.0): a Host header that is not one of this instance's "
@@ -746,6 +760,8 @@ class AuthSettingsPatch(BaseModel):
         default=None, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
     )
     ingress_default_role: Role | None = None
+    public_urls: list[str] | None = Field(default=None, max_length=host_guard.MAX_PUBLIC_URLS * 4)
+    host_guard_mode: HostGuardMode | None = None
 
 
 def _plugins_isolation_reduced() -> bool:
@@ -794,6 +810,7 @@ async def _settings_view(settings: AuthSettings) -> AuthSettingsView:
         ],
         audit_retention_days=settings.audit_retention_days,
         ingress_default_role=settings.ingress_default_role,
+        public_urls=settings.public_urls,
         host_guard_mode=settings.host_guard_mode,
         rejected_hosts=host_guard.rejected_hosts(),
         security_notices=await _security_notices(settings),
@@ -858,6 +875,23 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             trusted_proxies = normalize_proxies(body.trusted_proxies)
         except ValueError:
             raise _error(400, "auth_trusted_proxies_invalid") from None
+    public_urls: list[str] | None = None
+    if body.public_urls is not None:
+        try:
+            public_urls = host_guard.normalize_public_urls(body.public_urls)
+        except host_guard.PublicUrlError:
+            raise _error(400, "auth_public_urls_invalid") from None
+    if public_urls is not None or body.host_guard_mode is not None:
+        # Never save a guard that rejects the request being answered.
+        current = await AuthSettingsRepository.get()
+        new_urls = public_urls if public_urls is not None else current.public_urls
+        new_mode = body.host_guard_mode or current.host_guard_mode
+        if host_guard.would_lock_out(request.scope, new_mode, new_urls):
+            raise _error(
+                400,
+                "auth_host_guard_would_lock_out",
+                {"host": host_guard.request_host(request.headers.get("host", "")) or "unknown"},
+            )
     trusted_networks: list[TrustedNetworkRule] | None = None
     if body.trusted_networks is not None:
         trusted_networks = _normalize_rules(body.trusted_networks)
@@ -867,13 +901,15 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         await _check_rules(
             trusted_networks if trusted_networks is not None else current.trusted_networks,
             trusted_proxies if trusted_proxies is not None else current.trusted_proxies,
-            current.public_urls,
+            public_urls if public_urls is not None else current.public_urls,
         )
     settings = await AuthSettingsRepository.update(
         trusted_proxies=trusted_proxies,
         trusted_networks=trusted_networks,
         audit_retention_days=body.audit_retention_days,
         ingress_default_role=body.ingress_default_role,
+        public_urls=public_urls,
+        host_guard_mode=body.host_guard_mode,
     )
     if trusted_proxies is not None:
         logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))
@@ -908,6 +944,25 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             "success",
             target="auth_settings.ingress_default_role",
             details={"ingress_default_role": settings.ingress_default_role},
+        )
+    if public_urls is not None:
+        for url in public_urls:
+            if name := urlsplit(url).hostname:
+                host_guard.forget_rejected(name)
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.public_urls",
+            details={"public_urls": public_urls},
+        )
+    if body.host_guard_mode is not None:
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.host_guard_mode",
+            details={"host_guard_mode": settings.host_guard_mode},
         )
     return await _settings_view(settings)
 

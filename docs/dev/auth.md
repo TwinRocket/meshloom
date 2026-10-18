@@ -983,8 +983,42 @@ What the settings screen (MSHL-65) reads: `GET /api/auth/settings` returns
 `host_guard_mode` and `rejected_hosts`, a list of `{host, count, first_seen,
 last_seen}`, newest first, at most 64 (`MAX_REJECTED_HOSTS`, least recently
 seen dropped). It lives in memory and is empty after a restart; only a
-well-formed name (ASCII, printable, 253 characters at most) is recorded.
-`host_guard.forget_rejected(name)` drops one once declared. Changing the mode
-or `public_urls` is not in `PATCH /api/auth/settings` yet: it goes through
-`AuthSettingsRepository.update(host_guard_mode=..., public_urls=...)`, which
-refreshes the guard (`host_guard.apply`).
+name of letters, digits, dots and hyphens (LDH, 253 characters at most) is
+recorded; anything else (quotes, semicolons, braces, underscores, non-ASCII) is
+neither listed nor logged. The first-sighting warning is rate limited
+(`WARNING_BURST` lines per `WARNING_WINDOW_S`, then one summary line when the next
+window opens), so cycling through names cannot flood the log. The 421 carries the
+static security headers (`nosniff`, `Referrer-Policy`, `X-Frame-Options`, a
+`frame-ancestors 'none'` CSP, `Permissions-Policy`, `no-store`; no HSTS) because it
+is written outside `app/main.py`'s header middleware.
+
+`enforce` records the refused names too (before the 421 or the 1008), so the screen
+lists what was refused; the names are client-supplied, hence the risk text and the
+confirmation step of "Allow". Recovery without the UI: `meshloom-admin
+host-guard-observe` (audited as `settings.changed`, `via = "cli"`; like the other
+commands it needs a shell and the database file, no extra privilege). The running
+server sees it without a restart: a request about to be refused re-reads the settings
+row first, at most every 2 s (`REFRESH_MIN_INTERVAL_S`), and keeps its in-memory
+settings if the read fails. Public URL hosts
+are converted to punycode (IDNA), checked label by label (1 to 63 LDH characters, no
+leading or trailing hyphen), the port is 1 to 65535, and the path prefix is limited to
+`[A-Za-z0-9._~-]` segments and `%XX` escapes (no dot segment, even encoded).
+
+Settings (MSHL-65, Settings → Users & Access → Public addresses,
+`AccessPublicAddressesPanel.tsx`): `PATCH /api/auth/settings` (admin) takes
+`public_urls` and `host_guard_mode` and returns them in the view. Entries go
+through `host_guard.normalize_public_urls`: `https` only, a DNS name (LDH) or IP
+literal, optional port (443 dropped) and path prefix, no credentials, query or
+fragment, at most 16, canonical form; a refusal is the coded 400
+`auth_public_urls_invalid`. **Lock-out rule**: the route computes the resulting
+mode and list and answers 400 `auth_host_guard_would_lock_out` (`params.host`) when
+`host_guard.would_lock_out(scope, mode, urls)` says the request being answered
+would be rejected (ingress and relay requests are exempt, as in the middleware).
+It applies to switching to `enforce`, and to removing the current host while
+`enforce` is on. Saving a list `forget_rejected`s every declared host (the "Allow"
+button is a PATCH adding `https://<host>`). Both changes are audited
+(`settings.changed`, targets `auth_settings.public_urls` and
+`auth_settings.host_guard_mode`). No environment variable and no migration: the
+columns exist since migration 101. Not done here: a dashboard banner for hosts
+rejected in the last 24 hours, and the pairing payloads / Remote page that will read
+`public_urls`.

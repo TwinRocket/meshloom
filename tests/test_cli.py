@@ -233,7 +233,14 @@ def test_help_runs():
         [sys.executable, "-m", "app.cli", "--help"], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0
-    for name in ("reset-password", "create-admin", "setup-code", "list-users", "disable-user"):
+    for name in (
+        "reset-password",
+        "create-admin",
+        "setup-code",
+        "list-users",
+        "disable-user",
+        "host-guard-observe",
+    ):
         assert name in result.stdout
 
 
@@ -377,3 +384,26 @@ def test_setup_code_works_with_only_a_kiosk_account(dbfile, capsys):
     _add_user(dbfile, "kiosk", "kiosk", None)
     assert _query(dbfile, "SELECT count(*) FROM users") == [(1,)]
     assert run(dbfile, "setup-code") == 0
+
+
+def test_host_guard_observe_resets_the_mode_and_is_audited(dbfile, capsys):
+    from app.repository.auth import AuthSettingsRepository
+
+    async def set_enforce() -> None:
+        conn = await cli._open_database(str(dbfile))
+        try:
+            await AuthSettingsRepository.update(host_guard_mode="enforce")
+        finally:
+            from app.database import db
+
+            db._connection = None
+            await conn.close()
+
+    asyncio.run(set_enforce())
+    assert _query(dbfile, "SELECT host_guard_mode FROM auth_settings") == [("enforce",)]
+    assert run(dbfile, "host-guard-observe") == 0
+    assert _query(dbfile, "SELECT host_guard_mode FROM auth_settings") == [("observe",)]
+    rows = _query(dbfile, "SELECT action, target, via FROM auth_audit")
+    assert ("settings.changed", "auth_settings.host_guard_mode", "cli") in rows
+    assert run(dbfile, "host-guard-observe") == 0
+    assert "already" in capsys.readouterr().out

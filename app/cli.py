@@ -8,6 +8,7 @@ Run it on the machine (or in the container) that holds the database::
     meshloom-admin list-users
     meshloom-admin disable-user alice
     meshloom-admin revoke-sessions --all
+    meshloom-admin host-guard-observe
 
 It opens the SQLite file directly, through the same repositories as the server
 (``app/repository/auth.py``), so a change is visible to a running server on its
@@ -46,6 +47,7 @@ from app.database import db
 from app.repository.auth import (
     AuthSessionRepository,
     AuthSettingsMissingError,
+    AuthSettingsRepository,
     InvalidUsernameError,
     UsernameTakenError,
     UserRepository,
@@ -61,6 +63,7 @@ _COMMAND_ACTIONS: dict[str, audit.AuditAction] = {
     "disable-user": "user.disabled",
     "enable-user": "user.enabled",
     "revoke-sessions": "session.revoked",
+    "host-guard-observe": "settings.changed",
 }
 
 # Same floor as the setup form (cadrage P1); the full policy (common-password
@@ -295,6 +298,18 @@ async def _disable_user(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _host_guard_observe(args: argparse.Namespace) -> int:
+    """The recovery path of an enforced Host guard that rejects every name you can reach."""
+    settings_row = await AuthSettingsRepository.get()
+    if settings_row.host_guard_mode == "observe":
+        print("The Host guard is already in observation mode.")
+        return 0
+    await AuthSettingsRepository.update(host_guard_mode="observe")
+    await _audit(args, "auth_settings.host_guard_mode", host_guard_mode="observe")
+    print("Host guard set to observation mode: unknown names are listed and let through.")
+    return 0
+
+
 async def _enable_user(args: argparse.Namespace) -> int:
     user = await _find_user(args.username)
     if not user.disabled:
@@ -337,6 +352,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Awaitable[int]]] = {
     "disable-user": _disable_user,
     "enable-user": _enable_user,
     "revoke-sessions": _revoke_sessions,
+    "host-guard-observe": _host_guard_observe,
 }
 
 
@@ -387,6 +403,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     cmd = add("enable-user", "allow a disabled user to sign in again")
     cmd.add_argument("username")
+
+    add(
+        "host-guard-observe",
+        "switch the Host guard back to observation mode (recover from a name that is refused)",
+    )
 
     cmd = add("revoke-sessions", "sign a user (or everyone) out")
     target = cmd.add_mutually_exclusive_group(required=True)
