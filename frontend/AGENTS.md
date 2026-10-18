@@ -303,6 +303,19 @@ unavailable. Strings: slice `ar` (`settings.share.*`, `settingsNav.share`).
 Slice letters are taken per ticket at merge time; pick the next free one and never
 rename a slice. Tests: `src/test/settingsShareSection.test.tsx`.
 
+**Composer shortening.** `MessageInput` reads `useShareStatus()` (local, no egress;
+off or `shorten_mode: never` means no button, no request). Pure helpers in
+`utils/share.ts` (`findLongUrls`, `rewriteUrls`, `shortFormBytes`, `isShareLink`;
+it owns `URL_PATTERN`, shared with the linkifier). Mode `auto`: the Shorten button
+beside the counter appears only at `limitState === 'error'` with a long non-service
+URL; a click calls `api.shortenLink` per URL, sequentially, and rewrites the
+**textarea** (all or nothing, toast with Undo, nothing sent). Mode `always`: Send
+shortens first, then the byte guard judges the shortened text; if it still fails,
+the text stays in the textarea and nothing is sent. Shortening never happens in
+`onSend`/`message_send.py`, and `submitMessage` keeps its `error` check. Never
+rewritten: share-host URLs, `g:`/`m:`/`r:` payloads. Tests:
+`src/test/messageInputShorten.test.tsx`, `shareShortenUtils.test.ts`.
+
 ### i18n
 
 - `src/i18n/index.ts` loads only the active language. i18next `fallbackLng` is
