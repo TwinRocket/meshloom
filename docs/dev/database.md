@@ -220,7 +220,7 @@ never stored), `created_at`, `last_seen_at` (written at most once a minute),
 
 ### `auth_audit`
 
-Authentication audit trail: PK `id`, `ts`, `actor_user_id`, `actor_token_id`
+Audit trail (`app/auth/audit.py`, `docs/dev/auth.md`, "Audit log"): PK `id`, `ts`, `actor_user_id`, `actor_token_id`
 (no foreign keys: a row outlives its actor), `action`, `target`, `ip`, `via`,
 `outcome`, `details` (JSON; the repository refuses keys that name a secret).
 Retention `auth_settings.audit_retention_days` (366 by default).
@@ -325,9 +325,9 @@ databases). The current set:
   `tracked_telemetry_repeaters` and `tracked_telemetry_contacts`, and strips the
   `contact-*` entries from `push_conversations` and `push_conversation_overrides`.
   A new setting keyed by contact must be added to that reset.
-- `auth_audit` rows past `audit_retention_days`
-  (`AuthAuditRepository.purge_older_than`) have a purge helper, but no loop calls
-  it yet: the audit log ticket adds it to the housekeeping loop.
+- `auth_audit` rows past `auth_settings.audit_retention_days` (366 by default) are
+  deleted by `purge_audit()` (`app/auth/audit.py`) in the hourly housekeeping loop
+  (`app/services/stale_contacts.py`).
 - Everything else (messages, channels, fanout configs) is kept until the user
   deletes it.
 

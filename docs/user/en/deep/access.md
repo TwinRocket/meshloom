@@ -26,6 +26,14 @@ The first administrator, and the account Meshloom creates from the Basic auth lo
 
 Sign-in delays, the audit log and the session list record the address a request comes from. Behind a reverse proxy that is the proxy's, for every visitor, until you list the proxy in **Settings → Local Configuration → Trusted proxies**; Meshloom then uses the visitor's address the proxy forwards. List the proxy's own address only, never a Docker network or its gateway. See [HTTPS, trusted proxies](/en/docs/deep/https/#trusted-proxies).
 
+## Audit log
+
+Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, disabled or enabled again, password changes, the first administrator setup, changes to the access settings, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
+
+Each entry holds the time, the account that acted (none for a failed sign-in or the command line), the address it came from, the way in (local network, Home Assistant, command line, or Meshloom itself for an automatic update), what was acted on and how it ended. It never holds a password, an installation code, a session, a key or a bot's code.
+
+Administrators read it through `GET /api/auth/audit`, newest first, by pages; a viewer in Settings comes in a later version. Entries are kept **366 days**, then deleted by an hourly clean-up; an administrator changes that with `PATCH /api/auth/settings` and `{"audit_retention_days": <1 to 36500>}`. The log is not in the JSON backups; the database download (**Settings → Database**) keeps it.
+
 ## Commands
 
 | Command | What it does |
