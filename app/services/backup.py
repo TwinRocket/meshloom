@@ -206,6 +206,12 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         ),
         ("excluded", _HISTORY),
     ),
+    # Local accounts (docs/dev/auth.md). Users come with the accounts section
+    # (Access T65); sessions, the audit trail and the setup code never leave.
+    "users": ("excluded", "accounts section: Access T65"),
+    "sessions": ("excluded", "login sessions, never exported"),
+    "auth_audit": ("excluded", "audit trail, never exported"),
+    "auth_settings": ("excluded", "access settings and setup code hash: Access T65"),
 }
 
 
