@@ -31,7 +31,7 @@ hypothesis: check it against the code. Constants are named so you can grep them.
   `clock_skew`); 403 `code: banned` gives 403 `community_banned` (see Banned key);
   any other non-200 gives 502 (`CommunityUpstreamError.upstream_status`); an
   unexpected body gives 502.
-- `CommunityBreaker`: 3 consecutive failures (`BREAKER_FAILURE_THRESHOLD`) open it
+- `CommunityBreaker` (the shared `CircuitBreaker` of `app/net/breaker.py`): 3 consecutive failures (`BREAKER_FAILURE_THRESHOLD`) open it
   for 30 s (`BREAKER_OPEN_SECONDS`, 503 without network), then one trial call
   decides. The IATA suggestion and the release mirror never touch it.
 - The hashtag catalogue is global (`GET /community/hashtags` proxies
