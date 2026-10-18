@@ -466,12 +466,29 @@ describe('FeedView filter chips', () => {
     expect(chip(chipLabel('channels'))).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('keeps Control and Events disabled until their sources exist', async () => {
+  it('enables Control (on by default) and keeps Events disabled until its source exists', async () => {
     mocks.getMessages.mockResolvedValue(mixedRows());
     renderFeed(mixedChannels);
     await screen.findByRole('list');
-    expect(chip(chipLabel('control'))).toBeDisabled();
+    expect(chip(chipLabel('control'))).toBeEnabled();
+    expect(chip(chipLabel('control'))).toHaveAttribute('aria-pressed', 'true');
     expect(chip(chipLabel('events'))).toBeDisabled();
+  });
+});
+
+describe('FeedView Control preset', () => {
+  it('opens with only the control source on, and writes nothing back to the feed filters', async () => {
+    localStorage.setItem(FEED_FILTERS_STORAGE_KEY, JSON.stringify({ includePending: true }));
+    mocks.getMessages.mockResolvedValue([]);
+    render(<FeedView preset="control" contacts={[]} channels={channels} />);
+    await waitFor(() => expect(chip(chipLabel('control'))).toBeInTheDocument());
+    expect(chip(chipLabel('control'))).toHaveAttribute('aria-pressed', 'true');
+    expect(chip(chipLabel('messages'))).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(chip(chipLabel('messages')));
+    expect(chip(chipLabel('messages'))).toHaveAttribute('aria-pressed', 'true');
+    expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toEqual({
+      includePending: true,
+    });
   });
 });
 

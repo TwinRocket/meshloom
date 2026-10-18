@@ -3,7 +3,7 @@ import logging
 import re
 import time
 from collections.abc import Mapping
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict, TypeVar
 
 import aiosqlite
 from pydantic import ValidationError
@@ -176,6 +176,24 @@ def _parse_auto_update_hhmm(raw: object, default: str = "00:00") -> str:
         return default
 
 
+_ChoiceT = TypeVar("_ChoiceT", bound=str)
+ShareShortenMode = Literal["auto", "always", "never"]
+SharePreviewPolicy = Literal["always", "private", "never"]
+SHARE_SHORTEN_MODES: tuple[ShareShortenMode, ...] = ("auto", "always", "never")
+SHARE_PREVIEW_POLICIES: tuple[SharePreviewPolicy, ...] = ("always", "private", "never")
+
+
+def _share_choice(
+    row: Any, column: str, allowed: tuple[_ChoiceT, ...], default: _ChoiceT
+) -> _ChoiceT:
+    """A stored share choice, or ``default`` when it is missing or not a known value."""
+    try:
+        value = row[column]
+    except (KeyError, TypeError, IndexError):
+        return default
+    return value if value in allowed else default
+
+
 def _parse_allowed_origins(raw: object) -> list[str]:
     """The stored CORS allowlist; anything unreadable is same-origin only."""
     try:
@@ -280,7 +298,8 @@ class AppSettingsRepository:
                    force_channel_slot_reconfigure, load_with_autoevict,
                    auto_clock_wraparound, auth_allowed_origins,
                    push_allow_private_endpoints, push_private_endpoints_grandfathered,
-                   radio_offline_grace_s
+                   radio_offline_grace_s,
+                   share_enabled, share_shorten_mode, share_preview_policy
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -494,6 +513,13 @@ class AppSettingsRepository:
             push_allow_private_endpoints=_flag("push_allow_private_endpoints"),
             push_private_endpoints_grandfathered=_flag("push_private_endpoints_grandfathered"),
             radio_offline_grace_s=_grace,
+            share_enabled=_flag("share_enabled"),
+            share_shorten_mode=_share_choice(
+                row, "share_shorten_mode", SHARE_SHORTEN_MODES, "auto"
+            ),
+            share_preview_policy=_share_choice(
+                row, "share_preview_policy", SHARE_PREVIEW_POLICIES, "private"
+            ),
         )
 
     @staticmethod
@@ -535,6 +561,9 @@ class AppSettingsRepository:
         push_allow_private_endpoints: bool | None = None,
         push_private_endpoints_grandfathered: bool | None = None,
         radio_offline_grace_s: int | None = None,
+        share_enabled: bool | None = None,
+        share_shorten_mode: str | None = None,
+        share_preview_policy: str | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -676,6 +705,7 @@ class AppSettingsRepository:
             ("auto_clock_wraparound", auto_clock_wraparound),
             ("push_allow_private_endpoints", push_allow_private_endpoints),
             ("push_private_endpoints_grandfathered", push_private_endpoints_grandfathered),
+            ("share_enabled", share_enabled),
         ):
             if flag is not None:
                 updates.append(f"{column} = ?")
@@ -684,6 +714,16 @@ class AppSettingsRepository:
         if radio_offline_grace_s is not None:
             updates.append("radio_offline_grace_s = ?")
             params.append(min(max(int(radio_offline_grace_s), 0), 3600))
+
+        for column, choice, allowed in (
+            ("share_shorten_mode", share_shorten_mode, SHARE_SHORTEN_MODES),
+            ("share_preview_policy", share_preview_policy, SHARE_PREVIEW_POLICIES),
+        ):
+            if choice is not None:
+                if choice not in allowed:
+                    raise ValueError(f"{column} must be one of {', '.join(allowed)}")
+                updates.append(f"{column} = ?")
+                params.append(choice)
 
         if auth_allowed_origins is not None:
             updates.append("auth_allowed_origins = ?")
@@ -740,6 +780,9 @@ class AppSettingsRepository:
         push_allow_private_endpoints: bool | None = None,
         push_private_endpoints_grandfathered: bool | None = None,
         radio_offline_grace_s: int | None = None,
+        share_enabled: bool | None = None,
+        share_shorten_mode: str | None = None,
+        share_preview_policy: str | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated.
 
@@ -787,6 +830,9 @@ class AppSettingsRepository:
                 push_allow_private_endpoints=push_allow_private_endpoints,
                 push_private_endpoints_grandfathered=push_private_endpoints_grandfathered,
                 radio_offline_grace_s=radio_offline_grace_s,
+                share_enabled=share_enabled,
+                share_shorten_mode=share_shorten_mode,
+                share_preview_policy=share_preview_policy,
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
@@ -947,6 +993,29 @@ class AppSettingsRepository:
             if value not in (None, ""):
                 values.append(str(value))
         return values
+
+    @staticmethod
+    async def get_share_seed() -> str:
+        """The share instance identity seed ("" until the first enablement).
+
+        Internal-only column, not in ``AppSettings`` and never in a backup
+        (``*_seed`` columns are refused by the export and scrubbed from the
+        database copy).
+        """
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT share_instance_seed FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        return (row["share_instance_seed"] or "") if row else ""
+
+    @staticmethod
+    async def set_share_seed(seed: str) -> None:
+        """Store the share instance identity seed ("" forgets it)."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET share_instance_seed = ? WHERE id = 1", (seed,)
+            )
 
     @staticmethod
     async def get_vapid_keys() -> tuple[str, str]:

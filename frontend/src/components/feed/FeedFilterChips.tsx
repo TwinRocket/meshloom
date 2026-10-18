@@ -60,7 +60,13 @@ export function FeedFilterChips({ filters, hidden, onChange }: FeedFilterChipsPr
             set({ sources: { ...filters.sources, messages: !filters.sources.messages } })
           }
         />
-        <Chip label={t('feed.filters.control')} pressed={false} disabled title={soon} />
+        <Chip
+          label={t('feed.filters.control')}
+          pressed={filters.sources.control}
+          onToggle={() =>
+            set({ sources: { ...filters.sources, control: !filters.sources.control } })
+          }
+        />
         <Chip label={t('feed.filters.events')} pressed={false} disabled title={soon} />
       </div>
       <div role="group" aria-label={t('feed.filters.show')} className="flex flex-wrap gap-1.5">

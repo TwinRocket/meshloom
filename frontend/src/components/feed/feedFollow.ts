@@ -1,4 +1,5 @@
 import type { Message } from '../../types';
+import type { JournalEntry } from '../../utils/controlJournal';
 
 /** Distance from the bottom, in px, that still counts as "pinned to the bottom". */
 export const FOLLOW_THRESHOLD_PX = 48;
@@ -22,4 +23,17 @@ export function highestId(rows: readonly Message[]): number {
   let max = 0;
   for (const row of rows) if (row.id > max) max = row.id;
   return max;
+}
+
+/**
+ * Control rows that arrived (browser clock, `received_at_ms`) after `baselineMs`. Control
+ * rows have no id to compare, and the ones seeded from the live buffer predate it.
+ */
+export function countControlArrivedSince(
+  entries: readonly JournalEntry[],
+  baselineMs: number
+): number {
+  let count = 0;
+  for (const entry of entries) if ((entry.packet.received_at_ms ?? 0) > baselineMs) count++;
+  return count;
 }

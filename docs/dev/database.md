@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 101 (the value of
+- Numbering is contiguous from 001. The current head is 103 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -44,7 +44,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 
 ### Adding a migration
 
-1. Create `app/migrations/_102_what_it_does.py` (next number, no gap) with
+1. Create `app/migrations/_104_what_it_does.py` (next number, no gap) with
    `async def migrate(conn)`. Make it idempotent as above.
 2. New table or column: the migration creates it for existing databases. Recent
    practice (082-084) also adds it to `SCHEMA_TABLES` in `app/database.py` so fresh
@@ -78,7 +78,12 @@ defaults and overrides, `ui_preferences`, `notification_destinations`,
 `app/origin_policy.py`; `wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
 password, outside `AppSettings`; `radio_outage_started_at`: Unix time of the radio outage
 that was notified, NULL when none, written by `notifications/radio_watch.py`, outside
-`AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`).
+`AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`;
+`share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
+(migration 102); `share_instance_seed`: the sharing identity seed, outside `AppSettings`,
+never exported by a backup; `store_online`: the Store egress consent, off by default,
+migration 103, not in `AppSettings` yet, excluded from backups and reset to 0 in a
+database copy).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
 written through `AppSettingsRepository` (`settings.py`), plus
 `RadioTransportRepository` (`radio_transport.py`) and `RadioProxyRepository`
@@ -231,6 +236,31 @@ secret reaches `AppSettings`: `trusted_networks` (JSON `[{cidr, user_id}]`),
 the installation code). The CORS list stays `app_settings.auth_allowed_origins`.
 `AuthSettingsRepository` (`auth.py`).
 
+### `plugins`
+
+Plugin instances (migration 103; model and rules in `docs/dev/plugins.md`, "Data
+model"): PK `instance_id` (uuid), `plugin_id` (the manifest id; several instances
+share one), `label`, `kind` (`bundled`/`store`/`custom`/`local`, CHECK), `version`,
+`enabled`, `manifest`, `config_schema` (the plugin's `config.schema.json`: its
+`writeOnly` fields are the secrets), `config` (never a secret), `scope`, `granted_permissions`,
+`quotas` (JSON), `auto_update`, `source` (a local plugin's code), `archive_sha256`,
+`repository`, `installed_at`, `updated_at`, `status`, `last_error`, `attention`
+(JSON, NULL when nothing to review), `sort_order`. `PluginRepository` (`plugins.py`).
+Nothing reads it yet: the bots stay in `fanout_configs` until the switch (Store T9).
+
+### `plugin_kv`
+
+Per-instance key-value store: PK `(instance_id, key)`, `value` (JSON), `updated_at`.
+No foreign key: uninstalling with "keep data" leaves the rows. `PluginKvRepository`
+(`plugins.py`).
+
+### `plugin_secrets`
+
+Values of the config schema's `writeOnly` fields: PK `(instance_id, field)`, `value`,
+`updated_at`. Stored in clear until the Notifications key file exists; never returned
+by the repository except `config_for_init()`, never exported, emptied in the database
+download. `PluginRepository` (`plugins.py`).
+
 ## Relationships
 
 All foreign keys point at `contacts(public_key)` (children: advert paths, name
@@ -267,6 +297,7 @@ databases). The current set:
 | `idx_messages_feed_outgoing` | `messages(outgoing, received_at)` |
 | `idx_messages_feed_type_outgoing` | `messages(type, outgoing, received_at)` |
 | `idx_messages_unread_covering` | `messages(type, conversation_key, outgoing, received_at)` |
+| `idx_plugins_plugin_id` | `plugins(plugin_id)` |
 | `idx_raw_packets_message_id` | `raw_packets(message_id)` |
 | `idx_raw_packets_payload_hash` | unique, `raw_packets(payload_hash)` |
 | `idx_raw_packets_timestamp` | `raw_packets(timestamp)` |
@@ -309,7 +340,8 @@ order in `app/AGENTS.md`, "## Backups"):
   is not in the database, so not in the snapshot. In the copy (never the live
   database) every `app_settings.*_seed` column, the BLE PIN, the
   previous-transport snapshot, the password and TOTP secrets of `users` and
-  `auth_settings.setup_code_hash` are set to NULL, `sessions` is emptied, and a one-row
+  `auth_settings.setup_code_hash` are set to NULL, `sessions` and `plugin_secrets` are
+  emptied, the consents `share_enabled` and `store_online` are set to 0, and a one-row
   `meshloom_backup_snapshot` marker table is added: a database
   that starts with it is a restored snapshot, so startup runs the restore hooks
   and drops it (`docs/dev/backup.md`). A fresh database never has it.

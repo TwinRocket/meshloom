@@ -120,7 +120,7 @@
     "noMatches": "Aucune correspondance",
     "markAllRead": "Tout marquer comme lu",
     "packetFeed": "Flux de paquets",
-    "controlJournal": "Journal de contrôle",
+    "controlJournal": "Contrôle",
     "rawPacketFeed": "Flux de paquets bruts",
     "nodeMap": "Carte des nœuds",
     "meshVisualizer": "Visualiseur mesh",
@@ -164,7 +164,6 @@
     "loadingChannelFinder": "Chargement du chercheur de canaux…"
   },
   "toolsView": {
-    "controlDescription": "Paquets de contrôle décodés, affichés comme une conversation",
     "discoveredDescription": "Salons hashtag ouverts automatiquement, à garder ou à refuser",
     "meshTestDescription": "Envoyer un flood de test et voir qui l’entend"
   },

@@ -41,7 +41,7 @@ async def test_fresh_and_migrated_databases_have_the_same_auth_schema(tmp_path):
     try:
         await set_version(conn, 100)
         applied = await run_migrations(conn)
-        assert applied == 1
+        assert applied == LATEST_SCHEMA_VERSION - 100
         assert await get_version(conn) == LATEST_SCHEMA_VERSION
     finally:
         await conn.close()

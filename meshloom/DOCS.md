@@ -134,6 +134,20 @@ folder (`addon_config`), which survives updates and is included in Home Assistan
 backups. Updating Meshloom is done from Home Assistant's add-on page: the
 in-app updater only tells you a new version exists.
 
+## Recovering access
+
+Home Assistant signs you in, so a lost Meshloom password does not lock you out of
+the add-on. The image still carries `meshloom-admin` for the rare case where you
+need to list, disable or reset accounts. With the *Advanced SSH & Web Terminal*
+add-on (Protection mode off):
+
+```
+docker exec -it $(docker ps --format '{{.Names}}' | grep meshloom) meshloom-admin list-users
+```
+
+It finds the add-on's database (`/config/meshcore.db`) by itself. Details:
+<https://meshloom.app/en/docs/deep/access/>.
+
 ## The radio identity
 
 Meshloom binds to the radio's public key the first time it connects. Moving the

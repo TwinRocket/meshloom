@@ -1,0 +1,92 @@
+---
+title: Recover access
+description: meshloom-admin, the command that resets a password, creates an administrator or issues the installation code from the machine, for each way of installing Meshloom.
+level: deep
+order: 21
+---
+
+From Meshloom 5.0, signing in needs a user account (see [Security](/en/docs/deep/security/)). If you lose the administrator's password, you do not need the web interface to get back in: `meshloom-admin` works on the machine that holds the database. Whoever can run it there already controls Meshloom's data, so it asks for no login.
+
+It changes the database file directly. A running Meshloom sees the change on its next request: no restart.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `meshloom-admin reset-password <user>` | Sets a new password (asked twice, or one line on standard input with `--stdin`) and signs the user out everywhere. `--must-change` asks for another at the next sign-in. |
+| `meshloom-admin create-admin <user>` | Creates an administrator. Same password options, plus `--display-name`. |
+| `meshloom-admin setup-code` | Issues a new installation code and prints it (see below). |
+| `meshloom-admin list-users` | Lists the accounts: id, role, provider, active or disabled, whether a password is set. `--json` for scripts. |
+| `meshloom-admin disable-user <user>` | Blocks a user and signs it out. Refuses the last active administrator unless you add `--force`. |
+| `meshloom-admin enable-user <user>` | Lets a disabled user sign in again. |
+| `meshloom-admin revoke-sessions <user>` or `--all` | Signs one user, or everyone, out. |
+
+Passwords are at least 12 characters and are never taken from the command line, so they stay out of your shell history. `meshloom-admin --help` and `meshloom-admin <command> --help` list every option. A command exits with 0 when it worked and 1 with a message when it did not, for example when the database file is missing, unreadable or not yet upgraded (start Meshloom once on the new version first).
+
+### The installation code
+
+When Meshloom is updated from an older version, the first administrator must prove they have access to the machine by typing an installation code. Meshloom stores only a fingerprint of the code, so it cannot be shown again: `meshloom-admin setup-code` makes a **new** one and the previous code stops working. The command only works while no account exists; afterwards use `create-admin` or `reset-password`.
+
+## The command for each installation
+
+Replace `alice` with the account name.
+
+### Linux package (apt or dnf)
+
+Run it with `sudo`:
+
+```bash
+sudo meshloom-admin reset-password alice
+```
+
+The command refuses to run without root. As root it reads the database path from `/etc/meshloom/meshloom.env` (a file only root can read), then switches to the `meshloom` user, which owns the database, so SQLite never leaves files the service cannot write. The same command is `/opt/meshloom/.venv/bin/meshloom-admin`.
+
+### Docker and Docker Compose
+
+Run it inside the container, from the folder holding `docker-compose.yml`:
+
+```bash
+docker compose exec meshloom meshloom-admin reset-password alice
+```
+
+With `docker run`, use `docker exec -it <container> meshloom-admin reset-password alice`. If the container runs as user 10001 (`MESHLOOM_RUN_AS_USER`), add `--user 10001` to `exec`, so the database files keep their owner. To feed a script, read the password without echoing it and pass it on standard input, so it never appears in your shell history: `read -rs pw; printf '%s\n' "$pw" | docker compose exec -T meshloom meshloom-admin reset-password alice --stdin`.
+
+### Home Assistant add-on
+
+The add-on does not use accounts of its own: Home Assistant signs you in and Meshloom accepts the person who opens it from the sidebar. If you cannot open Meshloom, fix your access in Home Assistant itself. The command still exists for the rare case where you need it. It runs in the add-on's container, so it needs a way to reach the host's Docker: the *Advanced SSH & Web Terminal* add-on with **Protection mode** turned off.
+
+```bash
+docker ps --format '{{.Names}}' | grep meshloom
+docker exec -it addon_xxxxxxxx_meshloom meshloom-admin list-users
+```
+
+Use the name printed by the first command. The add-on's database is `/config/meshcore.db` inside the container, which the command finds by itself.
+
+### Raspberry Pi image
+
+The image installs the Linux package, so the command is the same. Open a shell on the Pi over SSH (the user and key you set in Raspberry Pi Imager), then:
+
+```bash
+sudo meshloom-admin reset-password alice
+```
+
+If you need the installation code and cannot see the log, `meshloom-admin setup-code` gives a new one over SSH.
+
+### Copy of the code
+
+From the Meshloom folder, as the user that runs it:
+
+```bash
+cd ~/meshloom
+uv run python -m app.cli reset-password alice
+```
+
+The database is `data/meshcore.db` in that folder.
+
+## If it does not start
+
+- **`database not found`**: the command looked at the wrong file. Give it the path with `--db /path/to/meshcore.db`, or set `MESHCORE_DATABASE_PATH`.
+- **`run it as root`** (package): put `sudo` in front.
+- **`cannot read /etc/meshloom/meshloom.env`**: pass the database with `--db /path/to/meshcore.db` or set `MESHCORE_DATABASE_PATH`.
+- **`cannot read database` or `cannot open database for writing`**: you are not the user that owns the file. Use `sudo meshloom-admin` (package) or `docker compose exec` (Docker).
+- **`start Meshloom once`**: the database is older than the program. Start Meshloom so it upgrades the database, then run the command again.

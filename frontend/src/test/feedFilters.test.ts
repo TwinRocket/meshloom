@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { JournalEntry } from '../utils/controlJournal';
 import { buildFeedItems, createDayLabeler, localDayKey } from '../components/feed/feedDays';
 import { createFeedNameResolver } from '../components/feed/feedNames';
 import type { Channel, Contact, Message } from '../types';
@@ -9,6 +10,7 @@ import {
   FEED_FILTERS_STORAGE_KEY,
   filtersToQuery,
   hasEmptySelection,
+  hasNoMessages,
   isChannelMuted,
   loadFeedFilters,
   normalizeFeedFilters,
@@ -63,7 +65,7 @@ describe('rowPassesFilters (shared fixture)', () => {
     const filters = filtersOf(c.filters);
     expect(rowPassesFilters(row, filters, channels, fixture.now)).toBe(c.expected);
     expect(filtersToQuery(filters)).toEqual(c.query ?? filtersToQuery(filtersOf({})));
-    expect(hasEmptySelection(filters)).toBe(c.query === null);
+    expect(hasNoMessages(filters)).toBe(c.query === null);
   });
 });
 
@@ -258,5 +260,51 @@ describe('day separators', () => {
     expect(en(at('2026-03-01T10:00:00'), now)).toContain('2026');
     expect(createDayLabeler('fr')(at('2026-03-10T08:00:00'), now)).toMatch(/^Aujourd.hui$/);
     expect(localDayKey(now)).toBe(localDayKey(at('2026-03-10T00:00:01')));
+  });
+});
+
+describe('control source and node', () => {
+  it('shows control by default, and a node defaults to none', () => {
+    expect(defaultFeedFilters.sources.control).toBe(true);
+    expect(defaultFeedFilters.node).toBeNull();
+    expect(normalizeFeedFilters({ node: 42 }).node).toBeNull();
+    expect(normalizeFeedFilters({ node: 'us' }).node).toBe('us');
+  });
+
+  it('is empty only when neither messages nor control can show', () => {
+    const noMessages = filtersOf({ sources: { messages: false } });
+    expect(hasNoMessages(noMessages)).toBe(true);
+    expect(hasEmptySelection(noMessages)).toBe(false);
+    expect(hasEmptySelection(filtersOf({ sources: { messages: false, control: false } }))).toBe(
+      true
+    );
+  });
+
+  it('keeps only the picked channel messages when a channel node is selected', () => {
+    const key = fixtureChannels.public.key;
+    const filters = filtersOf({ node: `channel:${key}` });
+    const row = { type: 'CHAN' as const, conversation_key: key, outgoing: false };
+    expect(rowPassesFilters(row, filters, channels, fixture.now)).toBe(true);
+    expect(
+      rowPassesFilters({ ...row, conversation_key: 'F'.repeat(32) }, filters, channels, fixture.now)
+    ).toBe(false);
+    expect(rowPassesFilters(row, filtersOf({ node: 'contact:bb' }), channels, fixture.now)).toBe(
+      false
+    );
+  });
+});
+
+describe('interleaving control entries', () => {
+  const entry = (key: string, timestamp: number) =>
+    ({ observationKey: key, packet: { timestamp } }) as unknown as JournalEntry;
+
+  it('merges messages and control entries by time, a message first on a tie', () => {
+    const rows = [message({ id: 1, received_at: 100 }), message({ id: 2, received_at: 300 })];
+    const controls = [entry('a', 100), entry('b', 200), entry('c', 400)];
+    expect(
+      buildFeedItems(rows, null, controls)
+        .filter((i) => i.kind !== 'day')
+        .map((i) => i.key)
+    ).toEqual(['row:1', 'control:a', 'control:b', 'row:2', 'control:c']);
   });
 });

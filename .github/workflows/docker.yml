@@ -137,6 +137,23 @@ jobs:
           cache-from: type=registry,ref=${{ needs.matrix.outputs.image }}:buildcache-${{ matrix.slug }}
           cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}:buildcache-{1},mode=max', needs.matrix.outputs.image, matrix.slug) || '' }}
 
+      # The recovery command (app/cli.py) is part of the image; the add-on is built
+      # FROM it. Loaded from the cache the build above just filled, amd64 only.
+      - name: Check meshloom-admin in the image
+        if: matrix.slug == 'amd64'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: COMMIT_HASH=${{ github.sha }}
+          load: true
+          tags: meshloom-admin-check
+          cache-from: type=registry,ref=${{ needs.matrix.outputs.image }}:buildcache-${{ matrix.slug }}
+
+      - name: Run meshloom-admin --help
+        if: matrix.slug == 'amd64'
+        run: docker run --rm meshloom-admin-check meshloom-admin --help
+
       - name: Export the digest
         if: github.event_name != 'pull_request'
         run: |
