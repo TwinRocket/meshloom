@@ -4,7 +4,8 @@
 trusted proxies, the trusted networks, the audit retention, the role of new
 Home Assistant users);
 ``/auth/users`` is the admin's account management (create, change the role,
-disable, delete, set a password, sign out). Every change writes an audit row;
+disable, delete, set a password, sign out); ``/auth/tokens`` (API and device
+tokens) lives in ``app/routers/auth_tokens.py``. Every change writes an audit row;
 no change may leave the instance without an enabled administrator (409
 ``auth_last_admin``). Contract and rules: ``docs/dev/auth.md``. ``GET /auth/session``,
 ``POST /auth/setup``, ``POST /auth/login`` and ``POST /auth/logout`` are public
@@ -71,6 +72,7 @@ from app.repository.auth import (
     UsernameTakenError,
     UserRepository,
 )
+from app.routers import auth_tokens
 from app.security import basic_compat_active, invalidate_basic_cache
 
 logger = logging.getLogger(__name__)
@@ -1327,3 +1329,7 @@ async def get_audit(
     entries = rows[:limit]
     next_cursor = str(entries[-1].id) if len(rows) > limit else None
     return AuditPage(entries=entries, next_cursor=next_cursor)
+
+
+# ``/auth/tokens``: API and device tokens (``app/routers/auth_tokens.py``).
+router.include_router(auth_tokens.router)

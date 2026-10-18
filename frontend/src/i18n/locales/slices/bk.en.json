@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "access": {
+      "audit": {
+        "actions": {
+          "token.used": "Device token refused"
+        }
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "api_token_dropped": "The device token {{value}} was not restored: its account is missing from the backup or its role no longer allows that token's scopes."
+      }
+    }
+  },
+  "errors": {
+    "auth_token_scope": "This token asks for more than your role allows.",
+    "auth_token_expiry_invalid": "The expiry date must be in the future.",
+    "auth_token_limit": "This account already holds the maximum number of device tokens: revoke one first.",
+    "auth_token_not_found": "Device token not found."
+  }
+}

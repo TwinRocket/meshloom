@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "access": {
+      "audit": {
+        "actions": {
+          "token.used": "Jeton d’appareil refusé"
+        }
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "api_token_dropped": "Le jeton d’appareil {{value}} n’a pas été restauré : son compte manque dans la sauvegarde ou son rôle n’autorise plus les portées de ce jeton."
+      }
+    }
+  },
+  "errors": {
+    "auth_token_scope": "Ce jeton demande plus que ce que votre rôle permet.",
+    "auth_token_expiry_invalid": "La date d’expiration doit être dans le futur.",
+    "auth_token_limit": "Ce compte détient déjà le nombre maximal de jetons d’appareil : révoquez-en un d’abord.",
+    "auth_token_not_found": "Jeton d’appareil introuvable."
+  }
+}
