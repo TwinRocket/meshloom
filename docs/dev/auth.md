@@ -32,7 +32,7 @@ works on the same tables.
 | CSRF rule, https detection (the one reader of proxy headers) | `app/origin_policy.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -76,14 +76,19 @@ and `auth_settings`.
   session up by that hash and checks the stored value with `hmac.compare_digest`.
   No signed cookie, no JWT: revocation needs a table anyway.
 - **Session lifecycle.** `create()` keeps at most 50 active sessions per user and
-  revokes the oldest beyond that; `touch()` writes `last_seen_at` at most once a
+  revokes the oldest beyond that (`create_capped()` also returns their ids);
+  `touch()` writes `last_seen_at` at most once a
   minute and can slide `expires_at` in the same write; `revoke()`,
-  `revoke_all_for_user()` and `purge()` (deletes expired and revoked rows).
+  `revoke_all_for_user()` (returns the revoked ids), `filter_live()` (which of
+  some session ids are still usable: live row, enabled user) and `purge()`
+  (deletes expired and revoked rows).
   `touch()` never writes a revoked or expired session, so it can never revive
   one, and a new session never evicts itself (a clock that went backwards).
   User agents are capped at 512 characters. The
   lifetime comes from `auth_settings.session_lifetime_days` (30 by default).
-  Revoking sessions on a role change or a disable is the caller's decision.
+  Revoking sessions on a role change or a disable is the caller's decision;
+  server code revokes through `app/auth/sessions.py` (below), never the
+  repository directly, so the sockets close too.
 - **Audit.** `AuthAuditRepository.add()` appends a row; its `details` are JSON.
   Each key, at any depth, goes through NFKC and case folding, then is refused
   with `ValueError` when (1) it has a character outside `[a-z0-9_-]` (a
@@ -100,7 +105,8 @@ and `auth_settings`.
   (truncated), and `details` larger than 2 KiB serialised are stored as
   `{"bytes": <size>, "truncated": true}`. Retention is `audit_retention_days`, **366 days** by
   default (owner decision Q-A14); `purge_older_than()` is the helper, no loop
-  calls it yet.
+  calls it yet (the audit log ticket is to add it to the hourly housekeeping
+  loop that already purges sessions).
 - **Settings** live in their own single-row table `auth_settings`, not in
   `app_settings`, so the setup code hash never reaches `AppSettings`, the v1
   backup settings or the settings API. `AuthSettings` exposes `setup_code_set`
@@ -304,6 +310,34 @@ are `admin`: a single-admin installation sees no change.
 - A disabled account, a revoked or expired session: anonymous at once.
 - Logout revokes the session and answers `Set-Cookie` with `Max-Age=0` and
   `Clear-Site-Data: "cookies"`.
+- **Throttled last-seen.** The middleware calls `touch()` only when the
+  session it read was last seen a minute ago or more, and `touch()` itself
+  writes only under the same condition, so a burst of requests costs one write
+  a minute per session, not one per request. WebSocket frames (the frontend's
+  30 s `ping`) slide the session too (`ws_manager.note_activity()` →
+  `sessions.slide_session()`, at most one attempt a minute per socket), so a
+  page that only keeps its socket open, such as a kiosk display, is not signed
+  out at expiry; no cookie goes out on that path, the next HTTP request sends
+  it again. There is no absolute lifetime: only the sliding
+  `session_lifetime_days`.
+- **Revocation closes the WebSockets.** `ws_manager` (`app/websocket.py`)
+  indexes every socket by the session id and token id of its principal.
+  `sessions.revoke_session()` (logout, `DELETE /auth/sessions/{id}`),
+  `sessions.revoke_user_sessions()` (`DELETE /auth/sessions`, a password
+  change) and the cap in `sessions.issue_session()` revoke the rows, then call
+  `ws_manager.close_sessions()`: the sockets close at once with code 1008
+  (`REVOKED_CLOSE_CODE`). `ws_manager.close_tokens()` does the same for API and
+  device tokens (for the token ticket). While a session socket is open, the
+  manager also rechecks every `SESSION_RECHECK_INTERVAL_SECONDS` (30 s) which
+  of its sessions are still live (`filter_live()`, one query) and closes the
+  others: that catches `meshloom-admin` (another process, writing the database),
+  expiries and disabled accounts. Basic-auth sockets carry no session and are
+  not rechecked. A socket keeps the role it opened with (the recheck checks
+  liveness, not the role): a future role-change path must revoke the user's
+  sessions through `revoke_user_sessions()` so the sockets reconnect with the
+  new role.
+- **Purge.** `sessions.purge_sessions()` runs in the hourly housekeeping loop
+  (`app/services/stale_contacts.py`) and deletes expired and revoked rows.
 
 ## `Authorization: Basic` and the 4.x Basic auth
 

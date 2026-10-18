@@ -130,9 +130,11 @@ async def test_sessions_are_capped_per_user_and_purged(test_db):
     assert {s.id for s in active} == set(ids[2:])
 
     keep = ids[-1]
-    assert await AuthSessionRepository.revoke_all_for_user(
+    revoked = await AuthSessionRepository.revoke_all_for_user(
         user.id, except_session_id=keep, now=300
-    ) == (MAX_SESSIONS_PER_USER - 1)
+    )
+    assert len(revoked) == MAX_SESSIONS_PER_USER - 1
+    assert keep not in revoked
     assert [s.id for s in await AuthSessionRepository.list_for_user(user.id, now=300)] == [keep]
 
     # Revoked ones go; the two live sessions stay until they expire.

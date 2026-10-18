@@ -14,11 +14,21 @@ plant one); over plain http it is ``meshloom_session`` without ``Secure``,
 which browsers would refuse there. Only the name that matches the request's
 scheme is read. No cookie at all when the request comes through Home
 Assistant's ingress: its origin is shared by every add-on.
+
+Revocation goes through this module (``revoke_session``,
+``revoke_user_sessions``, the cap in ``issue_session``): it revokes the rows,
+then closes the WebSockets opened with them (``ws_manager.close_sessions``,
+policy close 1008). A revocation from another process (``meshloom-admin``), an
+expiry or a disabled account is caught by the manager's periodic recheck
+(``app/websocket.py``). ``purge_sessions`` runs in the hourly housekeeping loop
+(``app/services/stale_contacts.py``).
 """
 
 from __future__ import annotations
 
+import logging
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from starlette.requests import cookie_parser
@@ -32,6 +42,8 @@ from app.repository.auth import (
     AuthSettingsRepository,
     UserRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 SECURE_COOKIE_NAME = "__Host-meshloom_session"
 PLAIN_COOKIE_NAME = "meshloom_session"
@@ -95,10 +107,46 @@ async def issue_session(
     """Create a session for ``user`` and return its secret, shown only to the cookie."""
     lifetime = await lifetime_seconds()
     token = new_token()
-    session = await AuthSessionRepository.create(
+    session, evicted = await AuthSessionRepository.create_capped(
         user.id, hash_token(token), lifetime_s=lifetime, ip=ip, user_agent=user_agent, via=via
     )
+    close_session_sockets(evicted)
     return IssuedSession(session=session, token=token, max_age=lifetime)
+
+
+def close_session_sockets(session_ids: Iterable[str]) -> int:
+    """Close the WebSockets opened with these sessions. Returns how many."""
+    ids = list(session_ids)
+    if not ids:
+        return 0
+    from app.websocket import ws_manager
+
+    return ws_manager.close_sessions(ids)
+
+
+async def revoke_session(session_id: str) -> bool:
+    """Revoke one session and close its sockets. True when it was live."""
+    revoked = await AuthSessionRepository.revoke(session_id)
+    close_session_sockets([session_id])
+    return revoked
+
+
+async def revoke_user_sessions(user_id: int, *, except_session_id: str | None = None) -> int:
+    """Revoke a user's sessions (all but ``except_session_id``) and close their
+    sockets: a password change, a disable. Returns how many were revoked."""
+    revoked = await AuthSessionRepository.revoke_all_for_user(
+        user_id, except_session_id=except_session_id
+    )
+    close_session_sockets(revoked)
+    return len(revoked)
+
+
+async def purge_sessions(*, now: int | None = None) -> int:
+    """Delete expired and revoked session rows (hourly housekeeping)."""
+    deleted = await AuthSessionRepository.purge(now=now)
+    if deleted:
+        logger.info("Session purge removed %d expired or revoked session(s)", deleted)
+    return deleted
 
 
 @dataclass(frozen=True)
@@ -124,3 +172,15 @@ async def resolve_session(token: str, *, now: int | None = None) -> ResolvedSess
         if await AuthSessionRepository.touch(session.id, now=ts, expires_at=ts + lifetime):
             refreshed = lifetime
     return ResolvedSession(session=session, user=user, refreshed_max_age=refreshed)
+
+
+async def slide_session(session_id: str, *, now: int | None = None) -> bool:
+    """Slide a session from activity that is not an HTTP request (WebSocket
+    frames), with the same once-a-minute ``touch()``. True when written.
+
+    No cookie goes out: the browser's cookie keeps its old ``Max-Age``, and the
+    next HTTP request (which slides too) sends it again. There is no absolute
+    lifetime (cadrage §4.4 defines only ``session_lifetime_days``, sliding)."""
+    ts = int(time.time()) if now is None else now
+    lifetime = await lifetime_seconds()
+    return await AuthSessionRepository.touch(session_id, now=ts, expires_at=ts + lifetime)
