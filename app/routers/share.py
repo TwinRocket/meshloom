@@ -84,6 +84,7 @@ async def get_share_status() -> ShareStatus:
         identity_ready=await identity_ready("share"),
         dm_encryption_available=keystore.has_private_key(),
         banned=share.share_banned(),
+        unreachable=share.share_breaker().cooling(),
         shorten_mode=settings.share_shorten_mode,
         preview_policy=settings.share_preview_policy,
     )

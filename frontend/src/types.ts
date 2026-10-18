@@ -1518,6 +1518,8 @@ export interface ShareStatus {
   identity_ready: boolean;
   dm_encryption_available: boolean;
   banned: boolean;
+  /** The share client's breaker is open: the service (and its terms pages) is not answering. */
+  unreachable: boolean;
   shorten_mode: ShareShortenMode;
   preview_policy: SharePreviewPolicy;
 }
