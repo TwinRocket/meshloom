@@ -1,0 +1,58 @@
+{
+  "settingsNav": {
+    "share": "Partage : liens et fichiers"
+  },
+  "settings": {
+    "share": {
+      "title": "Partage : liens et fichiers",
+      "loading": "Chargement de l'état du partage…",
+      "intro": "Raccourcissez les liens longs et partagez des fichiers grâce au service de partage de Meshloom. C'est facultatif et désactivé tant que vous ne l'activez pas : tant qu'il est désactivé, ce Meshloom ne contacte jamais le service. Votre navigateur ne le contacte pas non plus : tout passe par ce serveur.",
+      "enable": "Activer le partage de liens et de fichiers",
+      "enableHelp": "L'activer vous demande de lire et d'accepter les conditions.",
+      "status": {
+        "yes": "oui",
+        "no": "non",
+        "enabled": "Partage activé",
+        "identity": "Identité de partage prête",
+        "identityPending": "pas encore (créée au premier partage)",
+        "dm": "Fichiers chiffrés pour les messages privés disponibles",
+        "dmUnavailable": "Les fichiers chiffrés pour les messages privés ont besoin de la clé de la radio, lue une fois la radio connectée. D'ici là, seuls ces fichiers sont indisponibles ; les liens et les fichiers publics fonctionnent avec l'identité de partage propre à cette instance. Voir <security>l'usage des clés</security>."
+      },
+      "consent": {
+        "title": "Activer le partage de liens et de fichiers ?",
+        "intro": "Le partage passe par un service externe. Voici exactement ce qui quitte ce Meshloom une fois activé.",
+        "sendingTitle": "Quand vous envoyez",
+        "sendingContent": "Le fichier ou l'URL que vous partagez.",
+        "sendingKey": "La clé publique de partage de cette instance (un pseudonyme ; ce n'est pas la clé de votre radio).",
+        "sendingIp": "L'adresse IP de ce Meshloom, que le service voit à chaque requête.",
+        "readingTitle": "Quand vous lisez",
+        "readingId": "L'identifiant de chaque objet partagé que vous choisissez d'afficher.",
+        "readingIp": "L'adresse IP de ce Meshloom.",
+        "who": "Qui : le service est publié par le propriétaire de Meshloom, en son nom propre, sous l'enseigne TwinRocket, et tourne sur Cloudflare.",
+        "retention": "Combien de temps : les fichiers sont conservés 30 jours, les liens raccourcis 365 jours.",
+        "docs": "Plus de détails dans les <terms>conditions</terms>, la <privacy>politique de confidentialité</privacy> et la <security>documentation de sécurité</security>.",
+        "accept": "J'accepte les <terms>conditions</terms> (aucun contenu interdit, retrait sur signalement, bannissement en cas d'abus) et la <privacy>politique de confidentialité</privacy>.",
+        "cancel": "Annuler",
+        "confirm": "Activer le partage"
+      },
+      "shorten": {
+        "legend": "Raccourcir les liens à l'écriture d'un message",
+        "auto": "Automatique",
+        "autoHelp": "Seuls les liens longs sont raccourcis.",
+        "always": "Toujours",
+        "alwaysHelp": "Tous les liens envoyés sont raccourcis.",
+        "never": "Jamais",
+        "neverHelp": "Les liens partent tels que vous les avez saisis."
+      },
+      "preview": {
+        "legend": "Aperçus des images et liens partagés",
+        "always": "Toujours",
+        "alwaysHelp": "Récupérés automatiquement dans toutes les conversations.",
+        "private": "Conversations privées seulement",
+        "privateHelp": "Pas récupérés dans les canaux publics, où chacun peut poster un lien.",
+        "never": "Jamais",
+        "neverHelp": "Rien n'est récupéré ; ouvrez vous-même un élément pour le voir."
+      }
+    }
+  }
+}

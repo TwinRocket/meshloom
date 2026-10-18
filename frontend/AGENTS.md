@@ -281,7 +281,22 @@ purpose.
 `api.getShareMeta(id)` call `/api/share/*`; types `ShareStatus`, `ShareLink`,
 `ShareMeta` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
 `share_disabled` answer means sharing is off). Call `getShareMeta` only on hover
-or focus, never on render. No UI uses them yet.
+or focus, never on render.
+
+**Settings section.** `components/settings/SettingsShareSection.tsx` (section id
+`share`, after Community in `settingsConstants.ts`) shows the status line, the
+enable checkbox, and the shorten-mode and preview-policy radios. Enabling always
+opens the consent dialog (`ShareConsentDialog`): what leaves when sending and
+reading, who, retention, links to `https://meshl.ink/terms`, `/privacy` and the
+published `security` doc, and a required terms checkbox; `PATCH /api/settings`
+`{share_enabled: true}` is sent only on confirm, and cancelling, closing or an
+unticked box leaves it off. Turning it off needs no consent. The status comes from
+`stores/shareStatusStore.ts` (`useShareStatus()`, `loadShareStatus()`; module
+store, refreshed after every settings change). `dm_encryption_available: false`
+(radio key not read yet) shows an explanation that only encrypted DM files are
+unavailable. Strings: slice `ar` (`settings.share.*`, `settingsNav.share`).
+Slice letters are taken per ticket at merge time; pick the next free one and never
+rename a slice. Tests: `src/test/settingsShareSection.test.tsx`.
 
 ### i18n
 
