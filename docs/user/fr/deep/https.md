@@ -119,9 +119,9 @@ La barre latérale de Home Assistant n’a besoin d’aucune entrée : Meshloom 
 
 ## En-têtes de sécurité
 
-Quand le navigateur atteint Meshloom directement en HTTPS, Meshloom ajoute `Strict-Transport-Security` (un an, sans sous-domaines) pour que le navigateur reste en HTTPS sur cette adresse. Il ne l'envoie jamais en HTTP simple : une adresse locale comme `http://192.168.1.20:8000` n'est donc pas figée en HTTPS. Il ne l'envoie jamais non plus via la barre latérale de Home Assistant ni via le relais, où l'adresse appartient à quelqu'un d'autre. Derrière un reverse-proxy, l'en-tête n'est envoyé que si le proxy figure dans les [Proxies de confiance](#proxies-de-confiance) et indique `X-Forwarded-Proto: https` ; sinon, laissez le proxy envoyer le sien.
+Quand le navigateur atteint Meshloom directement en HTTPS, Meshloom ajoute `Strict-Transport-Security` (un an, sans sous-domaines) pour que le navigateur reste en HTTPS sur ce nom d'hôte, **sur tous les ports** : un autre service portant le même nom (par exemple `http://homeassistant.local:8123`) est alors aussi forcé en HTTPS pendant un an. Les navigateurs l'ignorent pour une simple adresse IP. Il ne l'envoie jamais en HTTP simple : une adresse locale comme `http://192.168.1.20:8000` n'est donc pas figée en HTTPS. Il ne l'envoie jamais non plus via la barre latérale de Home Assistant ni via le relais, où l'adresse appartient à quelqu'un d'autre. Derrière un reverse-proxy, l'en-tête n'est envoyé que si le proxy figure dans les [Proxies de confiance](#proxies-de-confiance) et indique `X-Forwarded-Proto: https` ; sinon, laissez le proxy envoyer le sien.
 
-Les réponses de connexion (`/api/auth/`) portent `Cache-Control: no-store` : ni navigateur ni proxy ne les conserve. Une `Permissions-Policy` coupe la caméra et le micro pour la page et laisse au bouton de position son accès à la localisation.
+Les réponses de connexion (`/api/auth/`) et celles qui portent des secrets (clé privée de la radio, sauvegardes, clés des canaux) portent `Cache-Control: no-store` : ni navigateur ni proxy ne les conserve. Une `Permissions-Policy` coupe la caméra et le micro pour la page et laisse au bouton de position son accès à la localisation.
 
 ## Reverse-proxy sur un sous-chemin
 

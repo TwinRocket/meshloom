@@ -297,7 +297,11 @@ proxy-headers middleware so it reads the rewritten scheme) adds three headers.
 `Strict-Transport-Security: max-age=31536000` only when the scheme is
 `https`/`wss` and `request_via()` is `lan` (never ingress or relay; no
 `includeSubDomains`, no `preload`). `Cache-Control: no-store` on `/api/auth/*`
-and `/api/remote/*`, whoever produced the response. `Permissions-Policy:
+and `/api/remote/*` (a second net: the auth gate already sets it) and on the
+explicit `NO_STORE_PATHS` list of routes returning secrets (radio private key,
+backups, channels, push subscriptions, debug); a test fails when a typed GET route
+with a key/secret/password field is missing from it. The headers also reach an
+unhandled 500, written by this middleware before Starlette's. `Permissions-Policy:
 camera=(), microphone=(), geolocation=(self)`. The static headers (nosniff,
 referrer, framing) stay in `app/main.py`; there is no CSP beyond
 `frame-ancestors` (maps, WebGPU and inline styles would break).

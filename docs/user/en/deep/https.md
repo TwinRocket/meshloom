@@ -119,9 +119,9 @@ The Home Assistant sidebar needs no entry: Meshloom recognises the Supervisor by
 
 ## Security headers
 
-When the browser reaches Meshloom directly over HTTPS, Meshloom adds `Strict-Transport-Security` (one year, no subdomains) so the browser keeps using HTTPS for that address. It never sends it over plain HTTP, so a local address such as `http://192.168.1.20:8000` is not pinned to HTTPS, and never through the Home Assistant sidebar or the relay, where the address belongs to someone else. Behind a reverse proxy the header is sent only when the proxy is listed in [Trusted proxies](#trusted-proxies) and says `X-Forwarded-Proto: https`; otherwise let the proxy send its own.
+When the browser reaches Meshloom directly over HTTPS, Meshloom adds `Strict-Transport-Security` (one year, no subdomains) so the browser keeps using HTTPS for that host name, **on every port**: another service on the same name (for example `http://homeassistant.local:8123`) is then also forced to HTTPS for a year. Browsers ignore it for a bare IP address. It never sends it over plain HTTP, so a local address such as `http://192.168.1.20:8000` is not pinned to HTTPS, and never through the Home Assistant sidebar or the relay, where the address belongs to someone else. Behind a reverse proxy the header is sent only when the proxy is listed in [Trusted proxies](#trusted-proxies) and says `X-Forwarded-Proto: https`; otherwise let the proxy send its own.
 
-Sign-in answers (`/api/auth/`) carry `Cache-Control: no-store`, so no browser or proxy keeps them. A `Permissions-Policy` turns the camera and microphone off for the page and leaves the position button its location access.
+Sign-in answers (`/api/auth/`) and the answers that carry secrets (the radio private key, backups, channel keys) carry `Cache-Control: no-store`, so no browser or proxy keeps them. A `Permissions-Policy` turns the camera and microphone off for the page and leaves the position button its location access.
 
 ## Reverse proxy under a subpath
 
