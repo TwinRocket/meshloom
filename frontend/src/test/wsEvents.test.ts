@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { isDispatchableWsEvent, parseWsEvent } from '../wsEvents';
+import { WS_EVENT_PERMISSIONS } from '../wsEventTypes';
 import fixtures from './fixtures/websocket_events.json';
 
 describe('wsEvents', () => {
@@ -151,6 +152,28 @@ describe('wsEvents', () => {
     expect(live).toEqual({
       type: 'community_live',
       data: { close_code: 4001, opted_out: false, connected: false },
+    });
+  });
+
+  it('parses every server event type as a known event', () => {
+    for (const type of Object.keys(WS_EVENT_PERMISSIONS)) {
+      expect(parseWsEvent(JSON.stringify({ type, data: {} })).type).toBe(type);
+    }
+  });
+
+  it('parses plugin_status events', () => {
+    const data = {
+      instance_id: 'i1',
+      plugin_id: 'acme.weather',
+      label: 'Weather',
+      status: 'running',
+      last_error: null,
+      dropped_events: 0,
+      restarts: 0,
+    };
+    expect(parseWsEvent(JSON.stringify({ type: 'plugin_status', data }))).toEqual({
+      type: 'plugin_status',
+      data,
     });
   });
 

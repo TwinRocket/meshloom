@@ -54,6 +54,7 @@ import uuid
 from typing import Any, Literal
 from urllib.parse import urlencode
 
+from app.auth.ws_events import WsEvent
 from app.models import LIVE_PLACEHOLDER_IATAS as PLACEHOLDER_IATAS
 
 logger = logging.getLogger(__name__)
@@ -873,14 +874,14 @@ class CommunityLiveRelay:
             if item is None:
                 return
             try:
-                await ws_manager.broadcast("community_packet", item)
+                await ws_manager.broadcast(WsEvent.COMMUNITY_PACKET, item)
             except Exception:
                 logger.debug("community_packet fan-out failed", exc_info=True)
 
     async def _broadcast_status(self, *, opted_out: bool) -> None:
         from app.websocket import ws_manager
 
-        await ws_manager.broadcast("community_live", self.snapshot(opted_out=opted_out))
+        await ws_manager.broadcast(WsEvent.COMMUNITY_LIVE, self.snapshot(opted_out=opted_out))
 
     async def _connect(self, url: str, token: str) -> Any:
         import websockets

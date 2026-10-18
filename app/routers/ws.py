@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from app.auth.permissions import require
 from app.auth.principal import get_principal
+from app.auth.ws_events import WsEvent
 from app.routers.health import build_health_data
 from app.services.radio_runtime import radio_runtime as radio_manager
 from app.websocket import reject_foreign_origin, ws_manager
@@ -32,7 +33,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         health_data = await build_health_data(
             radio_manager.is_connected, radio_manager.connection_info
         )
-        await ws_manager.send_personal(websocket, "health", health_data)
+        await ws_manager.send_personal(websocket, WsEvent.HEALTH, health_data)
 
     except Exception as e:
         logger.error("Error sending initial state: %s", e)

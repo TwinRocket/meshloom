@@ -19,8 +19,9 @@ Every route declares exactly one access rule in its decorator:
 ``PUBLIC_ROUTES``, or ``Depends(own_account())`` for the caller's own profile
 and sessions (every role but ``kiosk``). ``enforce_declaration`` is installed on
 the app: an ``/api`` route without a declaration is refused to everyone but an
-admin (default deny). ``tests/test_auth_route_coverage.py`` fails on a route,
-or a WebSocket event type, that is not classified.
+admin (default deny). ``tests/test_auth_route_coverage.py`` fails on a route
+that is not classified. WebSocket event types and their permissions are the
+``WsEvent`` enumeration (``app/auth/ws_events.py``).
 
 A refusal is 403 ``auth_forbidden`` with ``params.permission``; a WebSocket
 upgrade is closed with 1008 before ``accept()``.
@@ -170,32 +171,10 @@ async def enforce_declaration(connection: HTTPConnection) -> None:
         _refuse(connection, "admin")
 
 
-# Every WebSocket event type, with the permission a client needs to receive it.
-# A type missing here is delivered to admins only (``ws_event_permission``);
-# ``tests/test_auth_route_coverage.py`` fails on an unclassified type.
-# A ``message`` of type ``PRIV``, and a ``raw_packet`` decrypted from one,
-# also need ``read_private`` (``app/websocket.py``).
-WS_EVENT_PERMISSIONS: Mapping[str, Permission] = {
-    "health": "read",
-    "message": "read",
-    "contact": "read",
-    "contact_resolved": "read",
-    "channel": "read",
-    "contact_deleted": "read",
-    "channel_deleted": "read",
-    "raw_packet": "read",
-    "community_packet": "read",
-    "community_live": "read",
-    "message_acked": "read",
-    "message_deleted": "read",
-    "radio_wifi": "admin",
-    # Carries `last_error`: members and admins only. `health` keeps the statuses
-    # for everyone but drops their `last_error` below this permission
-    # (`app/plugins/lifecycle.py`, `PLUGIN_ERROR_PERMISSION`).
-    "plugin_status": "send",
-    "error": "read",
-    "success": "read",
-}
+# Contact fields that reveal direct-message activity: emptied for a caller
+# without ``read_private``, on REST (``app/routers/contacts.py``) and on the
+# WebSocket (``app/websocket.py``).
+CONTACT_DM_ACTIVITY_FIELDS: tuple[str, ...] = ("last_contacted", "last_read_at")
 
 
 # A direct message travels as a TEXT_MESSAGE packet, a channel message as
@@ -211,7 +190,3 @@ def packet_decryption_is_private(payload_type: str | None, channel_key: str | No
     too (fail closed). Control packets carry no decryption and stay readable.
     """
     return payload_type == DIRECT_MESSAGE_PAYLOAD_TYPE or channel_key is None
-
-
-def ws_event_permission(event_type: str) -> Permission:
-    return WS_EVENT_PERMISSIONS.get(event_type, "admin")

@@ -12,6 +12,7 @@ import logging
 import re
 import time
 
+from app.auth.ws_events import WsEvent
 from app.data.meshcore_channels import (
     bundled_names_by_hash_byte,
     channel_key_hash_byte,
@@ -154,7 +155,7 @@ async def _apply_matched_name(name: str, packets: list[bytes]) -> bool:
 
     from app.websocket import broadcast_event
 
-    broadcast_event("channel", stored.model_dump())
+    broadcast_event(WsEvent.CHANNEL, stored.model_dump())
 
     from app.routers.packets import _run_historical_channel_decryption
 

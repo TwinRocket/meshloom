@@ -996,7 +996,7 @@ async def test_a_start_failure_names_no_path(manager, tmp_path, monkeypatch, cap
     assert any(str(tmp_path) in r.getMessage() for r in caplog.records)
 
 
-def test_health_hides_plugin_errors_below_send():
+def test_health_hides_plugin_errors_below_admin():
     guard = {"total": 2, "by_scope": {"instance": 2}, "last": {"scope": "instance", "at": 1}}
     data = {
         "plugin_statuses": {
@@ -1008,16 +1008,18 @@ def test_health_hides_plugin_errors_below_send():
     assert hidden["send_guard"] == {}
     assert data["plugin_statuses"]["a"]["send_guard"] == guard
     assert data["plugin_statuses"]["a"]["last_error"] == "x"
-    from app.auth.permissions import ROLE_PERMISSIONS, ws_event_permission
+    from app.auth.permissions import ROLE_PERMISSIONS
+    from app.auth.ws_events import WsEvent
 
-    permission = ws_event_permission("plugin_status")
+    permission = WsEvent.PLUGIN_STATUS.permission
     assert permission == lifecycle.PLUGIN_ERROR_PERMISSION
     assert permission not in ROLE_PERMISSIONS["kiosk"]
     assert permission not in ROLE_PERMISSIONS["viewer"]
-    assert permission in ROLE_PERMISSIONS["member"]
+    assert permission not in ROLE_PERMISSIONS["member"]
+    assert permission in ROLE_PERMISSIONS["admin"]
 
 
-async def test_websocket_health_hides_plugin_errors_from_a_viewer():
+async def test_websocket_health_hides_plugin_errors_below_admin():
     from types import SimpleNamespace
 
     from app.websocket import WebSocketManager
@@ -1029,7 +1031,11 @@ async def test_websocket_health_hides_plugin_errors_from_a_viewer():
         def __init__(self, role):
             self.principal = SimpleNamespace(role=role, scopes=frozenset())
 
-    clients = {"viewer": FakeClient("viewer"), "member": FakeClient("member")}
+    clients = {
+        "viewer": FakeClient("viewer"),
+        "member": FakeClient("member"),
+        "admin": FakeClient("admin"),
+    }
     manager.active_connections = clients  # type: ignore[assignment]
     manager._enqueue = lambda client, message, event_type=None: sent.setdefault(  # type: ignore[method-assign]
         client.principal.role, []
@@ -1038,7 +1044,8 @@ async def test_websocket_health_hides_plugin_errors_from_a_viewer():
         "plugin_statuses": {"a": {"instance_id": "a", "status": "error", "last_error": "boom"}}
     }
     manager.broadcast_nowait("health", payload)
-    assert "boom" in sent["member"][0]
+    assert "boom" in sent["admin"][0]
+    assert "boom" not in sent["member"][0]
     assert "boom" not in sent["viewer"][0]
     manager.broadcast_nowait("plugin_status", {"instance_id": "a", "last_error": "boom"})
-    assert len(sent["viewer"]) == 1 and len(sent["member"]) == 2
+    assert len(sent["viewer"]) == 1 and len(sent["member"]) == 1 and len(sent["admin"]) == 2

@@ -16,6 +16,7 @@ import time
 
 from app.auth.audit import purge_audit
 from app.auth.sessions import purge_sessions
+from app.auth.ws_events import WsEvent
 from app.repository import AppSettingsRepository, ContactRepository, RawPacketRepository
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ async def delete_contacts_best_effort(public_keys: list[str]) -> int:
     deleted = 0
     for contact in contacts:
         await ContactRepository.delete(contact.public_key)
-        broadcast_event("contact_deleted", {"public_key": contact.public_key})
+        broadcast_event(WsEvent.CONTACT_DELETED, {"public_key": contact.public_key})
         deleted += 1
     return deleted
 

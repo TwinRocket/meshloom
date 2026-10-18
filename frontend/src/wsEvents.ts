@@ -6,9 +6,11 @@ import type {
   HealthStatus,
   Message,
   MessagePath,
+  PluginStatusEntry,
   RadioWifiState,
   RawPacket,
 } from './types';
+import { WS_EVENT_PERMISSIONS, type WsEventType } from './wsEventTypes';
 
 export interface MessageAckedPayload {
   message_id: number;
@@ -55,9 +57,28 @@ export type KnownWsEvent =
   | { type: 'message_acked'; data: MessageAckedPayload }
   | { type: 'message_deleted'; data: MessageDeletedPayload }
   | { type: 'radio_wifi'; data: RadioWifiState }
+  | { type: 'plugin_status'; data: PluginStatusEntry }
   | { type: 'error'; data: ToastPayload }
   | { type: 'success'; data: ToastPayload }
   | { type: 'pong'; data?: null };
+
+type SameTypes<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+/** Fails to compile unless `T` is `true`. */
+type Assert<T extends true> = T;
+
+/**
+ * Compile-time proof that `KnownWsEvent` covers exactly the server's event types:
+ * `wsEventTypes.ts` is generated from `WsEvent` (`app/auth/ws_events.py`) and
+ * checked in CI, so a type added or removed there breaks `tsc` until it is
+ * handled here. `pong` is the reply to the client's ping, not an event.
+ */
+export type KnownWsEventsMatchServer = Assert<
+  SameTypes<Exclude<KnownWsEvent['type'], 'pong'>, WsEventType>
+>;
+
+function isServerEventType(type: string): type is WsEventType {
+  return Object.prototype.hasOwnProperty.call(WS_EVENT_PERMISSIONS, type);
+}
 
 export interface UnknownWsEvent {
   type: 'unknown';
@@ -120,26 +141,14 @@ export function parseWsEvent(raw: string): ParsedWsEvent {
     throw new Error('Invalid WebSocket event envelope');
   }
 
+  if (isServerEventType(parsed.type)) {
+    return {
+      type: parsed.type,
+      data: parsed.data,
+    } as KnownWsEvent;
+  }
+
   switch (parsed.type) {
-    case 'health':
-    case 'message':
-    case 'contact':
-    case 'contact_resolved':
-    case 'channel':
-    case 'contact_deleted':
-    case 'channel_deleted':
-    case 'raw_packet':
-    case 'community_packet':
-    case 'community_live':
-    case 'message_acked':
-    case 'message_deleted':
-    case 'radio_wifi':
-    case 'error':
-    case 'success':
-      return {
-        type: parsed.type,
-        data: parsed.data,
-      } as KnownWsEvent;
     case 'pong':
       return { type: 'pong', data: parsed.data as null | undefined };
     default:

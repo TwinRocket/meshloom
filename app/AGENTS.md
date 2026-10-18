@@ -801,12 +801,23 @@ floor, never the percentage alone, and do not remove the floor.
 
 - **Account before accept.** `AuthMiddleware` closes an upgrade with no
   principal (1008, HTTP 403) before the route runs; `/api/ws` needs `read`.
-- **Events per principal.** Every `WsEventType` has a permission in
-  `WS_EVENT_PERMISSIONS` (`auth/permissions.py`; a new type must be added there
-  and in `app/events.py`, the coverage test greps the emit calls). `ws_manager`
-  keeps each socket's principal and skips clients without the type's
-  permission; a non-`CHAN` `message` needs `read_private`, and a `raw_packet`
-  decrypted from a DM goes to the others without its decryption.
+- **Events per principal.** `WsEvent` (`auth/ws_events.py`) is the only list
+  of event types; each member declares its permission (`radio_wifi` and
+  `plugin_status` `admin`, the rest `read`). Every emit call takes a member,
+  never a string (pyright, plus an AST scan in
+  `tests/test_auth_route_coverage.py`); a new type needs a member, a payload
+  model in `app/events.py` and `scripts/build/export_ws_events.py` run for
+  the frontend. `ws_manager` keeps each socket's principal and skips clients
+  without the type's permission; a type that is not a member reaches no one
+  (fail closed). A `message` that is not `CHAN` (live, historical or outgoing;
+  no `type` counts as private) needs `read_private`, a `raw_packet`
+  decrypted from a DM goes to the others without its decryption, `contact`
+  frames lose `last_contacted`/`last_read_at` (as on REST) and a
+  `message_acked` reaches them only for a channel message
+  (`audience="read"`). Below `admin`, `health` has every `last_error` emptied
+  (`without_admin_details`, also on REST). Toasts are admin-only unless the
+  caller passes a lower `audience`. `send_raw` is for the `pong` reply only
+  (the AST scan allows no other frame).
 - **Origin before accept.** `routers/ws.py` calls `reject_foreign_origin()`
   (`app/websocket.py`) before `ws_manager.connect()`: an `Origin` whose host
   and port (missing port = the scheme's default) differ from both `Host` and

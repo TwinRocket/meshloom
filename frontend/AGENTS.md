@@ -378,7 +378,11 @@ rewritten: share-host URLs, `g:`/`m:`/`r:` payloads. Tests:
 - When a new socket replaces an old one, events from the old socket are ignored
   (`wsRef.current === ws`).
 - `wsEvents.ts` checks the envelope and the required fields of each event type,
-  not the full payload schema.
+  not the full payload schema. The event types come from `wsEventTypes.ts`,
+  generated from the server's `WsEvent` (`scripts/build/export_ws_events.py`,
+  never edited by hand, checked in CI); `KnownWsEventsMatchServer` fails `tsc`
+  until `KnownWsEvent` covers exactly those types. The server only sends a
+  client the events its role may receive.
 - On connect the server sends only `health`; contacts and channels come from REST.
   After a reconnect `useRealtimeAppState` refetches the REST snapshots; a
   generation counter applies only the newest, and keys already updated by a WS

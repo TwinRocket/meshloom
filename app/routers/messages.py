@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.auth.permissions import can_read_private, forbidden, require
+from app.auth.ws_events import WsEvent
 from app.event_handlers import track_pending_ack
 from app.models import (
     Message,
@@ -360,5 +361,5 @@ async def delete_message(message_id: int) -> dict[str, str]:
     if existing is None:
         return {"status": "ok"}
     await MessageRepository.delete_by_id(message_id)
-    broadcast_event("message_deleted", {"message_id": message_id})
+    broadcast_event(WsEvent.MESSAGE_DELETED, {"message_id": message_id})
     return {"status": "ok"}

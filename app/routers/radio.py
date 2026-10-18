@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from app.auth import audit
 from app.auth.permissions import require
+from app.auth.ws_events import WsEvent
 from app.models import (
     CONTACT_TYPE_REPEATER,
     AdvertLocationSource,
@@ -309,10 +310,10 @@ async def _persist_new_discovery_contacts(results: list[RadioDiscoveryResult]) -
         )
         created = await ContactRepository.get_by_key(result.public_key)
         if created is not None:
-            broadcast_event("contact", created.model_dump())
+            broadcast_event(WsEvent.CONTACT, created.model_dump())
             for old_key in promoted_keys:
                 broadcast_event(
-                    "contact_resolved",
+                    WsEvent.CONTACT_RESOLVED,
                     {"previous_public_key": old_key, "contact": created.model_dump()},
                 )
 
