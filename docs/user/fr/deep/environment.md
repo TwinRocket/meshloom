@@ -67,7 +67,7 @@ Voir [Meshloom Community](/docs/deep/community/).
 | `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application, connexion en direct (WebSocket) comprise. À utiliser avec [HTTPS](/docs/deep/https/) |
 | `MESHCORE_BASIC_AUTH_PASSWORD` | *(vide)* | Mot de passe associé |
 
-Les deux variables d’authentification doivent être définies ensemble. Définir l’une sans l’autre empêche Meshloom de démarrer. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
+Les deux variables d’authentification doivent être définies ensemble. Définir l’une sans l’autre empêche Meshloom de démarrer. À partir de la 5.0 elles sont retirées : le premier démarrage en crée le compte administrateur, puis elles ne sont plus lues et un avertissement est journalisé tant qu’elles sont définies. L’authentification Basic avec ce nom et ce mot de passe reste acceptée jusqu’à la 5.2. Un nom d’utilisateur de plus de 64 caractères ne peut pas devenir un compte : l’import est ignoré avec une erreur dans le journal, et vous créez l’administrateur avec le code d’installation imprimé dans le journal. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
 
 ## Installation et mises à jour
 

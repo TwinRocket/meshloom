@@ -1,0 +1,18 @@
+{
+  "errors": {
+    "auth_required": "Sign in to continue.",
+    "auth_setup_required": "No account exists yet: create the administrator account first.",
+    "auth_setup_done": "The administrator account already exists. Sign in instead.",
+    "auth_setup_code_invalid": "Wrong installation code. Find it in the server log, or run meshloom-admin setup-code on the host.",
+    "auth_invalid_credentials": "Wrong user name or password.",
+    "auth_password_policy": "This password is not accepted.",
+    "auth_password_policyDetail": "Use at least {{min_length}} characters, different from the user name and not a common password.",
+    "auth_username_invalid": "This user name cannot be used.",
+    "auth_origin_rejected": "Request refused: it came from another site. Add that site to Allowed origins if you trust it.",
+    "auth_forbidden": "This account is not allowed to do that.",
+    "auth_session_not_found": "This session no longer exists.",
+    "auth_busy": "Too many sign-in attempts at once. Retry in a moment.",
+    "auth_setup_unavailable": "Account setup is not available yet. Check the server log, then retry.",
+    "auth_ingress_unsupported": "Signed in, but no session can be kept through the Home Assistant sidebar yet. Open Meshloom on its own address (port 8000)."
+  }
+}

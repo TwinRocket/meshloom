@@ -129,6 +129,8 @@ def test_create_admin(dbfile, stdin, capsys):
 def test_setup_code_is_accepted_by_the_stored_hash_and_rotates(dbfile, capsys):
     assert run(dbfile, "setup-code") == 0
     first = capsys.readouterr().out.strip()
+    # The 8-digit form POST /api/auth/setup accepts, like the startup log line.
+    assert len(first) == 8 and first.isdigit()
     (stored,) = _query(dbfile, "SELECT setup_code_hash FROM auth_settings")[0]
     assert stored != first and token_matches(first, stored)
     assert run(dbfile, "setup-code") == 0
