@@ -20,6 +20,19 @@ Chaque compte a l’un des quatre rôles. Le serveur vérifie le rôle à chaque
 | `viewer` | Lire les canaux et les messages directs, les marquer comme lus, gérer son propre profil et ses sessions. |
 | `kiosk` | Lecture seule, pour un écran au mur : messages des canaux (canaux en sourdine et en attente compris), contacts, canaux, paquets, statistiques et carte. Jamais un message direct, aucun réglage, aucun profil. |
 
+Ce que chaque rôle voit dans l’interface suit ce tableau : les écrans qu’un rôle ne peut pas utiliser sont masqués ou grisés au lieu d’échouer au clic.
+
+| | `admin` | `member` | `viewer` | `kiosk` |
+|---|---|---|---|---|
+| Canaux et paquets | oui | oui | oui | oui (canaux seulement, aucun message direct) |
+| Messages directs | oui | oui | oui | non |
+| Zone de saisie, nouvelle conversation, épingle, favori, sourdine, suppression | oui | oui | non | non |
+| Volets répéteurs et salons, test du maillage | oui | non | non | non |
+| Réglages | toutes les sections | Configuration locale | Configuration locale | aucun |
+| Langue et thème de ce navigateur | oui | oui | oui | oui, depuis le bouton de compte |
+
+Une action que le serveur refuse malgré tout (par exemple depuis une page restée ouverte avant un changement de rôle) affiche un seul message : « Ce compte n’a pas le droit de faire cela. »
+
 Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
 
 ## Les délais de connexion

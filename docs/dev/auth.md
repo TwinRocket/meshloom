@@ -454,6 +454,8 @@ per-event filtering (contact activity fields, toasts) is Access T26.
 **4.x upgrade.** The account imported from Basic and the first administrator
 are `admin`: a single-admin installation sees no change.
 
+The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and hides or disables what a role cannot use (`useCapabilities()`, `frontend/AGENTS.md`, "Capability gating"). It is a courtesy, not a control: the declarations above are the only enforcement.
+
 ## Sessions and the cookie
 
 - A login or a setup creates a new session row (never reuses one: no

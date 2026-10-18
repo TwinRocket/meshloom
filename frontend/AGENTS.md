@@ -266,7 +266,30 @@ purpose.
   the session instead of opening `ReloginDialog` (`docs/dev/auth.md`, "Ingress").
 - **Layout and prefetch.** `AuthLayout` scrolls itself (`h-dvh overflow-y-auto`, card
   `m-auto`): `body` is `overflow:hidden`. `index.html` starts its API prefetch only after
-  `/api/auth/session` says authenticated, so the gate pages make no 401 requests.
+  `/api/auth/session` says authenticated, so the gate pages make no 401 requests. It
+  prefetches the radio config and the app settings for an `admin` only (both are
+  admin-only routes).
+- **Capability gating (the rule).** `auth/capabilities.ts` mirrors `ROLE_PERMISSIONS` of
+  `app/auth/permissions.py` (the GET `/auth/session` answer carries the role, and a cookie
+  session has no token scope, so the role is enough); `useCapabilities()` returns `canSend`,
+  `canReadPrivate`, `canAdministerRepeaters`, `isAdmin`, `canOpenSettings`,
+  `canOpenSettingsSection(section)`. Outside a provider (tests, previews) it is
+  **unrestricted**, so a component test needs no session. A surface the role cannot use is
+  hidden (a whole screen, a tool, a button) or disabled (a control inside a shared pane);
+  it is never left to fail. **This protects nothing**: the server refuses each request and
+  stays the authority, so never skip a server check because the UI hides the control, and a
+  new admin-only route needs its UI gated here in the same change. Add a settings section
+  to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool
+  that calls a refused route goes in `TOOL_CAPABILITY` (`navDestinations.ts`). A hook that
+  loads at startup must not call an admin-only route for another role (members, viewers and
+  kiosks skip `/settings`, `/radio/config`, `/updates`, `/community`, `/push/preferences`,
+  the Wi-Fi state; the kiosk also skips the mark-read calls, `read_private`); the kiosk gets
+  no contact row, no Direct chip and no settings door.
+- **Coded 403.** `fetchJson` reports a 403 `auth_forbidden` through `auth/authEvents.ts`
+  (`reportForbidden`); `SessionProvider` shows `errors.auth_forbidden` as one toast
+  (id `auth_forbidden`), never the server's text. A refused read (a GET, or any call
+  needing `read_private`) is a state of the surface and is not toasted
+  (`forbiddenIsToasted`). Tests: `src/test/capabilities.test.tsx` (four roles).
 - **Sign out** with Basic credentials ends nothing; `signOut()` reports whether the
   session ended and the menu explains when it did not.
 - **Not done on purpose.** No "remember me" (the backend has one session lifetime),

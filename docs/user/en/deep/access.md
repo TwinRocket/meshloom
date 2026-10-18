@@ -20,6 +20,19 @@ Each account has one of four roles. The server checks the role on every request,
 | `viewer` | Read channels and direct messages, mark them read, manage its own profile and sessions. |
 | `kiosk` | Read only, for a screen on the wall: channel messages (muted and pending channels included), contacts, channels, packets, statistics and the map. Never a direct message, no settings, no profile. |
 
+What each role sees in the interface follows the table: the screens a role cannot use are hidden or greyed out instead of failing when clicked.
+
+| | `admin` | `member` | `viewer` | `kiosk` |
+|---|---|---|---|---|
+| Channels and packets | yes | yes | yes | yes (channels only, no direct message) |
+| Direct messages | yes | yes | yes | no |
+| Composer, new conversation, pin, favourite, mute, delete | yes | yes | no | no |
+| Repeater and room panes, mesh test | yes | no | no | no |
+| Settings | all sections | Local configuration | Local configuration | none |
+| Language and theme of this browser | yes | yes | yes | yes, from the account button |
+
+An action the server refuses anyway (for example from a page left open before a role change) shows one message, “This account is not allowed to do that.”
+
 The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.
 
 ## Sign-in delays
