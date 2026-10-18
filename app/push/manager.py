@@ -11,6 +11,8 @@ import asyncio
 import json
 import logging
 import re
+import time
+from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -34,6 +36,13 @@ from app.repository.settings import (
 logger = logging.getLogger(__name__)
 
 _SEND_TIMEOUT = 15  # seconds per push send
+# A forbidden address in a DNS answer deletes a subscription only when a send
+# at least this long after the first one still meets it (a resolver can be
+# wrong once).
+FORBIDDEN_ANSWER_CONFIRM_SECONDS = 3600
+# Bound of the in-memory refusal bookkeeping (least recently touched dropped).
+_REFUSAL_MEMORY_MAX = 1024
+_monotonic = time.monotonic  # tests replace it
 
 # Proof of modification: sent to every subscription, not configurable.
 DESTINATION_CHANGED_EVENT = "notify.destination_changed"
@@ -478,9 +487,46 @@ class _SendResult:
     expired: bool = False
     # Refused by the egress guard: a configuration state, not a delivery failure.
     refused: bool = False
+    # Refused for good (``EgressBlocked.permanent``): no setting can lift it.
+    invalid: bool = False
 
 
 class PushManager:
+    def __init__(self) -> None:
+        # (subscription id, code) already logged at WARNING: a liftable refusal
+        # repeats on every dispatch until the setting or DNS changes.
+        self._refusals_logged: OrderedDict[tuple[str, str], None] = OrderedDict()
+        # Subscription id -> monotonic time a DNS answer first held a forbidden address.
+        self._forbidden_since: OrderedDict[str, float] = OrderedDict()
+
+    def _forget(self, sub_id: str) -> None:
+        for key in [k for k in self._refusals_logged if k[0] == sub_id]:
+            del self._refusals_logged[key]
+        self._forbidden_since.pop(sub_id, None)
+
+    def _first_refusal(self, sub_id: str, code: str) -> bool:
+        """True the first time (sub_id, code) is seen; the memory stays bounded."""
+        key = (sub_id, code)
+        if key in self._refusals_logged:
+            self._refusals_logged.move_to_end(key)
+            return False
+        self._refusals_logged[key] = None
+        while len(self._refusals_logged) > _REFUSAL_MEMORY_MAX:
+            self._refusals_logged.popitem(last=False)
+        return True
+
+    def _forbidden_answer_confirmed(self, sub_id: str) -> bool:
+        """Record a forbidden DNS answer; True once one is seen again past the delay."""
+        now = _monotonic()
+        first = self._forbidden_since.get(sub_id)
+        if first is None:
+            self._forbidden_since[sub_id] = now
+            while len(self._forbidden_since) > _REFUSAL_MEMORY_MAX:
+                self._forbidden_since.popitem(last=False)
+            return False
+        self._forbidden_since.move_to_end(sub_id)
+        return now - first >= FORBIDDEN_ANSWER_CONFIRM_SECONDS
+
     async def dispatch_message(self, data: dict) -> None:
         """Send push notifications for a message event to all devices."""
         # Don't notify for messages the operator just sent themselves
@@ -622,6 +668,9 @@ class PushManager:
         remove_ids: list[str] = []
         for r in results:
             if isinstance(r, _SendResult):
+                if r.invalid:
+                    remove_ids.append(r.sub_id)
+                    continue
                 if r.refused:
                     continue  # kept, and never counted toward the eviction threshold
                 if r.expired:
@@ -653,24 +702,43 @@ class PushManager:
                     allow_private_network=allow_private,
                 )
             result.success = True
+            self._forget(sub_id)
         except EgressBlocked as e:
-            # Kept and not counted as a failure: the endpoint becomes valid again
-            # when the setting is ticked or DNS changes.
             result.refused = True
-            logger.warning("Push send refused by the egress guard for %s: %s", sub_id, e.code)
+            if not (e.always_refused and not e.permanent):
+                self._forbidden_since.pop(sub_id, None)  # the forbidden-answer streak broke
+            if e.permanent or (e.always_refused and self._forbidden_answer_confirmed(sub_id)):
+                # A bad URL, or an address forbidden whatever the setting (from a
+                # DNS answer: met again an hour or more later): deleted.
+                result.invalid = True
+                self._forget(sub_id)
+                logger.warning(
+                    "Push endpoint refused for good by the egress guard (%s), removing %s",
+                    e.code,
+                    sub_id,
+                )
+            elif self._first_refusal(sub_id, e.code):
+                # Kept and not counted as a failure: the endpoint becomes valid
+                # again when the setting is ticked or DNS changes. Logged once.
+                logger.warning("Push send refused by the egress guard for %s: %s", sub_id, e.code)
         except WebPushException as e:
+            self._forbidden_since.pop(sub_id, None)
             status = getattr(e, "response", None)
             status_code = getattr(status, "status_code", 0) if status else 0
             if status_code in (403, 404, 410):
                 logger.info("Push subscription expired (HTTP %d), removing %s", status_code, sub_id)
                 result.expired = True
+                self._forget(sub_id)
             else:
                 # The type only: a WebPushException carries the push service's body.
                 logger.warning("Push send failed for %s: %s", sub_id, type(e).__name__)
         except TimeoutError:
+            self._forbidden_since.pop(sub_id, None)
             logger.warning("Push send timed out for %s", sub_id)
-        except Exception:
-            logger.debug("Push send error for %s", sub_id, exc_info=True)
+        except Exception as e:
+            self._forbidden_since.pop(sub_id, None)
+            # The type only: a requests error names the endpoint URL (its path is a secret).
+            logger.warning("Push send error for %s: %s", sub_id, type(e).__name__)
         return result
 
 

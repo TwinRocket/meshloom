@@ -15,6 +15,14 @@ chose (SSRF). Like every agent doc here, check it against the code.
   `egress_too_many_redirects`, `egress_request_too_large`,
   `egress_response_too_large` (see "Fixed-host callers").
   `egress_detail(code)` builds the coded HTTP detail (never a host, an IP or the URL).
+  `EgressBlocked.always_refused` is true for a refusal no opt-in can lift:
+  every `egress_scheme` from the URL check, and a metadata or documentation
+  address or host. `permanent` is the subset that needs no DNS answer (the
+  URL, an IP literal, `metadata.google.internal`); a forbidden address in a
+  resolved answer is `always_refused` only, since a broken or hijacked
+  resolver can return it once. Web Push deletes a stored subscription at once
+  on `permanent`, and on `always_refused` only when a send at least
+  `FORBIDDEN_ANSWER_CONFIRM_SECONDS` (1 h) after the first still meets it.
 - Refused unless `allow_private_network`: loopback, `0.0.0.0/8`, private
   (10/8, 172.16/12, 192.168/16, fc00::/7, fec0::/10), CGNAT 100.64/10,
   link-local (169.254/16, fe80::/10), multicast, reserved 240/4, unspecified,
@@ -49,8 +57,10 @@ chose (SSRF). Like every agent doc here, check it against the code.
   against the host name), try the next validated IP only on a connect error,
   never follow redirects and ignore proxy variables (`trust_env=False`).
 - requests (pywebpush): `app/push/send.py` mounts `PinnedHTTPAdapter`, whose
-  urllib3 connections connect to the validated addresses only; the session
-  ignores proxy variables and follows no redirect (`max_redirects = 0`).
+  urllib3 connections connect to the validated addresses only (only
+  `_new_conn` is replaced, so urllib3 v2 still sends SNI and checks the
+  certificate against the URL host); the session ignores proxy variables and
+  follows no redirect (`max_redirects = 0`).
 - `error_code(exc)` maps a failure to `timeout`, `tls_error`, `service_error`
   (HTTP status from the destination), `connect_error` or the `egress_*` code.
 - `PinnedClient.stream(method, ...)` is `request()` with the body left unread
@@ -167,7 +177,7 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   (`schemes=frozenset({"https"})`); later `store.meshloom.app`) and the plugin `http` capability (the
   plugin's declared hosts, 10 s, 1 MB response, 256 KB body, redirects
   re-validated to a declared host) both send through
-  `follow_checked_redirects` with a `HostAllowlist`. Also Access (Web Push).
+  `follow_checked_redirects` with a `HostAllowlist`.
   New consumers call
   `validate_destination` and send through a pinned client (or
   `follow_checked_redirects`); never add an outbound path to a user-chosen URL
@@ -227,4 +237,5 @@ that reached no verdict (cancellation). In memory. Used by the Community client
 each with its own instance; the caller decides what counts as a failure.
 
 Tests: `tests/test_egress_guard.py`, `tests/test_egress_guard_checked_fetch.py`
-(allowlist, redirect chains, caps, headers), `tests/test_apprise_urls.py`.
+(allowlist, redirect chains, caps, headers), `tests/test_apprise_urls.py`,
+`tests/test_push_send_egress.py` (Web Push: TLS SNI to the pinned IP, lazy deletion).
