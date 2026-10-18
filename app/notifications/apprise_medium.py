@@ -18,11 +18,9 @@ runs the plugin in its own pool with ``submit_with_context``, which carries
 it). Every other ``requests`` caller is untouched. A plugin that does not use ``requests``
 (SMTP, MQTT) gives no status: a failure there is ``send_failed``, not retried.
 
-``AppriseQueue`` is the minimal limiter (notifications phase 0): one send at a
-time, ``MIN_INTERVAL_S`` between sends (``aiolimiter``), ``MAX_PENDING``
-waiting, beyond that one single "+N events" send once the queue drains;
-first-seen events are capped at ``FIRST_SEEN_PER_HOUR`` and the rest go out as
-one "+N new contacts" send when the hourly budget frees a slot.
+The limiter in front of the medium (one send at a time, 2 s apart, "+N events",
+the first-seen cap) is the dispatcher's worker for the channel
+(``app/notifications/dispatcher.py``).
 """
 
 from __future__ import annotations
@@ -32,13 +30,10 @@ import contextvars
 import logging
 import threading
 import time
-from collections import deque
-from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from typing import Any
 
-from aiolimiter import AsyncLimiter
 from tenacity import AsyncRetrying, RetryCallState, retry_if_exception_type, stop_after_attempt
 
 from app.log_redaction import secret_scope
@@ -58,11 +53,6 @@ RETRY_WAITS = (0.0, 5.0, 30.0)
 MAX_RETRY_AFTER_S = 120.0
 CONNECT_TIMEOUT_S = 4.0
 READ_TIMEOUT_S = 8.0
-
-MIN_INTERVAL_S = 2.0
-MAX_PENDING = 20
-FIRST_SEEN_PER_HOUR = 10
-FIRST_SEEN_EVENT = "first_seen"
 
 
 class AppriseSendFailed(Exception):
@@ -280,75 +270,3 @@ async def send_to_urls(
         else:
             results.append(UrlResult(line=line, url=redact_apprise_url(url)))
     return results
-
-
-Deliver = Callable[[dict[str, Any]], Awaitable[None]]
-
-
-class AppriseQueue:
-    """The minimal limiter in front of the Apprise medium (see the module doc)."""
-
-    def __init__(
-        self,
-        deliver: Deliver,
-        *,
-        min_interval_s: float = MIN_INTERVAL_S,
-        max_pending: int = MAX_PENDING,
-        first_seen_per_hour: int = FIRST_SEEN_PER_HOUR,
-        first_seen_period_s: float = 3600.0,
-    ) -> None:
-        self._deliver = deliver
-        self._max_pending = max_pending
-        self._limiter = AsyncLimiter(1, min_interval_s)
-        self._first_seen = AsyncLimiter(first_seen_per_hour, first_seen_period_s)
-        self._pending: deque[dict[str, Any]] = deque()
-        self._overflow = 0
-        self._first_seen_held = 0
-        self._worker: asyncio.Task[None] | None = None
-        self._flusher: asyncio.Task[None] | None = None
-
-    async def submit(self, payload: Mapping[str, Any]) -> None:
-        """Queue one event. Never waits: a first-seen event over budget is held."""
-        if payload.get("event") == FIRST_SEEN_EVENT:
-            if not self._first_seen.has_capacity():
-                self._first_seen_held += 1
-                if self._flusher is None or self._flusher.done():
-                    from app.background_tasks import spawn
-
-                    self._flusher = spawn(self._flush_first_seen(), name="apprise-first-seen")
-                return
-            await self._first_seen.acquire()  # has capacity: returns at once
-        self._enqueue(dict(payload))
-
-    def _enqueue(self, payload: dict[str, Any]) -> None:
-        if len(self._pending) >= self._max_pending:
-            self._overflow += 1
-        else:
-            self._pending.append(payload)
-        if self._worker is None or self._worker.done():
-            from app.background_tasks import spawn
-
-            self._worker = spawn(self._run(), name="apprise-queue")
-
-    async def _flush_first_seen(self) -> None:
-        # Waits for the hourly budget to free a slot, then says how many were held.
-        async with self._first_seen:
-            count, self._first_seen_held = self._first_seen_held, 0
-        self._enqueue({"event": "first_seen_grouped", "count": count})
-
-    def _next(self) -> dict[str, Any] | None:
-        if self._pending:
-            return self._pending.popleft()
-        if self._overflow:
-            count, self._overflow = self._overflow, 0
-            return {"event": "notifications_grouped", "count": count}
-        return None
-
-    async def _run(self) -> None:
-        while (payload := self._next()) is not None:
-            async with self._limiter:
-                try:
-                    await self._deliver(payload)
-                except Exception as exc:
-                    # The type only: an exception text may quote a URL and its token.
-                    logger.warning("Apprise notification failed: %s", type(exc).__name__)

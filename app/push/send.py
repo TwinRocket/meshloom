@@ -1,7 +1,8 @@
 """Thin wrapper around pywebpush for sending push notifications.
 
-Isolates the pywebpush dependency and runs the synchronous send in
-a thread executor to avoid blocking the event loop.
+Isolates the pywebpush dependency and runs the synchronous send in the
+bounded notification pool (``app/notifications/executor.py``), not the event
+loop's default one, so a slow push service never starves other threads.
 
 Every send goes through the egress guard first (``app/net/egress_guard.py``),
 then connects only to the addresses it validated: the urllib3 connections
@@ -11,7 +12,6 @@ The session ignores proxy variables (a proxy would resolve the host itself)
 and follows no redirect.
 """
 
-import asyncio
 import ipaddress
 import logging
 import socket
@@ -28,6 +28,7 @@ from requests.exceptions import ConnectTimeout as RequestsConnectTimeout
 from urllib3.exceptions import ConnectTimeoutError, NewConnectionError
 
 from app.net.egress_guard import ResolvedDestination, validate_destination
+from app.notifications.executor import run_blocking
 
 logger = logging.getLogger(__name__)
 
@@ -241,10 +242,8 @@ async def send_push(
         str(subscription_info.get("endpoint") or ""),
         allow_private_network=allow_private_network,
     )
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None,
-        lambda: _send_push_with_fallback(
-            dest, subscription_info, payload, vapid_private_key, vapid_claims
-        ),
+    # The notification pool, not the loop's default one: a slow notification
+    # service must never starve the radio or the database backups.
+    return await run_blocking(
+        _send_push_with_fallback, dest, subscription_info, payload, vapid_private_key, vapid_claims
     )

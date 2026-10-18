@@ -385,6 +385,27 @@ class NotificationChannelRepository:
         invalidate_cache()
 
     @staticmethod
+    async def get_rules() -> dict[str, Any]:
+        """``app_settings.notification_rules`` (``{}`` when unset)."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT notification_rules FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        return _loads(row[0]) if row else {}
+
+    @staticmethod
+    async def set_last_ok_at(channel_id: str, at: int) -> None:
+        """The dispatcher's periodic flush: the last success, without touching errors."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE notification_channels SET last_ok_at = MAX(COALESCE(last_ok_at, 0), ?) "
+                "WHERE id = ?",
+                (at, channel_id),
+            )
+        invalidate_cache()
+
+    @staticmethod
     async def set_paused_until(channel_id: str, until: int | None) -> None:
         async with db.tx() as conn:
             await conn.execute(
@@ -468,6 +489,36 @@ class NotificationJournalRepository:
                 "ORDER BY id DESC LIMIT ?)",
                 (channel_id, channel_id, DELIVERIES_PER_CHANNEL),
             )
+
+    @staticmethod
+    async def add_deliveries(rows: list[dict[str, Any]]) -> None:
+        """Several rows in one transaction (the dispatcher batches them), then the trim."""
+        now = int(time.time())
+        async with db.tx() as conn:
+            await conn.executemany(
+                "INSERT INTO notification_deliveries "
+                "(channel_id, event, dedup_key, status, error, attempts, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        row["channel_id"],
+                        row["event"],
+                        row.get("dedup_key") or "",
+                        row["status"],
+                        _utf_trim(row.get("error")),
+                        row.get("attempts", 1),
+                        now,
+                    )
+                    for row in rows
+                ],
+            )
+            for channel_id in {row["channel_id"] for row in rows}:
+                await conn.execute(
+                    "DELETE FROM notification_deliveries WHERE channel_id = ? AND id NOT IN "
+                    "(SELECT id FROM notification_deliveries WHERE channel_id = ? "
+                    "ORDER BY id DESC LIMIT ?)",
+                    (channel_id, channel_id, DELIVERIES_PER_CHANNEL),
+                )
 
     @staticmethod
     async def list_deliveries(channel_id: str, limit: int = DELIVERIES_PER_CHANNEL) -> list[dict]:

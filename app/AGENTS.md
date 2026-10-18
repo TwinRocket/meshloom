@@ -1050,9 +1050,10 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   recipients already reached would get duplicates); the HTTP status comes from a `requests.Session.send` wrapper
   that records only inside `_send_sync` (a context variable, carried into
   Apprise 2's own pool by `submit_with_context`). Blocking sends run in
-  `app/notifications/executor.py` (4 threads, shared later by the engine).
-  `dispatch_system_event` never sends directly: it submits to `AppriseQueue`
-  (aiolimiter: one send at a time, 2 s apart, 20 pending, then one
+  `app/notifications/executor.py` (4 threads, with e-mail and pywebpush).
+  `dispatch_system_event` never sends directly: it hands the event to the
+  dispatcher (`app/notifications/AGENTS.md`, "Dispatcher"), whose `legacy:apprise`
+  worker is the limiter (one send at a time, 2 s apart, 20 pending, then one
   `notifications_grouped` "+N events"; `first_seen` capped at 10 an hour, the
   rest one `first_seen_grouped`). The text policy (`include_message_text`:
   `public_only` default, `always`, `never`) and the format apply once, in
@@ -1063,8 +1064,8 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
   the ring buffer and `/api/debug` masked. Blocked senders and muted channels
   never reach it (`app/services/message_filters.py`, shared with the Apprise
-  fanout). `apprise_last_error()` (code, time, line, `redact_apprise_url`)
-  is in the health payload as `notification_statuses.apprise`.
+  fanout). Its status (a code with the line and `redact_apprise_url`) is in the
+  health payload as `notification_statuses["legacy:apprise"]`.
 - Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
   fixed-host callers (Store client, plugin `http` capability: host allowlist,
   redirects re-validated hop by hop, streaming size caps).
@@ -1073,8 +1074,9 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   opt-in is `notification_destinations.webhook.allow_private_network`; a
   webhook stored before the guard reads as allowed and grandfathered (one-time
   banner, cleared by a PATCH or a URL change). A dispatch failure is logged at
-  WARNING (code, type, host, HTTP status) and kept in memory as
-  `webhook_last_error()` for the health payload (`notification_statuses.webhook`).
+  WARNING (code, type, host, HTTP status); the dispatcher retries a 5xx, a 429, a
+  timeout or a network error (0/5/30 s) and shows the channel status in the health
+  payload (`notification_statuses["legacy:webhook"]`).
 - The email transport builds an Apprise `mailto` URL on the fly from the SMTP
   settings; the URL is never stored. The HTML email references no remote content
   (inline `cid:` logo, no remote image, no link).

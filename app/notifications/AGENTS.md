@@ -1,7 +1,8 @@
 # Notifications (`app/notifications/`)
 
-The event catalogue, the one FR/EN renderer, and the delivery helpers
-(`apprise_medium.py`, `executor.py`, `radio_watch.py`). Delivery to a
+The event catalogue, the one FR/EN renderer, the channels, the rules, the dispatcher
+and its transports, and the delivery helpers (`apprise_medium.py`, `executor.py`,
+`radio_watch.py`). Delivery to a
 user-chosen destination goes through the egress guard (`app/net/AGENTS.md`).
 This file is a hypothesis: check it against the code.
 
@@ -30,8 +31,16 @@ This file is a hypothesis: check it against the code.
   `public_only`, else `always`), `quiet_hours_exempt_default` and `required` fields.
   `ntfy`, `discord` and the presets add entries later.
 - `app/repository/notification_channels.py`: `NotificationChannelRepository` (CRUD, the
-  in-memory cache of the public channels, status updates) and
-  `NotificationJournalRepository` (deliveries, counters, state).
+  in-memory cache of the public channels, status updates, `get_rules()`) and
+  `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).
+- `rules.py`: pure evaluation of `notification_rules` (see "Dispatcher").
+- `dispatcher.py`: `emit()`, the queue and worker per channel, the limiter, the retry
+  policy, the journal, the counters and `notification_statuses()` (see "Dispatcher").
+- `transports/`: `base.py` (`Transport.send(channel, rendered, event, secrets) ->
+  SendResult(status, retry_after, error_code)`, `result_from_exception()` for httpx),
+  `web_push.py` (wraps `PushManager.dispatch_event`), `legacy.py` (`legacy:email`,
+  `legacy:webhook`, `legacy:apprise` through the `app/notify.py` send functions, until
+  their native transports, MSHL-110).
 
 ## Channels (data model)
 
@@ -65,13 +74,68 @@ This file is a hypothesis: check it against the code.
 - **Journal.** 200 `notification_deliveries` rows per channel (trimmed at insert, plus the
   daily `prune_deliveries()`); successes are counted per channel and hour
   (`notification_counters`); `notification_state` holds dedup timestamps with an expiry.
-- **The import runs once.** Until the dispatcher ticket (MSHL-109) the legacy columns
-  (`push_defaults`, `push_conversation_overrides`, `notification_destinations`) stay the
-  delivery source and stay editable; a change made there after migration 113 is not mirrored
-  into the channels and rules. MSHL-109 must re-run the import (`build_channels`,
-  `build_rules`) or switch the writers over.
-- This version only stores and reads: delivery still follows the legacy columns until the
-  dispatcher ticket. The legacy columns are no longer written by the new model.
+- **The import runs once.** The legacy columns (`push_defaults`,
+  `push_conversation_overrides`, `notification_destinations`) stay the delivery source and
+  stay editable until the API and its shims (MSHL-111) and the producers (MSHL-112) switch
+  over: the producers still compute medium flags from them and the legacy transports read
+  the destinations at send time, so a change made there after migration 113 is delivered
+  even though it is not mirrored into the channels and rules. Whoever switches the writers
+  must re-run the import (`build_channels`, `build_rules`) or mirror the writes.
+  The legacy columns are no longer written by the new model.
+
+## Dispatcher
+
+- **Entry.** `emit(event, *, payload=None, targets=None)` never raises and never waits on a
+  send. Without `targets` the rules choose the channels (`rules.event_channel_ids`); the
+  legacy adapter `app.notify.dispatch_system_event(payload, flags)` passes `targets`: each
+  medium flag whose destination is configured becomes `builtin:push` or
+  `legacy:email|webhook|apprise` (a legacy id is delivered even without its row, since its
+  destination lives in `notification_destinations`). Unknown and disabled channels are
+  skipped without a journal row.
+- **Rules** (`rules.py`). A stored conversation exception wins either way; else a DM follows
+  `message.dm`, a Public or `#` channel `message.channel`, a channel with its own key no
+  one; `contact.first_seen` follows `contact_types` (1 companion, 2 repeater, 4 sensor; a
+  room or an unknown type never). The global `paused_until` and a channel's own
+  `paused_until` hold everything but urgent and `always_deliver` events (journal `paused`).
+  Block lists and mutes are still applied by the producers (MSHL-113 moves them here).
+- **Queues.** One `asyncio.Queue(maxsize=200)` and one worker task per channel (`spawn()`),
+  started by a job and ended when the queue is empty. One send at a time per channel;
+  `min_interval_s` between sends (`channels.min_interval_s`: preset `telegram` 3 s,
+  `discord` 2 s, `ntfy` 1 s; type `email` 10 s, `apprise` 2 s, `webhook` and `web_push` 0).
+  Past `MAX_PENDING` (20) waiting, a non-urgent job is folded (`aggregated`) into one
+  `notifications_grouped` "+N events" sent once the queue is empty; a full queue drops the
+  job (`rate_limited`). `contact.first_seen` is capped at 10 an hour per channel
+  (`aiolimiter`), the rest summed into one `first_seen_grouped`. The spacing and the retries
+  read the injected `clock`/`sleep` (fake-clock tests); token buckets, daily quotas and the
+  global cap come with MSHL-125.
+- **Retries** (`tenacity`, `retry_if_result`): `RETRY_WAITS` 0/5/30 s while the transport
+  answers `retry` (5xx, timeout, network error, 429 whose `Retry-After` wins, capped at
+  120 s); a `failed` answer (other 4xx, refused destination, not configured) is never
+  retried. A `message.*` job still failing is dropped as stale; `radio.offline` and
+  `telemetry.alert` get one more attempt 5 min later, requeued from a spawned timer so the
+  worker stays free. Web Push, e-mail and the legacy Apprise medium answer `failed`, never
+  `retry` (a retry would reach again the subscriptions or URLs that took it; the Apprise
+  medium retries each URL itself).
+- **Threads.** Every blocking transport (Apprise, e-mail, pywebpush) runs in `executor.py`
+  (4 threads), never the default pool; timeouts are the transports' own (httpx, Apprise
+  `cto`/`rto`, the push send's connect/read), never `asyncio.timeout` around a thread.
+- **Outcomes.** Successes are counted in memory and flushed every 60 s to
+  `notification_counters` with the channel's `last_ok_at` (one write a minute, not one per
+  send); a success after failures resets `failure_count` at once. A failure updates
+  `failure_count` and `last_error` (a code, `secret_fields.scrub_error` with the channel's
+  secrets). `notification_deliveries` rows only for `failed`, `rate_limited`, `aggregated`,
+  `paused`, `aborted` (`suppressed_quiet` with the quiet hours), batched in one transaction;
+  a row holds the event id, the hashed `dedup_key`, a code and the attempts, never the text.
+- **Status.** `notification_statuses()` is the health payload's `notification_statuses`:
+  `{channel id: {status, last_error, last_ok_at}}`, `status` one of `connected`, `error`,
+  `paused`, `secret_unreadable` (with the encryption ticket), `disconnected` (disabled).
+  A change of a channel's status or error broadcasts `health`; below admin `last_error` is
+  emptied (`without_admin_details`).
+- **Shutdown.** `drain_background_tasks` cancels the workers, the long-retry timers and the
+  first-seen flushers; each records what it held as `aborted`, and the counter loop flushes.
+- **Tests.** `tests/test_notification_dispatcher.py` (marked `async_notifications`); every
+  other test runs with `tests/conftest.py`'s `_settle_notifications`, which waits for the
+  queues after each `emit` so a producer test can assert on the send.
 
 ## Contract, version 1
 

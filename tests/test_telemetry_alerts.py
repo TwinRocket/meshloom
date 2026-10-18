@@ -1,5 +1,6 @@
 """F2 telemetry alerts: thresholds, misses, busy lock, untracked."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -402,12 +403,23 @@ class TestTelemetryAlerts:
 
     @pytest.mark.asyncio
     async def test_email_and_webhook_dispatch(self, test_db, captured_alerts):
+        from app.models import NotificationDestinations
+
         await _track_repeater()
         await AppSettingsRepository.update(
             telemetry_alert_rules=TelemetryAlertRules(
                 channels=TelemetryAlertChannels(push=True, email=True, webhook=True)
-            )
+            ),
+            # A medium with no destination is skipped by the adapter.
+            notification_destinations=NotificationDestinations.model_validate(
+                {
+                    "email": {"host": "smtp.example.org", "to": "ops@example.org"},
+                    "webhook": {"url": "https://hooks.example.org/x"},
+                }
+            ),
         )
+        await asyncio.sleep(0.05)  # the "destination changed" push notice
+        captured_alerts.clear()
         with (
             patch("app.notify.send_email_alert", new_callable=AsyncMock) as email,
             patch("app.notify.send_webhook_alert", new_callable=AsyncMock) as webhook,

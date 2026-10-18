@@ -113,6 +113,27 @@ async def _reset_hashtag_catalogue():
 
 
 @pytest.fixture(autouse=True)
+def _settle_notifications(request, monkeypatch):
+    """Each emit waits until the dispatcher's queues are empty, so a test can assert
+    on a send right after the producer returns, as before the dispatcher (the jobs
+    still go through the real queues and workers). Tests of the dispatcher itself
+    opt out with ``@pytest.mark.async_notifications``."""
+    if request.node.get_closest_marker("async_notifications"):
+        yield
+        return
+    from app.notifications.dispatcher import Dispatcher
+
+    emit = Dispatcher.emit
+
+    async def emit_and_settle(self, *args, **kwargs):
+        await emit(self, *args, **kwargs)
+        await self.wait_idle()
+
+    monkeypatch.setattr(Dispatcher, "emit", emit_and_settle)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_host_guard():
     """The Host guard keeps its mode and the names it observed in memory."""
     from app.middleware import host_guard

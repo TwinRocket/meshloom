@@ -118,6 +118,8 @@ class ChannelType:
     cloud: bool = False
     quiet_hours_exempt_default: bool = False
     singleton_id: str | None = None
+    # The minimal limiter's gap between two sends of one channel (the dispatcher).
+    min_interval_s: float = 0.0
     # (config field, ...) a kept secret must not follow a change of: see ``destination_keys``.
     destination_keys: tuple[str, ...] = ()
     secret_follows: tuple[str, ...] = ()
@@ -153,6 +155,7 @@ REGISTRY: dict[str, ChannelType] = {
             EmailConfig,
             Limits(6, 60, 200),
             required=("host", "to"),
+            min_interval_s=10.0,
             destination_keys=("host", "port", "mode"),
             secret_follows=("password",),
         ),
@@ -170,9 +173,25 @@ REGISTRY: dict[str, ChannelType] = {
             AppriseConfig,
             Limits(30, 300, None),
             required=("urls",),
+            min_interval_s=2.0,
         ),
     )
 }
+
+
+# The minimal limiter's gap for a preset (an Apprise service) or a native type that
+# is not registered yet; a preset wins over its type.
+PRESET_MIN_INTERVAL_S: dict[str, float] = {"telegram": 3.0, "discord": 2.0, "ntfy": 1.0}
+
+
+def min_interval_s(type_id: str, preset: str | None = None) -> float:
+    """Seconds between two sends of one channel (the dispatcher's minimal limiter)."""
+    if preset in PRESET_MIN_INTERVAL_S:
+        return PRESET_MIN_INTERVAL_S[preset]
+    entry = REGISTRY.get(type_id)
+    if entry is not None:
+        return entry.min_interval_s
+    return PRESET_MIN_INTERVAL_S.get(type_id, 0.0)
 
 
 def get_type(type_id: str) -> ChannelType:

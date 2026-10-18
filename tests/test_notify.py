@@ -18,6 +18,7 @@ from app.email_template import (
 )
 from app.models import AppSettings, NotificationDestinations, NotificationWebhookDest
 from app.net.egress_guard import EgressBlocked
+from app.notifications.dispatcher import notification_dispatcher
 from app.notify import (
     TEST_ALERT_PAYLOAD,
     dispatch_system_event,
@@ -173,8 +174,9 @@ async def test_dispatch_logs_a_refused_webhook_as_a_warning(webhook_requests, mo
             )
         ),
     )
-    with caplog.at_level(logging.WARNING, logger="app.notify"):
+    with caplog.at_level(logging.WARNING, logger="app.notifications.transports.legacy"):
         await dispatch_system_event({"event": "oss_update"}, {"webhook": True})
+        await notification_dispatcher().wait_idle()
     assert "webhook dispatch failed: egress_private_address" in caplog.text
     assert "tok3n" not in caplog.text
     assert webhook_requests == []
@@ -306,16 +308,21 @@ async def test_dispatch_uses_explicit_channels(monkeypatch):
     monkeypatch.setattr("app.push.manager.push_manager.dispatch_event", push)
     monkeypatch.setattr("app.notify.send_email_alert", email)
     monkeypatch.setattr("app.notify.send_webhook_alert", webhook)
+    destinations = NotificationDestinations.model_validate(
+        {
+            "email": {"host": "smtp.example.org", "to": "a@example.org"},
+            "webhook": {"url": "https://hooks.example.org/x"},
+        }
+    )
     monkeypatch.setattr(
         "app.repository.settings.AppSettingsRepository.get",
-        AsyncMock(
-            return_value=type("S", (), {"notification_destinations": NotificationDestinations()})()
-        ),
+        AsyncMock(return_value=type("S", (), {"notification_destinations": destinations})()),
     )
 
     await dispatch_system_event(
         {"event": "oss_update"}, {"push": False, "email": True, "webhook": True}
     )
+    await notification_dispatcher().wait_idle()
     push.assert_not_called()
     email.assert_awaited_once()
     webhook.assert_awaited_once()
