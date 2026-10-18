@@ -261,6 +261,14 @@ Values of the config schema's `writeOnly` fields: PK `(instance_id, field)`, `va
 by the repository except `config_for_init()`, never exported, emptied in the database
 download. `PluginRepository` (`plugins.py`).
 
+### `plugin_send_quota`
+
+Send counters of the plugin `messages.send` capability (migration 105): PK
+`(instance_id, period)`, `period` (`hour` or `day`, CHECK), `period_start` (Unix
+seconds of the fixed window), `count`. A row whose `period_start` is not the current
+window reads as zero. Runtime state: excluded from every backup, removed with the
+instance. `PluginSendQuotaRepository` (`plugins.py`), rules in `app/plugins/quotas.py`.
+
 ## Relationships
 
 All foreign keys point at `contacts(public_key)` (children: advert paths, name

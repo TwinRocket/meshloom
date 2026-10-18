@@ -27,6 +27,11 @@ with backoff when it fails. Behaviour and budgets: docs/dev/plugins.md,
 Isolation: the OS backend (MSHL-180) is not there yet, so every child runs at
 level `none` (the runner's hooks only); `isolation_level()` and `_spawn_argv()`
 are the seam it replaces.
+
+What a child may ask (`messages.send`, `storage.*`, `timer.set`...) and which
+events reach it are the capability layer's (`app/plugins/capabilities/`): each
+instance holds its effective permissions, and every request goes through
+`capabilities.dispatch()`.
 """
 
 from __future__ import annotations
@@ -52,6 +57,7 @@ from typing import Any, Literal
 
 from app.message_limits import DM_HARD_LIMIT, channel_text_allowance
 from app.plugins import launch
+from app.plugins.quotas import effective_send_limits
 from app.secret_fields import scrub_error
 from meshloom_plugin import policy, rpc
 
@@ -75,6 +81,8 @@ HOOKS = ("message", "raw_packet", "contact", "telemetry", "health", "timer")
 # someone acts (a manual restart, a review, an update).
 STICKY_STATUSES = frozenset({"crash_loop", "needs_attention", "incompatible", "revoked"})
 API_VERSION = 1
+LANGUAGES = ("en", "fr")
+DEFAULT_LANGUAGE = "en"
 
 MEM_PER_INSTANCE = 128 * 1024 * 1024
 INSTANCE_CAP_MIN = 3
@@ -329,6 +337,7 @@ class LogRing:
 # --- one child process ----------------------------------------------------------
 
 RequestHandler = Callable[[str, Any], Awaitable[Any]]
+NotificationHandler = Callable[[str, Any], None]
 
 
 class PluginProcess:
@@ -340,11 +349,13 @@ class PluginProcess:
         log: LogRing,
         on_request: RequestHandler,
         write_timeout: float = 30.0,
+        on_notify: NotificationHandler | None = None,
     ):
         self._plugin_dir = plugin_dir
         self._write_timeout = write_timeout
         self._log = log
         self._on_request = on_request
+        self._on_notify = on_notify
         self._proc: asyncio.subprocess.Process | None = None
         self.work_dir: Path | None = None
         self._ids = itertools.count(1)
@@ -527,7 +538,12 @@ class PluginProcess:
                     future.set_result(msg.get("result"))
             return
         if "id" not in msg:
-            return  # child notifications carry nothing the host acts on yet
+            if self._on_notify is not None:
+                try:
+                    self._on_notify(msg["method"], msg.get("params"))
+                except Exception:
+                    logger.exception("Plugin notification %s failed", msg["method"])
+            return
         if len(self._tasks) >= MAX_CHILD_REQUESTS:
             overloaded = rpc.error(msg["id"], rpc.OVERLOADED, "too many pending host requests")
             task = asyncio.create_task(self._write_quietly(rpc.encode(overloaded)))
@@ -625,6 +641,20 @@ class PluginInstance:
         manifest = row.get("manifest") or {}
         self.hooks = frozenset(h for h in manifest.get("hooks", []) if h in HOOKS)
         self.plugin_dir = plugin_dir
+        # What the instance may do: declared by the manifest and granted by the
+        # user, narrowed (`capabilities/grants.py`); the scope restricts reads.
+        # (The capability package imports this module: imported here, not at the top.)
+        from app.plugins.capabilities.grants import effective_permissions
+
+        self.permissions: dict[str, dict[str, Any]] = effective_permissions(
+            manifest, row.get("granted_permissions")
+        )
+        self.scope: dict[str, Any] = row.get("scope") or {}
+        self.quotas: dict[str, Any] = row.get("quotas") or {}
+        self.summary: str | None = None
+        self._summary_at = -float("inf")
+        self._timers: dict[int, asyncio.TimerHandle] = {}
+        self._timer_ids = itertools.count(1)
         self.status: str = "installed"
         self.last_error: str | None = None
         self.dropped_events = 0
@@ -682,6 +712,7 @@ class PluginInstance:
                     self._task.cancel()
                     await asyncio.wait({self._task}, timeout=1.0)
             self.kill_now()
+            self._cancel_timers()
             self._drop_all("instance stopped")
 
     def kill_now(self) -> None:
@@ -710,7 +741,44 @@ class PluginInstance:
             "last_error": self.last_error,
             "dropped_events": self.dropped_events,
             "restarts": self.restarts,
+            "summary": self.summary,
         }
+
+    # Capability state (`app/plugins/capabilities/`).
+
+    def add_timer(self, seconds: float, max_pending: int) -> int | None:
+        """Arm one `event.timer` in `seconds`; None when `max_pending` are pending."""
+        if len(self._timers) >= max_pending:
+            return None
+        timer_id = next(self._timer_ids)
+        loop = asyncio.get_running_loop()
+        self._timers[timer_id] = loop.call_later(seconds, self._fire_timer, timer_id, seconds)
+        return timer_id
+
+    def _fire_timer(self, timer_id: int, seconds: float) -> None:
+        if self._timers.pop(timer_id, None) is not None:
+            self.enqueue(_Event("timer", {"timer_id": timer_id, "seconds": seconds}))
+
+    def _cancel_timers(self) -> None:
+        for handle in self._timers.values():
+            handle.cancel()
+        self._timers.clear()
+
+    def summary_wait(self, interval: float) -> float:
+        """Seconds before the summary may change again (0 when it may now)."""
+        return max(0.0, self._summary_at + interval - time.monotonic())
+
+    async def set_summary(self, summary: str | None) -> None:
+        self._summary_at = time.monotonic()
+        if summary != self.summary:
+            self.summary = summary
+            await self._manager._status_changed(self)
+
+    def _on_child_notification(self, method: str, params: Any) -> None:
+        if method == "log":
+            from app.plugins.capabilities.log import log_line
+
+            self.log.feed(log_line(params))
 
     # Supervision loop.
 
@@ -755,6 +823,7 @@ class PluginInstance:
             self.log,
             self._on_child_request,
             write_timeout=self.budgets.event_timeout,
+            on_notify=self._on_child_notification,
         )
         self._process = process
         cpu_task: asyncio.Task[None] | None = None
@@ -798,6 +867,7 @@ class PluginInstance:
                 await asyncio.gather(cpu_task, return_exceptions=True)
             await process.close()
             self._process = None
+            self._cancel_timers()
 
     def _params_line(self, work_dir: Path) -> bytes:
         return launch.runner_params(
@@ -817,6 +887,11 @@ class PluginInstance:
             raise ValueError("the instance no longer exists")
         secret_names = set(row.get("secret_fields") or [])
         self._secrets = [str(v) for k, v in config.items() if k in secret_names and v]
+        # `language` is a standard config field of every instance (`en`, `fr`).
+        lang = config.get("language")
+        if lang not in LANGUAGES:
+            lang = DEFAULT_LANGUAGE
+        config = {**config, "language": lang}
         return {
             "api": API_VERSION,
             "instance": {
@@ -825,12 +900,20 @@ class PluginInstance:
                 "label": self.label,
             },
             "config": config,
-            "granted": sorted(row.get("granted_permissions") or {}),
+            "lang": lang,
+            "granted": sorted(self.permissions),
             "limits": {"message_bytes": message_bytes_limit()},
-            "scope": row.get("scope") or {},
-            "quotas": row.get("quotas") or {},
+            "scope": self.scope,
+            "quotas": self._effective_quotas(),
             "isolation": isolation_level(),
         }
+
+    def _effective_quotas(self) -> dict[str, Any]:
+        send = self.permissions.get("messages.send")
+        if send is None:
+            return {}
+        limits = effective_send_limits(send, self.quotas)
+        return {"messages.send": {"per_hour": limits.per_hour, "per_day": limits.per_day}}
 
     async def _serve(self, process: PluginProcess) -> None:
         in_flight: set[asyncio.Task[None]] = set()
@@ -935,23 +1018,12 @@ class PluginInstance:
             event = next(iter(self._in_flight.values()))
         else:
             event = None
-        if method == "messages.send" and event is not None and event.test:
-            # A test event's sends are captured for the caller, never sent.
-            assert isinstance(params, dict)
-            send = {k: v for k, v in params.items() if k != "event_id"}
-            size = len(json.dumps(send, ensure_ascii=False).encode("utf-8"))
-            if len(event.sends) >= MAX_TEST_SENDS or event.sends_bytes + size > MAX_TEST_SEND_BYTES:
-                event.truncated = True
-                raise HostMethodError(
-                    rpc.OVERLOADED, "too many test sends", {"code": "test_sends_truncated"}
-                )
-            event.sends.append(send)
-            event.sends_bytes += size
-            return {"captured": True}
-        handler = self._manager.host_methods.get(method)
-        if handler is None:
-            raise HostMethodError(rpc.METHOD_NOT_FOUND, f"{method} is not available")
-        return await handler(self, params)
+        override = self._manager.host_methods.get(method)
+        if override is not None:
+            return await override(self, params)
+        from app.plugins import capabilities
+
+        return await capabilities.dispatch(self, method, params, event)
 
     # Counters and statuses.
 
@@ -1037,8 +1109,8 @@ class PluginManager:
         self._instances: dict[str, PluginInstance] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._load_task: asyncio.Task[None] | None = None
-        # Host methods a child may call (`messages.send`, `storage.*`...), registered
-        # by the capability layer (MSHL-181 and later). Unknown: -32601.
+        # Overrides of the capability layer (`app/plugins/capabilities/`), name to
+        # coroutine: tests register extra methods here. Checked first.
         self.host_methods: dict[str, HostMethod] = {}
 
     # Gates.
@@ -1215,6 +1287,7 @@ class PluginManager:
                 "last_error": row.get("last_error"),
                 "dropped_events": 0,
                 "restarts": 0,
+                "summary": None,
             }
         for instance_id, instance in self._instances.items():
             result[instance_id] = instance.snapshot()
@@ -1227,10 +1300,14 @@ class PluginManager:
     # Dispatch.
 
     def dispatch(self, hook: str, data: dict[str, Any]) -> None:
-        """Queue a fanout event for every running instance that subscribes `hook`.
+        """Queue a fanout event for every running instance that subscribes `hook`
+        and holds its permission (`capabilities/grants.py`).
 
-        Never blocks. `event.message` keeps the bots' 2 s settle (echo dedup) and
-        carries the bots' fields (`app/plugins/events.py`); other hooks get `data`.
+        Never blocks. `event.message` keeps the bots' 2 s settle (echo dedup),
+        carries the bots' fields (`app/plugins/events.py`) and is filtered per
+        instance (`messages.read`, then the user's scope); a message sent by a
+        plugin instance is marked so that instance sees `own_send`. A raw packet
+        keeps its decryption only for an instance that may read that message.
         """
         targets = [
             i
@@ -1241,24 +1318,40 @@ class PluginManager:
             return
         if hook == "message":
             from app.background_tasks import spawn
+            from app.plugins.capabilities.messages import SENDING_INSTANCE
 
-            spawn(self._enqueue_message(targets, data))
+            spawn(self._enqueue_message(targets, data, SENDING_INSTANCE.get()))
             return
-        for instance in targets:
-            instance.enqueue(_Event(hook, data))
+        from app.plugins.capabilities.grants import raw_packet_for
 
-    async def _enqueue_message(self, targets: list[PluginInstance], data: dict[str, Any]) -> None:
+        for instance in targets:
+            if hook == "raw_packet":
+                instance.enqueue(
+                    _Event(hook, raw_packet_for(instance.permissions, instance.scope, data))
+                )
+            else:
+                instance.enqueue(_Event(hook, data))
+
+    async def _enqueue_message(
+        self, targets: list[PluginInstance], data: dict[str, Any], origin: str | None = None
+    ) -> None:
+        from app.plugins.capabilities.grants import message_visible
         from app.plugins.events import message_event_params
 
         if self.budgets.message_settle > 0:
             await asyncio.sleep(self.budgets.message_settle)
         params = await message_event_params(data)
         for instance in targets:
-            instance.enqueue(_Event("message", params))
+            if not message_visible(instance.permissions, instance.scope, params):
+                continue
+            own = params["is_outgoing"] and origin == instance.instance_id
+            instance.enqueue(_Event("message", {**params, "own_send": True} if own else params))
 
     def accepts(self, instance: PluginInstance, hook: str, data: dict[str, Any]) -> bool:
-        """Permission and scope filter: the seam MSHL-181 (T6) fills. Everything passes."""
-        return True
+        """The permission gate of a hook (`message` is filtered again per message)."""
+        from app.plugins.capabilities.grants import hook_allowed
+
+        return hook_allowed(instance.permissions, instance.scope, hook)
 
     async def dispatch_test(
         self, instance_id: str, hook: str, data: dict[str, Any], timeout: float | None = None

@@ -242,6 +242,7 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "plugins": ("excluded", "plugin instances: backup section with the plugins API"),
     "plugin_kv": ("excluded", "plugin storage: backup section with the plugins API"),
     "plugin_secrets": ("excluded", "plugin config secrets, never exported"),
+    "plugin_send_quota": ("excluded", "plugin send counters: runtime state"),
 }
 
 
