@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.auth.permissions import require
 from app.models import (
     DirectoryCacheResetResponse,
     DirectoryMapNodesResponse,
@@ -32,19 +33,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/directory", tags=["directory"])
 
 
-@router.post("/resolve-hops", response_model=DirectoryResolveHopsResponse)
+@router.post(
+    "/resolve-hops",
+    response_model=DirectoryResolveHopsResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def post_resolve_hops(request: DirectoryResolveHopsRequest) -> DirectoryResolveHopsResponse:
     """Community hop resolution. Rejects 1-byte prefixes. No-op when Community is off."""
     return await resolve_directory_hops(request.hops)
 
 
-@router.get("/nodes", response_model=DirectoryMapNodesResponse)
+@router.get(
+    "/nodes", response_model=DirectoryMapNodesResponse, dependencies=[Depends(require("read"))]
+)
 async def get_directory_map_nodes(include_local: bool = False) -> DirectoryMapNodesResponse:
     """Directory GPS pins for the #map overlay. Local contacts stay off by default."""
     return await list_directory_map_nodes(include_local=include_local)
 
 
-@router.get("/nodes/live", response_model=DirectoryMapNodesResponse)
+@router.get(
+    "/nodes/live", response_model=DirectoryMapNodesResponse, dependencies=[Depends(require("read"))]
+)
 async def get_live_directory_map_nodes() -> DirectoryMapNodesResponse:
     """Live-map pins: directory plus local GPS, including observer GPS.
 
@@ -58,19 +67,31 @@ async def get_live_directory_map_nodes() -> DirectoryMapNodesResponse:
     )
 
 
-@router.get("/nodes/search", response_model=DirectoryNodeSearchResponse)
+@router.get(
+    "/nodes/search",
+    response_model=DirectoryNodeSearchResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def get_directory_node_search(q: str) -> DirectoryNodeSearchResponse:
     """Community name/key search. Not for hop prefixes — use resolve-hops."""
     return await search_directory_nodes(q)
 
 
-@router.get("/packets/{packet_hash}/reach", response_model=PacketObserverReachResponse)
+@router.get(
+    "/packets/{packet_hash}/reach",
+    response_model=PacketObserverReachResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def get_packet_reach(packet_hash: str) -> PacketObserverReachResponse:
     """Nodes that heard this firmware packet hash, from stored Community events."""
     return await get_packet_observer_reach(packet_hash)
 
 
-@router.post("/packets/reach-counts", response_model=PacketObserverReachCountsResponse)
+@router.post(
+    "/packets/reach-counts",
+    response_model=PacketObserverReachCountsResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def post_packet_reach_counts(
     request: PacketObserverReachCountsRequest,
 ) -> PacketObserverReachCountsResponse:
@@ -78,19 +99,31 @@ async def post_packet_reach_counts(
     return await get_packet_observer_reach_counts(request.hashes)
 
 
-@router.get("/nodes/{pubkey}/reach", response_model=DirectoryReachResponse)
+@router.get(
+    "/nodes/{pubkey}/reach",
+    response_model=DirectoryReachResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def get_node_reach(pubkey: str) -> DirectoryReachResponse:
     """Community 0-hop observers. 503/502 is a failure, not empty data."""
     return await get_directory_node_reach(pubkey)
 
 
-@router.get("/nodes/{pubkey}/neighbors", response_model=DirectoryNeighborsResponse)
+@router.get(
+    "/nodes/{pubkey}/neighbors",
+    response_model=DirectoryNeighborsResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def get_node_neighbors(pubkey: str) -> DirectoryNeighborsResponse:
     """Community neighbor affinity for optional repeater-disk calibration."""
     return await get_directory_node_neighbors(pubkey)
 
 
-@router.post("/cache/reset", response_model=DirectoryCacheResetResponse)
+@router.post(
+    "/cache/reset",
+    response_model=DirectoryCacheResetResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def post_reset_directory_cache() -> DirectoryCacheResetResponse:
     """Wipe the directory hop cache only. RF contacts are untouched."""
     deleted = await reset_directory_cache()

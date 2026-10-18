@@ -4,10 +4,11 @@ import random
 import time
 from contextlib import suppress
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from meshcore import EventType
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import can_read_private, require
 from app.models import (
     Contact,
     ContactActiveRoom,
@@ -95,14 +96,25 @@ def _path_hash_mode_from_hop_width(hop_width: object) -> int:
     return max(0, min(hop_width - 1, 2))
 
 
-async def _build_keyed_contact_analytics(contact: Contact) -> ContactAnalytics:
+def _without_direct_messages(contact: Contact) -> Contact:
+    """A contact as a caller without ``read_private`` sees it: no DM activity."""
+    return contact.model_copy(update={"last_contacted": None, "last_read_at": None})
+
+
+async def _build_keyed_contact_analytics(
+    contact: Contact, *, include_direct_messages: bool = True
+) -> ContactAnalytics:
     name_history = await ContactNameHistoryRepository.get_history(contact.public_key)
-    dm_count = await MessageRepository.count_dm_messages(contact.public_key)
+    dm_count = (
+        await MessageRepository.count_dm_messages(contact.public_key)
+        if include_direct_messages
+        else 0
+    )
     chan_count = await MessageRepository.count_channel_messages_by_sender(contact.public_key)
     active_rooms_raw = await MessageRepository.get_most_active_rooms(contact.public_key)
     advert_paths = await ContactAdvertPathRepository.get_recent_for_contact(contact.public_key)
     hourly_activity, weekly_activity = await MessageRepository.get_contact_activity_series(
-        contact.public_key
+        contact.public_key, include_direct_messages=include_direct_messages
     )
 
     most_active_rooms = [
@@ -154,11 +166,11 @@ async def _build_keyed_contact_analytics(contact: Contact) -> ContactAnalytics:
     return ContactAnalytics(
         lookup_type="contact",
         name=contact.name or contact.public_key[:12],
-        contact=contact,
+        contact=contact if include_direct_messages else _without_direct_messages(contact),
         name_history=name_history,
         dm_message_count=dm_count,
         channel_message_count=chan_count,
-        includes_direct_messages=True,
+        includes_direct_messages=include_direct_messages,
         most_active_rooms=most_active_rooms,
         advert_paths=advert_paths,
         advert_frequency=advert_frequency,
@@ -191,16 +203,24 @@ async def _build_name_only_contact_analytics(name: str) -> ContactAnalytics:
     )
 
 
-@router.get("", response_model=list[Contact])
+@router.get("", response_model=list[Contact], dependencies=[Depends(require("read"))])
 async def list_contacts(
+    request: Request,
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> list[Contact]:
     """List contacts from the database."""
-    return await ContactRepository.get_all(limit=limit, offset=offset)
+    contacts = await ContactRepository.get_all(limit=limit, offset=offset)
+    if can_read_private(request):
+        return contacts
+    return [_without_direct_messages(contact) for contact in contacts]
 
 
-@router.get("/repeaters/advert-paths", response_model=list[ContactAdvertPathSummary])
+@router.get(
+    "/repeaters/advert-paths",
+    response_model=list[ContactAdvertPathSummary],
+    dependencies=[Depends(require("read"))],
+)
 async def list_repeater_advert_paths(
     limit_per_repeater: int = Query(default=10, ge=1, le=50),
 ) -> list[ContactAdvertPathSummary]:
@@ -214,8 +234,9 @@ async def list_repeater_advert_paths(
     )
 
 
-@router.get("/analytics", response_model=ContactAnalytics)
+@router.get("/analytics", response_model=ContactAnalytics, dependencies=[Depends(require("read"))])
 async def get_contact_analytics(
+    request: Request,
     public_key: str | None = Query(default=None),
     name: str | None = Query(default=None, min_length=1, max_length=200),
 ) -> ContactAnalytics:
@@ -225,7 +246,9 @@ async def get_contact_analytics(
 
     if public_key:
         contact = await resolve_contact_or_404(public_key)
-        return await _build_keyed_contact_analytics(contact)
+        return await _build_keyed_contact_analytics(
+            contact, include_direct_messages=can_read_private(request)
+        )
 
     assert name is not None
     normalized_name = name.strip()
@@ -234,7 +257,7 @@ async def get_contact_analytics(
     return await _build_name_only_contact_analytics(normalized_name)
 
 
-@router.post("", response_model=Contact)
+@router.post("", response_model=Contact, dependencies=[Depends(require("send"))])
 async def create_contact(
     request: CreateContactRequest, background_tasks: BackgroundTasks
 ) -> Contact:
@@ -326,7 +349,7 @@ async def create_contact(
     return stored
 
 
-@router.post("/{public_key}/mark-read")
+@router.post("/{public_key}/mark-read", dependencies=[Depends(require("read_private"))])
 async def mark_contact_read(public_key: str) -> dict:
     """Mark a contact conversation as read (update last_read_at timestamp)."""
     contact = await resolve_contact_or_404(public_key)
@@ -342,7 +365,7 @@ class BulkDeleteRequest(BaseModel):
     public_keys: list[str] = Field(description="Public keys to delete")
 
 
-@router.post("/bulk-delete")
+@router.post("/bulk-delete", dependencies=[Depends(require("send"))])
 async def bulk_delete_contacts(request: BulkDeleteRequest) -> dict:
     """Delete multiple contacts from the database (and radio if present)."""
     from app.websocket import broadcast_event
@@ -376,7 +399,7 @@ async def bulk_delete_contacts(request: BulkDeleteRequest) -> dict:
     return {"deleted": deleted}
 
 
-@router.delete("/{public_key}")
+@router.delete("/{public_key}", dependencies=[Depends(require("send"))])
 async def delete_contact(public_key: str) -> dict:
     """Delete a contact from the database (and radio if present)."""
     contact = await resolve_contact_or_404(public_key)
@@ -402,7 +425,9 @@ async def delete_contact(public_key: str) -> dict:
     return {"status": "ok"}
 
 
-@router.post("/{public_key}/trace", response_model=TraceResponse)
+@router.post(
+    "/{public_key}/trace", response_model=TraceResponse, dependencies=[Depends(require("send"))]
+)
 async def request_trace(public_key: str) -> TraceResponse:
     """Send a single-hop trace to a contact and wait for the result.
 
@@ -466,7 +491,11 @@ async def request_trace(public_key: str) -> TraceResponse:
     return TraceResponse(remote_snr=remote_snr, local_snr=local_snr, path_len=path_len)
 
 
-@router.post("/{public_key}/path-discovery", response_model=PathDiscoveryResponse)
+@router.post(
+    "/{public_key}/path-discovery",
+    response_model=PathDiscoveryResponse,
+    dependencies=[Depends(require("send"))],
+)
 async def request_path_discovery(public_key: str) -> PathDiscoveryResponse:
     """Discover the current forward and return paths to a known contact."""
     radio_manager.require_connected()
@@ -550,7 +579,7 @@ async def request_path_discovery(public_key: str) -> PathDiscoveryResponse:
     )
 
 
-@router.post("/{public_key}/routing-override")
+@router.post("/{public_key}/routing-override", dependencies=[Depends(require("send"))])
 async def set_contact_routing_override(
     public_key: str, request: ContactRoutingOverrideRequest
 ) -> dict:
@@ -602,7 +631,11 @@ async def set_contact_routing_override(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/{public_key}/telemetry", response_model=ContactTelemetryResponse)
+@router.post(
+    "/{public_key}/telemetry",
+    response_model=ContactTelemetryResponse,
+    dependencies=[Depends(require("send"))],
+)
 async def request_contact_telemetry(public_key: str) -> ContactTelemetryResponse:
     """Fetch CayenneLPP telemetry from any contact (single attempt, 10s timeout).
 
@@ -682,7 +715,11 @@ async def request_contact_telemetry(public_key: str) -> ContactTelemetryResponse
     )
 
 
-@router.get("/{public_key}/telemetry-history", response_model=list[TelemetryHistoryEntry])
+@router.get(
+    "/{public_key}/telemetry-history",
+    response_model=list[TelemetryHistoryEntry],
+    dependencies=[Depends(require("read"))],
+)
 async def get_contact_telemetry_history(public_key: str) -> list[TelemetryHistoryEntry]:
     """Get stored telemetry history for a contact (read-only, no radio access)."""
     from app.repository.contact_telemetry import ContactTelemetryRepository

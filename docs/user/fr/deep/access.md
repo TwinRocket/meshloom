@@ -9,6 +9,19 @@ order: 21
 
 Il modifie directement le fichier de la base. Un Meshloom en cours d’exécution voit le changement à sa requête suivante : pas de redémarrage.
 
+## Les rôles
+
+Chaque compte a l’un des quatre rôles. Le serveur vérifie le rôle à chaque requête, quoi qu’affiche l’interface : une requête hors du rôle est refusée (`auth_forbidden`).
+
+| Rôle | Peut |
+|---|---|
+| `admin` | Tout : réglages, radio, répéteurs et salons, intégrations et bots, sauvegarde et restauration, clé privée, mises à jour, Community, notifications, rapport de débogage. |
+| `member` | Tout ce que peut un `viewer`, plus envoyer des messages, ajouter et modifier contacts, canaux et groupes de contacts, favoris, épingles et canaux en sourdine, et abonner son propre navigateur aux notifications push. |
+| `viewer` | Lire les canaux et les messages directs, les marquer comme lus, gérer son propre profil et ses sessions. |
+| `kiosk` | Lecture seule, pour un écran au mur : messages des canaux (canaux en sourdine et en attente compris), contacts, canaux, paquets, statistiques et carte. Jamais un message direct, aucun réglage, aucun profil. |
+
+Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
+
 ## Les commandes
 
 | Commande | Effet |

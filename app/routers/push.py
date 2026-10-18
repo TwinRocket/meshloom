@@ -5,10 +5,11 @@ import json
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from pywebpush import WebPushException
 
+from app.auth.permissions import require
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.push.send import send_push
 from app.push.vapid import (
@@ -121,7 +122,11 @@ def _validate_vapid_subject(subject: str) -> str:
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
-@router.get("/vapid-public-key", response_model=VapidPublicKeyResponse)
+@router.get(
+    "/vapid-public-key",
+    response_model=VapidPublicKeyResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def vapid_public_key() -> VapidPublicKeyResponse:
     """Return the VAPID public key for browser PushManager.subscribe()."""
     key = get_vapid_public_key()
@@ -130,7 +135,7 @@ async def vapid_public_key() -> VapidPublicKeyResponse:
     return VapidPublicKeyResponse(public_key=key)
 
 
-@router.post("/subscribe")
+@router.post("/subscribe", dependencies=[Depends(require("send"))])
 async def subscribe(body: PushSubscribeRequest) -> dict:
     """Register or update a push subscription (device). Upserts by endpoint.
 
@@ -153,13 +158,13 @@ async def subscribe(body: PushSubscribeRequest) -> dict:
     return sub
 
 
-@router.get("/subscriptions")
+@router.get("/subscriptions", dependencies=[Depends(require("send"))])
 async def list_subscriptions() -> list[dict]:
     """List all push subscriptions (devices)."""
     return await PushSubscriptionRepository.get_all()
 
 
-@router.patch("/subscriptions/{subscription_id}")
+@router.patch("/subscriptions/{subscription_id}", dependencies=[Depends(require("send"))])
 async def update_subscription(subscription_id: str, body: PushSubscriptionUpdate) -> dict:
     """Update a subscription's label."""
     existing = await PushSubscriptionRepository.get(subscription_id)
@@ -176,7 +181,7 @@ async def update_subscription(subscription_id: str, body: PushSubscriptionUpdate
     return result or existing
 
 
-@router.delete("/subscriptions/{subscription_id}")
+@router.delete("/subscriptions/{subscription_id}", dependencies=[Depends(require("send"))])
 async def unsubscribe(subscription_id: str) -> dict:
     """Delete a push subscription (device)."""
     deleted = await PushSubscriptionRepository.delete(subscription_id)
@@ -204,7 +209,7 @@ def _coded(code: str) -> dict:
     return {"code": code, "message": _TEST_PUSH_MESSAGES[code]}
 
 
-@router.post("/subscriptions/{subscription_id}/test")
+@router.post("/subscriptions/{subscription_id}/test", dependencies=[Depends(require("send"))])
 async def test_push(subscription_id: str) -> dict:
     """Send a test notification to a subscription."""
     sub = await PushSubscriptionRepository.get(subscription_id)
@@ -270,7 +275,9 @@ async def test_push(subscription_id: str) -> dict:
 # ── Preferences ──────────────────────────────────────────────────────────
 
 
-@router.get("/preferences", response_model=PushPreferencesResponse)
+@router.get(
+    "/preferences", response_model=PushPreferencesResponse, dependencies=[Depends(require("admin"))]
+)
 async def get_push_preferences() -> PushPreferencesResponse:
     """Return global push defaults, per-conversation overrides, and VAPID subject."""
     defaults = await AppSettingsRepository.get_push_defaults()
@@ -283,7 +290,9 @@ async def get_push_preferences() -> PushPreferencesResponse:
     )
 
 
-@router.patch("/preferences", response_model=PushPreferencesResponse)
+@router.patch(
+    "/preferences", response_model=PushPreferencesResponse, dependencies=[Depends(require("admin"))]
+)
 async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesResponse:
     """Partially update push defaults and/or the stored VAPID subject."""
     if body.defaults is not None:
@@ -300,6 +309,7 @@ async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesR
 @router.put(
     "/preferences/conversations/{key}",
     response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin"))],
 )
 async def put_push_conversation_override(
     key: str, body: PushConversationOverrideBody
@@ -317,13 +327,23 @@ async def put_push_conversation_override(
     return await get_push_preferences()
 
 
-@router.api_route("/conversations", methods=["GET", "POST"], include_in_schema=False)
+@router.api_route(
+    "/conversations",
+    methods=["GET", "POST"],
+    include_in_schema=False,
+    dependencies=[Depends(require("admin"))],
+)
 async def removed_push_conversations() -> None:
     """Removed in favor of GET/PATCH /push/preferences."""
     raise HTTPException(status_code=404, detail="Use /api/push/preferences")
 
 
-@router.api_route("/conversations/toggle", methods=["GET", "POST"], include_in_schema=False)
+@router.api_route(
+    "/conversations/toggle",
+    methods=["GET", "POST"],
+    include_in_schema=False,
+    dependencies=[Depends(require("admin"))],
+)
 async def removed_push_conversation_toggle() -> None:
     """Removed in favor of PUT /push/preferences/conversations/{key}."""
     raise HTTPException(status_code=404, detail="Use /api/push/preferences")

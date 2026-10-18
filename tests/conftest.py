@@ -313,6 +313,29 @@ def _auth_as_admin(request, monkeypatch):
 
 
 @pytest.fixture
+def sign_in_as(monkeypatch):
+    """Sign app requests in with another role than the default admin.
+
+    ``sign_in_as("kiosk")``; ``scopes`` narrows the role like a token scope.
+    """
+    from app.auth import middleware
+    from app.auth.models import User
+    from app.auth.principal import Principal
+
+    def _sign_in(role: str, *, scopes: frozenset[str] = frozenset(), credential="session"):
+        user = User(id=2, username=f"test-{role}", role=role, created_at=0, updated_at=0)  # type: ignore[arg-type]
+
+        async def _resolve(scope, headers, via, secure):
+            result = middleware._Resolution()
+            result.principal = Principal(user=user, via=via, credential=credential, scopes=scopes)
+            return result
+
+        monkeypatch.setattr(middleware, "resolve", _resolve)
+
+    return _sign_in
+
+
+@pytest.fixture
 def fast_argon2(monkeypatch):
     """argon2id at libsodium's minimum cost: same code paths, milliseconds per hash."""
     import nacl.pwhash.argon2id as argon2id

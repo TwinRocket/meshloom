@@ -31,8 +31,17 @@ and the OpenAPI page (`/docs`), not a table here.
   a WebSocket is closed 1008 before `accept()`). A new public route goes in
   `PUBLIC_ROUTES` and its route decides what an anonymous caller sees (see
   `/api/health`). Read the principal with `app.auth.principal.get_principal`.
-  Route tests are signed in as an admin by `tests/conftest.py`; gate tests use
-  `@pytest.mark.real_auth`. Details: `docs/dev/auth.md`.
+  Route tests are signed in as an admin by `tests/conftest.py` (`sign_in_as`
+  for another role); gate tests use `@pytest.mark.real_auth`. Details:
+  `docs/dev/auth.md`.
+- **Every new route declares a permission** (`auth/permissions.py`):
+  `dependencies=[Depends(require("read"))]` (`read`, `read_private`, `send`,
+  `repeater_admin`, `admin`), `Depends(public())` for a `PUBLIC_ROUTES` entry
+  or `Depends(own_account())` for the caller's own profile. An undeclared
+  `/api` route is admin-only, and `tests/test_auth_route_coverage.py` fails on
+  it; a path outside `/api` goes in `NON_API_ACCESS`. A route that returns
+  messages, conversations or DM activity must also honour `read_private`
+  (`can_read_private(request)`): the `kiosk` role never gets a direct message.
 - `origin_policy.py` is also the only reader of proxy headers
   (`X-Forwarded-Host`, `X-Forwarded-Proto`); do not parse them anywhere else.
 - `routers/server_control.py` holds the repeater/room CLI helpers shared by the
@@ -617,7 +626,13 @@ floor, never the percentage alone, and do not remove the floor.
 ## WebSocket (server side)
 
 - **Account before accept.** `AuthMiddleware` closes an upgrade with no
-  principal (1008, HTTP 403) before the route runs.
+  principal (1008, HTTP 403) before the route runs; `/api/ws` needs `read`.
+- **Events per principal.** Every `WsEventType` has a permission in
+  `WS_EVENT_PERMISSIONS` (`auth/permissions.py`; a new type must be added there
+  and in `app/events.py`, the coverage test greps the emit calls). `ws_manager`
+  keeps each socket's principal and skips clients without the type's
+  permission; a non-`CHAN` `message` needs `read_private`, and a `raw_packet`
+  decrypted from a DM goes to the others without its decryption.
 - **Origin before accept.** `routers/ws.py` calls `reject_foreign_origin()`
   (`app/websocket.py`) before `ws_manager.connect()`: an `Origin` whose host
   and port (missing port = the scheme's default) differ from both `Host` and

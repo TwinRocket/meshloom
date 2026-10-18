@@ -1,9 +1,10 @@
 import logging
 from hashlib import sha256
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import require
 from app.channel_constants import (
     PUBLIC_CHANNEL_KEY,
     PUBLIC_CHANNEL_NAME,
@@ -229,19 +230,21 @@ async def _run_historical_channel_decryption_for_channels(
         )
 
 
-@router.get("", response_model=list[Channel])
+@router.get("", response_model=list[Channel], dependencies=[Depends(require("read"))])
 async def list_channels() -> list[Channel]:
     """List all channels from the database."""
     return await ChannelRepository.get_all()
 
 
-@router.get("/rejected", response_model=list[RejectedChannel])
+@router.get(
+    "/rejected", response_model=list[RejectedChannel], dependencies=[Depends(require("read"))]
+)
 async def list_rejected_channels() -> list[RejectedChannel]:
     """List refused catalogue channels that will not auto-reopen."""
     return await AppSettingsRepository.get_rejected_channels()
 
 
-@router.get("/{key}/detail", response_model=ChannelDetail)
+@router.get("/{key}/detail", response_model=ChannelDetail, dependencies=[Depends(require("read"))])
 async def get_channel_detail(key: str) -> ChannelDetail:
     """Get comprehensive channel profile data with message statistics."""
     channel = await ChannelRepository.get_by_key(key)
@@ -260,7 +263,7 @@ async def get_channel_detail(key: str) -> ChannelDetail:
     )
 
 
-@router.post("", response_model=Channel)
+@router.post("", response_model=Channel, dependencies=[Depends(require("send"))])
 async def create_channel(request: CreateChannelRequest) -> Channel:
     """Create a channel in the database.
 
@@ -294,7 +297,11 @@ async def create_channel(request: CreateChannelRequest) -> Channel:
     return stored
 
 
-@router.post("/bulk-hashtag", response_model=BulkCreateHashtagChannelsResponse)
+@router.post(
+    "/bulk-hashtag",
+    response_model=BulkCreateHashtagChannelsResponse,
+    dependencies=[Depends(require("send"))],
+)
 async def bulk_create_hashtag_channels(
     request: BulkCreateHashtagChannelsRequest,
     background_tasks: BackgroundTasks,
@@ -373,7 +380,7 @@ async def bulk_create_hashtag_channels(
     )
 
 
-@router.post("/{key}/mark-read")
+@router.post("/{key}/mark-read", dependencies=[Depends(require("read_private"))])
 async def mark_channel_read(key: str) -> dict:
     """Mark a channel as read (update last_read_at timestamp)."""
     channel = await ChannelRepository.get_by_key(key)
@@ -387,7 +394,9 @@ async def mark_channel_read(key: str) -> dict:
     return {"status": "ok", "key": channel.key}
 
 
-@router.post("/{key}/flood-scope-override", response_model=Channel)
+@router.post(
+    "/{key}/flood-scope-override", response_model=Channel, dependencies=[Depends(require("send"))]
+)
 async def set_channel_flood_scope_override(
     key: str, request: ChannelFloodScopeOverrideRequest
 ) -> Channel:
@@ -421,7 +430,11 @@ async def set_channel_flood_scope_override(
     return refreshed
 
 
-@router.post("/{key}/path-hash-mode-override", response_model=Channel)
+@router.post(
+    "/{key}/path-hash-mode-override",
+    response_model=Channel,
+    dependencies=[Depends(require("send"))],
+)
 async def set_channel_path_hash_mode_override(
     key: str, request: ChannelPathHashModeOverrideRequest
 ) -> Channel:
@@ -444,7 +457,7 @@ async def set_channel_path_hash_mode_override(
     return refreshed
 
 
-@router.post("/{key}/adopt", response_model=Channel)
+@router.post("/{key}/adopt", response_model=Channel, dependencies=[Depends(require("send"))])
 async def adopt_channel(key: str) -> Channel:
     """Move a pending or previously refused channel into the classic chat."""
     existing = await ChannelRepository.get_by_key(key)
@@ -484,7 +497,7 @@ async def adopt_channel(key: str) -> Channel:
     return stored
 
 
-@router.post("/{key}/refuse")
+@router.post("/{key}/refuse", dependencies=[Depends(require("send"))])
 async def refuse_channel(key: str) -> dict:
     """Delete a pending channel and remember the key so the catalogue does not reopen it."""
     if is_public_channel_key(key):
@@ -507,7 +520,7 @@ async def refuse_channel(key: str) -> dict:
     return {"status": "ok", "key": channel.key}
 
 
-@router.delete("/{key}")
+@router.delete("/{key}", dependencies=[Depends(require("send"))])
 async def delete_channel(key: str) -> dict:
     """Delete a channel from the database by key.
 

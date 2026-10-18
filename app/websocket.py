@@ -10,6 +10,12 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.auth.permissions import (
+    has_permission,
+    packet_decryption_is_private,
+    ws_event_permission,
+)
+from app.auth.principal import Principal
 from app.background_tasks import spawn
 from app.events import dump_ws_event
 from app.origin_policy import websocket_origin_allowed
@@ -50,6 +56,26 @@ _DROPPABLE_EVENTS = frozenset({"raw_packet", "community_packet"})
 # first drop logs at once, later ones are summed and logged when the interval is
 # up (on the next frame for that client), or when the client leaves.
 DROP_LOG_INTERVAL_SECONDS = 60.0
+
+
+def _reveals_direct_message(event_type: str, data: Any) -> bool:
+    """A ``PRIV`` message, or a raw packet decrypted from one (``read_private``)."""
+    if not isinstance(data, dict):
+        return False
+    if event_type == "message":
+        return data.get("type") != "CHAN"
+    if event_type == "raw_packet":
+        info = data.get("decrypted_info")
+        # No decryption, nothing to hide: control packets stay readable.
+        return isinstance(info, dict) and packet_decryption_is_private(
+            data.get("payload_type"), info.get("channel_key")
+        )
+    return False
+
+
+def _without_direct_message(data: dict) -> dict:
+    """A raw packet as a client without ``read_private`` gets it: no decryption."""
+    return {**data, "decrypted": False, "decrypted_info": None}
 
 
 def _backlog_limit(event_type: str) -> int:
@@ -120,10 +146,13 @@ class _Client:
     client costs at most ``CLIENT_QUEUE_MAX`` frames of memory.
     """
 
-    __slots__ = ("websocket", "queue", "writer", "unreported", "last_drop_log")
+    __slots__ = ("websocket", "principal", "queue", "writer", "unreported", "last_drop_log")
 
-    def __init__(self, websocket: WebSocket):
+    def __init__(self, websocket: WebSocket, principal: Principal | None):
         self.websocket = websocket
+        # Who opened the socket: decides which events it receives
+        # (``WS_EVENT_PERMISSIONS``). None receives nothing (fail closed).
+        self.principal = principal
         self.queue: asyncio.Queue[str] = asyncio.Queue(maxsize=CLIENT_QUEUE_MAX)
         self.writer: asyncio.Task[None] | None = None
         # Dropped frames per event type not yet logged.
@@ -141,9 +170,9 @@ class WebSocketManager:
         # Process-wide count of dropped best-effort frames, per event type.
         self.dropped_frames: Counter[str] = Counter()
 
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, principal: Principal | None) -> None:
         await websocket.accept()
-        client = _Client(websocket)
+        client = _Client(websocket, principal)
         async with self._lock:
             self.active_connections[websocket] = client
         client.writer = asyncio.get_running_loop().create_task(
@@ -243,11 +272,28 @@ class WebSocketManager:
             self._log_drops(client)
 
     def broadcast_nowait(self, event_type: str, data: Any) -> None:
-        """Queue an event for every connected client, in call order."""
+        """Queue an event for every connected client allowed to see it, in call order.
+
+        A client needs the type's permission (``ws_event_permission``); a direct
+        message also needs ``read_private``: without it a ``message`` is not
+        sent and a ``raw_packet`` is sent without its decryption.
+        """
         if not self.active_connections:
             return
+        permission = ws_event_permission(event_type)
+        private = _reveals_direct_message(event_type, data)
         message = dump_ws_event(event_type, data)
+        redacted: str | None = None
         for client in list(self.active_connections.values()):
+            if not has_permission(client.principal, permission):
+                continue
+            if private and not has_permission(client.principal, "read_private"):
+                if event_type != "raw_packet":
+                    continue
+                if redacted is None:
+                    redacted = dump_ws_event(event_type, _without_direct_message(data))
+                self._enqueue(client, redacted, event_type=event_type)
+                continue
             self._enqueue(client, message, event_type=event_type)
 
     async def broadcast(self, event_type: str, data: Any) -> None:
@@ -256,7 +302,14 @@ class WebSocketManager:
 
     async def send_personal(self, websocket: WebSocket, event_type: str, data: Any) -> None:
         """Queue an event for one client, ordered with its broadcasts."""
-        self.send_raw(websocket, dump_ws_event(event_type, data))
+        client = self.active_connections.get(websocket)
+        if client is None or not has_permission(client.principal, ws_event_permission(event_type)):
+            return
+        if _reveals_direct_message(event_type, data) and not has_permission(
+            client.principal, "read_private"
+        ):
+            return
+        self._enqueue(client, dump_ws_event(event_type, data))
 
     def send_raw(self, websocket: WebSocket, message: str) -> None:
         """Queue a pre-serialized frame for one client."""

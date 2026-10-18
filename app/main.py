@@ -45,13 +45,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api_docs import API_DESCRIPTION, API_TAGS_METADATA, register_api_docs_routes
 from app.auth.middleware import AuthMiddleware
+from app.auth.permissions import enforce_declaration
 from app.config import settings as server_settings
 from app.config import setup_logging
 from app.cors import AllowedOriginsCORSMiddleware
@@ -388,6 +389,9 @@ app = FastAPI(
     openapi_tags=API_TAGS_METADATA,
     docs_url=None,
     lifespan=lifespan,
+    # Default deny: an /api route that declares no permission is admin-only
+    # (app/auth/permissions.py).
+    dependencies=[Depends(enforce_declaration)],
 )
 
 register_api_docs_routes(app)

@@ -7,7 +7,16 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.auth.models import User
+from app.auth.principal import Principal
 from app.websocket import EVICT_CLOSE_CODE, WebSocketManager
+
+# Every socket in these tests is opened by an admin: it receives every event.
+ADMIN = Principal(
+    user=User(id=1, username="admin", role="admin", created_at=0, updated_at=0),
+    via="lan",
+    credential="session",
+)
 
 
 @pytest.fixture
@@ -47,8 +56,8 @@ class TestWebSocketBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_sends_to_all_clients(self, ws_manager: WebSocketManager):
         ws1, ws2 = _client_ws(), _client_ws()
-        await ws_manager.connect(ws1)
-        await ws_manager.connect(ws2)
+        await ws_manager.connect(ws1, ADMIN)
+        await ws_manager.connect(ws2, ADMIN)
 
         await ws_manager.broadcast("test", {"key": "value"})
         await _flush()
@@ -61,8 +70,8 @@ class TestWebSocketBroadcast:
     async def test_failed_client_is_evicted_and_closed(self, ws_manager: WebSocketManager):
         good_ws, bad_ws = _client_ws(), _client_ws()
         bad_ws.send_text.side_effect = Exception("Connection closed")
-        await ws_manager.connect(good_ws)
-        await ws_manager.connect(bad_ws)
+        await ws_manager.connect(good_ws, ADMIN)
+        await ws_manager.connect(bad_ws, ADMIN)
 
         await ws_manager.broadcast("test", {})
         await _flush()
@@ -86,8 +95,8 @@ class TestWebSocketBroadcast:
 
         slow_ws.send_text.side_effect = hang
         slow_ws.close.side_effect = record_close
-        await ws_manager.connect(good_ws)
-        await ws_manager.connect(slow_ws)
+        await ws_manager.connect(good_ws, ADMIN)
+        await ws_manager.connect(slow_ws, ADMIN)
 
         with patch("app.websocket.SEND_TIMEOUT_SECONDS", 0.05):
             await ws_manager.broadcast("test", {})
@@ -114,8 +123,8 @@ class TestWebSocketBroadcast:
 
         fast_ws.send_text.side_effect = fast_send
         slow_ws.send_text.side_effect = slow_send
-        await ws_manager.connect(slow_ws)
-        await ws_manager.connect(fast_ws)
+        await ws_manager.connect(slow_ws, ADMIN)
+        await ws_manager.connect(fast_ws, ADMIN)
 
         start = asyncio.get_running_loop().time()
         await ws_manager.broadcast("test", {})
@@ -135,7 +144,7 @@ class TestWebSocketBroadcast:
 
         ws = _client_ws()
         ws.send_text.side_effect = jittery_send
-        await ws_manager.connect(ws)
+        await ws_manager.connect(ws, ADMIN)
 
         await ws_manager.send_personal(ws, "first", {})
         ws_manager.broadcast_nowait("second", {})
@@ -154,7 +163,7 @@ class TestWebSocketBroadcast:
 
         ws.send_text.side_effect = blocked_send
         with patch("app.websocket.CLIENT_QUEUE_MAX", 3):
-            await ws_manager.connect(ws)
+            await ws_manager.connect(ws, ADMIN)
         await _flush()  # writer picks the first frame and blocks on it
 
         for i in range(10):
@@ -181,7 +190,7 @@ class TestWebSocketBroadcast:
             patch("app.websocket.CLIENT_QUEUE_MAX", 6),
             patch("app.websocket.CLIENT_RAW_PACKET_BACKLOG_MAX", 3),
         ):
-            await ws_manager.connect(ws)
+            await ws_manager.connect(ws, ADMIN)
             await _flush()
             for i in range(50):
                 ws_manager.broadcast_nowait("raw_packet", {"i": i})
@@ -215,7 +224,7 @@ class TestWebSocketBroadcast:
             patch("app.websocket.CLIENT_RAW_PACKET_BACKLOG_MAX", 6),
             patch("app.websocket.CLIENT_COMMUNITY_PACKET_BACKLOG_MAX", 3),
         ):
-            await ws_manager.connect(ws)
+            await ws_manager.connect(ws, ADMIN)
             await _flush()  # writer parked on the empty queue; bursts below never yield
             for i in range(100):
                 ws_manager.broadcast_nowait("community_packet", {"i": i})
@@ -257,7 +266,7 @@ class TestWebSocketBroadcast:
             patch("app.websocket.CLIENT_QUEUE_MAX", 4),
             patch("app.websocket.CLIENT_COMMUNITY_PACKET_BACKLOG_MAX", 2),
         ):
-            await ws_manager.connect(ws)
+            await ws_manager.connect(ws, ADMIN)
             await _flush()
             ws_manager.broadcast_nowait("community_packet", {})  # taken by the writer
             await _flush()
@@ -294,7 +303,7 @@ class TestWebSocketBroadcast:
             patch("app.websocket.CLIENT_COMMUNITY_PACKET_BACKLOG_MAX", 2),
             patch("app.websocket.DROP_LOG_INTERVAL_SECONDS", 60.0),
         ):
-            await manager.connect(ws)
+            await manager.connect(ws, ADMIN)
             await _flush()
             manager.broadcast_nowait("message", {"id": 0})  # taken by the writer
             await _flush()
@@ -344,7 +353,7 @@ class TestWebSocketConnectionManagement:
         """Connect should add websocket to active connections."""
         assert len(ws_manager.active_connections) == 0
 
-        await ws_manager.connect(mock_websocket)
+        await ws_manager.connect(mock_websocket, ADMIN)
 
         assert len(ws_manager.active_connections) == 1
         assert mock_websocket in ws_manager.active_connections
@@ -352,7 +361,7 @@ class TestWebSocketConnectionManagement:
     @pytest.mark.asyncio
     async def test_disconnect_removes_from_list(self, ws_manager: WebSocketManager, mock_websocket):
         """Disconnect should remove websocket from active connections."""
-        await ws_manager.connect(mock_websocket)
+        await ws_manager.connect(mock_websocket, ADMIN)
         assert len(ws_manager.active_connections) == 1
 
         await ws_manager.disconnect(mock_websocket)

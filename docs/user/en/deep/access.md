@@ -9,6 +9,19 @@ From Meshloom 5.0, signing in needs a user account (see [Security](/en/docs/deep
 
 It changes the database file directly. A running Meshloom sees the change on its next request: no restart.
 
+## Roles
+
+Each account has one of four roles. The server checks the role on every request, whatever the interface shows: a request outside the role is refused (`auth_forbidden`).
+
+| Role | Can |
+|---|---|
+| `admin` | Everything: settings, radio, repeaters and rooms, integrations and bots, backup and restore, the private key, updates, Community, notifications, the debug report. |
+| `member` | Everything a `viewer` can, plus send messages, add and edit contacts, channels and contact groups, favourites, pins and muted channels, and subscribe its own browser to push notifications. |
+| `viewer` | Read channels and direct messages, mark them read, manage its own profile and sessions. |
+| `kiosk` | Read only, for a screen on the wall: channel messages (muted and pending channels included), contacts, channels, packets, statistics and the map. Never a direct message, no settings, no profile. |
+
+The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.
+
 ## Commands
 
 | Command | What it does |
