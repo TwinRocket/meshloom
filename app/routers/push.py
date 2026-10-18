@@ -282,9 +282,13 @@ async def test_push(subscription_id: str) -> dict:
 # ``legacy:*`` ones are invisible here.
 
 
+DEPRECATED_SINCE = "@1792368000"
+
+
 def deprecated_route(response: Response) -> None:
     """Mark a response of a 4.18.x route that is kept for one release."""
-    response.headers["Deprecation"] = "true"
+    # RFC 9745: the date the route was deprecated (2026-10-19, 5.0.0); removal is in 5.2.0.
+    response.headers["Deprecation"] = DEPRECATED_SINCE
     response.headers["Link"] = '</api/notifications/rules>; rel="successor-version"'
 
 

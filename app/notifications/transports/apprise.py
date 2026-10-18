@@ -7,8 +7,8 @@ off), sent on its own with Apprise's connect and read timeouts, and retried by
 ``apprise_medium`` (0/5/30 s on a network error, a 5xx or a 429) while the others are
 unaffected. A URL that still fails after the others took the alert makes the delivery
 ``failed``, never ``retry``: the dispatcher's retry would resend to the URLs that
-succeeded. The error code names the line and the redacted URL (``redact_apprise_url``),
-never a token. The text and the Markdown escaping come from the renderer, in the
+succeeded. The error code names the line and the failure code only: the redacted URL stays
+in the log, since its host is part of a write-only secret. The text and the Markdown escaping come from the renderer, in the
 channel's language and under its text policy.
 """
 
@@ -67,5 +67,5 @@ class AppriseTransport:
         assert first.error is not None
         return SendResult(
             "failed",
-            error_code=f"line {first.line} ({first.url}): {getattr(first.error, 'delivery_code', first.error.code)}",
+            error_code=f"line {first.line}: {getattr(first.error, 'delivery_code', first.error.code)}",
         )

@@ -45,6 +45,7 @@ export const AUDIT_FAMILIES = {
     'factory_reset',
     'update.triggered',
     'notify.channel_changed',
+    'notify.rules_changed',
   ],
   remote: ['remote.linked', 'remote.enabled', 'remote.disabled'],
 } as const;

@@ -27,6 +27,11 @@ TEST_PERIOD_S = 5.0
 DRAFT_KEY = "*draft*"
 DRAFT_PERIOD_S = 2.0
 
+# Every test send of the instance shares one small budget on top of the per-key limits.
+GLOBAL_KEY = "*all*"
+GLOBAL_TESTS = 10
+GLOBAL_PERIOD_S = 60.0
+
 _limiters: dict[str, AsyncLimiter] = {}
 
 
@@ -44,9 +49,13 @@ async def take_test_slot(key: str) -> bool:
     limiter = _limiters.get(key)
     if limiter is None:
         limiter = _limiters[key] = AsyncLimiter(1, period)
-    if not limiter.has_capacity():
+    shared = _limiters.get(GLOBAL_KEY)
+    if shared is None:
+        shared = _limiters[GLOBAL_KEY] = AsyncLimiter(GLOBAL_TESTS, GLOBAL_PERIOD_S)
+    if not limiter.has_capacity() or not shared.has_capacity():
         return False
     await limiter.acquire()
+    await shared.acquire()
     return True
 
 

@@ -1064,7 +1064,7 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
   the ring buffer and `/api/debug` masked. Blocked senders and muted channels
   never reach it (`app/services/message_filters.py`, shared with the Apprise
-  fanout). Its status (a code with the line and `redact_apprise_url`) is in the
+  fanout). Its status (a code with the line, never the URL) is in the
   health payload as `notification_statuses["legacy:apprise"]`.
 - Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
   fixed-host callers (Store client, plugin `http` capability: host allowlist,

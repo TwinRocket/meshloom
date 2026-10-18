@@ -540,6 +540,10 @@ def test_channel_changed_renders_in_both_languages():
 # ── Rules and the global pause ──────────────────────────────────────────
 
 
+async def _rules(client) -> dict:
+    return (await client.get("/api/notifications/rules")).json()
+
+
 async def test_rules_read_and_validation(test_db, client):
     rules = (await client.get("/api/notifications/rules")).json()
     assert rules["paused_until"] is None
@@ -565,13 +569,14 @@ async def test_rules_read_and_validation(test_db, client):
 
 async def test_rules_patch_events_and_settings(test_db, client):
     hook = await create(client, webhook())
+    repeater = (await _rules(client))["events"]["contact.first_seen"]["contact_types"]["repeater"]
     patched = await client.patch(
         "/api/notifications/rules",
         json={
             "events": {
                 "message.dm": {"channels": ["builtin:push", hook["id"], hook["id"]]},
                 "radio.offline": {"always_deliver": True},
-                "contact.first_seen": {"contact_types": {"repeater": [hook["id"]]}},
+                "contact.first_seen": {"contact_types": {"repeater": [*repeater, hook["id"]]}},
             },
             "radio_offline_grace_s": 120,
             "mention_whole_word": True,
@@ -582,7 +587,10 @@ async def test_rules_patch_events_and_settings(test_db, client):
     body = patched.json()
     assert body["events"]["message.dm"]["channels"] == ["builtin:push", hook["id"]]
     assert body["events"]["radio.offline"]["always_deliver"] is True
-    assert body["events"]["contact.first_seen"]["contact_types"]["repeater"] == [hook["id"]]
+    assert body["events"]["contact.first_seen"]["contact_types"]["repeater"] == [
+        *repeater,
+        hook["id"],
+    ]
     assert (body["radio_offline_grace_s"], body["mention_whole_word"]) == (120, True)
     assert body["push_allow_private_endpoints"] is True
 
@@ -592,10 +600,10 @@ async def test_conversation_exception_put_and_clear(test_db, client):
     key = "contact-" + "ab" * 32
     put = await client.put(
         f"/api/notifications/rules/conversations/{key}",
-        json={"channels": {hook["id"]: True, "builtin:push": False}},
+        json={"channels": {hook["id"]: True}},
     )
     assert put.status_code == 200
-    assert put.json()["conversations"][key] == {hook["id"]: True, "builtin:push": False}
+    assert put.json()["conversations"][key] == {hook["id"]: True}
     cleared = await client.put(
         f"/api/notifications/rules/conversations/{key}", json={"channels": None}
     )
@@ -707,3 +715,140 @@ async def test_every_notifications_route_is_admin_only(test_db, client, sign_in_
             assert response.status_code == 403, (role, method, path)
     sign_in_as("admin")
     assert (await client.get("/api/notifications/channels")).status_code == 200
+
+
+# ── What the legacy preferences still decide (until MSHL-112) ───────────
+
+
+async def test_legacy_media_of_a_legacy_event_are_refused_in_the_new_rules(test_db, client):
+    before = await _rules(client)
+    response = await client.patch(
+        "/api/notifications/rules", json={"events": {"message.dm": {"channels": []}}}
+    )
+    assert (response.status_code, code_of(response)) == (409, "legacy_managed")
+    current = before["events"]["contact.first_seen"]["contact_types"]["repeater"]
+    flipped = [] if "builtin:push" in current else ["builtin:push"]
+    refused = await client.patch(
+        "/api/notifications/rules",
+        json={"events": {"contact.first_seen": {"contact_types": {"repeater": flipped}}}},
+    )
+    assert refused.status_code == 409 and code_of(refused) == "legacy_managed"
+    key = "contact-" + "ef" * 32
+    conversation = await client.put(
+        f"/api/notifications/rules/conversations/{key}", json={"channels": {"builtin:push": True}}
+    )
+    assert conversation.status_code == 409 and code_of(conversation) == "legacy_managed"
+    assert await _rules(client) == before
+    # always_deliver and events no legacy flag decides stay editable.
+    ok = await client.patch(
+        "/api/notifications/rules",
+        json={
+            "events": {
+                "message.dm": {"always_deliver": True},
+                "message.channel": {"channels": []},
+            }
+        },
+    )
+    assert ok.status_code == 200
+
+
+async def test_legacy_channels_destinations_are_set_through_the_settings(test_db, client):
+    patched = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"email": {"host": "smtp.example.org", "to": "a@b.c"}}},
+    )
+    assert patched.status_code == 200
+    url = "/api/notifications/channels/legacy:email"
+    for body in ({"config": {"host": "other.example.org"}}, {"allow_private_network": True}):
+        response = await client.patch(url, json=body)
+        assert (response.status_code, code_of(response)) == (409, "legacy_managed")
+    assert (await client.delete(url)).status_code == 409
+    assert (await client.patch(url, json={"name": "Mail"})).status_code == 200
+
+
+# ── Audit of the rules ──────────────────────────────────────────────────
+
+
+async def test_rules_changes_and_the_global_pause_are_audited(test_db, client):
+    until = int(time.time()) + 3600
+    await client.patch("/api/notifications/rules", json={"paused_until": until})
+    await client.patch("/api/notifications/rules", json={"mention_whole_word": True})
+    hook = await create(client, webhook())
+    await client.put(
+        "/api/notifications/rules/conversations/contact-ab", json={"channels": {hook["id"]: True}}
+    )
+    rows = [
+        e for e in await AuthAuditRepository.list_recent() if e.action == "notify.rules_changed"
+    ][::-1]
+    assert [r.details["fields"] for r in rows] == [
+        ["paused_until"],
+        ["mention_whole_word"],
+        ["conversations"],
+    ]
+    assert rows[0].details["paused_until"] == until
+    assert rows[0].target == "notification_rules"
+    # A refused change writes nothing.
+    await client.patch(
+        "/api/notifications/rules", json={"events": {"message.dm": {"channels": []}}}
+    )
+    assert (
+        len(
+            [
+                e
+                for e in await AuthAuditRepository.list_recent()
+                if e.action == "notify.rules_changed"
+            ]
+        )
+        == 3
+    )
+
+
+# ── Test limits ─────────────────────────────────────────────────────────
+
+
+async def test_the_draft_limit_comes_before_any_dns_resolution(test_db, client, monkeypatch):
+    lookups: list[str] = []
+    real = socket.getaddrinfo
+
+    def counting(host, *args, **kwargs):
+        lookups.append(host)
+        return real(host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", counting)
+    assert (
+        await client.post("/api/notifications/channels/test", json=webhook())
+    ).status_code == 200
+    seen = len(lookups)
+    assert seen
+    limited = await client.post("/api/notifications/channels/test", json=webhook())
+    assert limited.status_code == 429 and code_of(limited) == "rate_limited"
+    assert len(lookups) == seen  # the second call resolved nothing
+
+
+async def test_all_test_sends_share_a_small_budget(test_db, client):
+    channels = [
+        await create(client, webhook(name=f"H{i}")) for i in range(api_support.GLOBAL_TESTS + 1)
+    ]
+    statuses = [
+        (await client.post(f"/api/notifications/channels/{c['id']}/test")).status_code
+        for c in channels
+    ]
+    assert statuses == [200] * api_support.GLOBAL_TESTS + [429]
+
+
+# ── Apprise errors never carry the host of the secret URLs ──────────────
+
+
+async def test_an_apprise_failure_stores_the_line_and_the_code_only(test_db, client, monkeypatch):
+    async def send(self, channel, rendered, event, secrets):
+        return SendResult("failed", error_code="line 1: service_error")
+
+    monkeypatch.setattr("app.notifications.transports.apprise.AppriseTransport.send", send)
+    created = await create(
+        client, apprise(config={"urls": "json://93.184.216.34:8080/hook-secret-9"})
+    )
+    response = await client.post(f"/api/notifications/channels/{created['id']}/test")
+    assert response.status_code == 502
+    listed = (await client.get(f"/api/notifications/channels/{created['id']}")).json()
+    assert listed["status"]["last_error"] == "line 1: service_error"
+    assert "93.184.216.34" not in json.dumps(listed)

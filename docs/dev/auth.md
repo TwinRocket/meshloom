@@ -218,6 +218,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
   | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
   | `notify.channel_changed` | `/api/notifications/channels` (`app/notifications/api_support.py`, `announce_channel_change`): a creation, a change of destination (public settings, a URL secret, `allow_private_network`; not a credential or a rename), an enable or disable, a deletion; target `notification_channel:<id>`, `details = {action, type, name}`, never a setting or a secret |
+  | `notify.rules_changed` | `PATCH /notifications/rules`, `PUT /notifications/rules/conversations/{key}`: target `notification_rules`, `details = {fields, events?, paused_until?}` (the global pause is `paused_until`); a refused change writes nothing |
   | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
 
   **Every refusal of the users API is written**, under the route's action

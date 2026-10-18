@@ -86,9 +86,11 @@ This file is a hypothesis: check it against the code.
   each such write: `legacy:*` channels follow the destinations (one that is no longer
   configured is deleted, with the cascade) and `builtin:push` / `legacy:*` ids follow the
   flags in the rules, leaving the other channels, `message.channel` and every other rule key
-  alone. The mirror goes one way: a change made through `/api/notifications/rules` is not
-  copied back to the columns, so it does not reach a producer that still reads them until
-  MSHL-112. The shims are removed in 5.2.0 (T34).
+  alone. The mirror goes one way, so the new API refuses what would diverge: `PATCH /rules` and
+  `PUT /rules/conversations/{key}` answer 409 `legacy_managed` when they change the
+  `builtin:push` / `legacy:*` ids of an event in `legacy_sync.LEGACY_EVENTS` (or of a
+  conversation), and `PATCH` of `config` / `allow_private_network` / `verify_tls` and `DELETE` of a
+  `legacy:*` channel do too. MSHL-112 lifts these refusals when the producers read the rules. The shims are removed in 5.2.0 (T34).
 
 ## API (`app/routers/notifications.py`, `api_support.py`)
 
@@ -103,8 +105,9 @@ This file is a hypothesis: check it against the code.
   egress guard, with no queue, retry, journal row or counter; for a saved channel the answer
   also updates its status. `api_support.test_failure()` maps a `SendResult.error_code` to
   `(status, code)` (401/403 `auth_failed` 502, timeout 504, 429 `rate_limited`, anything it does
-  not know `service_error` 502). Limits: `AsyncLimiter(1, 5)` per channel id and 1 per 2 s for
-  the unsaved test (`has_capacity()` then `acquire()`), 429 with `Retry-After`; tests reset them
+  not know `service_error` 502). Limits: `AsyncLimiter(1, 5)` per channel id, 1 per 2 s for
+  the unsaved test (taken before `prepare()`, so before any DNS lookup) and 10 a minute for all
+  tests together (`has_capacity()` then `acquire()`), 429 with `Retry-After`; tests reset them
   (`reset_test_limiters`, autouse in `tests/conftest.py`).
 - **`notify.channel_changed`** (catalogue event, urgent so a pause never holds it): on create,
   change of destination (public settings, a URL secret, `allow_private_network`; not a

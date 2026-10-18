@@ -233,7 +233,7 @@ async def test_shim_responses_carry_the_deprecation_header(test_db, client):
         await client.put("/api/push/preferences/conversations/contact-aa", json={"override": True}),
     ):
         assert response.status_code == 200
-        assert response.headers["Deprecation"] == "true"
+        assert response.headers["Deprecation"] == "@1792368000"
         assert "/api/notifications/rules" in response.headers["Link"]
     schema = (await client.get("/openapi.json")).json()
     assert schema["paths"]["/api/push/preferences"]["get"]["deprecated"] is True
@@ -336,7 +336,7 @@ async def test_settings_destinations_map_to_the_legacy_channels(test_db, client)
         },
     )
     assert response.status_code == 200
-    assert response.headers["Deprecation"] == "true"
+    assert response.headers["Deprecation"] == "@1792368000"
     listed = {c["id"]: c for c in (await channels()).json()}
     assert set(listed) == {"builtin:push", "legacy:webhook", "legacy:apprise"}
     assert listed["legacy:webhook"]["secret_fields"] == ["hmac_secret", "url"]

@@ -11,13 +11,15 @@
     "type_immutable": "Le type d'un canal ne peut pas être modifié. Créez un nouveau canal.",
     "channel_exists": "Un canal portant cet identifiant existe déjà.",
     "channel_id_reserved": "Cet identifiant de canal est réservé.",
-    "channel_type_unknown": "Type de canal inconnu."
+    "channel_type_unknown": "Type de canal inconnu.",
+    "legacy_managed": "Tant que les producteurs ne lisent pas les règles, cela se règle encore dans Réglages → Notifications (les préférences 4.18.x) : modifiez-le là."
   },
   "settings": {
     "access": {
       "audit": {
         "actions": {
-          "notify.channel_changed": "Canal de notification modifié"
+          "notify.channel_changed": "Canal de notification modifié",
+          "notify.rules_changed": "Règles de notification modifiées"
         }
       }
     }

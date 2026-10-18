@@ -417,7 +417,7 @@ async def test_test_route_covers_apprise_with_coded_errors(
     response = await client.post(route, json={"channel": "apprise"})
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "channel": "apprise"}
-    assert response.headers["Deprecation"] == "true"
+    assert response.headers["Deprecation"] == "@1792368000"
 
 
 @pytest.mark.asyncio
@@ -428,7 +428,7 @@ async def test_health_reports_notification_statuses(test_db, client, monkeypatch
     body = (await client.get("/api/health")).json()
     status = body["notification_statuses"]["legacy:apprise"]
     assert status["status"] == "error"
-    assert status["last_error"] == "line 1 (tgram://****): service_error"
+    assert status["last_error"] == "line 1: service_error"
     assert "AAAA" not in str(body)
     assert body["notification_statuses"]["builtin:push"]["status"] == "connected"
 

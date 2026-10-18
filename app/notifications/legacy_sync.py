@@ -105,3 +105,15 @@ async def sync_destinations() -> None:
         logger.warning("legacy channels not mirrored from the destinations", exc_info=True)
         return
     await sync_rules()
+
+
+# The events whose legacy media (push, e-mail, webhook, Apprise) are still decided by the
+# 4.18.x flags: the new rules API refuses to change those ids until MSHL-112.
+LEGACY_EVENTS = frozenset(
+    {*import_113.EVENT_OF_KEY.values(), "contact.first_seen"} - SKIPPED_EVENTS
+)
+
+
+def legacy_ids(ids: object) -> set[str]:
+    """The ``builtin:push`` / ``legacy:*`` ids of a list or mapping of channel ids."""
+    return {str(i) for i in (ids or ()) if str(i) in MEDIUM_IDS}  # type: ignore[attr-defined]

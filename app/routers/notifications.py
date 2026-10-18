@@ -35,6 +35,7 @@ from app.notifications.channels import (
     types_schema,
 )
 from app.notifications.events import EVENT_IDS
+from app.notifications.legacy_sync import LEGACY_EVENTS, MEDIUM_IDS, legacy_ids
 from app.repository.notification_channels import (
     DELIVERIES_PER_CHANNEL,
     NotificationChannelRepository,
@@ -57,6 +58,7 @@ LOCKED_PUSH_EVENTS = frozenset({"notify.channel_changed", "notify.destination_ch
 NOT_CONFIGURABLE = frozenset({"notify.test"})
 URGENT_EVENTS = frozenset({"radio.offline", "telemetry.alert", "notify.channel_changed"})
 MAX_PAUSE_S = 366 * 86400
+LEGACY_CHANNELS = frozenset(MEDIUM_IDS - {BUILTIN_PUSH_ID})
 CONVERSATION_KEY = re.compile(r"^(contact|channel)-[0-9A-Za-z]{1,128}$")
 
 
@@ -67,6 +69,11 @@ def fail(
     return HTTPException(
         status_code=status, detail={"code": code, "params": params}, headers=headers
     )
+
+
+def legacy_managed() -> HTTPException:
+    """409: this is still decided by the 4.18.x preferences and destinations (MSHL-112)."""
+    return fail("legacy_managed", 409)
 
 
 def _as_http(exc: ChannelError) -> HTTPException:
@@ -284,17 +291,19 @@ def _draft_channel(body: ChannelCreate, public: dict[str, Any]) -> Channel:
 @router.post("/channels/test")
 async def test_unsaved_channel(body: ChannelCreate) -> TestResult:
     """Test a configuration before saving it: the same validations and codes as a save and
-    as ``POST /channels/{id}/test``; nothing is persisted. One test every two seconds."""
-    try:
-        _entry, public, secrets = await NotificationChannelRepository.prepare(body)
-    except ChannelError as exc:
-        raise _as_http(exc) from None
+    as ``POST /channels/{id}/test``; nothing is persisted. One test every two seconds, and
+    the limit is taken before any validation, so the DNS lookups of the egress checks
+    cannot be driven faster (no resolution oracle)."""
     if not await api_support.take_test_slot(api_support.DRAFT_KEY):
         raise fail(
             "rate_limited",
             429,
             headers={"Retry-After": str(int(api_support.DRAFT_PERIOD_S))},
         )
+    try:
+        _entry, public, secrets = await NotificationChannelRepository.prepare(body)
+    except ChannelError as exc:
+        raise _as_http(exc) from None
     return await _run_test(_draft_channel(body, public), secrets, record=False)
 
 
@@ -330,6 +339,13 @@ async def update_channel(channel_id: str, body: ChannelUpdate, request: Request)
     before = await NotificationChannelRepository.get_for_send(channel_id)
     if before is None:
         raise fail("channel_missing", 404)
+    if channel_id in LEGACY_CHANNELS and (
+        body.config is not None
+        or body.allow_private_network is not None
+        or body.verify_tls is not None
+    ):
+        # The legacy transports read notification_destinations at send time.
+        raise legacy_managed()
     try:
         channel = await NotificationChannelRepository.update(channel_id, body)
     except ChannelError as exc:
@@ -347,6 +363,8 @@ async def update_channel(channel_id: str, body: ChannelUpdate, request: Request)
 @router.delete("/channels/{channel_id}")
 async def delete_channel(channel_id: str, request: Request) -> dict[str, bool]:
     """Delete a channel and every reference to it. ``builtin:push`` is refused (403)."""
+    if channel_id in LEGACY_CHANNELS:
+        raise legacy_managed()
     channel = await NotificationChannelRepository.get(channel_id)
     try:
         await NotificationChannelRepository.delete(channel_id)
@@ -432,7 +450,7 @@ def _check_ids(ids: list[str], known: set[str]) -> None:
 
 
 @router.patch("/rules")
-async def patch_rules(body: RulesPatch) -> dict[str, Any]:
+async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
     """Change event rules (per event: channels, ``always_deliver``, contact types), the global
     pause (``paused_until``: epoch seconds, ``null`` resumes), the radio offline grace, the
     mention rule and the private push endpoints."""
@@ -446,8 +464,11 @@ async def patch_rules(body: RulesPatch) -> dict[str, Any]:
             if event_id not in EVENT_IDS or event_id in NOT_CONFIGURABLE:
                 raise fail("invalid_config", 400, fields=[f"events.{event_id}"])
             entry = dict(events.get(event_id) or {})
+            managed = event_id in LEGACY_EVENTS
             if patch.channels is not None:
                 _check_ids(patch.channels, known)
+                if managed and legacy_ids(patch.channels) != legacy_ids(entry.get("channels")):
+                    raise legacy_managed()
                 if event_id in LOCKED_PUSH_EVENTS and BUILTIN_PUSH_ID not in patch.channels:
                     raise fail("builtin_channel", 403, event=event_id)
                 entry["channels"] = list(dict.fromkeys(patch.channels))
@@ -460,8 +481,11 @@ async def patch_rules(body: RulesPatch) -> dict[str, Any]:
                     "sensor",
                 }:
                     raise fail("invalid_config", 400, fields=[f"events.{event_id}.contact_types"])
-                for ids in patch.contact_types.values():
+                current_types = entry.get("contact_types") or {}
+                for kind, ids in patch.contact_types.items():
                     _check_ids(ids, known)
+                    if legacy_ids(ids) != legacy_ids(current_types.get(kind)):
+                        raise legacy_managed()
                 entry["contact_types"] = {
                     kind: list(dict.fromkeys(ids)) for kind, ids in patch.contact_types.items()
                 }
@@ -484,17 +508,41 @@ async def patch_rules(body: RulesPatch) -> dict[str, Any]:
             radio_offline_grace_s=body.radio_offline_grace_s,
             push_allow_private_endpoints=body.push_allow_private_endpoints,
         )
+    await _audit_rules(request, sorted(fields), body)
     return await _rules_view()
 
 
+async def _audit_rules(request: Request, fields: list[str], body: RulesPatch | None) -> None:
+    """One audit row for a change of the rules (``notify.rules_changed``): which parts changed,
+    and the global pause's end, never a channel setting."""
+    from app.auth.audit import record_request
+
+    details: dict[str, Any] = {"fields": fields}
+    if body is not None and "paused_until" in body.model_fields_set:
+        details["paused_until"] = body.paused_until
+    if body is not None and body.events:
+        details["events"] = sorted(body.events)
+    await record_request(
+        request, "notify.rules_changed", "success", target="notification_rules", details=details
+    )
+
+
 @router.put("/rules/conversations/{key}")
-async def put_conversation_rule(key: str, body: ConversationRuleBody) -> dict[str, Any]:
+async def put_conversation_rule(
+    key: str, body: ConversationRuleBody, request: Request
+) -> dict[str, Any]:
     """Set the channels of one conversation (``{id: bool}``: on or off for that channel,
     replacing what was stored) or clear it with ``null``."""
     if not CONVERSATION_KEY.match(key):
         raise fail("invalid_config", 400, fields=["key"])
     rules = await NotificationChannelRepository.get_rules()
     conversations = dict(rules.get("conversations") or {})
+
+    def legacy_part(entry: object) -> dict[str, Any]:
+        return {k: v for k, v in (entry or {}).items() if k in MEDIUM_IDS}  # type: ignore[attr-defined]
+
+    if legacy_part(body.channels) != legacy_part(conversations.get(key)):
+        raise legacy_managed()
     if body.channels is None or not body.channels:
         conversations.pop(key, None)
     else:
@@ -503,6 +551,7 @@ async def put_conversation_rule(key: str, body: ConversationRuleBody) -> dict[st
     rules["conversations"] = conversations
     rules.setdefault("version", 1)
     await NotificationChannelRepository.set_rules(rules)
+    await _audit_rules(request, ["conversations"], None)
     return await _rules_view()
 
 

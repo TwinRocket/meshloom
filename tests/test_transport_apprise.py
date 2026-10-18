@@ -76,7 +76,8 @@ async def test_one_failing_url_does_not_stop_nor_repeat_the_other(sends):
     # URL 2 got it exactly once and the delivery is final: no dispatcher retry.
     assert [c["chat"] for c in sends] == ["1001", "2002"]
     assert result.status == "failed"
-    assert result.error_code is not None and result.error_code.startswith("line 1 (")
+    assert result.error_code is not None and result.error_code.startswith("line 1: ")
+    assert "tgram" not in result.error_code
     assert "service_rejected" in result.error_code
     assert "token-a" not in result.error_code
 
@@ -130,9 +131,9 @@ async def test_coded_errors_for_a_refused_scheme_and_a_private_host(sends):
     send = AppriseTransport().send
     refused = await send(_channel(), None, _delivery(DM), {"urls": "dbus://"})
     assert refused.status == "failed"
-    assert refused.error_code == "line 1 (dbus://****): egress_scheme"
+    assert refused.error_code == "line 1: egress_scheme"
     private = await send(_channel(), None, _delivery(DM), {"urls": "json://192.168.1.10/hook"})
-    assert str(private.error_code).endswith("): egress_private_address")
+    assert str(private.error_code).endswith(": egress_private_address")
     allowed = await send(
         _channel(allow_private_network=True), None, _delivery(DM), {"urls": "tgram://1:a-b/1"}
     )

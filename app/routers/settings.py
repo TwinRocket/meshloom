@@ -406,7 +406,7 @@ async def get_settings_view(request: Request) -> AppSettingsView:
 @router.patch("", response_model=AppSettings, dependencies=[Depends(require("admin"))])
 async def update_settings(
     update: AppSettingsUpdate,
-    response: Response = Response(),  # noqa: B008
+    response: Response = None,  # type: ignore[assignment]  # injected by FastAPI
 ) -> AppSettings:
     """Update application settings.
 
@@ -525,7 +525,8 @@ async def update_settings(
 
     if update.notification_destinations is not None:
         # Deprecated, removed in 5.2.0: the destinations are the channels of /api/notifications.
-        deprecated_route(response)
+        if response is not None:  # a direct call (tests) has none
+            deprecated_route(response)
         from app.secret_fields import SecretRequiredError
 
         try:
