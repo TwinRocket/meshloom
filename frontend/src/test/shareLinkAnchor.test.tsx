@@ -25,6 +25,7 @@ function status(enabled: boolean): ShareStatus {
     identity_ready: true,
     dm_encryption_available: true,
     banned: false,
+    unreachable: false,
     shorten_mode: 'auto',
     preview_policy: 'private',
   };
