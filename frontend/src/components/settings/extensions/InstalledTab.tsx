@@ -54,10 +54,11 @@ export function InstalledTab({
           await api.patchPlugin(id, { sort_order: position });
         }
       }
-      onReordered();
     } catch (err) {
       toast.error(formatApiError(err, t));
     } finally {
+      // A failure mid-way leaves a half-applied order: always show what the server holds.
+      onReordered();
       setBusyId(null);
     }
   };

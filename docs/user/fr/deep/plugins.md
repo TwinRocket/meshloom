@@ -88,7 +88,6 @@ Cherchez `Plugin isolation` dans le journal du serveur au démarrage, ou ouvrez 
 
 Franchir ces murs est une faille de sécurité : signalez-la comme l’indique la politique de sécurité du projet. Les extensions que vous installez restent du code auquel vous choisissez de faire confiance ; les murs limitent ce qu’une erreur ou une mauvaise mise à jour peut atteindre.
 
-
 ## Réglages → Extensions (brouillon)
 
 Les administrateurs gèrent les extensions dans **Réglages → Extensions**. Le haut de la page indique le niveau d'isolation en vigueur et ce qu'il signifie. L'onglet **Installées** liste chaque copie avec son état, un badge quand elle demande votre attention (réglages requis, permissions à revoir, consentement requis), si elle est fournie, un interrupteur et des flèches pour réordonner. **Store** et **Mises à jour** sont des emplacements pour l'instant.

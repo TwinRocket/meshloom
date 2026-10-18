@@ -81,7 +81,7 @@
         "explain": {
           "bwrap": "Each extension runs in a sandbox that sees only its own code, no other file of this server.",
           "setuid": "Each extension runs under a dedicated system account that cannot read Meshloom's files.",
-          "none": "No operating-system isolation is available here: extensions are limited by Meshloom's rules only. Only install extensions you trust.",
+          "none": "No operating-system isolation is available here: Meshloom's own rules stop honest mistakes but do not stop a hostile extension, which could read the database and files. Only install extensions you trust.",
           "unknown": "The isolation level is reported once the server has started the extension system."
         }
       },

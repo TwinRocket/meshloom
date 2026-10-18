@@ -81,7 +81,7 @@
         "explain": {
           "bwrap": "Chaque extension tourne dans un bac à sable qui ne voit que son propre code, aucun autre fichier de ce serveur.",
           "setuid": "Chaque extension tourne sous un compte système dédié qui ne peut pas lire les fichiers de Meshloom.",
-          "none": "Aucune isolation du système d'exploitation n'est disponible ici : les extensions ne sont limitées que par les règles de Meshloom. N'installez que des extensions de confiance.",
+          "none": "Aucune isolation du système d'exploitation n'est disponible ici : les règles propres à Meshloom arrêtent les erreurs honnêtes mais pas une extension hostile, qui pourrait lire la base de données et les fichiers. N'installez que des extensions de confiance.",
           "unknown": "Le niveau d'isolation est indiqué dès que le serveur a démarré le système d'extensions."
         }
       },

@@ -14,7 +14,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../ui/sheet';
 import { toast } from '../../ui/sonner';
 import { InstanceBadges } from './InstanceBadges';
-import { PermissionList } from './PermissionList';
+import { ConsentWarnings, PermissionList } from './PermissionList';
 import { buildScope, parseScope, ScopeEditor } from './ScopeEditor';
 import {
   attentionFields,
@@ -347,6 +347,9 @@ function DrawerBody({
                 defaultValue: t('settings.extensions.attention.other.text'),
               })}
             </p>
+            {reason !== 'config_required' && !frozen && (
+              <ConsentWarnings permissions={declared} manifest={instance.manifest} />
+            )}
             {reason !== 'config_required' && !frozen && (
               <Button size="sm" onClick={acknowledge} disabled={readOnly}>
                 {t('settings.extensions.drawer.acceptAndEnable')}

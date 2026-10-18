@@ -8,6 +8,7 @@ import { api, ApiError } from '../api';
 import { SettingsExtensionsSection } from '../components/settings/SettingsExtensionsSection';
 import { MigrationBanner } from '../components/settings/extensions/MigrationBanner';
 import type { BundledPlugin, PluginInstance } from '../components/settings/extensions/pluginsTypes';
+import { capabilitiesFor } from '../auth/capabilities';
 import i18n from '../i18n';
 import type { HealthStatus } from '../types';
 
@@ -193,7 +194,11 @@ describe('SettingsExtensionsSection', () => {
     expect(warning).toHaveTextContent(
       t('plugins.permissions.http.private_messages_warning', { hosts: 'api.open-meteo.com' })
     );
-    expect(screen.getByTestId('plugin-privacy')).toHaveTextContent('api.open-meteo.com');
+    const privacy = screen.getByTestId('plugin-privacy');
+    expect(privacy).toHaveTextContent(
+      t('settings.extensions.privacy.sends', { hosts: 'api.open-meteo.com' })
+    );
+    expect(privacy).toHaveTextContent(t('settings.extensions.privacy.storesNone'));
     const installButton = screen.getByRole('button', {
       name: t('settings.extensions.add.install'),
     });
@@ -342,6 +347,88 @@ describe('SettingsExtensionsSection', () => {
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
     expect(patch.mock.calls[0][1]).toHaveProperty('granted_permissions');
     expect(patch.mock.calls[1][1]).toEqual({ enabled: true });
+  });
+});
+
+describe('re-consent, reorder and admin gate', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    toastMocks.error.mockClear();
+  });
+
+  it('shows the full consent content before "Accept and enable"', async () => {
+    const row = instance({
+      enabled: false,
+      status: 'needs_attention',
+      attention: { type: 'review_permissions' },
+      manifest: {
+        permissions: {
+          'messages.read': { channels: 'public', direct: true },
+          http: { hosts: ['api.open-meteo.com'] },
+        },
+        privacy: { sends_to_third_parties: ['api.open-meteo.com'], stores_message_content: true },
+      },
+    });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([row]);
+    vi.spyOn(api, 'getPluginLogs').mockResolvedValue({ lines: [], truncated: false });
+    render(<SettingsExtensionsSection health={health()} />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: t('settings.extensions.openDetails', { name: 'Weather' }),
+      })
+    );
+    expect(await screen.findByTestId('plugin-exfiltration-warning')).toHaveTextContent(
+      t('plugins.permissions.http.private_messages_warning', { hosts: 'api.open-meteo.com' })
+    );
+    const privacy = screen.getByTestId('plugin-privacy');
+    expect(privacy).toHaveTextContent('api.open-meteo.com');
+    expect(privacy).toHaveTextContent(t('settings.extensions.privacy.stores'));
+  });
+
+  it('does not show the consent content for a config_required instance', async () => {
+    const row = instance({
+      enabled: false,
+      status: 'needs_attention',
+      attention: { type: 'config_required', fields: ['greeting'] },
+    });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([row]);
+    vi.spyOn(api, 'getPluginLogs').mockResolvedValue({ lines: [], truncated: false });
+    render(<SettingsExtensionsSection health={health()} />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: t('settings.extensions.openDetails', { name: 'Weather' }),
+      })
+    );
+    await screen.findByText(t('settings.extensions.attention.config_required.text'));
+    expect(screen.queryByTestId('plugin-exfiltration-warning')).not.toBeInTheDocument();
+  });
+
+  it('reloads the list when a reorder fails half-way', async () => {
+    const a = instance({ label: 'A', sort_order: 0 });
+    const b = instance({
+      instance_id: 'aaaaaaaa-0000-4000-8000-000000000009',
+      label: 'B',
+      sort_order: 1,
+    });
+    const list = vi.spyOn(api, 'getPlugins').mockResolvedValue([a, b]);
+    vi.spyOn(api, 'patchPlugin')
+      .mockResolvedValueOnce(a)
+      .mockRejectedValueOnce(new ApiError('x', 500));
+    render(<SettingsExtensionsSection health={health()} />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('settings.extensions.moveDown', { name: 'A' }) })
+    );
+    await waitFor(() => expect(toastMocks.error).toHaveBeenCalled());
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+
+  it.each([
+    ['admin', true],
+    ['member', false],
+    ['viewer', false],
+    ['kiosk', false],
+  ] as const)('the extensions section is open to %s: %s', (role, open) => {
+    expect(capabilitiesFor(role).canOpenSettingsSection('extensions')).toBe(open);
   });
 });
 
