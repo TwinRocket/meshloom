@@ -72,8 +72,12 @@
         .then(function(response) { return response.ok ? response.json() : null; })
         .then(function(session) {
           if (!session || !session.authenticated) return;
-          window.__prefetch.config = fetchJsonOrThrow('./api/radio/config');
-          window.__prefetch.settings = fetchJsonOrThrow('./api/settings');
+          // The radio configuration and the app settings answer administrators only;
+          // asking as another role would only collect 403s.
+          if (session.user && session.user.role === 'admin') {
+            window.__prefetch.config = fetchJsonOrThrow('./api/radio/config');
+            window.__prefetch.settings = fetchJsonOrThrow('./api/settings');
+          }
           window.__prefetch.channels = fetchJsonOrThrow('./api/channels');
           window.__prefetch.contacts = fetchJsonOrThrow('./api/contacts?limit=1000&offset=0');
           window.__prefetch.unreads = fetchJsonOrThrow('./api/read-state/unreads');

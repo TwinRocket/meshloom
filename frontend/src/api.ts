@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next';
 
-import { reportAuthRequired } from './auth/authEvents';
+import { reportAuthRequired, reportForbidden } from './auth/authEvents';
 import type {
   AuthLoginRequest,
   AuthSessionInfo,
@@ -199,6 +199,15 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     // Login and setup answer their own 401, which is a form error and not a lost session.
     if (error.status === 401 && !AUTH_FORM_PATHS.has(url)) {
       reportAuthRequired(getApiErrorCode(error.detail)?.code ?? null);
+    }
+    // The role may not do this: the session layer decides whether to tell the reader.
+    const refusal = error.status === 403 ? getApiErrorCode(error.detail) : null;
+    if (refusal?.code === 'auth_forbidden') {
+      const permission = refusal.params.permission;
+      reportForbidden({
+        method: options?.method ?? 'GET',
+        permission: typeof permission === 'string' ? permission : null,
+      });
     }
     throw error;
   }

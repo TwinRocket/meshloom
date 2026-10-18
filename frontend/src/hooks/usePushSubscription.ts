@@ -1,3 +1,4 @@
+import { useCapabilities } from '../auth/SessionProvider';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from '../components/ui/sonner';
 import { api, formatApiError } from '../api';
@@ -157,13 +158,17 @@ export function usePushSubscription(): PushSubscriptionState {
     []
   );
 
+  // Push preferences are administrator-only, a browser's own subscriptions need `send`.
+  const { isAdmin, canSend } = useCapabilities();
   useEffect(() => {
-    api
-      .getPushPreferences()
-      .then(setPreferences)
-      .catch(() => {});
+    if (isAdmin) {
+      api
+        .getPushPreferences()
+        .then(setPreferences)
+        .catch(() => {});
+    }
 
-    if (isSupported) {
+    if (isSupported && canSend) {
       // Always load all registered devices so Settings can manage them even
       // when this particular browser isn't subscribed.
       const subsPromise = api.getPushSubscriptions().catch(() => [] as PushSubscriptionInfo[]);
@@ -179,7 +184,7 @@ export function usePushSubscription(): PushSubscriptionState {
         })
         .catch(() => {});
     }
-  }, [isSupported, reconcileCurrentSubscription]);
+  }, [isSupported, isAdmin, canSend, reconcileCurrentSubscription]);
 
   const refreshSubscriptions = useCallback(async () => {
     try {

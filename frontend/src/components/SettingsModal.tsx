@@ -37,6 +37,7 @@ import { SettingsStatisticsSection } from './settings/SettingsStatisticsSection'
 import { SettingsAboutSection } from './settings/SettingsAboutSection';
 import { SettingsUpdatesSection } from './settings/SettingsUpdatesSection';
 import { getSettingsHash } from '../utils/urlHash';
+import { useCapabilities } from '../auth/SessionProvider';
 
 interface SettingsModalBaseProps {
   open: boolean;
@@ -139,6 +140,7 @@ export function SettingsModal(props: SettingsModalProps) {
     onOpenManualHelp,
   } = props;
   const { t } = useTranslation();
+  const capabilities = useCapabilities();
   const externalSidebarNav = props.externalSidebarNav === true;
   const desktopSection = props.externalSidebarNav ? props.desktopSection : undefined;
 
@@ -180,11 +182,13 @@ export function SettingsModal(props: SettingsModalProps) {
   };
 
   const isSectionVisible = (section: SettingsSection) =>
-    externalDesktopSidebarMode ? desktopSection === section : expandedSections[section];
+    capabilities.canOpenSettingsSection(section) &&
+    (externalDesktopSidebarMode ? desktopSection === section : expandedSections[section]);
 
   const showSectionButton = !externalDesktopSidebarMode;
   const shouldRenderSection = (section: SettingsSection) =>
-    !externalDesktopSidebarMode || desktopSection === section;
+    capabilities.canOpenSettingsSection(section) &&
+    (!externalDesktopSidebarMode || desktopSection === section);
 
   const sectionWrapperClass = '';
 
@@ -274,28 +278,40 @@ export function SettingsModal(props: SettingsModalProps) {
               serverLabel={appSettings?.ui_preferences?.server_label}
               // Spread rather than rebuilt: listing the fields meant every theme
               // change quietly dropped whatever else lived in there.
-              onPersistServerLabel={(server_label) =>
-                void onSaveAppSettings({
-                  ui_preferences: {
-                    ...appSettings?.ui_preferences,
-                    nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
-                    theme: appSettings?.ui_preferences?.theme ?? '',
-                    server_label,
-                  },
-                })
+              // The instance-wide choices (label, theme, allowed origins) are written with
+              // the app settings, which only an administrator may change: the others keep
+              // their per-device preferences and do not get the controls.
+              onPersistServerLabel={
+                capabilities.isAdmin
+                  ? (server_label) =>
+                      void onSaveAppSettings({
+                        ui_preferences: {
+                          ...appSettings?.ui_preferences,
+                          nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                          theme: appSettings?.ui_preferences?.theme ?? '',
+                          server_label,
+                        },
+                      })
+                  : undefined
               }
-              onPersistTheme={(theme) =>
-                void onSaveAppSettings({
-                  ui_preferences: {
-                    ...appSettings?.ui_preferences,
-                    nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
-                    theme,
-                  },
-                })
+              onPersistTheme={
+                capabilities.isAdmin
+                  ? (theme) =>
+                      void onSaveAppSettings({
+                        ui_preferences: {
+                          ...appSettings?.ui_preferences,
+                          nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                          theme,
+                        },
+                      })
+                  : undefined
               }
+              instanceReadOnly={!capabilities.isAdmin}
               allowedOrigins={appSettings?.auth_allowed_origins}
-              onSaveAllowedOrigins={(auth_allowed_origins) =>
-                onSaveAppSettings({ auth_allowed_origins })
+              onSaveAllowedOrigins={
+                capabilities.isAdmin
+                  ? (auth_allowed_origins) => onSaveAppSettings({ auth_allowed_origins })
+                  : undefined
               }
               className={sectionContentClass}
             />

@@ -1,3 +1,4 @@
+import { useCapabilities } from '../auth/SessionProvider';
 import { useEffect, useLayoutEffect, useRef, useCallback, useMemo, useState } from 'react';
 import type { Channel, Contact, Message, RadioConfig, RawPacket } from '../types';
 import { CONTACT_TYPE_ROOM } from '../types';
@@ -128,6 +129,7 @@ function MessageActionMenuItem({
 function MessageActionMenu({
   messageId,
   canReply,
+  canDelete,
   canOpenContact,
   replyLabel,
   copyLabel,
@@ -142,6 +144,7 @@ function MessageActionMenu({
 }: {
   messageId: number;
   canReply: boolean;
+  canDelete: boolean;
   canOpenContact: boolean;
   replyLabel: string;
   copyLabel: string;
@@ -167,8 +170,17 @@ function MessageActionMenu({
         <MessageActionMenuItem icon={User} label={contactLabel} onSelect={onContact} />
       )}
       <MessageActionMenuItem icon={Info} label={detailsLabel} onSelect={onDetails} />
-      <div className="my-1 h-px bg-border" />
-      <MessageActionMenuItem icon={Trash2} label={deleteLabel} onSelect={onDelete} destructive />
+      {canDelete && (
+        <>
+          <div className="my-1 h-px bg-border" />
+          <MessageActionMenuItem
+            icon={Trash2}
+            label={deleteLabel}
+            onSelect={onDelete}
+            destructive
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -427,6 +439,7 @@ export function MessageList({
   conversationKey,
 }: MessageListProps) {
   const { t } = useTranslation();
+  const { canSend } = useCapabilities();
   const listRef = useRef<HTMLDivElement>(null);
   const prevMessagesLengthRef = useRef<number>(0);
   const isInitialLoadRef = useRef<boolean>(true);
@@ -1550,7 +1563,8 @@ export function MessageList({
                     {openActionsId === msg.id && (
                       <MessageActionMenu
                         messageId={msg.id}
-                        canReply={canReply && Boolean(replyName)}
+                        canReply={canReply && canSend && Boolean(replyName)}
+                        canDelete={canSend}
                         canOpenContact={canOpenContact}
                         replyLabel={t('messageList.reply')}
                         copyLabel={t('messageList.copy')}

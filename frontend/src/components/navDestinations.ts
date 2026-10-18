@@ -1,3 +1,4 @@
+import type { Capabilities, Capability } from '../auth/capabilities';
 import {
   MessageCircle,
   Map as MapIcon,
@@ -61,6 +62,22 @@ export type RailItemId =
  * position for them; it is the drawing that leaves them out.
  */
 export const DIRECTORY_ONLY_RAIL_IDS: readonly RailItemId[] = ['test'];
+
+/**
+ * What a tool needs from the role. The pages below only call routes that refuse the
+ * role anyway, so the interface does not offer them (the server enforces regardless).
+ */
+const TOOL_CAPABILITY: Partial<Record<string, Capability>> = {
+  test: 'admin',
+  trace: 'send',
+  discovered: 'send',
+};
+
+/** Whether the role may use the tool; an id with no entry needs nothing beyond reading. */
+export function toolAllowed(id: string, capabilities: Pick<Capabilities, 'has'>): boolean {
+  const needed = TOOL_CAPABILITY[id];
+  return needed === undefined || capabilities.has(needed);
+}
 
 export interface RailItem {
   id: RailItemId;

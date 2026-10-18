@@ -21,6 +21,7 @@ import type {
 } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
+import { useCapabilities } from '../auth/SessionProvider';
 import { ConversationOverflowMenu } from './ConversationOverflowMenu';
 import { ChannelFloodScopeOverrideModal } from './ChannelFloodScopeOverrideModal';
 import { isPublicChannelKey } from '../utils/publicChannel';
@@ -227,6 +228,7 @@ export function ConversationListView({
 }: Props) {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
+  const capabilities = useCapabilities();
   const [filter, setFilter] = useState<ConversationFilter>('all');
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   const [regionRow, setRegionRow] = useState<Row | null>(null);
@@ -268,7 +270,8 @@ export function ConversationListView({
       };
     });
 
-    const contactRows: Row[] = contacts.map((contact) => {
+    // The kiosk never receives a direct message, so it lists no contact at all.
+    const contactRows: Row[] = (capabilities.canReadPrivate ? contacts : []).map((contact) => {
       const stateKey = getStateKey('contact', contact.public_key);
       const name = contact.name ?? contact.public_key.slice(0, 12);
       return {
@@ -306,6 +309,7 @@ export function ConversationListView({
       return a.name.localeCompare(b.name);
     });
   }, [
+    capabilities.canReadPrivate,
     channels,
     contacts,
     unreadCounts,
@@ -340,6 +344,10 @@ export function ConversationListView({
     () => countUnreadConversations(channels, contacts, unreadCounts),
     [channels, contacts, unreadCounts]
   );
+
+  const visibleFilters = capabilities.canReadPrivate
+    ? FILTERS
+    : FILTERS.filter(({ id }) => id !== 'direct');
 
   // How many conversations each filter would leave. Shown on the chips that answer
   // a question — how many are unread, how many groups — rather than on "all", where
@@ -405,16 +413,18 @@ export function ConversationListView({
               a labelled pill in the header here, a floating action button with the
               icon alone on Android, where that is where the primary action of a
               list lives. Marked rather than branched, so the choice stays in CSS. */}
-          <button
-            type="button"
-            onClick={onNewMessage}
-            data-compose-action=""
-            aria-label={t('conversationList.new')}
-            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:ml-auto"
-          >
-            <Plus className="hidden h-5 w-5" aria-hidden="true" data-compose-icon="" />
-            <span data-compose-label="">{t('conversationList.new')}</span>
-          </button>
+          {capabilities.canSend && (
+            <button
+              type="button"
+              onClick={onNewMessage}
+              data-compose-action=""
+              aria-label={t('conversationList.new')}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring md:ml-auto"
+            >
+              <Plus className="hidden h-5 w-5" aria-hidden="true" data-compose-icon="" />
+              <span data-compose-label="">{t('conversationList.new')}</span>
+            </button>
+          )}
         </div>
 
         <div className="px-4 pb-2">
@@ -449,7 +459,7 @@ export function ConversationListView({
           role="group"
           aria-label={t('conversationList.filterLabel')}
         >
-          {FILTERS.map(({ id, labelKey }) => {
+          {visibleFilters.map(({ id, labelKey }) => {
             const active = filter === id;
             return (
               <button
@@ -474,7 +484,7 @@ export function ConversationListView({
           })}
         </div>
 
-        {unreadTotal > 0 && (
+        {unreadTotal > 0 && capabilities.canReadPrivate && (
           <div className="px-4 pb-2">
             <button
               type="button"
@@ -627,7 +637,7 @@ export function ConversationListView({
                         </span>
                       )}
                     </button>
-                    {onTogglePin && onToggleFavorite && (
+                    {capabilities.canSend && onTogglePin && onToggleFavorite && (
                       <div className="pr-2">
                         <ConversationOverflowMenu
                           open={openMenuKey === menuKey}

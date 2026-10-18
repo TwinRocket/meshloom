@@ -1,0 +1,9 @@
+{
+  "capabilities": {
+    "repeaterAdminOnly": "L’administration des répéteurs est réservée aux administrateurs.",
+    "kioskMenu": {
+      "title": "Affichage",
+      "description": "Cet affichage est en lecture seule. Seuls la langue et le thème peuvent être changés."
+    }
+  }
+}

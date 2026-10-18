@@ -12,6 +12,7 @@ import { ChatHeader } from './ChatHeader';
 import { MessageInput, type MessageInputHandle } from './MessageInput';
 import { MessageList } from './MessageList';
 import { RoomServerPanel } from './RoomServerPanel';
+import { useCapabilities } from '../auth/SessionProvider';
 import { LocatePane, locateConversation } from './LocatePane';
 import { TracePane } from './TracePane';
 import { ToolPaneHeader } from './ToolPaneHeader';
@@ -248,6 +249,7 @@ export function ConversationPane({
   onRefuseChannel,
 }: ConversationPaneProps) {
   const { t } = useTranslation();
+  const capabilities = useCapabilities();
   const [advertisingMode, setAdvertisingMode] = useState<RadioAdvertMode | null>(null);
 
   const handleLiveAdvertise = async (mode: RadioAdvertMode) => {
@@ -524,6 +526,47 @@ export function ConversationPane({
     );
   }
 
+  if (activeContactIsRepeater && !capabilities.canAdministerRepeaters) {
+    // The dashboard is all repeater administration (login, status, ACL, commands): the
+    // server refuses each of those, so the pane says so instead of offering them.
+    return (
+      <>
+        <ChatHeader
+          conversation={activeConversation}
+          contacts={contacts}
+          channels={channels}
+          config={config}
+          notifyMediaEnabled={notifyMediaEnabled}
+          emailReady={emailReady}
+          webhookReady={webhookReady}
+          appriseReady={appriseReady}
+          onSetConversationMedia={onSetConversationMedia}
+          onOpenNotifySettings={onOpenNotifySettings}
+          onTrace={onTrace}
+          onPathDiscovery={onPathDiscovery}
+          onToggleFavorite={onToggleFavorite}
+          onTogglePin={onTogglePin}
+          onMuteChannel={onMuteChannel}
+          onSetChannelFloodScopeOverride={onSetChannelFloodScopeOverride}
+          onSetChannelPathHashModeOverride={onSetChannelPathHashModeOverride}
+          onDeleteChannel={onDeleteChannel}
+          onDeleteContact={onDeleteContact}
+          onOpenContactInfo={onOpenContactInfo}
+          onOpenChannelInfo={onOpenChannelInfo}
+          onBack={onBack}
+          pending={false}
+        />
+        <p
+          role="status"
+          data-testid="repeater-admin-forbidden"
+          className="p-6 text-center text-sm text-muted-foreground"
+        >
+          {t('capabilities.repeaterAdminOnly')}
+        </p>
+      </>
+    );
+  }
+
   if (activeContactIsRepeater) {
     return (
       <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingDashboard')} />}>
@@ -549,7 +592,8 @@ export function ConversationPane({
     );
   }
 
-  const showRoomChat = !activeContactIsRoom || roomAuthenticated;
+  const showRoomChat =
+    !activeContactIsRoom || roomAuthenticated || !capabilities.canAdministerRepeaters;
 
   return (
     <>
@@ -597,7 +641,7 @@ export function ConversationPane({
           />
         </LazyBoundary>
       )}
-      {activeContactIsRoom && activeContact && (
+      {activeContactIsRoom && activeContact && capabilities.canAdministerRepeaters && (
         <RoomServerPanel
           key={activeContact.public_key}
           contact={activeContact}
@@ -630,7 +674,9 @@ export function ConversationPane({
             onChannelReferenceClick={onChannelReferenceClick}
             onLoadOlder={onLoadOlder}
             onResendChannelMessage={
-              activeConversation.type === 'channel' ? onResendChannelMessage : undefined
+              activeConversation.type === 'channel' && capabilities.canSend
+                ? onResendChannelMessage
+                : undefined
             }
             radioName={config?.name}
             config={config}
@@ -646,6 +692,7 @@ export function ConversationPane({
             conversationKey={activeConversation.id}
           />
           {activeConversation.type === 'channel' &&
+          capabilities.canSend &&
           isPendingChannel(channels.find((channel) => channel.key === activeConversation.id)) ? (
             <div className="flex shrink-0 gap-2 border-t border-border p-3">
               <Button
@@ -665,7 +712,10 @@ export function ConversationPane({
                 {t('discovered.refuse')}
               </Button>
             </div>
-          ) : !(activeConversation.type === 'contact' && isPrefixOnlyActiveContact) ? (
+          ) : !capabilities.canSend ||
+            (activeContactIsRoom && !capabilities.canAdministerRepeaters) ? null : !(
+              activeConversation.type === 'contact' && isPrefixOnlyActiveContact
+            ) ? (
             <MessageInput
               ref={messageInputRef}
               onSend={onSendMessage}

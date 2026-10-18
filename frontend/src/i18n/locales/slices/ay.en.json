@@ -1,0 +1,9 @@
+{
+  "capabilities": {
+    "repeaterAdminOnly": "Repeater administration is reserved for administrators.",
+    "kioskMenu": {
+      "title": "Display",
+      "description": "This display is read-only. Only the language and the theme are yours to change."
+    }
+  }
+}

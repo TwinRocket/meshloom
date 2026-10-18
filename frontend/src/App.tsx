@@ -1,3 +1,4 @@
+import { useCapabilities } from './auth/SessionProvider';
 import {
   useEffect,
   useCallback,
@@ -123,6 +124,7 @@ export function App() {
   const [repeaterAutoLoginKey, setRepeaterAutoLoginKey] = useState<string | null>(null);
   const [visibilityVersion, setVisibilityVersion] = useState(0);
   const pushSubscription = usePush();
+  const capabilities = useCapabilities();
   const {
     showNewMessage,
     showSettings,
@@ -953,12 +955,15 @@ export function App() {
         locateKey: publicKey,
       });
     },
-    onToggleBlockedKey: handleBlockKey,
-    onToggleBlockedName: handleBlockName,
+    // Blocking and telemetry tracking are written with the app settings (administrators).
+    onToggleBlockedKey: capabilities.isAdmin ? handleBlockKey : undefined,
+    onToggleBlockedName: capabilities.isAdmin ? handleBlockName : undefined,
     blockedKeys: appSettings?.blocked_keys ?? [],
     blockedNames: appSettings?.blocked_names ?? [],
     trackedTelemetryContacts: appSettings?.tracked_telemetry_contacts ?? [],
-    onToggleTrackedTelemetryContact: handleToggleTrackedTelemetryContact,
+    onToggleTrackedTelemetryContact: capabilities.isAdmin
+      ? handleToggleTrackedTelemetryContact
+      : undefined,
   };
   const channelInfoPaneProps = {
     channelKey: infoPaneChannelKey,
