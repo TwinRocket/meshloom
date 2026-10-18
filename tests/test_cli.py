@@ -115,6 +115,14 @@ def test_reset_password_refuses_short_unknown_and_ingress(dbfile, stdin, capsys)
     assert run(dbfile, "reset-password", "alice", "--stdin") == 1
 
 
+def test_reset_password_refuses_a_kiosk(dbfile, stdin, capsys):
+    _add_user(dbfile, "wall", role="kiosk", password=None)
+    stdin("long enough password\n")
+    assert run(dbfile, "reset-password", "wall", "--stdin", "--must-change") == 1
+    assert "kiosk" in capsys.readouterr().err
+    assert _query(dbfile, "SELECT password_hash, must_change_password FROM users") == [(None, 0)]
+
+
 def test_create_admin(dbfile, stdin, capsys):
     stdin(PASSWORD + "\n")
     assert run(dbfile, "create-admin", "Bob", "--stdin", "--display-name", "Bob B") == 0

@@ -304,6 +304,7 @@ class TestSettingsRoute:
         assert (await client.get("/api/auth/settings")).json() == {
             "trusted_proxies": [],
             "audit_retention_days": 366,
+            "ingress_default_role": "member",
         }
         response = await client.patch(
             "/api/auth/settings", json={"trusted_proxies": [" 10.0.0.1 ", "fd00:1::/64", ""]}

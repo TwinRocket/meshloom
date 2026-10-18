@@ -316,6 +316,10 @@ run as root).
   budget, per-destination counters, loop-guard stamps and the user's lowered limits of
   the plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
   `tests/test_migrations/test_migration_106.py`), excluded from backups.
+- Migration 107 adds `auth_settings.ingress_admin_granted` (set once the first Home
+  Assistant identity was made admin, never cleared; backfilled from existing ingress
+  identities; `docs/dev/auth.md`, "Ingress"). Like every later column, fresh databases
+  get it from the migration, not from `SCHEMA_TABLES`.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
@@ -797,8 +801,10 @@ floor, never the percentage alone, and do not remove the floor.
   (1008), and a 30 s recheck catches revocations from `meshloom-admin`,
   expiries and disabled accounts (`docs/dev/auth.md`, "Sessions and the cookie").
   Client frames slide the session once a minute (`note_activity`), so a
-  socket-only kiosk stays signed in. A socket keeps its opening role: a role
-  change must go through `revoke_user_sessions()`.
+  socket-only kiosk stays signed in. A socket keeps its opening role: a change of
+  the account (role, disable, deletion, password) goes through
+  `sessions.sign_out_user()`, which also closes its Basic and ingress sockets
+  (`ws_manager.close_user()`).
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
   `broadcast_event()` never awaits socket I/O. A slow client first loses

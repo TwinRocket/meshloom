@@ -20,6 +20,10 @@ scope it:
    sent and did not check). A WebSocket upgrade is refused **before**
    ``accept()``, with close code 1008 (uvicorn answers HTTP 403, no frame).
 
+4. while the account has ``must_change_password``, refuses every ``/api``
+   route outside ``PASSWORD_CHANGE_ROUTES`` (403
+   ``auth_password_change_required``) and every WebSocket upgrade.
+
 Which role may call which route is the permission registry's decision
 (``app/auth/permissions.py``), once a principal is known. The other paths
 outside ``/api`` (the frontend) stay public: the login page must load.
@@ -71,6 +75,18 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
+# All a principal whose account has ``must_change_password`` may call until the
+# password is changed (``PATCH /api/auth/me``): anything else under ``/api`` is
+# 403 ``auth_password_change_required``, and a WebSocket upgrade is refused.
+PASSWORD_CHANGE_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("GET", "/api/auth/session"),
+        ("POST", "/api/auth/logout"),
+        ("GET", "/api/auth/me"),
+        ("PATCH", "/api/auth/me"),
+    }
+)
+
 # Every route outside ``/api``, by its path template: ``public`` (the frontend,
 # so the login page loads) or ``authenticated`` (any signed-in principal).
 # ``tests/test_auth_route_coverage.py`` fails on a route missing here.
@@ -97,11 +113,16 @@ _MESSAGES = {
     "auth_setup_required": "No account exists yet: create the administrator first",
     "auth_origin_rejected": "Cross-origin request refused",
     "auth_busy": "Too many sign-in checks at once: retry in a moment",
+    "auth_password_change_required": "Change your password first",
 }
 
 
 def is_api_path(path: str) -> bool:
     return path == API_PREFIX or path.startswith(API_PREFIX + "/")
+
+
+def must_change_password(principal: Principal | None) -> bool:
+    return principal is not None and principal.user.must_change_password
 
 
 def request_via(scope: Scope) -> Via:
@@ -234,7 +255,9 @@ class AuthMiddleware:
         set_principal(scope, result.principal)
 
         if scope["type"] == "websocket":
-            if is_api_path(path) and result.principal is None:
+            if is_api_path(path) and (
+                result.principal is None or must_change_password(result.principal)
+            ):
                 await self._refuse_websocket(receive, send)
                 return
             await self.app(scope, receive, send)
@@ -269,6 +292,14 @@ class AuthMiddleware:
             # password inside the Home Assistant panel.
             challenge = not result.bearer_sent and via != "ingress"
             await self._respond(send, 401, code, path, challenge=challenge)
+            return
+
+        if (
+            must_change_password(result.principal)
+            and is_api_path(path)
+            and (method, path.rstrip("/") or "/") not in PASSWORD_CHANGE_ROUTES
+        ):
+            await self._respond(send, 403, "auth_password_change_required", path)
             return
 
         await self.app(

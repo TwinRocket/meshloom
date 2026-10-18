@@ -16,7 +16,7 @@ scheme is read. No cookie at all when the request comes through Home
 Assistant's ingress: its origin is shared by every add-on.
 
 Revocation goes through this module (``revoke_session``,
-``revoke_user_sessions``, the cap in ``issue_session``): it revokes the rows,
+``revoke_user_sessions``, ``sign_out_user``, the cap in ``issue_session``): it revokes the rows,
 then closes the WebSockets opened with them (``ws_manager.close_sessions``,
 policy close 1008). A revocation from another process (``meshloom-admin``), an
 expiry or a disabled account is caught by the manager's periodic recheck
@@ -139,6 +139,18 @@ async def revoke_user_sessions(user_id: int, *, except_session_id: str | None = 
     )
     close_session_sockets(revoked)
     return len(revoked)
+
+
+async def sign_out_user(user_id: int, *, except_session_id: str | None = None) -> int:
+    """``revoke_user_sessions`` plus every other socket of the user (Basic,
+    ingress: no session to revoke), for a change of the account itself: a role
+    change, a disable, a deletion, a password set by an admin. A socket keeps
+    the role it opened with, so it must reconnect. Returns the sessions revoked."""
+    revoked = await revoke_user_sessions(user_id, except_session_id=except_session_id)
+    from app.websocket import ws_manager
+
+    ws_manager.close_user(user_id, except_session_id=except_session_id)
+    return revoked
 
 
 async def purge_sessions(*, now: int | None = None) -> int:

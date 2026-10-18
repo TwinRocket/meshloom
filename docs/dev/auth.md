@@ -36,7 +36,7 @@ works on the same tables.
 | Trusted proxies (the one interpreter of `X-Forwarded-For`/`-Proto`) | `app/middleware/proxy_headers.py`, `tests/test_proxy_headers.py` |
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -94,6 +94,14 @@ and `auth_settings`.
   Revoking sessions on a role change or a disable is the caller's decision;
   server code revokes through `app/auth/sessions.py` (below), never the
   repository directly, so the sockets close too.
+- **Account writes.** Every write to a `users` row moves `updated_at` to
+  `MAX(now, updated_at + 1)`: never backwards, and at least one second on, so
+  two writes in one second still change the known-device generation ("Login
+  delays"). `update(..., keep_an_admin=True)` and `delete(..., keep_an_admin=True)`
+  count the enabled admins inside the same transaction and raise
+  `LastAdminError` (rolled back) when none would be left; the users API always
+  passes it, `meshloom-admin disable-user --force` does not. `update(...,
+  clear_password=True)` removes the password (a role of `kiosk`).
 - **Audit.** `AuthAuditRepository.add()` appends a row; its `details` are JSON.
   Each key, at any depth, goes through NFKC and case folding, then is refused
   with `ValueError` when (1) it has a character outside `[a-z0-9_-]` (a
@@ -155,25 +163,38 @@ logged at ERROR and the row is not written (a bug at the call site).
   |---|---|
   | `setup` | `POST /auth/setup` (`failure` + `details.reason` for a wrong code, `error` when first-run preparation failed) |
   | `login`, `logout` | `POST /auth/login` (`failure`, target the matching `user:<id>` or `username:unknown`), `POST /auth/logout` |
-  | `session.revoked` | `DELETE /auth/sessions[/{id}]`, `meshloom-admin revoke-sessions` |
-  | `user.created` | ingress first visit, the 4.x Basic import (`system`), `meshloom-admin create-admin` |
-  | `user.changed` | `PATCH /auth/me` display name, a Home Assistant rename |
-  | `user.disabled`, `user.enabled`, `users.listed`, `setup_code.issued` | `meshloom-admin` |
-  | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password), `meshloom-admin reset-password` |
+  | `session.revoked` | `DELETE /auth/sessions[/{id}]`, `DELETE /auth/users/{id}/sessions` (`details.scope = all`), `meshloom-admin revoke-sessions` |
+  | `user.created` | `POST /auth/users` (`details.role`, `must_change`), ingress first visit, the 4.x Basic import (`system`), `meshloom-admin create-admin` |
+  | `user.changed` | `PATCH /auth/me` display name, a Home Assistant rename, `PATCH /auth/users/{id}` (`details.fields`; `role` and `previous_role` for a role change; `password_removed` when the role became `kiosk`; `sessions_revoked`) |
+  | `user.disabled`, `user.enabled` | `PATCH /auth/users/{id}` (`disabled`), `meshloom-admin disable-user` / `enable-user` |
+  | `user.deleted` | `DELETE /auth/users/{id}` (`details.role`, `provider`) |
+  | `users.listed` | `GET /auth/users` (`details.count`), `meshloom-admin list-users` |
+  | `setup_code.issued` | `meshloom-admin` |
+  | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password; `delayed`/`refused` while a login delay runs; `refused` with `details.reason = password_policy` and `policy`), `POST /auth/users/{id}/password` (`details.reset`, `must_change`, `sessions_revoked`), `meshloom-admin reset-password` |
   | `settings.changed` | `PATCH /auth/settings`, one row per field changed |
   | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only, refusals included (403 while bots are disabled: `refused`; name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
   | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
   | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
   | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
 
-  Reserved for the tickets that add their feature: `user.deleted` (user
-  management), `token.created`, `token.revoked`, `pairing.used`,
+  **Every refusal of the users API is written**, under the route's action
+  (`users.listed`, `user.created`, `user.changed` or `user.disabled` for a
+  PATCH that disables, `user.deleted`, `password.changed`, `session.revoked`),
+  with outcome `refused` (`error` for a 5xx), target `user:<id>` from the path,
+  and `details = {reason, status}`: `reason` is the error code without `auth_`
+  (`last_admin`, `user_not_found`, `username_taken`, `username_invalid`,
+  `password_required`, `password_not_applicable`, `password_policy` plus
+  `policy`, the policy's reason), or `forbidden` for a non-admin caller (the
+  routes declare `_admin(action)`, `require("admin")` plus that row). Never the
+  typed name or password. A 422 (body validation) writes no row.
+
+  Reserved for the tickets that add their feature: `token.created`, `token.revoked`, `pairing.used`,
   `totp.enrolled`, `totp.disabled`, `passkey.added`, `passkey.removed`,
   `plugin.created`, `plugin.changed`, `plugin.disabled`, `plugin.installed`,
   `plugin.updated`, `plugin.removed` (Store), `remote.linked`,
   `remote.enabled`, `remote.disabled` (Remote). A new sensitive action adds its
   name there and writes its row through this module.
-- **Reads** (`GET /auth/audit`) are not audited (cadrage §4.5 asks only for an
+- **Reads** of the log (`GET /auth/audit`) are not audited (cadrage §4.5 asks only for an
   admin-only, cursor-paged API).
 - **Retention.** `purge_audit()` runs in the hourly housekeeping loop
   (`app/services/stale_contacts.py`) and deletes rows older than
@@ -243,6 +264,21 @@ and `websocket` scope:
    before the route runs, so before `accept()`: close code 1008, which uvicorn
    sends as HTTP 403 (same as the foreign-Origin refusal of `app/websocket.py`,
    which still runs in the route).
+5. **Forced password change.** While the principal's account has
+   `must_change_password` (an admin set the password, or `meshloom-admin
+   reset-password --must-change`), every `/api` route outside
+   `PASSWORD_CHANGE_ROUTES` (`GET /api/auth/session`, `POST /api/auth/logout`,
+   `GET` and `PATCH /api/auth/me`) answers 403 `auth_password_change_required`,
+   whatever the role, and a WebSocket upgrade is refused (1008). `GET
+   /auth/session` says `user.must_change_password`, which the frontend turns
+   into the change-password form (MSHL-54); a password change through `PATCH
+   /auth/me` clears the flag. Only a local account outside `kiosk` with a
+   password can carry it, enforced by the repository: `create`, `update` and
+   `set_password_hash` raise `MustChangeNotApplicableError` (nothing written)
+   when asked to set it on another account, and drop a flag that a role or
+   password change made inapplicable, so no kiosk, Home Assistant or
+   password-less account is ever stuck behind this gate. `meshloom-admin
+   reset-password` refuses a kiosk account.
 
 Every answer under `/api/auth/` carries `Cache-Control: no-store`. The 401
 carries `WWW-Authenticate: Basic realm="Meshloom", charset="UTF-8"` only while
@@ -284,7 +320,11 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
   (cadrage R3: a 4.18.x add-on with `basic_auth_*` has an imported local admin,
   or one made with `meshloom-admin`, and the sidebar, the add-on's only way in
   by default, must still reach an administrator); the next ones get
-  `auth_settings.ingress_default_role` (`member` by default). This is safe
+  `auth_settings.ingress_default_role` (`member` by default). "First" is
+  decided once: creating that admin sets `auth_settings.ingress_admin_granted`
+  (migration 107, backfilled to 1 when an ingress identity already existed),
+  never cleared, so deleting the only ingress identity does not hand `admin` to
+  the next one (or to the same HA user coming back). This is safe
   because the manifest leaves `panel_admin` at its default (true): only Home
   Assistant administrators see the panel, so the first ingress user is one of
   them. `panel_admin` is a manifest key, not a user option; never set it to
@@ -311,10 +351,15 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
   "sign in through Home Assistant" page instead of the login or setup form.
 - `POST /auth/login` and `POST /auth/setup` answer 403 `auth_ingress_only`
   under ingress: no cookie could keep the session.
-- Not yet: the ingress list with role editing and the default-role setting
-  belong to the users API and the Users & Access section (MSHL-45, MSHL-47).
-  Until then `meshloom-admin disable-user` / `enable-user` work on ingress
-  accounts, and a role is changed with SQL only.
+- **Managing them.** `GET /auth/users` lists them with `provider: ingress`
+  (never `external_id`); `PATCH /auth/users/{id}` gives any of the four roles,
+  `kiosk` included, and disables them (the last-admin rule applies: the first
+  ingress identity is often the only admin). A password or
+  `must_change_password` is refused (400 `auth_password_not_applicable`). The
+  display name comes back from Home Assistant on the next request. A deleted
+  ingress identity is created again on its next visit, with
+  `ingress_default_role` (`GET/PATCH /auth/settings`): disable it to keep it out.
+  The Settings screen is MSHL-47.
 
 **Manual check on a real Home Assistant (to record before 5.0.0, owner check
 MSHL-279).** Not run yet; record the result here.
@@ -495,9 +540,12 @@ are `admin`: a single-admin installation sees no change.
   others: that catches `meshloom-admin` (another process, writing the database),
   expiries and disabled accounts. Basic-auth sockets carry no session and are
   not rechecked. A socket keeps the role it opened with (the recheck checks
-  liveness, not the role): a future role-change path must revoke the user's
-  sessions through `revoke_user_sessions()` so the sockets reconnect with the
-  new role.
+  liveness, not the role), so a change of the account itself (role, disable,
+  deletion, a password set by an admin or by the user) goes through
+  `sessions.sign_out_user()`: `revoke_user_sessions()` plus
+  `ws_manager.close_user()`, which closes every socket of that user whatever its
+  credential (Basic and ingress sockets have no session), except those of the
+  session kept.
 - **Purge.** `sessions.purge_sessions()` runs in the hourly housekeeping loop
   (`app/services/stale_contacts.py`) and deletes expired and revoked rows.
 
@@ -574,9 +622,9 @@ and none by IP alone behind Docker:
   the account's `users.updated_at`, moved by every write to the account
   (password change from the route or the CLI, rehash, role change, disable, enable, rename),
   so each invalidates the user's cookies; nothing derived from the password
-  goes in the cookie (CodeQL flags a hash of the password hash, rightly). One-second
-  resolution: a change in the same second as the previous write does not move
-  it. The account must be enabled at check time. A login for that username with a valid cookie skips
+  goes in the cookie (CodeQL flags a hash of the password hash, rightly). Every
+  write moves it at least one second ("Account writes" above), so a change in
+  the same second as the previous write moves it too. The account must be enabled at check time. A login for that username with a valid cookie skips
   all three rules while its device id has fewer than `DEVICE_MAX_FAILURES` (5)
   failures; the count is dropped 15 minutes after the device's last failure
   (not a sliding 15-minute window: failures 14 minutes apart keep adding up)
@@ -663,7 +711,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}, secure}` (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress}, auth_compat: {basic}, secure}` (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
@@ -671,9 +719,15 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `DELETE /auth/sessions` | own account (not `kiosk`) | Revokes all the user's sessions except this one: `{revoked}` |
 | `DELETE /auth/sessions/{id}` | own account (not `kiosk`) | Revokes one of the user's sessions; 404 `auth_session_not_found` for anyone else's |
 | `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, created_at` |
-| `PATCH /auth/me` | own account (not `kiosk`) | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`), which revokes the user's other sessions |
-| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, audit_retention_days}` (canonical CIDRs; days, 366 by default) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise) |
+| `PATCH /auth/me` | own account (not `kiosk`) | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`). The current password is checked like a login: the login delays first (`login_limiter.check` on the client's address key and the account's name, 429 `auth_rate_limited`; a wrong one is `record_failure`), then the bounded argon2id queue (503 `auth_busy`). A change clears `must_change_password`, revokes the user's other sessions and closes their sockets (`sign_out_user`), and moves `updated_at` (known devices forgotten). The one write route open while `must_change_password` is set |
+| `GET /auth/users` | `admin` | Every account by id: `{id, username, display_name, role, provider, disabled, must_change_password, has_password, totp_enabled, created_at, updated_at}`; never `external_id` or a hash |
+| `POST /auth/users` | `admin` | 201. `{username, role, display_name?, password?, must_change_password = true}`. `password` required for every role but `kiosk` (400 `auth_password_required`) and refused for `kiosk` (400 `auth_password_not_applicable`); 400 `auth_password_policy`, `auth_username_invalid`; 409 `auth_username_taken`. Local accounts only (ingress ones come from Home Assistant) |
+| `PATCH /auth/users/{id}` | `admin` | `{display_name?, role?, disabled?, must_change_password?}`; a field equal to the stored value is no change. 409 `auth_last_admin` when no enabled admin would be left (checked in the write's transaction); 404 `auth_user_not_found`; 400 `auth_password_not_applicable` for `must_change_password: true` on an account without a password. A role change or a disable signs the user out everywhere (`sign_out_user`, the admin's own session included); a role of `kiosk` removes the password; raising `must_change_password` closes the user's sockets |
+| `DELETE /auth/users/{id}` | `admin` | Deletes the account and its sessions, closes its sockets. 409 `auth_last_admin`, 404 |
+| `POST /auth/users/{id}/password` | `admin` | `{password, must_change_password = true}`, password policy against the target's name. Local accounts outside `kiosk` only (400 `auth_password_not_applicable`). Signs the user out everywhere (the admin's own session stays when it is their account), forgets its known devices, drops its Basic cache entries |
+| `DELETE /auth/users/{id}/sessions` | `admin` | Signs the user out everywhere (sessions and sockets; the admin's own session stays): `{revoked}` |
+| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, audit_retention_days, ingress_default_role}` (canonical CIDRs; days, 366 by default; `member` by default) |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). One `settings.changed` row per field |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
 
 Every route above that changes something writes one audit row ("Audit log").

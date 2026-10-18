@@ -22,6 +22,24 @@ Each account has one of four roles. The server checks the role on every request,
 
 The first administrator, and the account Meshloom creates from the Basic auth login of a 4.x installation, are `admin`: an installation with a single administrator works as before.
 
+## Managing accounts
+
+Administrators manage the accounts through the API for now; the **Settings** screen comes in a later version.
+
+| Request | What it does |
+|---|---|
+| `GET /api/auth/users` | Lists every account with its role, its origin (`local`, or `ingress` for a Home Assistant user), whether it is disabled and whether it has a password. |
+| `POST /api/auth/users` | Creates an account: `{"username", "role", "password", "display_name"}`. Every role but `kiosk` needs an initial password, which the person changes at their first sign-in (send `"must_change_password": false` to skip that). A `kiosk` has no password. |
+| `PATCH /api/auth/users/<id>` | Changes the role, the display name, `disabled` (`true` blocks the account) or `must_change_password`. |
+| `POST /api/auth/users/<id>/password` | Sets a new password, to change at the next sign-in unless `"must_change_password": false`. |
+| `DELETE /api/auth/users/<id>/sessions` | Signs the account out everywhere. |
+| `DELETE /api/auth/users/<id>` | Deletes the account. |
+
+- **There is always an administrator.** The last active administrator cannot be demoted, disabled or deleted: the request is refused (`auth_last_admin`). Promote or enable another administrator first.
+- **Changes apply at once.** A new role, a disable, a deletion or a password set by an administrator signs the account out everywhere, open pages included, and forgets the browsers it was remembered on. Moving an account to `kiosk` removes its password.
+- **A password chosen by an administrator is temporary.** Until the person picks their own, Meshloom lets them do nothing else than change it (or sign out); the request is `PATCH /api/auth/me` with `{"current_password", "new_password"}`. Changing your own password signs your other browsers out. A wrong current password counts like a wrong sign-in, with the same delays (below).
+- **Home Assistant users** (see the add-on below) take any role, `kiosk` included, and can be disabled, but never get a password: Home Assistant signs them in. The role given to the next new ones is `ingress_default_role` (`member` by default), set with `PATCH /api/auth/settings`. A deleted Home Assistant user comes back with that role on their next visit, even the one who was made administrator first (only the very first Home Assistant user ever becomes administrator): disable them instead to keep them out.
+
 ## Sign-in delays
 
 Wrong passwords slow the next attempts down; they never lock an account.
@@ -48,7 +66,7 @@ Sign-in delays, the audit log and the session list record the address a request 
 
 ## Audit log
 
-Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, disabled or enabled again, password changes, the first administrator setup, changes to the access settings, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
+Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, the first administrator setup, changes to the access settings, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
 
 Each entry holds the time, the account that acted (none for a failed sign-in or the command line), the address it came from, the way in (local network, Home Assistant, command line, or Meshloom itself for an automatic update), what was acted on and how it ended. It never holds a password, an installation code, a session, a key or a bot's code. A failed sign-in names the account only when the typed name matches one; any other typed name is recorded as unknown, so a password typed into the name field is not kept.
 
@@ -58,7 +76,7 @@ Administrators read it through `GET /api/auth/audit`, newest first, by pages; a 
 
 | Command | What it does |
 |---|---|
-| `meshloom-admin reset-password <user>` | Sets a new password (asked twice, or one line on standard input with `--stdin`) and signs the user out everywhere. `--must-change` asks for another at the next sign-in. |
+| `meshloom-admin reset-password <user>` | Sets a new password (asked twice, or one line on standard input with `--stdin`) and signs the user out everywhere. `--must-change` asks for another at the next sign-in. Refused for a `kiosk` or Home Assistant account, which has no password. |
 | `meshloom-admin create-admin <user>` | Creates an administrator. Same password options, plus `--display-name`. |
 | `meshloom-admin setup-code` | Issues a new installation code and prints it (see below). |
 | `meshloom-admin list-users` | Lists the accounts: id, role, provider, active or disabled, whether a password is set. `--json` for scripts. |
@@ -102,7 +120,7 @@ With `docker run`, use `docker exec -it <container> meshloom-admin reset-passwor
 
 ### Home Assistant add-on
 
-Through the sidebar, Home Assistant signs you in: Meshloom accepts the Home Assistant user who opens it, with no password of its own. The first Home Assistant user to open Meshloom becomes its administrator, even if a Meshloom administrator already exists (from the 4.18 `basic_auth_*` options or `meshloom-admin`), so the sidebar always reaches an administrator; the next ones get the **Member** role. Only Home Assistant administrators see the Meshloom panel, so these are people who already administer your Home Assistant. If you cannot open Meshloom, fix your access in Home Assistant itself. If you gave the add-on's port 8000 a host port, that address asks for a Meshloom account like any other install. The command still exists for the rare case where you need it. It runs in the add-on's container, so it needs a way to reach the host's Docker: the *Advanced SSH & Web Terminal* add-on with **Protection mode** turned off.
+Through the sidebar, Home Assistant signs you in: Meshloom accepts the Home Assistant user who opens it, with no password of its own. The first Home Assistant user to open Meshloom becomes its administrator, even if a Meshloom administrator already exists (from the 4.18 `basic_auth_*` options or `meshloom-admin`), so the sidebar always reaches an administrator; the next ones get the **Member** role (an administrator can change it, and each user's role: see "Managing accounts" above). Only Home Assistant administrators see the Meshloom panel, so these are people who already administer your Home Assistant. If you cannot open Meshloom, fix your access in Home Assistant itself. If you gave the add-on's port 8000 a host port, that address asks for a Meshloom account like any other install. The command still exists for the rare case where you need it. It runs in the add-on's container, so it needs a way to reach the host's Docker: the *Advanced SSH & Web Terminal* add-on with **Protection mode** turned off.
 
 ```bash
 docker ps --format '{{.Names}}' | grep meshloom

@@ -45,7 +45,7 @@ AuditAction = Literal[
     "user.changed",
     "user.disabled",
     "user.enabled",
-    "user.deleted",  # later: user management
+    "user.deleted",
     "users.listed",
     "password.changed",
     "setup_code.issued",
