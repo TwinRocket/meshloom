@@ -1,0 +1,29 @@
+{
+  "description": "Open a socket: the socket modules are refused to plugin code, by name.",
+  "events": [
+    {
+      "params": {
+        "name": "socket"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "name": "_socket"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "name": "ssl"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

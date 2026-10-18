@@ -239,7 +239,23 @@ def hook(event, args, _str=str, _bytes=bytes, _int=int, _type=type, _error=Permi
         for denied in {denied_modules!r}:
             if name == denied or name.startswith(denied + "."):
                 raise _error("plugin sandbox: importing " + name + " is not allowed")
-        return
+        # A file name means native code (an extension module): only the
+        # interpreter's own, never from a writable or plugin location.
+        rest = args[1:2]
+        path = rest[0] if rest else None
+        if path is None:
+            return
+        if _type(path) is _bytes:
+            path = path.decode("utf-8", "surrogateescape")
+        if _type(path) is not _str or "/../" in path + "/" or "/site-packages/" in path:
+            raise _error("plugin sandbox: loading native code is not allowed")
+        for root in {write_roots!r}:
+            if path == root or path.startswith(root + "/"):
+                raise _error("plugin sandbox: loading native code is not allowed")
+        for root in {native_roots!r}:
+            if path.startswith(root + "/"):
+                return
+        raise _error("plugin sandbox: loading native code is not allowed")
     if event == "object.__setattr__":
         if args[1] in ("__code__", "__class__"):
             raise _error("plugin sandbox: setting " + _str(args[1]) + " is not allowed")
@@ -352,7 +368,11 @@ def _roots(*paths: str) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _build_hook(read_roots: tuple[str, ...], write_roots: tuple[str, ...]) -> Any:
+def _build_hook(
+    read_roots: tuple[str, ...],
+    write_roots: tuple[str, ...],
+    native_roots: tuple[str, ...] = (),
+) -> Any:
     write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
     source = _HOOK_SOURCE.format(
         # Set displays compile to frozenset constants; a frozenset repr would be a call.
@@ -363,6 +383,7 @@ def _build_hook(read_roots: tuple[str, ...], write_roots: tuple[str, ...]) -> An
         write_flags=write_flags,
         read_roots=read_roots,
         write_roots=write_roots,
+        native_roots=native_roots,
         native_suffixes=tuple(importlib.machinery.EXTENSION_SUFFIXES) + (".dylib", ".dll"),
     )
     builtins = __builtins__ if isinstance(__builtins__, dict) else vars(__builtins__)
@@ -383,9 +404,13 @@ def _build_hook(read_roots: tuple[str, ...], write_roots: tuple[str, ...]) -> An
     return hook
 
 
-def _install_audit_hook(read_roots: tuple[str, ...], write_roots: tuple[str, ...]) -> None:
+def _install_audit_hook(
+    read_roots: tuple[str, ...],
+    write_roots: tuple[str, ...],
+    native_roots: tuple[str, ...] = (),
+) -> None:
     try:
-        sys.addaudithook(_build_hook(read_roots, write_roots))
+        sys.addaudithook(_build_hook(read_roots, write_roots, native_roots))
     except Exception as exc:  # noqa: BLE001 - any failure means no hook: refuse to start
         raise RunnerStartError(
             "audit_hook_failed", f"cannot install the audit hook: {exc}"
@@ -886,6 +911,8 @@ def main() -> int:
         _install_audit_hook(
             read_roots=_roots(plugin_dir, tmp_dir, package_dir, *stdlib),
             write_roots=_roots(tmp_dir),
+            # The standard library's directories, as the bootstrap set them.
+            native_roots=_roots(*stdlib),
         )
         _purge_modules()
         _ImportGuard(_roots(plugin_dir), frozenset(sys.stdlib_module_names)).install()

@@ -483,11 +483,12 @@ ends (`host_closed`; an oversized line still ends the child with exit 2), and
 
 Tests: `tests/test_plugin_runner.py` (real subprocesses; standard library and
 pytest only, so it also runs with `uv run --no-project --python 3.13 --with
-pytest pytest --noconftest tests/test_plugin_runner.py`), the seed corpus in
+pytest pytest --noconftest tests/test_plugin_runner.py`), the hostile corpus in
 `tests/plugin_corpus/` (one directory per hostile plugin with its `case.json`,
-run under each isolation level this machine offers; MSHL-191 consolidates it),
-`tests/test_plugin_isolation.py` and
-`tests/test_plugin_packaging.py`.
+run by `tests/test_plugin_corpus.py` through the runner, the supervisor or the
+archive validator under each isolation level this machine offers), the RPC fuzz
+`tests/test_plugin_rpc_fuzz.py`, `tests/test_plugin_isolation.py` and
+`tests/test_plugin_packaging.py` (docs/dev/plugins-security.md, "Tests").
 
 ## SDK (`meshloom_plugin.sdk`)
 
@@ -742,8 +743,9 @@ the restart starts a new process, so the count starts again.
 `last_error` is a stable code, a colon, then a short message the host writes:
 `start_failed`, `start_refused` (with the runner's typed code), `init_timeout`,
 `init_failed`, `event_timeout`, `event_cancel_ignored`, `handler_error`,
-`stdin_blocked`, `protocol_violation`, `cpu_budget`, `cpu_rlimit`, `killed`,
-`crash`, `stopped`. Nothing the child wrote reaches it beyond an exception type
+`stdin_blocked`, `rpc_framing` (the child wrote a line over the cap: killed),
+`protocol_violation` (the child ended itself with exit 2: it refused a line
+from the host, or its RPC read failed), `cpu_budget`, `cpu_rlimit`, `killed`, `crash`, `stopped`. Nothing the child wrote reaches it beyond an exception type
 that is a short identifier; it is scrubbed of the instance's secret values, then
 `sanitize_error()` drops control characters and filesystem paths and caps it at
 `LAST_ERROR_MAX_CHARS` (200). Details (exception messages, the runner's message,

@@ -1,0 +1,21 @@
+{
+  "description": "Import code through zipimport (the runner purges it before plugin code runs).",
+  "events": [
+    {
+      "params": {
+        "how": "import"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "sys.modules"
+      },
+      "expect": {
+        "result": false
+      }
+    }
+  ]
+}

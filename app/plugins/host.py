@@ -90,6 +90,12 @@ INSTANCE_CAP_MIN = 3
 INSTANCE_CAP_MAX = 20
 
 _DROP_LOG_INTERVAL = 10.0
+# How long the host drains a child's stdout after killing it for a line over the
+# cap, before it closes the pipe itself (`PluginProcess._discard_stdout`).
+STDOUT_DRAIN_SECONDS = 5.0
+# How long the host waits for a dead child's pipes to close before it closes them
+# itself (`PluginProcess._wait_exit`; Python 3.11 only, gh-119710).
+PIPE_CLOSE_SECONDS = 5.0
 # Requests a child may have pending at the host at once; past it: -32001.
 MAX_CHILD_REQUESTS = 32
 # What a test event may capture of its `messages.send` requests; past either
@@ -532,11 +538,39 @@ class PluginProcess:
             try:
                 lines = decoder.feed(data)
             except rpc.FramingError as exc:
-                self.kill(f"protocol_violation: {exc}")
+                self.kill(f"rpc_framing: {exc}")
+                await self._discard_stdout()
                 return
             for line in lines:
                 if line.strip():
                     self._handle_line(line)
+
+    async def _discard_stdout(self) -> None:
+        """Drop what a killed child still writes, then close the pipe ourselves.
+
+        On Python 3.11 `Process.wait()` returns only once every pipe is closed
+        (gh-119710, fixed in 3.12): a reader that stopped on a full buffer would
+        leave `_wait_exit` waiting for ever, the instance shown running with no
+        process. Bounded, since a process that kept the descriptor (a grandchild)
+        can hold it open as long as it lives.
+        """
+        assert self._proc is not None and self._proc.stdout is not None
+        try:
+            with contextlib.suppress(TimeoutError):
+                async with asyncio.timeout(STDOUT_DRAIN_SECONDS):
+                    while await self._proc.stdout.read(65536):
+                        pass
+        finally:
+            self._close_pipes(1)
+
+    def _close_pipes(self, *fds: int) -> None:
+        """Close the host's end of the child's pipes (asyncio has no public seam)."""
+        assert self._proc is not None
+        transport = self._proc._transport  # type: ignore[attr-defined]
+        for fd in fds:
+            pipe = transport.get_pipe_transport(fd)
+            if pipe is not None:
+                pipe.close()
 
     async def _read_stderr(self) -> None:
         assert self._proc is not None and self._proc.stderr is not None
@@ -549,7 +583,22 @@ class PluginProcess:
 
     async def _wait_exit(self) -> None:
         assert self._proc is not None
-        await self._proc.wait()
+        waiter = asyncio.ensure_future(self._proc.wait())
+        while not waiter.done():
+            await asyncio.wait({waiter}, timeout=0.5)
+            if waiter.done() or self._proc.returncode is None:
+                continue
+            # The child is gone but, on 3.11, `wait()` also waits for every pipe
+            # to close (gh-119710): a grandchild that kept one would hold it for
+            # ever. Bounded: kill the group, then close our ends.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(waiter), PIPE_CLOSE_SECONDS)
+            if not waiter.done():
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(self._proc.pid, signal.SIGKILL)
+                self._close_pipes(0, 1, 2)
+                waiter.cancel()
+                break
         # Let the readers drain what the child wrote last (its runner_error line).
         await asyncio.wait(self._readers[:2], timeout=3.0)
         self._exited.set()

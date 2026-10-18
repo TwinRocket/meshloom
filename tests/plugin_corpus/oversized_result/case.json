@@ -1,0 +1,11 @@
+{
+  "description": "Answer with a result over the 100 KiB line cap: the runner refuses to send it and answers an internal error instead.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_code": -32603
+      }
+    }
+  ]
+}

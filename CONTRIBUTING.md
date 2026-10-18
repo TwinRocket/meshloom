@@ -71,6 +71,18 @@ uv run python -m meshloom_plugin.dev check path/to/plugin          # add --json 
 It applies the server's manifest and package rules, a static review and a sandbox
 dry run. Details: `docs/dev/plugins.md`, "Checking a plugin".
 
+## Adding a hostile plugin corpus case
+
+A change to the plugin sandbox (runner, isolation, supervisor, capabilities or
+archive validation) comes with a case in `tests/plugin_corpus/`: one directory,
+a `case.json` saying what the plugin tries and what must happen, plus a minimal
+`manifest.json` and `plugin.py` (format: `tests/plugin_corpus/README.md`). List it
+in the case table of `docs/dev/plugins-security.md`, "Tests" (a test fails
+otherwise), run `uv run pytest tests/test_plugin_corpus.py -k <name>`, then remove
+the guard it pins and check the case fails. Linux with bubblewrap covers `bwrap`;
+the `setuid` level needs root and the `meshloom-plugin` account (CI's
+`plugin-isolation-root` job runs it).
+
 ## Quality + Publishing Scripts
 
 <details>

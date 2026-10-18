@@ -1,0 +1,13 @@
+{
+  "description": "A native library under a harmless name: refused by its magic bytes, not its suffix.",
+  "stage": "install",
+  "archive": [
+    {
+      "name": "vendor/data.bin",
+      "hex": "7f454c46020101000000000000000000"
+    }
+  ],
+  "expect": {
+    "install_error": "package_native_extension"
+  }
+}

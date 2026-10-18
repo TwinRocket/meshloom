@@ -75,9 +75,12 @@ jobs:
 
   # The dedicated-uid isolation level (app/plugins/isolation/setuid.py) needs a
   # root server and the meshloom-plugin account, as in the Docker image: a root
-  # container. Only the stdlib-only plugin tests run here (`--noconftest`), on the
-  # oldest supported Python (3.11 has no thread-start audit event: the corpus
-  # checks RLIMIT_NPROC instead) and on the image's 3.14.
+  # container, on the oldest supported Python (3.11 has no thread-start audit
+  # event: the corpus checks RLIMIT_NPROC instead) and on the image's 3.14. The
+  # stdlib-only plugin tests run first (`--noconftest`), then the hostile corpus
+  # and the RPC fuzz with the app's dependencies (the corpus drives the real
+  # supervisor), at `none` and `setuid`. The container is unprivileged, so the
+  # bwrap cases skip here; the backend job runs them.
   plugin-isolation-root:
     name: Plugin isolation as root (Python ${{ matrix.image }})
     runs-on: ubuntu-latest
@@ -93,7 +96,7 @@ jobs:
       image: ${{ matrix.digest }}
     permissions:
       contents: read
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Check out repository
@@ -110,6 +113,15 @@ jobs:
 
       - name: Plugin isolation and runner tests
         run: PYTHONPATH=. python -m pytest --noconftest -p no:cacheprovider -o addopts= -v tests/test_plugin_isolation.py tests/test_plugin_runner.py
+
+      # uv pinned like the Dockerfile's UV_VERSION; the interpreter is the image's.
+      - name: Hostile plugin corpus and RPC fuzz under every isolation level
+        env:
+          UV_PYTHON_DOWNLOADS: never
+        run: |
+          pip install --no-cache-dir -q "uv==0.6.17"
+          uv sync --frozen --dev --python "$(command -v python)"
+          PYTHONPATH=. uv run --frozen pytest -p no:cacheprovider -o addopts= -v tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py
 
   frontend-checks:
     name: Frontend

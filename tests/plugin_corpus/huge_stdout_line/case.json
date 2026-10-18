@@ -1,0 +1,13 @@
+{
+  "description": "Write 10 MB without a newline straight to the RPC descriptor: the host's line decoder refuses it past the cap and kills the child (rpc_framing), whatever the child does next.",
+  "stage": "host",
+  "events": [
+    {
+      "hook": "message",
+      "params": {},
+      "expect": {
+        "killed": "rpc_framing"
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "description": "Patch a function's __code__ or an object's __class__ (the classic ways to tamper with a hook).",
+  "events": [
+    {
+      "params": {
+        "how": "code"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "class"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}
