@@ -16,6 +16,7 @@ import logging
 import time
 from itertools import count
 
+from app.auth.ws_events import WsEvent
 from app.background_tasks import spawn
 from app.decoder import (
     DecryptedDirectMessage,
@@ -478,7 +479,7 @@ async def process_raw_packet(
         region=region,
         packet_hash=pkt_hash,
     )
-    broadcast_event("raw_packet", broadcast_payload.model_dump())
+    broadcast_event(WsEvent.RAW_PACKET, broadcast_payload.model_dump())
 
     return result
 
@@ -672,10 +673,10 @@ async def _process_advertisement(
     # last_read_at, flags, on_radio, etc.) matching the REST Contact shape exactly.
     db_contact = await ContactRepository.get_by_key(advert.public_key.lower())
     if db_contact:
-        broadcast_event("contact", db_contact.model_dump())
+        broadcast_event(WsEvent.CONTACT, db_contact.model_dump())
         for old_key in promoted_keys:
             broadcast_event(
-                "contact_resolved",
+                WsEvent.CONTACT_RESOLVED,
                 {
                     "previous_public_key": old_key,
                     "contact": db_contact.model_dump(),
@@ -683,7 +684,7 @@ async def _process_advertisement(
             )
     else:
         broadcast_event(
-            "contact",
+            WsEvent.CONTACT,
             Contact(**contact_upsert.model_dump(exclude_none=True)).model_dump(),
         )
 
@@ -944,7 +945,7 @@ async def _process_path_packet(
 
         refreshed_contact = await ContactRepository.get_by_key(contact.public_key)
         if refreshed_contact is not None:
-            broadcast_event("contact", refreshed_contact.model_dump())
+            broadcast_event(WsEvent.CONTACT, refreshed_contact.model_dump())
         return
 
     logger.debug(

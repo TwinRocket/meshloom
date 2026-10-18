@@ -2,16 +2,19 @@
 
 A new route ships only with a permission (``Depends(require(...))``), the
 ``public()`` marker (and a ``PUBLIC_ROUTES`` entry) or ``own_account()``; a new
-path outside ``/api`` only with a ``NON_API_ACCESS`` entry; a new WebSocket
-event type only with a ``WS_EVENT_PERMISSIONS`` entry. An undeclared ``/api``
-route that slips through anyway is admin-only (default deny).
+path outside ``/api`` only with a ``NON_API_ACCESS`` entry. Every WebSocket
+event the app emits is a ``WsEvent`` member, which carries its permission
+(``app/auth/ws_events.py``). An undeclared ``/api`` route that slips through
+anyway is admin-only (default deny); an unclassified event reaches no one.
 """
 
 from __future__ import annotations
 
+import ast
+import asyncio
 import pathlib
-import re
 from typing import Any, get_args
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -19,13 +22,12 @@ from fastapi.routing import APIRoute, APIWebSocketRoute
 from starlette.routing import Mount, Route
 
 from app.auth.middleware import NON_API_ACCESS, PUBLIC_ROUTES
-from app.auth.permissions import (
-    PERMISSIONS,
-    WS_EVENT_PERMISSIONS,
-    declared_access,
-    ws_event_permission,
-)
-from app.events import WsEventType
+from app.auth.models import User
+from app.auth.permissions import PERMISSIONS, declared_access
+from app.auth.principal import Principal
+from app.auth.ws_events import WsEvent
+from app.events import _PAYLOAD_ADAPTERS
+from app.websocket import WebSocketManager
 
 APP_DIR = pathlib.Path(__file__).resolve().parent.parent / "app"
 
@@ -156,29 +158,102 @@ def test_classification_of_representative_routes():
         assert found[key] == access, key
 
 
-# ``broadcast_event("x"`` (or its injected ``broadcast_fn``), ``ws_manager.broadcast("x"``,
-# ``broadcast_nowait("x"``
-# and ``send_personal(websocket, "x"``: every literal event type the app emits.
-_EMIT = re.compile(
-    r"""(?:broadcast_event|broadcast_fn|\.broadcast|broadcast_nowait)\(\s*["']([a-z_]+)["']"""
-    r"""|send_personal\(\s*\w+\s*,\s*["']([a-z_]+)["']"""
-)
+# The calls that emit a WebSocket event, and the position of their event type.
+# ``broadcast_fn`` is ``broadcast_event`` injected into the services.
+_EMITTERS = {
+    "broadcast_event": 0,
+    "broadcast_fn": 0,
+    "broadcast": 0,
+    "broadcast_nowait": 0,
+    "send_personal": 1,
+}
+# Only the manager itself forwards an event type it was given.
+_FORWARDERS = {APP_DIR / "websocket.py"}
 
 
-def test_every_ws_event_type_is_classified():
-    event_types = set(get_args(WsEventType))
-    assert set(WS_EVENT_PERMISSIONS) == event_types
-    assert set(WS_EVENT_PERMISSIONS.values()) <= set(PERMISSIONS)
+def _emitted_event_types() -> tuple[set[str], list[str]]:
+    """The ``WsEvent`` members every emit call in ``app/`` passes, and the call
+    sites that pass anything else (a string, an expression, a non-member)."""
     emitted: set[str] = set()
+    refused: list[str] = []
     for source in APP_DIR.rglob("*.py"):
-        for match in _EMIT.finditer(source.read_text()):
-            emitted.add(match.group(1) or match.group(2))
+        for node in ast.walk(ast.parse(source.read_text(), str(source))):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            if name not in _EMITTERS:
+                continue
+            index = _EMITTERS[name]
+            arg = node.args[index] if len(node.args) > index else None
+            if arg is None:
+                arg = next((k.value for k in node.keywords if k.arg == "event_type"), None)
+            where = f"{source.relative_to(APP_DIR.parent)}:{node.lineno}"
+            if (
+                isinstance(arg, ast.Attribute)
+                and isinstance(arg.value, ast.Name)
+                and arg.value.id == "WsEvent"
+                and arg.attr in WsEvent.__members__
+            ):
+                emitted.add(WsEvent[arg.attr].value)
+            elif isinstance(arg, ast.Name) and source in _FORWARDERS:
+                continue
+            else:
+                refused.append(f"{where}: {ast.unparse(arg) if arg else '(no event type)'}")
+    return emitted, refused
+
+
+def test_every_ws_event_type_has_a_permission_and_a_payload_model():
+    for member in WsEvent:
+        assert member.permission in PERMISSIONS, member
+    assert set(_PAYLOAD_ADAPTERS) == set(WsEvent)
+
+
+def test_every_emitted_ws_event_is_a_ws_event_member():
+    emitted, refused = _emitted_event_types()
+    assert refused == [], "Pass a WsEvent member (app/auth/ws_events.py), never a string"
     assert {"message", "raw_packet", "health", "community_packet", "radio_wifi"} <= emitted
-    assert emitted - event_types == set(), "Add these types to WsEventType and WS_EVENT_PERMISSIONS"
+    # Every member is emitted somewhere: a dead type would only widen the surface.
+    assert emitted == {member.value for member in WsEvent}
 
 
-def test_an_unknown_ws_event_type_is_admin_only():
-    assert ws_event_permission("not_a_known_event") == "admin"
+def test_the_emit_scan_catches_a_string_event_type(tmp_path, monkeypatch):
+    module = tmp_path / "app"
+    module.mkdir()
+    (module / "rogue.py").write_text(
+        "broadcast_event('message', {})\n"
+        "ws_manager.broadcast_nowait(WsEvent.NOT_A_MEMBER, {})\n"
+        "await ws_manager.send_personal(ws, kind, {})\n"
+        "broadcast_fn(WsEvent.CONTACT, {})\n"
+    )
+    monkeypatch.setattr(f"{__name__}.APP_DIR", module)
+    emitted, refused = _emitted_event_types()
+    assert emitted == {"contact"}
+    assert [line.split(": ", 1)[1] for line in refused] == [
+        "'message'",
+        "WsEvent.NOT_A_MEMBER",
+        "kind",
+    ]
+
+
+async def test_an_unclassified_ws_event_type_reaches_no_one():
+    admin = Principal(
+        user=User(id=1, username="admin", role="admin", created_at=0, updated_at=0),
+        via="lan",
+        credential="session",
+    )
+    manager = WebSocketManager()
+    ws = AsyncMock()
+    await manager.connect(ws, admin)
+    manager.broadcast_nowait("not_a_known_event", {"x": 1})  # type: ignore[arg-type]
+    await manager.send_personal(ws, "not_a_known_event", {"x": 1})  # type: ignore[arg-type]
+    manager.broadcast_nowait(WsEvent.SUCCESS, {"message": "ok"})
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert [call.args[0] for call in ws.send_text.await_args_list] == [
+        '{"type": "success", "data": {"message": "ok"}}'
+    ]
+    await manager.disconnect(ws)
 
 
 @pytest.fixture

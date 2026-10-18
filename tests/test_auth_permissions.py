@@ -12,6 +12,7 @@ import pytest
 from app.auth.models import User
 from app.auth.permissions import ROLE_PERMISSIONS, has_permission, permissions_of
 from app.auth.principal import Principal
+from app.auth.ws_events import WsEvent
 from app.models import RawPacketDecryptedInfo
 from app.repository import ContactRepository, MessageRepository
 from app.repository.channels import ChannelRepository
@@ -341,8 +342,8 @@ class TestWebSocketDelivery:
         manager = WebSocketManager()
         kiosk, viewer = await self._connect(manager, "kiosk", "viewer")
         base = {"conversation_key": CHANNEL_KEY, "text": "t", "received_at": 1, "outgoing": False}
-        manager.broadcast_nowait("message", {**base, "id": 1, "type": "CHAN"})
-        manager.broadcast_nowait("message", {**base, "id": 2, "type": "PRIV"})
+        manager.broadcast_nowait(WsEvent.MESSAGE, {**base, "id": 1, "type": "CHAN"})
+        manager.broadcast_nowait(WsEvent.MESSAGE, {**base, "id": 2, "type": "PRIV"})
         await self._drain(manager)
         assert [f["data"]["id"] for f in _sent(kiosk)] == [1]
         assert [f["data"]["id"] for f in _sent(viewer)] == [1, 2]
@@ -361,7 +362,7 @@ class TestWebSocketDelivery:
             "decrypted": True,
             "decrypted_info": {"contact_key": CONTACT_KEY, "message": "secret"},
         }
-        manager.broadcast_nowait("raw_packet", packet)
+        manager.broadcast_nowait(WsEvent.RAW_PACKET, packet)
         await self._drain(manager)
         [kiosk_frame] = _sent(kiosk)
         assert kiosk_frame["data"]["decrypted"] is False
@@ -390,8 +391,8 @@ class TestWebSocketDelivery:
             },
         }
         control = {**base, "id": 2, "observation_id": 2, "payload_type": "REQUEST"}
-        manager.broadcast_nowait("raw_packet", channel)
-        manager.broadcast_nowait("raw_packet", control)
+        manager.broadcast_nowait(WsEvent.RAW_PACKET, channel)
+        manager.broadcast_nowait(WsEvent.RAW_PACKET, control)
         await self._drain(manager)
         first, second = _sent(kiosk)
         assert first["data"]["decrypted"] is True
@@ -400,17 +401,64 @@ class TestWebSocketDelivery:
         assert second["data"]["payload_type"] == "REQUEST"
         await manager.disconnect(kiosk)
 
-    async def test_admin_events_and_unknown_types_reach_admins_only(self):
+    async def test_admin_events_reach_admins_and_unknown_types_no_one(self):
         manager = WebSocketManager()
         admin, member, nobody = await self._connect(manager, "admin", "member", "anonymous")
-        manager.broadcast_nowait("radio_wifi", {"check": "ok"})
-        manager.broadcast_nowait("not_classified_yet", {"x": 1})
-        manager.broadcast_nowait("success", {"message": "ok"})
+        manager.broadcast_nowait(WsEvent.RADIO_WIFI, {"check": "ok"})
+        manager.broadcast_nowait("not_classified_yet", {"x": 1})  # type: ignore[arg-type]
+        manager.broadcast_nowait(WsEvent.SUCCESS, {"message": "ok"})
         await self._drain(manager)
-        assert [f["type"] for f in _sent(admin)] == ["radio_wifi", "not_classified_yet", "success"]
+        assert [f["type"] for f in _sent(admin)] == ["radio_wifi", "success"]
         assert [f["type"] for f in _sent(member)] == ["success"]
         assert _sent(nobody) == []
         for ws in (admin, member, nobody):
+            await manager.disconnect(ws)
+
+    async def test_a_viewer_never_receives_admin_only_events(self):
+        manager = WebSocketManager()
+        admin, viewer = await self._connect(manager, "admin", "viewer")
+        admin_only = [member for member in WsEvent if member.permission == "admin"]
+        assert admin_only, "no admin-only event left to test"
+        for member in WsEvent:
+            # A minimal payload: validation falls back to the raw dict, which is
+            # all this test looks at (the type of each frame).
+            manager.broadcast_nowait(member, {"check": "ok", "message": "m", "type": "CHAN"})
+        await self._drain(manager)
+        admin_types = [f["type"] for f in _sent(admin)]
+        viewer_types = [f["type"] for f in _sent(viewer)]
+        assert admin_types == [member.value for member in WsEvent]
+        for member in admin_only:
+            assert member.value not in viewer_types
+        # And what a viewer may not see: the members-only plugin statuses.
+        assert viewer_types == [
+            m.value for m in WsEvent if m.permission in {"read", "read_private"}
+        ]
+        for ws in (admin, viewer):
+            await manager.disconnect(ws)
+
+    async def test_three_clients_a_kiosk_gets_channels_never_a_dm(self):
+        """Live, historical and outgoing messages, to a kiosk, a viewer and an admin."""
+        manager = WebSocketManager()
+        kiosk, viewer, admin = await self._connect(manager, "kiosk", "viewer", "admin")
+        base = {"conversation_key": CHANNEL_KEY, "text": "t", "received_at": 1}
+        frames = [
+            {**base, "id": 1, "type": "CHAN", "outgoing": False},
+            {**base, "id": 2, "type": "PRIV", "outgoing": False, "conversation_key": CONTACT_KEY},
+            {**base, "id": 3, "type": "CHAN", "outgoing": True},
+            {**base, "id": 4, "type": "PRIV", "outgoing": True, "conversation_key": CONTACT_KEY},
+            {**base, "id": 5, "type": "PRIV", "outgoing": False, "historical": True},
+            {**base, "id": 6, "type": "CHAN", "outgoing": False, "historical": True},
+            # No type at all: private (fail closed).
+            {**base, "id": 7, "outgoing": False},
+        ]
+        for frame in frames:
+            manager.broadcast_nowait(WsEvent.MESSAGE, frame)
+        await manager.send_personal(kiosk, WsEvent.MESSAGE, frames[1])
+        await self._drain(manager)
+        assert [f["data"]["id"] for f in _sent(kiosk)] == [1, 3, 6]
+        assert [f["data"]["id"] for f in _sent(viewer)] == [1, 2, 3, 4, 5, 6, 7]
+        assert [f["data"]["id"] for f in _sent(admin)] == [1, 2, 3, 4, 5, 6, 7]
+        for ws in (kiosk, viewer, admin):
             await manager.disconnect(ws)
 
     async def test_the_websocket_route_needs_read(self, monkeypatch):

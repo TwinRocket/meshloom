@@ -9,6 +9,7 @@ import pytest
 
 from app.auth.models import User
 from app.auth.principal import Principal
+from app.auth.ws_events import WsEvent
 from app.websocket import EVICT_CLOSE_CODE, WebSocketManager
 
 # Every socket in these tests is opened by an admin: it receives every event.
@@ -59,10 +60,10 @@ class TestWebSocketBroadcast:
         await ws_manager.connect(ws1, ADMIN)
         await ws_manager.connect(ws2, ADMIN)
 
-        await ws_manager.broadcast("test", {"key": "value"})
+        await ws_manager.broadcast(WsEvent.SUCCESS, {"message": "value"})
         await _flush()
 
-        expected = json.dumps({"type": "test", "data": {"key": "value"}})
+        expected = json.dumps({"type": "success", "data": {"message": "value"}})
         ws1.send_text.assert_called_once_with(expected)
         ws2.send_text.assert_called_once_with(expected)
 
@@ -73,7 +74,7 @@ class TestWebSocketBroadcast:
         await ws_manager.connect(good_ws, ADMIN)
         await ws_manager.connect(bad_ws, ADMIN)
 
-        await ws_manager.broadcast("test", {})
+        await ws_manager.broadcast(WsEvent.SUCCESS, {"message": "m"})
         await _flush()
 
         assert list(ws_manager.active_connections) == [good_ws]
@@ -99,7 +100,7 @@ class TestWebSocketBroadcast:
         await ws_manager.connect(slow_ws, ADMIN)
 
         with patch("app.websocket.SEND_TIMEOUT_SECONDS", 0.05):
-            await ws_manager.broadcast("test", {})
+            await ws_manager.broadcast(WsEvent.SUCCESS, {"message": "m"})
             # Wait for the eviction's close instead of a fixed sleep; the bound
             # only matters if the code is broken, a healthy run returns at once.
             await asyncio.wait_for(closed.wait(), timeout=10)
@@ -127,7 +128,7 @@ class TestWebSocketBroadcast:
         await ws_manager.connect(fast_ws, ADMIN)
 
         start = asyncio.get_running_loop().time()
-        await ws_manager.broadcast("test", {})
+        await ws_manager.broadcast(WsEvent.SUCCESS, {"message": "m"})
         assert asyncio.get_running_loop().time() - start < 0.05
         await _flush()
         assert fast_received_at is not None
@@ -146,12 +147,12 @@ class TestWebSocketBroadcast:
         ws.send_text.side_effect = jittery_send
         await ws_manager.connect(ws, ADMIN)
 
-        await ws_manager.send_personal(ws, "first", {})
-        ws_manager.broadcast_nowait("second", {})
-        ws_manager.broadcast_nowait("third", {})
+        await ws_manager.send_personal(ws, WsEvent.SUCCESS, {"message": "first"})
+        ws_manager.broadcast_nowait(WsEvent.ERROR, {"message": "second"})
+        ws_manager.broadcast_nowait(WsEvent.CONTACT_DELETED, {"public_key": "third"})
         await asyncio.sleep(0.05)
 
-        assert received == ["first", "second", "third"]
+        assert received == ["success", "error", "contact_deleted"]
 
     @pytest.mark.asyncio
     async def test_queue_overflow_evicts_and_closes_client(self, ws_manager: WebSocketManager):
@@ -167,7 +168,7 @@ class TestWebSocketBroadcast:
         await _flush()  # writer picks the first frame and blocks on it
 
         for i in range(10):
-            ws_manager.broadcast_nowait("test", {"i": i})
+            ws_manager.broadcast_nowait(WsEvent.SUCCESS, {"message": str(i)})
         await _flush()
 
         assert ws not in ws_manager.active_connections
@@ -342,7 +343,7 @@ class TestWebSocketBroadcast:
     @pytest.mark.asyncio
     async def test_broadcast_empty_connections(self, ws_manager: WebSocketManager):
         """Broadcast should handle empty connection list gracefully."""
-        await ws_manager.broadcast("test", {"data": "value"})
+        await ws_manager.broadcast(WsEvent.SUCCESS, {"message": "value"})
 
 
 class TestWebSocketConnectionManagement:

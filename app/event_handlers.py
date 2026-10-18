@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from meshcore import EventType
 
+from app.auth.ws_events import WsEvent
 from app.models import CONTACT_TYPE_ROOM, Contact, ContactUpsert
 from app.packet_processor import process_raw_packet
 from app.repository import (
@@ -293,7 +294,7 @@ async def on_new_contact(event: "Event") -> None:
     # last_read_at, etc.) matching the REST Contact shape exactly.
     db_contact = await ContactRepository.get_by_key(public_key)
     broadcast_event(
-        "contact",
+        WsEvent.CONTACT,
         (
             db_contact.model_dump()
             if db_contact
@@ -303,7 +304,7 @@ async def on_new_contact(event: "Event") -> None:
     if db_contact:
         for old_key in promoted_keys:
             broadcast_event(
-                "contact_resolved",
+                WsEvent.CONTACT_RESOLVED,
                 {
                     "previous_public_key": old_key,
                     "contact": db_contact.model_dump(),

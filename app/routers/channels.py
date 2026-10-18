@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.auth.permissions import require
+from app.auth.ws_events import WsEvent
 from app.channel_constants import (
     PUBLIC_CHANNEL_KEY,
     PUBLIC_CHANNEL_NAME,
@@ -43,7 +44,7 @@ def _is_test_channel(channel: Channel) -> bool:
 
 
 def _broadcast_channel_update(channel: Channel) -> None:
-    broadcast_event("channel", channel.model_dump())
+    broadcast_event(WsEvent.CHANNEL, channel.model_dump())
 
 
 class CreateChannelRequest(BaseModel):
@@ -426,7 +427,7 @@ async def set_channel_flood_scope_override(
     if refreshed is None:
         raise HTTPException(status_code=500, detail="Channel disappeared after update")
 
-    broadcast_event("channel", refreshed.model_dump())
+    broadcast_event(WsEvent.CHANNEL, refreshed.model_dump())
     return refreshed
 
 
@@ -453,7 +454,7 @@ async def set_channel_path_hash_mode_override(
     if refreshed is None:
         raise HTTPException(status_code=500, detail="Channel disappeared after update")
 
-    broadcast_event("channel", refreshed.model_dump())
+    broadcast_event(WsEvent.CHANNEL, refreshed.model_dump())
     return refreshed
 
 
@@ -516,7 +517,7 @@ async def refuse_channel(key: str) -> dict:
 
     await AppSettingsRepository.add_rejected_channel(channel.key, channel.name)
     await ChannelRepository.delete(channel.key)
-    broadcast_event("channel_deleted", {"key": channel.key})
+    broadcast_event(WsEvent.CHANNEL_DELETED, {"key": channel.key})
     return {"status": "ok", "key": channel.key}
 
 
@@ -535,6 +536,6 @@ async def delete_channel(key: str) -> dict:
     logger.info("Deleting channel %s from database", key)
     await ChannelRepository.delete(key)
 
-    broadcast_event("channel_deleted", {"key": key})
+    broadcast_event(WsEvent.CHANNEL_DELETED, {"key": key})
 
     return {"status": "ok"}

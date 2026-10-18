@@ -1008,9 +1008,10 @@ def test_health_hides_plugin_errors_below_send():
     assert hidden["send_guard"] == {}
     assert data["plugin_statuses"]["a"]["send_guard"] == guard
     assert data["plugin_statuses"]["a"]["last_error"] == "x"
-    from app.auth.permissions import ROLE_PERMISSIONS, ws_event_permission
+    from app.auth.permissions import ROLE_PERMISSIONS
+    from app.auth.ws_events import WsEvent
 
-    permission = ws_event_permission("plugin_status")
+    permission = WsEvent.PLUGIN_STATUS.permission
     assert permission == lifecycle.PLUGIN_ERROR_PERMISSION
     assert permission not in ROLE_PERMISSIONS["kiosk"]
     assert permission not in ROLE_PERMISSIONS["viewer"]

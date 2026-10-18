@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from app.auth.ws_events import WsEvent
 from app.background_tasks import spawn
 from app.models import Message, MessagePath
 from app.repository import ContactRepository, MessageRepository, RawPacketRepository
@@ -115,9 +116,9 @@ def broadcast_message(
     if packet_hash is not None:
         payload["packet_hash"] = packet_hash
     if realtime is None:
-        broadcast_fn("message", payload)
+        broadcast_fn(WsEvent.MESSAGE, payload)
     else:
-        broadcast_fn("message", payload, realtime=realtime)
+        broadcast_fn(WsEvent.MESSAGE, payload, realtime=realtime)
 
 
 async def build_stored_outgoing_channel_message(
@@ -182,7 +183,7 @@ def broadcast_message_acked(
         payload["packet_hash"] = packet_hash
     if observer_reach_eligible is not None:
         payload["observer_reach_eligible"] = observer_reach_eligible
-    broadcast_fn("message_acked", payload)
+    broadcast_fn(WsEvent.MESSAGE_ACKED, payload)
 
 
 async def increment_ack_and_broadcast(
@@ -192,7 +193,7 @@ async def increment_ack_and_broadcast(
 ) -> int:
     """Increment a message's ACK count and broadcast the update."""
     ack_count = await MessageRepository.increment_ack_count(message_id)
-    broadcast_fn("message_acked", {"message_id": message_id, "ack_count": ack_count})
+    broadcast_fn(WsEvent.MESSAGE_ACKED, {"message_id": message_id, "ack_count": ack_count})
     return ack_count
 
 
