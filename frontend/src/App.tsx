@@ -324,6 +324,7 @@ export function App() {
     activeConversationRef,
     handleSelectConversation,
     markDefaultConversationSet,
+    syncFeedQuery,
   } = useConversationRouter({
     channels,
     contacts,
@@ -796,6 +797,7 @@ export function App() {
     onSelectConversation: handleSelectConversationWithTargetReset,
     onNavigateToMessage: handleNavigateToMessage,
     onOpenContactInfo: handleOpenContactInfo,
+    onFeedQueryChange: syncFeedQuery,
     onOpenChannelInfo: handleOpenChannelInfo,
     onSenderClick: handleSenderClick,
     onChannelReferenceClick: handleChannelReferenceClick,

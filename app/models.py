@@ -1272,7 +1272,8 @@ class UiPreferences(BaseModel):
         default="",
         description=(
             "Where the app opens when the URL has no hash: a tool hash fragment "
-            "without the '#' (one of START_VIEW_IDS, or feed/control with a filter query, is_valid_start_view). Empty means the conversations. "
+            "without the '#' (one of START_VIEW_IDS, or feed/control with a filter "
+            "query, see is_valid_start_view). Empty means the conversations. "
             "Kept with the instance so a screen with no settings, the kiosk, opens "
             "where an administrator chose."
         ),

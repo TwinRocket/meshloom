@@ -637,7 +637,11 @@ utilities`, and an unlayered rule beats every utility whatever its specificity.
    `FeedView` state initializer so the first request already uses it; `FeedView` mirrors later changes
    with `replaceState`. **Never a channel key** (a private channel's key is its secret and bookmarks
    sync to cloud accounts): `node` is `contact:<64-hex>` only. The server twin is
-   `is_valid_start_view` (`app/models.py`) for `ui_preferences.start_view`. Tests: `feedHash.test.tsx`.
+   `is_valid_start_view` (`app/models.py`) for `ui_preferences.start_view`. Tests: `urlHash.test.ts` (parse/encode),
+   `feedHash.test.tsx` (grammar, view, sync). `FeedView` reports each change through `onQueryChange`
+   (`syncFeedQuery` in the router, no history entry) so `Conversation.feedQuery` is always current;
+   a different `initialQuery` (popstate) replaces the filters, and a URL-pinned open never overwrites
+   the filters remembered in `localStorage` (URL > storage, not a rewrite).
    A new tool id goes through every surface keyed by it: `navDestinations.ts`
    (`RailItemId`, `RAIL_ITEMS`), `ToolsView.tsx`, `CommandPalette.tsx`, `AppShell.tsx`
    (`TOOL_TYPES`), `lastViewedConversation.ts`, `useConversationRouter.ts`,

@@ -528,3 +528,26 @@ describe('getMapFocusHash', () => {
     expect(result).toBe('#map/focus/AB%20CD%2F12');
   });
 });
+
+describe('feed filters in the hash', () => {
+  it('parses #control?display=1 as the Control preset with display', () => {
+    expect(parseHashConversation('control?display=1')).toEqual({
+      type: 'feed',
+      name: 'feed',
+      feedPreset: 'control',
+      feedQuery: 'display=1',
+    });
+  });
+
+  it('round-trips #feed?... and ignores unknown keys and malformed values', () => {
+    const hash = 'feed?src=messages,control&types=chan&dir=in,out&muted=1&pending=0';
+    const parsed = parseHashConversation(hash)!;
+    expect(
+      getConversationHash(makeFeedConversation('Feed', parsed.feedPreset, parsed.feedQuery))
+    ).toBe(`#${hash}`);
+    expect(parseHashConversation('feed?bogus=1&muted=maybe')).toEqual({
+      type: 'feed',
+      name: 'feed',
+    });
+  });
+});

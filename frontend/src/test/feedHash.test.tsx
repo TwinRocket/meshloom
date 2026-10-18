@@ -1,4 +1,13 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from '@testing-library/react';
+import { useRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './qSlices';
@@ -10,8 +19,10 @@ vi.mock('../api', async (importOriginal) => {
   return { ...actual, api: { ...actual.api, getMessages: mocks.getMessages } };
 });
 
+import { useConversationRouter } from '../hooks/useConversationRouter';
 import { FeedView } from '../components/feed/FeedView';
 import { makeFeedConversation } from '../components/feed/feedConversation';
+import i18n from '../i18n';
 import { resetFeedStore } from '../stores/feedStore';
 import {
   applyFeedQuery,
@@ -208,5 +219,112 @@ describe('FeedView with a pinned query', () => {
     expect(getLastViewedConversation()?.feedQuery).toBe(window.location.hash.split('?')[1]);
     expect(push).not.toHaveBeenCalled();
     push.mockRestore();
+  });
+});
+
+describe('feed query kept in sync with the filters', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mocks.getMessages.mockReset();
+    mocks.getMessages.mockResolvedValue([]);
+    window.history.replaceState(null, '', '#feed?src=messages,control');
+  });
+  afterEach(() => {
+    cleanup();
+    resetFeedStore();
+  });
+
+  const controlChip = () => screen.findByRole('button', { name: /control|contrôle/i });
+
+  it('reports the new query upward after a chip change', async () => {
+    const onQueryChange = vi.fn();
+    render(
+      <FeedView
+        initialQuery="src=messages,control"
+        onQueryChange={onQueryChange}
+        contacts={[]}
+        channels={[]}
+      />
+    );
+    fireEvent.click(await controlChip());
+    await waitFor(() => expect(onQueryChange).toHaveBeenCalled());
+    expect(onQueryChange.mock.calls[onQueryChange.mock.calls.length - 1]?.[0]).toMatch(
+      /^src=messages&/
+    );
+  });
+
+  it('keeps the conversation query current, so a hash sync does not restore stale filters', async () => {
+    const hook = renderHook(
+      ({ suspend }: { suspend: boolean }) => {
+        const pendingDeleteFallbackRef = useRef(false);
+        return useConversationRouter({
+          channels: [],
+          contacts: [],
+          contactsLoaded: true,
+          suspendHashSync: suspend,
+          setSidebarOpen: vi.fn(),
+          pendingDeleteFallbackRef,
+          settingsLoaded: true,
+          directoryEnabled: false,
+        });
+      },
+      { initialProps: { suspend: false } }
+    );
+    await waitFor(() => expect(hook.result.current.activeConversation?.type).toBe('feed'));
+    expect(hook.result.current.activeConversation?.feedQuery).toBe('src=messages,control');
+
+    // The view changes a chip: URL by replaceState, the conversation through syncFeedQuery.
+    const next = feedQueryOf({
+      ...defaultFeedFilters,
+      sources: { messages: true, control: false, events: false },
+    });
+    window.history.replaceState(null, '', `#feed?${next}`);
+    act(() => hook.result.current.syncFeedQuery(next));
+    expect(hook.result.current.activeConversation?.feedQuery).toBe(next);
+
+    // Settings open and close: the hash sync must write the current query, not the old one.
+    hook.rerender({ suspend: true });
+    window.history.replaceState(null, '', '#settings/local');
+    hook.rerender({ suspend: false });
+    act(() => hook.result.current.syncFeedQuery(next));
+    window.history.replaceState(null, '', '#feed');
+    hook.rerender({ suspend: true });
+    hook.rerender({ suspend: false });
+    expect(getConversationHash(hook.result.current.activeConversation)).toBe(`#feed?${next}`);
+  });
+
+  it('follows a new query from outside (popstate) without touching the remembered filters', async () => {
+    localStorage.setItem(FEED_FILTERS_STORAGE_KEY, JSON.stringify({ includePending: true }));
+    const view = render(
+      <FeedView initialQuery="src=messages,control" contacts={[]} channels={[]} />
+    );
+    const chip = await controlChip();
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    view.rerender(<FeedView initialQuery="src=messages" contacts={[]} channels={[]} />);
+    await waitFor(() => expect(chip).toHaveAttribute('aria-pressed', 'false'));
+    expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toEqual({
+      includePending: true,
+    });
+    // Back to a plain #feed: the remembered filters apply again.
+    view.rerender(<FeedView contacts={[]} channels={[]} />);
+    await waitFor(() => expect(chip).toHaveAttribute('aria-pressed', 'true'));
+  });
+
+  it('does not overwrite the remembered filters when opened with a query', async () => {
+    localStorage.setItem(FEED_FILTERS_STORAGE_KEY, JSON.stringify({ includePending: true }));
+    render(<FeedView initialQuery="src=control" contacts={[]} channels={[]} />);
+    await controlChip();
+    expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toEqual({
+      includePending: true,
+    });
+    // A change by the reader is theirs again and is remembered.
+    fireEvent.click(await screen.findByRole('button', { name: i18n.t('feed.filters.messages') }));
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}').sources).toEqual({
+        messages: true,
+        control: true,
+        events: false,
+      })
+    );
   });
 });
