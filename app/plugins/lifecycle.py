@@ -6,9 +6,11 @@ drained; `/api/health` merges `health_fields()` into its payload. Nothing else
 here: the supervisor is `app/plugins/host.py`.
 """
 
+import asyncio
 import logging
 from typing import Any, Final
 
+from app.plugins import isolation
 from app.plugins.host import isolation_level, plugin_manager
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,12 @@ async def start() -> None:
     if source is not None:
         logger.info("Plugin system disabled (%s)", source)
         return
+    try:
+        # Detect the OS isolation (the bwrap self-test runs a process) and apply
+        # the dedicated uid's file model before the first child, off the loop.
+        await asyncio.to_thread(isolation.startup, plugin_manager.plugins_root().parent)
+    except Exception:
+        logger.exception("Plugin isolation setup failed")
     try:
         await plugin_manager.load_from_db()
     except Exception:

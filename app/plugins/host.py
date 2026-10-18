@@ -20,13 +20,14 @@ with backoff when it fails. Behaviour and budgets: docs/dev/plugins.md,
   restart. A run that handled an event, or lived `Budgets.stable_after`, resets
   the count.
 - CPU: a rolling budget (20 CPU-seconds per 60 s) read from `/proc/<pid>/stat`
-  on Linux; the runner's hard `RLIMIT_CPU` (3600 s) is the portable backstop.
+  of the child and its descendants on Linux; the runner's hard `RLIMIT_CPU`
+  (3600 s) is the portable backstop.
 - The number of running instances is capped from the machine's memory
   (`instance_cap()`), and the instances of `load_from_db()` start 500 ms apart.
 
-Isolation: the OS backend (MSHL-180) is not there yet, so every child runs at
-level `none` (the runner's hooks only); `isolation_level()` and `_spawn_argv()`
-are the seam it replaces.
+Isolation: every child is launched through the OS backend of
+`app/plugins/isolation/` (`bwrap`, `setuid` or `none`, detected once per
+process); `isolation_level()` is what health and `plugin.init` report.
 
 What a child may ask (`messages.send`, `storage.*`, `timer.set`...) and which
 events reach it are the capability layer's (`app/plugins/capabilities/`): each
@@ -56,7 +57,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.message_limits import DM_HARD_LIMIT, channel_text_allowance
-from app.plugins import launch
+from app.plugins import isolation, launch
 from app.plugins.quotas import effective_send_limits
 from app.secret_fields import scrub_error
 from meshloom_plugin import policy, rpc
@@ -211,12 +212,8 @@ def platform_supported() -> bool:
 
 
 def isolation_level() -> str:
-    """The OS isolation every child gets. `none` until the backend of MSHL-180 lands."""
-    return "none"
-
-
-def _spawn_argv() -> list[str]:
-    return launch.runner_command()
+    """The OS isolation every child gets (`app/plugins/isolation/`, detected once)."""
+    return isolation.current().level
 
 
 def message_bytes_limit() -> int:
@@ -248,8 +245,42 @@ def read_proc_cpu_seconds(pid: int) -> float | None:
         return None
 
 
+def read_proc_tree_cpu_seconds(pid: int) -> float | None:
+    """CPU of `pid` and every descendant, reaped ones included (`cutime`, `cstime`).
+
+    Under bwrap the supervisor's child is bwrap and the runner a grandchild, and
+    a plugin may start processes of its own: the budget covers the whole tree.
+    None when `pid` is unreadable.
+    """
+    total = 0
+    tick = os.sysconf("SC_CLK_TCK")
+    todo, seen = [pid], set()
+    while todo:
+        current = todo.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        try:
+            data = Path(f"/proc/{current}/stat").read_bytes()
+        except OSError:
+            if current == pid:
+                return None
+            continue
+        fields = data[data.rfind(b")") + 2 :].split()
+        try:
+            total += sum(int(fields[i]) for i in (11, 12, 13, 14))  # fields 14 to 17
+        except (IndexError, ValueError):
+            continue
+        with contextlib.suppress(OSError):
+            for task in os.listdir(f"/proc/{current}/task"):
+                with contextlib.suppress(OSError, ValueError):
+                    children = Path(f"/proc/{current}/task/{task}/children").read_text()
+                    todo.extend(int(child) for child in children.split())
+    return total / tick
+
+
 def default_cpu_reader() -> Callable[[int], float | None] | None:
-    return read_proc_cpu_seconds if sys.platform.startswith("linux") else None
+    return read_proc_tree_cpu_seconds if sys.platform.startswith("linux") else None
 
 
 def mem_total_bytes() -> int | None:
@@ -366,6 +397,7 @@ class PluginProcess:
         self._exited = asyncio.Event()
         self.kill_reason: str | None = None
         self.started_at = 0.0
+        self._wrapped = False
 
     @property
     def pid(self) -> int | None:
@@ -380,11 +412,13 @@ class PluginProcess:
         return self._proc.returncode if self._proc is not None else None
 
     async def start(self, params_line: Callable[[Path], bytes]) -> None:
-        self.work_dir = launch.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-plugin-")))
+        backend = isolation.current().backend
+        self._wrapped = backend.level == "bwrap"
+        backend.prepare_plugin_dir(self._plugin_dir)
+        self.work_dir = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-plugin-")))
+        argv, kwargs = backend.launch(self._plugin_dir, self.work_dir)
         self._proc = await asyncio.create_subprocess_exec(
-            *_spawn_argv(),
-            stderr=asyncio.subprocess.PIPE,
-            **launch.popen_kwargs(self.work_dir),
+            *argv, stderr=asyncio.subprocess.PIPE, **kwargs
         )
         self.started_at = time.monotonic()
         self._readers = [
@@ -412,8 +446,9 @@ class PluginProcess:
         code = self.returncode
         if code is None:
             return "process still running"
-        if code < 0:
-            sig = -code
+        # bwrap reports a child killed by a signal as 128 + the signal.
+        if code < 0 or (self._wrapped and code > 128):
+            sig = -code if code < 0 else code - 128
             if sig == getattr(signal, "SIGXCPU", None):
                 return "cpu_rlimit: CPU time limit reached (RLIMIT_CPU)"
             with contextlib.suppress(ValueError):
