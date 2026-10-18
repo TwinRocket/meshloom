@@ -30,7 +30,9 @@
         "cancelled": "Code d'appairage annulé.",
         "done": "Fermer",
         "owner": "Par {{user}}",
-        "expiresAt": "Expire {{when}}"
+        "expiresAt": "Expire {{when}}",
+        "used": "Ce code a été utilisé par l'appareil : l'appairage est fait. Créez un nouveau code pour appairer un autre appareil.",
+        "closeRevokes": "Fermer et annuler le code"
       }
     }
   }

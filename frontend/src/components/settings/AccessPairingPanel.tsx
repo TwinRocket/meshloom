@@ -1,7 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { api } from '../../api';
+import { api, ApiError, getApiErrorCode } from '../../api';
 import { formatAccessError } from '../../auth/accessErrors';
 import type { AuthPairingCreated, AuthPairingRow } from '../../auth/types';
 import { useSession } from '../../auth/SessionProvider';
@@ -29,6 +29,8 @@ const LABEL_MAX_LENGTH = 64;
 const TTL_PRESETS = [60, 180, 300, 600] as const;
 const DEFAULT_TTL = 300;
 const LIST_REFRESH_MS = 20_000;
+/** How often the dialog asks whether the shown code was used by the device. */
+const USED_POLL_MS = 5000;
 
 /** `m:ss` of a number of seconds. */
 export function formatCountdown(seconds: number): string {
@@ -41,11 +43,19 @@ export function formatCountdown(seconds: number): string {
  * The deadline is built from the code's lifetime (`expires_at - created_at`) rather than
  * the server's clock, so a skewed clock cannot show a dead code as alive.
  */
-function useSecondsLeft(deadline: number | null): number {
+function useSecondsLeft(deadline: number | null, onExpire: () => void): number {
   const [now, setNow] = useState(() => Date.now());
+  const expireRef = useRef(onExpire);
+  useEffect(() => {
+    expireRef.current = onExpire;
+  });
   useEffect(() => {
     if (deadline === null) return;
-    const tick = () => setNow(Date.now());
+    const tick = () => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= deadline) expireRef.current();
+    };
     // The first read comes from a callback: `now` is stale when the dialog was open before.
     const first = window.setTimeout(tick, 0);
     const id = window.setInterval(tick, 1000);
@@ -58,6 +68,8 @@ function useSecondsLeft(deadline: number | null): number {
 }
 
 type Shown = { pairing: AuthPairingCreated; deadline: number };
+/** A code that is gone (expired or used): only what the message needs, never the secret. */
+type Ended = { label: string; scopes: string[]; reason: 'expired' | 'used' };
 
 function PairingDialog({
   open,
@@ -78,15 +90,59 @@ function PairingDialog({
   const [error, setError] = useState<string | null>(null);
   const [shown, setShown] = useState<Shown | null>(null);
 
-  const secondsLeft = useSecondsLeft(shown?.deadline ?? null);
-  const expired = shown !== null && secondsLeft <= 0;
+  const [ended, setEnded] = useState<Ended | null>(null);
+  // Bumped when the dialog closes: a creation that answers after that is not shown.
+  const epoch = useRef(0);
+
+  // Drops the code and the QR text from state, keeping only what the message needs.
+  const end = useCallback((pairing: AuthPairingCreated, reason: Ended['reason']) => {
+    setShown(null);
+    setEnded({ label: pairing.label, scopes: pairing.scopes, reason });
+  }, []);
+  const secondsLeft = useSecondsLeft(shown?.deadline ?? null, () => {
+    if (shown) end(shown.pairing, 'expired');
+  });
+
+  // A device that scanned the code spends it: the code then leaves the pending list.
+  const shownId = shown?.pairing.id;
+  useEffect(() => {
+    if (!shownId) return;
+    const id = window.setInterval(() => {
+      api
+        .listAuthPairings()
+        .then((list) => {
+          if (list.some((row) => row.id === shownId)) return;
+          setShown((current) => {
+            if (current?.pairing.id !== shownId) return current;
+            setEnded({
+              label: current.pairing.label,
+              scopes: current.pairing.scopes,
+              reason: 'used',
+            });
+            return null;
+          });
+        })
+        .catch(() => undefined);
+    }, USED_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [shownId]);
 
   const reset = () => {
     setShown(null);
+    setEnded(null);
     setError(null);
   };
-  // The dialog stays mounted: drop the code and the form on close so nothing lingers.
+  // The dialog stays mounted: drop the code and the form on close so nothing lingers. A code
+  // still pending is revoked: closing must not leave a live one-time credential behind.
   const close = () => {
+    epoch.current += 1;
+    if (shown) {
+      const id = shown.pairing.id;
+      void api
+        .revokeAuthPairing(id)
+        .catch(() => undefined)
+        .finally(onChanged);
+    }
     reset();
     setLabel('');
     setChosen([]);
@@ -101,12 +157,18 @@ function PairingDialog({
     if (!ready || busy) return;
     setBusy(true);
     setError(null);
+    const started = epoch.current;
     try {
       const pairing = await api.createAuthPairing({
         label: label.trim(),
         scopes: scopes.filter((scope) => chosen.includes(scope)),
         ttl,
       });
+      if (started !== epoch.current) {
+        // Closed while the request was in flight: nobody saw this code, so revoke it.
+        void api.revokeAuthPairing(pairing.id).catch(() => undefined);
+        return;
+      }
       setShown({
         pairing,
         deadline: Date.now() + (pairing.expires_at - pairing.created_at) * 1000,
@@ -127,21 +189,31 @@ function PairingDialog({
       toast.success(t('settings.access.pairing.cancelled'));
       reset();
     } catch (err) {
-      setError(formatAccessError(err, t));
+      if (
+        err instanceof ApiError &&
+        getApiErrorCode(err.detail)?.code === 'auth_pairing_not_found'
+      ) {
+        // Already used by the device (or revoked elsewhere): the QR is dead.
+        end(shown.pairing, 'used');
+      } else {
+        setError(formatAccessError(err, t));
+      }
     } finally {
       setBusy(false);
       onChanged();
     }
   };
 
+  const view = shown ? { label: shown.pairing.label, scopes: shown.pairing.scopes } : ended;
+
   return (
     <Dialog open={open} onOpenChange={(next) => !next && close()}>
       <DialogContent>
-        {shown ? (
+        {view ? (
           <div className="space-y-4">
             <DialogHeader>
               <DialogTitle>
-                {t('settings.access.pairing.qrTitle', { label: shown.pairing.label })}
+                {t('settings.access.pairing.qrTitle', { label: view.label })}
               </DialogTitle>
               <DialogDescription>{t('settings.access.pairing.qrHelp')}</DialogDescription>
             </DialogHeader>
@@ -151,13 +223,17 @@ function PairingDialog({
             >
               {t('settings.access.pairing.secretWarning')}
             </p>
-            {expired ? (
+            {shown === null ? (
               <p
                 role="status"
                 data-testid="pairing-expired"
                 className="rounded-md border border-border bg-muted/40 p-3 text-sm"
               >
-                {t('settings.access.pairing.expired')}
+                {t(
+                  ended?.reason === 'used'
+                    ? 'settings.access.pairing.used'
+                    : 'settings.access.pairing.expired'
+                )}
               </p>
             ) : (
               <>
@@ -180,7 +256,7 @@ function PairingDialog({
             )}
             <p className="text-[0.8125rem] text-muted-foreground">
               {t('settings.access.pairing.scopesGiven', {
-                scopes: shown.pairing.scopes.join(', '),
+                scopes: view.scopes.join(', '),
               })}
             </p>
             {error && (
@@ -189,7 +265,7 @@ function PairingDialog({
               </p>
             )}
             <DialogFooter>
-              {expired ? (
+              {shown === null ? (
                 <Button type="button" onClick={reset}>
                   {t('settings.access.pairing.regenerate')}
                 </Button>
@@ -203,8 +279,16 @@ function PairingDialog({
                   {t('settings.access.pairing.cancelCode')}
                 </Button>
               )}
-              <Button type="button" variant={expired ? 'outline' : 'default'} onClick={close}>
-                {t('settings.access.pairing.done')}
+              <Button
+                type="button"
+                variant={shown === null ? 'outline' : 'default'}
+                onClick={close}
+              >
+                {t(
+                  shown === null
+                    ? 'settings.access.pairing.done'
+                    : 'settings.access.pairing.closeRevokes'
+                )}
               </Button>
             </DialogFooter>
           </div>

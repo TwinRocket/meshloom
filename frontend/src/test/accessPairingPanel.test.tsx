@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import { SessionProvider } from '../auth/SessionProvider';
 import type { AuthPairingCreated, AuthPairingRow, AuthRole, AuthSessionInfo } from '../auth/types';
 import { AccessPairingPanel, formatCountdown } from '../components/settings/AccessPairingPanel';
@@ -160,6 +160,83 @@ describe('AccessPairingPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: t('settings.access.pairing.cancelCode') }));
     await waitFor(() => expect(revoke).toHaveBeenCalledWith('p2'));
     await waitFor(() => expect(screen.queryByTestId('qr-value')).toBeNull());
+  });
+
+  it('revokes a code created while the dialog was closing and does not show it on reopen', async () => {
+    let resolve!: (value: AuthPairingCreated) => void;
+    vi.spyOn(api, 'createAuthPairing').mockReturnValue(
+      new Promise<AuthPairingCreated>((r) => {
+        resolve = r;
+      })
+    );
+    const revoke = vi.spyOn(api, 'revokeAuthPairing').mockResolvedValue(undefined);
+    await renderAs('admin');
+    await fillAndSubmit();
+    fireEvent.click(await screen.findByRole('button', { name: t('settings.access.cancel') }));
+    await act(async () => {
+      resolve(createdOf(300));
+    });
+    expect(revoke).toHaveBeenCalledWith('p2');
+    fireEvent.click(screen.getByRole('button', { name: t('settings.access.pairing.add') }));
+    expect(await screen.findByLabelText(t('settings.access.pairing.label'))).toBeInTheDocument();
+    expect(screen.queryByTestId('qr-value')).toBeNull();
+  });
+
+  it('revokes a still pending code when the dialog is closed', async () => {
+    vi.spyOn(api, 'createAuthPairing').mockResolvedValue(createdOf(300));
+    const revoke = vi.spyOn(api, 'revokeAuthPairing').mockResolvedValue(undefined);
+    await renderAs('admin');
+    await fillAndSubmit();
+    await screen.findByTestId('qr-value');
+    fireEvent.click(
+      screen.getByRole('button', { name: t('settings.access.pairing.closeRevokes') })
+    );
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith('p2'));
+    expect(screen.queryByTestId('qr-value')).toBeNull();
+  });
+
+  it('drops the code and the QR text from the DOM once expired', async () => {
+    vi.spyOn(api, 'createAuthPairing').mockResolvedValue(createdOf(2));
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    await renderAs('admin');
+    await fillAndSubmit();
+    await screen.findByTestId('qr-value');
+    await act(async () => {
+      vi.advanceTimersByTime(2500);
+    });
+    expect(document.body.textContent).not.toContain(PAYLOAD);
+    expect(document.body.textContent).not.toContain('mlp_secret');
+  });
+
+  it('shows the code as used when the device consumed it', async () => {
+    vi.spyOn(api, 'createAuthPairing').mockResolvedValue(createdOf(300));
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+    await renderAs('admin');
+    await fillAndSubmit();
+    await screen.findByTestId('qr-value');
+    // The pending list no longer holds p2: the device spent it.
+    await act(async () => {
+      vi.advanceTimersByTime(5500);
+    });
+    expect(screen.queryByTestId('qr-value')).toBeNull();
+    expect(screen.getByTestId('pairing-expired').textContent).toBe(
+      t('settings.access.pairing.used')
+    );
+  });
+
+  it('treats a not-found cancel as a used code', async () => {
+    vi.spyOn(api, 'createAuthPairing').mockResolvedValue(createdOf(300));
+    vi.spyOn(api, 'revokeAuthPairing').mockRejectedValue(
+      new ApiError('x', 404, { code: 'auth_pairing_not_found', message: 'x' })
+    );
+    await renderAs('admin');
+    await fillAndSubmit();
+    await screen.findByTestId('qr-value');
+    fireEvent.click(screen.getByRole('button', { name: t('settings.access.pairing.cancelCode') }));
+    expect((await screen.findByTestId('pairing-expired')).textContent).toBe(
+      t('settings.access.pairing.used')
+    );
+    expect(screen.queryByTestId('qr-value')).toBeNull();
   });
 
   it('shows a coded error', async () => {

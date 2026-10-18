@@ -30,7 +30,9 @@
         "cancelled": "Pairing code cancelled.",
         "done": "Close",
         "owner": "By {{user}}",
-        "expiresAt": "Expires {{when}}"
+        "expiresAt": "Expires {{when}}",
+        "used": "This code was used by the device: pairing is done. Create a new code to pair another device.",
+        "closeRevokes": "Close and cancel the code"
       }
     }
   }
