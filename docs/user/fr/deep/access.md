@@ -106,6 +106,10 @@ Chaque entrée garde l’heure, le compte qui a agi (aucun pour une connexion ra
 
 Les administrateurs le lisent dans **Réglages → Utilisateurs et accès → Journal d’audit** (masqué aux autres), ou par `GET /api/auth/audit` : du plus récent au plus ancien, par pages, avec un bouton pour charger les entrées plus anciennes. Les filtres (famille d’action, action, résultat, compte, dates) restreignent les entrées déjà chargées ; chargez des entrées plus anciennes pour remonter plus loin. Les entrées sont gardées **366 jours**, puis supprimées par un nettoyage horaire ; un administrateur change cette durée avec `PATCH /api/auth/settings` et `{"audit_retention_days": <1 à 36500>}`. Le journal n’est pas dans les sauvegardes JSON ; le téléchargement de la base (**Réglages → Base de données**) le conserve.
 
+## Sauvegarde et restauration
+
+La sauvegarde complète (**Réglages → Base de données**) contient les comptes quand **Inclure les comptes** est coché, ce qui est le cas par défaut : leurs rôles, hachés de mots de passe et secrets de double authentification, jamais les sessions ni le journal d’audit. La restaurer sur une nouvelle machine rend les mêmes comptes et mots de passe. Une restauration remplace les comptes et déconnecte tout le monde ; elle ne laisse jamais Meshloom sans administrateur actif : un fichier qui n’en a pas, ou sans comptes du tout, conserve les comptes actuels. Détails sur la [page de sauvegarde](/docs/backup/#contenu-de-la-sauvegarde). Le téléchargement de la base garde les comptes mais pas leurs mots de passe : après l’avoir remis en place, réinitialisez un mot de passe avec `meshloom-admin` (ci-dessous).
+
 ## Les commandes
 
 | Commande | Effet |

@@ -210,8 +210,12 @@ logged at ERROR and the row is not written (a bug at the call site).
 
 ## Backups
 
-The new tables and settings are not in any JSON backup yet. The `users` and
-`api_tokens` sections of the full backup are a later ticket. `sessions` and
+The accounts travel in the `users` section of the full backup
+(`app/services/backup_accounts.py`, `docs/dev/backup.md`, "Accounts"): hashes
+and TOTP material included, behind the export's **Include accounts** box
+(checked by default); a restore never leaves the instance without an enabled
+admin. `auth_settings` is not in any JSON backup (machine-specific). The
+`api_tokens` section comes with T27. `sessions` and
 the setup code are never exported; `auth_audit` is not in the JSON backup but
 stays in the SQLite download (IPs, usernames). The SQLite download
 (`GET /settings/backup/database`) keeps the accounts and the audit trail but

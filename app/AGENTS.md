@@ -648,7 +648,14 @@ be wrong, because historical decryption inserts old messages with new ids.
   the BLE PIN, the previous-transport snapshot, `users.password_hash`,
   `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
   `sessions` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
-  login secrets are never exported. Inspect and
+  login secrets are never exported. The accounts travel in the JSON full
+  backup's `users` section (`services/backup_accounts.py`, `docs/dev/backup.md`,
+  "Accounts"; the export's `include_accounts`, true by default, leaves
+  `ACCOUNT_SECTIONS` out): its restore replaces the accounts, deletes every
+  session, keeps only trusted network rules whose account is unchanged, and
+  refuses a file without an enabled admin (`accounts_no_admin`).
+  `NEVER_EXPORTED_SECTIONS` (sessions, pairing codes, audit, Remote identity)
+  can never be registered and are ignored in a file. Inspect and
   restore bodies over 64 MiB are a 413 `backup_too_large`.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
   table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
