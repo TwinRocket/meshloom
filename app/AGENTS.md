@@ -62,6 +62,10 @@ run as root).
   in a transaction (`VACUUM`, `journal_mode`) sets `TRANSACTIONAL = False` and must
   be idempotent.
 - New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs).
+- Migration 101 adds the local accounts tables (`users`, `sessions`, `auth_audit`,
+  `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
+  (`tests/test_migrations/test_migration_101.py` compares the two schemas).
+  Model, repository and rules: `docs/dev/auth.md`.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
@@ -330,7 +334,9 @@ run as root).
   0x1D/0x0E in, plus `secret_scope()` literals), a redacting formatter on the
   app's handlers (tracebacks included), `bleak`/`dbus_fast` clamped to INFO
   (their DEBUG output dumps every BLE frame: `bluezdbus/client.py` write on
-  Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`), and
+  Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`),
+  `aiosqlite` clamped to INFO too (its DEBUG output prints every statement with
+  its parameters: password and token hashes, VAPID and fanout secrets), and
   an app-wide 422 handler that drops each error's `input` and `ctx`.
   `tests/test_meshcore_log_sites.py` pins the meshcore log calls: on a meshcore
   or bleak bump, review the rules, then refresh its fixture.

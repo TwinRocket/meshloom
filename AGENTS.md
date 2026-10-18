@@ -14,8 +14,17 @@ you work there:
 - `frontend/AGENTS.md`: frontend (state, WebSocket client, i18n, layout).
 - `frontend/src/components/visualizer/AGENTS.md`: the 3D packet visualizer.
 
-Developer reference: `docs/dev/` (database schema, backup sections, Community client, frontend
-Community state, releasing, BLE pairing, radio bench). User docs: `docs/user/` (en, fr). Environment variables for users:
+Developer reference, `docs/dev/`:
+
+- `database.md`: SQLite schema, migrations, indexes, retention.
+- `auth.md`: local accounts data model (users, sessions, audit, argon2id).
+- `backup.md`: full backup sections and restore hooks.
+- `community-client.md`: the Community client; `frontend-community.md`: its frontend state.
+- `releasing.md`: branches, images, the release chain.
+- `ble-pairing.md`: BLE pairing through BlueZ.
+- `radio-bench.md`: the opt-in live-radio suite.
+
+User docs: `docs/user/` (en, fr). Environment variables for users:
 `docs/user/en/deep/environment.md`.
 
 ## Working rules
@@ -36,8 +45,10 @@ Community state, releasing, BLE pairing, radio bench). User docs: `docs/user/` (
   Refresh copies, never edit them to make a test pass.
 - **Out of scope until explicitly launched.** Do not start these, and do not "fix"
   them on the side:
-  - Access: accounts, login, credentials, Origin/Host checks. (CORS is done:
-    same-origin plus `auth_allowed_origins`, `app/cors.py`.)
+  - Access: accounts, login, credentials, Origin/Host checks, outside the
+    tickets of the Access epic (Jira MSHL-8, 5.0.0 work on `preversion-5`). CORS
+    is done (same-origin plus `auth_allowed_origins`, `app/cors.py`) and so is the
+    accounts data model (`docs/dev/auth.md`), which nothing enforces yet.
   - Plugins: a marketplace that will replace the bots' `exec`.
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
 

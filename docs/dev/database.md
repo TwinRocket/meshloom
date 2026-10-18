@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 100 (the value of
+- Numbering is contiguous from 001. The current head is 101 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -44,7 +44,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 
 ### Adding a migration
 
-1. Create `app/migrations/_101_what_it_does.py` (next number, no gap) with
+1. Create `app/migrations/_102_what_it_does.py` (next number, no gap) with
    `async def migrate(conn)`. Make it idempotent as above.
 2. New table or column: the migration creates it for existing databases. Recent
    practice (082-084) also adds it to `SCHEMA_TABLES` in `app/database.py` so fresh
@@ -193,12 +193,51 @@ Web Push subscriptions: PK `id`, `endpoint` (unique), `p256dh`, `auth`, `label`,
 `PushSubscriptionRepository` (`push_subscriptions.py`), used by `app/push/`.
 A subscription is deleted once `failure_count` reaches 15 consecutive failures.
 
+### `users`
+
+Local accounts (migration 101; model and rules in `docs/dev/auth.md`): PK `id`
+(`AUTOINCREMENT`, never reused, so audit rows never point at a later account),
+`username` (display form), `username_key` (unique: NFKC + case folding, so two
+names that differ only by case clash), `display_name`, `password_hash` (argon2id
+encoded string, NULL for ingress and kiosk identities), `role`
+(`admin`/`member`/`viewer`/`kiosk`, CHECK), `provider` (`local`/`ingress`/`system`,
+CHECK), `external_id` (unique per provider), `disabled`, `must_change_password`,
+`totp_secret`, `totp_enabled_at`, `totp_last_counter` (unused until 2FA),
+`created_at`, `updated_at`. `UserRepository` (`auth.py`).
+
+### `sessions`
+
+Login sessions: PK `id` (random, not a secret), `user_id` (FK `users(id)`,
+cascade), `token_hash` (unique, SHA-256 hex of the cookie secret; the secret is
+never stored), `created_at`, `last_seen_at` (written at most once a minute),
+`expires_at`, `ip`, `user_agent`, `via`, `revoked_at`. At most 50 active per user
+(creating one more revokes the oldest). `AuthSessionRepository` (`auth.py`).
+
+### `auth_audit`
+
+Authentication audit trail: PK `id`, `ts`, `actor_user_id`, `actor_token_id`
+(no foreign keys: a row outlives its actor), `action`, `target`, `ip`, `via`,
+`outcome`, `details` (JSON; the repository refuses keys that name a secret).
+Retention `auth_settings.audit_retention_days` (366 by default).
+`AuthAuditRepository` (`auth.py`).
+
+### `auth_settings`
+
+Single row (`id = 1`) of access settings, kept out of `app_settings` so no auth
+secret reaches `AppSettings`: `trusted_networks` (JSON `[{cidr, user_id}]`),
+`trusted_proxies` (JSON CIDR list), `public_urls` (JSON), `host_guard_mode`
+(`observe`/`enforce`), `ingress_default_role` (`member`), `session_lifetime_days`
+(30), `audit_retention_days` (366), `basic_imported`, `setup_code_hash` (SHA-256 of
+the installation code). The CORS list stays `app_settings.auth_allowed_origins`.
+`AuthSettingsRepository` (`auth.py`).
+
 ## Relationships
 
 All foreign keys point at `contacts(public_key)` (children: advert paths, name
 history, both telemetry histories, pane cache, alert state, group members, all
 `ON DELETE CASCADE`), at `contact_groups(id)` (members, cascade) or at
-`messages(id)` (`raw_packets.message_id`, `SET NULL`). `messages.conversation_key`
+`messages(id)` (`raw_packets.message_id`, `SET NULL`), plus `sessions.user_id` on
+`users(id)` (cascade). `messages.conversation_key`
 and `messages.sender_key` are plain text, not foreign keys: a message outlives its
 contact or channel. Enforcement requires `PRAGMA foreign_keys = ON`, which
 `Database` sets after migrations (migration 049 rebuilt the tables with cascades).
@@ -214,6 +253,7 @@ databases). The current set:
 | `idx_contact_group_members_key` | `contact_group_members(public_key)` |
 | `idx_contact_name_history_key` | `contact_name_history(public_key, last_seen DESC)` |
 | `idx_contact_telemetry_pk_ts` | `contact_telemetry_history(public_key, timestamp)` |
+| `idx_auth_audit_ts` | `auth_audit(ts)` |
 | `idx_contacts_type_last_seen` | `contacts(type, last_seen)` |
 | `idx_messages_chan_unattributed_sender` | `messages(sender_name)` where `CHAN` and `sender_key IS NULL` |
 | `idx_messages_dedup_null_safe` | unique, `messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))` where `CHAN` |
@@ -232,6 +272,8 @@ databases). The current set:
 | `idx_raw_packets_timestamp` | `raw_packets(timestamp)` |
 | `idx_repeater_pane_cache_pk` | `repeater_pane_cache(public_key)` |
 | `idx_repeater_telemetry_pk_ts` | `repeater_telemetry_history(public_key, timestamp)` |
+| `idx_sessions_expires` | `sessions(expires_at)` |
+| `idx_sessions_user` | `sessions(user_id, created_at)` |
 
 ## Retention and maintenance
 
@@ -250,6 +292,10 @@ databases). The current set:
   `tracked_telemetry_repeaters` and `tracked_telemetry_contacts`, and strips the
   `contact-*` entries from `push_conversations` and `push_conversation_overrides`.
   A new setting keyed by contact must be added to that reset.
+- Expired and revoked `sessions` (`AuthSessionRepository.purge`) and `auth_audit`
+  rows past `audit_retention_days` (`AuthAuditRepository.purge_older_than`) have
+  purge helpers, but no loop calls them yet: the auth core and the audit log
+  tickets schedule them.
 - Everything else (messages, channels, fanout configs) is kept until the user
   deletes it.
 
