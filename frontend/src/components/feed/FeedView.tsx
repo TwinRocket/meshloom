@@ -596,6 +596,7 @@ export function FeedView({
       <FeedNodesFacet
         sections={nodeSections}
         selected={activeNode}
+        defaultOpen={preset === 'control'}
         onSelect={(node) => setFilters((prev) => ({ ...prev, node }))}
       />
     ) : null;

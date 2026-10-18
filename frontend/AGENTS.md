@@ -59,7 +59,8 @@ feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
 `#feed` (`components/feed/FeedView.tsx`, `lazy()` behind `LazyBoundary`, not in the
 entry chunk) is the only subscriber of `feedStore`. `#control` is not a view of its own: it parses as
 `{type: 'feed', feedPreset: 'control'}` and `FeedView` opens with `controlPreset`
-(`utils/feedFilters.ts`: only the Control source, Nodes facet) through its `preset` prop,
+(`utils/feedFilters.ts`: only the Control source) through its `preset` prop, which also
+opens the Nodes facet sheet on a phone (`FeedNodesFacet` `defaultOpen`; a column on `md`+),
 keyed on the preset so switching remounts it. A preset's filters are never written to
 `meshloom-feed-filters`. `getConversationHash` emits `#control` for it (never rewritten
 to `#feed`); `toolIdOf()` (`feedConversation.ts`) maps it back to the `control` tool so the
@@ -123,7 +124,7 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   channel/contact name calls `onSelectConversation` (bottom of the conversation);
   the sender is a button for `feedContactKey(row)` (full 64-hex `sender_key`, or the
   PRIV `conversation_key`) and plain text otherwise. `FeedRowMenu` (`...`, long press,
-  right click, ContextMenu / Shift+F10) mirrors `MessageActionMenu`; *Copy text* is
+  right click, ContextMenu / Shift+F10) mirrors `MessageActionMenu`; _Copy text_ is
   absent when `navigator.clipboard` is undefined (HTTP on the LAN). A view rendered
   without the three callbacks is read-only. No reply, react or resend. Tests:
   `src/test/feedRowActions.test.tsx`.

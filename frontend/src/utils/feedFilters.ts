@@ -41,8 +41,8 @@ export const defaultFeedFilters: FeedFilters = {
 };
 
 /**
- * The Control preset (`#control`): the feed with only the control source on, and the Nodes
- * facet beside it. It is applied when the view opens and never written to storage, so the
+ * The Control preset (`#control`): the feed with only the control source on (`FeedView` also
+ * opens the Nodes facet sheet with it on a phone). It is applied when the view opens and never written to storage, so the
  * regular feed keeps the filters the reader chose for it.
  */
 export const controlPreset: FeedFilters = {

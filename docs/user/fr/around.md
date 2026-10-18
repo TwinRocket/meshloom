@@ -83,7 +83,7 @@ Le **Fil** réunit tout dans une seule chronologie, le plus récent en bas : les
 
 ### Le préréglage Contrôle
 
-**Contrôle** ouvre le même fil avec seulement la source *Contrôle* activée et la facette Nœuds à côté : l’ancien journal de contrôle. C’est un préréglage, pas une page à part : l’adresse `#control` et les signets qui y mènent continuent de fonctionner, et la barre d’adresse affiche toujours `#control`. Vos changements de puces n’y sont pas mémorisés, de sorte que le fil habituel garde les filtres que vous lui avez choisis. **Contrôle** n’est plus dans la barre d’icônes par défaut ; ajoutez-le dans **Réglages > Navigation**, ou trouvez-le dans la palette de recherche (Ctrl/Cmd+K).
+**Contrôle** ouvre le même fil avec seulement la source *Contrôle* activée, avec la liste des Nœuds à côté sur ordinateur ou déjà ouverte sur téléphone (dès que des nœuds sont connus) : l’ancien journal de contrôle. C’est un préréglage, pas une page à part : l’adresse `#control` et les signets qui y mènent continuent de fonctionner, et la barre d’adresse affiche toujours `#control`. Vos changements de puces n’y sont pas mémorisés, de sorte que le fil habituel garde les filtres que vous lui avez choisis. **Contrôle** n’est plus dans la barre d’icônes par défaut ; ajoutez-le dans **Réglages > Navigation**, ou trouvez-le dans la palette de recherche (Ctrl/Cmd+K).
 
 ## La localisation RF
 

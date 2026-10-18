@@ -11,6 +11,8 @@ interface FeedNodesFacetProps {
   sections: FeedNodeSection[];
   selected: string | null;
   onSelect: (id: string | null) => void;
+  /** Opens the phone sheet on mount (the Control preset); a column is always open. */
+  defaultOpen?: boolean;
 }
 
 const SECTION_TITLE_KEY = {
@@ -73,9 +75,15 @@ function NodeList({ sections, selected, onSelect }: FeedNodesFacetProps) {
  * The Nodes facet: the control threads (repeaters and rooms, channels, us, unresolved)
  * with their counts. A column from `md`, a button opening a sheet on a phone.
  */
-export function FeedNodesFacet(props: FeedNodesFacetProps) {
+export function FeedNodesFacet({ defaultOpen, ...props }: FeedNodesFacetProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  // The sheet only exists below `md`; on a computer the column is already on screen.
+  const [open, setOpen] = useState(
+    () =>
+      defaultOpen === true &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(max-width: 767px)').matches
+  );
   const selectedLabel = props.sections
     .flatMap((section) => section.nodes)
     .find((node) => node.id === props.selected)?.label;

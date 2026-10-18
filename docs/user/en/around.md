@@ -83,7 +83,7 @@ The **Feed** puts everything in one timeline, newest at the bottom: the messages
 
 ### The Control preset
 
-**Control** opens the same feed with only the *Control* source on and the Nodes facet beside it: the old control journal. It is a preset, not a separate page: the address `#control` and bookmarks to it keep working, and the address bar still shows `#control`. Your changes to the chips there are not remembered, so the regular feed keeps the filters you chose for it. **Control** is not in the icon bar by default; add it in **Settings > Navigation**, or find it in the search palette (Ctrl/Cmd+K).
+**Control** opens the same feed with only the *Control* source on, with the Nodes list beside it on a computer or already open on a phone (once nodes are known): the old control journal. It is a preset, not a separate page: the address `#control` and bookmarks to it keep working, and the address bar still shows `#control`. Your changes to the chips there are not remembered, so the regular feed keeps the filters you chose for it. **Control** is not in the icon bar by default; add it in **Settings > Navigation**, or find it in the search palette (Ctrl/Cmd+K).
 
 ## RF locate
 
