@@ -13,6 +13,7 @@ import {
 import {
   activateFeedStore,
   getFeedSnapshot,
+  mergeHistoryPage,
   recordFeedMessage,
   resetFeedStore,
 } from '../stores/feedStore';
@@ -21,6 +22,7 @@ import type { Channel, Contact, Conversation, HealthStatus, Message, RawPacket }
 const mocks = vi.hoisted(() => ({
   api: {
     getChannels: vi.fn(),
+    getMessages: vi.fn(),
   },
   toast: Object.assign(vi.fn(), {
     success: vi.fn(),
@@ -121,6 +123,7 @@ describe('useRealtimeAppState', () => {
     resetRawPacketStore();
     resetFeedStore();
     mocks.api.getChannels.mockResolvedValue([publicChannel]);
+    mocks.api.getMessages.mockResolvedValue([]);
   });
 
   it('reconnect clears raw packets and refetches channels/contacts/unreads', async () => {
@@ -597,6 +600,52 @@ describe('useRealtimeAppState', () => {
       await flush();
 
       expect(getFeedSnapshot().rows.map((m) => m.id)).toEqual([7]);
+    });
+
+    it('reconciles the feed with since_id on reconnect and after a historical decryption', async () => {
+      activateFeedStore();
+      mergeHistoryPage([incomingDm], { hasOlder: false });
+      const { args } = createRealtimeArgs();
+      const { result } = renderHook(() => useRealtimeAppState(args));
+
+      act(() => {
+        result.current.onReconnect?.();
+      });
+      await waitFor(() =>
+        expect(mocks.api.getMessages).toHaveBeenCalledWith({ since_id: 7, limit: 1000 })
+      );
+
+      mocks.api.getMessages.mockClear();
+      act(() => {
+        result.current.onSuccess?.({ message: 'other', code: 'something_else' });
+      });
+      await flush();
+      expect(mocks.api.getMessages).not.toHaveBeenCalled();
+
+      mocks.api.getMessages.mockResolvedValueOnce([
+        { ...incomingDm, id: 8, received_at: 1600000000, historical: true },
+      ]);
+      act(() => {
+        result.current.onSuccess?.({
+          message: 'done',
+          code: 'historical_decrypt_complete',
+          params: { name: 'x' },
+        });
+      });
+      await waitFor(() =>
+        expect(mocks.api.getMessages).toHaveBeenCalledWith({ since_id: 7, limit: 1000 })
+      );
+      await waitFor(() => expect(getFeedSnapshot().rows.map((m) => m.id)).toEqual([8, 7]));
+    });
+
+    it('does not fetch for the feed while it has never been opened', async () => {
+      const { args } = createRealtimeArgs();
+      const { result } = renderHook(() => useRealtimeAppState(args));
+      act(() => {
+        result.current.onReconnect?.();
+      });
+      await waitFor(() => expect(mocks.api.getChannels).toHaveBeenCalled());
+      expect(mocks.api.getMessages).not.toHaveBeenCalled();
     });
 
     it('applies acks, deletions and contact resolution to the feed', async () => {

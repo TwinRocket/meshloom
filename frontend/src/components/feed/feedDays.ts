@@ -1,7 +1,9 @@
 import type { Message } from '../../types';
 
 export type FeedItem =
-  { kind: 'day'; key: string; at: number } | { kind: 'row'; key: string; row: Message };
+  | { kind: 'day'; key: string; at: number }
+  | { kind: 'new'; key: string }
+  | { kind: 'row'; key: string; row: Message };
 
 /** Local calendar day of an epoch-seconds instant, `YYYY-M-D` (unpadded: only compared). */
 export function localDayKey(seconds: number): string {
@@ -9,8 +11,14 @@ export function localDayKey(seconds: number): string {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
-/** Rows interleaved with one separator before the first row of each local day. */
-export function buildFeedItems(rows: readonly Message[]): FeedItem[] {
+/**
+ * Rows interleaved with one separator before the first row of each local day, and the
+ * "new since your last visit" marker right before the row `newSinceId` names.
+ */
+export function buildFeedItems(
+  rows: readonly Message[],
+  newSinceId: number | null = null
+): FeedItem[] {
   const items: FeedItem[] = [];
   let day: string | null = null;
   for (const row of rows) {
@@ -19,6 +27,7 @@ export function buildFeedItems(rows: readonly Message[]): FeedItem[] {
       day = rowDay;
       items.push({ kind: 'day', key: `day:${rowDay}`, at: row.received_at });
     }
+    if (row.id === newSinceId) items.push({ kind: 'new', key: 'new-since' });
     items.push({ kind: 'row', key: `row:${row.id}`, row });
   }
   return items;

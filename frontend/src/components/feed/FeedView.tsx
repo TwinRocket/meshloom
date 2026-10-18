@@ -26,6 +26,8 @@ import { ToolPaneHeader } from '../ToolPaneHeader';
 import { FEED_DOM_MAX } from './feedConversation';
 import { countArrivedSince, FOLLOW_THRESHOLD_PX, highestId } from './feedFollow';
 import { buildFeedItems, createDayLabeler } from './feedDays';
+import { firstRowAfterMark, lastSeenOf, loadFeedLastSeen, saveFeedLastSeen } from './feedLastSeen';
+import { pickAnchor, scrollShiftForAnchor, type ScrollAnchor } from './feedScroll';
 import { FeedFilterChips } from './FeedFilterChips';
 import {
   fillHiddenPages,
@@ -86,7 +88,7 @@ function useTimeFormatter(language: string) {
  */
 export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedViewProps) {
   const { t, i18n } = useTranslation();
-  const { rows, hasOlder } = useFeedRows();
+  const { rows, hasOlder, epoch } = useFeedRows();
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
@@ -99,6 +101,10 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   const [following, setFollowing] = useState(true);
   const [baselineId, setBaselineId] = useState(0);
   const [scrollMargin, setScrollMargin] = useState(0);
+  // The "where was I" mark is read once per visit: the separator then stays on the row it
+  // named, whatever arrives and whatever the mark becomes when the view hides.
+  const [lastSeenAtOpen] = useState(loadFeedLastSeen);
+  const [newSinceId, setNewSinceId] = useState<number | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
@@ -107,10 +113,10 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   const hasOlderRef = useRef(hasOlder);
   const rowsRef = useRef<readonly Message[]>(rows);
   const visibleRowsRef = useRef<readonly Message[]>([]);
-  const previousRef = useRef<{ firstId: number | null; scrollHeight: number }>({
-    firstId: null,
-    scrollHeight: 0,
-  });
+  const anchorRef = useRef<ScrollAnchor | null>(null);
+  const knownMaxIdRef = useRef(0);
+  const separatorDecidedRef = useRef(false);
+  const epochRef = useRef(epoch);
   const tRef = useRef(t);
   const filtersRef = useRef(filters);
   const channelsRef = useRef(channels);
@@ -148,7 +154,7 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     () => countHiddenRows(rows, filters, channels, nowSec),
     [rows, filters, channels, nowSec]
   );
-  const items = useMemo(() => buildFeedItems(visibleRows), [visibleRows]);
+  const items = useMemo(() => buildFeedItems(visibleRows, newSinceId), [visibleRows, newSinceId]);
   const resolveLabels = useMemo(
     () => createFeedNameResolver(channels, contacts),
     [channels, contacts]
@@ -214,6 +220,39 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey, loadNewest]);
 
+  // The store was emptied by a reconciliation that could not catch up: fetch again.
+  useEffect(() => {
+    if (epochRef.current === epoch) return;
+    epochRef.current = epoch;
+    if (queryKey === 'none') return;
+    void loadNewest(filtersToQuery(filtersRef.current));
+    // `epoch` is the trigger; the rest is read through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epoch]);
+
+  // Place the separator once, when the first page is in: later rows are live, not "since".
+  useEffect(() => {
+    if (separatorDecidedRef.current || status !== 'ready') return;
+    separatorDecidedRef.current = true;
+    setNewSinceId(firstRowAfterMark(visibleRowsRef.current, lastSeenAtOpen));
+  }, [status, lastSeenAtOpen]);
+
+  // Remember the newest row shown when the reader leaves, hides the tab or the page.
+  useEffect(() => {
+    const remember = () => {
+      const mark = lastSeenOf(visibleRowsRef.current);
+      if (mark) saveFeedLastSeen(mark);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') remember();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      remember();
+    };
+  }, []);
+
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current || !hasOlderRef.current || reloadPendingRef.current) return;
     const oldest = rowsRef.current[0];
@@ -263,7 +302,7 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) =>
-      items[index]?.kind === 'day' ? ESTIMATED_DAY_HEIGHT : ESTIMATED_ROW_HEIGHT,
+      items[index]?.kind === 'row' ? ESTIMATED_ROW_HEIGHT : ESTIMATED_DAY_HEIGHT,
     scrollMargin,
     getItemKey: (index) => items[index]?.key ?? `__idx:${index}`,
     overscan: 8,
@@ -308,17 +347,24 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  // A page prepended above the reader must not move what they are looking at.
-  const firstId = visibleRows[0]?.id ?? null;
+  // Rows landing above the reader (a prepended page, a historical decryption filling the
+  // middle) must not move what they are looking at: hold the item at the top of the
+  // viewport where it was. Following needs no hold, the pin takes over.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    const previous = previousRef.current;
-    if (el && !followingRef.current && previous.firstId !== null && firstId !== previous.firstId) {
-      const grew = el.scrollHeight - previous.scrollHeight;
-      if (grew > 0) el.scrollTop += grew;
+    if (!el) return;
+    if (!followingRef.current) {
+      const shift = scrollShiftForAnchor(
+        anchorRef.current,
+        items.map((item, index) => ({
+          key: item.key,
+          start: virtualizer.measurementsCache[index]?.start ?? 0,
+        }))
+      );
+      if (shift !== 0) el.scrollTop += shift;
     }
-    previousRef.current = { firstId, scrollHeight: el?.scrollHeight ?? 0 };
-  }, [firstId, visibleRows.length, totalSize]);
+    anchorRef.current = pickAnchor(virtualizer.getVirtualItems(), el.scrollTop);
+  }, [items, totalSize, virtualizer]);
 
   // Follow mode: stay at the bottom as rows arrive and as their heights settle.
   useLayoutEffect(() => {
@@ -345,15 +391,27 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    anchorRef.current = pickAnchor(virtualizer.getVirtualItems(), el.scrollTop);
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     setFollow(distance <= FOLLOW_THRESHOLD_PX);
     if (el.scrollTop <= LOAD_OLDER_THRESHOLD_PX && status === 'ready') void loadOlder();
-  }, [loadOlder, setFollow, status]);
+  }, [loadOlder, setFollow, status, virtualizer]);
 
   const handleFollowClick = useCallback(() => {
     setFollow(true);
     pinToBottom();
   }, [pinToBottom, setFollow]);
+
+  // Like a conversation: what the reader sends brings them back to the bottom. Historical
+  // rows (an old message with a new id) never do, whatever their direction.
+  useEffect(() => {
+    const previousMax = knownMaxIdRef.current;
+    knownMaxIdRef.current = highestId(visibleRows);
+    if (previousMax === 0 || followingRef.current) return;
+    if (visibleRows.some((row) => row.id > previousMax && row.outgoing && !row.historical)) {
+      handleFollowClick();
+    }
+  }, [visibleRows, handleFollowClick]);
 
   const arrived = useMemo(
     () => (following ? 0 : countArrivedSince(visibleRows, baselineId)),
@@ -458,6 +516,23 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
               const position = {
                 transform: `translateY(${item.start - scrollMargin}px)`,
               };
+              if (entry.kind === 'new') {
+                return (
+                  <div
+                    key={item.key}
+                    ref={virtualizer.measureElement}
+                    data-index={item.index}
+                    role="separator"
+                    aria-label={t('feed.newSinceLastVisit')}
+                    className="absolute left-0 top-0 flex w-full items-center gap-2 py-1 text-xs font-medium text-primary"
+                    style={position}
+                  >
+                    <span className="h-px flex-1 bg-primary/40" />
+                    <span>{t('feed.newSinceLastVisit')}</span>
+                    <span className="h-px flex-1 bg-primary/40" />
+                  </div>
+                );
+              }
               if (entry.kind === 'day') {
                 return (
                   <div

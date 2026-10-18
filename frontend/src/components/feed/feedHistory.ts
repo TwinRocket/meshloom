@@ -1,5 +1,12 @@
 import { api } from '../../api';
-import { getFeedSnapshot, mergeHistoryPage } from '../../stores/feedStore';
+import {
+  getFeedSnapshot,
+  isFeedStoreActive,
+  maxKnownId,
+  mergeHistoryPage,
+  mergeReconciledRows,
+  resetFeedForRefetch,
+} from '../../stores/feedStore';
 import type { FeedQuery } from '../../utils/feedFilters';
 import { FEED_PAGE_SIZE } from './feedConversation';
 
@@ -7,6 +14,17 @@ import { FEED_PAGE_SIZE } from './feedConversation';
 export const FEED_MIN_VISIBLE = 20;
 /** Pages fetched per gesture (mount, filter change, scroll to the top), the first included. */
 export const FEED_MAX_PAGES_PER_GESTURE = 5;
+
+/** Rows asked per `since_id` page (the route's maximum). */
+export const FEED_RECONCILE_PAGE_SIZE = 1000;
+/** Full `since_id` pages merged before giving up and refetching the newest page. */
+export const FEED_RECONCILE_MAX_PAGES = 5;
+
+// The server-side part of the filters the store was last loaded with: reconciliation must
+// ask the same question, or it would merge rows the chips hide from the store.
+let serverQuery: FeedQuery = {};
+let reconciling: Promise<void> | null = null;
+let reconcileAgain = false;
 
 /**
  * Fetch one page of history into the feed store.
@@ -21,6 +39,7 @@ export async function loadFeedPage(
   signal?: AbortSignal,
   query: FeedQuery = {}
 ): Promise<void> {
+  if (!cursor) serverQuery = query;
   const rows = await api.getMessages(
     {
       limit: FEED_PAGE_SIZE,
@@ -57,4 +76,58 @@ export async function fillHiddenPages(
     if (!hasOlder || !oldest || visibleCount() >= FEED_MIN_VISIBLE) return;
     await loadFeedPage({ received_at: oldest.received_at, id: oldest.id }, signal, query);
   }
+}
+
+/**
+ * Catch up after a gap the live stream cannot be trusted across: a reconnect (the server
+ * evicts a client 2 048 frames behind, and a historical-decryption burst is exactly that)
+ * or the end of a historical decryption.
+ *
+ * `GET /api/messages?since_id=<highest id seen>` returns rows with a larger id, oldest id
+ * first, historical rows included (their `received_at` is old, so they merge in the middle).
+ * A full page means more may follow, at most `FEED_RECONCILE_MAX_PAGES` times; past that the
+ * store is emptied and the view fetches the newest page again. Deletions made while the
+ * socket was down are not caught up. Works whether or not the view is mounted, as long as
+ * the store is attached; calls that overlap run once more after the current pass.
+ */
+export function reconcileFeed(): Promise<void> {
+  if (!isFeedStoreActive()) return Promise.resolve();
+  if (reconciling) {
+    reconcileAgain = true;
+    return reconciling;
+  }
+  reconciling = (async () => {
+    try {
+      do {
+        reconcileAgain = false;
+        await reconcileOnce();
+      } while (reconcileAgain);
+    } catch (err) {
+      // The next reconnect or decryption toast tries again; nothing to show the reader.
+      console.error('Feed reconciliation failed', err);
+    } finally {
+      reconciling = null;
+    }
+  })();
+  return reconciling;
+}
+
+async function reconcileOnce(): Promise<void> {
+  let sinceId = maxKnownId();
+  // Nothing loaded yet: the view's own first fetch covers it.
+  if (sinceId < 1) return;
+  const query = serverQuery;
+  for (let page = 0; page < FEED_RECONCILE_MAX_PAGES; page++) {
+    const rows = await api.getMessages({
+      since_id: sinceId,
+      limit: FEED_RECONCILE_PAGE_SIZE,
+      ...query,
+    });
+    // The filters changed (store emptied) while the request was in flight: stale answer.
+    if (query !== serverQuery) return;
+    mergeReconciledRows(rows);
+    if (rows.length < FEED_RECONCILE_PAGE_SIZE) return;
+    sinceId = Math.max(sinceId, ...rows.map((row) => row.id));
+  }
+  resetFeedForRefetch();
 }

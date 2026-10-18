@@ -240,7 +240,7 @@ describe('day separators', () => {
       message({ id: 2, received_at: at('2026-03-01T23:59:00') }),
       message({ id: 3, received_at: at('2026-03-02T00:01:00') }),
     ];
-    expect(buildFeedItems(rows).map((i) => (i.kind === 'day' ? 'day' : i.row.id))).toEqual([
+    expect(buildFeedItems(rows).map((i) => (i.kind === 'row' ? i.row.id : i.kind))).toEqual([
       'day',
       1,
       2,
