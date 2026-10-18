@@ -8,7 +8,7 @@ Web interface for a MeshCore companion radio: messages, contacts, and mesh obser
 
 Fork of [Jack Kingsman’s MeshCore web client](https://github.com/jkingsman/Remote-Terminal-for-MeshCore), via [Ian Langworth](https://github.com/statico/remoteterm-meshcore). Original copyright remains in [LICENSE.md](LICENSE.md).
 
-**Trusted network only.** Up to 4.18 there are no user accounts, and bots can run arbitrary Python. Optional HTTP Basic auth (`MESHCORE_BASIC_AUTH_USERNAME` / `MESHCORE_BASIC_AUTH_PASSWORD`) is a coarse gate and needs HTTPS; 5.0 makes accounts mandatory and imports that login as the administrator. Set `MESHCORE_DISABLE_BOTS=true` to turn bots off.
+**Trusted network only.** From 5.0 every page and API route needs a signed-in account (four roles: administrator, member, viewer, kiosk; optional two-factor authentication and passkeys; Home Assistant signs its users in itself), but accounts are keys, not walls: an administrator can make the machine run code through bots, and the optional radio proxy on port 5051 has no login. Put Meshloom behind HTTPS beyond a network you know, never expose it directly to the Internet, and set `MESHCORE_DISABLE_BOTS=true` to turn bots off. Up to 4.18 there were no accounts: the old shared Basic login becomes the administrator on the first start of 5.0. Details and recovery (`meshloom-admin`): [Accounts and access](docs/user/en/deep/access.md).
 
 Meshloom takes over radio contacts and channels. A poor fit if you swap radios and expect the device to keep its own favorites independently of the app.
 

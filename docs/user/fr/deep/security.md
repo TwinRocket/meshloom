@@ -1,41 +1,40 @@
 ---
 title: Sécurité
-description: Ce que Meshloom ne protège pas, et les quelques verrous qui existent : accès Basic, désactivation des bots, sauvegarde chiffrée.
+description: Ce que les comptes protègent et ce qu’ils ne protègent pas, les verrous qui existent (connexion, rôles, HTTPS, désactivation des bots, sauvegarde chiffrée), et le proxy radio qui n’a aucune connexion.
 level: deep
 order: 20
 ---
 
 Meshloom est conçu pour un réseau dont vous connaissez les utilisateurs. Plusieurs choix de conception n’ont de sens que sous cette hypothèse. Ces choix sont **délibérés**, ce ne sont pas des oublis.
 
-## Ce qui n’existe pas
+## Ce que les comptes protègent, et ce qu’ils ne protègent pas
 
-**Pas de comptes utilisateurs.** Il n’y a ni identifiant, ni session, ni rôle, ni permission par fonction. Quiconque atteint le serveur peut lire l’historique, envoyer des messages au nom de votre nœud, changer les réglages de la radio et modifier les bots.
+**Les comptes sont des clés, pas des murs.** À partir de la 5.0, chaque page et chaque route de l’API demandent un compte connecté, et le serveur vérifie son rôle à chaque requête ([Comptes et accès](/docs/deep/access/)). Cela tient les inconnus dehors ; cela ne limite pas ce que peut faire une personne que vous laissez entrer. Un administrateur peut lire tout l’historique, envoyer des messages au nom de votre nœud, changer les réglages de la radio et modifier les bots ; un membre peut écrire au nom de votre nœud. Ne donnez de compte qu’à des personnes à qui vous confiez le nœud.
 
-**Les autres pages web ne sont que partiellement tenues à l’écart.** L’interface fonctionne depuis n’importe quel appareil qui ouvre l’adresse de Meshloom. Un autre site ouvert dans le même navigateur est une autre *origine* : le serveur ne lui accorde aucun accès CORS (même origine uniquement), il ne peut donc ni lire les réponses de l’API ni lui envoyer de requêtes JSON. Il peut encore déclencher les requêtes qu’un navigateur envoie sans demander (un `POST` sans corps, comme un redémarrage) sans en voir la réponse. Si vous utilisez un tableau de bord ou un script servi depuis une autre adresse, ajoutez cette adresse dans **Réglages > Configuration locale > Origines autorisées** (une `schéma://hôte[:port]` par ligne, vide par défaut, sans `*`). Chaque site listé peut faire tout ce que vous pouvez faire, avec vos identifiants, y compris la connexion en direct ci-dessous.
+**Les autres pages web sont tenues à l’écart.** L’interface fonctionne depuis n’importe quel appareil qui ouvre l’adresse de Meshloom. Un autre site ouvert dans le même navigateur est une autre *origine* : le serveur ne lui accorde aucun accès CORS (même origine uniquement), il ne peut donc pas lire les réponses de l’API, et il refuse les modifications (`POST`, `PUT`, `PATCH`, `DELETE`) qu’un navigateur envoie depuis un autre site, avec ou sans session. Le cookie de session est de plus `SameSite=Lax`. Si vous utilisez un tableau de bord ou un script servi depuis une autre adresse, ajoutez cette adresse dans **Réglages > Configuration locale > Origines autorisées** (une `schéma://hôte[:port]` par ligne, vide par défaut, sans `*`) ; chaque site listé peut alors faire tout ce que fait l’utilisateur connecté, y compris la connexion en direct ci-dessous. Les scripts et applications qui n’envoient pas d’`Origin` (curl, une application mobile, un capteur Home Assistant) ne sont pas des navigateurs : ils se connectent avec une session ou un [jeton d’API](/docs/deep/access/#les-jetons-dapi-et-dappareil).
 
-La connexion en direct (`/api/ws`, le WebSocket) fait exception : le serveur la refuse quand un navigateur l’ouvre depuis une page d’un autre site, si bien qu’une telle page ne peut pas écouter vos messages et paquets à leur arrivée. Son `Origin` doit correspondre à l’adresse demandée par le navigateur (`Host`, ou `X-Forwarded-Host` derrière un proxy qui réécrit `Host`) ou être l’une des **Origines autorisées**, comparée de la même façon que pour l’API (la casse, le port par défaut et les noms de domaine internationaux n’y changent rien) ; les clients qui n’envoient pas d’`Origin`, comme les scripts, sont acceptés. Voir [HTTPS](/docs/deep/https/#websocket).
+La connexion en direct (`/api/ws`, le WebSocket) demande le même compte et est refusée quand un navigateur l’ouvre depuis une page d’un autre site, si bien qu’une telle page ne peut pas écouter vos messages et paquets à leur arrivée. Son `Origin` doit correspondre à l’adresse demandée par le navigateur (`Host`, ou `X-Forwarded-Host` derrière un proxy qui réécrit `Host`) ou être l’une des **Origines autorisées**, comparée de la même façon que pour l’API (la casse, le port par défaut et les noms de domaine internationaux n’y changent rien) ; les clients qui n’envoient pas d’`Origin`, comme les scripts, sont acceptés, mais il leur faut quand même un jeton ou une session. Ce que reçoit un WebSocket suit le rôle : un `viewer`, un `kiosk` ou un jeton sans `read_private` ne reçoit jamais le texte d’un message direct. Voir [HTTPS](/docs/deep/https/#websocket).
 
-**Les bots exécutent du Python quelconque.** Un bot est un petit programme Python écrit dans l’interface. Meshloom l’exécute tel quel, avec un accès complet au langage (`exec()` avec tous les `__builtins__`). Quiconque atteint Meshloom peut donc faire exécuter du code sur la machine hôte. C’est voulu.
+**Le DNS rebinding.** Meshloom regarde aussi le nom saisi dans l’adresse du navigateur. En 5.0.0, un nom inconnu est seulement noté ; à partir de la 5.1 il sera refusé tant que vous ne l’avez pas déclaré (voir [Les noms auxquels Meshloom répond](/docs/deep/https/#les-noms-auxquels-meshloom-répond)). Une règle de réseau de confiance le vérifie toujours strictement.
 
-Rien de tout cela n’affaiblit le chiffrement propre à MeshCore par radio : les messages directs et les messages de canal restent chiffrés comme d’habitude. Ces points décrivent qui peut utiliser l’application, pas ce qui circule par radio. La clé privée du nœud fait exception côté serveur : quiconque atteint l’interface peut la lire (voir [La clé privée du nœud](#la-clé-privée-du-nœud)).
+**Les bots exécutent du Python quelconque.** Un bot est un petit programme Python écrit dans l’interface. Meshloom l’exécute tel quel, avec un accès complet au langage (`exec()` avec tous les `__builtins__`). N’importe quel administrateur peut donc faire exécuter du code sur la machine hôte. C’est voulu.
+
+**Le proxy radio n’a pas de connexion.** Voir [Proxy radio](#proxy-radio) plus bas.
+
+Rien de tout cela n’affaiblit le chiffrement propre à MeshCore par radio : les messages directs et les messages de canal restent chiffrés comme d’habitude. Ces points décrivent qui peut utiliser l’application, pas ce qui circule par radio. La clé privée du nœud fait exception côté serveur : n’importe quel administrateur peut la lire (voir [La clé privée du nœud](#la-clé-privée-du-nœud)).
 
 ## La fenêtre d’avertissement
 
-Tant que les bots sont activés et qu’aucun compte ne protège l’instance, Meshloom affiche une fenêtre d’avertissement plein écran, intitulée « L’exécution non protégée de bots est activée ». Elle propose deux issues :
+Tant que les bots sont activés et qu’aucun compte ne protège l’instance (à partir de la 5.0 chaque page demande un compte connecté, vous ne la voyez donc normalement jamais), Meshloom affiche une fenêtre d’avertissement plein écran, intitulée « L’exécution non protégée de bots est activée ». Elle propose deux issues :
 
 - **Désactiver les bots jusqu’au redémarrage du serveur** coupe le système de bots tout de suite. Il revient au prochain redémarrage, sauf si vous le désactivez définitivement (voir plus bas).
 - Cochez la case de reconnaissance, puis **Ne plus m’avertir sur cet appareil**. Ce choix est retenu par ce navigateur seulement : un autre navigateur ou un téléphone verra de nouveau l’avertissement.
 
-## Authentification HTTP Basic
+## Se connecter
 
-```text
-MESHCORE_BASIC_AUTH_USERNAME=...
-MESHCORE_BASIC_AUTH_PASSWORD=...
-```
+La connexion est obligatoire et passe par des comptes : un mot de passe d’au moins 12 caractères, en option un second facteur (une application d’authentification, des codes de secours) et des passkeys. Les mauvais mots de passe ralentissent les tentatives suivantes sans jamais verrouiller un compte, et les actions sensibles sont écrites dans un journal d’audit que lisent les administrateurs. Tout est dans [Comptes et accès](/docs/deep/access/). Sans HTTPS, le mot de passe circule en clair à chaque connexion : associez-le à [HTTPS](/docs/deep/https/) au-delà d’un réseau de confiance.
 
-Jusqu’à la 4.18, on définissait les deux ou aucune. L’accès Basic protégeait les pages, l’API et la connexion en direct (WebSocket). C’est un identifiant partagé unique, sans rôles. Sans HTTPS, le mot de passe circule en clair : associez-le à [HTTPS](/docs/deep/https/).
-
-À partir de Meshloom 5.0, la connexion est obligatoire et passe par des comptes. Au premier démarrage de la 5.0, ces deux variables deviennent le compte administrateur (même nom, même mot de passe), puis Meshloom ne les lit plus et journalise un avertissement tant qu’elles restent définies : retirez-les. Les scripts et capteurs Home Assistant qui envoient ce nom et ce mot de passe en Basic continuent de fonctionner jusqu’à la 5.2. Sur l’add-on Home Assistant, c’est Home Assistant qui vous connecte par la barre latérale. Son port 8000 n’est pas publié par défaut : pour joindre Meshloom hors de Home Assistant, et y créer ou utiliser un compte Meshloom, donnez d’abord un port d’hôte à `8000/tcp` dans le panneau **Réseau** de l’add-on. Les mauvais mots de passe ralentissent les tentatives de connexion suivantes sans jamais verrouiller un compte (voir [Récupérer l’accès](/docs/deep/access/#les-délais-de-connexion)). Une page d’un autre site ne peut plus rien modifier avec votre connexion : Meshloom refuse les modifications qui viennent d’un autre site.
+Jusqu’à la 4.18, le seul verrou était un identifiant HTTP Basic partagé (`MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD`). Au premier démarrage de la 5.0 il devient le compte administrateur, puis Meshloom ne lit plus les variables et avertit tant qu’elles restent définies : retirez-les. Les scripts qui l’envoient avec `Authorization: Basic` continuent de fonctionner jusqu’à la 5.2 ([La connexion Basic de la 4.x](/docs/deep/access/#la-connexion-basic-de-la-4x)). Sur l’add-on Home Assistant, c’est Home Assistant qui vous connecte par la barre latérale ; son port 8000 n’est pas publié par défaut, et là où vous le publiez un compte Meshloom est demandé.
 
 ## Désactiver les bots
 
@@ -47,11 +46,11 @@ Le bouton **Désactiver les bots jusqu’au redémarrage du serveur** de la fen�
 
 Meshloom lit la clé privée de la radio à chaque connexion à la radio, si le firmware de la radio le permet, et la garde dans la mémoire du serveur uniquement. Meshloom ne l’écrit jamais dans sa base. Si le firmware refuse, Meshloom fonctionne sans elle, mais ne peut plus déchiffrer les messages directs sur le serveur, et une sauvegarde ne contient alors aucune identité.
 
-La clé peut toujours être relue par quiconque atteint l’interface : `GET /api/radio/private-key` la renvoie en hexadécimal, et l’export de configuration de **Réglages > Radio** comme la sauvegarde complète de **Réglages > Base de données** la contiennent (voir [Sauvegarder la radio](/docs/backup/)). Aucun réglage ne permet de le désactiver. Un autre site ouvert dans le même navigateur ne peut plus les lire (voir [Ce qui n’existe pas](#ce-qui-nexiste-pas)), sauf si vous l’avez ajouté aux **Origines autorisées**. Gardez Meshloom sur un réseau de confiance, et traitez le fichier de sauvegarde comme la clé elle-même : chiffrez-le avec une phrase secrète dès que vous le conservez ailleurs que sur ce réseau.
+La clé peut toujours être relue par n’importe quel administrateur : `GET /api/radio/private-key` la renvoie en hexadécimal, et l’export de configuration de **Réglages > Radio** comme la sauvegarde complète de **Réglages > Base de données** la contiennent (voir [Sauvegarder la radio](/docs/backup/)). Aucun réglage ne permet de le désactiver. Un autre site ouvert dans le même navigateur ne peut pas les lire (voir [Ce que les comptes protègent, et ce qu’ils ne protègent pas](#ce-que-les-comptes-protègent-et-ce-quils-ne-protègent-pas)), sauf si vous l’avez ajouté aux **Origines autorisées**. Gardez Meshloom sur un réseau de confiance, et traitez le fichier de sauvegarde comme la clé elle-même : chiffrez-le avec une phrase secrète dès que vous le conservez ailleurs que sur ce réseau.
 
 L’import d’une clé (**Définir la clé privée**, en écriture seule) n’affiche jamais la clé. Une clé qui ne correspond pas à la radio à laquelle la base est liée est refusée tant que vous n’avez pas confirmé le changement d’identité (voir [Premier lancement](/docs/first-run/)).
 
-Sous Linux, le serveur se marque aussi comme non « dumpable » au démarrage : un autre programme lancé par le même utilisateur ne peut pas lire sa mémoire ni son environnement (où se trouve l’identifiant d’accès Basic). En contrepartie, le serveur n’écrit aucun core dump, et les outils de débogage comme `py-spy` ou `gdb` demandent `sudo` pour s’y attacher. Cela protège contre les autres programmes non root et ne fait rien contre root ; l’image Docker par défaut et l’add-on Home Assistant tournent en root, donc la protection compte surtout pour les paquets deb/rpm et les installations qui tournent sous un utilisateur dédié.
+Sous Linux, le serveur se marque aussi comme non « dumpable » au démarrage : un autre programme lancé par le même utilisateur ne peut pas lire sa mémoire ni son environnement (où se trouverait un identifiant Basic de la 4.x défini dans l’environnement). En contrepartie, le serveur n’écrit aucun core dump, et les outils de débogage comme `py-spy` ou `gdb` demandent `sudo` pour s’y attacher. Cela protège contre les autres programmes non root et ne fait rien contre root ; l’image Docker par défaut et l’add-on Home Assistant tournent en root, donc la protection compte surtout pour les paquets deb/rpm et les installations qui tournent sous un utilisateur dédié.
 
 ## La clé de partage
 
@@ -61,7 +60,7 @@ La clé n’apparaît jamais dans l’API des réglages, l’instantané de supp
 
 ## Proxy radio
 
-**Réglages > Proxy** permet à Meshloom de se comporter comme une radio sur le réseau, pour qu’une application mobile ou un second Meshloom utilise votre radio à travers lui. Il est désactivé par défaut. Le protocole qu’il parle n’a aucune authentification, et l’accès Basic ne le couvre pas. Ne l’activez que sur un réseau de confiance.
+**Réglages > Proxy** permet à Meshloom de se comporter comme une radio sur le réseau, pour qu’une application mobile ou un second Meshloom utilise votre radio à travers lui. Il est désactivé par défaut. Le protocole qu’il parle n’a aucune authentification, et les comptes ne le couvrent pas : il écoute sur toutes les interfaces (port 5051 par défaut), et quiconque atteint ce port peut utiliser votre radio, y compris envoyer au nom de votre nœud. C’est une décision, pas un oubli : les applications qui parlent ce protocole ne savent pas se connecter. Ne l’activez que sur un réseau de confiance et ne redirigez jamais ce port vers Internet.
 
 ## Mot de passe Wi-Fi
 
@@ -91,14 +90,14 @@ Certaines fonctions ont besoin d’Internet : les [notifications push](/docs/dee
 
 ## Les réseaux de confiance
 
-Une règle de réseau de confiance connecte un appareil sans mot de passe (voir [Récupérer l’accès](/docs/deep/access/#les-réseaux-de-confiance)). Elle ne s’applique jamais à travers un reverse-proxy, un tunnel, Meshloom Remote ou l’ingress de Home Assistant, ni depuis le loopback de cette machine hors de l’add-on, et seulement quand le navigateur utilise une adresse IP ou un nom local. Laissez la liste vide si vous n’en avez pas besoin, et n’associez jamais un réseau à un administrateur à qui vous ne confieriez pas la machine.
+Une règle de réseau de confiance connecte un appareil sans mot de passe (voir [Comptes et accès](/docs/deep/access/#les-réseaux-de-confiance)). Elle ne s’applique jamais à travers un reverse-proxy, un tunnel, Meshloom Remote ou l’ingress de Home Assistant, ni depuis le loopback de cette machine hors de l’add-on, et seulement quand le navigateur utilise une adresse IP ou un nom local. Laissez la liste vide si vous n’en avez pas besoin, et n’associez jamais un réseau à un administrateur à qui vous ne confieriez pas la machine.
 
 ## Une posture raisonnable
 
-- Gardez Meshloom sur un réseau dont vous connaissez les utilisateurs.
-- Ne l’exposez jamais directement à Internet. Pour un accès à distance, utilisez un VPN ou un tunnel qui ajoute sa propre authentification.
+- Ne donnez de compte qu’à des personnes de confiance, chacune avec le rôle le plus faible qui suffit ; activez la double authentification pour les administrateurs, et **Exiger la double authentification pour les administrateurs** quand Meshloom est joignable depuis Internet.
+- N’exposez jamais directement le port 8000 ni celui du proxy radio à Internet. Pour un accès à distance, utilisez un VPN, ou un reverse-proxy en HTTPS que vous listez dans **Proxies de confiance**.
 - Définissez `MESHCORE_DISABLE_BOTS=true` si vous n’avez pas besoin de bots.
 - Chiffrez une sauvegarde complète avec une phrase secrète quand vous la rangez hors de ce réseau.
-- Mettez toujours l’accès Basic derrière HTTPS.
+- Servez toujours Meshloom en HTTPS au-delà d’un réseau de confiance : le cookie de session et le mot de passe circulent en clair en HTTP simple.
 
 La version courte est dans [Un réseau de confiance](/docs/trust/).

@@ -15,7 +15,8 @@ factor in "Second factor (TOTP)" (its pages: `frontend/src/auth/TotpEnrolment.ts
 `SecondFactorStep.tsx`, `RecoveryCodesView.tsx`, `EnrolmentRequiredPage.tsx` and
 `frontend/src/components/settings/AccessSecurityPanel.tsx`), passkeys in
 "Passkeys" (their pages: `frontend/src/auth/passkeys.ts`, the login button in `LoginPage.tsx`, `SecondFactorStep.tsx` and `frontend/src/components/settings/AccessPasskeysPanel.tsx`; `frontend/AGENTS.md`, "Session gate"). Pairing comes with a later
-Access ticket. Like every doc here
+Access ticket. The manual checklist run before the 5.0.0 tag is the last
+section ("Manual checklist before the 5.0.0 tag"). Like every doc here
 this is a hypothesis: the code wins. The recovery CLI (`meshloom-admin`, `app/cli.py`)
 works on the same tables.
 
@@ -53,6 +54,27 @@ works on the same tables.
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
+
+## Credentials at a glance
+
+The gate (`app/auth/middleware.py`) tries one credential per request; the first
+present decides. Details are in the sections named in the last column.
+
+| Credential | Principal | Where it works | Notes | Section |
+|---|---|---|---|---|
+| Bearer token `mlt_…` | the token's account, narrowed by its scopes | HTTP and WebSocket, direct only (never ingress) | never from a query string or cookie; exempt from the CSRF rule once resolved | "API and device tokens" |
+| `Authorization: Basic` | any account with a password and no second factor | HTTP and WebSocket | compatibility until 5.2; ambient, so the CSRF rule applies | "`Authorization: Basic`…" |
+| Session cookie | the session's account | HTTP and WebSocket, never under ingress | `__Host-meshloom_session` (https) or `meshloom_session`; sliding 30 days | "Sessions and the cookie" |
+| Ingress headers | the Home Assistant user (`provider = ingress`) | add-on only, peer `172.30.32.2` | no password, no cookie, no 2FA | "Ingress" |
+| Trusted network rule | the rule's account | direct LAN only, tried last | closed behind any proxy; strict `Host` | "Trusted networks" |
+| Kiosk device token | the system `kiosk` account | `POST /api/auth/kiosk-bootstrap` from loopback only | opens a one-time session code | "Kiosk device token" |
+
+Second factors (TOTP, passkeys) add a step to the password login and are
+described in their own sections. Roles and what each may call are in
+"Permissions"; the cookie, the CSRF rule and the Host guard are in "The gate",
+"Sessions and the cookie" and "Host guard". The user-facing version of all of
+this is `docs/user/{en,fr}/deep/access.md` (same headings in both languages: nothing but review keeps
+them aligned, so check both when you edit one).
 
 ## Rules
 
@@ -1352,3 +1374,110 @@ button is a PATCH adding `https://<host>`). Both changes are audited
 columns exist since migration 101. Not done here: a dashboard banner for hosts
 rejected in the last 24 hours, and the pairing payloads / Remote page that will read
 `public_urls`.
+
+## Manual checklist before the 5.0.0 tag
+
+Automated tests cover the gate, the providers and the CLI; they cannot cover
+what depends on the install kind (users, paths, proxies, Docker networks, the
+Supervisor). Run this list on a build from `preversion-5` for each of the five
+install kinds (`MESHLOOM_INSTALL_KIND`: `package`, `compose`, `addon`,
+`container`, `source`; `app/services/install_kind.py`) and the kiosk image, old
+and new, and record the date, the build and the result of each line in the
+release PR. A line that cannot be run is written down as not run, with the
+reason. Never run it against a production instance or its data.
+
+### For every install kind
+
+Use a fresh database for A, a copy of a 4.18 database for B.
+
+A. **Fresh install.**
+1. Open the address: the setup page asks for the administrator with **no**
+   installation code (add-on: not asked, see below). Create it; you land in the
+   app.
+2. Sign out, sign in with a wrong password six times: the delay message
+   appears, the right password still works for this browser.
+3. Create a `member`, a `viewer` and a `kiosk` in **Users & Access**. As each:
+   `member` sends a message; `viewer` cannot (the send control is hidden and
+   `POST /api/messages/channel` answers 403 `auth_forbidden`); `kiosk` sees channels, no
+   direct messages, no settings door.
+4. `curl -i <url>/api/channels` without credentials answers 401; a response
+   carries `Cache-Control: no-store` on `/api/auth/session`.
+5. Create an API token (scope `read`), `curl -H "Authorization: Bearer …"
+   <url>/api/channels` answers 200 and `/api/settings` 403; revoke it: 401 at
+   once.
+6. Turn on two-factor authentication (QR code, recovery codes), sign out and in
+   with the code, then with a recovery code; `meshloom-admin disable-2fa <user>`
+   (command per kind below) lets the password alone in again.
+7. Sessions: sign in from two browsers, revoke one from **My sessions**: its live
+   connection closes within 30 s. `meshloom-admin revoke-sessions --all` signs
+   everyone out.
+8. Full backup with **Include accounts**, then restore it on a second instance:
+   the same accounts and passwords work. A restore of a backup without
+   accounts keeps the current ones.
+9. The audit log lists the sign-ins, the account changes and the token events
+   above, and no password, code or token.
+
+B. **Upgrade from 4.18.**
+1. Without Basic variables: after the update the setup page asks the
+   **installation code** printed in the log (`journalctl -u meshloom`,
+   `docker logs`, the add-on **Log** tab); a wrong code is refused, one per
+   second; `meshloom-admin setup-code` prints a new one and the old one stops
+   working.
+2. With `MESHCORE_BASIC_AUTH_*` set: the first start creates the administrator
+   from them, no setup page, a warning in the log at every start; a script
+   using `Authorization: Basic` still works; remove the variables and restart:
+   it still works with the account.
+3. The 4.18 history, contacts and channels are intact, the radio still binds
+   (**Bind without wipe**).
+
+### Per install kind
+
+| Kind | Where to check | What differs |
+|---|---|---|
+| `package` (apt/dnf, Pi image) | `sudo meshloom-admin list-users`; log in `journalctl -u meshloom`; `/etc/meshloom/meshloom.env` | `sudo` is required, the command switches to `meshloom`; bots are off by default; loopback is not a trusted-network source; `systemctl restart meshloom` keeps sessions |
+| `compose` | `docker compose exec meshloom meshloom-admin list-users`; `docker compose logs` | behind the Docker bridge every visitor looks like the gateway: with no **Trusted proxies** set, only the per-account delay applies (see user docs); a rule covering the gateway is refused while a public address is set |
+| `container` (plain `docker run`) | `docker exec -it <name> meshloom-admin list-users` | same as compose; `--user 10001` when `MESHLOOM_RUN_AS_USER` is set |
+| `source` | `uv run python -m app.cli list-users` in the checkout | database in `data/`; no root; loopback refused for trusted networks |
+| `addon` | see "Ingress" check list (steps 1–8) and "Manual check on a real Home Assistant" | no setup page: the first Home Assistant user is `admin`, the next `member`; published port 8000 asks for a password; `meshloom-admin` through *Advanced SSH & Web Terminal* with Protection mode off |
+
+On `package`, `compose`, `container` and `source` also check, once each:
+
+1. Behind a reverse proxy (Caddy or Nginx) with the proxy listed in **Trusted
+   proxies**: the audit log and **My sessions** show the visitor's address, the
+   cookie is `__Host-meshloom_session`, passkeys can be added on the declared
+   `https://` name, and a trusted-network rule does **not** sign a device in.
+2. Without listing the proxy: a warning names it, every visitor shares the
+   proxy's address, and the page still works. Declare the name in **Public
+   addresses**, switch to strict, open the instance under an undeclared name
+   (421), then `meshloom-admin host-guard-observe` brings it back.
+3. A WebSocket from a page of another site is refused, and an unsafe request
+   with a foreign `Origin` answers 403 `auth_origin_rejected`.
+4. The radio proxy (if turned on) accepts a connection from another machine on
+   5051: expected, recorded as the owner's decision.
+
+### Kiosk image, old and new
+
+Run the seven steps of "Manual check on a real image" under "Kiosk device
+token" for both images:
+
+- **Old**: the 4.18.2 kiosk image, updated to the 5.0 build (the launcher, the
+  `kiosk` group and the token are installed by the package, and the screen signs
+  in after the reboot).
+- **New**: an image built from this branch.
+
+Also check on each: `Settings → Users & Access` shows **Kiosk screen** in the
+token list; `ps -ef | grep -c mlt_` stays 0; with the `kiosk` account disabled
+the screen shows the sign-in page and not the app; and the setup code appears
+only on the Pi's own screen (not from another machine, not through a proxy).
+
+### Record
+
+| Date | Build | Kind | Result |
+|---|---|---|---|
+| | | `package` | |
+| | | `compose` | |
+| | | `addon` | |
+| | | `container` | |
+| | | `source` | |
+| | | kiosk, old image | |
+| | | kiosk, new image | |

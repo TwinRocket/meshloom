@@ -1,13 +1,17 @@
 ---
-title: Récupérer l’accès
-description: Rôles, comptes, double authentification, jetons et meshloom-admin, la commande qui réinitialise un mot de passe, retire un second facteur perdu, crée un administrateur ou émet le code d’installation depuis la machine, pour chaque mode d’installation de Meshloom.
+title: Comptes et accès
+description: Comptes, rôles, sessions, réseaux de confiance, jetons, double authentification et passkeys, Home Assistant et l’écran kiosque, la connexion Basic de la 4.x, le journal d’audit, et meshloom-admin, la commande qui permet de rentrer depuis la machine, pour chaque mode d’installation de Meshloom.
 level: deep
 order: 21
 ---
 
-À partir de Meshloom 5.0, se connecter demande un compte utilisateur (voir [Sécurité](/docs/deep/security/)). Si vous perdez le mot de passe de l’administrateur, l’interface web n’est pas nécessaire pour revenir : `meshloom-admin` travaille sur la machine qui détient la base de données. Quiconque peut le lancer à cet endroit contrôle déjà les données de Meshloom, il ne demande donc aucune connexion.
+À partir de Meshloom 5.0, rien ne s’affiche avant la connexion : chaque page et chaque route de l’API demande un compte, et le serveur vérifie le rôle du compte à chaque requête. Cette page donne le tableau complet : qui peut quoi, comment fonctionnent les sessions, les jetons, les seconds facteurs et les réseaux de confiance, comment se connectent Home Assistant et un écran mural, ce que devient une connexion 4.x, le journal d’audit, et comment rentrer quand on est bloqué dehors. Le modèle de confiance en bref est dans [Un réseau de confiance](/docs/trust/) et [Sécurité](/docs/deep/security/).
 
-Il modifie directement le fichier de la base. Un Meshloom en cours d’exécution voit le changement à sa requête suivante : pas de redémarrage.
+Si vous perdez le mot de passe de l’administrateur, l’interface web n’est pas nécessaire pour revenir : `meshloom-admin` travaille sur la machine qui détient la base de données. Quiconque peut le lancer à cet endroit contrôle déjà les données de Meshloom, il ne demande donc aucune connexion. Il modifie directement le fichier de la base. Un Meshloom en cours d’exécution voit le changement à sa requête suivante : pas de redémarrage.
+
+## Première connexion
+
+La première fois, Meshloom demande le compte administrateur (voir [Premier lancement](/docs/first-run/)). Un Meshloom qui contenait déjà des données avant de demander des comptes demande aussi un [code d’installation](#le-code-dinstallation), pour que personne d’autre sur le réseau ne puisse le prendre en premier. Sous Home Assistant, le premier utilisateur Home Assistant qui ouvre Meshloom en devient l’administrateur et rien n’est demandé ([Home Assistant](#home-assistant)). Un écran kiosque a sa propre entrée ([Écran kiosque](#écran-kiosque)).
 
 ## Les rôles
 
@@ -35,7 +39,7 @@ Chaque rôle reçoit le thème de l’instance, ses contacts et noms bloqués et
 
 Une action que le serveur refuse malgré tout (par exemple depuis une page restée ouverte avant un changement de rôle) affiche un seul message : « Ce compte n’a pas le droit de faire cela. »
 
-Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x, sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
+Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x ([plus bas](#la-connexion-basic-de-la-4x)), sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
 
 ## Gérer les comptes
 
@@ -60,6 +64,16 @@ Chaque utilisateur (sauf le kiosque) voit **Mon compte** et **Mes sessions** sur
 ### Quand un administrateur définit votre mot de passe
 
 Si un administrateur définit votre mot de passe (ou `meshloom-admin reset-password --must-change`), Meshloom affiche **Changez votre mot de passe** à la place de l’application : saisissez le mot de passe actuel, puis un nouveau (12 caractères minimum, avec les règles rappelées en cas de refus). Rien d’autre ne fonctionne avant le changement, puis l’application s’ouvre là où vous étiez. Les autres appareils de ce compte sont déconnectés. Un écran kiosque n’a pas de mot de passe et n’a jamais cette page ; si elle s’affichait, demandez à un administrateur.
+
+## Les sessions
+
+Se connecter ouvre une **session** : Meshloom pose un cookie sur ce navigateur et ne garde qu’une empreinte de son secret. Le cookie dure 30 jours et glisse : chaque visite repousse la fin, donc un navigateur que vous utilisez n’est jamais déconnecté, ni une page qui garde seulement sa connexion en direct ouverte, comme un écran mural. Après 30 jours sans aucune visite, vous vous reconnectez. En HTTPS le cookie s’appelle `__Host-meshloom_session` (sécurisé, propre à l’hôte) ; en `http://` simple c’est `meshloom_session`, que le navigateur envoie en clair : utilisez [HTTPS](/docs/deep/https/) au-delà d’un réseau de confiance.
+
+- **Mes sessions** (**Réglages → Utilisateurs et accès**) liste les navigateurs connectés à votre compte, avec système, adresse et dernière visite. **Révoquer** en déconnecte un, **Déconnecter partout ailleurs** tous sauf celui-ci. La connexion en direct d’une session révoquée se ferme aussitôt.
+- **Se déconnecter** révoque la session et efface le cookie.
+- Un compte garde au plus 50 sessions : une connexion de plus déconnecte la plus ancienne.
+- Un compte désactivé ou supprimé, un rôle ou un mot de passe changé, ou `meshloom-admin revoke-sessions` met fin à ses sessions ; une page déjà ouverte perd sa connexion en direct au plus tard en 30 secondes.
+- Les autres sites web ne peuvent pas agir avec votre session : le cookie est `SameSite=Lax` et Meshloom refuse les modifications venues d’un autre site. Sous Home Assistant il n’y a aucun cookie Meshloom (la session de Home Assistant est utilisée).
 
 ## Les délais de connexion
 
@@ -141,7 +155,7 @@ Connecté par Home Assistant, ou avec un compte sans mot de passe Meshloom (un k
 - **Se connecter.** Après un mot de passe correct, `POST /api/auth/login` répond `"authenticated": false` avec un `second_factor.pending_token` ; envoyez-le avec le code à `POST /api/auth/login/2fa` dans les 5 minutes pour obtenir la session. Un code de secours remplace le code de l’application, une fois chacun. Cinq mauvais codes, ou une modification du compte, obligent à recommencer avec le mot de passe.
 - **Un code ne sert qu’une fois.** Un code déjà utilisé, ou plus ancien, est refusé même s’il est encore affiché dans l’application : attendez le suivant.
 - **Les mauvais codes comptent comme de mauvais mots de passe**, avec les mêmes délais (plus haut).
-- **Scripts.** `Authorization: Basic` cesse de fonctionner pour un compte qui a un second facteur : utilisez un [jeton d’API](#les-jetons-dapi-et-dappareil).
+- **Scripts.** `Authorization: Basic` ([la fenêtre 4.x](#la-connexion-basic-de-la-4x)) cesse de fonctionner pour un compte qui a un second facteur : utilisez un [jeton d’API](#les-jetons-dapi-et-dappareil).
 - **L’exiger pour les administrateurs.** `PATCH /api/auth/settings` avec `{"require_2fa_for_admins": true}` (désactivé par défaut). Un administrateur sans second facteur ne peut alors que le configurer (et se déconnecter) tant que ce n’est pas fait ; membres, lecteurs, kiosque et utilisateurs Home Assistant ne sont pas concernés. Recommandé quand Meshloom est joignable depuis Internet.
 - **Téléphone perdu.** Utilisez un code de secours. Sans code, un administrateur lance `meshloom-admin disable-2fa <utilisateur>` sur la machine (plus bas) ; l’utilisateur se connecte alors avec son seul mot de passe et la configure de nouveau.
 
@@ -180,6 +194,30 @@ Les mêmes choses par l’API (comptes avec mot de passe, pas le kiosque ni les 
 - **Appareil perdu.** Connectez-vous avec votre mot de passe et retirez sa passkey. Un administrateur peut retirer toutes les passkeys d’un utilisateur sur la machine avec `meshloom-admin remove-passkeys <utilisateur>` (plus bas).
 
 Meshloom ne garde que la partie publique de chaque passkey. La sauvegarde complète ne les contient que quand **Inclure les comptes** est coché ; le téléchargement de la base les garde.
+
+## Home Assistant
+
+Sur l’add-on Home Assistant, c’est Home Assistant qui vous connecte. Ouvert depuis la barre latérale, Meshloom accepte l’utilisateur Home Assistant qui l’ouvre, sans mot de passe et sans cookie Meshloom. Meshloom ne fait confiance à l’identité que si la requête vient du Supervisor de Home Assistant lui-même ; les mêmes en-têtes envoyés à un port 8000 publié sont ignorés, et cette adresse demande un compte Meshloom comme toute autre installation.
+
+- Le premier utilisateur Home Assistant à ouvrir Meshloom devient son administrateur, même si un administrateur Meshloom existe déjà, pour que la barre latérale mène toujours à un administrateur. Les suivants reçoivent `ingress_default_role` (`member` par défaut, modifiable dans **Utilisateurs et accès**). Seuls les administrateurs Home Assistant voient le panneau : ce sont donc des personnes qui administrent déjà votre Home Assistant.
+- Un compte Meshloom par utilisateur Home Assistant ; son nom affiché suit celui de Home Assistant. Un tel compte n’a ni mot de passe, ni second facteur, ni passkey. Vous changez son rôle, le désactivez ou le supprimez dans **Utilisateurs et accès** (un compte supprimé revient à sa prochaine visite : désactivez-le plutôt).
+- Home Assistant et ses add-ons se font mutuellement confiance : un add-on à qui vous ne confieriez pas votre Home Assistant ne doit pas tourner à côté de Meshloom.
+- Par la barre latérale, les réseaux de confiance, les passkeys et les jetons d’API ne s’appliquent pas (voir chaque section). Pour joindre Meshloom depuis une application mobile ou un script, donnez un port hôte à `8000/tcp` dans le panneau **Réseau** de l’add-on ; cette adresse demande un compte Meshloom. Si un reverse-proxy ou un tunnel la sert sous un nom, déclarez ce nom dans **Adresses publiques** ([HTTPS](/docs/deep/https/#les-noms-auxquels-meshloom-répond)).
+
+## Écran kiosque
+
+Le rôle `kiosk` est pour un écran au mur (un club, un atelier) : il lit les canaux, les contacts, les paquets, les statistiques et la carte, jamais un message direct, et n’a ni mot de passe ni réglages. Deux façons de l’utiliser :
+
+- **L’image kiosque Raspberry Pi** crée elle-même le compte `kiosk` et connecte l’écran avec un **jeton d’appareil** qu’elle écrit sur le Pi, lisible seulement par l’utilisateur du bureau, valable seulement depuis le Pi lui-même et jamais visible dans une adresse (voir [Raspberry Pi](/docs/rpi/#image-kiosque-écran-au-mur)). Un administrateur le voit sous le nom **Kiosk screen** dans **Jetons d’API et d’appareil** ; **Révoquer** le remplace, et désactiver le compte `kiosk` garde l’écran déconnecté.
+- **Tout autre écran** : créez un compte `kiosk` dans **Utilisateurs et accès**, puis ajoutez une règle de réseau de confiance qui associe l’adresse de l’écran à ce compte ([plus bas](#les-réseaux-de-confiance)). Un compte `kiosk` n’a pas de mot de passe : il ne peut se connecter autrement.
+
+## La connexion Basic de la 4.x
+
+Jusqu’à la 4.18, `MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD` (les options `basic_auth_username` et `basic_auth_password` de l’add-on) formaient un identifiant partagé. À partir de la 5.0 :
+
+- Au **premier démarrage sans compte**, quand les deux sont définies, elles deviennent le compte administrateur (même nom, même mot de passe, sans code d’installation). Meshloom ne les relit jamais ; il écrit un avertissement à chaque démarrage tant qu’elles sont définies : retirez-les. Une seule définie n’importe rien.
+- **Fenêtre de compatibilité.** Jusqu’à la 5.2, les scripts qui envoient ce nom et ce mot de passe avec `Authorization: Basic` continuent de fonctionner, pour tout compte qui a un mot de passe et pas de second facteur, avec une courte pause après un échec. Un avertissement d’obsolescence est écrit dans le journal. En 5.2 l’en-tête est retiré : passez dès maintenant vos scripts à un [jeton d’API](#les-jetons-dapi-et-dappareil).
+- Un nom d’utilisateur 4.x de plus de 64 caractères ne peut pas devenir un compte : l’import est ignoré, avec une erreur dans le journal, et la première connexion normale s’applique.
 
 ## Le journal d’audit
 

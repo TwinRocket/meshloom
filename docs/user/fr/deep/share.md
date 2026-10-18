@@ -52,7 +52,7 @@ L’indication demande que le partage soit activé : quand il est désactivé, u
 
 ## Qui peut faire quoi
 
-Activer ou désactiver le partage et régler les modes demande le rôle **administrateur**. Raccourcir un lien demande le rôle **membre** ou plus. Les lecteurs et les bornes peuvent lire les indications (voir [Récupérer l’accès](/docs/deep/access/) pour les rôles). Le serveur le vérifie à chaque requête, quoi que l’interface affiche, et refuse une requête que le navigateur signale comme venant d’un autre site web.
+Activer ou désactiver le partage et régler les modes demande le rôle **administrateur**. Raccourcir un lien demande le rôle **membre** ou plus. Les lecteurs et les bornes peuvent lire les indications (voir [Comptes et accès](/docs/deep/access/) pour les rôles). Le serveur le vérifie à chaque requête, quoi que l’interface affiche, et refuse une requête que le navigateur signale comme venant d’un autre site web.
 
 ## Quand quelque chose ne va pas
 

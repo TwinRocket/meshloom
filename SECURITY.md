@@ -47,62 +47,67 @@ cut).
 
 ## Known limits, not vulnerabilities
 
-Meshloom is built for a trusted network, and some of its behaviour is
-deliberate. These are documented and are not treated as vulnerabilities:
+Meshloom is built for a network whose users you know, and some of its behaviour
+is deliberate. These are documented and are not treated as vulnerabilities:
 
-- **No user accounts.** Anyone who can reach the web interface controls the
-- **No user accounts.** Anyone who can reach the web interface controls the
-  node. The WebSocket (`/api/ws`) is the exception to cross-origin access: an
-  upgrade whose `Origin` neither matches `Host` (or the first
-  `X-Forwarded-Host`) nor is in the allowed-origins list is refused with 403
-  before it is accepted; one without `Origin` (scripts, native clients) is
-  accepted.
-- **Other web pages are only partly kept out.** CORS is same-origin, plus the
-  origins listed in **Settings > Local Configuration > Allowed origins** (empty
-  by default), so another site cannot read API answers or send JSON requests.
-  It can still send requests that need no preflight (a `POST` with no body)
-  without reading the answer. DNS rebinding: the `Host` header is checked in
-  observation mode in 5.0.0 (an unknown name is logged and let through, so an
-  upgrade behind a reverse proxy name keeps working; it will be refused by
-  default in 5.1), and always strictly before a trusted network signs anyone
-  in without a login.
-  CORS and the WebSocket share one origin policy (`app/origin_policy.py`): the
-  same list and the same parsing (lowercase, punycode host, default port
-  dropped), so a listed site gets both the HTTP API and `/api/ws`.
-  `X-Forwarded-Host` counts only for the WebSocket's same-origin match, and is
-  trusted from any client: a browser page cannot set it, but a non-browser
-  client sends no `Origin` and is accepted anyway. The stored list is
-  re-validated when read: an entry written outside the API (SQL, a restore)
-  that is a wildcard, `null`, or not a plain `http(s)` origin is ignored and
-  logged.
-- **Share writes refuse requests marked cross-site.** On the 5.0 integration
-  branch, `POST /api/share/links` (and every later write under `/api/share`)
-  answers 403 `share_cross_site` when the browser sends `Sec-Fetch-Site:
-  cross-site`, so a page open on the LAN cannot publish under the instance
-  identity. A request without the header (curl, bots) passes; the route's
-  permission (`send`) still applies. It is defence in depth on top of the auth
-  gate and does not touch CORS.
-- **Bots run Python with no sandbox.** Anyone who can reach the interface can
-  make the host run code while bots are enabled. `MESHCORE_DISABLE_BOTS=true`
-  turns them off; the Linux package does so by default.
-- **Basic auth is a single shared login.** It is an optional, coarse gate, and
-  it sends the password in clear text unless you serve Meshloom over HTTPS.
-  On the 5.0 integration branch (`preversion-5`) login is mandatory: every
-  `/api` route needs an account, the Basic credentials are imported once as the
-  administrator, and unsafe requests from another site are refused
-  (`docs/dev/auth.md`). Over plain HTTP the session cookie and the password
-  still travel in clear text.
-- **The radio proxy has no authentication.** When turned on in
-  **Settings > Proxy**, it listens on every interface, and Basic auth does not
-  cover it.
-- **The radio's private key is readable by anyone who can reach the
-  interface** (`GET /api/radio/private-key`, the full backup in
-  **Settings > Database**). A listed allowed origin can read them too. The
-  backup file can be encrypted with a passphrase.
+- **Accounts are keys, not walls.** Every `/api` route and the WebSocket need a
+  signed-in account and declare the role that may call them (`admin`, `member`,
+  `viewer`, `kiosk`; `docs/dev/auth.md`). Whoever holds an account has its
+  powers: an `admin` can read all history, send as the node, edit bots and
+  change every setting, and a `member` can send as the node. A trusted-network
+  rule, which an administrator can add, signs a device in without a login, and
+  the rule is closed behind any proxy, tunnel, ingress or relay. A Basic
+  `Authorization` header with an account's name and password is still accepted
+  until 5.2 (short pauses after a failure; never for an account with a second
+  factor). Wrong
+  passwords slow sign-in down; they never lock an account.
+- **Other web pages are kept out, with documented gaps.** CORS is same-origin
+  plus the origins listed in **Settings > Local Configuration > Allowed
+  origins** (empty by default; a listed site can do what the signed-in user
+  can, WebSocket included), and `POST`, `PUT`, `PATCH` and `DELETE` from another
+  site are refused (`auth_origin_rejected`), with or without a session. Requests
+  that carry neither `Origin` nor `Sec-Fetch-Site` (curl, scripts, sensors) are
+  not browsers and pass that rule; they still need an account or a token. The
+  WebSocket refuses an upgrade whose `Origin` neither matches `Host` (or the
+  first `X-Forwarded-Host`) nor is listed; one without `Origin` is accepted if
+  authenticated. CORS and the WebSocket share one origin policy
+  (`app/origin_policy.py`). `X-Forwarded-Host` counts only for the WebSocket's
+  same-origin match, and is trusted from any client: a browser page cannot set
+  it. DNS rebinding: the `Host` header is checked in observation mode in 5.0.0
+  (an unknown name is logged and let through, so a reverse proxy name keeps
+  working; refused by default in 5.1), and always strictly before a trusted
+  network signs anyone in.
+- **Share writes refuse requests marked cross-site.** `POST /api/share/links`
+  (and every later write under `/api/share`) answers 403 `share_cross_site` when
+  the browser sends `Sec-Fetch-Site: cross-site`. A request without the header
+  (curl, bots) passes; the route's permission (`send`) still applies. Defence in
+  depth on top of the auth gate.
+- **Bots run Python with no sandbox.** Any administrator can make the host run
+  code while bots are enabled. `MESHCORE_DISABLE_BOTS=true` turns them off; the
+  Linux package does so by default.
+- **Over plain HTTP the password and the session cookie travel in clear text.**
+  Serve Meshloom over HTTPS beyond a network you know. Passkeys are offered only
+  where the browser allows them (HTTPS on a declared name, or `localhost`).
+- **The radio proxy has no authentication, by owner decision.** When turned on
+  in **Settings > Proxy**, it listens on every interface (port 5051 by default,
+  `0.0.0.0`), accounts do not cover it, and anyone who can reach the port can
+  use the radio and send as the node. The apps that speak the protocol cannot
+  sign in. Do not forward the port; keep it on a network you know.
+- **Home Assistant and its add-ons trust each other.** Under ingress, Meshloom
+  accepts the user the Supervisor names (only from the Supervisor's address,
+  never from a published port), and the add-on shares the host's D-Bus with
+  root rights. Do not run an add-on you would not trust with Home Assistant.
+- **The radio's private key is readable by any administrator**
+  (`GET /api/radio/private-key`, the full backup in **Settings > Database**,
+  which can also carry password hashes and two-factor secrets when **Include
+  accounts** is checked). A listed allowed origin can read them too. The backup
+  file can be encrypted with a passphrase.
 
-They are described in [A trusted network](docs/user/en/trust.md) and
-[Security](docs/user/en/deep/security.md). A way around one of the protections
-that does exist (for example, bypassing Basic auth when it is set, running a
-bot while `MESHCORE_DISABLE_BOTS=true`, or getting the updater to install
-something that is not a signed Meshloom release) is a vulnerability: please
-report it.
+They are described in [A trusted network](docs/user/en/trust.md),
+[Security](docs/user/en/deep/security.md) and
+[Accounts and access](docs/user/en/deep/access.md). A way around one of the
+protections that does exist (for example, reaching a route above the role it
+declares, signing in without a valid credential, getting a trusted-network rule
+to apply through a proxy, running a bot while `MESHCORE_DISABLE_BOTS=true`, or
+getting the updater to install something that is not a signed Meshloom release)
+is a vulnerability: please report it.

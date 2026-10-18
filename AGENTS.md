@@ -17,12 +17,13 @@ you work there:
 Developer reference, `docs/dev/`:
 
 - `database.md`: SQLite schema, migrations, indexes, retention.
-- `auth.md`: local accounts (data model, argon2id, the auth gate, sessions, CSRF rule, setup code, `/api/auth` routes).
+- `auth.md`: local accounts (data model, argon2id, the auth gate, providers, permissions, sessions and cookie, CSRF rule, Host guard, tokens, TOTP, passkeys, kiosk, setup code, `/api/auth` routes) and the manual checklist for the five install kinds plus the kiosk image, run before the 5.0.0 tag.
 - `backup.md`: full backup sections and restore hooks.
 - `community-client.md`: the Community client; `frontend-community.md`: its frontend state.
 - `releasing.md`: branches, images, the release chain.
 - `ble-pairing.md`: BLE pairing through BlueZ.
 - `radio-bench.md`: the opt-in live-radio suite.
+- `plugins.md`, `plugins-security.md`, `plugins/`: the plugin system and its isolation.
 
 User docs: `docs/user/` (en, fr). Environment variables for users:
 `docs/user/en/deep/environment.md`.
@@ -50,9 +51,13 @@ User docs: `docs/user/` (en, fr). Environment variables for users:
 
   On `preversion-5` every `/api` route needs a signed-in account
   (`app/auth/middleware.py`, `docs/dev/auth.md`) and declares the permission
-  its role must hold (`app/auth/permissions.py`, default deny); the rest of the posture (bots
-  running `exec()`, an unauthenticated proxy) is described in `SECURITY.md`,
-  "Known limits". It is a fact, not a recommendation.
+  its role must hold (`app/auth/permissions.py`, default deny); CORS is
+  same-origin plus the Allowed origins list and unsafe cross-site requests are
+  refused. The rest of the posture (bots running `exec()`, the radio proxy on
+  5051 unauthenticated and bound to `0.0.0.0` by owner decision, the
+  `Authorization: Basic` window until 5.2) is described in `SECURITY.md`,
+  "Known limits". It is a fact, not a recommendation. The user page is
+  `docs/user/{en,fr}/deep/access.md` (same headings in both languages).
 - **No environment variable for anything a user tunes.** Settings live in
   `app_settings` and the UI. Retired variables are imported once into an existing
   database, then only warned about (`app/services/legacy_env_settings.py`,

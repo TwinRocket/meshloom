@@ -15,7 +15,8 @@ Sur une telle page :
 
 - La recherche par force brute du chercheur de canaux ne fonctionne pas, car elle a besoin de WebGPU. La page le signale.
 - Les [notifications push](/docs/deep/push/) ne fonctionnent pas, car elles ont besoin d’un service worker, que les navigateurs n’autorisent qu’en contexte sécurisé. **Réglages → Notifications** indique que le push exige HTTPS.
-- L’authentification HTTP Basic facultative enverrait le mot de passe en clair. Voir [Sécurité](/docs/deep/security/).
+- La connexion envoie le mot de passe en clair, et le cookie de session circule sans protection. Voir [Sécurité](/docs/deep/security/).
+- Les [passkeys](/docs/deep/access/#les-passkeys) ne sont pas proposées : les navigateurs ne les autorisent qu’en contexte sécurisé, sur un nom (pas une adresse IP seule).
 
 Un certificat auto-signé (que vous avez fabriqué vous-même) suffit à rendre la page sécurisée, ce qui suffit au chercheur de canaux. Pour le push, il faut en plus que votre navigateur accepte le certificat. Meshloom prévient que la livraison peut être peu fiable avec un certificat non approuvé, selon le navigateur. Un certificat que vos appareils approuvent, comme ceux de [mkcert](https://github.com/FiloSottile/mkcert), évite le problème.
 
@@ -151,7 +152,7 @@ La page garde une connexion permanente avec le serveur, sur `/api/ws`, pour rece
 
 La page envoie un ping au serveur toutes les trente secondes. Un proxy qui coupe les connexions inactives plus tôt que cela provoque des reconnexions en boucle.
 
-Quand l’authentification HTTP Basic est activée, elle s’applique aussi à cette connexion, pas seulement aux pages.
+La connexion s’applique aussi à ce lien, pas seulement aux pages : il lui faut le cookie de session ou un [jeton d’API](/docs/deep/access/#les-jetons-dapi-et-dappareil) dans l’en-tête `Authorization`.
 
 Le serveur refuse cette connexion quand elle vient d’une page d’un autre site : le navigateur indique à quel site appartient la page (l’en-tête `Origin`), qui doit correspondre à l’adresse demandée par le navigateur (l’en-tête `Host`), sauf si ce site fait partie des **Origines autorisées** (voir [Sécurité](/docs/deep/security/)). Les scripts et les applications qui n’envoient pas d’`Origin` ne sont pas concernés. Un proxy qui garde le `Host` d’origine, comme Caddy et Traefik, n’a besoin de rien de plus. Un proxy qui le remplace doit transmettre l’original dans `X-Forwarded-Host` (avec Nginx : `proxy_set_header Host $http_host;` ou `proxy_set_header X-Forwarded-Host $http_host;` ; `$host` perdrait le port) ; la barre latérale de Home Assistant le fait déjà. Sinon la page s’affiche mais rien n’arrive en direct, et le journal du serveur indique `Refused a WebSocket upgrade from a foreign origin`.
 

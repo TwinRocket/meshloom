@@ -15,7 +15,8 @@ On such a page:
 
 - The channel finder's brute-force search does not work, because it needs WebGPU. The page says so.
 - [Push notifications](/en/docs/deep/push/) do not work, because they need a service worker, and browsers only allow those in a secure context. **Settings → Notifications** says that push needs HTTPS.
-- The optional HTTP Basic login would send the password in clear text. See [Security](/en/docs/deep/security/).
+- Signing in sends the password in clear text, and the session cookie travels unprotected. See [Security](/en/docs/deep/security/).
+- [Passkeys](/en/docs/deep/access/#passkeys) are not offered: browsers only allow them in a secure context, on a name (not a bare IP address).
 
 A self-signed certificate (one you made yourself) makes the page a secure context, which is enough for the channel finder. For push, your browser must also accept the certificate. Meshloom warns that delivery can be unreliable with an untrusted certificate, depending on the browser. A certificate your devices trust, such as one made with [mkcert](https://github.com/FiloSottile/mkcert), avoids the problem.
 
@@ -151,7 +152,7 @@ The page keeps one permanent connection to the server, at `/api/ws`, to receive 
 
 The page pings the server every thirty seconds. A proxy that closes idle connections sooner than that makes the page reconnect over and over.
 
-When HTTP Basic login is on, it also applies to this connection, not only to the pages.
+Signing in also applies to this connection, not only to the pages: it needs the session cookie or an [API token](/en/docs/deep/access/#api-and-device-tokens) in the `Authorization` header.
 
 The server refuses this connection when it comes from a page of another site: a browser says which site the page belongs to (the `Origin` header), and it must match the address the browser asked for (the `Host` header), unless that site is one of the **Allowed origins** (see [Security](/en/docs/deep/security/)). Scripts and apps that send no `Origin` are not affected. A proxy that keeps the original `Host`, as Caddy and Traefik do, needs nothing more. A proxy that replaces it must send the original one in `X-Forwarded-Host` (with Nginx: `proxy_set_header Host $http_host;` or `proxy_set_header X-Forwarded-Host $http_host;`; `$host` would drop the port); the Home Assistant sidebar already does. Otherwise the page displays but nothing arrives live, and the server log says `Refused a WebSocket upgrade from a foreign origin`.
 
