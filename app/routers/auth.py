@@ -16,8 +16,11 @@ a session secret.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import re
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -38,11 +41,14 @@ from app.auth.passwords import (
     MIN_PASSWORD_LENGTH,
     hash_password_async,
     password_policy_violation,
-    verify_password_async,
 )
-from app.auth.permissions import own_account, public, require
+from app.auth.permissions import ACCESS_ATTRIBUTE, own_account, public, require
 from app.auth.principal import Principal, Via, get_principal
-from app.auth.providers.password import VerificationBusy, authenticate
+from app.auth.providers.password import (
+    VerificationBusy,
+    authenticate,
+    authenticate_with_hash,
+)
 from app.auth.setup_code import (
     SetupUnavailable,
     check_setup_code,
@@ -330,6 +336,60 @@ def _me(user: User) -> MeResponse:
     )
 
 
+async def _check_current_password(
+    request: Request, user: User, current_password: SecretStr | None
+) -> None:
+    """The current password of a self-service change, checked like a login:
+    the login delays first (keyed on the client's address and the account's
+    name, ``app/auth/ratelimit.py``), then the bounded argon2id queue (503
+    ``auth_busy``). A stolen session cannot guess it faster than the login page."""
+    current = current_password.get_secret_value() if current_password else ""
+    target = audit.user_target(user.id)
+    if not current:
+        await audit.record_request(
+            request,
+            "password.changed",
+            "failure",
+            target=target,
+            details={"reason": "current_password_invalid"},
+        )
+        raise _error(403, "auth_invalid_credentials")
+    limiter = ratelimit.login_limiter
+    address = limiter.address_key(request.scope)
+    try:
+        limiter.check(address, user.username)
+    except ratelimit.LoginDelayed as delayed:
+        if delayed.first:
+            await audit.record_request(
+                request,
+                "password.changed",
+                "refused" if delayed.reason == "ip" else "delayed",
+                target=target,
+                details={"reason": delayed.reason, "retry_after": delayed.retry_after_s},
+            )
+        raise _error(
+            429,
+            "auth_rate_limited",
+            {"retry_after": delayed.retry_after_s},
+            headers={"Retry-After": str(delayed.retry_after_s)},
+        ) from None
+    try:
+        result = await authenticate_with_hash(user.username, current)
+    except VerificationBusy:
+        raise _error(503, "auth_busy") from None
+    if result is None or result[0].id != user.id:
+        await limiter.record_failure(address, user.username)
+        await audit.record_request(
+            request,
+            "password.changed",
+            "failure",
+            target=target,
+            details={"reason": "current_password_invalid"},
+        )
+        raise _error(403, "auth_invalid_credentials")
+    limiter.record_success(address, user.username)
+
+
 # --- Routes -------------------------------------------------------------------
 
 
@@ -543,26 +603,26 @@ async def patch_me(body: MePatch, request: Request) -> MeResponse:
     if user.role == "kiosk":
         raise _error(403, "auth_forbidden")
     if body.new_password is not None:
+        target = audit.user_target(user.id)
         if not user.has_password:
-            raise _error(403, "auth_forbidden")
-        credentials = await UserRepository.get_credentials(user.username)
-        stored = (
-            credentials.password_hash.get_secret_value()
-            if credentials is not None and credentials.password_hash is not None
-            else None
-        )
-        current = body.current_password.get_secret_value() if body.current_password else ""
-        if not current or not await verify_password_async(stored, current):
             await audit.record_request(
                 request,
                 "password.changed",
-                "failure",
-                target=audit.user_target(user.id),
-                details={"reason": "current_password_invalid"},
+                "refused",
+                target=target,
+                details={"reason": "password_not_applicable"},
             )
-            raise _error(403, "auth_invalid_credentials")
+            raise _error(403, "auth_forbidden")
+        await _check_current_password(request, user, body.current_password)
         new_password = body.new_password.get_secret_value()
         if reason := password_policy_violation(new_password, user.username):
+            await audit.record_request(
+                request,
+                "password.changed",
+                "refused",
+                target=target,
+                details={"reason": "password_policy", "policy": reason},
+            )
             raise _policy_error(reason)
         # Clears must_change_password; moving updated_at forgets the user's
         # known-device cookies (app/auth/device_cookie.py).
@@ -752,18 +812,77 @@ async def _target_user(user_id: int) -> User:
     return user
 
 
-async def _last_admin_refusal(
-    request: Request, action: audit.AuditAction, user_id: int
-) -> HTTPException:
-    """Audit the refusal and return the 409 to raise."""
-    await audit.record_request(
-        request,
-        action,
-        "refused",
-        target=audit.user_target(user_id),
-        details={"reason": "last_admin"},
-    )
-    return _error(409, "auth_last_admin")
+ActionFor = Callable[[dict[str, Any]], audit.AuditAction]
+
+
+def _admin(action: audit.AuditAction | ActionFor) -> Callable[[Request], Awaitable[None]]:
+    """``require("admin")`` that also audits a refusal (outcome ``refused``,
+    ``details.reason = forbidden``) under the route's action. Declares
+    ``admin`` for the permission registry like ``require("admin")``."""
+    check = require("admin")
+
+    async def dependency(request: Request) -> None:
+        try:
+            await check(request)
+        except HTTPException as exc:
+            name = action({}) if callable(action) else action
+            await audit.record_request(
+                request,
+                name,
+                "refused",
+                target=_path_target(request.path_params),
+                details={"reason": "forbidden", "status": exc.status_code},
+            )
+            raise
+
+    dependency.__name__ = "require_admin"
+    setattr(dependency, ACCESS_ATTRIBUTE, "admin")
+    return dependency
+
+
+def _path_target(params: dict[str, Any]) -> str | None:
+    user_id = str(params.get("user_id") or "")
+    return audit.user_target(int(user_id)) if user_id.isdigit() else None
+
+
+def _audits_refusals(action: audit.AuditAction | ActionFor):
+    """Write one ``refused`` row (``details.reason``: the error code without
+    ``auth_``, plus ``status``; ``error`` for a 5xx) for any coded
+    ``HTTPException`` the route raises, so every refusal of the users API is
+    in the audit log. Success rows stay the route's own."""
+
+    def decorate(route: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+        @functools.wraps(route)
+        async def wrapped(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await route(*args, **kwargs)
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, dict) else {}
+                code = str(detail.get("code", "error"))
+                details: dict[str, Any] = {
+                    "reason": code.removeprefix("auth_"),
+                    "status": exc.status_code,
+                }
+                params = detail.get("params") or {}
+                if code == "auth_password_policy" and "reason" in params:
+                    details["policy"] = params["reason"]
+                await audit.record_request(
+                    kwargs["request"],
+                    action(kwargs) if callable(action) else action,
+                    "error" if exc.status_code >= 500 else "refused",
+                    target=_path_target(kwargs),
+                    details=details,
+                )
+                raise
+
+        return wrapped
+
+    return decorate
+
+
+def _patch_action(kwargs: dict[str, Any]) -> audit.AuditAction:
+    body = kwargs.get("body")
+    return "user.disabled" if body is not None and body.disabled else "user.changed"
 
 
 def _sign_out_scope(principal: Principal, user_id: int) -> str | None:
@@ -771,18 +890,22 @@ def _sign_out_scope(principal: Principal, user_id: int) -> str | None:
     return principal.session_id if principal.user_id == user_id else None
 
 
-@router.get("/users", response_model=list[UserView], dependencies=[Depends(require("admin"))])
-async def list_users() -> list[UserView]:
-    """Every account, local and Home Assistant, by id."""
-    return [_user_view(user) for user in await UserRepository.list_all()]
+@router.get("/users", response_model=list[UserView], dependencies=[Depends(_admin("users.listed"))])
+async def list_users(request: Request) -> list[UserView]:
+    """Every account, local and Home Assistant, by id (one ``users.listed`` row,
+    as ``meshloom-admin list-users`` writes)."""
+    users = await UserRepository.list_all()
+    await audit.record_request(request, "users.listed", "success", details={"count": len(users)})
+    return [_user_view(user) for user in users]
 
 
 @router.post(
     "/users",
     response_model=UserView,
     status_code=201,
-    dependencies=[Depends(require("admin"))],
+    dependencies=[Depends(_admin("user.created"))],
 )
+@_audits_refusals("user.created")
 async def create_user(body: UserCreate, request: Request) -> UserView:
     """Create a local account. Every role but ``kiosk`` gets an initial
     password (the policy applies), to change at first sign-in by default."""
@@ -820,7 +943,10 @@ async def create_user(body: UserCreate, request: Request) -> UserView:
     return _user_view(user)
 
 
-@router.patch("/users/{user_id}", response_model=UserView, dependencies=[Depends(require("admin"))])
+@router.patch(
+    "/users/{user_id}", response_model=UserView, dependencies=[Depends(_admin(_patch_action))]
+)
+@_audits_refusals(_patch_action)
 async def patch_user(user_id: int, body: UserPatch, request: Request) -> UserView:
     """Change an account's display name, role, disabled state or
     ``must_change_password``. A role change or a disable signs the user out
@@ -862,9 +988,7 @@ async def patch_user(user_id: int, body: UserPatch, request: Request) -> UserVie
             keep_an_admin=True,
         )
     except LastAdminError:
-        raise await _last_admin_refusal(
-            request, "user.disabled" if disabled else "user.changed", user_id
-        ) from None
+        raise _error(409, "auth_last_admin") from None
     if updated is None:
         raise _error(404, "auth_user_not_found")
     revoked = 0
@@ -909,8 +1033,9 @@ async def patch_user(user_id: int, body: UserPatch, request: Request) -> UserVie
 
 
 @router.delete(
-    "/users/{user_id}", response_model=OkResponse, dependencies=[Depends(require("admin"))]
+    "/users/{user_id}", response_model=OkResponse, dependencies=[Depends(_admin("user.deleted"))]
 )
+@_audits_refusals("user.deleted")
 async def delete_user(user_id: int, request: Request) -> OkResponse:
     """Delete an account and its sessions, closing its sockets. A Home
     Assistant identity comes back on its next visit, with the default role:
@@ -920,7 +1045,7 @@ async def delete_user(user_id: int, request: Request) -> OkResponse:
     try:
         deleted = await UserRepository.delete(user_id, keep_an_admin=True)
     except LastAdminError:
-        raise await _last_admin_refusal(request, "user.deleted", user_id) from None
+        raise _error(409, "auth_last_admin") from None
     if not deleted:
         raise _error(404, "auth_user_not_found")
     invalidate_basic_cache(user_id)
@@ -940,8 +1065,9 @@ async def delete_user(user_id: int, request: Request) -> OkResponse:
 @router.post(
     "/users/{user_id}/password",
     response_model=UserView,
-    dependencies=[Depends(require("admin"))],
+    dependencies=[Depends(_admin("password.changed"))],
 )
+@_audits_refusals("password.changed")
 async def set_user_password(user_id: int, body: UserPasswordSet, request: Request) -> UserView:
     """Set a local account's password (the policy applies), to change at the
     next sign-in by default. Signs the user out everywhere (the admin's own
@@ -982,8 +1108,9 @@ async def set_user_password(user_id: int, body: UserPasswordSet, request: Reques
 @router.delete(
     "/users/{user_id}/sessions",
     response_model=RevokedCount,
-    dependencies=[Depends(require("admin"))],
+    dependencies=[Depends(_admin("session.revoked"))],
 )
+@_audits_refusals("session.revoked")
 async def revoke_user_sessions(user_id: int, request: Request) -> RevokedCount:
     """Sign a user out everywhere (the admin's own session stays when it is
     their account) and close its sockets."""

@@ -24,8 +24,9 @@ def _code(response) -> str:
     return response.json()["detail"]["code"]
 
 
-async def _audit(action: str) -> list:
-    return [row for row in await AuthAuditRepository.list_recent(limit=100) if row.action == action]
+async def _audit(action: str, outcome: str = "success") -> list:
+    rows = await AuthAuditRepository.list_recent(limit=200)
+    return [row for row in rows if row.action == action and row.outcome == outcome]
 
 
 @pytest.fixture
@@ -147,7 +148,8 @@ async def test_the_last_admin_can_be_neither_demoted_disabled_nor_deleted():
         "user.deleted",
         "user.disabled",
     ]
-    assert all(r.details == {"reason": "last_admin"} for r in refusals)
+    assert all(r.details == {"reason": "last_admin", "status": 409} for r in refusals)
+    assert all(r.target == f"user:{owner.id}" for r in refusals)
 
 
 async def test_a_disabled_admin_does_not_count_and_a_second_admin_can_be_demoted():
@@ -484,3 +486,124 @@ async def test_close_user_closes_every_socket_of_the_user_but_the_kept_session(m
     assert manager.close_user(5, except_session_id="keep") == 2
     assert evicted == [other_session, basic]
     assert kept not in evicted and someone_else not in evicted
+
+
+async def test_a_deleted_home_assistant_admin_comes_back_with_the_default_role(monkeypatch):
+    from app.auth.providers import ingress
+
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    await create_user()
+    headers = {"X-Remote-User-Id": HA_ID, "X-Remote-User-Name": "alice"}
+    async with make_client(client=(ingress.SUPERVISOR_IP, 40000)) as sidebar:
+        first = (await sidebar.get("/api/auth/session", headers=headers)).json()
+        assert first["user"]["role"] == "admin"
+        async with make_client() as admin:
+            await login(admin)
+            ha_id = first["user"]["id"]
+            assert (
+                await admin.patch(f"/api/auth/users/{ha_id}", json={"role": "viewer"})
+            ).status_code == 200
+            assert (await admin.delete(f"/api/auth/users/{ha_id}")).status_code == 200
+        again = (await sidebar.get("/api/auth/session", headers=headers)).json()
+        assert again["user"]["role"] == "member"
+        assert again["user"]["id"] != ha_id
+        other = {
+            "X-Remote-User-Id": "0123456789abcdef0123456789abcdef",
+            "X-Remote-User-Name": "bob",
+        }
+        assert (await sidebar.get("/api/auth/session", headers=other)).json()["user"][
+            "role"
+        ] == "member"
+    assert await AuthSettingsRepository.ingress_admin_granted()
+
+
+async def test_the_current_password_check_goes_through_the_login_delays():
+    await create_user("member1", role="member")
+    wrong = {"current_password": "not the password at all", "new_password": NEW_PASSWORD}
+    async with make_client() as member:
+        await login(member, "member1")
+        statuses = [(await member.patch("/api/auth/me", json=wrong)).status_code for _ in range(8)]
+        # Five free failures, then the pair is delayed, as on the login page.
+        assert statuses[:5] == [403] * 5
+        assert 429 in statuses[5:]
+        right = {"current_password": PASSWORD, "new_password": NEW_PASSWORD}
+        delayed = await member.patch("/api/auth/me", json=right)
+        assert delayed.status_code == 429 and _code(delayed) == "auth_rate_limited"
+        assert int(delayed.headers["Retry-After"]) >= 1
+    rows = await _audit("password.changed", "delayed")
+    assert len(rows) == 1 and rows[0].details["reason"] == "pair"
+    # The new password was never stored.
+    from app.auth.passwords import verify_password_async
+
+    credentials = await UserRepository.get_credentials("member1")
+    assert credentials is not None and credentials.password_hash is not None
+    assert await verify_password_async(credentials.password_hash.get_secret_value(), PASSWORD)
+
+
+async def test_the_current_password_check_shares_the_argon2_queue(monkeypatch):
+    from app.auth.providers import password as provider
+
+    await create_user("member1", role="member")
+    async with make_client() as member:
+        await login(member, "member1")
+        monkeypatch.setattr(provider, "_pending", provider.MAX_QUEUED_VERIFICATIONS + 2)
+        busy = await member.patch(
+            "/api/auth/me", json={"current_password": PASSWORD, "new_password": NEW_PASSWORD}
+        )
+        assert busy.status_code == 503 and _code(busy) == "auth_busy"
+
+
+async def test_every_refusal_of_the_users_api_is_audited():
+    owner = await create_user()
+    await create_user("member1", role="member")
+    async with make_client() as admin:
+        await login(admin)
+        for payload in (
+            {"username": "k", "role": "kiosk", "password": PASSWORD},
+            {"username": "c", "role": "member"},
+            {"username": "c", "role": "member", "password": "short"},
+            {"username": "MEMBER1", "role": "member", "password": PASSWORD},
+            {"username": " ", "role": "member", "password": PASSWORD},
+        ):
+            assert (await admin.post("/api/auth/users", json=payload)).status_code in (400, 409)
+        assert (await admin.delete("/api/auth/users/999")).status_code == 404
+        assert (
+            await admin.post(f"/api/auth/users/{owner.id}/password", json={"password": "short"})
+        ).status_code == 400
+        assert (await admin.get("/api/auth/users")).status_code == 200
+    async with make_client() as member:
+        await login(member, "member1")
+        assert (await member.get("/api/auth/users")).status_code == 403
+        assert (await member.delete(f"/api/auth/users/{owner.id}")).status_code == 403
+        assert (
+            await member.patch(
+                "/api/auth/me", json={"current_password": PASSWORD, "new_password": "short"}
+            )
+        ).status_code == 400
+    created = await _audit("user.created", "refused")
+    assert sorted(r.details["reason"] for r in created) == [
+        "password_not_applicable",
+        "password_policy",
+        "password_required",
+        "username_invalid",
+        "username_taken",
+    ]
+    assert (
+        next(r for r in created if r.details["reason"] == "password_policy").details["policy"]
+        == "too_short"
+    )
+    [deleted_403, deleted_404] = sorted(
+        await _audit("user.deleted", "refused"), key=lambda r: r.details["status"]
+    )
+    assert deleted_404.details == {"reason": "user_not_found", "status": 404}
+    assert deleted_404.target == "user:999"
+    assert deleted_403.details == {"reason": "forbidden", "status": 403}
+    assert deleted_403.target == f"user:{owner.id}"
+    [listed_403] = await _audit("users.listed", "refused")
+    assert listed_403.details["reason"] == "forbidden"
+    [listed] = await _audit("users.listed")
+    assert listed.details == {"count": 2} and listed.actor_user_id == owner.id
+    # The admin reset and the self-service change, without the typed password.
+    password_refusals = await _audit("password.changed", "refused")
+    assert [r.details["reason"] for r in password_refusals] == ["password_policy"] * 2
+    assert all(r.details["policy"] == "too_short" for r in password_refusals)

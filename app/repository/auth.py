@@ -823,6 +823,29 @@ class AuthSettingsRepository:
         return row[0]
 
     @staticmethod
+    async def ingress_admin_granted() -> bool:
+        """Whether a Home Assistant identity was already made ``admin`` as the
+        first one (migration 107). Never cleared: deleting that identity does
+        not make the next one ``admin`` again."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT ingress_admin_granted FROM auth_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            raise AuthSettingsMissingError("auth_settings row missing")
+        return bool(row[0])
+
+    @staticmethod
+    async def mark_ingress_admin_granted() -> None:
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE auth_settings SET ingress_admin_granted = 1 WHERE id = 1"
+            ) as cursor:
+                if cursor.rowcount != 1:
+                    raise AuthSettingsMissingError("auth_settings row missing")
+
+    @staticmethod
     async def set_setup_code_hash(code_hash: str | None) -> None:
         """Store the hash of the installation code (``app/auth/tokens.py``), or clear it."""
         async with db.tx() as conn:

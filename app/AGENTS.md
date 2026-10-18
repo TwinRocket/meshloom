@@ -316,6 +316,10 @@ run as root).
   budget, per-destination counters, loop-guard stamps and the user's lowered limits of
   the plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
   `tests/test_migrations/test_migration_106.py`), excluded from backups.
+- Migration 107 adds `auth_settings.ingress_admin_granted` (set once the first Home
+  Assistant identity was made admin, never cleared; backfilled from existing ingress
+  identities; `docs/dev/auth.md`, "Ingress"). Like every later column, fresh databases
+  get it from the migration, not from `SCHEMA_TABLES`.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
