@@ -1,3 +1,4 @@
+import type { NotificationChannelChange } from './notifications/types';
 import type {
   Channel,
   CommunityLiveStatus,
@@ -58,6 +59,7 @@ export type KnownWsEvent =
   | { type: 'message_deleted'; data: MessageDeletedPayload }
   | { type: 'radio_wifi'; data: RadioWifiState }
   | { type: 'plugin_status'; data: PluginStatusEntry }
+  | { type: 'notification_channel_changed'; data: NotificationChannelChange }
   | { type: 'error'; data: ToastPayload }
   | { type: 'success'; data: ToastPayload }
   | { type: 'pong'; data?: null };

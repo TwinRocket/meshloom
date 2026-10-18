@@ -217,6 +217,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only, refusals included (403 while bots are disabled: `refused`; name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
   | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
   | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
+  | `notify.channel_changed` | `/api/notifications/channels` (`app/notifications/api_support.py`, `announce_channel_change`): a creation, a change of destination (public settings, a URL secret, `allow_private_network`; not a credential or a rename), an enable or disable, a deletion; target `notification_channel:<id>`, `details = {action, type, name}`, never a setting or a secret |
   | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
 
   **Every refusal of the users API is written**, under the route's action
@@ -628,7 +629,7 @@ receive it, `app/events.py` has one payload model per member, and
 reaches no client, admins included (fail closed, logged once). `ws_manager` keeps the
 principal of each socket and delivers an event only to the clients holding its
 permission and the event's `audience` (a permission the caller may add;
-`app/websocket.py`). `radio_wifi` and `plugin_status` are `admin`; the other
+`app/websocket.py`). `radio_wifi`, `plugin_status` and `notification_channel_changed` are `admin`; the other
 types are `read`. Per event, a client without `read_private` gets:
 
 - no `message` that is not `CHAN` (no `type` counts as private);

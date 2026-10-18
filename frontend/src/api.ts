@@ -7,6 +7,16 @@ import {
   reportPasswordChangeRequired,
 } from './auth/authEvents';
 import type {
+  NotificationChannel,
+  NotificationChannelCreate,
+  NotificationChannelPatch,
+  NotificationDeliveries,
+  NotificationEventInfo,
+  NotificationRules,
+  NotificationRulesPatch,
+  NotificationTypeInfo,
+} from './notifications/types';
+import type {
   AuthAuditPage,
   AuthLoginRequest,
   AuthMe,
@@ -1189,6 +1199,62 @@ export const api = {
   shortenLink: (url: string) =>
     fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),
   getShareMeta: (id: string) => fetchJson<ShareMeta>(`/share/${encodeURIComponent(id)}/meta`),
+  // Notifications (admin). The push preference routes below are deprecated shims, removed
+  // in 5.2.0: use the rules.
+  getNotificationTypes: () => fetchJson<NotificationTypeInfo[]>('/notifications/types'),
+  getNotificationEvents: () =>
+    fetchJson<{ contract_version: number; events: NotificationEventInfo[] }>(
+      '/notifications/events'
+    ),
+  getNotificationChannels: () => fetchJson<NotificationChannel[]>('/notifications/channels'),
+  getNotificationChannel: (id: string) =>
+    fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}`),
+  createNotificationChannel: (body: NotificationChannelCreate) =>
+    fetchJson<NotificationChannel>('/notifications/channels', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateNotificationChannel: (id: string, body: NotificationChannelPatch) =>
+    fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteNotificationChannel: (id: string) =>
+    fetchJson<{ deleted: boolean }>(`/notifications/channels/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  /** Test a configuration before saving it: nothing is persisted. */
+  testNotificationConfig: (body: NotificationChannelCreate) =>
+    fetchJson<{ status: string }>('/notifications/channels/test', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** One test per 5 s per channel: a second one answers 429 `rate_limited`. */
+  testNotificationChannel: (id: string) =>
+    fetchJson<{ status: string }>(`/notifications/channels/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
+    }),
+  getNotificationRules: () => fetchJson<NotificationRules>('/notifications/rules'),
+  patchNotificationRules: (body: NotificationRulesPatch) =>
+    fetchJson<NotificationRules>('/notifications/rules', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  /** `channels: null` clears the exception of the conversation. */
+  setNotificationConversationRule: (key: string, channels: Record<string, boolean> | null) =>
+    fetchJson<NotificationRules>(`/notifications/rules/conversations/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ channels }),
+    }),
+  getNotificationDeliveries: (params: { channel?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.channel) query.set('channel', params.channel);
+    if (params.limit) query.set('limit', String(params.limit));
+    const suffix = query.toString();
+    return fetchJson<NotificationDeliveries>(
+      `/notifications/deliveries${suffix ? `?${suffix}` : ''}`
+    );
+  },
   getPushPreferences: () => fetchJson<PushPreferences>('/push/preferences'),
   patchPushPreferences: (partial: { defaults?: PushDefaultsPatch; vapid_subject?: string }) =>
     fetchJson<PushPreferences>('/push/preferences', {
