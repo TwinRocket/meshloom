@@ -29,6 +29,20 @@ rely on it. Community and `#live` detail: `docs/dev/frontend-community.md`.
 `ConversationPane`) may subscribe**, or every packet re-renders the whole tree.
 `src/test/appPacketIsolation.test.tsx` enforces this.
 
+`stores/feedStore.ts` (the global message stream, sorted by `(received_at, id)`,
+capped at `FEED_MAX_ROWS` = 2000, oldest dropped) follows the same rule: only the
+feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
+(`src/test/appFeedIsolation.test.tsx`). Two further rules:
+
+- **Lazy attach.** Until `activateFeedStore()` (first `FeedView` mount) every
+  `recordFeedMessage` / `applyFeedAck` / ... call is a flag check and stores
+  nothing. `useRealtimeAppState` calls the store from `onMessage` (after the blocked
+  check), `onMessageAcked`, `onMessageDeleted` and `onContactResolved`.
+- **Batched emits.** Mutations edit a private working array; one `queueMicrotask`
+  publishes a new immutable snapshot and notifies once, so a burst (historical
+  decryption) is a single render. Read the snapshot with `getFeedSnapshot()` after
+  a microtask, not right after the call.
+
 `ControlJournalView` keeps its pure helpers in `utils/controlJournal.ts`. Each
 observation is decoded once: a decode cache keyed by `getRawPacketObservationKey`
 (re-decoded only if the bytes behind a key change) feeds both the filter and
@@ -109,9 +123,10 @@ purpose.
   generation counter applies only the newest, and keys already updated by a WS
   event keep their live value.
 - `message.historical === true` marks a message stored by historical decryption
-  (an old message with a new id). It is reserved for the client: nothing consumes
-  it yet, so these messages still count as new like any other (planned for
-  MSHL-146). Absent on live frames and REST rows. The toast
+  (an old message with a new id). It is reserved for the client: `feedStore`
+  keeps the flag on the row and `recordFeedMessage` returns it as `historical`
+  (never a "new" message for the feed). The unread counters and toasts still treat
+  these messages like any other (no consumer of the feed yet). Absent on live frames and REST rows. The toast
   `historical_decrypt_complete` (`_rooms` with a count for the bulk run) is the
   end-of-run signal.
 - `raw_packet`: key and dedupe on `observation_id`. `id` is the storage row and repeats.

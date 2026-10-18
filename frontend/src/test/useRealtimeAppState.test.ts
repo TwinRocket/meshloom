@@ -10,6 +10,12 @@ import {
   resetRawPacketStore,
   seedRawPacketStore,
 } from '../stores/rawPacketStore';
+import {
+  activateFeedStore,
+  getFeedSnapshot,
+  recordFeedMessage,
+  resetFeedStore,
+} from '../stores/feedStore';
 import type { Channel, Contact, Conversation, HealthStatus, Message, RawPacket } from '../types';
 
 const mocks = vi.hoisted(() => ({
@@ -113,6 +119,7 @@ describe('useRealtimeAppState', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetRawPacketStore();
+    resetFeedStore();
     mocks.api.getChannels.mockResolvedValue([publicChannel]);
   });
 
@@ -559,5 +566,80 @@ describe('useRealtimeAppState', () => {
     });
 
     expect(args.removeMessage).toHaveBeenCalledWith(42);
+  });
+
+  describe('feed store wiring', () => {
+    const flush = () => Promise.resolve();
+
+    it('records nothing while the feed has never been opened', async () => {
+      const { args } = createRealtimeArgs();
+      const { result } = renderHook(() => useRealtimeAppState(args));
+
+      act(() => {
+        result.current.onMessage?.(incomingDm);
+      });
+      await flush();
+
+      expect(getFeedSnapshot().rows).toHaveLength(0);
+    });
+
+    it('records a live message once active, but not a blocked one', async () => {
+      activateFeedStore();
+      const { args } = createRealtimeArgs({
+        blockedKeysRef: { current: ['bb'.repeat(32)] },
+      });
+      const { result } = renderHook(() => useRealtimeAppState(args));
+
+      act(() => {
+        result.current.onMessage?.(incomingDm);
+        result.current.onMessage?.({ ...incomingDm, id: 8, conversation_key: 'bb'.repeat(32) });
+      });
+      await flush();
+
+      expect(getFeedSnapshot().rows.map((m) => m.id)).toEqual([7]);
+    });
+
+    it('applies acks, deletions and contact resolution to the feed', async () => {
+      activateFeedStore();
+      recordFeedMessage(incomingDm);
+      const { args } = createRealtimeArgs();
+      const { result } = renderHook(() => useRealtimeAppState(args));
+
+      act(() => {
+        result.current.onMessageAcked?.(7, 2);
+      });
+      await flush();
+      expect(getFeedSnapshot().rows[0].acked).toBe(2);
+
+      const resolvedKey = 'cc'.repeat(32);
+      act(() => {
+        result.current.onContactResolved?.(incomingDm.conversation_key, {
+          public_key: resolvedKey,
+          name: null,
+          type: 0,
+          flags: 0,
+          direct_path: null,
+          direct_path_len: -1,
+          direct_path_hash_mode: -1,
+          last_advert: null,
+          lat: null,
+          lon: null,
+          last_seen: null,
+          on_radio: false,
+          favorite: false,
+          last_contacted: null,
+          last_read_at: null,
+          first_seen: null,
+        });
+      });
+      await flush();
+      expect(getFeedSnapshot().rows[0].conversation_key).toBe(resolvedKey);
+
+      act(() => {
+        result.current.onMessageDeleted?.(7);
+      });
+      await flush();
+      expect(getFeedSnapshot().rows).toHaveLength(0);
+    });
   });
 });

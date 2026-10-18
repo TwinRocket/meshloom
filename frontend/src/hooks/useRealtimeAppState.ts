@@ -15,6 +15,12 @@ import { getStateKey } from '../utils/conversationState';
 import { mergeContactIntoList } from '../utils/contactMerge';
 import { getContactDisplayName } from '../utils/pubkey';
 import { clearRawPackets, MAX_RAW_PACKETS, recordRawPacket } from '../stores/rawPacketStore';
+import {
+  applyFeedAck,
+  recordFeedMessage,
+  removeFeedMessage,
+  renameFeedConversation,
+} from '../stores/feedStore';
 import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
 import { noteCommunityLiveOptedOut, refreshCommunityStatus } from '../stores/communityStore';
 import { refreshRadioWifiAfterReconnect, setRadioWifiState } from '../stores/radioWifiStore';
@@ -313,6 +319,9 @@ export function useRealtimeAppState({
           return;
         }
 
+        // Store call only (no React state): a no-op until the feed is first opened.
+        recordFeedMessage(msg);
+
         const isMutedChannel =
           msg.type === 'CHAN' &&
           !!msg.conversation_key &&
@@ -343,6 +352,7 @@ export function useRealtimeAppState({
           )
         );
         renameConversationMessages(previousPublicKey, contact.public_key);
+        renameFeedConversation(previousPublicKey, contact.public_key);
         renameConversationState(
           getStateKey('contact', previousPublicKey),
           getStateKey('contact', contact.public_key)
@@ -418,9 +428,11 @@ export function useRealtimeAppState({
         extras?: { packet_hash?: string | null; observer_reach_eligible?: boolean | null }
       ) => {
         receiveMessageAck(messageId, ackCount, paths, packetId, extras);
+        applyFeedAck(messageId, ackCount, paths, packetId, extras);
       },
       onMessageDeleted: (messageId: number) => {
         removeMessage(messageId);
+        removeFeedMessage(messageId);
       },
       onRadioWifi: (state: RadioWifiState) => {
         setRadioWifiState(state);
