@@ -237,6 +237,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     # stays in the SQLite download.
     "users": ("excluded", "the users backup section (services/backup_accounts.py)"),
     "sessions": ("excluded", "login sessions, never exported"),
+    "pairing_codes": (
+        "excluded",
+        "device pairing codes (short-lived hashes), never exported, emptied in the SQLite download",
+    ),
     "api_tokens": ("excluded", "the api_tokens backup section (services/backup_accounts.py)"),
     "recovery_codes": (
         "excluded",

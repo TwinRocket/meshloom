@@ -413,6 +413,25 @@ CREATE TABLE IF NOT EXISTS webauthn_credentials (
     last_used_at INTEGER,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+-- Device pairing codes (migration 112, docs/dev/device-pairing.md). Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS pairing_codes (
+    id TEXT PRIMARY KEY,
+    code_hash TEXT NOT NULL UNIQUE,
+    created_by INTEGER NOT NULL,
+    label TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    urls TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER,
+    revoked_at INTEGER,
+    token_id TEXT,
+    device_name TEXT,
+    extensions TEXT,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (token_id) REFERENCES api_tokens(id) ON DELETE SET NULL
+);
 """
 
 # Indexes are created after migrations so that legacy databases have all
@@ -461,6 +480,7 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id, created_at
 CREATE INDEX IF NOT EXISTS idx_auth_audit_ts ON auth_audit(ts);
 CREATE INDEX IF NOT EXISTS idx_recovery_codes_user ON recovery_codes(user_id);
 CREATE INDEX IF NOT EXISTS idx_webauthn_credentials_user ON webauthn_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_pairing_codes_user ON pairing_codes(created_by, created_at);
 CREATE INDEX IF NOT EXISTS idx_plugins_plugin_id ON plugins(plugin_id);
 """
 

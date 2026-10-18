@@ -29,10 +29,8 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001, except a number reserved for a parallel lane (112 is
-  reserved while it is unmerged). The current head is 113 (the value of
-  `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`; tests count pending
-  migrations with `migrations_after()`, never `LATEST - n`).
+- Numbering is contiguous from 001. The current head is 113 (the value of
+  `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
   (deferred to the runner). A migration that cannot run in a transaction (`VACUUM`,
@@ -268,6 +266,21 @@ stored), `scopes` (JSON list of permissions, within the owner's role),
 per user. Revoked and expired rows stay, so a later use is audited.
 `ApiTokenRepository` (`auth.py`).
 
+### `pairing_codes`
+
+Device pairing codes (migration 112, `app/auth/pairing.py`,
+`docs/dev/device-pairing.md`): PK `id` (random, not a secret), `code_hash`
+(unique, SHA-256 hex of the `mlp_…` code; the code is never stored),
+`created_by` (FK `users(id)`, cascade: the account the device token will
+belong to), `label`, `scopes` (JSON list, within the creator's role), `urls`
+(JSON list, the addresses of the QR payload), `created_at`, `expires_at` (at
+most 10 minutes after creation), `used_at` (NULL until spent; a code works
+once), `revoked_at`, `token_id` (FK `api_tokens(id)`, `SET NULL`: the device
+token it gave), `device_name`, `extensions` (the opaque JSON object the device
+sent, for meshenger E2). At most 10 pending per user. The hourly housekeeping
+deletes rows that hold no token and can no longer give one. Never in the JSON
+backup; emptied in the database download. `PairingCodeRepository` (`auth.py`).
+
 ### `recovery_codes`
 
 TOTP recovery codes (migration 109, `app/auth/totp.py`, `docs/dev/auth.md`,
@@ -367,7 +380,7 @@ All foreign keys point at `contacts(public_key)` (children: advert paths, name
 history, both telemetry histories, pane cache, alert state, group members, all
 `ON DELETE CASCADE`), at `contact_groups(id)` (members, cascade) or at
 `messages(id)` (`raw_packets.message_id`, `SET NULL`), plus `sessions.user_id`,
-`api_tokens.user_id`, `recovery_codes.user_id` and `webauthn_credentials.user_id` on `users(id)` (cascade). `messages.conversation_key`
+`api_tokens.user_id`, `recovery_codes.user_id`, `webauthn_credentials.user_id` and `pairing_codes.created_by` on `users(id)` (cascade), and `pairing_codes.token_id` on `api_tokens(id)` (`SET NULL`). `messages.conversation_key`
 and `messages.sender_key` are plain text, not foreign keys: a message outlives its
 contact or channel. Enforcement requires `PRAGMA foreign_keys = ON`, which
 `Database` sets after migrations (migration 049 rebuilt the tables with cascades).
@@ -385,6 +398,7 @@ databases). The current set:
 | `idx_contact_name_history_key` | `contact_name_history(public_key, last_seen DESC)` |
 | `idx_contact_telemetry_pk_ts` | `contact_telemetry_history(public_key, timestamp)` |
 | `idx_auth_audit_ts` | `auth_audit(ts)` |
+| `idx_pairing_codes_user` | `pairing_codes(created_by, created_at)` |
 | `idx_recovery_codes_user` | `recovery_codes(user_id)` |
 | `idx_webauthn_credentials_user` | `webauthn_credentials(user_id)` |
 | `idx_contacts_type_last_seen` | `contacts(type, last_seen)` |

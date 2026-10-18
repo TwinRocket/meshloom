@@ -94,7 +94,7 @@ The e-mail is HTML, with a plain-text copy. The Meshloom logo travels inside the
 
 ### Apprise destination
 
-The **Apprise** destination, in the same place, takes one [Apprise URL](https://github.com/caronc/apprise/wiki) per line. A few examples:
+The **Apprise** destination, in the same place, takes one [Apprise URL](https://appriseit.com/getting-started/universal-syntax/) per line. A few examples:
 
 | Service | URL |
 |---------|-----|
