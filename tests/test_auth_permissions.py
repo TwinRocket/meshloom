@@ -13,10 +13,10 @@ from app.auth.models import User
 from app.auth.permissions import ROLE_PERMISSIONS, has_permission, permissions_of
 from app.auth.principal import Principal
 from app.auth.ws_events import WsEvent
-from app.models import RawPacketDecryptedInfo
+from app.models import RadioProxyStatus, RawPacketDecryptedInfo
 from app.repository import ContactRepository, MessageRepository
 from app.repository.channels import ChannelRepository
-from app.websocket import WebSocketManager
+from app.websocket import _DEFAULT_AUDIENCE, WebSocketManager
 
 pytestmark = pytest.mark.usefixtures("test_db")
 
@@ -87,6 +87,27 @@ class TestRoleTable:
 
 
 class TestRouteMatrix:
+    async def test_health_errors_are_admin_only_on_rest(self, sign_in_as, client, monkeypatch):
+        from app.routers import health as health_router
+
+        real = health_router.build_health_data
+
+        async def with_errors(*args, **kwargs):
+            data = await real(*args, **kwargs)
+            data["fanout_statuses"] = {
+                "f": {"name": "MQTT", "type": "mqtt", "status": "error", "last_error": "mqtt.lan"}
+            }
+            return data
+
+        monkeypatch.setattr(health_router, "build_health_data", with_errors)
+        sign_in_as("member")
+        member = (await client.get("/api/health")).json()
+        assert member["fanout_statuses"]["f"]["last_error"] is None
+        assert member["fanout_statuses"]["f"]["status"] == "error"
+        sign_in_as("admin")
+        admin = (await client.get("/api/health")).json()
+        assert admin["fanout_statuses"]["f"]["last_error"] == "mqtt.lan"
+
     async def test_viewer_reads_messages_but_cannot_send(self, sign_in_as, client):
         sign_in_as("viewer")
         assert (await client.get("/api/messages")).status_code == 200
@@ -412,7 +433,7 @@ class TestWebSocketDelivery:
         admin, member, nobody = await self._connect(manager, "admin", "member", "anonymous")
         manager.broadcast_nowait(WsEvent.RADIO_WIFI, {"check": "ok"})
         manager.broadcast_nowait("not_classified_yet", {"x": 1})  # type: ignore[arg-type]
-        manager.broadcast_nowait(WsEvent.SUCCESS, {"message": "ok"})
+        manager.broadcast_nowait(WsEvent.SUCCESS, {"message": "ok"}, audience="read")
         await self._drain(manager)
         assert [f["type"] for f in _sent(admin)] == ["radio_wifi", "success"]
         assert [f["type"] for f in _sent(member)] == ["success"]
@@ -435,9 +456,11 @@ class TestWebSocketDelivery:
         assert admin_types == [member.value for member in WsEvent]
         for member in admin_only:
             assert member.value not in viewer_types
-        # And what a viewer may not see: the members-only plugin statuses.
+        # Toasts default to admins only; the rest follows the type's permission.
         assert viewer_types == [
-            m.value for m in WsEvent if m.permission in {"read", "read_private"}
+            m.value
+            for m in WsEvent
+            if m.permission != "admin" and _DEFAULT_AUDIENCE.get(m) != "admin"
         ]
         for ws in (admin, viewer):
             await manager.disconnect(ws)
@@ -465,6 +488,156 @@ class TestWebSocketDelivery:
         assert [f["data"]["id"] for f in _sent(viewer)] == [1, 2, 3, 4, 5, 6, 7]
         assert [f["data"]["id"] for f in _sent(admin)] == [1, 2, 3, 4, 5, 6, 7]
         for ws in (kiosk, viewer, admin):
+            await manager.disconnect(ws)
+
+    async def test_contact_frames_carry_no_dm_activity_below_read_private(self):
+        manager = WebSocketManager()
+        kiosk, viewer = await self._connect(manager, "kiosk", "viewer")
+        contact = {
+            "public_key": CONTACT_KEY,
+            "name": "Bob",
+            "last_contacted": 123,
+            "last_read_at": 456,
+            "last_seen": 789,
+        }
+        manager.broadcast_nowait(WsEvent.CONTACT, contact)
+        manager.broadcast_nowait(
+            WsEvent.CONTACT_RESOLVED, {"previous_public_key": "ab", "contact": contact}
+        )
+        await manager.send_personal(kiosk, WsEvent.CONTACT, contact)
+        await self._drain(manager)
+        kiosk_frames = _sent(kiosk)
+        assert [f["type"] for f in kiosk_frames] == ["contact", "contact_resolved", "contact"]
+        for seen in (
+            kiosk_frames[0]["data"],
+            kiosk_frames[1]["data"]["contact"],
+            kiosk_frames[2]["data"],
+        ):
+            assert seen["last_contacted"] is None and seen["last_read_at"] is None
+            assert seen["last_seen"] == 789 and seen["name"] == "Bob"
+        full, resolved = _sent(viewer)
+        assert full["data"]["last_contacted"] == 123
+        assert resolved["data"]["contact"]["last_read_at"] == 456
+        for ws in (kiosk, viewer):
+            await manager.disconnect(ws)
+
+    async def test_health_errors_and_plugin_status_reach_admins_only(self):
+        manager = WebSocketManager()
+        admin, member, kiosk = await self._connect(manager, "admin", "member", "kiosk")
+        health = {
+            "status": "ok",
+            "radio_connected": True,
+            "connection_info": None,
+            "database_size_mb": 1.0,
+            "oldest_undecrypted_timestamp": None,
+            "fanout_statuses": {
+                "f": {
+                    "name": "MQTT",
+                    "type": "mqtt",
+                    "status": "error",
+                    "last_error": "mqtt.lan:1883",
+                }
+            },
+            "notification_statuses": {
+                "webhook": {"last_error": {"code": "timeout", "at": 1, "url": "https://hook.lan"}}
+            },
+            "plugin_statuses": {"p": {"instance_id": "p", "status": "error", "last_error": "boom"}},
+            "radio_proxy": RadioProxyStatus(
+                enabled=True, bind="0.0.0.0", port=5000, max_clients=4, last_error="EADDRINUSE"
+            ),
+        }
+        manager.broadcast_nowait(WsEvent.HEALTH, health)
+        manager.broadcast_nowait(WsEvent.PLUGIN_STATUS, {"instance_id": "p", "last_error": "boom"})
+        await self._drain(manager)
+        [admin_health, admin_plugin] = _sent(admin)
+        assert admin_plugin["type"] == "plugin_status"
+        assert admin_health["data"]["fanout_statuses"]["f"]["last_error"] == "mqtt.lan:1883"
+        assert admin_health["data"]["radio_proxy"]["last_error"] == "EADDRINUSE"
+        for ws in (member, kiosk):
+            [frame] = _sent(ws)
+            data = frame["data"]
+            assert frame["type"] == "health"
+            assert data["fanout_statuses"]["f"] == {
+                "name": "MQTT",
+                "type": "mqtt",
+                "status": "error",
+                "last_error": None,
+            }
+            assert data["notification_statuses"]["webhook"]["last_error"] is None
+            assert data["plugin_statuses"]["p"]["last_error"] is None
+            assert data["plugin_statuses"]["p"]["status"] == "error"
+            assert data["radio_proxy"]["last_error"] is None
+            for secret in ("mqtt.lan", "hook.lan", "boom", "EADDRINUSE"):
+                assert secret not in json.dumps(frame)
+        for ws in (admin, member, kiosk):
+            await manager.disconnect(ws)
+
+    async def test_toasts_are_admin_only_unless_the_caller_lowers_them(self, monkeypatch):
+        from app import websocket as ws_module
+
+        manager = WebSocketManager()
+        monkeypatch.setattr(ws_module, "ws_manager", manager)
+        admin, member, viewer, kiosk = await self._connect(
+            manager, "admin", "member", "viewer", "kiosk"
+        )
+        ws_module.broadcast_success("MQTT connected", "mqtt.lan:1883", code="mqtt_connected")
+        ws_module.broadcast_error("Path hash mode restore failed", audience="send")
+        ws_module.broadcast_success(
+            "Historical decrypt complete for Bob",
+            code="historical_decrypt_complete",
+            audience="read_private",
+        )
+        ws_module.broadcast_success("Bulk historical decrypt complete", audience="read")
+        await self._drain(manager)
+
+        def messages(ws):
+            return [f["data"]["message"] for f in _sent(ws)]
+
+        assert messages(admin) == [
+            "MQTT connected",
+            "Path hash mode restore failed",
+            "Historical decrypt complete for Bob",
+            "Bulk historical decrypt complete",
+        ]
+        assert messages(member) == messages(admin)[1:]
+        assert messages(viewer) == messages(admin)[2:]
+        assert messages(kiosk) == ["Bulk historical decrypt complete"]
+        for ws in (admin, member, viewer, kiosk):
+            await manager.disconnect(ws)
+
+    async def test_a_dm_ack_never_reaches_a_kiosk(self):
+        from app.services.messages import broadcast_message_acked, increment_ack_and_broadcast
+
+        manager = WebSocketManager()
+        kiosk, viewer = await self._connect(manager, "kiosk", "viewer")
+
+        def broadcast_fn(event_type, data, *, audience=None):
+            manager.broadcast_nowait(event_type, data, audience=audience)
+
+        for conversation_type, message_id in (("PRIV", 1), ("CHAN", 2), (None, 3)):
+            broadcast_message_acked(
+                message_id=message_id,
+                ack_count=1,
+                paths=None,
+                packet_id=None,
+                broadcast_fn=broadcast_fn,
+                packet_hash="aa",
+                conversation_type=conversation_type,
+            )
+        message = await MessageRepository.create(
+            msg_type="PRIV",
+            text="secret",
+            conversation_key=CONTACT_KEY,
+            sender_timestamp=1,
+            received_at=1,
+            outgoing=True,
+        )
+        assert message is not None
+        await increment_ack_and_broadcast(message_id=message, broadcast_fn=broadcast_fn)
+        await self._drain(manager)
+        assert [f["data"]["message_id"] for f in _sent(kiosk)] == [2]
+        assert [f["data"]["message_id"] for f in _sent(viewer)] == [1, 2, 3, message]
+        for ws in (kiosk, viewer):
             await manager.disconnect(ws)
 
     async def test_the_websocket_route_needs_read(self, monkeypatch):

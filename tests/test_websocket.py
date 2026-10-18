@@ -398,7 +398,9 @@ class TestBroadcastEventFanout:
             # Let the asyncio tasks run
             await asyncio.sleep(0)
 
-            mock_ws.broadcast_nowait.assert_called_once_with("message", {"id": 1, "text": "hello"})
+            mock_ws.broadcast_nowait.assert_called_once_with(
+                "message", {"id": 1, "text": "hello"}, audience=None
+            )
             mock_fm.broadcast_message.assert_called_once_with({"id": 1, "text": "hello"})
 
     @pytest.mark.asyncio
@@ -453,7 +455,7 @@ class TestBroadcastErrorSuccessCodes:
             await asyncio.sleep(0)
 
         mock_ws.broadcast_nowait.assert_called_once_with(
-            "error", {"message": "Radio not connected"}
+            "error", {"message": "Radio not connected"}, audience="admin"
         )
 
     @pytest.mark.asyncio
@@ -477,6 +479,7 @@ class TestBroadcastErrorSuccessCodes:
                 "code": "cannot_decrypt_historical_dms",
                 "params": {"name": "Alice"},
             },
+            audience="admin",
         )
 
     @pytest.mark.asyncio
@@ -500,6 +503,7 @@ class TestBroadcastErrorSuccessCodes:
                 "code": "historical_decrypt_complete",
                 "params": {"name": "Alice"},
             },
+            audience="admin",
         )
 
 

@@ -48,10 +48,12 @@ class WsEvent(StrEnum):
     MESSAGE_ACKED = "message_acked", "read"
     MESSAGE_DELETED = "message_deleted", "read"
     RADIO_WIFI = "radio_wifi", "admin"
-    # Carries `last_error`: members and admins only. `health` keeps the statuses
-    # for everyone but drops their `last_error` below this permission
-    # (`app/plugins/lifecycle.py`, `PLUGIN_ERROR_PERMISSION`).
-    PLUGIN_STATUS = "plugin_status", "send"
+    # Carries `last_error`: admins only. `health` keeps the statuses for
+    # everyone but drops their `last_error` below admin
+    # (`app/routers/health.py`, `HEALTH_DETAIL_PERMISSION`).
+    PLUGIN_STATUS = "plugin_status", "admin"
+    # Toasts: admin-only unless the caller names a lower ``audience``
+    # (``app/websocket.py``, ``broadcast_error``/``broadcast_success``).
     ERROR = "error", "read"
     SUCCESS = "success", "read"
 

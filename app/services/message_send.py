@@ -392,6 +392,7 @@ async def send_channel_message_with_effective_scope(
                         f"after 3 attempts. The radio may still be region-scoped. "
                         f"Consider rebooting the radio."
                     ),
+                    audience="send",
                 )
 
         if apply_phm:
@@ -432,6 +433,7 @@ async def send_channel_message_with_effective_scope(
                         f"after 3 attempts. The radio is still using a non-default hop "
                         f"width. Set it back manually in Radio settings."
                     ),
+                    audience="send",
                 )
 
 

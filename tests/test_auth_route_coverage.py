@@ -168,27 +168,57 @@ _EMITTERS = {
     "send_personal": 1,
 }
 # Only the manager itself forwards an event type it was given.
-_FORWARDERS = {APP_DIR / "websocket.py"}
+_FORWARDERS = {"app/websocket.py"}
+# ``send_raw`` queues a frame past every filter: only these literal frames.
+_RAW_FRAMES = {("app/routers/ws.py", '{"type":"pong"}')}
+
+
+def _aliases(tree: ast.AST) -> dict[str, str]:
+    """Local names bound to an emitter or ``send_raw`` (``import ... as``, ``x = y``)."""
+    known = {*_EMITTERS, "send_raw"}
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name in known and alias.asname:
+                    aliases[alias.asname] = alias.name
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+            value_name = value.id if isinstance(value, ast.Name) else getattr(value, "attr", None)
+            if isinstance(target, ast.Name) and value_name in known:
+                aliases[target.id] = value_name
+    return aliases
 
 
 def _emitted_event_types() -> tuple[set[str], list[str]]:
     """The ``WsEvent`` members every emit call in ``app/`` passes, and the call
-    sites that pass anything else (a string, an expression, a non-member)."""
+    sites that pass anything else (a string, an expression, a non-member, a
+    ``send_raw`` frame outside ``_RAW_FRAMES``)."""
     emitted: set[str] = set()
     refused: list[str] = []
     for source in APP_DIR.rglob("*.py"):
-        for node in ast.walk(ast.parse(source.read_text(), str(source))):
+        tree = ast.parse(source.read_text(), str(source))
+        aliases = _aliases(tree)
+        relative = source.relative_to(APP_DIR.parent).as_posix()
+        for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
             name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            name = aliases.get(name, name) if name is not None else None
+            where = f"{relative}:{node.lineno}"
+            if name == "send_raw":
+                frame = node.args[1] if len(node.args) > 1 else None
+                literal = frame.value if isinstance(frame, ast.Constant) else None
+                if (relative, literal) not in _RAW_FRAMES:
+                    refused.append(f"{where}: send_raw({ast.unparse(frame) if frame else ''})")
+                continue
             if name not in _EMITTERS:
                 continue
             index = _EMITTERS[name]
             arg = node.args[index] if len(node.args) > index else None
             if arg is None:
                 arg = next((k.value for k in node.keywords if k.arg == "event_type"), None)
-            where = f"{source.relative_to(APP_DIR.parent)}:{node.lineno}"
             if (
                 isinstance(arg, ast.Attribute)
                 and isinstance(arg.value, ast.Name)
@@ -196,7 +226,7 @@ def _emitted_event_types() -> tuple[set[str], list[str]]:
                 and arg.attr in WsEvent.__members__
             ):
                 emitted.add(WsEvent[arg.attr].value)
-            elif isinstance(arg, ast.Name) and source in _FORWARDERS:
+            elif isinstance(arg, ast.Name) and relative in _FORWARDERS:
                 continue
             else:
                 refused.append(f"{where}: {ast.unparse(arg) if arg else '(no event type)'}")
@@ -225,15 +255,25 @@ def test_the_emit_scan_catches_a_string_event_type(tmp_path, monkeypatch):
         "ws_manager.broadcast_nowait(WsEvent.NOT_A_MEMBER, {})\n"
         "await ws_manager.send_personal(ws, kind, {})\n"
         "broadcast_fn(WsEvent.CONTACT, {})\n"
+        "from app.websocket import broadcast_event as emit\n"
+        "emit('channel', {})\n"
+        "shout = ws_manager.broadcast_nowait\n"
+        "shout(WsEvent.HEALTH, {})\n"
+        'ws_manager.send_raw(ws, \'{"type": "message"}\')\n'
     )
     monkeypatch.setattr(f"{__name__}.APP_DIR", module)
     emitted, refused = _emitted_event_types()
-    assert emitted == {"contact"}
-    assert [line.split(": ", 1)[1] for line in refused] == [
-        "'message'",
-        "WsEvent.NOT_A_MEMBER",
-        "kind",
-    ]
+    assert emitted == {"contact", "health"}
+    # ast.walk is breadth-first: compare without the order.
+    assert sorted(line.split(": ", 1)[1] for line in refused) == sorted(
+        [
+            "'message'",
+            "WsEvent.NOT_A_MEMBER",
+            "kind",
+            "'channel'",
+            'send_raw(\'{"type": "message"}\')',
+        ]
+    )
 
 
 async def test_an_unclassified_ws_event_type_reaches_no_one():

@@ -228,6 +228,7 @@ async def _run_historical_channel_decryption_for_channels(
             ),
             code="historical_decrypt_complete_rooms",
             params={"count": len(matched_channel_names)},
+            audience="read",
         )
 
 

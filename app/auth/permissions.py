@@ -171,6 +171,12 @@ async def enforce_declaration(connection: HTTPConnection) -> None:
         _refuse(connection, "admin")
 
 
+# Contact fields that reveal direct-message activity: emptied for a caller
+# without ``read_private``, on REST (``app/routers/contacts.py``) and on the
+# WebSocket (``app/websocket.py``).
+CONTACT_DM_ACTIVITY_FIELDS: tuple[str, ...] = ("last_contacted", "last_read_at")
+
+
 # A direct message travels as a TEXT_MESSAGE packet, a channel message as
 # GROUP_TEXT (``app/decoder.py``, ``PayloadType``).
 DIRECT_MESSAGE_PAYLOAD_TYPE = "TEXT_MESSAGE"

@@ -10,7 +10,12 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from app.auth.permissions import has_permission, packet_decryption_is_private
+from app.auth.permissions import (
+    CONTACT_DM_ACTIVITY_FIELDS,
+    Permission,
+    has_permission,
+    packet_decryption_is_private,
+)
 from app.auth.principal import Principal
 from app.auth.ws_events import WsEvent, ws_event
 from app.background_tasks import spawn
@@ -79,17 +84,66 @@ def _without_direct_message(data: dict) -> dict:
     return {**data, "decrypted": False, "decrypted_info": None}
 
 
-def _sees_plugin_errors(principal: Principal | None) -> bool:
-    from app.plugins.lifecycle import PLUGIN_ERROR_PERMISSION
+def _without_dm_activity(contact: Any) -> Any:
+    """A contact as a client without ``read_private`` gets it (like REST)."""
+    if not isinstance(contact, dict):
+        return contact
+    return {**contact, **dict.fromkeys(CONTACT_DM_ACTIVITY_FIELDS)}
 
-    return has_permission(principal, PLUGIN_ERROR_PERMISSION)
+
+# The permission an event needs on top of its type's when the caller names none
+# (``audience``). Toasts can carry hosts, ports, radio and fanout errors, so
+# they are admin-only unless the caller says otherwise; an ack is private
+# unless the caller says it acks a channel message (fail closed).
+_DEFAULT_AUDIENCE: dict[WsEvent, Permission] = {
+    WsEvent.ERROR: "admin",
+    WsEvent.SUCCESS: "admin",
+    WsEvent.MESSAGE_ACKED: "read_private",
+}
+
+# What a client gets of an event besides the whole payload.
+_HEALTH_WITHOUT_ADMIN_DETAILS = "health_without_admin_details"
+_CONTACT_WITHOUT_DM_ACTIVITY = "contact_without_dm_activity"
+_PACKET_UNDECRYPTED = "packet_undecrypted"
+_FULL = "full"
 
 
-def _health_without_plugin_errors(data: Any) -> Any:
-    """`health` without the plugins' `last_error` (kiosk and viewer principals)."""
-    from app.plugins.lifecycle import without_plugin_errors
+def _view(
+    event_type: WsEvent, data: Any, principal: Principal | None, audience: Permission
+) -> str | None:
+    """Which version of the event this principal gets; None for nothing."""
+    if not has_permission(principal, event_type.permission):
+        return None
+    if not has_permission(principal, audience):
+        return None
+    if event_type is WsEvent.HEALTH:
+        from app.routers.health import HEALTH_DETAIL_PERMISSION
 
-    return without_plugin_errors(data) if isinstance(data, dict) else data
+        if not has_permission(principal, HEALTH_DETAIL_PERMISSION):
+            return _HEALTH_WITHOUT_ADMIN_DETAILS
+        return _FULL
+    if has_permission(principal, "read_private"):
+        return _FULL
+    if event_type in (WsEvent.CONTACT, WsEvent.CONTACT_RESOLVED):
+        return _CONTACT_WITHOUT_DM_ACTIVITY
+    if _reveals_direct_message(event_type, data):
+        return _PACKET_UNDECRYPTED if event_type is WsEvent.RAW_PACKET else None
+    return _FULL
+
+
+def _render(event_type: WsEvent, data: Any, view: str) -> Any:
+    """The payload of one version of the event (``_view``)."""
+    if view == _HEALTH_WITHOUT_ADMIN_DETAILS:
+        from app.routers.health import without_admin_details
+
+        return without_admin_details(data) if isinstance(data, dict) else data
+    if view == _CONTACT_WITHOUT_DM_ACTIVITY:
+        if event_type is WsEvent.CONTACT_RESOLVED and isinstance(data, dict):
+            return {**data, "contact": _without_dm_activity(data.get("contact"))}
+        return _without_dm_activity(data)
+    if view == _PACKET_UNDECRYPTED:
+        return _without_direct_message(data)
+    return data
 
 
 def _backlog_limit(event_type: WsEvent) -> int:
@@ -439,62 +493,59 @@ class WebSocketManager:
             # Drops still unreported (rate limit): log them once the interval is up.
             self._log_drops(client)
 
-    def broadcast_nowait(self, event_type: WsEvent, data: Any) -> None:
+    def broadcast_nowait(
+        self, event_type: WsEvent, data: Any, *, audience: Permission | None = None
+    ) -> None:
         """Queue an event for every connected client allowed to see it, in call order.
 
-        A client needs the type's permission (``WsEvent.permission``); a direct
-        message also needs ``read_private``: without it a ``message`` is not
-        sent and a ``raw_packet`` is sent without its decryption. A type that
-        is not a ``WsEvent`` member is sent to no one.
+        A client needs the type's permission (``WsEvent.permission``) and the
+        event's ``audience`` (``_DEFAULT_AUDIENCE`` when None). Below
+        ``read_private`` a direct ``message`` is not sent, a ``raw_packet``
+        decrypted from one is sent undecrypted and a contact loses its DM
+        activity; below admin ``health`` loses its errors. A type that is not
+        a ``WsEvent`` member is sent to no one.
         """
         if not self.active_connections:
             return
         member = _classified(event_type)
         if member is None:
             return
-        event_type = member
-        permission = event_type.permission
-        private = _reveals_direct_message(event_type, data)
-        message = dump_ws_event(event_type, data)
-        redacted: str | None = None
-        without_errors: str | None = None
+        audience = audience or _DEFAULT_AUDIENCE.get(member, member.permission)
+        frames: dict[str, str] = {}
         for client in list(self.active_connections.values()):
-            if not has_permission(client.principal, permission):
+            view = _view(member, data, client.principal, audience)
+            if view is None:
                 continue
-            if event_type is WsEvent.HEALTH and not _sees_plugin_errors(client.principal):
-                if without_errors is None:
-                    without_errors = dump_ws_event(event_type, _health_without_plugin_errors(data))
-                self._enqueue(client, without_errors, event_type=event_type)
-                continue
-            if private and not has_permission(client.principal, "read_private"):
-                if event_type is not WsEvent.RAW_PACKET:
-                    continue
-                if redacted is None:
-                    redacted = dump_ws_event(event_type, _without_direct_message(data))
-                self._enqueue(client, redacted, event_type=event_type)
-                continue
-            self._enqueue(client, message, event_type=event_type)
+            frame = frames.get(view)
+            if frame is None:
+                frame = frames[view] = dump_ws_event(member, _render(member, data, view))
+            self._enqueue(client, frame, event_type=member)
 
-    async def broadcast(self, event_type: WsEvent, data: Any) -> None:
+    async def broadcast(
+        self, event_type: WsEvent, data: Any, *, audience: Permission | None = None
+    ) -> None:
         """Queue an event for every connected client (never blocks on I/O)."""
-        self.broadcast_nowait(event_type, data)
+        self.broadcast_nowait(event_type, data, audience=audience)
 
-    async def send_personal(self, websocket: WebSocket, event_type: WsEvent, data: Any) -> None:
+    async def send_personal(
+        self,
+        websocket: WebSocket,
+        event_type: WsEvent,
+        data: Any,
+        *,
+        audience: Permission | None = None,
+    ) -> None:
         """Queue an event for one client, ordered with its broadcasts (same filters)."""
         client = self.active_connections.get(websocket)
         if client is None:
             return
         member = _classified(event_type)
-        if member is None or not has_permission(client.principal, member.permission):
+        if member is None:
             return
-        event_type = member
-        if _reveals_direct_message(event_type, data) and not has_permission(
-            client.principal, "read_private"
-        ):
-            return
-        if event_type is WsEvent.HEALTH and not _sees_plugin_errors(client.principal):
-            data = _health_without_plugin_errors(data)
-        self._enqueue(client, dump_ws_event(event_type, data))
+        audience = audience or _DEFAULT_AUDIENCE.get(member, member.permission)
+        view = _view(member, data, client.principal, audience)
+        if view is not None:
+            self._enqueue(client, dump_ws_event(member, _render(member, data, view)))
 
     def send_raw(self, websocket: WebSocket, message: str) -> None:
         """Queue a pre-serialized frame for one client: the ``pong`` reply only,
@@ -508,7 +559,13 @@ class WebSocketManager:
 ws_manager = WebSocketManager()
 
 
-def broadcast_event(event_type: WsEvent, data: dict, *, realtime: bool = True) -> None:
+def broadcast_event(
+    event_type: WsEvent,
+    data: dict,
+    *,
+    realtime: bool = True,
+    audience: Permission | None = None,
+) -> None:
     """Broadcast an event without blocking.
 
     Queues the event for every connected WebSocket client allowed to see it
@@ -518,8 +575,10 @@ def broadcast_event(event_type: WsEvent, data: dict, *, realtime: bool = True) -
         event_type: A ``WsEvent`` member, never a string (``app/auth/ws_events.py``)
         data: Event payload dict
         realtime: If False, skip fanout dispatch (used for historical decryption)
+        audience: The permission a WebSocket client needs to get this event, on
+            top of the type's (``WebSocketManager.broadcast_nowait``)
     """
-    ws_manager.broadcast_nowait(event_type, data)
+    ws_manager.broadcast_nowait(event_type, data, audience=audience)
 
     if realtime:
         try:
@@ -555,11 +614,14 @@ def broadcast_error(
     *,
     code: str | None = None,
     params: dict | None = None,
+    audience: Permission = "admin",
 ) -> None:
-    """Broadcast an error notification to all connected clients.
+    """Broadcast an error notification (a toast in the frontend).
 
-    This appears as a toast notification in the frontend.
     ``code`` / ``params`` are optional stable i18n keys; ``message`` stays English.
+    Only admins get it unless ``audience`` names a lower permission: pass one
+    only when the text holds nothing an admin-only setting, a host, a port or
+    a direct message would reveal (``read_private`` for DM details).
     """
     data: dict[str, Any] = {"message": message}
     if details:
@@ -568,7 +630,7 @@ def broadcast_error(
         data["code"] = code
     if params:
         data["params"] = params
-    ws_manager.broadcast_nowait(WsEvent.ERROR, data)
+    ws_manager.broadcast_nowait(WsEvent.ERROR, data, audience=audience)
 
 
 def broadcast_success(
@@ -577,11 +639,14 @@ def broadcast_success(
     *,
     code: str | None = None,
     params: dict | None = None,
+    audience: Permission = "admin",
 ) -> None:
-    """Broadcast a success notification to all connected clients.
+    """Broadcast a success notification (a toast in the frontend).
 
-    This appears as a toast notification in the frontend.
     ``code`` / ``params`` are optional stable i18n keys; ``message`` stays English.
+    Only admins get it unless ``audience`` names a lower permission: pass one
+    only when the text holds nothing an admin-only setting, a host, a port or
+    a direct message would reveal (``read_private`` for DM details).
     """
     data: dict[str, Any] = {"message": message}
     if details:
@@ -590,7 +655,7 @@ def broadcast_success(
         data["code"] = code
     if params:
         data["params"] = params
-    ws_manager.broadcast_nowait(WsEvent.SUCCESS, data)
+    ws_manager.broadcast_nowait(WsEvent.SUCCESS, data, audience=audience)
 
 
 def broadcast_health(radio_connected: bool, connection_info: str | None = None) -> None:

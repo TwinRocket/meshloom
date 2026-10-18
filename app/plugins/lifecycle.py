@@ -16,9 +16,10 @@ from app.plugins.host import isolation_level, plugin_manager
 logger = logging.getLogger(__name__)
 
 SHUTDOWN_TIMEOUT_SECONDS = 10.0
-# Who may read a plugin's `last_error` (health) and its `plugin_status` events:
-# members and admins. Kiosk and viewer principals get the statuses without it.
-PLUGIN_ERROR_PERMISSION: Final = "send"
+# Who may read a plugin's `last_error` and `send_guard` (health) and its
+# `plugin_status` events: admins only (MSHL-64). The others get the statuses
+# without them (`app/routers/health.py`, `without_admin_details`).
+PLUGIN_ERROR_PERMISSION: Final = "admin"
 
 
 async def start() -> None:

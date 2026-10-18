@@ -245,6 +245,8 @@ async def run_historical_dm_decryption(
             f"Decrypted {decrypted_count} message{'s' if decrypted_count != 1 else ''}",
             code="historical_decrypt_complete",
             params={"name": name},
+            # Names a contact and a DM count.
+            audience="read_private",
         )
 
 

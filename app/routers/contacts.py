@@ -8,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from meshcore import EventType
 from pydantic import BaseModel, Field
 
-from app.auth.permissions import can_read_private, require
+from app.auth.permissions import CONTACT_DM_ACTIVITY_FIELDS, can_read_private, require
 from app.auth.ws_events import WsEvent
 from app.models import (
     Contact,
@@ -99,7 +99,7 @@ def _path_hash_mode_from_hop_width(hop_width: object) -> int:
 
 def _without_direct_messages(contact: Contact) -> Contact:
     """A contact as a caller without ``read_private`` sees it: no DM activity."""
-    return contact.model_copy(update={"last_contacted": None, "last_read_at": None})
+    return contact.model_copy(update=dict.fromkeys(CONTACT_DM_ACTIVITY_FIELDS))
 
 
 async def _build_keyed_contact_analytics(
