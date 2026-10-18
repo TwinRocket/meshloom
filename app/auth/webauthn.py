@@ -84,7 +84,9 @@ from app.repository.auth import StoredPasskey
 logger = logging.getLogger(__name__)
 
 CEREMONY_TTL_S = 300.0
-CEREMONY_MAX_ENTRIES = 1024
+# Live ceremonies kept per purpose, so the public passwordless options never
+# touch a registration or second-factor challenge (``Ceremonies``).
+CEREMONY_MAX_ENTRIES: dict[str, int] = {"login": 1024, "register": 256, "second_factor": 1024}
 CHALLENGE_BYTES = 32
 # The browser's own timeout for the ceremony (milliseconds), within the TTL.
 TIMEOUT_MS = 120_000
@@ -92,6 +94,9 @@ RP_NAME_FALLBACK = "Meshloom"
 
 # Passwordless options per client address and minute (a public route).
 OPTIONS_PER_MINUTE = 20
+# The name the options route checks the login limiter's address rules under:
+# no failure is ever recorded for it, so only the per-address rules apply.
+OPTIONS_LIMITER_NAME = "\x00passkey-options"
 _OPTIONS_TABLE_MAX = 4096
 
 Purpose = Literal["register", "login", "second_factor"]
@@ -242,9 +247,17 @@ def _key(challenge: bytes) -> str:
     return hashlib.sha256(challenge).hexdigest()
 
 
+class CeremoniesFull(Exception):
+    """The passwordless table is full of live challenges: refuse, never evict."""
+
+
 class Ceremonies:
     """Challenges handed out and not used yet. Keyed by the SHA-256 of the
-    challenge; bounded (``CEREMONY_MAX_ENTRIES``, oldest first)."""
+    challenge; bounded per purpose (``CEREMONY_MAX_ENTRIES``). A full ``login``
+    table (public, anonymous) refuses a new challenge (``CeremoniesFull``)
+    instead of evicting one before its TTL; the ``register`` (a session) and
+    ``second_factor`` (a checked password) tables drop their own oldest entry.
+    No purpose can push another one's challenges out."""
 
     def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
         self._clock = clock
@@ -253,8 +266,13 @@ class Ceremonies:
     def issue(self, purpose: Purpose, rp_id: str, user_id: int | None, binding: str) -> bytes:
         now = self._clock()
         self._sweep(now)
-        while len(self._entries) >= CEREMONY_MAX_ENTRIES:
-            self._entries.pop(next(iter(self._entries)))
+        same = [key for key, entry in self._entries.items() if entry.purpose == purpose]
+        limit = CEREMONY_MAX_ENTRIES[purpose]
+        if len(same) >= limit:
+            if purpose == "login":
+                raise CeremoniesFull()
+            for key in same[: len(same) - limit + 1]:
+                self._entries.pop(key, None)
         challenge = secrets.token_bytes(CHALLENGE_BYTES)
         self._entries[_key(challenge)] = Ceremony(
             purpose=purpose,

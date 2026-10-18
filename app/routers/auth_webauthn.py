@@ -72,6 +72,7 @@ _MESSAGES = {
     "auth_2fa_pending_invalid": "This sign-in expired: enter your password again",
     "auth_invalid_credentials": "Invalid credentials",
     "auth_rate_limited": "Too many attempts: retry later",
+    "auth_2fa_required": "Enter a code from your authenticator app or a recovery code",
 }
 
 
@@ -94,6 +95,11 @@ class PasswordProof(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     password: SecretStr = Field(max_length=MAX_PASSWORD_LENGTH)
+
+
+class RegisterOptionsRequest(PasswordProof):
+    # A TOTP or recovery code: required when the account's TOTP factor is on.
+    code: SecretStr | None = Field(default=None, min_length=1, max_length=32)
 
 
 class RegisterVerifyRequest(BaseModel):
@@ -188,14 +194,34 @@ def _rate_limited(retry_after: int) -> HTTPException:
 
 
 @router.post("/register/options", dependencies=[Depends(own_account())])
-async def register_options(body: PasswordProof, request: Request) -> dict[str, Any]:
+async def register_options(body: RegisterOptionsRequest, request: Request) -> dict[str, Any]:
     """Creation options for a new passkey (``navigator.credentials.create``).
-    Needs the current password, checked like a login. Valid
-    ``CEREMONY_TTL_S``, once, from this session only."""
+    Needs the current password, checked like a login, and, when the account's
+    TOTP factor is on, a TOTP or recovery code too (the proof ``/2fa/disable``
+    asks: a passkey signs in without the code, so the password alone must not
+    add one; 403 ``auth_2fa_required`` without it). Valid ``CEREMONY_TTL_S``,
+    once, from this session only."""
+    from app.routers.auth_totp import _check_code
+
     principal = _own_session(request)
     user = principal.user
     rp = await _relying_party(request)
-    await _check_current_password(request, user, body.password, "passkey.added")
+    if user.totp_enabled_at is None:
+        await _check_current_password(request, user, body.password, "passkey.added")
+    else:
+        await _check_current_password(
+            request, user, body.password, "passkey.added", record_success=False
+        )
+        if body.code is None:
+            await audit.record_request(
+                request,
+                "passkey.added",
+                "failure",
+                target=audit.user_target(user.id),
+                details={"reason": "second_factor_missing"},
+            )
+            raise _error(403, "auth_2fa_required")
+        await _check_code(request, user, body.code, "passkey.added", allow_recovery=True)
     existing = await PasskeyRepository.list_for_user(user.id)
     if len(existing) >= MAX_PASSKEYS_PER_USER:
         raise _error(409, "auth_passkey_limit")
@@ -249,8 +275,8 @@ async def register_verify(body: RegisterVerifyRequest, request: Request) -> Pass
 
 @router.get("/credentials", response_model=list[PasskeyView], dependencies=[Depends(own_account())])
 async def list_passkeys(request: Request) -> list[PasskeyView]:
-    """The caller's passkeys: names and dates, never a key."""
-    principal = _require(request)
+    """The caller's passkeys: names and dates, never a key. Session only."""
+    principal = _own_session(request)
     return [_view(p) for p in await PasskeyRepository.list_for_user(principal.user_id)]
 
 
@@ -305,14 +331,26 @@ async def login_options(body: LoginOptionsRequest, request: Request) -> dict[str
     per address."""
     _refuse_under_ingress(request)
     rp = await _relying_party(request)
-    address = ratelimit.login_limiter.address_key(request.scope)
-    if not webauthn.options_limiter.allow(address):
-        raise _rate_limited(webauthn.options_limiter.retry_after(address))
+    limiter = ratelimit.login_limiter
+    address = limiter.address_key(request.scope)
+    try:
+        # The login limiter's address rules first: an address refused for its
+        # failed sign-ins gets no challenge either.
+        limiter.check(address, webauthn.OPTIONS_LIMITER_NAME)
+    except ratelimit.LoginDelayed as delayed:
+        raise _rate_limited(delayed.retry_after_s) from None
+    # Per client: the address key, else (shared address) the client address as seen.
+    bucket = address or client_ip(request.scope)
+    if not webauthn.options_limiter.allow(bucket):
+        raise _rate_limited(webauthn.options_limiter.retry_after(bucket))
     client = _client(request)
     if body.pending_token is None:
-        challenge = webauthn.ceremonies.issue(
-            "login", rp.rp_id, None, webauthn.login_binding(client)
-        )
+        try:
+            challenge = webauthn.ceremonies.issue(
+                "login", rp.rp_id, None, webauthn.login_binding(client)
+            )
+        except webauthn.CeremoniesFull:
+            raise _rate_limited(int(webauthn.CEREMONY_TTL_S)) from None
         return webauthn.authentication_options(rp, challenge, None, require_user_verification=True)
     token = body.pending_token.get_secret_value()
     user = await _pending_user(request, token)

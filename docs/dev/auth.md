@@ -966,13 +966,17 @@ signature code here), routes in `app/routers/auth_webauthn.py`, storage in
   resolves for the request, so it is false on `http://<LAN IP>` and true through
   the relay.
 - **Ceremonies** (`Ceremonies`, in memory). Each options call stores a 32-byte
-  challenge for 5 minutes (`CEREMONY_TTL_S`, 1024 at most, oldest dropped) with
+  challenge for 5 minutes (`CEREMONY_TTL_S`) with
   its purpose, RP id, account and binding: the session id for a registration,
   the pending token's SHA-256 and the client (`totp.client_binding`) for a
   second factor, the client for a passwordless sign-in. The verify call finds it
   by the challenge inside `clientDataJSON` and removes it before any check: a
   challenge is used once, right or wrong, and only by the session or client it
-  was issued to. A restart forgets them.
+  was issued to. A restart forgets them. Each purpose has its own cap
+  (`CEREMONY_MAX_ENTRIES`: `login` 1024, `register` 256, `second_factor` 1024),
+  so no purpose pushes another's out; a full `login` table (public) refuses a
+  new challenge (429) instead of evicting one before its TTL, the two
+  authenticated tables drop their own oldest entry.
 - **Policy.** Registration: `attestation: none`, resident key preferred, user
   verification preferred, the account's passkeys in `excludeCredentials`, the
   user handle `user_handle()` (SHA-256 of the account id and creation time,
@@ -987,14 +991,23 @@ signature code here), routes in `app/routers/auth_webauthn.py`, storage in
   one assertion cannot both pass. Synced passkeys that always report 0 stay at 0.
 - **Re-authentication.** `register/options` and `DELETE /credentials/{id}` need
   the current password, checked like `PATCH /auth/me` (login delays, argon2id
-  queue): a stolen session cannot add a way in, or remove one, without it.
+  queue): a stolen session cannot add a way in, or remove one, without it. With
+  TOTP on, `register/options` also needs a TOTP or recovery code (`code`, the
+  proof `/2fa/disable` asks, checked by `_check_code`; the password with
+  `record_success=False`; 403 `auth_2fa_required` without it): a passwordless
+  sign-in skips TOTP, so the password alone must not add one.
+- **Both factors.** A passwordless sign-in (user verification required)
+  replaces the password **and** the TOTP code; the user docs say so.
 - **Sign-in.** An assertion is checked under the login delays keyed on the
   client's address and the **owner's** name: a failure (bad signature, origin,
   RP id, no user verification, counter) is `record_failure`, so password, code
   and passkey failures share one budget; an unknown credential id writes a
   `login` `failure` row (`passkey_unknown`). `POST /auth/webauthn/login/options`
-  is also limited to 20 a minute per address (`OptionsLimiter`, 429
-  `auth_rate_limited`). A passwordless sign-in opens the session at once, also
+  first runs the login limiter's address rules (`login_limiter.check` under
+  `OPTIONS_LIMITER_NAME`, a name no failure is recorded for: an address refused
+  for its failed sign-ins gets no challenge), then 20 a minute per client
+  (`OptionsLimiter`, keyed by the limiter's address key, else the client
+  address on a shared-address install; 429 `auth_rate_limited`). A passwordless sign-in opens the session at once, also
   for an account with TOTP (a passkey with user verification is already two
   factors); the `login` row says `details.method = passkey`.
 - **Second factor.** A passkey never makes the password ask for more: an
@@ -1076,7 +1089,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `DELETE /auth/sessions` | own account (not `kiosk`) | Revokes all the user's sessions except this one: `{revoked}` |
 | `DELETE /auth/sessions/{id}` | own account (not `kiosk`) | Revokes one of the user's sessions; 404 `auth_session_not_found` for anyone else's |
 | `GET /auth/me` | own account (not `kiosk`) | Profile: `id, username, display_name, role, provider, has_password, must_change_password, totp_enabled, created_at` |
-| `POST /auth/webauthn/register/options` | own account, session only | `{password}`: creation options (`navigator.credentials.create`, browser JSON). 400 `auth_passkey_unsupported`, 403 `auth_passkey_not_applicable`, `auth_invalid_credentials`, 409 `auth_passkey_limit`, 429 |
+| `POST /auth/webauthn/register/options` | own account, session only | `{password, code?}` (`code` required with TOTP on: 403 `auth_2fa_required`, `auth_2fa_invalid`): creation options (`navigator.credentials.create`, browser JSON). 400 `auth_passkey_unsupported`, 403 `auth_passkey_not_applicable`, `auth_invalid_credentials`, 409 `auth_passkey_limit`, 429 |
 | `POST /auth/webauthn/register/verify` | own account, session only | `{credential, name (1-64)}`: stores the passkey, answers it like the list. 400 `auth_passkey_invalid` (challenge unknown, used, from another session, wrong origin or RP id), 409 `auth_passkey_exists`, `auth_passkey_limit` |
 | `GET /auth/webauthn/credentials` | own account | `[{id, name, created_at, last_used_at, transports, aaguid, backup_eligible, backed_up}]`; never a key or credential id |
 | `DELETE /auth/webauthn/credentials/{id}` | own account, session only | `{password}`. 403 `auth_invalid_credentials`, 404 `auth_passkey_not_found` (also someone else's) |

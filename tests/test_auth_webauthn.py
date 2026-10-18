@@ -672,3 +672,117 @@ async def test_a_credential_id_is_stored_once_and_the_count_is_bounded():
     # The counter moved meanwhile: a concurrent use of the same assertion loses.
     assert not await PasskeyRepository.record_use(first.id, 0, 5, True)
     assert await PasskeyRepository.delete_all_for_user(1) == MAX_PASSKEYS_PER_USER
+
+
+# --- Review round 1 ---------------------------------------------------------------
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    now = {"t": 1_800_000_015.0}
+    monkeypatch.setattr(totp, "clock", lambda: now["t"])
+    return now
+
+
+async def test_with_totp_on_the_password_alone_cannot_add_a_passkey(public_address, clock):
+    """A stolen session and the password must not give a way in that skips TOTP."""
+    await create_user()
+    authenticator = SoftAuthenticator()
+    async with make_client(PUBLIC) as owner:
+        await login(owner)
+        secret = await _enrol_totp(owner)
+    async with make_client(PUBLIC) as attacker:
+        token = (await login(attacker)).json()["second_factor"]["pending_token"]
+        clock["t"] += totp.PERIOD_S
+        signed_in = await attacker.post(
+            "/api/auth/login/2fa",
+            json={"pending_token": token, "code": pyotp.TOTP(secret).at(clock["t"])},
+        )
+        assert signed_in.status_code == 200
+        url = "/api/auth/webauthn/register/options"
+        refused = await attacker.post(url, json={"password": PASSWORD})
+        assert refused.status_code == 403
+        assert refused.json()["detail"]["code"] == "auth_2fa_required"
+        wrong = await attacker.post(url, json={"password": PASSWORD, "code": "000000"})
+        assert wrong.status_code == 403
+        assert wrong.json()["detail"]["code"] == "auth_2fa_invalid"
+    assert await PasskeyRepository.list_for_user(1) == []
+    async with make_client(PUBLIC) as client:
+        assert (await _passwordless(client, authenticator)).status_code == 401
+
+    # The owner, with the password and a fresh code, can.
+    async with make_client(PUBLIC) as owner:
+        token = (await login(owner)).json()["second_factor"]["pending_token"]
+        clock["t"] += totp.PERIOD_S
+        await owner.post(
+            "/api/auth/login/2fa",
+            json={"pending_token": token, "code": pyotp.TOTP(secret).at(clock["t"])},
+        )
+        clock["t"] += totp.PERIOD_S
+        options = await owner.post(
+            url, json={"password": PASSWORD, "code": pyotp.TOTP(secret).at(clock["t"])}
+        )
+        assert options.status_code == 200, options.text
+        credential = authenticator.create(options.json(), PUBLIC)
+        stored = await owner.post(
+            "/api/auth/webauthn/register/verify", json={"credential": credential, "name": "Key"}
+        )
+        assert stored.status_code == 200
+    assert "second_factor_missing" in await _audit_text()
+
+
+def test_the_public_table_refuses_instead_of_evicting_and_purposes_stay_apart(monkeypatch):
+    monkeypatch.setattr(
+        webauthn, "CEREMONY_MAX_ENTRIES", {"login": 3, "register": 2, "second_factor": 2}
+    )
+    now = {"t": 0.0}
+    store = webauthn.Ceremonies(clock=lambda: now["t"])
+    pending = store.issue("register", "meshloom.example", 1, "session:a")
+    second = store.issue("second_factor", "meshloom.example", 1, "pending:x")
+    first_login = store.issue("login", "meshloom.example", None, "client:a")
+    for _ in range(2):
+        store.issue("login", "meshloom.example", None, "client:flood")
+    with pytest.raises(webauthn.CeremoniesFull):
+        store.issue("login", "meshloom.example", None, "client:flood")
+    # The flood pushed out nothing: the in-flight ceremonies still complete.
+    assert store.take(first_login, "login", "client:a", "meshloom.example")
+    assert store.take(pending, "register", "session:a", "meshloom.example")
+    assert store.take(second, "second_factor", "pending:x", "meshloom.example")
+    # Expired challenges make room again.
+    now["t"] = webauthn.CEREMONY_TTL_S + 1
+    store.issue("login", "meshloom.example", None, "client:b")
+    # An authenticated table drops its own oldest entry.
+    old = store.issue("register", "meshloom.example", 1, "session:a")
+    store.issue("register", "meshloom.example", 1, "session:b")
+    store.issue("register", "meshloom.example", 1, "session:c")
+    with pytest.raises(webauthn.PasskeyInvalid):
+        store.take(old, "register", "session:a", "meshloom.example")
+
+
+async def test_options_go_through_the_login_limiter_and_a_full_table(public_address, monkeypatch):
+    from app.auth import ratelimit
+
+    def refuse(address, username, device=None):
+        raise ratelimit.LoginDelayed("ip", 42.0, True)
+
+    async with make_client(PUBLIC) as client:
+        monkeypatch.setattr(ratelimit.login_limiter, "check", refuse)
+        refused = await client.post("/api/auth/webauthn/login/options", json={})
+        assert refused.status_code == 429
+        assert refused.headers["Retry-After"] == "42"
+        monkeypatch.undo()
+        monkeypatch.setattr(
+            webauthn, "CEREMONY_MAX_ENTRIES", {"login": 1, "register": 1, "second_factor": 1}
+        )
+        assert (await client.post("/api/auth/webauthn/login/options", json={})).status_code == 200
+        full = await client.post("/api/auth/webauthn/login/options", json={})
+        assert full.status_code == 429
+
+
+async def test_listing_passkeys_needs_a_session(public_address, sign_in_as):
+    # A trusted network (or Basic) principal is not a session: no list.
+    sign_in_as("member", credential="trusted_network")
+    async with make_client(PUBLIC) as client:
+        response = await client.get("/api/auth/webauthn/credentials")
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "auth_passkey_not_applicable"

@@ -157,7 +157,7 @@ Les écrans pour ajouter et utiliser les passkeys arrivent dans une version ult�
 
 | Requête | Ce qu’elle fait |
 |---|---|
-| `POST /api/auth/webauthn/register/options` | `{"password"}` : les options à passer à `navigator.credentials.create()`. |
+| `POST /api/auth/webauthn/register/options` | `{"password"}`, plus `"code"` (de l’application, ou un code de secours) quand la double authentification est activée : les options à passer à `navigator.credentials.create()`. |
 | `POST /api/auth/webauthn/register/verify` | `{"credential", "name"}` : la réponse du navigateur et un nom pour la passkey. Valable 5 minutes, une fois, depuis la même session. |
 | `GET /api/auth/webauthn/credentials` | Vos passkeys : nom, création, dernière utilisation. |
 | `DELETE /api/auth/webauthn/credentials/<id>` | `{"password"}` : en retire une. Votre mot de passe vous connecte toujours. |
@@ -165,6 +165,7 @@ Les écrans pour ajouter et utiliser les passkeys arrivent dans une version ult�
 | `POST /api/auth/webauthn/login/verify` | `{"credential"}` : la réponse du navigateur ; ouvre la session. |
 
 - **Comme second facteur.** Avec la [double authentification](#la-double-authentification) activée, une passkey peut remplacer le code après le mot de passe : `POST /api/auth/login` indique `passkey` dans `second_factor.methods`, `POST /api/auth/webauthn/login/options` avec `{"pending_token"}` donne les options, et `POST /api/auth/login/2fa` accepte `{"pending_token", "passkey"}`. Sans double authentification, une passkey ne change rien à la connexion par mot de passe.
+- **Une passkey remplace à la fois le mot de passe et le code.** Se connecter avec une passkey seule suffit, même avec la double authentification activée : l’appareil vérifie que c’est vous (empreinte, visage ou code), ce qui vaut pour les deux facteurs. C’est pourquoi ajouter une passkey demande votre mot de passe **et** un code quand la double authentification est activée. Si vous pensez que quelqu’un a utilisé votre compte, passez vos passkeys en revue, retirez celles que vous ne reconnaissez pas, puis changez votre mot de passe.
 - **Les échecs comptent comme de mauvais mots de passe**, avec les mêmes délais. Chaque défi ne sert qu’une fois et expire au bout de 5 minutes. Une passkey dont le compteur recule (signe d’une clé de sécurité copiée) est refusée.
 - **Appareil perdu.** Connectez-vous avec votre mot de passe et retirez sa passkey. Un administrateur peut retirer toutes les passkeys d’un utilisateur sur la machine avec `meshloom-admin remove-passkeys <utilisateur>` (plus bas).
 

@@ -157,7 +157,7 @@ The screens to add and use passkeys come with a later version; the API is ready 
 
 | Request | What it does |
 |---|---|
-| `POST /api/auth/webauthn/register/options` | `{"password"}`: the options to pass to `navigator.credentials.create()`. |
+| `POST /api/auth/webauthn/register/options` | `{"password"}`, plus `"code"` (from the app, or a recovery code) when two-factor authentication is on: the options to pass to `navigator.credentials.create()`. |
 | `POST /api/auth/webauthn/register/verify` | `{"credential", "name"}`: the browser's answer and a name for the passkey. Valid 5 minutes, once, from the same session. |
 | `GET /api/auth/webauthn/credentials` | Your passkeys: name, creation, last use. |
 | `DELETE /api/auth/webauthn/credentials/<id>` | `{"password"}`: removes one. Your password still signs you in. |
@@ -165,6 +165,7 @@ The screens to add and use passkeys come with a later version; the API is ready 
 | `POST /api/auth/webauthn/login/verify` | `{"credential"}`: the browser's answer; opens the session. |
 
 - **As a second factor.** With [two-factor authentication](#two-factor-authentication) on, a passkey can replace the code after the password: `POST /api/auth/login` lists `passkey` in `second_factor.methods`, `POST /api/auth/webauthn/login/options` with `{"pending_token"}` gives the options, and `POST /api/auth/login/2fa` takes `{"pending_token", "passkey"}`. Without two-factor authentication, a passkey changes nothing to signing in with the password.
+- **A passkey replaces both the password and the code.** Signing in with a passkey alone is enough, even with two-factor authentication on: the device checks it is you (fingerprint, face or PIN), which counts as both factors. That is why adding a passkey asks for your password **and** a code when two-factor authentication is on. If you think someone used your account, review your passkeys and remove the ones you do not recognise, then change your password.
 - **Failures count like wrong passwords**, with the same delays. Each challenge works once and expires after 5 minutes. A passkey whose counter goes back (a sign of a copied security key) is refused.
 - **Lost device.** Sign in with your password and remove its passkey. An administrator can remove all of a user's passkeys on the machine with `meshloom-admin remove-passkeys <user>` (below).
 
