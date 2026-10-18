@@ -117,6 +117,12 @@ labels:
 
 La barre latérale de Home Assistant n’a besoin d’aucune entrée : Meshloom reconnaît le Superviseur à sa propre adresse.
 
+## En-têtes de sécurité
+
+Quand le navigateur atteint Meshloom directement en HTTPS, Meshloom ajoute `Strict-Transport-Security` (un an, sans sous-domaines) pour que le navigateur reste en HTTPS sur cette adresse. Il ne l'envoie jamais en HTTP simple : une adresse locale comme `http://192.168.1.20:8000` n'est donc pas figée en HTTPS. Il ne l'envoie jamais non plus via la barre latérale de Home Assistant ni via le relais, où l'adresse appartient à quelqu'un d'autre. Derrière un reverse-proxy, l'en-tête n'est envoyé que si le proxy figure dans les [Proxies de confiance](#proxies-de-confiance) et indique `X-Forwarded-Proto: https` ; sinon, laissez le proxy envoyer le sien.
+
+Les réponses de connexion (`/api/auth/`) portent `Cache-Control: no-store` : ni navigateur ni proxy ne les conserve. Une `Permissions-Policy` coupe la caméra et le micro pour la page et laisse au bouton de position son accès à la localisation.
+
 ## Reverse-proxy sur un sous-chemin
 
 Meshloom peut être servi sous un préfixe, par exemple `/meshcore/`, y compris via la barre latérale de Home Assistant. Les adresses des ressources, de l’API et du manifeste web sont toutes relatives : il n’y a rien d’autre à configurer, et aucun en-tête `X-Forwarded-*` n’est nécessaire, sauf `X-Forwarded-Host` pour la connexion en direct quand le proxy réécrit `Host` (voir [WebSocket](#websocket)).

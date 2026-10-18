@@ -56,6 +56,9 @@ and the OpenAPI page (`/docs`), not a table here.
   No lockout by name. 429
   `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
   every table bounded (`docs/dev/auth.md`, "Login delays").
+- `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
+  middleware): HSTS only over direct https (never ingress or relay), `no-store` on
+  `/api/auth` and `/api/remote`, `Permissions-Policy` (`docs/dev/auth.md`).
 - `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
   gate and CORS) is the only interpreter of `X-Forwarded-For` and
   `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from
