@@ -92,6 +92,8 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/auth/logout"),
         # The kiosk's one-time code exchange (``app/routers/auth_kiosk.py``).
         ("GET", "/api/auth/kiosk-session"),
+        # A device trades its pairing code for a token (``app/routers/auth_pairing.py``).
+        ("POST", "/api/auth/pair"),
     }
 )
 

@@ -19,6 +19,8 @@ export const AUDIT_FAMILIES = {
     'token.created',
     'token.revoked',
     'token.used',
+    'pairing.created',
+    'pairing.revoked',
     'pairing.used',
     'totp.enrolled',
     'totp.disabled',

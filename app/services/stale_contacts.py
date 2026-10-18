@@ -7,6 +7,8 @@
   (``app/auth/sessions.py``, ``purge_sessions``); always on.
 - Audit purge: deletes audit rows older than ``auth_settings.audit_retention_days``
   (``app/auth/audit.py``, ``purge_audit``); always on.
+- Pairing purge: deletes device pairing codes that hold no token and can no
+  longer give one (``app/auth/pairing.py``, ``purge_pairings``); always on.
 - Bounded ``PRAGMA incremental_vacuum`` so freed pages go back to the OS.
 """
 
@@ -15,6 +17,7 @@ import logging
 import time
 
 from app.auth.audit import purge_audit
+from app.auth.pairing import purge_pairings
 from app.auth.sessions import purge_sessions
 from app.auth.ws_events import WsEvent
 from app.repository import AppSettingsRepository, ContactRepository, RawPacketRepository
@@ -109,6 +112,7 @@ async def _stale_purge_loop() -> None:
             (prune_raw_packets, "Raw packet retention"),
             (purge_sessions, "Session purge"),
             (purge_audit, "Audit purge"),
+            (purge_pairings, "Pairing purge"),
             (reclaim_free_pages, "Incremental vacuum"),
         ):
             try:
