@@ -37,6 +37,8 @@ export interface FeedSnapshot {
   controlPackets: readonly RawPacket[];
   /** True when rows older than the first one may exist on the server. */
   hasOlder: boolean;
+  /** Bumped by `resetFeedForRefetch()`: the view must fetch the newest page again. */
+  epoch: number;
 }
 
 let active = false;
@@ -46,7 +48,11 @@ const ids = new Set<number>();
 let controlWorking: RawPacket[] = [];
 const controlKeys = new Set<string>();
 let hasOlder = true;
-let snapshot: FeedSnapshot = { rows: [], controlPackets: [], hasOlder: true };
+let epoch = 0;
+// Highest id ever seen, held or not: a live row older than the window is not stored (the
+// next page returns it) but reconciliation must not ask for it again.
+let highWater = 0;
+let snapshot: FeedSnapshot = { rows: [], controlPackets: [], hasOlder: true, epoch: 0 };
 let flushScheduled = false;
 const listeners = new Set<() => void>();
 
@@ -62,7 +68,7 @@ export const subscribeFeedStore = subscribe;
 
 function flush(): void {
   flushScheduled = false;
-  snapshot = { rows: [...working], controlPackets: [...controlWorking], hasOlder };
+  snapshot = { rows: [...working], controlPackets: [...controlWorking], hasOlder, epoch };
   for (const listener of listeners) {
     listener();
   }
@@ -164,6 +170,13 @@ export function isFeedStoreActive(): boolean {
 export function recordFeedMessage(msg: Message): { added: boolean; historical: boolean } {
   if (!active) return { added: false, historical: false };
   const historical = msg.historical === true;
+  if (msg.id > highWater) highWater = msg.id;
+  // A row older than the loaded window, with older rows still on the server, stays out of
+  // the array: as its new oldest row it would hide the gap below from the `before` cursor.
+  // The page that covers its position returns it (the server holds every row).
+  if (hasOlder && working.length > 0 && compare(msg, working[0]) < 0) {
+    return { added: false, historical };
+  }
   if (!insert(msg)) return { added: false, historical };
   enforceCap();
   scheduleEmit();
@@ -233,16 +246,35 @@ export function renameFeedConversation(oldKey: string, newKey: string): void {
 export function mergeHistoryPage(rows: readonly Message[], opts: { hasOlder: boolean }): void {
   if (!active) return;
   hasOlder = opts.hasOlder;
-  for (const row of rows) insert(row);
+  for (const row of rows) {
+    if (row.id > highWater) highWater = row.id;
+    insert(row);
+  }
   enforceCap();
   scheduleEmit();
 }
 
-/** Highest message id held, or 0 when empty. */
+/**
+ * Merge rows fetched by `since_id` reconciliation. Unlike `mergeHistoryPage` it leaves
+ * `hasOlder` alone, and a row older than the window is dropped as a live one is.
+ */
+export function mergeReconciledRows(rows: readonly Message[]): void {
+  if (!active) return;
+  for (const row of rows) recordFeedMessage(row);
+}
+
+/** Highest message id seen (held or not), or 0 when nothing was loaded. */
 export function maxKnownId(): number {
-  let max = 0;
-  for (const row of working) if (row.id > max) max = row.id;
-  return max;
+  return highWater;
+}
+
+/**
+ * Empty the store after a reconciliation that could not catch up: the view sees the
+ * bumped `epoch` and fetches the newest page again.
+ */
+export function resetFeedForRefetch(): void {
+  clearFeedRows();
+  epoch += 1;
 }
 
 /**
@@ -253,6 +285,7 @@ export function maxKnownId(): number {
 export function clearFeedRows(): void {
   working = [];
   ids.clear();
+  highWater = 0;
   hasOlder = true;
   scheduleEmit();
 }
@@ -264,8 +297,10 @@ export function resetFeedStore(): void {
   ids.clear();
   controlWorking = [];
   controlKeys.clear();
+  highWater = 0;
+  epoch = 0;
   hasOlder = true;
-  snapshot = { rows: [], controlPackets: [], hasOlder: true };
+  snapshot = { rows: [], controlPackets: [], hasOlder: true, epoch: 0 };
   flushScheduled = false;
   for (const listener of listeners) listener();
 }

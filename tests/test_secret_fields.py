@@ -56,7 +56,7 @@ def test_redact_config_masks_set_secrets_and_summarises_apprise_urls():
     assert redact_config("webhook", {"hmac_secret": ""})["hmac_secret"] == ""
     assert redact_config("sqs", {"secret_access_key": "s", "access_key_id": "AKIA"}) == {
         "secret_access_key": REDACTED,
-        "access_key_id": "AKIA",
+        "access_key_id": REDACTED,
     }
 
 
@@ -110,7 +110,7 @@ def test_scrub_error_keeps_a_user_host_url_host_readable():
 
 # -- a kept secret never follows a destination change ---------------------------
 
-# (type, stored config, secret key, destination key, new destination value)
+# (type, stored config, secret key(s), destination key, new destination value)
 DESTINATION_MOVES = [
     (
         "webhook",
@@ -155,7 +155,7 @@ DESTINATION_MOVES = [
             "access_key_id": "AKIA",
             "secret_access_key": "sk0",
         },
-        "secret_access_key",
+        ("access_key_id", "secret_access_key"),
         "endpoint_url",
         "https://evil.example.org",
     ),
@@ -163,20 +163,28 @@ DESTINATION_MOVES = [
 DESTINATION_IDS = [f"{case[0]}-{case[3]}" for case in DESTINATION_MOVES]
 
 
+def _secret_keys(key: str | tuple[str, ...]) -> tuple[str, ...]:
+    return key if isinstance(key, tuple) else (key,)
+
+
 @pytest.mark.parametrize(
     ("kind", "config", "key", "field", "value"), DESTINATION_MOVES, ids=DESTINATION_IDS
 )
 def test_merge_secrets_refuses_a_kept_secret_on_a_new_destination(kind, config, key, field, value):
-    without_secret = {k: v for k, v in config.items() if k != key}
-    for kept in ({key: REDACTED}, {}):
+    keys = _secret_keys(key)
+    without_secret = {k: v for k, v in config.items() if k not in keys}
+    for kept in (dict.fromkeys(keys, REDACTED), {}):
         with pytest.raises(SecretRequiredError) as exc:
             merge_secrets(kind, config, {**without_secret, **kept, field: value})
-        assert exc.value.keys == [key]
+        assert exc.value.keys == list(keys)
         assert exc.value.detail()["code"] == "secret_required"
-    assert merge_secrets(kind, config, {**config, key: "fresh", field: value})[key] == "fresh"
-    assert merge_secrets(kind, config, {**config, key: "", field: value})[key] == ""
+    fresh = merge_secrets(kind, config, {**config, **dict.fromkeys(keys, "fresh"), field: value})
+    assert all(fresh[k] == "fresh" for k in keys)
+    cleared = merge_secrets(kind, config, {**config, **dict.fromkeys(keys, ""), field: value})
+    assert all(cleared[k] == "" for k in keys)
     # Same destination, spelled with the default or a string port: kept.
-    assert merge_secrets(kind, config, {**config, key: REDACTED})[key] == config[key]
+    same = merge_secrets(kind, config, {**config, **dict.fromkeys(keys, REDACTED)})
+    assert all(same[k] == config[k] for k in keys)
 
 
 def test_a_row_without_destination_keys_reads_as_the_defaults():
@@ -192,11 +200,12 @@ def test_a_row_without_destination_keys_reads_as_the_defaults():
 async def test_patch_to_a_new_destination_requires_the_secret(
     test_db, client, no_module_start, kind, config, key, field, value
 ):
+    keys = _secret_keys(key)
     row = await FanoutConfigRepository.create(
         config_type=kind, name="x", config=config, scope={"messages": "all"}, enabled=False
     )
     shown = (await client.get(f"/api/fanout/{row['id']}")).json()["config"]
-    assert shown[key] == REDACTED
+    assert all(shown[k] == REDACTED for k in keys)
 
     refused = await client.patch(
         f"/api/fanout/{row['id']}", json={"config": {**shown, field: value}}
@@ -204,18 +213,19 @@ async def test_patch_to_a_new_destination_requires_the_secret(
     assert refused.status_code == 400, refused.text
     detail = refused.json()["detail"]
     assert detail["code"] == "secret_required"
-    assert detail["params"] == {"fields": key}
+    assert detail["params"] == {"fields": ", ".join(keys)}
     stored = await FanoutConfigRepository.get(row["id"])
     assert stored is not None
     assert stored["config"] == config
 
     accepted = await client.patch(
-        f"/api/fanout/{row['id']}", json={"config": {**shown, field: value, key: "fresh"}}
+        f"/api/fanout/{row['id']}",
+        json={"config": {**shown, field: value, **dict.fromkeys(keys, "fresh")}},
     )
     assert accepted.status_code == 200, accepted.text
     stored = await FanoutConfigRepository.get(row["id"])
     assert stored is not None
-    assert stored["config"][key] == "fresh"
+    assert all(stored["config"][k] == "fresh" for k in keys)
     assert stored["config"][field] == value
 
 
@@ -239,7 +249,7 @@ async def test_crafted_restore_to_a_new_destination_drops_the_secret(
         type=kind,
         name="Row",
         enabled=False,
-        config={**config, key: REDACTED, field: value},
+        config={**config, **dict.fromkeys(_secret_keys(key), REDACTED), field: value},
         scope={"messages": "all"},
     )
     warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[entry]))
@@ -249,7 +259,7 @@ async def test_crafted_restore_to_a_new_destination_drops_the_secret(
     # Either the row moved without its secret, or (a type that needs the
     # secret to validate) it stayed where it was: never both.
     moved = stored["config"].get(field) == value
-    assert not (moved and stored["config"].get(key) == config[key])
+    assert not any(moved and stored["config"].get(k) == config[k] for k in _secret_keys(key))
 
 
 # -- acceptance: the Apprise token never leaves --------------------------------
@@ -551,3 +561,299 @@ async def test_v1_restore_to_a_new_destination_drops_the_secret(test_db, client)
     assert after.email.password == ""
     assert after.webhook.url == "https://evil.example/alerts"
     assert after.webhook.hmac_secret == ""
+
+
+# -- MSHL-275: webhook URL and headers, SQS access key id ---------------------------
+
+HOOK_URL = "https://hooks.example.org/api/webhooks/123/hook-tok-9?key=qval-9"
+HOOK_TOKENS = ("hook-tok-9", "qval-9", "Bearer hdr-tok-7")
+HOOK_CONFIG = {
+    "url": HOOK_URL,
+    "headers": {"Authorization": "Bearer hdr-tok-7", "X-Empty": ""},
+    "hmac_secret": "s0",
+}
+
+
+def _assert_no_hook_token(text: str) -> None:
+    for part in HOOK_TOKENS:
+        assert part not in text
+
+
+def test_webhook_url_and_header_values_are_redacted():
+    redacted = redact_config("webhook", HOOK_CONFIG)
+    assert redacted["url"] == REDACTED
+    assert redacted["url_redacted"] == "https://hooks.example.org/****"
+    assert redacted["headers"] == {"Authorization": REDACTED, "X-Empty": ""}
+    _assert_no_hook_token(repr(redacted))
+    assert redact_config("webhook", {"url": ""})["url_redacted"] == ""
+
+
+def test_webhook_redacted_config_sent_back_keeps_everything():
+    redacted = redact_config("webhook", HOOK_CONFIG)
+    assert merge_secrets("webhook", HOOK_CONFIG, redacted) == HOOK_CONFIG
+
+
+def test_webhook_headers_merge_by_name():
+    incoming = {
+        "url": REDACTED,
+        "headers": {"Authorization": REDACTED, "X-New": "v", "X-Ghost": REDACTED},
+    }
+    merged = merge_secrets("webhook", HOOK_CONFIG, incoming)
+    # Kept by name, added, and a removed name (X-Empty) or a sentinel with no
+    # stored value (X-Ghost) is gone.
+    assert merged["headers"] == {"Authorization": "Bearer hdr-tok-7", "X-New": "v"}
+    assert merged["url"] == HOOK_URL
+    assert merged["hmac_secret"] == "s0"
+
+
+def test_a_new_webhook_url_requires_the_headers_and_secret_again():
+    moved = {"url": "https://evil.example.org/x", "headers": {"Authorization": REDACTED}}
+    with pytest.raises(SecretRequiredError) as exc:
+        merge_secrets("webhook", HOOK_CONFIG, moved)
+    assert exc.value.keys == ["headers", "hmac_secret"]
+    retyped = merge_secrets(
+        "webhook",
+        HOOK_CONFIG,
+        {**moved, "headers": {"Authorization": "Bearer other"}, "hmac_secret": ""},
+    )
+    assert retyped["headers"] == {"Authorization": "Bearer other"}
+    # A header with no value to keep is no secret to follow the new URL.
+    plain = merge_secrets(
+        "webhook", HOOK_CONFIG, {**moved, "headers": {"X-Plain": "1"}, "hmac_secret": ""}
+    )
+    assert plain["headers"] == {"X-Plain": "1"}
+
+
+def test_a_cleared_headers_secret_empties_to_an_object():
+    assert merge_secrets("webhook", HOOK_CONFIG, {"url": REDACTED, "headers": ""})["headers"] == {}
+    assert (
+        merge_secrets("webhook", None, {"url": "https://a.example", "headers": None})["headers"]
+        == {}
+    )
+
+
+def test_webhook_url_and_header_values_are_scrubbed_from_errors():
+    secrets = config_secret_values("webhook", HOOK_CONFIG)
+    scrubbed = scrub_error(f"error POST {HOOK_URL} with Bearer hdr-tok-7", secrets)
+    assert scrubbed is not None
+    assert re.search(r"https://hooks\.example\.org/", scrubbed)
+    _assert_no_hook_token(scrubbed)
+    assert "hdr-tok-7" not in scrubbed
+
+
+def test_sqs_access_key_id_is_scrubbed_from_errors():
+    secrets = config_secret_values("sqs", {"access_key_id": "AKIAEXAMPLE1"})
+    assert scrub_error("bad key AKIAEXAMPLE1", secrets) == "bad key ****"
+
+
+@pytest.mark.asyncio
+async def test_webhook_api_never_returns_the_url_or_header_values(test_db, client, no_module_start):
+    row = await FanoutConfigRepository.create(
+        config_type="webhook",
+        name="x",
+        config=HOOK_CONFIG,
+        scope={"messages": "all"},
+        enabled=False,
+    )
+    listed = await client.get("/api/fanout")
+    one = await client.get(f"/api/fanout/{row['id']}")
+    for response in (listed, one):
+        assert response.status_code == 200
+        _assert_no_hook_token(response.text)
+    shown = one.json()["config"]
+    assert shown["url_redacted"] == "https://hooks.example.org/****"
+
+    saved = await client.patch(
+        f"/api/fanout/{row['id']}", json={"config": {**shown, "method": "PUT"}}
+    )
+    assert saved.status_code == 200, saved.text
+    _assert_no_hook_token(saved.text)
+    stored = await FanoutConfigRepository.get(row["id"])
+    assert stored is not None
+    assert stored["config"]["url"] == HOOK_URL
+    assert stored["config"]["headers"] == HOOK_CONFIG["headers"]
+    assert stored["config"]["method"] == "PUT"
+    assert "url_redacted" not in stored["config"]
+
+
+@pytest.mark.asyncio
+async def test_webhook_url_change_without_headers_is_400(test_db, client, no_module_start):
+    row = await FanoutConfigRepository.create(
+        config_type="webhook",
+        name="x",
+        config={"url": HOOK_URL, "headers": {"Authorization": "Bearer hdr-tok-7"}},
+        scope={"messages": "all"},
+        enabled=False,
+    )
+    shown = (await client.get(f"/api/fanout/{row['id']}")).json()["config"]
+    refused = await client.patch(
+        f"/api/fanout/{row['id']}",
+        json={"config": {**shown, "url": "https://evil.example.org/x"}},
+    )
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["detail"]["params"] == {"fields": "headers"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_restore_with_clear_values_keeps_working(backup_db, no_module_start):
+    """A 4.18.x backup holds the URL, headers and access key id in clear."""
+    sqs_config = {
+        "queue_url": "https://sqs.eu-west-1.amazonaws.com/1/q",
+        "region_name": "eu-west-1",
+        "access_key_id": "AKIAEXAMPLE1",
+        "secret_access_key": "sk0",
+    }
+    entries = [
+        BackupFanoutConfig(
+            id="hook-1",
+            type="webhook",
+            name="Hook",
+            enabled=False,
+            config=HOOK_CONFIG,
+            scope={"messages": "all"},
+        ),
+        BackupFanoutConfig(
+            id="sqs-1",
+            type="sqs",
+            name="Queue",
+            enabled=False,
+            config=sqs_config,
+            scope={"messages": "all"},
+        ),
+    ]
+    warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=entries))
+    assert not [w for w in warnings if w.startswith(("fanout_invalid", "secret_dropped"))]
+    hook = await FanoutConfigRepository.get("hook-1")
+    queue = await FanoutConfigRepository.get("sqs-1")
+    assert hook is not None and queue is not None
+    assert hook["config"]["url"] == HOOK_URL
+    assert hook["config"]["headers"] == HOOK_CONFIG["headers"]
+    assert queue["config"]["access_key_id"] == "AKIAEXAMPLE1"
+
+
+@pytest.mark.asyncio
+async def test_restore_to_a_new_url_drops_the_kept_headers(backup_db, no_module_start):
+    await FanoutConfigRepository.create(
+        config_type="webhook",
+        name="Hook",
+        config=HOOK_CONFIG,
+        scope={"messages": "all"},
+        enabled=False,
+        config_id="hook-1",
+    )
+    entry = BackupFanoutConfig(
+        id="hook-1",
+        type="webhook",
+        name="Hook",
+        enabled=False,
+        config={
+            "url": "https://evil.example.org/x",
+            "headers": {"Authorization": REDACTED},
+            "hmac_secret": REDACTED,
+        },
+        scope={"messages": "all"},
+    )
+    warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[entry]))
+    assert "secret_dropped_destination_changed:Hook" in warnings
+    stored = await FanoutConfigRepository.get("hook-1")
+    assert stored is not None
+    assert stored["config"]["url"] == "https://evil.example.org/x"
+    assert stored["config"]["headers"] == {}
+    assert stored["config"]["hmac_secret"] == ""
+
+
+@pytest.mark.asyncio
+async def test_notification_webhook_url_is_write_only(test_db, client):
+    await _store_destinations()
+    settings = await client.get("/api/settings")
+    webhook = settings.json()["notification_destinations"]["webhook"]
+    assert webhook["url"] == REDACTED
+    assert webhook["url_redacted"] == "https://example.org/****"
+    assert "example.org/alerts" not in settings.text
+
+    # The form sent back: URL and HMAC secret kept, no secret_required.
+    saved = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"webhook": {**webhook, "hmac_secret": REDACTED}}},
+    )
+    assert saved.status_code == 200, saved.text
+    assert "example.org/alerts" not in saved.text
+    after = (await AppSettingsRepository.get()).notification_destinations
+    assert after.webhook.url == "https://example.org/alerts"
+    assert after.webhook.hmac_secret == "hmac-secret"
+    assert after.webhook.url_redacted is None
+
+    cleared = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"webhook": {"url": "", "hmac_secret": ""}}},
+    )
+    assert cleared.status_code == 200, cleared.text
+    after = (await AppSettingsRepository.get()).notification_destinations
+    assert after.webhook.url == ""
+
+
+@pytest.mark.asyncio
+async def test_json_backup_leaves_out_the_notification_webhook_url(test_db, client):
+    await _store_destinations()
+    response = await client.get("/api/settings/backup/json")
+    assert "example.org/alerts" not in response.text
+    document = response.json()
+    assert document["secret_omitted"]["settings.notification_destinations.webhook.url"] is True
+    assert "url_redacted" not in document["settings"]["notification_destinations"]["webhook"]
+
+    restored = await client.post("/api/settings/backup/restore", json={**document, "confirm": True})
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["warnings"] == []
+    after = (await AppSettingsRepository.get()).notification_destinations
+    assert after.webhook.url == "https://example.org/alerts"
+    assert after.webhook.hmac_secret == "hmac-secret"
+
+
+@pytest.mark.asyncio
+async def test_legacy_v1_restore_with_a_clear_webhook_url(test_db, client):
+    """A 4.18.x JSON backup holds the notification webhook URL in clear."""
+    document = (await client.get("/api/settings/backup/json")).json()
+    webhook = document["settings"]["notification_destinations"]["webhook"]
+    webhook["url"] = "https://example.org/legacy"
+    webhook["hmac_secret"] = "legacy-secret"
+    restored = await client.post("/api/settings/backup/restore", json={**document, "confirm": True})
+    assert restored.status_code == 200, restored.text
+    after = (await AppSettingsRepository.get()).notification_destinations
+    assert after.webhook.url == "https://example.org/legacy"
+    assert after.webhook.hmac_secret == "legacy-secret"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://hooks.example.org;token=SECRET123/x", "https://****"),
+        ("https://hooks.example.org%2Ftok/x", "https://****"),
+        (
+            "https://user:pw@hooks.example.org:8443/a?b=c",
+            "https://****@hooks.example.org:8443/****",
+        ),
+        ("http://[::1]:1880/hook", "http://[::1]:1880/****"),
+        ("http://192.168.1.10/hook", "http://192.168.1.10/****"),
+        ("https://HOOKS.Example.org", "https://hooks.example.org"),
+    ],
+)
+def test_redact_url_shows_only_a_valid_host(url, expected):
+    from app.net.apprise_urls import redact_url
+
+    assert redact_url(url) == expected
+    assert "secret123" not in redact_url(url).lower()
+
+
+def test_scrubbing_a_webhook_url_keeps_the_host_readable():
+    url = "https://api.example.com/api/webhooks/123/tok-9"
+    scrubbed = scrub_error(f"error {url}", config_secret_values("webhook", {"url": url}))
+    assert scrubbed is not None
+    assert re.search(r"https://api\.example\.com/", scrubbed)
+    assert "tok-9" not in scrubbed
+
+
+def test_a_host_with_non_host_characters_is_scrubbed_as_a_token():
+    url = "https://hooks.example.org;token=SECRET123/x"
+    scrubbed = scrub_error(f"error {url}", config_secret_values("webhook", {"url": url}))
+    assert scrubbed is not None
+    assert "SECRET123" not in scrubbed

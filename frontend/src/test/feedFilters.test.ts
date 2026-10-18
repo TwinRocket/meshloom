@@ -242,11 +242,13 @@ describe('day separators', () => {
       message({ id: 2, received_at: at('2026-03-01T23:59:00') }),
       message({ id: 3, received_at: at('2026-03-02T00:01:00') }),
     ];
-    expect(
-      buildFeedItems(rows).map((i) =>
-        i.kind === 'day' ? 'day' : i.kind === 'row' ? i.row.id : i.key
-      )
-    ).toEqual(['day', 1, 2, 'day', 3]);
+    expect(buildFeedItems(rows).map((i) => (i.kind === 'row' ? i.row.id : i.kind))).toEqual([
+      'day',
+      1,
+      2,
+      'day',
+      3,
+    ]);
     expect(buildFeedItems([])).toEqual([]);
   });
 
@@ -300,7 +302,7 @@ describe('interleaving control entries', () => {
     const rows = [message({ id: 1, received_at: 100 }), message({ id: 2, received_at: 300 })];
     const controls = [entry('a', 100), entry('b', 200), entry('c', 400)];
     expect(
-      buildFeedItems(rows, controls)
+      buildFeedItems(rows, null, controls)
         .filter((i) => i.kind !== 'day')
         .map((i) => i.key)
     ).toEqual(['row:1', 'control:a', 'control:b', 'row:2', 'control:c']);

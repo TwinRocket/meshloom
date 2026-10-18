@@ -45,7 +45,15 @@ import {
 import { buildFeedNodes, visibleControlEntries } from './feedControl';
 import { FeedControlRow, type FeedControlActions } from './FeedControlRow';
 import { FeedNodesFacet } from './FeedNodesFacet';
-import { buildFeedItems, createDayLabeler } from './feedDays';
+import { buildFeedItems, createDayLabeler, type FeedItem } from './feedDays';
+import {
+  firstRowAfterMark,
+  lastReachedMark,
+  lastSeenOf,
+  loadFeedLastSeen,
+  saveFeedLastSeen,
+} from './feedLastSeen';
+import { pickAnchor, scrollShiftForAnchor, type ScrollAnchor } from './feedScroll';
 import type { FeedRowActions } from './feedActions';
 import { FeedFilterChips } from './FeedFilterChips';
 import {
@@ -126,7 +134,7 @@ export function FeedView({
   onOpenContactInfo,
 }: FeedViewProps) {
   const { t, i18n } = useTranslation();
-  const { rows, controlPackets, hasOlder } = useFeedRows();
+  const { rows, controlPackets, hasOlder, epoch } = useFeedRows();
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
@@ -142,6 +150,10 @@ export function FeedView({
   const [inspected, setInspected] = useState<RawPacket | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
+  // The "where was I" mark is read once per visit: the separator then stays on the row it
+  // named, whatever arrives and whatever the mark becomes when the view hides.
+  const [lastSeenAtOpen] = useState(loadFeedLastSeen);
+  const [newSinceId, setNewSinceId] = useState<number | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const spacerRef = useRef<HTMLDivElement | null>(null);
@@ -152,10 +164,14 @@ export function FeedView({
   const visibleRowsRef = useRef<readonly Message[]>([]);
   const visibleControlRef = useRef<readonly JournalEntry[]>([]);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const previousRef = useRef<{ firstKey: string | null; scrollHeight: number }>({
-    firstKey: null,
-    scrollHeight: 0,
-  });
+  const anchorRef = useRef<ScrollAnchor | null>(null);
+  // Read on hide/unmount, when the scroller may already be detached.
+  const viewportBottomRef = useRef(0);
+  const itemsRef = useRef<FeedItem[]>([]);
+  const measurementsRef = useRef<readonly { start: number }[]>([]);
+  const knownMaxIdRef = useRef(0);
+  const separatorDecidedRef = useRef(false);
+  const epochRef = useRef(epoch);
   const tRef = useRef(t);
   const filtersRef = useRef(filters);
   const channelsRef = useRef(channels);
@@ -217,8 +233,8 @@ export function FeedView({
     [rows, effective, channels, nowSec]
   );
   const items = useMemo(
-    () => buildFeedItems(visibleRows, visibleControl),
-    [visibleRows, visibleControl]
+    () => buildFeedItems(visibleRows, newSinceId, visibleControl),
+    [visibleRows, newSinceId, visibleControl]
   );
   const itemCount = items.length;
   const resolveLabels = useMemo(
@@ -289,6 +305,45 @@ export function FeedView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey, loadNewest]);
 
+  // The store was emptied by a reconciliation that could not catch up: fetch again.
+  useEffect(() => {
+    if (epochRef.current === epoch) return;
+    epochRef.current = epoch;
+    if (queryKey === 'none') return;
+    void loadNewest(filtersToQuery(filtersRef.current));
+    // `epoch` is the trigger; the rest is read through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epoch]);
+
+  // Place the separator once, when the first page is in: later rows are live, not "since".
+  useEffect(() => {
+    if (separatorDecidedRef.current || status !== 'ready') return;
+    separatorDecidedRef.current = true;
+    setNewSinceId(firstRowAfterMark(visibleRowsRef.current, lastSeenAtOpen));
+  }, [status, lastSeenAtOpen]);
+
+  // Remember the newest row shown when the reader leaves, hides the tab or the page.
+  useEffect(() => {
+    const remember = () => {
+      const mark = followingRef.current
+        ? lastSeenOf(visibleRowsRef.current)
+        : lastReachedMark(
+            itemsRef.current,
+            itemsRef.current.map((_, i) => measurementsRef.current[i]?.start ?? Infinity),
+            viewportBottomRef.current
+          );
+      if (mark) saveFeedLastSeen(mark);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') remember();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      remember();
+    };
+  }, []);
+
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current || !hasOlderRef.current || reloadPendingRef.current) return;
     if (hasNoMessages(filtersRef.current)) return;
@@ -339,7 +394,9 @@ export function FeedView({
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) =>
-      items[index]?.kind === 'day' ? ESTIMATED_DAY_HEIGHT : ESTIMATED_ROW_HEIGHT,
+      items[index]?.kind === 'row' || items[index]?.kind === 'control'
+        ? ESTIMATED_ROW_HEIGHT
+        : ESTIMATED_DAY_HEIGHT,
     scrollMargin,
     getItemKey: (index) => items[index]?.key ?? `__idx:${index}`,
     overscan: 8,
@@ -358,6 +415,8 @@ export function FeedView({
     },
   });
   const totalSize = virtualizer.getTotalSize();
+  itemsRef.current = items;
+  measurementsRef.current = virtualizer.measurementsCache;
   const virtualItems = virtualizer.getVirtualItems();
   // Whatever the viewport size, never mount more than the DOM cap: keep the end the
   // reader is looking at (the newest while following, the oldest otherwise).
@@ -384,22 +443,25 @@ export function FeedView({
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  // A page prepended above the reader must not move what they are looking at.
-  const firstKey = items.find((item) => item.kind !== 'day')?.key ?? null;
+  // Rows landing above the reader (a prepended page, a historical decryption filling the
+  // middle) must not move what they are looking at: hold the item at the top of the
+  // viewport where it was. Following needs no hold, the pin takes over.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    const previous = previousRef.current;
-    if (
-      el &&
-      !followingRef.current &&
-      previous.firstKey !== null &&
-      firstKey !== previous.firstKey
-    ) {
-      const grew = el.scrollHeight - previous.scrollHeight;
-      if (grew > 0) el.scrollTop += grew;
+    if (!el) return;
+    if (!followingRef.current) {
+      const shift = scrollShiftForAnchor(
+        anchorRef.current,
+        items.map((item, index) => ({
+          key: item.key,
+          start: virtualizer.measurementsCache[index]?.start ?? 0,
+        }))
+      );
+      if (shift !== 0) el.scrollTop += shift;
     }
-    previousRef.current = { firstKey, scrollHeight: el?.scrollHeight ?? 0 };
-  }, [firstKey, itemCount, totalSize]);
+    anchorRef.current = pickAnchor(virtualizer.getVirtualItems(), el.scrollTop);
+    viewportBottomRef.current = el.scrollTop + el.clientHeight;
+  }, [items, totalSize, virtualizer]);
 
   // Follow mode: stay at the bottom as rows arrive and as their heights settle.
   useLayoutEffect(() => {
@@ -429,15 +491,28 @@ export function FeedView({
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    anchorRef.current = pickAnchor(virtualizer.getVirtualItems(), el.scrollTop);
+    viewportBottomRef.current = el.scrollTop + el.clientHeight;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     setFollow(distance <= FOLLOW_THRESHOLD_PX);
     if (el.scrollTop <= LOAD_OLDER_THRESHOLD_PX && status === 'ready') void loadOlder();
-  }, [loadOlder, setFollow, status]);
+  }, [loadOlder, setFollow, status, virtualizer]);
 
   const handleFollowClick = useCallback(() => {
     setFollow(true);
     pinToBottom();
   }, [pinToBottom, setFollow]);
+
+  // Like a conversation: what the reader sends brings them back to the bottom. Historical
+  // rows (an old message with a new id) never do, whatever their direction.
+  useEffect(() => {
+    const previousMax = knownMaxIdRef.current;
+    knownMaxIdRef.current = highestId(visibleRows);
+    if (previousMax === 0 || followingRef.current) return;
+    if (visibleRows.some((row) => row.id > previousMax && row.outgoing && !row.historical)) {
+      handleFollowClick();
+    }
+  }, [visibleRows, handleFollowClick]);
 
   const arrived = useMemo(
     () =>
@@ -616,6 +691,23 @@ export function FeedView({
             const position = {
               transform: `translateY(${item.start - scrollMargin}px)`,
             };
+            if (entry.kind === 'new') {
+              return (
+                <div
+                  key={item.key}
+                  ref={virtualizer.measureElement}
+                  data-index={item.index}
+                  role="separator"
+                  aria-label={t('feed.newSinceLastVisit')}
+                  className="absolute left-0 top-0 flex w-full items-center gap-2 py-1 text-xs font-medium text-primary"
+                  style={{ transform: `translateY(${item.start - scrollMargin}px)` }}
+                >
+                  <span className="h-px flex-1 bg-primary/40" />
+                  <span>{t('feed.newSinceLastVisit')}</span>
+                  <span className="h-px flex-1 bg-primary/40" />
+                </div>
+              );
+            }
             if (entry.kind === 'day') {
               return (
                 <div

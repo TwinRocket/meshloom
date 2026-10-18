@@ -196,7 +196,10 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
 - `redact_apprise_url()` keeps the scheme and, for `user_host`, the host;
   everything else is masked. It feeds `urls_redacted` in the fanout API (the
   stored `urls` read `********`, `app/secret_fields.py`); the frontend
-  `censorAppriseUrl` is only a fallback for a config without it.
+  `censorAppriseUrl` is only a fallback for a config without it. Its
+  `user_host` branch is `redact_url()`, which also gives the webhook
+  `url_redacted` (fanout and notification); `url_secret_parts()` (the user,
+  path and query parts) is the matching scrub list for error texts.
 - `tests/test_apprise_urls.py` fails when the installed Apprise exposes a
   plugin in neither list: on an Apprise bump, read the new plugin and classify
   it (refused unless reviewed).

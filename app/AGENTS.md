@@ -641,15 +641,18 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   the frontend matrix list them too). A missing key reads as off
   (`coerce_notification_media`), so adding one needs no migration. A channel
   reaches a medium other than push only through its bell override.
-- Secrets (SMTP password, webhook secret, Apprise `urls` in `notification_destinations`,
-  `NOTIFICATION_SECRET_KEYS` in `app/secret_fields.py`) are returned as
-  `********`; a PATCH that sends `********` back keeps the stored value. A
+- Secrets (SMTP password, webhook `url` and secret, Apprise `urls` in
+  `notification_destinations`, `NOTIFICATION_SECRET_KEYS` in
+  `app/secret_fields.py`) are returned as `********`; a PATCH that sends
+  `********` back keeps the stored value. The settings API adds
+  `webhook.url_redacted` (scheme and host, `present_notification_destinations`;
+  never stored, not in the JSON backup). A
   kept secret never follows a destination change (`NOTIFICATION_DESTINATION_KEYS`:
   email `host`/`port`/`mode`, webhook `url`): the PATCH answers 400
   `secret_required`, and a v1 restore drops it with the warning
   `secret_dropped_destination_changed:email.password` (or
-  `webhook.hmac_secret`). Apprise `urls` are the secret and the destination
-  at once: `********` keeps them, `""` clears them. The fanout configs follow
+  `webhook.hmac_secret`). Apprise `urls` and the webhook `url` are the secret
+  and the destination at once: `********` keeps them, `""` clears them. The fanout configs follow
   the same rules (`app/fanout/AGENTS.md`, "Secrets").
 - Any change of `notification_destinations` (`AppSettingsRepository.update`,
   so a restore too) pushes `notify.destination_changed` to every subscription

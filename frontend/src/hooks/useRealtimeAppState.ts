@@ -22,6 +22,7 @@ import {
   removeFeedMessage,
   renameFeedConversation,
 } from '../stores/feedStore';
+import { reconcileFeed } from '../components/feed/feedHistory';
 import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
 import { noteCommunityLiveOptedOut, refreshCommunityStatus } from '../stores/communityStore';
 import { refreshRadioWifiAfterReconnect, setRadioWifiState } from '../stores/radioWifiStore';
@@ -271,6 +272,14 @@ export function useRealtimeAppState({
         code?: string;
         params?: Record<string, unknown>;
       }) => {
+        // A decryption pass inserts old messages under new ids, a frame each: fetch what a
+        // lagging client may have missed (no-op until the feed is first opened).
+        if (
+          success.code === 'historical_decrypt_complete' ||
+          success.code === 'historical_decrypt_complete_rooms'
+        ) {
+          void reconcileFeed();
+        }
         const key = success.code ? `errors.${success.code}` : '';
         const translated = key ? i18n.t(key, success.params) : success.message;
         toast.success(key && translated !== key ? translated : success.message, {
@@ -280,6 +289,7 @@ export function useRealtimeAppState({
       onReconnect: () => {
         clearRawPackets();
         reconcileOnReconnect();
+        void reconcileFeed();
         refreshUnreads();
         // A Community change made while the socket was down sent us nothing.
         void refreshCommunityStatus();

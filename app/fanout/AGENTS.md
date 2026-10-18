@@ -28,20 +28,29 @@ configs are validated on every create and update, enabled or not.
 ## Secrets
 
 - Secret config keys are write-only: `FANOUT_SECRET_KEYS` in `app/secret_fields.py`
-  (Apprise `urls`, webhook `hmac_secret`, the MQTT `password`, SQS
-  `secret_access_key` and `session_token`). `GET /api/fanout` and
-  `GET /api/fanout/{id}` return them through `redact_config()`: `********` when
-  set, `""` when not; Apprise adds the derived `urls_redacted` (one
-  `redact_apprise_url()` line per URL, never stored). `allow_private_network`
+  (Apprise `urls`, webhook `url`, `headers` and `hmac_secret`, the MQTT
+  `password`, SQS `access_key_id`, `secret_access_key` and `session_token`).
+  `GET /api/fanout` and `GET /api/fanout/{id}` return them through
+  `redact_config()`: `********` when set, `""` when not; Apprise adds the
+  derived `urls_redacted` (one `redact_apprise_url()` line per URL), the webhook
+  `url_redacted` (`redact_url()`: scheme, host, port), both never stored. The
+  webhook `headers` are an object secret (`_OBJECT_SECRET_KEYS`): names in
+  clear, each value `********` or `""`. `allow_private_network`
   and `private_network_grandfathered` are plain flags, not secrets.
 - Writes go through `merge_secrets()`: a key omitted, `None` or `********`
   keeps the stored value, `""` clears it, anything else replaces it; derived
-  keys are dropped. The routes and the backup restore use it, so a redacted
+  keys are dropped. An object secret merges by name: a `********` value keeps
+  that name's stored value (none: the name is dropped), a name left out is
+  removed, `""` for the whole object clears it to `{}`. A secret that is its
+  own destination (webhook `url`, like Apprise `urls`) is resolved first, so
+  keeping it is no move. The routes and the backup restore use it, so a redacted
   config sent back never overwrites a secret.
 - A kept secret never follows a destination change. `FANOUT_DESTINATION_KEYS`
   lists, per type, the keys that say where the secret goes (with their
-  defaults: an absent key reads as its default): webhook `url`, MQTT
-  `broker_host`/`broker_port`/`use_tls`, SQS `endpoint_url`. When one of them
+  defaults: an absent key reads as its default): webhook `url` (its
+  `headers` values and `hmac_secret` follow it), MQTT
+  `broker_host`/`broker_port`/`use_tls`/`tls_insecure` (and the Community
+  broker's transport, TLS and path), SQS `queue_url`/`endpoint_url`/`region_name`. When one of them
   changes and a non-empty stored secret would be kept, `merge_secrets()` raises
   `SecretRequiredError`: `PATCH` answers 400 `secret_required` (params
   `fields`), and the restore clears that secret and adds the warning
@@ -50,10 +59,10 @@ configs are validated on every create and update, enabled or not.
   marks the kept secret field required once a destination field is edited.
 - `get_statuses()` (health, `/api/debug`) passes each `last_error` through
   `scrub_error()` with `config_secret_values()`: for an Apprise URL, only its
-  `user:password` and path tokens (`apprise_url_secret_parts()`), so the host
-  stays readable; the Apprise module scrubs its send errors before logging them.
-- Still shown in clear (not secrets): the webhook `url` and `headers`, the SQS
-  `access_key_id`.
+  `user:password` and path tokens (`apprise_url_secret_parts()`), for a
+  webhook URL its user, path and query parts (`url_secret_parts()`) and the
+  header values, so the host stays readable; the Apprise module scrubs its send
+  errors before logging them.
 
 ## Event flow
 
