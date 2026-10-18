@@ -11,6 +11,10 @@ Rien de ce qui suit n’est nécessaire pour envoyer un message. C’est de l’
 
 Sur un téléphone, on ouvre ces outils depuis **Outils**, dans la barre du bas. Chacun est accompagné d’une courte description. Sur un grand écran, ils sont sur la barre d’icônes à gauche, que l’on peut réordonner ou alléger dans **Réglages → Navigation**. La carte des nœuds est une destination à part, à côté des conversations.
 
+### Page de démarrage
+
+**Réglages → Navigation → Page de démarrage** choisit où Meshloom s'ouvre quand l'adresse n'a pas de partie `#`. Par défaut, ce sont vos conversations, comme avant. Choisissez la carte ou un outil (le Fil, son préréglage Contrôle, la vue en direct…) pour ouvrir là à la place. C'est un réglage de l'instance, modifié par un administrateur, et il s'applique à toutes les sessions et à tous les navigateurs, écran de kiosque compris. Un lien vers une conversation ou un outil l'emporte toujours, tout comme **Rouvrir la dernière vue** sur un appareil où vous l'avez activé et qui a une vue à rouvrir. Un outil que votre rôle ne peut pas utiliser est ignoré et vous arrivez sur vos conversations.
+
 ## La carte des nœuds
 
 La carte s’ouvre par **Carte**, dans la barre du bas ou sur la barre de gauche. Une annonce peut transporter des coordonnées. Quand elle en contient, Meshloom pose le nœud sur la carte. Une annonce entendue, un point de plus.

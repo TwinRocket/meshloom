@@ -1012,6 +1012,8 @@ export interface UiPreferences {
   nav_rail: string[];
   /** Theme id, or empty to follow the operating system. */
   theme: string;
+  /** Tool id the app opens on when the URL has no hash; empty means the conversations. */
+  start_view?: string;
   /** Names the server rather than the device, so it shows from any browser. */
   server_label?: ServerLabel;
 }

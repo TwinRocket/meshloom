@@ -32,6 +32,7 @@ import {
 } from './hooks';
 import { toast } from './components/ui/sonner';
 import { AppShell } from './components/AppShell';
+import { toolAllowed } from './components/navDestinations';
 import type { MessageInputHandle } from './components/MessageInput';
 import { DistanceUnitProvider } from './contexts/DistanceUnitContext';
 import { PathHopWidthProvider } from './contexts/PathHopWidthContext';
@@ -332,6 +333,8 @@ export function App() {
     pendingDeleteFallbackRef,
     settingsLoaded: appSettings !== null && communityEnabled !== null,
     directoryEnabled,
+    startView: appSettings?.ui_preferences?.start_view ?? '',
+    toolAllowed: (id) => toolAllowed(id, capabilities),
   });
 
   const {

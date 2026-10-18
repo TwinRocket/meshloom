@@ -1182,6 +1182,26 @@ class ServerLabel(BaseModel):
     )
 
 
+# Where the app may open when the URL has no hash: the tool ids of the hash grammar
+# (frontend/src/utils/urlHash.ts). Empty means the conversations. The PATCH route
+# enforces it; the model does not, so a stale stored value cannot reset the others.
+START_VIEW_IDS: frozenset[str] = frozenset(
+    {
+        "raw",
+        "feed",
+        "control",
+        "map",
+        "live",
+        "visualizer",
+        "search",
+        "trace",
+        "locate",
+        "discovered",
+        "test",
+    }
+)
+
+
 class UiPreferences(BaseModel):
     """Interface preferences, kept with the instance rather than in a browser.
 
@@ -1202,6 +1222,15 @@ class UiPreferences(BaseModel):
     theme: str = Field(
         default="",
         description="Theme id, or empty to follow the operating system",
+    )
+    start_view: str = Field(
+        default="",
+        description=(
+            "Where the app opens when the URL has no hash: a tool hash fragment "
+            "without the '#' (one of START_VIEW_IDS). Empty means the conversations. "
+            "Kept with the instance so a screen with no settings, the kiosk, opens "
+            "where an administrator chose."
+        ),
     )
     server_label: ServerLabel = Field(
         default_factory=ServerLabel,
