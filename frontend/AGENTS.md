@@ -91,6 +91,8 @@ purpose.
   `fr` must have exactly the same keys; `src/test/i18nParity.test.ts` enforces it.
 - Strings live in `locales/{en,fr}.json` plus `locales/slices/*.{en,fr}.json`,
   deep-merged over the base. Never rename or delete a slice file (root `AGENTS.md`).
+  After adding a slice, delete `node_modules/.vitest-cache` if `i18nParity`
+  misses its keys: the cached transform keeps the old `import.meta.glob` list.
 - Tests default to `fr` (`src/test/setup.ts`): query copy with `i18n.t('key')`,
   never a literal string.
 - Format numbers with `utils/formatNumber.ts` or `{{count, number}}`. Never call

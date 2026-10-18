@@ -5,9 +5,13 @@ import type { HealthStatus, FanoutConfig } from '../types';
 import i18n from '../i18n';
 import fanoutEn from '../i18n/locales/slices/d.en.json';
 import fanoutFr from '../i18n/locales/slices/d.fr.json';
+import egressEn from '../i18n/locales/slices/p.en.json';
+import egressFr from '../i18n/locales/slices/p.fr.json';
 
 i18n.addResourceBundle('en', 'translation', fanoutEn, true, true);
 i18n.addResourceBundle('fr', 'translation', fanoutFr, true, true);
+i18n.addResourceBundle('en', 'translation', egressEn, true, true);
+i18n.addResourceBundle('fr', 'translation', egressFr, true, true);
 
 function tf(key: string, options?: Record<string, unknown>) {
   return i18n.t(`settings.fanout.${key}`, options);
@@ -25,6 +29,7 @@ vi.mock('../api', () => ({
     getSettings: vi.fn(),
     getRadioConfig: vi.fn(),
   },
+  formatApiError: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
 // Suppress BotCodeEditor lazy load in tests
@@ -1588,5 +1593,114 @@ describe('SettingsFanoutSection', () => {
     const alpha = within(webhookGroup).getByText('Alpha Hook');
     const zulu = within(webhookGroup).getByText('Zulu Hook');
     expect(alpha.compareDocumentPosition(zulu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+describe('private network opt-in (egress guard)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedApi.getChannels.mockResolvedValue([]);
+    mockedApi.getContacts.mockResolvedValue([]);
+  });
+
+  it.each([
+    ['webhook', 'fanout-webhook-allow-private', { url: 'http://192.168.1.5/hook' }],
+    ['apprise', 'fanout-apprise-allow-private', { urls: 'json://192.168.1.5' }],
+    ['sqs', 'fanout-sqs-allow-private', { queue_url: 'https://sqs.local/q' }],
+    ['map_upload', 'fanout-map-allow-private', { api_url: '' }],
+  ])('%s editor saves allow_private_network', async (type, checkboxId, config) => {
+    const cfg: FanoutConfig = { ...webhookConfig, id: 'x-1', type, name: 'Target', config };
+    mockedApi.getFanoutConfigs.mockResolvedValue([cfg]);
+    mockedApi.updateFanoutConfig.mockResolvedValue(cfg);
+    renderSection();
+    await waitFor(() => expect(screen.getByText('Target')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: tf('list.edit') }));
+
+    const checkbox = await screen.findByLabelText(tf('privateNetwork.label'), { exact: false });
+    expect(checkbox.id).toBe(checkboxId);
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+
+    fireEvent.click(screen.getByRole('button', { name: tf('list.saveDisabled') }));
+    await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+    const update = mockedApi.updateFanoutConfig.mock.calls[0][1] as {
+      config: Record<string, unknown>;
+    };
+    expect(update.config.allow_private_network).toBe(true);
+  });
+
+  it('unticks a grandfathered opt-in when the destination changes', async () => {
+    const grandfathered: FanoutConfig = {
+      ...webhookConfig,
+      config: {
+        ...webhookConfig.config,
+        allow_private_network: true,
+        private_network_grandfathered: true,
+      },
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValue([grandfathered]);
+    mockedApi.updateFanoutConfig.mockResolvedValue(grandfathered);
+    renderSection();
+    await waitFor(() => expect(screen.getByText('Test Hook')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: tf('list.edit') }));
+
+    const checkbox = await screen.findByLabelText(tf('privateNetwork.label'), { exact: false });
+    expect(checkbox).toBeChecked();
+    fireEvent.change(document.getElementById('fanout-webhook-url')!, {
+      target: { value: 'http://192.168.1.9/hook' },
+    });
+    expect(checkbox).not.toBeChecked();
+
+    // Ticked again by the user: an explicit opt-in, sent with the flag false.
+    fireEvent.click(checkbox);
+    expect(checkbox).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+    await waitFor(() => expect(mockedApi.updateFanoutConfig).toHaveBeenCalled());
+    const update = mockedApi.updateFanoutConfig.mock.calls[0][1] as {
+      config: Record<string, unknown>;
+    };
+    expect(update.config).toMatchObject({
+      url: 'http://192.168.1.9/hook',
+      allow_private_network: true,
+      private_network_grandfathered: false,
+    });
+  });
+
+  it('shows the grandfathered banner once and clears the flag on "Got it"', async () => {
+    const grandfathered: FanoutConfig = {
+      ...webhookConfig,
+      config: {
+        ...webhookConfig.config,
+        allow_private_network: true,
+        private_network_grandfathered: true,
+      },
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValueOnce([grandfathered]);
+    mockedApi.getFanoutConfigs.mockResolvedValue([webhookConfig]);
+    mockedApi.updateFanoutConfig.mockResolvedValue(webhookConfig);
+    renderSection();
+
+    const banner = await screen.findByText(
+      tf('privateNetwork.grandfathered', { names: 'Test Hook' })
+    );
+    expect(banner).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: tf('privateNetwork.grandfatheredDismiss') })
+    );
+
+    await waitFor(() =>
+      expect(mockedApi.updateFanoutConfig).toHaveBeenCalledWith('wh-1', {
+        config: expect.objectContaining({
+          allow_private_network: true,
+          private_network_grandfathered: false,
+        }),
+      })
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: tf('privateNetwork.grandfatheredDismiss') })
+      ).not.toBeInTheDocument()
+    );
   });
 });

@@ -105,6 +105,30 @@ async def test_reserved_and_invalid_entries_are_refused(backup_db, reload_spy, p
 
 
 @pytest.mark.asyncio
+async def test_apprise_row_with_a_refused_scheme_comes_back_disabled(
+    backup_db, reload_spy, proxy_spy
+):
+    """A 4.18 backup may hold an Apprise URL the allowlist now refuses: the row
+    is kept, disabled, with a coded notice, never dropped or enabled."""
+    old_row = webhook(
+        "ap-1",
+        type="apprise",
+        name="Desktop",
+        enabled=True,
+        config={"urls": "dbus://\ntgram://123:ABC/456"},
+    )
+    warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[old_row]))
+    assert "apprise_restored_disabled:Desktop" in warnings
+    assert not any(w.startswith("fanout_invalid") for w in warnings)
+    [stored] = await FanoutConfigRepository.get_all()
+    assert stored["id"] == "ap-1"
+    assert stored["enabled"] is False
+    assert stored["config"]["urls"] == "dbus://\ntgram://123:ABC/456"
+    assert stored["config"]["allow_private_network"] is True
+    assert stored["config"]["private_network_grandfathered"] is True
+
+
+@pytest.mark.asyncio
 async def test_bots_skipped_while_disabled(backup_db, reload_spy, proxy_spy, monkeypatch):
     monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", True)
     warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot()]))

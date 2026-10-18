@@ -1,7 +1,8 @@
 """The one egress guard for user-configured destinations (SSRF).
 
 Every outbound request to a URL a user or a browser chose (system webhook, Web
-Push endpoints, the notification test routes; later Apprise, Store plugins and
+Push endpoints, the notification test routes, the fanout webhook, Apprise
+(``app/net/apprise_urls.py``), SQS and map upload; later Store plugins and
 Links) goes through ``validate_destination`` before any connection, then
 connects to one of the validated IPs (``pinned_async_client`` for httpx, the
 pinned urllib3 connections in ``app/push/send.py`` for pywebpush), so the DNS

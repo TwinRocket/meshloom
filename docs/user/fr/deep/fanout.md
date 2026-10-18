@@ -101,9 +101,24 @@ Meshloom envoie chaque message en JSON, avec la méthode que vous choisissez (`P
 
 Si vous définissez un **secret HMAC**, Meshloom signe le corps avec HMAC-SHA256 et envoie le résultat sous la forme `sha256=<hex>` dans un en-tête. L’en-tête est `X-Webhook-Signature`, sauf si vous en nommez un autre.
 
+## Destinations sur votre réseau
+
+Webhook, Apprise, Amazon SQS (point d’accès personnalisé) et Envoi vers la carte (adresse d’API personnalisée) refusent une destination sur votre réseau local, sur cette machine ou sur une adresse de métadonnées cloud, sauf si vous cochez **Autoriser une destination sur un réseau privé (réseau local, localhost)** dans l’intégration. Ainsi, un réglage modifié ne peut pas faire du serveur une sonde de votre réseau. Cochez-la pour Home Assistant, Gotify, ntfy, Node-RED, LocalStack ou un script sur votre réseau ; les adresses de métadonnées cloud restent refusées même dans ce cas.
+
+L’adresse est vérifiée quand vous enregistrez une intégration activée, puis avant chaque envoi (pour SQS, au démarrage de l’intégration). Une adresse refusée affiche une erreur comme « cette adresse est sur un réseau privé » et rien n’est envoyé. Le webhook et l’envoi vers la carte se connectent uniquement à l’adresse vérifiée et ne suivent jamais de redirection.
+
+Les intégrations configurées avant cette vérification continuent de fonctionner : la mise à jour coche la case pour elles, et un avis unique en haut de la page les liste. Décochez-la dans une intégration qui pointe vers un service public. La case cochée par la mise à jour ne vaut que pour l’adresse pour laquelle elle a été cochée : quand vous changez l’adresse, elle se décoche, et vous la cochez à nouveau si la nouvelle adresse est sur votre réseau.
+
 ## Apprise
 
 Indiquez une adresse par ligne. Chaque message est envoyé à toutes. Vous pouvez écrire vos propres modèles de texte pour les messages directs et les messages de salon, avec des variables comme l’expéditeur, le texte, le salon, le nombre de sauts et la force du signal. Les messages que vous avez envoyés vous-même ne sont pas transmis, sauf si vous cochez l’option. Pour Discord, vous pouvez conserver le nom et l’image propres au webhook.
+
+Meshloom accepte ces services Apprise :
+
+- **Sur un serveur que vous choisissez** (l’adresse passe par la vérification de réseau privé ci-dessus) : webhooks JSON, XML et formulaire (`json://`, `xml://`, `form://`), ntfy (`ntfy://` ; un sujet seul part vers ntfy.sh), Gotify, Home Assistant (`hassio://`), Matrix, e-mail (`mailto://` : c’est le serveur SMTP qui est vérifié), MQTT, Signal (API REST), Rocket.Chat, Mattermost, Nextcloud et Nextcloud Talk, Emby, et un serveur Apprise API (`apprise://`). Chacun existe aussi en forme `s` avec TLS (`jsons://`, `ntfys://`…).
+- **Un service public à adresse fixe** : Telegram (`tgram://`), Discord, Pushover (`pover://`), Slack, Pushbullet (`pbul://`), Free Mobile, SFR, Google Chat (`gchat://`), Webex, Pushsafer, Prowl, IFTTT, Join et Opsgenie. Leurs adresses web habituelles, comme un lien de webhook Discord, fonctionnent aussi.
+
+Tous les autres services Apprise sont refusés, réseau privé autorisé ou non : ceux du bureau et de la machine locale (`dbus://`, `windows://`, `syslog://`…), ceux qui utilisent des identifiants cloud (`sns://`, `ses://`) et ceux que personne n’a encore examinés. Une adresse Telegram doit indiquer un identifiant de discussion (`tgram://bot_token/chat_id`) : sans lui, Apprise écrirait à la dernière personne qui a parlé au bot. Meshloom ne suit jamais de redirection pour Apprise et n’envoie qu’à l’hôte que vous avez saisi : la découverte de serveur Matrix (`.well-known`) et la recherche de clé PGP des e-mails (`wkd=yes`) sont désactivées. Une adresse déjà enregistrée et désormais refusée reste dans la liste ; son intégration affiche l’erreur jusqu’à ce que vous la corrigiez. La restauration d’une ancienne sauvegarde qui contient une telle adresse ramène son intégration désactivée, avec un avis : corrigez l’adresse avant de l’activer.
 
 ## Amazon SQS
 
