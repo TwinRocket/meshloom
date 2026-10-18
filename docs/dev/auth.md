@@ -550,12 +550,30 @@ and none by IP alone behind Docker:
 
 | Rule | Key | Behaviour |
 |---|---|---|
-| Progressive delay | `(client_ip, username_key)` | 5 free failures, then each failure closes the pair for 1, 2, 4, ... seconds, capped at 60. The first attempt after the delay is checked; a success forgets the pair |
+| Progressive delay | `(address_key, username_key)` | 5 free failures, then each failure closes the pair for 1, 2, 4, ... seconds, capped at 60. The first attempt after the delay is checked; a success forgets the pair |
 | Global slow-down | `username_key` | After 5 failures from any IP, at most one attempt per second on that name (`check()` takes the slot). Never more than one second to wait, so the right password always gets in |
-| Hard refusal | `client_ip` | Beyond 100 failures in 15 minutes (`aiolimiter.AsyncLimiter(100, 900)` per IP, read with `has_capacity()`: one more every 9 s). Off when `install_kind` is `compose` or `container` and `auth_settings.trusted_proxies` is empty (read live): every client may arrive from the Docker gateway |
+| Hard refusal | `address_key` | Beyond 100 failures in 15 minutes (`aiolimiter.AsyncLimiter(100, 900)` per address key, read with `has_capacity()`: one more every 9 s) |
 
-- **IP.** `client_ip()`: the TCP peer, or what a trusted proxy forwarded
-  ("Proxy headers"). Via the relay (later), the address in the frame.
+- **Address key** (`LoginLimiter.address_key(scope)`). `client_ip()` (the TCP
+  peer, or what a trusted proxy forwarded, "Proxy headers"; via the relay,
+  later, the address in the frame), IPv4 as is, IPv6 by its `/64` (a host
+  usually holds a whole /64 and could rotate inside it; an IPv4-mapped address
+  is its IPv4). **None** when the address does not identify a client: the pair
+  and per-IP rules are then skipped and only the username rule applies:
+  - `install_kind` `compose` or `container` with `auth_settings.trusted_proxies`
+    empty (read live): every client may arrive from the Docker gateway;
+  - `X-Forwarded-For`, `X-Real-IP` or `Forwarded` present from a peer that is
+    not a trusted proxy and whose address is not global (loopback, private,
+    CGNAT): an undeclared reverse proxy, all its clients on one address. Only
+    the headers' presence is read; `proxy_headers.py` stays their one interpreter.
+
+  Otherwise one guesser sharing the owner's address would delay the owner by up
+  to a minute per attempt (review r1 of #217). Guarantee per deployment: with a
+  client address of its own (package, source, a declared trusted proxy, a
+  direct LAN client) all three rules apply and the owner, on another address,
+  only meets the one-second username slot; on a shared address the owner waits
+  at most one second behind a slow guesser. Under a flood on one name from many
+  addresses, the owner competes for that one slot a second in both cases.
 - **Memory.** Pair and username entries go `FORGET_AFTER_S` (15 min) after
   their last failure once no delay runs; an IP bucket goes once it has leaked
   empty. A sweep runs at most once a minute from `check()`; each table holds
@@ -567,9 +585,9 @@ and none by IP alone behind Docker:
   aiolimiter in place of the loop's time, so the tests use a fake clock.
 - **Not covered.** Concurrent attempts on one pair can each pass `check()`
   before the first failure is recorded (bounded by the argon2id queue of 10).
-  Under a sustained flood on one name from many addresses, the owner competes
-  for the one slot a second; the per-IP rule and the relay's edge lock answer
-  that, not a lock on the name.
+  Under a sustained flood on one name from many addresses (or many /64s), the
+  owner competes for the one slot a second; the per-IP rule and the relay's
+  edge lock answer that, not a lock on the name.
 
 ## First run and the installation code
 

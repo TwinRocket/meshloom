@@ -27,8 +27,15 @@ Le premier administrateur, et le compte que Meshloom crée à partir de l’iden
 Les mauvais mots de passe ralentissent les tentatives suivantes ; ils ne verrouillent jamais un compte.
 
 - **Depuis une adresse, pour un compte :** les 5 premiers mauvais mots de passe ne coûtent rien. Ensuite, la tentative suivante attend 1 seconde, puis 2, 4, 8 et ainsi de suite, jusqu’à 1 minute. Pendant ce temps, la page de connexion indique combien de secondes attendre. Une fois l’attente passée, le bon mot de passe fonctionne et efface le délai.
-- **Pour un compte, depuis n’importe où :** après 5 mauvais mots de passe, le compte accepte au plus une tentative par seconde, qui que ce soit qui l’envoie. Quelqu’un qui essaie de deviner `admin` depuis de nombreuses adresses n’a donc qu’un essai par seconde, et vous entrez quand même, au plus une seconde plus tard.
-- **Depuis une adresse, pour tous les comptes :** au-delà de 100 mauvais mots de passe en 15 minutes, cette adresse est refusée jusqu’à ce que son compteur redescende (une tentative de plus toutes les 9 secondes). Cette règle est coupée pour une installation Docker (Compose ou un simple conteneur) sans proxy de confiance : là, chaque visiteur peut arriver par l’adresse de Docker lui-même, et un seul visiteur malveillant bloquerait tout le monde.
+- **Pour un compte, depuis n’importe où :** après 5 mauvais mots de passe, le compte accepte au plus une tentative par seconde, qui que ce soit qui l’envoie. Quelqu’un qui essaie lentement de deviner `admin` ne peut pas vous bloquer : vous entrez au plus une seconde plus tard. Quelqu’un qui inonde `admin` depuis de nombreuses adresses n’a qu’un essai par seconde, et votre tentative est en concurrence avec les siennes pour cette seconde.
+- **Depuis une adresse, pour tous les comptes :** au-delà de 100 mauvais mots de passe en 15 minutes, cette adresse est refusée jusqu’à ce que son compteur redescende (une tentative de plus toutes les 9 secondes).
+
+Une adresse IPv6 compte pour son bloc /64 : un foyer ou un serveur dispose en général d’un bloc entier et pourrait sinon changer d’adresse à chaque tentative.
+
+**Quand tous les visiteurs partagent une adresse**, la première et la dernière règle sont coupées et seule la règle par compte s’applique : un visiteur malveillant sur cette adresse ne peut jamais vous retarder de plus d’une seconde. C’est le cas :
+
+- sur une installation Docker (Compose ou un simple conteneur) sans proxy de confiance : les visiteurs peuvent tous arriver par l’adresse de Docker lui-même ;
+- derrière un reverse-proxy sur cette machine ou votre réseau qui n’est pas listé dans **Proxies de confiance** : tous ses visiteurs arrivent par l’adresse du proxy. Listez-le pour retrouver les règles par adresse.
 
 Les délais sont gardés en mémoire et repartent de zéro au redémarrage de Meshloom. Un délai est écrit une fois dans le journal d’audit, pas à chaque tentative refusée.
 

@@ -385,10 +385,10 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     queue so a refused attempt costs no password check.
     """
     _refuse_under_ingress(request)
-    ip = client_ip(request.scope)
     limiter = ratelimit.login_limiter
+    address = limiter.address_key(request.scope)
     try:
-        limiter.check(ip, body.username)
+        limiter.check(address, body.username)
     except ratelimit.LoginDelayed as delayed:
         # One row per delay, not per refused attempt (app/auth/ratelimit.py, "Audit").
         if delayed.first:
@@ -410,7 +410,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     except VerificationBusy:
         raise _error(503, "auth_busy") from None
     if user is None:
-        await limiter.record_failure(ip, body.username)
+        await limiter.record_failure(address, body.username)
         await audit.record_request(
             request,
             "login",
@@ -418,7 +418,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
             target=await audit.typed_username_target(body.username),
         )
         raise _error(401, "auth_invalid_credentials")
-    limiter.record_success(ip, body.username)
+    limiter.record_success(address, body.username)
     principal = await _start_session(request, response, user)
     await audit.record_request(
         request, "login", "success", principal=principal, target=audit.user_target(user.id)

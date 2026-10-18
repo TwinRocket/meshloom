@@ -27,8 +27,15 @@ The first administrator, and the account Meshloom creates from the Basic auth lo
 Wrong passwords slow the next attempts down; they never lock an account.
 
 - **From one address, for one account:** the first 5 wrong passwords cost nothing. After that, the next attempt waits 1 second, then 2, 4, 8 and so on, up to 1 minute. Meanwhile the sign-in page says how many seconds to wait. Once the wait is over the right password works, and it clears the delay.
-- **For one account, from anywhere:** after 5 wrong passwords, the account takes at most one attempt per second, whoever sends it. Someone guessing at `admin` from many addresses therefore gets one try a second, and you still get in, at most a second later.
-- **From one address, for any account:** past 100 wrong passwords in 15 minutes, that address is refused until its count goes down (one more attempt every 9 seconds). This rule is off for a Docker install (Compose or a plain container) with no trusted proxy set: there every visitor can arrive from Docker's own address, and one bad visitor would lock everyone out.
+- **For one account, from anywhere:** after 5 wrong passwords, the account takes at most one attempt per second, whoever sends it. Someone guessing at `admin` slowly cannot keep you out: you get in at most a second later. Someone flooding `admin` from many addresses gets one try a second, and your attempt competes with theirs for that second.
+- **From one address, for any account:** past 100 wrong passwords in 15 minutes, that address is refused until its count goes down (one more attempt every 9 seconds).
+
+An IPv6 address counts by its /64 block: one home or server usually holds a whole block and could otherwise change address at each attempt.
+
+**When every visitor shares one address**, the first and last rules are off and only the per-account rule applies, so a guesser on that address can never delay you by more than a second. That is the case:
+
+- on a Docker install (Compose or a plain container) with no trusted proxy set: visitors can all arrive from Docker's own address;
+- behind a reverse proxy on this machine or your network that is not listed in **Trusted proxies**: all its visitors arrive from the proxy's address. List it to get the per-address rules back.
 
 The delays live in memory and start again empty when Meshloom restarts. A delay is written to the audit log once, not for each refused attempt.
 

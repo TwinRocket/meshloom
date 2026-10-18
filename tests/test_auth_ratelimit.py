@@ -18,6 +18,7 @@ from app.auth.ratelimit import (
     USERNAME_INTERVAL_S,
     LoginDelayed,
     LoginLimiter,
+    client_address_key,
 )
 from app.middleware import proxy_headers
 from app.repository.auth import AuthAuditRepository
@@ -154,33 +155,132 @@ async def test_the_101st_failure_from_one_ip_in_15_minutes_is_refused():
     limiter.check("203.0.113.5", "someone-new")
 
 
+def scope(client: str, *, peer: str | None = None, forwarded: bool = False) -> dict:
+    """An ASGI scope as the trusted-proxy middleware leaves it."""
+    headers = [(b"x-forwarded-for", client.encode())] if forwarded else []
+    return {
+        "type": "http",
+        "client": (client, 50000),
+        "headers": headers,
+        "state": {"peer": peer or client},
+    }
+
+
 @pytest.mark.parametrize("kind", ["compose", "container"])
-async def test_no_hard_refusal_behind_docker_without_a_trusted_proxy(kind):
+async def test_docker_without_a_trusted_proxy_applies_the_username_rule_only(kind):
     clock = FakeClock()
     limiter = make_limiter(clock, kind=kind)
-    await _hundred_failures(limiter)
-    limiter.check("203.0.113.5", "someone-new")
-    assert limiter.sizes()[2] == 0  # no bucket kept while the rule is off
+    address = limiter.address_key(scope("172.17.0.1"))
+    assert address is None
+    for n in range(IP_MAX_FAILURES):
+        await fail(limiter, address, f"user{n}")
+    limiter.check(address, "someone-new")
+    assert limiter.sizes()[0] == 0 and limiter.sizes()[2] == 0  # no pair, no bucket kept
 
 
 @pytest.mark.parametrize("kind", ["compose", "container"])
-async def test_hard_refusal_behind_docker_with_a_trusted_proxy(kind):
+async def test_docker_with_a_trusted_proxy_keys_the_forwarded_client(kind):
     clock = FakeClock()
     limiter = make_limiter(clock, kind=kind, trusted=True)
-    await _hundred_failures(limiter)
+    proxy_headers.apply(AuthSettings(trusted_proxies=["172.17.0.2"]))
+    try:
+        address = limiter.address_key(scope("203.0.113.5", peer="172.17.0.2", forwarded=True))
+    finally:
+        proxy_headers.reset()
+    assert address == "203.0.113.5"
+    await _hundred_failures(limiter, address)
     with pytest.raises(LoginDelayed):
-        limiter.check("203.0.113.5", "someone-new")
+        limiter.check(address, "someone-new")
+
+
+async def test_a_slow_guesser_on_the_docker_gateway_never_locks_the_owner_out():
+    """Review r1 scenario: compose, no trusted proxy, one wrong guess a minute from
+    the gateway for an hour. The owner, on the same address, waits at most a second."""
+    clock = FakeClock()
+    limiter = make_limiter(clock, kind="compose")
+    gateway = scope("172.17.0.1")
+    longest = 0.0
+    for _ in range(60):
+        await fail(limiter, limiter.address_key(gateway), "admin")
+        owner = limiter.address_key(gateway)
+        try:
+            limiter.check(owner, "admin")
+        except LoginDelayed as delayed:
+            assert delayed.reason == "username"
+            longest = max(longest, delayed.retry_after)
+            clock.advance(delayed.retry_after)
+            limiter.check(owner, "admin")
+        limiter.record_success(owner, "admin")
+        clock.advance(60)
+    assert longest <= USERNAME_INTERVAL_S
+
+
+def test_an_undeclared_proxy_puts_its_clients_on_no_address():
+    limiter = make_limiter(FakeClock())
+    proxy_headers.reset()
+    # A local or LAN proxy Meshloom does not trust, forwarding a client address.
+    assert limiter.address_key(scope("127.0.0.1", forwarded=True)) is None
+    assert limiter.address_key(scope("192.168.1.10", forwarded=True)) is None
+    assert limiter.address_key(scope("100.64.0.9", forwarded=True)) is None
+    # A global peer is a client of its own, whatever header it sends (203.0.113.0/24,
+    # a documentation range, is not global for ipaddress).
+    assert limiter.address_key(scope("8.8.4.4", forwarded=True)) == "8.8.4.4"
+    # No forwarding header: the peer is the client, LAN or not.
+    assert limiter.address_key(scope("192.168.1.10")) == "192.168.1.10"
+
+
+def test_a_declared_proxy_keys_the_forwarded_client():
+    limiter = make_limiter(FakeClock())
+    proxy_headers.apply(AuthSettings(trusted_proxies=["127.0.0.1"]))
+    try:
+        key = limiter.address_key(scope("198.51.100.4", peer="127.0.0.1", forwarded=True))
+    finally:
+        proxy_headers.reset()
+    assert key == "198.51.100.4"
 
 
 def test_the_trusted_proxy_list_is_read_live():
     proxy_headers.reset()
     limiter = LoginLimiter(install_kind=lambda: "compose")
-    assert not limiter.hard_ip_limit_active()
+    assert not limiter.address_rules_active()
     proxy_headers.apply(AuthSettings(trusted_proxies=["10.0.0.2"]))
     try:
-        assert limiter.hard_ip_limit_active()
+        assert limiter.address_rules_active()
     finally:
         proxy_headers.reset()
+
+
+# --- IPv6: one /64 is one client ---------------------------------------------------
+
+
+def test_ipv6_is_keyed_by_its_64_and_ipv4_by_its_address():
+    assert client_address_key("2001:db8:1:2::1") == "2001:db8:1:2::/64"
+    assert client_address_key("2001:db8:1:2:ffff:1:2:3") == "2001:db8:1:2::/64"
+    assert client_address_key("::ffff:192.0.2.7") == "192.0.2.7"
+    assert client_address_key("192.0.2.7") == "192.0.2.7"
+
+
+async def test_rotating_inside_a_64_does_not_escape_the_pair_delay():
+    clock = FakeClock()
+    limiter = make_limiter(clock)
+    for n in range(PAIR_FREE_FAILURES):
+        await fail(limiter, limiter.address_key(scope(f"2001:db8:1:2::{n + 1:x}")), "alice")
+    with pytest.raises(LoginDelayed) as delayed:
+        limiter.check(limiter.address_key(scope("2001:db8:1:2:abcd::99")), "alice")
+    assert delayed.value.reason == "pair"
+    # Another /64 is another client (only the per-username slot applies to it).
+    clock.advance(USERNAME_INTERVAL_S)
+    limiter.check(limiter.address_key(scope("2001:db8:1:3::1")), "alice")
+
+
+async def test_rotating_inside_a_64_does_not_escape_the_per_ip_refusal():
+    clock = FakeClock()
+    limiter = make_limiter(clock)
+    for n in range(IP_MAX_FAILURES):
+        await fail(limiter, limiter.address_key(scope(f"2001:db8:9:9::{n + 1:x}")), f"user{n}")
+    with pytest.raises(LoginDelayed) as delayed:
+        limiter.check(limiter.address_key(scope("2001:db8:9:9:1:2:3:4")), "someone-new")
+    assert delayed.value.reason == "ip"
 
 
 # --- Bounded memory ----------------------------------------------------------------
@@ -341,3 +441,22 @@ async def test_basic_cooldown_uses_the_forwarded_client_behind_a_trusted_proxy()
         assert list(security._failed_ips) == ["203.0.113.7"]
     finally:
         proxy_headers.reset()
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_route_on_a_shared_address_lets_the_owner_in_within_a_second(monkeypatch):
+    clock = FakeClock()
+    monkeypatch.setattr(ratelimit, "login_limiter", make_limiter(clock, kind="compose"))
+    await create_user()
+    async with make_client(client=("172.17.0.1", 50000)) as client:
+        for _ in range(PAIR_FREE_FAILURES + 3):
+            clock.advance(60)
+            wrong = await client.post("/api/auth/login", json=_login(ADMIN, "wrong password"))
+            assert wrong.status_code == 401
+        ok = await client.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
+        if ok.status_code == 429:
+            assert ok.json()["detail"]["params"] == {"retry_after": 1}
+            clock.advance(USERNAME_INTERVAL_S)
+            ok = await client.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
+        assert ok.status_code == 200, ok.text

@@ -21,15 +21,30 @@ work, so a refused attempt never reaches the argon2id semaphore
   per second; the per-IP rule and the edge lock of the relay are the answer
   to such a flood, not a lock on the name.
 - **Per IP: hard refusal** beyond ``IP_MAX_FAILURES`` failures in
-  ``IP_WINDOW_S`` (an ``aiolimiter`` leaky bucket per address). It is off when
-  the install kind is ``compose`` or ``container`` and no trusted proxy is set
-  (``auth_settings.trusted_proxies``): behind Docker's userland proxy every
-  client arrives from the gateway address, and one bad client would lock the
-  whole household out.
+  ``IP_WINDOW_S`` (an ``aiolimiter`` leaky bucket per address).
 
-The IP is ``client_ip()``: the TCP peer, or the client a trusted proxy
-forwarded (``app/middleware/proxy_headers.py``). Usernames are compared by
+The address is ``client_ip()``: the TCP peer, or the client a trusted proxy
+forwarded (``app/middleware/proxy_headers.py``), keyed by ``address_key()``:
+an IPv4 address as is, an IPv6 address by its /64 (one host usually holds a
+whole /64 and could rotate inside it). Usernames are compared by
 ``username_key()`` (``Admin`` and ``admin`` are one name).
+
+**Shared addresses.** The pair and per-IP rules apply only when the address
+identifies a client. ``address_key()`` returns None, and only the username
+rule applies, when:
+
+- the install kind is ``compose`` or ``container`` and no trusted proxy is set
+  (``auth_settings.trusted_proxies``): behind Docker's userland proxy every
+  client may arrive from the gateway address;
+- the request carries ``X-Forwarded-For``, ``X-Real-IP`` or ``Forwarded`` from
+  a peer that is not a trusted proxy and whose address is not global (loopback,
+  private, shared): a reverse proxy Meshloom was not told about, whose clients
+  all share its address.
+
+Otherwise one guesser on that shared address would delay the owner by up to a
+minute per attempt, a lockout in all but name. On a shared address the owner
+waits at most ``USERNAME_INTERVAL_S`` behind a slow guesser, and competes for
+that slot under a flood.
 
 **Bounded memory.** A pair or username entry is dropped ``FORGET_AFTER_S``
 after its last failure once no delay runs; an IP bucket is dropped once it
@@ -50,9 +65,10 @@ bounds that burst.
 
 from __future__ import annotations
 
+import ipaddress
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Literal
@@ -141,6 +157,42 @@ def _name_key(username: str) -> str:
         return username.casefold()
 
 
+# Headers a reverse proxy sets (cadrage, "Réseaux de confiance"). Only their
+# presence is read here; app/middleware/proxy_headers.py interprets them.
+_FORWARDING_HEADERS = frozenset({b"x-forwarded-for", b"x-real-ip", b"forwarded"})
+
+
+def _carries_forwarding_headers(scope: Mapping[str, Any]) -> bool:
+    return any(name.lower() in _FORWARDING_HEADERS for name, _ in scope.get("headers") or ())
+
+
+def _parse_address(raw: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    if not raw:
+        return None
+    try:
+        address = ipaddress.ip_address(raw)
+    except ValueError:
+        return None
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address
+
+
+def _is_trusted_proxy(peer: str | None, proxies: tuple[str, ...]) -> bool:
+    address = _parse_address(peer)
+    return address is not None and any(address in ipaddress.ip_network(proxy) for proxy in proxies)
+
+
+def client_address_key(raw: str) -> str:
+    """IPv4 by address, IPv6 by its /64: one host gets a whole /64 to rotate in."""
+    address = _parse_address(raw)
+    if address is None:
+        return raw
+    if address.version == 6:
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(address)
+
+
 def _detect_install_kind() -> str:
     from app.services.install_kind import detect_install_kind
 
@@ -171,31 +223,51 @@ class LoginLimiter:
         self._ips: dict[str, _FailureWindow] = {}
         self._last_sweep = clock()
 
-    def hard_ip_limit_active(self) -> bool:
-        """Whether the per-IP refusal applies (off behind Docker without a trusted proxy)."""
+    def address_rules_active(self) -> bool:
+        """False behind Docker without a trusted proxy: every client may share the gateway address."""
         if self._install_kind is None:
             self._install_kind = self._install_kind_fn()
         return self._install_kind not in _SHARED_ADDRESS_KINDS or self._trusted_proxies_set()
 
-    def check(self, ip: str | None, username: str) -> None:
+    def address_key(self, scope: Mapping[str, Any]) -> str | None:
+        """The client's address key for the pair and per-IP rules, or None when the
+        address does not identify a client (module docstring, "Shared addresses")."""
+        if not self.address_rules_active():
+            return None
+        from app.middleware import proxy_headers
+
+        client = scope.get("client")
+        if not client or not client[0]:
+            return None
+        if _carries_forwarding_headers(scope) and not _is_trusted_proxy(
+            proxy_headers.peer_address(scope), proxy_headers.current()
+        ):
+            peer = _parse_address(proxy_headers.peer_address(scope))
+            if peer is None or not peer.is_global:
+                # A proxy Meshloom was not told about: all its clients share its address.
+                return None
+        return client_address_key(client[0])
+
+    def check(self, address: str | None, username: str) -> None:
         """Raise ``LoginDelayed`` unless this attempt may be checked now.
 
+        ``address`` comes from ``address_key()``: None applies the username rule only.
         Takes the username's slot when it is slowed down, so call it once per attempt.
         """
         now = self._clock()
         self._maybe_sweep(now)
-        address = ip or ""
         name = _name_key(username)
 
-        window = self._ips.get(address)
-        if window is not None and self.hard_ip_limit_active() and not window.has_capacity():
-            first, window.audited = not window.audited, True
-            raise LoginDelayed("ip", window.retry_after(), first)
+        if address is not None:
+            window = self._ips.get(address)
+            if window is not None and not window.has_capacity():
+                first, window.audited = not window.audited, True
+                raise LoginDelayed("ip", window.retry_after(), first)
 
-        pair = self._pairs.get((address, name))
-        if pair is not None and pair.blocked_until > now:
-            first, pair.audited = not pair.audited, True
-            raise LoginDelayed("pair", pair.blocked_until - now, first)
+            pair = self._pairs.get((address, name))
+            if pair is not None and pair.blocked_until > now:
+                first, pair.audited = not pair.audited, True
+                raise LoginDelayed("pair", pair.blocked_until - now, first)
 
         slowed = self._names.get(name)
         if slowed is not None and slowed.failures >= USERNAME_FREE_FAILURES:
@@ -204,12 +276,17 @@ class LoginLimiter:
                 raise LoginDelayed("username", slowed.blocked_until - now, first)
             slowed.blocked_until = now + USERNAME_INTERVAL_S
 
-    async def record_failure(self, ip: str | None, username: str) -> None:
+    async def record_failure(self, address: str | None, username: str) -> None:
         """A wrong password (or unknown name) for this attempt."""
         now = self._clock()
-        address = ip or ""
         name = _name_key(username)
 
+        slowed = self._touch(self._names, name, now)
+        slowed.failures += 1
+        slowed.audited = False
+
+        if address is None:
+            return
         pair = self._touch(self._pairs, (address, name), now)
         pair.failures += 1
         pair.audited = False
@@ -217,12 +294,6 @@ class LoginLimiter:
             delay = min(PAIR_MAX_DELAY_S, 2.0 ** (pair.failures - PAIR_FREE_FAILURES))
             pair.blocked_until = now + delay
 
-        slowed = self._touch(self._names, name, now)
-        slowed.failures += 1
-        slowed.audited = False
-
-        if not self.hard_ip_limit_active():
-            return
         window = self._ips.pop(address, None)
         if window is None:
             self._make_room(self._ips)
@@ -232,9 +303,10 @@ class LoginLimiter:
         if window.has_capacity():
             await window.acquire()
 
-    def record_success(self, ip: str | None, username: str) -> None:
+    def record_success(self, address: str | None, username: str) -> None:
         """The right password: forget the pair (the username and IP counts stay)."""
-        self._pairs.pop((ip or "", _name_key(username)), None)
+        if address is not None:
+            self._pairs.pop((address, _name_key(username)), None)
 
     def _touch(self, table: dict[Any, _Counter], key: Any, now: float) -> _Counter:
         """The entry for ``key``, moved to the end (most recent failure last)."""
