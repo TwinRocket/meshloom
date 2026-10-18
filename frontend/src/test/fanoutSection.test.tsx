@@ -1601,6 +1601,20 @@ describe('SettingsFanoutSection', () => {
       expect(await savedSecret()).toBe('');
     });
 
+    it('marks the kept secret required once the destination changes', async () => {
+      const input = await openSignedHook();
+      expect(input.required).toBe(false);
+      fireEvent.change(screen.getByLabelText(tf('webhook.url')), {
+        target: { value: 'https://other.example.org/hook' },
+      });
+      expect(input.required).toBe(true);
+      expect(input.placeholder).toBe(tf('secret.required'));
+      expect(screen.getByText(tf('secret.requiredAfterDestination'))).toBeInTheDocument();
+      fireEvent.change(input, { target: { value: 'n3w' } });
+      expect(input.required).toBe(false);
+      expect(screen.queryByText(tf('secret.requiredAfterDestination'))).not.toBeInTheDocument();
+    });
+
     it('keeps redacted Apprise URLs unless new ones are typed', async () => {
       const apprise: FanoutConfig = {
         id: 'ap-1',

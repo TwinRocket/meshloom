@@ -1643,6 +1643,8 @@ export interface BackupRestoreResult {
   channels_upserted: number;
   settings_updated: boolean;
   groups_upserted: number;
+  /** `code:value` strings (`secret_dropped_destination_changed:email.password`). */
+  warnings: string[];
   private_key_warning: string;
 }
 

@@ -713,17 +713,21 @@ function SecretInput({
   id,
   value,
   placeholder,
+  destinationChanged = false,
   onChange,
 }: {
   id: string;
   value: unknown;
   placeholder?: string;
+  /** The destination was edited: a kept secret would be refused (400 secret_required). */
+  destinationChanged?: boolean;
   onChange: (value: string) => void;
 }) {
   const { t } = useTranslation();
   const [storedSet] = useState(() => value === SECRET_REDACTED);
   const current = typeof value === 'string' ? value : '';
   const kept = current === SECRET_REDACTED;
+  const required = kept && destinationChanged;
   const cleared = storedSet && current === '';
   return (
     <div className="space-y-1">
@@ -733,12 +737,16 @@ function SecretInput({
           type="password"
           autoComplete="new-password"
           value={kept ? '' : current}
+          required={required}
+          aria-invalid={required || undefined}
           placeholder={
-            kept
-              ? t('settings.fanout.secret.kept')
-              : cleared
-                ? t('settings.fanout.secret.cleared')
-                : placeholder
+            required
+              ? t('settings.fanout.secret.required')
+              : kept
+                ? t('settings.fanout.secret.kept')
+                : cleared
+                  ? t('settings.fanout.secret.cleared')
+                  : placeholder
           }
           onChange={(e) =>
             onChange(e.target.value === '' && storedSet ? SECRET_REDACTED : e.target.value)
@@ -765,7 +773,49 @@ function SecretInput({
           {t('settings.fanout.secret.clearedHelp')}
         </p>
       )}
+      {required && (
+        <p className="text-[0.8125rem] text-destructive">
+          {t('settings.fanout.secret.requiredAfterDestination')}
+        </p>
+      )}
     </div>
+  );
+}
+
+const MQTT_DESTINATION: Record<string, unknown> = {
+  broker_host: '',
+  broker_port: 1883,
+  use_tls: false,
+  tls_insecure: false,
+};
+
+/** Mirrors FANOUT_DESTINATION_KEYS (app/secret_fields.py): key -> default. */
+const SECRET_DESTINATION_KEYS: Record<string, Record<string, unknown>> = {
+  webhook: { url: '' },
+  mqtt_private: MQTT_DESTINATION,
+  mqtt_ha: MQTT_DESTINATION,
+  mqtt_community: {
+    broker_host: 'mqtt-us-v1.letsmesh.net',
+    broker_port: 443,
+    transport: 'websockets',
+    use_tls: true,
+    tls_verify: true,
+    websocket_path: '/',
+  },
+  sqs: { queue_url: '', endpoint_url: '', region_name: '' },
+};
+
+function destinationValue(value: unknown, fallback: unknown): string {
+  return String(value ?? fallback).trim();
+}
+
+/** Whether the editor moved this row's destination since it opened. */
+function useDestinationChanged(type: string, config: Record<string, unknown>): boolean {
+  const [initial] = useState(config);
+  const keys = SECRET_DESTINATION_KEYS[type] ?? {};
+  return Object.entries(keys).some(
+    ([key, fallback]) =>
+      destinationValue(config[key], fallback) !== destinationValue(initial[key], fallback)
   );
 }
 
@@ -812,6 +862,7 @@ function MqttPrivateConfigEditor({
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
   const { t } = useTranslation();
+  const destinationChanged = useDestinationChanged('mqtt_private', config);
   return (
     <div className="space-y-3">
       <p className="text-[0.8125rem] text-muted-foreground">
@@ -863,6 +914,7 @@ function MqttPrivateConfigEditor({
           <Label htmlFor="fanout-mqtt-pass">{t('settings.fanout.mqtt.password')}</Label>
           <SecretInput
             id="fanout-mqtt-pass"
+            destinationChanged={destinationChanged}
             placeholder={t('settings.fanout.mqtt.optional')}
             value={config.password}
             onChange={(password) => onChange({ ...config, password })}
@@ -923,6 +975,7 @@ function MqttHaConfigEditor({
   onChange: (config: Record<string, unknown>) => void;
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
+  const destinationChanged = useDestinationChanged('mqtt_ha', config);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [trackedRepeaters, setTrackedRepeaters] = useState<string[]>([]);
   const [contactSearch, setContactSearch] = useState('');
@@ -1391,6 +1444,7 @@ function MqttHaConfigEditor({
           <Label htmlFor="fanout-ha-pass">{t('settings.fanout.mqtt.password')}</Label>
           <SecretInput
             id="fanout-ha-pass"
+            destinationChanged={destinationChanged}
             placeholder={t('settings.fanout.mqtt.optional')}
             value={config.password}
             onChange={(password) => onChange({ ...config, password })}
@@ -1576,6 +1630,7 @@ function MqttCommunityConfigEditor({
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
 }) {
+  const destinationChanged = useDestinationChanged('mqtt_community', config);
   const authMode = (config.auth_mode as string) || DEFAULT_COMMUNITY_AUTH_MODE;
   const { t } = useTranslation();
 
@@ -1713,6 +1768,7 @@ function MqttCommunityConfigEditor({
             <Label htmlFor="fanout-comm-password">{t('settings.fanout.mqtt.password')}</Label>
             <SecretInput
               id="fanout-comm-password"
+              destinationChanged={destinationChanged}
               value={config.password}
               onChange={(password) => onChange({ ...config, password })}
             />
@@ -2976,6 +3032,7 @@ function WebhookConfigEditor({
   onChange: (config: Record<string, unknown>) => void;
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
+  const destinationChanged = useDestinationChanged('webhook', config);
   const headersStr = JSON.stringify(config.headers ?? {}, null, 2);
   const [headersText, setHeadersText] = useState(headersStr);
   const [headersError, setHeadersError] = useState<string | null>(null);
@@ -3045,6 +3102,7 @@ function WebhookConfigEditor({
             </Label>
             <SecretInput
               id="fanout-webhook-hmac-secret"
+              destinationChanged={destinationChanged}
               placeholder={t('settings.fanout.webhook.hmacSecretPlaceholder')}
               value={config.hmac_secret}
               onChange={(hmac_secret) => onChange({ ...config, hmac_secret })}
@@ -3097,6 +3155,7 @@ function SqsConfigEditor({
   onChange: (config: Record<string, unknown>) => void;
   onScopeChange: (scope: Record<string, unknown>) => void;
 }) {
+  const destinationChanged = useDestinationChanged('sqs', config);
   const { t } = useTranslation();
   return (
     <div className="space-y-3">
@@ -3170,6 +3229,7 @@ function SqsConfigEditor({
           <Label htmlFor="fanout-sqs-secret-key">{t('settings.fanout.sqs.secretKey')}</Label>
           <SecretInput
             id="fanout-sqs-secret-key"
+            destinationChanged={destinationChanged}
             value={config.secret_access_key}
             onChange={(secret_access_key) => onChange({ ...config, secret_access_key })}
           />
@@ -3180,6 +3240,7 @@ function SqsConfigEditor({
         <Label htmlFor="fanout-sqs-session-token">{t('settings.fanout.sqs.sessionToken')}</Label>
         <SecretInput
           id="fanout-sqs-session-token"
+          destinationChanged={destinationChanged}
           value={config.session_token}
           onChange={(session_token) => onChange({ ...config, session_token })}
         />

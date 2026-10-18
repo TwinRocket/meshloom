@@ -4,7 +4,8 @@
     "egress_private_address_apprise": "URL Apprise {{line}} : cette adresse est sur un réseau privé (réseau local, cette machine) ou c'est une adresse de métadonnées cloud. Autorisez les réseaux privés pour cette intégration si elle vous appartient ; les adresses de métadonnées sont toujours refusées.",
     "egress_unresolvable_apprise": "URL Apprise {{line}} : nom d'hôte introuvable. Vérifiez-le, ou saisissez plutôt l'adresse IP.",
     "apprise_url_invalid": "URL Apprise {{line}} : Apprise ne comprend pas cette URL. Vérifiez-la dans le wiki Apprise.",
-    "apprise_chat_id_required": "URL Apprise {{line}} : une URL Telegram doit indiquer un identifiant de discussion (tgram://bot_token/chat_id)."
+    "apprise_chat_id_required": "URL Apprise {{line}} : une URL Telegram doit indiquer un identifiant de discussion (tgram://bot_token/chat_id).",
+    "secret_required": "La destination a changé, le secret enregistré n’est donc pas réutilisé ({{fields}}). Saisissez-le à nouveau, ou effacez-le."
   },
   "settings": {
     "fanout": {
@@ -19,7 +20,9 @@
         "clear": "Effacer",
         "keep": "Conserver",
         "cleared": "Supprimé à l’enregistrement",
-        "clearedHelp": "Le secret enregistré sera supprimé à l’enregistrement. Saisissez-en un nouveau, ou cliquez sur Conserver."
+        "clearedHelp": "Le secret enregistré sera supprimé à l’enregistrement. Saisissez-en un nouveau, ou cliquez sur Conserver.",
+        "required": "Requis : la destination a changé",
+        "requiredAfterDestination": "Vous avez changé la destination : le secret enregistré n’est jamais envoyé vers une nouvelle. Saisissez-le à nouveau, ou cliquez sur Effacer."
       },
       "apprise": {
         "urlsKept": "Inchangées ({{targets}}). Saisissez de nouvelles URL pour toutes les remplacer."
@@ -28,7 +31,8 @@
     "fullRestore": {
       "warnings": {
         "apprise_restored_disabled": "L’intégration Apprise {{value}} revient désactivée : une de ses URL utilise un service vers lequel Meshloom n’envoie plus, ou une URL Telegram sans identifiant de discussion. Modifiez ses URL avant de l’activer.",
-        "private_network_restored_disabled": "L’intégration {{value}} revient désactivée : elle avait le droit de joindre un réseau privé (LAN, cette machine). Vérifiez sa destination, puis activez-la."
+        "private_network_restored_disabled": "L’intégration {{value}} revient désactivée : elle avait le droit de joindre un réseau privé (LAN, cette machine). Vérifiez sa destination, puis activez-la.",
+        "secret_dropped_destination_changed": "Le secret de {{value}} n’a pas été restauré : le fichier le dirige vers une autre destination que celle de ce serveur. Saisissez-le à nouveau dans ses réglages."
       }
     }
   }
