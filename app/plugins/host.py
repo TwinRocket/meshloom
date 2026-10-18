@@ -90,6 +90,9 @@ INSTANCE_CAP_MIN = 3
 INSTANCE_CAP_MAX = 20
 
 _DROP_LOG_INTERVAL = 10.0
+# How long the host drains a child's stdout after killing it for a line over the
+# cap, before it closes the pipe itself (`PluginProcess._discard_stdout`).
+STDOUT_DRAIN_SECONDS = 5.0
 # Requests a child may have pending at the host at once; past it: -32001.
 MAX_CHILD_REQUESTS = 32
 # What a test event may capture of its `messages.send` requests; past either
@@ -532,11 +535,30 @@ class PluginProcess:
             try:
                 lines = decoder.feed(data)
             except rpc.FramingError as exc:
-                self.kill(f"protocol_violation: {exc}")
+                self.kill(f"rpc_framing: {exc}")
+                await self._discard_stdout()
                 return
             for line in lines:
                 if line.strip():
                     self._handle_line(line)
+
+    async def _discard_stdout(self) -> None:
+        """Drop what a killed child still writes, then close the pipe ourselves.
+
+        On Python 3.11 `Process.wait()` returns only once every pipe is closed
+        (gh-119710, fixed in 3.12): a reader that stopped on a full buffer would
+        leave `_wait_exit` waiting for ever, the instance shown running with no
+        process. Bounded, since a process that kept the descriptor (a grandchild)
+        can hold it open as long as it lives.
+        """
+        assert self._proc is not None and self._proc.stdout is not None
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(STDOUT_DRAIN_SECONDS):
+                while await self._proc.stdout.read(65536):
+                    pass
+        transport = self._proc._transport.get_pipe_transport(1)  # type: ignore[attr-defined]
+        if transport is not None:
+            transport.close()
 
     async def _read_stderr(self) -> None:
         assert self._proc is not None and self._proc.stderr is not None
