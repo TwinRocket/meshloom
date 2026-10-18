@@ -73,12 +73,13 @@ and the OpenAPI page (`/docs`), not a table here.
   conditionally. Routes `routers/auth_webauthn.py`; a passkey is also a second factor
   at `POST /api/auth/login/2fa` when TOTP is on. Details: `docs/dev/auth.md`, "Passkeys".
 - `auth/pairing.py` is device pairing (MSHL-71; contract `docs/dev/device-pairing.md`):
-  a `member` or `admin` session creates a single-use `mlp_` code (SHA-256 at rest, at most
-  10 minutes, scopes within its role) whose QR payload carries the public, Remote and LAN
-  addresses; `POST /api/auth/pair` (public) spends it and inserts the device token in one
+  an `admin` session creates a single-use `mlp_` code (SHA-256 at rest, at most
+  10 minutes) whose QR payload carries the public, Remote and LAN addresses (the creator's
+  address only when it is a private, link-local, ULA or `.local`/`.lan`/`.home.arpa` one:
+  `is_lan_host`; never a public host over http); `POST /api/auth/pair` (public) spends it and inserts the device token in one
   transaction (`PairingCodeRepository.redeem`), checking the creator again (fail closed).
   Every bad code is one 410 `auth_pairing_expired` and a failure for the login delays
-  (key `LIMIT_KEY`); refused under ingress before any lookup. Routes `routers/auth_pairing.py`.
+  (key `LIMIT_KEY`, `name_rule=False`: per client only, no global slow-down); refused under ingress before any lookup. Routes `routers/auth_pairing.py`.
 - `middleware/host_guard.py` is the `Host` guard (docs/dev/auth.md, "Host guard"):
   `host_allowed` is the one rule (trusted-network auto-login calls it directly and
   stays strict in both modes); `HostGuardMiddleware` (inside the proxy-headers

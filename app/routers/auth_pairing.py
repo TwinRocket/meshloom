@@ -4,15 +4,15 @@ Included by ``app/routers/auth.py``. Rules in ``app/auth/pairing.py``; the
 contract a device follows is ``docs/dev/device-pairing.md``.
 
 - ``POST /auth/pairings``, ``GET /auth/pairings``, ``DELETE /auth/pairings/{id}``
-  declare ``own_account()`` (a signed-in account, never a token) and hold
-  ``TOKEN_ROLES`` (403 ``auth_forbidden`` otherwise). A member sees and revokes
-  its own pending codes; an admin everyone's (404 ``auth_pairing_not_found``
-  for a code the caller may not see, or that is no longer pending). The code
-  is in the creation answer only.
+  declare ``own_account()`` (a signed-in account, never a token) and are for
+  an ``admin`` only (403 ``auth_forbidden`` otherwise, as the cadrage says). An
+  admin sees and revokes every pending code (404 ``auth_pairing_not_found``
+  for one that is unknown or no longer pending). The code is in the creation
+  answer only.
 - ``POST /auth/pair`` is public (``PUBLIC_ROUTES``): a device sends the code
   and gets its device token. 403 ``auth_pairing_ingress`` under Home Assistant
-  ingress, 429 ``auth_rate_limited`` while a login delay runs (both before any
-  lookup), 410 ``auth_pairing_expired`` for every bad code, 409
+  ingress, 429 ``auth_rate_limited`` while a login delay runs for this client
+  (both before any lookup), 410 ``auth_pairing_expired`` for every bad code, 409
   ``auth_token_limit`` when the creator holds the maximum of live tokens (the
   code is spent then).
 
@@ -146,12 +146,14 @@ class PairedDoc(BaseModel):
     urls: list[str]
 
 
-def _holder(request: Request) -> Principal:
+def _admin(request: Request) -> Principal:
+    """The signed-in admin managing pairing codes (cadrage: ``POST
+    /api/auth/pairings`` is admin; ``own_account()`` already refused tokens)."""
     principal = get_principal(request)
     if principal is None:
         raise _error(401, "auth_required")
-    if principal.role not in token_provider.TOKEN_ROLES:
-        raise _error(403, FORBIDDEN_CODE, {"permission": "account"})
+    if principal.role != "admin":
+        raise _error(403, FORBIDDEN_CODE, {"permission": "admin"})
     return principal
 
 
@@ -200,10 +202,9 @@ async def _refused(
 
 @router.get("/pairings", response_model=list[PairingInfo], dependencies=[Depends(own_account())])
 async def list_pairings(request: Request) -> list[PairingInfo]:
-    """The caller's pending pairing codes, newest first; every user's for an admin."""
-    principal = _holder(request)
-    owner = None if principal.role == "admin" else principal.user_id
-    return await _info(await PairingCodeRepository.list_pending(owner))
+    """Every pending pairing code, newest first (admin)."""
+    _admin(request)
+    return await _info(await PairingCodeRepository.list_pending())
 
 
 @router.post(
@@ -217,7 +218,7 @@ async def create_pairing(body: PairingCreate, request: Request) -> JSONResponse:
     """Create a single-use pairing code. The answer holds the code, once."""
     scopes: list[str] = sorted(set(body.scopes))
     try:
-        principal = _holder(request)
+        principal = _admin(request)
         violation = token_provider.scope_violation(principal.role, scopes)
         if violation is not None:
             raise _error(400, "auth_token_scope", {"scope": violation})
@@ -247,12 +248,12 @@ async def create_pairing(body: PairingCreate, request: Request) -> JSONResponse:
 
 @router.delete("/pairings/{pairing_id}", status_code=204, dependencies=[Depends(own_account())])
 async def revoke_pairing(pairing_id: str, request: Request) -> None:
-    """Revoke a pending code (the caller's own, or any for an admin): it stops working at once."""
+    """Revoke a pending code (admin): it stops working at once."""
     target = f"pairing:{pairing_id[:64]}"
     try:
-        principal = _holder(request)
+        principal = _admin(request)
         row = await PairingCodeRepository.get(pairing_id)
-        if row is None or (principal.role != "admin" and row.created_by != principal.user_id):
+        if row is None:
             raise _error(404, "auth_pairing_not_found")
         if not await PairingCodeRepository.revoke(row.id):
             raise _error(404, "auth_pairing_not_found")
@@ -287,7 +288,7 @@ async def pair(body: PairRequest, request: Request) -> JSONResponse:
     limiter = ratelimit.login_limiter
     address = limiter.address_key(request.scope)
     try:
-        limiter.check(address, pairing.LIMIT_KEY)
+        limiter.check(address, pairing.LIMIT_KEY, name_rule=False)
     except ratelimit.LoginDelayed as delayed:
         # One row per delay, not per refused attempt (as for ``login``).
         if delayed.first:
@@ -312,7 +313,7 @@ async def pair(body: PairRequest, request: Request) -> JSONResponse:
         if reason == "token_limit":
             error = _error(409, "auth_token_limit", {"max": MAX_TOKENS_PER_USER})
         else:
-            await limiter.record_failure(address, pairing.LIMIT_KEY)
+            await limiter.record_failure(address, pairing.LIMIT_KEY, name_rule=False)
             error = _error(410, EXPIRED_CODE)
         await audit.record_request(
             request,
