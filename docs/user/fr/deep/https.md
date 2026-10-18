@@ -140,7 +140,7 @@ Quand le navigateur atteint Meshloom directement en HTTPS, Meshloom ajoute `Stri
 
 Les réponses de connexion (`/api/auth/`) et celles qui portent des secrets (clé privée de la radio, sauvegardes, clés des canaux) portent `Cache-Control: no-store` : ni navigateur ni proxy ne les conserve. Une `Permissions-Policy` coupe la caméra et le micro pour la page et laisse au bouton de position son accès à la localisation.
 
-Pour une mise en place pas à pas avec un Cloudflare Tunnel, Tailscale, WireGuard, Caddy, nginx ou Traefik, voir [Accès à distance par vos propres moyens](/fr/docs/deep/remote-self-hosted/).
+Pour une mise en place pas à pas avec un Cloudflare Tunnel, Tailscale, WireGuard, Caddy, nginx ou Traefik, voir [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/).
 
 ## Reverse-proxy sur un sous-chemin
 

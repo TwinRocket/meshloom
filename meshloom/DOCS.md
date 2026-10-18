@@ -130,8 +130,7 @@ provide one:
 3. Open Meshloom through that hostname (over HTTPS) to subscribe to Web Push.
 
 Tunnels, VPNs and reverse proxies are covered step by step in
-*Remote access on your own* (`docs/user/en/deep/remote-self-hosted.md`, published
-on meshloom.app).
+*Remote access on your own* (published on meshloom.app, in the Go deeper section).
 
 The hostname does not have to resemble Home Assistant's: the tunnel connects to an
 address and a port. Meshloom looks at the name in the browser's address (DNS

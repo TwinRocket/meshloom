@@ -96,7 +96,7 @@ Quelques choses fonctionnent différemment :
 
 **Le port de partage de la radio se règle dans Home Assistant, pas dans Meshloom.** L’interface s’atteint par la barre latérale et ne publie rien : le proxy radio (voir [Transports radio](/docs/deep/transports/)) est donc la seule chose visible sur le réseau. Changez son port dans le panneau **Réseau** de l’add-on. Le champ dans Meshloom ne fait que l’afficher, car une valeur saisie là ferait écouter Meshloom à un endroit où rien n’est redirigé.
 
-**Les notifications demandent une adresse à elles.** La barre latérale n’a pas d’adresse publique stable, donc Web Push ne peut pas fonctionner à travers elle seule. Donnez à Meshloom un vrai nom d’hôte (l’add-on Cloudflared peut le faire sans ouvrir de port sur votre box) et ouvrez Meshloom à cette adresse ([Accès à distance par vos propres moyens](/fr/docs/deep/remote-self-hosted/#add-on-home-assistant)).
+**Les notifications demandent une adresse à elles.** La barre latérale n’a pas d’adresse publique stable, donc Web Push ne peut pas fonctionner à travers elle seule. Donnez à Meshloom un vrai nom d’hôte (l’add-on Cloudflared peut le faire sans ouvrir de port sur votre box) et ouvrez Meshloom à cette adresse ([Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/#add-on-home-assistant)).
 
 Ce n’est pas la même chose que [publier le mesh vers Home Assistant par MQTT](/docs/deep/home-assistant/), qui marche depuis n’importe quelle installation et ne demande aucun add-on.
 

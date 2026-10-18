@@ -78,7 +78,7 @@ These put your phone or laptop on a private network with the machine that runs M
 
 1. Install Tailscale on the Meshloom machine and on your devices, signed in to the same tailnet.
 2. **Reach Meshloom by its tailnet address**: `http://100.x.y.z:8000` (an IP address, always accepted) or `http://machine-name.tailnet-name.ts.net:8000` with MagicDNS. Declare the MagicDNS name in **Public addresses** as `https://machine-name.tailnet-name.ts.net`: the Host check wants it from 5.1, and **Recently seen unknown names** will list it with **Allow** if you forgot. Never declare a name you did not create yourself.
-3. This works over plain HTTP, which means the password and session cookie travel unencrypted on the tailnet (they are encrypted by Tailscale itself between devices, but the browser still treats the page as insecure). **For Web Push, passkeys and the channel finder you need HTTPS**: use `tailscale serve --bg --https=443 http://127.0.0.1:8000` (and enable HTTPS certificates for your tailnet in the Tailscale admin console), then open `https://machine-name.tailnet-name.ts.net`. Add `127.0.0.1` to **Trusted proxies** so Meshloom sees the HTTPS and the real device, and declare that name in **Public addresses**.
+3. This works over plain HTTP: Tailscale encrypts the traffic between your devices, but the browser still treats the page as insecure, so there is no HTTPS-only feature (push, passkeys, channel finder) and the session cookie is the plain one. **For Web Push, passkeys and the channel finder you need HTTPS**: use `tailscale serve --bg --https=443 http://127.0.0.1:8000` (and enable HTTPS certificates for your tailnet in the Tailscale admin console), then open `https://machine-name.tailnet-name.ts.net`. Add `127.0.0.1` to **Trusted proxies** so Meshloom sees the HTTPS and the real device, and declare that name in **Public addresses**.
 4. `tailscale funnel` would publish Meshloom to the whole Internet. It is not needed for this setup; Meshloom's accounts are then the only gate, so prefer `serve`.
 
 Push to a `*.ts.net` name for the notification endpoints is a separate matter: see [Push services on a private network](/en/docs/deep/push/#push-services-on-a-private-network).
@@ -121,13 +121,24 @@ server {
 }
 ```
 
-**Traefik.** Keeps `Host`, sets both headers and passes WebSocket (see the Docker labels in [HTTPS](/en/docs/deep/https/#trusted-proxies)); leave `forwardedHeaders.trustedIPs` empty unless another proxy sits in front of it.
+**Traefik** (v3, Docker provider). Keeps `Host`, sets both headers and passes WebSocket. Leave `forwardedHeaders.trustedIPs` empty unless another proxy sits in front of it. Labels on the Meshloom container, with an entry point `websecure` on `:443` and a certificate resolver named `letsencrypt` already defined in Traefik's static configuration (change both names to yours):
+
+```yaml
+labels:
+  - traefik.enable=true
+  - traefik.http.routers.meshloom.rule=Host(`meshloom.example.org`)
+  - traefik.http.routers.meshloom.entrypoints=websecure
+  - traefik.http.routers.meshloom.tls.certresolver=letsencrypt
+  - traefik.http.services.meshloom.loadbalancer.server.port=8000
+```
+
+Traefik and Meshloom must share a Docker network; list Traefik's fixed address on it in Trusted proxies ([example](/en/docs/deep/https/#trusted-proxies)).
 
 Then, in Meshloom: declare `https://meshloom.example.org` in **Public addresses** and list the proxy in **Trusted proxies** (`127.0.0.1` if it is on the host; a fixed container address otherwise). If the proxy serves Meshloom under a path such as `/meshcore/`, declare `https://meshloom.example.org/meshcore` and read [Reverse proxy under a subpath](/en/docs/deep/https/#reverse-proxy-under-a-subpath).
 
 ## Home Assistant add-on
 
-Opened from the Home Assistant sidebar, Meshloom signs the Home Assistant user in and needs none of the above; ingress is never refused for its name and has its own address. The sidebar has no stable public address, so passkeys, trusted networks and Web Push do not work through it. To reach Meshloom from outside with the **Cloudflared** add-on (or any of the paths above): in the Meshloom add-on's **Network** panel give `8000/tcp` a host port, route the hostname to `http://<home-assistant-ip>:<that port>`, declare the hostname in **Public addresses** and list the address the tunnel connects from in **Trusted proxies**. That address asks for a Meshloom account, not a Home Assistant login. See [Home Assistant](/en/docs/deep/access/#home-assistant) and the install note in [Install](/en/docs/install/).
+Opened from the Home Assistant sidebar, Meshloom signs the Home Assistant user in and needs none of the above; ingress is never refused for its name and has its own address. The sidebar has no stable public address, so passkeys, trusted networks and Web Push do not work through it. To reach Meshloom from outside with the **Cloudflared** add-on (or any of the paths above): in the Meshloom add-on's **Network** panel give `8000/tcp` a host port, route the hostname to `http://<home-assistant-ip>:<that port>`, declare the hostname in **Public addresses**, then look at the sign-in page through the tunnel: if it warns that Meshloom saw plain HTTP, Trusted proxies is what is missing. **Which address to list depends on where the connection comes from.** If the tunnel is a container of its own on Home Assistant's add-on network (the Cloudflared add-on), list that container's address, as Meshloom sees it (the audit log and **My sessions** show it). If the connection arrives through the published host port, Meshloom usually sees the Docker gateway of that network instead: **do not list it** (the rule above), leave Trusted proxies empty and accept that visitors share one address and that the session cookie is the plain one, or route the tunnel to the add-on's container address directly rather than to the published port. The address is not verified on Home Assistant hardware by the author. This address asks for a Meshloom account, not a Home Assistant login. See [Home Assistant](/en/docs/deep/access/#home-assistant) and the install note in [Install](/en/docs/install/).
 
 ## Checklist
 

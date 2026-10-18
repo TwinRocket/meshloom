@@ -69,13 +69,13 @@ Les paquets de votre propre radio s’affichent toujours. Ceux des observateurs 
 
 Meshloom Community peut mettre son flux public en pause pendant un moment. Une petite étiquette **Live en pause** s’affiche alors à côté du réglage du son, et seuls les paquets de votre propre radio sont dessinés. Il n’y a rien à faire : votre serveur revérifie à peu près chaque minute et les paquets de Community reviennent d’eux-mêmes quand le flux reprend.
 
-Si Meshloom Community a banni votre radio, le bandeau le dit et les paquets de Community s’arrêtent ; voir [Si votre radio est bannie](/fr/docs/deep/community/#si-votre-radio-est-bannie).
+Si Meshloom Community a banni votre radio, le bandeau le dit et les paquets de Community s’arrêtent ; voir [Si votre radio est bannie](/docs/deep/community/#si-votre-radio-est-bannie).
 
 ## Le fil
 
 Le **Fil** réunit tout dans une seule chronologie, le plus récent en bas : les messages de tous vos canaux et messages directs, et le trafic de contrôle (requêtes, réponses, requêtes anonymes comme les connexions, et données de groupe) entre eux, dans l’ordre du temps. Quand le contenu d’un paquet de contrôle reste chiffré, on voit l’enveloppe, pas le contenu ; cliquez sur une ligne pour ouvrir l’inspecteur de paquet.
 
-- **Puces.** *Messages*, *Contrôle* et *Événements* (pas encore disponible) choisissent les sources. Sous *Messages*, *Canaux*, *Messages directs*, *Reçus* et *Envoyés* restreignent l’affichage, et *Canaux en sourdine* et *Canaux en attente* font revenir ceux qui sont masqués par défaut. La puce **Messages directs** n’est qu’un choix d’affichage : les masquer ne les protège pas, puisque quiconque peut ouvrir Meshloom peut les lire (voir [Un réseau de confiance](/fr/docs/trust/)). Votre choix est mémorisé dans ce navigateur.
+- **Puces.** *Messages*, *Contrôle* et *Événements* (pas encore disponible) choisissent les sources. Sous *Messages*, *Canaux*, *Messages directs*, *Reçus* et *Envoyés* restreignent l’affichage, et *Canaux en sourdine* et *Canaux en attente* font revenir ceux qui sont masqués par défaut. La puce **Messages directs** n’est qu’un choix d’affichage : les masquer ne les protège pas, puisque quiconque peut ouvrir Meshloom peut les lire (voir [Un réseau de confiance](/docs/trust/)). Votre choix est mémorisé dans ce navigateur.
 - **Nœuds.** Avec *Contrôle* activé, une facette **Nœuds** liste les répéteurs et salons, les canaux, les paquets qui vous sont adressés et les non résolus. En choisir un restreint les lignes de contrôle à celui-ci.
 - **Mode suivi.** Le fil reste sur la ligne la plus récente tant que vous êtes en bas. Remontez, et un bouton **Suivre** compte ce qui est arrivé depuis et vous ramène en bas. Remonter charge aussi les messages plus anciens.
 - **Depuis votre dernière visite.** Une ligne **Nouveau depuis votre dernière visite** marque le premier message arrivé après la dernière fois que vous aviez le fil ouvert, dans ce navigateur.
