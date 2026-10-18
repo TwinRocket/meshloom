@@ -1512,6 +1512,7 @@ export function normalizeTelemetryAlertCatalog(raw: unknown): TelemetryAlertCata
   return { metrics, latches, tracked };
 }
 
+export type NotificationLanguage = 'auto' | 'fr' | 'en';
 export type ShareShortenMode = 'auto' | 'always' | 'never';
 export type SharePreviewPolicy = 'always' | 'private' | 'never';
 
@@ -1580,6 +1581,7 @@ export interface AppSettings {
   share_enabled?: boolean;
   share_shorten_mode?: ShareShortenMode;
   share_preview_policy?: SharePreviewPolicy;
+  notification_language?: NotificationLanguage;
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
@@ -1629,6 +1631,7 @@ export interface AppSettingsUpdate {
   share_enabled?: boolean;
   share_shorten_mode?: ShareShortenMode;
   share_preview_policy?: SharePreviewPolicy;
+  notification_language?: NotificationLanguage;
 }
 
 export interface DirectoryHopHit {

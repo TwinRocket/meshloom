@@ -1476,6 +1476,31 @@ describe('SettingsModal', () => {
     expect(onSaveAppSettings).not.toHaveBeenCalled();
   });
 
+  it('shows the notification language (Automatic by default) and saves a choice', async () => {
+    const onSaveAppSettings = vi.fn(async () => {});
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'notifications',
+      onSaveAppSettings,
+      appSettings: { ...baseSettings },
+    });
+
+    const select = await screen.findByLabelText(i18n.t('settings.notifications.language.label'));
+    expect(select).toHaveValue('auto');
+    expect(
+      Array.from((select as HTMLSelectElement).options).map((option) => option.textContent)
+    ).toEqual([
+      i18n.t('settings.notifications.language.auto'),
+      i18n.t('settings.notifications.language.fr'),
+      i18n.t('settings.notifications.language.en'),
+    ]);
+
+    fireEvent.change(select, { target: { value: 'en' } });
+    await waitFor(() =>
+      expect(onSaveAppSettings).toHaveBeenLastCalledWith({ notification_language: 'en' })
+    );
+  });
+
   it('shows the grandfathered push notice and dismisses it', async () => {
     const onSaveAppSettings = vi.fn(async () => {});
     renderModal({

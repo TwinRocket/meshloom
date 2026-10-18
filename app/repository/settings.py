@@ -181,6 +181,8 @@ ShareShortenMode = Literal["auto", "always", "never"]
 SharePreviewPolicy = Literal["always", "private", "never"]
 SHARE_SHORTEN_MODES: tuple[ShareShortenMode, ...] = ("auto", "always", "never")
 SHARE_PREVIEW_POLICIES: tuple[SharePreviewPolicy, ...] = ("always", "private", "never")
+NotificationLanguage = Literal["auto", "fr", "en"]
+NOTIFICATION_LANGUAGES: tuple[NotificationLanguage, ...] = ("auto", "fr", "en")
 
 # Services with an instance identity, each its own ``app_settings.<service>_instance_seed``
 # column (app/services/instance_identity.py). Access adds "remote" with its migration.
@@ -304,7 +306,8 @@ class AppSettingsRepository:
                    push_allow_private_endpoints, push_private_endpoints_grandfathered,
                    push_private_endpoints_review,
                    radio_offline_grace_s,
-                   share_enabled, share_shorten_mode, share_preview_policy
+                   share_enabled, share_shorten_mode, share_preview_policy,
+                   notification_language
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -526,6 +529,9 @@ class AppSettingsRepository:
             share_preview_policy=_share_choice(
                 row, "share_preview_policy", SHARE_PREVIEW_POLICIES, "private"
             ),
+            notification_language=_share_choice(
+                row, "notification_language", NOTIFICATION_LANGUAGES, "auto"
+            ),
         )
 
     @staticmethod
@@ -571,6 +577,7 @@ class AppSettingsRepository:
         share_enabled: bool | None = None,
         share_shorten_mode: str | None = None,
         share_preview_policy: str | None = None,
+        notification_language: str | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -726,6 +733,7 @@ class AppSettingsRepository:
         for column, choice, allowed in (
             ("share_shorten_mode", share_shorten_mode, SHARE_SHORTEN_MODES),
             ("share_preview_policy", share_preview_policy, SHARE_PREVIEW_POLICIES),
+            ("notification_language", notification_language, NOTIFICATION_LANGUAGES),
         ):
             if choice is not None:
                 if choice not in allowed:
@@ -792,6 +800,7 @@ class AppSettingsRepository:
         share_enabled: bool | None = None,
         share_shorten_mode: str | None = None,
         share_preview_policy: str | None = None,
+        notification_language: str | None = None,
     ) -> AppSettings:
         """Update app settings. Only provided fields are updated.
 
@@ -843,6 +852,7 @@ class AppSettingsRepository:
                 share_enabled=share_enabled,
                 share_shorten_mode=share_shorten_mode,
                 share_preview_policy=share_preview_policy,
+                notification_language=notification_language,
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)

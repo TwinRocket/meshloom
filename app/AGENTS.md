@@ -991,6 +991,11 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Telemetry alerts and notifications
 
+- **Catalogue and renderer: `app/notifications/AGENTS.md`.** Every notification
+  text (push payload, e-mail subject and bodies, Apprise text, webhook enrichment) is
+  rendered in `app/notifications/render.py`; `push/manager.py` and `email_template.py`
+  only re-export it. `app_settings.notification_language` (`auto`|`fr`|`en`) picks the
+  e-mail and Apprise language (`resolve_instance_language()`).
 - Four media: `push`, `email`, `webhook`, `apprise` (`NOTIFICATION_MEDIA_KEYS`,
   `app/repository/settings.py`; the push router models, `pushPolicy.ts` and
   the frontend matrix list them too). A missing key reads as off
@@ -1028,7 +1033,7 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   `notifications_grouped` "+N events"; `first_seen` capped at 10 an hour, the
   rest one `first_seen_grouped`). The text policy (`include_message_text`:
   `public_only` default, `always`, `never`) and the format apply once, in
-  `event_notification_text` (`app/push/manager.py`); room-wide mentions
+  `event_notification_text` (`app/notifications/render.py`, re-exported by `app/push/manager.py`); room-wide mentions
   (`@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@…>`, `<!…>`) are
   always neutralised, Markdown escapes the text. Every Apprise parse and send
   (the medium, save-time validation, the fanout) runs inside `secret_scope()`

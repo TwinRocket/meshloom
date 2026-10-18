@@ -79,6 +79,8 @@ defaults and overrides, `ui_preferences`, `notification_destinations`,
 password, outside `AppSettings`; `radio_outage_started_at`: Unix time of the radio outage
 that was notified, NULL when none, written by `notifications/radio_watch.py`, outside
 `AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`;
+`notification_language`: `auto`, `fr` or `en`, the language of e-mail and Apprise
+notifications (migration 111, `app/notifications/AGENTS.md`);
 `share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
 (migration 102); `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
 never exported by a backup; `store_online`: the Store egress consent, off by default,
