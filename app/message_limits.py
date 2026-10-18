@@ -13,7 +13,13 @@ If a firmware release changes the packet budget, change the constants here and i
 the composer in the same PR.
 """
 
-from fastapi import HTTPException
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi import HTTPException
+
+# FastAPI is imported only when a refusal is raised: `app.plugins.attention` reads the
+# limits and `meshloom_plugin.dev` must not pull the web framework in.
 
 DM_HARD_LIMIT = 156  # Max bytes of text for a direct message
 CHANNEL_HARD_LIMIT = 156  # Base byte budget of a channel payload, sender prefix included
@@ -41,7 +47,7 @@ def message_too_long_detail(*, limit: int, size: int) -> dict:
     }
 
 
-def is_message_too_long(exc: HTTPException) -> bool:
+def is_message_too_long(exc: "HTTPException") -> bool:
     """True when ``exc`` is the coded refusal raised by this module."""
     detail = exc.detail
     return isinstance(detail, dict) and detail.get("code") == "message_too_long"
@@ -50,6 +56,8 @@ def is_message_too_long(exc: HTTPException) -> bool:
 def _check(text: str, limit: int) -> None:
     size = byte_length(text)
     if size > limit:
+        from fastapi import HTTPException
+
         raise HTTPException(status_code=400, detail=message_too_long_detail(limit=limit, size=size))
 
 

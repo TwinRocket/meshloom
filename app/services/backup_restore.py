@@ -14,6 +14,7 @@ import time
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, replace
+from typing import Literal
 
 from app.models import (
     BackupCounts,
@@ -897,35 +898,37 @@ def _restore_wrote(run: _Run) -> bool:
 
 
 async def _run_restore(run: _Run) -> None:
+    # The final state is published last, once the result, the restore hooks and
+    # the Wi-Fi prompt are settled: a poller that sees it sees a finished job.
+    state: Literal["done", "failed"] = "failed"
     try:
         await _identity_step(run)
         if run.stop:
             for name in STEP_ORDER[1:]:
                 if run.step(name).status == "pending":
                     run.set(name, "skipped", "identity_failed")
-            run.job.state = "failed"
             return
         await _meshloom_step(run)
         await _radio_steps(run)
-        run.job.state = "done"
+        state = "done"
     except Exception:
         logger.exception("Backup restore failed")
         for step in run.job.steps:
             if step.status in ("pending", "running"):
                 step.status = "failed"
                 step.code = "internal_error"
-        run.job.state = "failed"
     finally:
+        run.result.steps = [step.model_copy() for step in run.job.steps]
+        run.result.warnings = list(dict.fromkeys(run.result.warnings))
+        run.job.result = run.result
         if _restore_wrote(run):
             from app.services.backup_sections import run_on_restore_hooks
 
             await run_on_restore_hooks("json")
-        run.result.steps = [step.model_copy() for step in run.job.steps]
-        run.result.warnings = list(dict.fromkeys(run.result.warnings))
-        run.job.result = run.result
         run.job.finished_at = int(time.time())
         run.doc = None  # type: ignore[assignment]  # drop the secrets now
         _set_running(None)
+        run.job.state = state
 
 
 async def start_restore_backup_v2(

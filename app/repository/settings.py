@@ -182,6 +182,10 @@ SharePreviewPolicy = Literal["always", "private", "never"]
 SHARE_SHORTEN_MODES: tuple[ShareShortenMode, ...] = ("auto", "always", "never")
 SHARE_PREVIEW_POLICIES: tuple[SharePreviewPolicy, ...] = ("always", "private", "never")
 
+# Services with an instance identity, each its own ``app_settings.<service>_instance_seed``
+# column (app/services/instance_identity.py). Access adds "remote" with its migration.
+INSTANCE_SEED_SERVICES: tuple[str, ...] = ("share",)
+
 
 def _share_choice(
     row: Any, column: str, allowed: tuple[_ChoiceT, ...], default: _ChoiceT
@@ -995,27 +999,47 @@ class AppSettingsRepository:
         return values
 
     @staticmethod
-    async def get_share_seed() -> str:
-        """The share instance identity seed ("" until the first enablement).
-
-        Internal-only column, not in ``AppSettings`` and never in a backup
-        (``*_seed`` columns are refused by the export and scrubbed from the
-        database copy).
-        """
-        async with db.readonly() as conn:
-            async with conn.execute(
-                "SELECT share_instance_seed FROM app_settings WHERE id = 1"
-            ) as cursor:
-                row = await cursor.fetchone()
-        return (row["share_instance_seed"] or "") if row else ""
+    def _instance_seed_column(service: str) -> str:
+        if service not in INSTANCE_SEED_SERVICES:
+            raise ValueError(f"unknown instance identity service {service!r}")
+        return f"{service}_instance_seed"
 
     @staticmethod
-    async def set_share_seed(seed: str) -> None:
-        """Store the share instance identity seed ("" forgets it)."""
+    async def get_instance_seed(service: str) -> str:
+        """The hex seed of a service's instance identity ("" until it is created).
+
+        Internal-only ``app_settings.<service>_instance_seed`` column, not in
+        ``AppSettings`` and never in a backup (``*_seed`` columns are refused by
+        the export and scrubbed from the database copy). Read it through
+        ``app/services/instance_identity.py``, never directly.
+        """
+        column = AppSettingsRepository._instance_seed_column(service)
+        async with db.readonly() as conn:
+            async with conn.execute(f"SELECT {column} FROM app_settings WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+        return (row[column] or "") if row else ""
+
+    @staticmethod
+    async def set_instance_seed(service: str, seed: str) -> None:
+        """Store a service's instance identity seed ("" forgets it)."""
+        column = AppSettingsRepository._instance_seed_column(service)
+        async with db.tx() as conn:
+            await conn.execute(f"UPDATE app_settings SET {column} = ? WHERE id = 1", (seed,))
+
+    @staticmethod
+    async def claim_instance_seed(service: str, seed: str) -> str:
+        """Store ``seed`` only when the service has none yet, and return the
+        stored one: two concurrent first uses end with the same identity."""
+        column = AppSettingsRepository._instance_seed_column(service)
         async with db.tx() as conn:
             await conn.execute(
-                "UPDATE app_settings SET share_instance_seed = ? WHERE id = 1", (seed,)
+                f"UPDATE app_settings SET {column} = ? "
+                f"WHERE id = 1 AND ({column} IS NULL OR {column} = '')",
+                (seed,),
             )
+            async with conn.execute(f"SELECT {column} FROM app_settings WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+        return (row[column] or "") if row else ""
 
     @staticmethod
     async def get_vapid_keys() -> tuple[str, str]:
