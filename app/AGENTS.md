@@ -648,7 +648,9 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   the settings router, coded 400) and again before each send; one Apprise
   object per URL, one result per URL. Retries (tenacity, `RETRY_WAITS` 0/5/30 s)
   on a network error, a 5xx or a 429 (`Retry-After`, capped at 120 s), never
-  another 4xx; the HTTP status comes from a `requests.Session.send` wrapper
+  another 4xx, and only for a URL with one target (`len(server) <= 1`: a retry
+  resends to every target of the URL, so ntfy topics, Telegram chats or e-mail
+  recipients already reached would get duplicates); the HTTP status comes from a `requests.Session.send` wrapper
   that records only inside `_send_sync` (a context variable, carried into
   Apprise 2's own pool by `submit_with_context`). Blocking sends run in
   `app/notifications/executor.py` (4 threads, shared later by the engine).
@@ -657,8 +659,12 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   `notifications_grouped` "+N events"; `first_seen` capped at 10 an hour, the
   rest one `first_seen_grouped`). The text policy (`include_message_text`:
   `public_only` default, `always`, `never`) and the format apply once, in
-  `event_notification_text` (`app/push/manager.py`); mentions are always
-  neutralised, Markdown escapes the text. Blocked senders and muted channels
+  `event_notification_text` (`app/push/manager.py`); room-wide mentions
+  (`@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@…>`, `<!…>`) are
+  always neutralised, Markdown escapes the text. Every Apprise parse and send
+  (the medium, save-time validation, the fanout) runs inside `secret_scope()`
+  with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
+  the ring buffer and `/api/debug` masked. Blocked senders and muted channels
   never reach it (`app/services/message_filters.py`, shared with the Apprise
   fanout). `apprise_last_error()` (code, time, line, `redact_apprise_url`)
   is in the health payload as `notification_statuses.apprise`.

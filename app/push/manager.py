@@ -406,13 +406,23 @@ def _title_only_body(data: Mapping[str, Any], lang: str) -> str:
     return f"Message de {sender}" if sender else "Nouveau message"
 
 
-_MENTION = re.compile(r"@(everyone|here)\b|<@", re.IGNORECASE)
+# Discord, Slack, Mattermost, Rocket.Chat and Matrix room-wide pings, and the
+# <@user> / <!channel> tokens of Discord and Slack.
+_MENTION = re.compile(r"@(everyone|here|channel|all|room)\b|<[@!]", re.IGNORECASE)
 _MARKDOWN_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+\-.!|>~<])")
 
 
 def neutralise_mentions(text: str) -> str:
-    """``@everyone``, ``@here`` and ``<@id>`` no longer ping (a zero-width space after ``@``)."""
-    return _MENTION.sub(lambda m: m.group(0).replace("@", "@\u200b", 1), text)
+    """``@everyone``, ``@channel``, ``<@id>``, ``<!here>``... no longer ping: a
+    zero-width space goes after ``@`` (or after ``<!`` and ``<@``)."""
+    return _MENTION.sub(_break_mention, text)
+
+
+def _break_mention(match: re.Match[str]) -> str:
+    token = match.group(0)
+    if token.startswith("<"):
+        return f"{token}\u200b"
+    return f"@\u200b{token[1:]}"
 
 
 def escape_markdown(text: str) -> str:

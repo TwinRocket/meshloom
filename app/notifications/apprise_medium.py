@@ -4,7 +4,10 @@ Each URL gets its own Apprise object and its own result, so one dead service
 neither hides nor repeats the others. A URL is re-checked by the egress guard
 (``validate_apprise_urls``) right before each send. Retries follow
 ``RETRY_WAITS`` (0 s, 5 s, 30 s) on a network error, a 5xx or a 429 (its
-``Retry-After`` wins), never on another 4xx.
+``Retry-After`` wins), never on another 4xx. A URL with several targets is
+tried once: a retry would resend to the targets already reached. While a URL
+is checked or sent, its secret parts are registered with ``secret_scope``, so
+Apprise's own DEBUG lines (request URLs) are masked by the redacting formatter.
 
 Apprise plugins swallow the HTTP answer and return a bool, so the status is
 read from ``requests`` itself: ``_install_response_capture`` wraps
@@ -38,7 +41,13 @@ from typing import Any
 from aiolimiter import AsyncLimiter
 from tenacity import AsyncRetrying, RetryCallState, retry_if_exception_type, stop_after_attempt
 
-from app.net.apprise_urls import AppriseUrlRefused, redact_apprise_url, validate_apprise_urls
+from app.log_redaction import secret_scope
+from app.net.apprise_urls import (
+    AppriseUrlRefused,
+    apprise_url_secret_parts,
+    redact_apprise_url,
+    validate_apprise_urls,
+)
 from app.notifications.executor import run_blocking
 
 logger = logging.getLogger(__name__)
@@ -198,6 +207,22 @@ async def _sleep(seconds: float) -> None:
 async def _send_one_url(
     url: str, *, line: int, allow_private_network: bool, title: str, body: str, markdown: bool
 ) -> None:
+    # Apprise logs request URLs at DEBUG: its tokens are masked by the
+    # redacting formatter while this URL is in flight.
+    with secret_scope(*apprise_url_secret_parts(url)):
+        await _send_one_url_scoped(
+            url,
+            line=line,
+            allow_private_network=allow_private_network,
+            title=title,
+            body=body,
+            markdown=markdown,
+        )
+
+
+async def _send_one_url_scoped(
+    url: str, *, line: int, allow_private_network: bool, title: str, body: str, markdown: bool
+) -> None:
     redacted = redact_apprise_url(url)
     try:
         (validated,) = await validate_apprise_urls(
@@ -208,8 +233,12 @@ async def _send_one_url(
     server = validated.server
     server.socket_connect_timeout = CONNECT_TIMEOUT_S
     server.socket_read_timeout = READ_TIMEOUT_S
+    # A retry resends to every target of the URL: with several (ntfy topics,
+    # Telegram chats, e-mail recipients) the ones already reached would get
+    # duplicates, so such a URL is tried once.
+    attempts = len(RETRY_WAITS) if len(server) <= 1 else 1
     retrying = AsyncRetrying(
-        stop=stop_after_attempt(len(RETRY_WAITS)),
+        stop=stop_after_attempt(attempts),
         wait=_retry_wait,
         retry=retry_if_exception_type(_RetryableSend),
         sleep=lambda seconds: _sleep(seconds),

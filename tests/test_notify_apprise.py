@@ -485,3 +485,80 @@ async def test_health_reports_notification_statuses(test_db, client, monkeypatch
     assert last["code"] == "service_error"
     assert last["url"] == "tgram://****"
     assert body["notification_statuses"]["webhook"]["last_error"] is None
+
+
+# -- review round 1 (mentions, DEBUG logs, multi-target retries) ---------------
+
+
+@pytest.mark.parametrize(
+    "mention",
+    [
+        "@everyone",
+        "@here",
+        "@channel",
+        "@all",
+        "@room",
+        "@Channel",
+        "<@123>",
+        "<@!123>",
+        "<!channel>",
+        "<!here>",
+        "<!everyone>",
+    ],
+)
+@pytest.mark.parametrize("markdown", [False, True])
+def test_every_room_wide_mention_is_neutralised(mention, markdown):
+    _title, body = event_notification_text(
+        _hashtag_message(f"hi {mention} there"), "en", markdown=markdown
+    )
+    plain = body.replace("\\", "")
+    assert mention not in plain
+    assert "​" in plain
+
+
+def test_ordinary_at_words_are_left_alone():
+    _title, body = event_notification_text(_hashtag_message("mail me @alice or @allison"), "en")
+    assert "@alice" in body and "@allison" in body
+
+
+@pytest.mark.asyncio
+async def test_a_multi_target_url_is_not_retried(monkeypatch, sleeps):
+    calls = _fake_sends(monkeypatch, {"1001": [_Response(status=503)]})
+    with pytest.raises(AppriseSendFailed) as exc:
+        await notify.send_apprise_alert(_dest("tgram://111111:AAAA-token-a/1001/1002"), _dm())
+    assert exc.value.code == "service_error"
+    assert len(calls) == 1
+    assert sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_apprise_debug_logs_never_carry_url_tokens(http_server, sleeps):
+    import logging
+
+    from app.log_redaction import RedactingFormatter
+
+    secret = "PathTokenS3cret"
+    port = http_server.server_address[1]
+    _Handler.answers = [(500, {}), (500, {}), (500, {})]
+    records: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            records.append(self.format(record))
+
+    handler = _Capture(level=logging.DEBUG)
+    handler.setFormatter(RedactingFormatter(logging.Formatter("%(name)s %(message)s")))
+    apprise_logger = logging.getLogger("apprise")
+    previous = apprise_logger.level
+    apprise_logger.setLevel(logging.DEBUG)
+    apprise_logger.addHandler(handler)
+    try:
+        dest = _dest(f"json://user:{secret}@127.0.0.1:{port}/{secret}x", allow_private_network=True)
+        with pytest.raises(AppriseSendFailed):
+            await notify.send_apprise_alert(dest, _dm())
+    finally:
+        apprise_logger.removeHandler(handler)
+        apprise_logger.setLevel(previous)
+    debug_lines = "\n".join(records)
+    assert "127.0.0.1" in debug_lines  # Apprise did log the request at DEBUG
+    assert secret not in debug_lines

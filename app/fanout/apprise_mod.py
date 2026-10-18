@@ -7,6 +7,7 @@ import logging
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.fanout.base import FanoutModule, get_fanout_message_text
+from app.log_redaction import secret_scope
 from app.net.apprise_urls import (
     AppriseUrlRefused,
     ValidatedUrl,
@@ -270,7 +271,9 @@ class AppriseModule(FanoutModule):
         last_exc: Exception | None = None
         for attempt in range(_MAX_SEND_ATTEMPTS):
             try:
-                success = await asyncio.to_thread(_send_sync, servers, body, markdown=markdown)
+                # Apprise logs request URLs at DEBUG: their tokens are masked meanwhile.
+                with secret_scope(*config_secret_values("apprise", self.config)):
+                    success = await asyncio.to_thread(_send_sync, servers, body, markdown=markdown)
                 if success:
                     self._set_last_error(None)
                     return
