@@ -26,7 +26,8 @@ rely on it. Community and `#live` detail: `docs/dev/frontend-community.md`.
 (`useRawPackets()`, `useRawPacketStatsSession()`). Only leaf views subscribe:
 `RawPacketFeedView`, `VisualizerView`, `LiveView`, `ControlJournalView`,
 `CrackerPanel`. `FeedView` reads `feedStore`, which holds its own copy of the control
-packets (see below), but `useRawPackets()` only through the activation seed. **No ancestor of `MessageList` (`App`, `AppShell`,
+packets (see below), but `useRawPackets()` only through the activation seed. **No ancestor
+of `MessageList` (`App`, `AppShell`,
 `ConversationPane`) may subscribe**, or every packet re-renders the whole tree.
 `src/test/appPacketIsolation.test.tsx` enforces this.
 
@@ -140,7 +141,8 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   bumps `epoch`, which makes the view fetch the newest page. Overlapping calls run once more
   after the current one; failures are logged and retried at the next trigger. An answer to a
   query that changed meanwhile (compared by value) is dropped. Not caught up: deletions and
-  acks made while the socket was down (reload the page). Control rows are outside this policy: they come from the live packet stream, are kept
+  acks made while the socket was down (reload the page). Control rows are outside this
+  policy: they come from the live packet stream, are kept
   across the reconnect, and are neither reconciled nor emptied by `resetFeedForRefetch()`.
 - **Last-visit mark.** `localStorage` `meshloom-feed-last-seen` = `{at, id}` of the newest row
   the reader has reached: the last row when following, otherwise the last row at or above the
@@ -163,7 +165,10 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
 - **Nodes facet.** `FeedNodesFacet` (a `md:w-64` column, a sheet on a phone) lists the
   control threads (`classifyThread`: repeaters and rooms, channels, us, unresolved) with
   counts. The pick is `FeedFilters.node` (a thread id, per browser, in the same
-  `localStorage` key); a node that no longer exists filters nothing. A node narrows the
+  `localStorage` key). A node that no longer exists, or any node while the Control chip
+  is off (the facet is hidden), filters nothing: a persisted pick is never a hidden
+  filter. An active node shows as the pressed node of the column and as a clear button
+  beside the phone facet button. A node narrows the
   control rows to its thread; a channel node narrows the messages to that channel, any
   other node hides the messages (`rowPassesFilters`, client-side only). With Messages off
   and Control on no request is sent (`hasNoMessages`); `hasEmptySelection` is true only

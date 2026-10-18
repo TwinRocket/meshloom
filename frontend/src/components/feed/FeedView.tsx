@@ -202,9 +202,13 @@ export function FeedView({
     [controlPackets, contacts, channels, publicKey]
   );
   const nodeSections = useMemo(() => buildFeedNodes(entries, t), [entries, t]);
-  // A stored node that no longer exists (or has no row yet) filters nothing.
+  // A stored node filters only while the facet that shows (and clears) it is on screen:
+  // Control on and the node still among the threads. Otherwise it is ignored, never a
+  // hidden filter the reader cannot see.
   const activeNode =
-    filters.node && nodeSections.some((s) => s.nodes.some((n) => n.id === filters.node))
+    filters.sources.control &&
+    filters.node &&
+    nodeSections.some((s) => s.nodes.some((n) => n.id === filters.node))
       ? filters.node
       : null;
   const effective = useMemo<FeedFilters>(

@@ -3,7 +3,8 @@
     "nodes": {
       "title": "Nœuds",
       "description": "Filtrer les lignes de contrôle par répéteur, salon, canal ou paquets qui nous sont adressés.",
-      "all": "Tous les nœuds"
+      "all": "Tous les nœuds",
+      "clear": "Afficher à nouveau tous les nœuds (actuellement : {{name}})"
     }
   }
 }

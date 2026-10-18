@@ -382,6 +382,59 @@ describe('feed Nodes facet', () => {
   });
 });
 
+describe('feed node filter is never a hidden filter', () => {
+  it('ignores a stored repeater node while Control is off, so messages show', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1, BASE + 100)]);
+    feedControl(packet(93));
+    renderFeed();
+    await screen.findByText(/hello 1/);
+    fireEvent.click(screen.getAllByTestId('feed-node-repeater')[0]);
+    expect(screen.queryByText(/hello 1/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('feed.filters.control') }));
+    expect(screen.getByText(/hello 1/)).toBeInTheDocument();
+    expect(screen.queryByTestId('feed-node-all')).not.toBeInTheDocument();
+  });
+
+  it('does the same after a reload from localStorage, for a repeater and a channel node', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1, BASE + 100), msg(2, BASE + 200, 'FF'.repeat(16))]);
+    feedControl(packet(94), groupDataPacket(95));
+    for (const node of ['contact:' + REPEATER_KEY, `channel:${CHANNEL_KEY}`]) {
+      localStorage.setItem(
+        'meshloom-feed-filters',
+        JSON.stringify({ node, sources: { messages: true, control: false, events: false } })
+      );
+      const view = renderFeed();
+      await screen.findByText(/hello 1/);
+      expect(screen.getByText(/hello 2/)).toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it('shows an active node with a one-click clear, and clears it', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1, BASE + 100)]);
+    feedControl(packet(96));
+    renderFeed();
+    await screen.findByText(/hello 1/);
+    expect(screen.queryByTestId('feed-node-clear')).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByTestId('feed-node-repeater')[0]);
+    fireEvent.click(screen.getByTestId('feed-node-clear'));
+    expect(screen.queryByTestId('feed-node-clear')).not.toBeInTheDocument();
+    expect(screen.getByText(/hello 1/)).toBeInTheDocument();
+  });
+
+  it('the node is back when Control is turned on again', async () => {
+    feedControl(packet(97), packet(98, { data: requestHex('aa', 'dd') }));
+    localStorage.setItem(
+      'meshloom-feed-filters',
+      JSON.stringify({ node: 'us', sources: { messages: true, control: false, events: false } })
+    );
+    renderFeed();
+    await screen.findByText(i18n.t('feed.emptyFiltered'));
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('feed.filters.control') }));
+    expect(await rowsOf()).toHaveLength(1);
+  });
+});
+
 describe('feed control volume', () => {
   it('decodes each observation once, however often the view renders', async () => {
     const spy = vi.spyOn(MeshCoreDecoder, 'decode');

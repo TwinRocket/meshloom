@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ListFilter } from 'lucide-react';
+import { ListFilter, X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Button } from '../ui/button';
@@ -76,6 +76,9 @@ function NodeList({ sections, selected, onSelect }: FeedNodesFacetProps) {
 export function FeedNodesFacet(props: FeedNodesFacetProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const selectedLabel = props.sections
+    .flatMap((section) => section.nodes)
+    .find((node) => node.id === props.selected)?.label;
   return (
     <>
       <nav
@@ -84,7 +87,7 @@ export function FeedNodesFacet(props: FeedNodesFacetProps) {
       >
         <NodeList {...props} />
       </nav>
-      <div className="border-b border-border px-4 py-1.5 md:hidden">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 md:hidden">
         <Button
           type="button"
           size="sm"
@@ -95,6 +98,19 @@ export function FeedNodesFacet(props: FeedNodesFacetProps) {
           <ListFilter className="h-4 w-4" aria-hidden="true" />
           {t('feed.nodes.title')}
         </Button>
+        {selectedLabel !== undefined && (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            data-testid="feed-node-clear"
+            aria-label={t('feed.nodes.clear', { name: selectedLabel })}
+            onClick={() => props.onSelect(null)}
+          >
+            <span className="bidi-isolate max-w-40 truncate">{selectedLabel}</span>
+            <X className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        )}
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetContent side="left" className="flex w-full flex-col p-0 sm:max-w-[400px]">
             <SheetHeader className="border-b border-border px-4 py-3 pr-14 text-left">

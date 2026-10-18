@@ -3,7 +3,8 @@
     "nodes": {
       "title": "Nodes",
       "description": "Filter the control rows by repeater, room, channel or the packets addressed to us.",
-      "all": "All nodes"
+      "all": "All nodes",
+      "clear": "Show all nodes again (now: {{name}})"
     }
   }
 }
