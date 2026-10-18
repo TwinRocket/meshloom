@@ -389,8 +389,10 @@ be wrong, because historical decryption inserts old messages with new ids.
   `db.connect()` and drops it). The JSON export refuses (500
   `backup_identity_seed_leak`, coded on both routes) any document holding an
   `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
-  the BLE PIN and the previous-transport snapshot set to NULL (under
-  `secure_delete`): instance identity seeds are never exported. Inspect and
+  the BLE PIN, the previous-transport snapshot, `users.password_hash`,
+  `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
+  `sessions` emptied (under `secure_delete`): instance identity seeds and
+  login secrets are never exported. Inspect and
   restore bodies over 64 MiB are a 413 `backup_too_large`.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
   table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
