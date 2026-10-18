@@ -79,7 +79,8 @@ jobs:
   # event: the corpus checks RLIMIT_NPROC instead) and on the image's 3.14. The
   # stdlib-only plugin tests run first (`--noconftest`), then the hostile corpus
   # and the RPC fuzz with the app's dependencies (the corpus drives the real
-  # supervisor), where all three levels are available.
+  # supervisor), at `none` and `setuid`. The container is unprivileged, so the
+  # bwrap cases skip here; the backend job runs them.
   plugin-isolation-root:
     name: Plugin isolation as root (Python ${{ matrix.image }})
     runs-on: ubuntu-latest
