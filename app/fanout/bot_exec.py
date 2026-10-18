@@ -10,17 +10,16 @@ It should only be enabled on trusted systems where the user understands
 the security implications.
 """
 
-import asyncio
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException
 
-from app.loop_lock import LoopBoundLock, LoopBoundSemaphore
+from app.loop_lock import LoopBoundSemaphore
 from app.message_limits import is_message_too_long
+from app.plugins.quotas import SEND_SPACING_SECONDS, send_spacer
 from meshloom_plugin.compat import (
     REGION_UNSET,
     BotResult,
@@ -40,13 +39,9 @@ _bot_executor = ThreadPoolExecutor(max_workers=100, thread_name_prefix="bot_")
 # Timeout for bot code execution (seconds)
 BOT_EXECUTION_TIMEOUT = 10
 
-# Minimum spacing between bot message sends (seconds)
-# This ensures repeaters have time to return to listening mode
-BOT_MESSAGE_SPACING = 2.0
-
-# Global state for rate limiting bot sends
-_bot_send_lock = LoopBoundLock()
-_last_bot_send_time: float = 0.0
+# Minimum spacing between automatic sends (seconds), shared with the plugin
+# instances: `app/plugins/quotas.py` (`send_spacer`) owns it.
+BOT_MESSAGE_SPACING = SEND_SPACING_SECONDS
 
 # global container for persistent data storage between bot executions, will be added to execution namespace
 _bot_globals: dict[str, Any] = {}
@@ -271,22 +266,11 @@ async def _send_single_bot_message(
             channel default, "" = unscoped, region name = scope to that region).
             Ignored for DMs, which are not region-scoped.
     """
-    global _last_bot_send_time
-
     from app.models import SendChannelMessageRequest, SendDirectMessageRequest
     from app.routers.messages import send_channel_message, send_direct_message
 
-    # Serialize bot sends and enforce minimum spacing
-    async with _bot_send_lock:
-        # Calculate how long since last bot send
-        now = time.monotonic()
-        time_since_last = now - _last_bot_send_time
-
-        if _last_bot_send_time > 0 and time_since_last < BOT_MESSAGE_SPACING:
-            wait_time = BOT_MESSAGE_SPACING - time_since_last
-            logger.debug("Rate limiting bot send, waiting %.2fs", wait_time)
-            await asyncio.sleep(wait_time)
-
+    # Serialize automatic sends (bots and plugins) and enforce the minimum spacing
+    async with send_spacer.slot() as slot:
         try:
             if is_dm:
                 if flood_scope_override is not None:
@@ -318,5 +302,5 @@ async def _send_single_bot_message(
             logger.exception("Bot failed to send response")
             return  # Don't update timestamp on failure
 
-        # Update last send time after successful send
-        _last_bot_send_time = time.monotonic()
+        # Only a successful send moves the spacing reference
+        slot.sent()

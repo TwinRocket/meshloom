@@ -316,6 +316,8 @@ export interface PluginStatusEntry {
   last_error: string | null;
   dropped_events: number;
   restarts: number;
+  /** The plugin's own one-line status (`status.set`), null when it set none. */
+  summary?: string | null;
 }
 
 export interface FanoutStatusEntry {
@@ -1507,6 +1509,32 @@ export function normalizeTelemetryAlertCatalog(raw: unknown): TelemetryAlertCata
 
 export type ShareShortenMode = 'auto' | 'always' | 'never';
 export type SharePreviewPolicy = 'always' | 'private' | 'never';
+
+/** `GET /api/share/status`: makes no request to the share service. */
+export interface ShareStatus {
+  enabled: boolean;
+  host: string;
+  hosts: string[];
+  identity_ready: boolean;
+  dm_encryption_available: boolean;
+  banned: boolean;
+  shorten_mode: ShareShortenMode;
+  preview_policy: SharePreviewPolicy;
+}
+
+/** `POST /api/share/links` answer. */
+export interface ShareLink {
+  id: string;
+  url: string;
+  expires_at: number;
+}
+
+/** `GET /api/share/{id}/meta` answer (links). */
+export interface ShareMeta {
+  kind: string;
+  target_host: string | null;
+  expires_at: number | null;
+}
 
 export interface AppSettings {
   ui_preferences: UiPreferences;

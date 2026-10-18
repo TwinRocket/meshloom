@@ -267,6 +267,33 @@ class Storage:
         return [k for k in keys if isinstance(k, str)] if isinstance(keys, list) else []
 
 
+class Contacts:
+    """`self.contacts`: the known nodes, read-only (permission `contacts.read`).
+
+    Each contact is a dict: `public_key`, `name`, `type`, `last_seen`,
+    `last_advert`, `lat`, `lon`, `favorite`.
+    """
+
+    async def list(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        rows = await meshloom_plugin.host().call(
+            "contacts.list", {"limit": limit, "offset": offset}
+        )
+        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+    async def get(self, public_key: str) -> dict[str, Any] | None:
+        row = await meshloom_plugin.host().call("contacts.get", {"key": public_key})
+        return row if isinstance(row, dict) else None
+
+
+class Channels:
+    """`self.channels`: the configured channels, read-only (permission
+    `channels.read`): dicts with `key`, `name`, `is_public`."""
+
+    async def list(self) -> list[dict[str, Any]]:
+        rows = await meshloom_plugin.host().call("channels.list", {})
+        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
 def log(level: str, message: str) -> None:
     """Send one line to the instance's log (and stderr when there is no host)."""
     if level not in LOG_LEVELS:
@@ -316,6 +343,8 @@ class Plugin:
         self.limits = {}
         self.http = Http()
         self.storage = Storage()
+        self.contacts = Contacts()
+        self.channels = Channels()
 
     # Lifecycle, called by the runner.
 
