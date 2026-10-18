@@ -1,0 +1,15 @@
+{
+  "errors": {
+    "share_disabled": "Le partage est désactivé sur ce Meshloom. Un administrateur peut l’activer dans les réglages.",
+    "share_unavailable": "Le service de partage est injoignable pour le moment. Réessayez plus tard.",
+    "share_quota_exceeded": "Ce Meshloom a atteint son quota de partage. Réessayez plus tard.",
+    "share_rate_limited": "Trop de demandes de partage à la fois. Patientez un instant puis réessayez.",
+    "share_banned": "Le service de partage a banni ce Meshloom. L’envoi est refusé ; les liens existants s’ouvrent toujours.",
+    "share_too_large": "Ce fichier est trop volumineux pour être partagé.",
+    "share_type_refused": "Ce type de fichier ne peut pas être partagé.",
+    "share_not_found": "Ce lien ou ce fichier n’existe pas.",
+    "share_gone": "Ce lien ou ce fichier a expiré ou a été retiré.",
+    "share_target_blocked": "Le service de partage refuse les liens vers cette adresse.",
+    "share_invalid_url": "Cette adresse ne peut pas être raccourcie."
+  }
+}

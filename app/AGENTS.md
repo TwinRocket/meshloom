@@ -99,6 +99,81 @@ and the OpenAPI page (`/docs`), not a table here.
   `tests/test_share_identity.py` (a local re-implementation of the Worker's checks,
   proved on the links-files vectors copied in `tests/fixtures/links_files_vectors.json`).
 
+## Share service client (`services/share.py`)
+
+Contract: `meshloom-community/docs/contracts/links-files.md`. A distinct opt-in
+from Community, with its own hosts and switch, never an exception to the
+Community guard.
+
+- **Hosts.** `SHARE_HOST` (write host, `meshl.ink`) and `SHARE_HOSTS` (every
+  recognised host, current and former; `is_share_host()`) are module constants
+  read at call time; tests monkeypatch them. No environment variable.
+- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled`;
+  `share_request()` checks it first and answers 403 `share_disabled` with no
+  DNS lookup and no connection.
+- **Turning it off cuts at once** (as Community does). `AppSettingsRepository.update`
+  calls `note_share_settings_changed(enabled=...)`; with sharing now off it bumps
+  `_state.generation` and cancels every send in `_state.inflight`, whose caller
+  gets `share_disabled` (a caller's own cancellation stays a `CancelledError`;
+  neither counts against the breaker). `share_request` checks the generation
+  after the opt-in read, again after minting the token (right before the send)
+  and once the answer arrived: an answer from before the cut is never used.
+- **Egress.** Every request goes through `follow_checked_redirects`
+  (`app/net/egress_guard.py`) with `HostAllowlist.of(SHARE_HOST)`, HTTPS only, no
+  redirect followed, the answer capped (64 KiB JSON, 11 MiB bytes) and pinned to
+  a validated public IP (a fresh pinned client per request). Timeouts
+  (`SHARE_TIMEOUT`): connect 5 s, read 30 s, upload (write) 60 s, plus
+  `SHARE_TOTAL_TIMEOUT_S` on the whole call.
+- **Auth.** A write passes its contract binding string as `binding` and gets
+  `Authorization: Bearer <mint_share_jwt(binding)>`, minted per request; a read
+  (`binding=None`) carries none. `User-Agent: Meshloom/<version>`.
+- **Errors.** `ShareError` is an `HTTPException` with `{code, message, params}`
+  (`SHARE_ERRORS`, translated as `errors.<code>` in the `ah` i18n slice). The
+  service's codes map one to one (`banned`, `quota_exceeded` with
+  `params.retry_after` and `params.scope`, `rate_limited` with
+  `params.retry_after`, `too_large`, `type_refused`, `not_found`, `gone`,
+  `target_blocked`, `invalid_url`); everything else (network, timeout, a guard
+  refusal, 5xx, `kill_switch`, the `token_*` family, `invalid_request`, a
+  redirect, an unexpected body) is 502 `share_unavailable`. **Any answer that is
+  not `application/json`** (a Cloudflare 1027 page, a challenge, an HTML 404) is
+  `share_unavailable`, whatever its status. An id outside the grammar is a local
+  404 `share_not_found`. `fetch_object` accepts only `OBJECT_CONTENT_TYPES`
+  (`image/jpeg`, `image/png`, `image/gif`, `image/webp`,
+  `application/octet-stream`); a 2xx of any other type (`text/html`, SVG) is
+  `share_unavailable`. A service code is logged only when it matches
+  `^[a-z_]{1,32}$` ("unknown" otherwise).
+- **Banned.** A 403 `banned` holds a banned state in memory for 12 h
+  (`BANNED_HOLD_S`): later writes are refused locally (403 `share_banned`) with
+  no request; reads stay open, as on the service. A restart or any change of a
+  share setting (`AppSettingsRepository.update` calls
+  `note_share_settings_changed(enabled=...)`) ends it.
+- **Read protections.** Order in `share_request`: opt-in, ban (writes), negative
+  cache, breaker cooling, read bucket, breaker trial, then the request.
+  - Buckets: `aiolimiter.AsyncLimiter` per instance, `meta` 60 and `bytes` 20 per
+    minute (`READ_LIMITS`). They refuse, never queue (`has_capacity()` then
+    `acquire()`): 429 `share_rate_limited` with `params.scope = "local"`.
+    Writes are not limited here (the service has its own quotas).
+  - Negative cache: a JSON `not_found` 404 or `gone` 410 answer to a read is
+    replayed for 10 min (`NEGATIVE_CACHE_S`, keyed by method and path, 1024
+    entries). A non-JSON error page is never cached (the contract never answers
+    404/410 for a storage failure; an edge page proves nothing).
+  - Breaker (`app/net/breaker.py`, shared with the Community client, separate
+    instance): three consecutive failures (transport error, timeout, guard
+    refusal, 5xx, a non-JSON 4xx) open it for 5 min (`BREAKER_OPEN_SECONDS`);
+    while open every call answers `share_unavailable` locally; then one trial
+    decides. A contract 4xx closes it.
+- **Functions.** `create_link`, `get_meta`, `fetch_object`, `report_object` (and
+  `share_request` underneath). Every new network function must be added to
+  `SERVICE_CALLS` in `tests/test_share_off_no_egress.py` (the test finds them
+  from the module and fails otherwise); `/api/share/*` routes are found from
+  `app.routes` and swept too.
+- **Never log** a token, a request body or a response body: log lines carry the
+  status, the service code (truncated) or `error_code(exc)` only.
+- Tests: `tests/test_share_service.py` (errors, ban, breaker with an injected
+  clock, buckets, negative cache, hanging server), `tests/test_share_off_no_egress.py`
+  (off: no request, no DNS lookup; on: only `SHARE_HOST`, no seed, channel key
+  or radio private key in any request). Fakes: `tests/share_fakes.py`.
+
 ## Recovery CLI (`app/cli.py`)
 
 - `meshloom-admin` is `python -m app.cli` behind the wrapper `pkg/nfpm/meshloom-admin`:
@@ -829,10 +904,23 @@ Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
 urllib3 connections); a private endpoint needs the instance setting
-`push_allow_private_endpoints`. A refused send keeps the subscription. The
+`push_allow_private_endpoints`. A send refused by the guard keeps the subscription and does not count toward
+`MAX_CONSECUTIVE_FAILURES` (`_SendResult.refused`): it is a configuration state. The
 migration that adds it turns it on, with `push_private_endpoints_grandfathered`
 (one-time notice, cleared by a PATCH of either field), when a stored
-subscription is not a browser push service (FCM, Mozilla, WNS, Apple).
+subscription is not a browser push service (FCM, Mozilla, WNS, Apple). Migration
+104 refines it (097 is shipped, never edited): while the notice is pending it withdraws
+both flags unless an endpoint visibly targets a private network (non-global IP literal,
+dotless name, `.local`/`.lan`/`.home.arpa`/`.internal`/`.localdomain`; no DNS), so a public
+distributor such as ntfy.sh is not opted in. A restore of a backup whose settings lack
+`push_allow_private_endpoints` (pre-guard) applies the same rule to the restored
+subscriptions (`endpoint_looks_private`, `_regrandfather_private_push` in
+`app/services/backup.py`; migration 104 keeps a frozen copy, both with a listed set of
+networks, not `is_global`). When 104 withdraws the opt-in and a stored endpoint is a
+hostname it cannot place (split DNS, Tailscale `*.ts.net`), it sets
+`push_private_endpoints_review`: a persistent notice (excluded from backups) with a
+one-click re-enable, cleared by a PATCH of `push_allow_private_endpoints` or
+`push_private_endpoints_review: false`.
 
 The test routes (`POST /push/subscriptions/{id}/test`,
 `POST /settings/notification-destinations/test`) send to a destination the

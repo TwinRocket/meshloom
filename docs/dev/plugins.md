@@ -1,9 +1,9 @@
 # Plugins
 
-Status: **format, validators, data model and the child runtime** (MSHL-175,
-MSHL-184, MSHL-176). The runner that executes a plugin in its own process exists;
-nothing in the server starts it yet (the supervisor is MSHL-179, the OS isolation
-MSHL-180, the SDK MSHL-177), and there is no API or UI. Like every doc here, this
+Status: **format, validators, data model, the child runtime, the SDK and the legacy
+bot shim** (MSHL-175, MSHL-184, MSHL-176, MSHL-177). The runner that executes a
+plugin in its own process exists; nothing in the server starts it yet (the
+supervisor is MSHL-179, the OS isolation MSHL-180), and there is no API or UI. Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
 ## Package and manifest
@@ -335,7 +335,9 @@ hooks block and what they cannot: `docs/dev/plugins-security.md`.
 | `meshloom_plugin/rpc.py` | NDJSON framing and JSON-RPC 2.0 helpers, used by both ends |
 | `meshloom_plugin/policy.py` | import allowlist and denylist, kept environment keys, default limits, handler concurrency |
 | `meshloom_plugin/dev.py` | author tooling, not child code: `python -m meshloom_plugin.dev check <dir>` (see "Checking a plugin") |
-| `meshloom_plugin/__init__.py` | `host()`: the RPC channel to the server, for the SDK |
+| `meshloom_plugin/__init__.py` | `host()`: the RPC channel to the server; lazy exports `Plugin`, `Message`, `HostError` |
+| `meshloom_plugin/sdk.py` | the SDK (below) |
+| `meshloom_plugin/compat.py` | the legacy bot shim and the call plans `app/fanout/bot_exec.py` shares (below) |
 | `meshloom_plugin/errors.py` | exceptions plugin code may catch (`HostError`); never in `runner.py`, which runs as `__main__`, so a plugin importing `meshloom_plugin.runner` would get a second copy whose classes never match |
 
 ### Launch contract
@@ -447,7 +449,20 @@ request with an integer id and returns its `result`, or raises
 `meshloom_plugin.errors.HostError` carrying the `error` object;
 `host().notify(method, params)` sends a notification. The methods themselves
 (`messages.send`, `storage.*`, `http.fetch`...) and their checks are the
-supervisor's (MSHL-179 and later). The SDK (MSHL-177) wraps `host()`.
+supervisor's (MSHL-179 and later). The SDK wraps `host()`.
+
+`host().call_sync(method, params, timeout=25)` is the blocking variant, for
+synchronous plugin code that cannot await (the legacy shim): it writes the
+request, then reads the stream itself until the matching answer. Threads are
+denied, so the whole loop is blocked meanwhile and the other handlers wait.
+Lines read meanwhile are held back and handled when the call ends: at most
+`MAX_DEFERRED_LINES` (128) lines and `MAX_DEFERRED_BYTES` (1 MiB), past which an
+event is refused with `-32001` and a notification dropped. Answers to other
+`call()`s are delivered at once. It raises `HostError` on an error answer, on a
+timeout (`error.code == "timeout"`; a late answer is ignored) and when the stream
+ends (`host_closed`; an oversized line still ends the child with exit 2), and
+`asyncio.CancelledError` when the server cancels the calling handler with
+`event.cancel`. It is not re-entrant. Tests: `tests/test_plugin_runner_sync.py`.
 
 Tests: `tests/test_plugin_runner.py` (real subprocesses; standard library and
 pytest only, so it also runs with `uv run --no-project --python 3.13 --with
@@ -455,3 +470,115 @@ pytest pytest --noconftest tests/test_plugin_runner.py`), the seed corpus in
 `tests/plugin_corpus/` (one directory per hostile plugin with its `case.json`;
 MSHL-191 consolidates it and runs it under each isolation level) and
 `tests/test_plugin_packaging.py`.
+
+## SDK (`meshloom_plugin.sdk`)
+
+```python
+from meshloom_plugin import Message, Plugin
+
+class Weather(Plugin):
+    async def on_message(self, msg: Message) -> None:
+        if msg.text.startswith("!weather"):
+            data = await self.http.get_json(f"https://api.open-meteo.com/v1/forecast?{self.config['query']}")
+            await self.reply(msg, self.fit(f"{data['current']['temperature_2m']} °C"))
+```
+
+A plugin subclasses `Plugin` (entry `plugin.py:Weather`) and overrides the handlers
+it subscribed to: `on_message(msg: Message)` (the runner's raw parameters are
+converted to a `Message`), `on_raw_packet`, `on_contact`, `on_telemetry`,
+`on_health`, `on_timer` (raw parameters), `on_config_changed(params)` (the base
+class replaces `self.config`; call `super()` when you override it), plus the
+lifecycle `on_start()` (once `plugin.init` was stored) and `on_shutdown(params)`.
+Every helper is a JSON-RPC request awaited until its result; the server checks
+permissions and quotas and answers a typed error, raised as
+`meshloom_plugin.errors.HostError` (`sdk.error_code(exc)` returns the typed code,
+`error.data.code`).
+
+| Helper | RPC | Notes |
+|---|---|---|
+| `self.reply(msg, text, region=...)` | `messages.send {to, text, region?}` | to the sender for a DM, else to the message's channel. `region` left out = the channel default, `None` = unscoped, a name = scoped; ignored for DMs |
+| `self.send(text, channel_key=\|contact_key=, region=...)` | `messages.send` | exactly one target |
+| `self.fit(text)` / `sdk.fit(text, limit)` | none | cut to `limits.message_bytes` of `plugin.init` (default 156) on a UTF-8 boundary |
+| `self.storage.get/set/delete/list` | `storage.get {key}`, `storage.set {key, value}`, `storage.delete {key}`, `storage.list {prefix}` | JSON values; `get` returns the value or `null` (a stored `null` reads as absent) |
+| `self.http.fetch/get_json/post_json` | `http.fetch {url, method, headers?, body?, timeout}` | `get_json`/`post_json` raise `HttpStatusError` from status 400, without the query string |
+| `await self.timer(seconds)` | `timer.set {seconds}` | answered later by `on_timer` |
+| `self.log(level, message)` | notification `log {level, message}` | stderr when there is no host |
+| `await self.set_status(summary)` | `status.set {summary}` | |
+
+What the supervisor (MSHL-179) must provide, as the SDK uses it:
+
+- `plugin.init` params: `api` (int), `instance` (object), `config` (object, secret
+  values included), `lang`, `granted` (permission names), `limits` (`message_bytes`
+  int, others free), `isolation`. Missing fields are tolerated.
+- `limits.message_bytes` is the **smallest** text allowance the instance may meet,
+  because `self.fit()` knows no target: a direct message allows 156 bytes, but a
+  channel message allows `156 - len(sender name) - 2` (`app/message_limits.py`,
+  `channel_text_allowance`). The supervisor should send the channel-effective
+  allowance (radio name known, else the 10-byte fallback: 144), not 156; otherwise
+  `fit()` output on a channel reply is refused with `message_too_long`. A plugin
+  that needs the exact bound reads `params.limit` of that refusal.
+- `event.message` params: the fields of the bots' call (`sender_name`, `sender_key`,
+  `message_text` without the `"Name: "` prefix, `is_dm`, `channel_key`,
+  `channel_name`, `sender_timestamp`, `path`, `path_bytes_per_hop`, `packet_hash`,
+  `region`, `scoped`, `is_outgoing`) plus `conversation_key`, `is_public_channel`,
+  `received_at`. The 2 s settle delay stays server-side, before the event.
+- `messages.send` takes an explicit target; `region` absent keeps the channel's
+  default. A result of `http.fetch` is `{status, headers, body, encoding?}`, `body`
+  a string (UTF-8 text, or base64 when `encoding` is `"base64"`).
+- Result shapes the SDK expects: `messages.send` and `status.set` and
+  `storage.set`/`storage.delete`: any JSON (ignored; `null` is fine);
+  `timer.set`: ignored; `storage.get`: the stored JSON value, or `null` when absent;
+  `storage.list`: an array of key strings (anything else reads as empty).
+- **Fail closed.** The SDK checks nothing against `granted`: the guarantee is the
+  server's. A method outside the instance's granted permissions gets
+  `permission_denied` (before any side effect, quota or network access), a method the
+  server does not know gets `-32601`, and invalid params get `invalid_params`.
+- **No head-of-line blocking.** The server must answer a child's requests while that
+  child still has events outstanding (read the child's stream concurrently with
+  waiting for event results). `call_sync` blocks the child's loop until the answer
+  arrives; a server that handles one child message at a time behind a pending event
+  would stall that child until the call times out.
+- **`http.fetch` timeout.** The server clamps `timeout` to at most 10 s (cadrage §4.3)
+  whatever the child sends: it must stay below the 25 s `call_sync` timeout and the 30 s
+  event deadline. The shim and the SDK pass the value through unchanged.
+- Refusals carry `error.data.code` (`permission_denied`, `host_not_allowed`,
+  `quota_exceeded`, `target_not_allowed`, `message_too_long`, `invalid_params`).
+
+Tests: `tests/test_plugin_sdk.py` (the test is the server, over a real child).
+
+## Legacy bots (`meshloom_plugin.compat`)
+
+`legacy_bot(source)` returns a `Plugin` class that runs a 4.18.x `bot(...)` source,
+the entry point of a migrated bot:
+
+```python
+from meshloom_plugin.compat import legacy_bot
+Bot = legacy_bot(open("bot.py", encoding="utf-8").read())   # manifest entry "plugin.py:Bot"
+```
+
+The call plans (`BotCallPlan`, `analyze_bot_signature`, `call_bot`) and the return
+shapes (`coerce_result`: `None`, `str`, `list[str]`, `{"region", "message"}`) live
+in `compat.py` and `app/fanout/bot_exec.py` uses them, so the shim and the
+in-process executor cannot drift; `tests/test_plugin_compat.py` runs the same
+conventions and shapes through both and compares. A bot's replies are sent with
+`messages.send` to the conversation of the message; a dict's `region` goes to the
+host as given (the host normalises it), an absent one stays absent.
+
+Differences, on purpose:
+
+- `_bot_globals` belongs to the instance and is lost when the process restarts; bots
+  no longer share it.
+- No network without the `http` permission, no disk, no threads (the sandbox).
+- Two new keyword arguments, delivered to a bot that names them or takes `**kwargs`
+  (and, for a `**kwargs` bot, only by the shim): `http` (`get_json(url)`,
+  `fetch(url, method=, headers=, body=, timeout=)`) and `storage` (`get`, `set`,
+  `delete`, `list`). Both are synchronous: they use `call_sync`, so the bot blocks
+  the child, and the other events of that instance wait. A refusal surfaces as a
+  `PermissionError` naming the permission and the host (never the query string),
+  which the shim logs like any exception of the bot.
+- `print()` goes to the child's **stderr** (fd 1 is redirected there so it cannot
+  corrupt the RPC stream), not to the RPC `log` method. The supervisor collects
+  stderr as the instance's raw log; use `self.log()` or an exception to get a
+  structured entry.
+- A bot that does not load (syntax error, no callable `bot`, unsupported signature)
+  is logged at `plugin.init` and at each message; it does not stop the instance.

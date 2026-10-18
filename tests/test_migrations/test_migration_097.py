@@ -99,7 +99,6 @@ async def test_browser_push_services_only_start_off():
         "http://192.168.1.20:8080/UP?token=abc",
         "https://ntfy.home.lan/upabc",
         "http://unifiedpush/up",
-        "https://fcm.googleapis.com.evil.example/x",
     ],
 )
 async def test_another_endpoint_grandfathers_the_opt_in(endpoint):

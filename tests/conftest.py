@@ -134,6 +134,16 @@ def _reset_community_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _reset_share_client():
+    """Every test starts with a closed share breaker, full read buckets, no ban."""
+    from app.services.share import reset_share_client_for_tests
+
+    reset_share_client_for_tests()
+    yield
+    reset_share_client_for_tests()
+
+
+@pytest.fixture(autouse=True)
 async def _stop_community_status_clear():
     """The retained-status clear worker must not outlive the test that started it."""
     from app.services.community_status_clear import stop_status_clear_worker

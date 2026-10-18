@@ -983,8 +983,50 @@ async def test_dispatch_keeps_a_subscription_the_guard_refuses(test_db, monkeypa
     assert sent == []
     stored = await PushSubscriptionRepository.get(sub["id"])
     assert stored is not None
-    assert stored["failure_count"] == 1
+    assert stored["failure_count"] == 0  # a guard refusal is not a delivery failure
 
     await AppSettingsRepository.update(push_allow_private_endpoints=True)
     await push_manager.dispatch_event({"event": "oss_update", "title": "t", "body": "b"})
     assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_guard_refused_sends_never_evict_a_subscription(test_db, monkeypatch):
+    """A Tailscale/split-DNS name resolving to a private address is refused while the
+    opt-in is off. That is a configuration state: after far more refusals than
+    MAX_CONSECUTIVE_FAILURES the subscription is still there, with no failure counted."""
+    from app.push.manager import push_manager
+    from app.repository.push_subscriptions import (
+        MAX_CONSECUTIVE_FAILURES,
+        PushSubscriptionRepository,
+    )
+
+    real = socket.getaddrinfo
+
+    def fake(host, port, family=0, type=0, proto=0, flags=0):
+        if host != "ntfy.tail1234.ts.net":
+            return real(host, port, family, type, proto, flags)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.101.102.103", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+    sub = await PushSubscriptionRepository.create("https://ntfy.tail1234.ts.net/up", "k", "a")
+    row = (await PushSubscriptionRepository.get_all())[0]
+    sub_id = row["id"]
+    assert sub_id
+
+    with patch("app.push.send.webpush") as sent:
+        for _ in range(MAX_CONSECUTIVE_FAILURES + 5):
+            result = await push_manager._send_one(row, "{}", "private-key", allow_private=False)
+            assert result.refused and not result.success and not result.expired
+            await push_manager._record_outcomes([result])
+        sent.assert_not_called()
+
+    rows = await PushSubscriptionRepository.get_all()
+    assert [r["id"] for r in rows] == [sub_id]
+    assert rows[0]["failure_count"] == 0
+    del sub
+
+    # Ticking the box makes the same subscription deliver.
+    with patch("app.push.send.webpush", return_value=SimpleNamespace(status_code=201)):
+        result = await push_manager._send_one(row, "{}", "private-key", allow_private=True)
+    assert result.success and not result.refused
