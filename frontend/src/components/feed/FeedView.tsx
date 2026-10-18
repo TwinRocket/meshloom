@@ -681,7 +681,6 @@ export function FeedView({
   useEffect(() => {
     if (display) {
       followingRef.current = true;
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- display mode forces follow on, also when it opens from the URL.
       setFollowing(true);
     }
   }, [display]);
