@@ -1,0 +1,487 @@
+{
+  "now": 1700000000,
+  "dmKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "deletedChannelKey": "99999999999999999999999999999999",
+  "channels": {
+    "public": {
+      "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+      "muted": false,
+      "muted_until": null,
+      "membership": "adopted"
+    },
+    "mutedForever": {
+      "key": "11111111111111111111111111111111",
+      "muted": true,
+      "muted_until": null,
+      "membership": "adopted"
+    },
+    "mutedExpired": {
+      "key": "22222222222222222222222222222222",
+      "muted": true,
+      "muted_until": 1699999940,
+      "membership": "adopted"
+    },
+    "mutedFuture": {
+      "key": "33333333333333333333333333333333",
+      "muted": true,
+      "muted_until": 1700003600,
+      "membership": "adopted"
+    },
+    "pending": {
+      "key": "44444444444444444444444444444444",
+      "muted": false,
+      "muted_until": null,
+      "membership": "pending"
+    },
+    "pendingMuted": {
+      "key": "55555555555555555555555555555555",
+      "muted": true,
+      "muted_until": null,
+      "membership": "pending"
+    }
+  },
+  "cases": [
+    {
+      "name": "defaults show a received channel message",
+      "filters": {},
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "public"
+      },
+      "expected": true,
+      "query": {},
+      "server": true
+    },
+    {
+      "name": "defaults show a sent channel message",
+      "filters": {},
+      "row": {
+        "type": "CHAN",
+        "outgoing": true,
+        "channel": "public"
+      },
+      "expected": true,
+      "query": {},
+      "server": true
+    },
+    {
+      "name": "defaults show a received DM",
+      "filters": {},
+      "row": {
+        "type": "PRIV",
+        "outgoing": false
+      },
+      "expected": true,
+      "query": {},
+      "server": true
+    },
+    {
+      "name": "defaults show a sent DM",
+      "filters": {},
+      "row": {
+        "type": "PRIV",
+        "outgoing": true
+      },
+      "expected": true,
+      "query": {},
+      "server": true
+    },
+    {
+      "name": "channels off hides a channel row",
+      "filters": {
+        "chan": false
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "public"
+      },
+      "expected": false,
+      "query": {
+        "type": "PRIV"
+      },
+      "server": true
+    },
+    {
+      "name": "channels off keeps a DM",
+      "filters": {
+        "chan": false
+      },
+      "row": {
+        "type": "PRIV",
+        "outgoing": false
+      },
+      "expected": true,
+      "query": {
+        "type": "PRIV"
+      },
+      "server": true
+    },
+    {
+      "name": "DMs off hides a DM",
+      "filters": {
+        "priv": false
+      },
+      "row": {
+        "type": "PRIV",
+        "outgoing": false
+      },
+      "expected": false,
+      "query": {
+        "type": "CHAN"
+      },
+      "server": true
+    },
+    {
+      "name": "DMs off keeps a channel row",
+      "filters": {
+        "priv": false
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "public"
+      },
+      "expected": true,
+      "query": {
+        "type": "CHAN"
+      },
+      "server": true
+    },
+    {
+      "name": "both type chips off is an empty state",
+      "filters": {
+        "chan": false,
+        "priv": false
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "public"
+      },
+      "expected": false,
+      "query": null,
+      "server": true
+    },
+    {
+      "name": "both type chips off hides DMs too",
+      "filters": {
+        "chan": false,
+        "priv": false
+      },
+      "row": {
+        "type": "PRIV",
+        "outgoing": false
+      },
+      "expected": false,
+      "query": null,
+      "server": true
+    },
+    {
+      "name": "received off hides a received row",
+      "filters": {
+        "incoming": false
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "public"
+      },
+      "expected": false,
+      "query": {
+        "outgoing": true
+      },
+      "server": true
+    },
+    {
+      "name": "received off keeps a sent row",
+      "filters": {
+        "incoming": false
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": true,
+        "channel": "public"
+      },
+      "expected": true,
+      "query": {
+        "outgoing": true
+      },
+      "server": true
+    },
+    {
+      "name": "sent off hides a sent row",
+      "filters": {
+        "outgoing": false
+      },
+      "row": {
+        "type": "PRIV",
+        "outgoing": true
+      },
+      "expected": false,
+      "query": {
+        "outgoing": false
+      },
+      "server": true
+    },
+    {
+      "name": "sent off keeps a received row",
+      "filters": {
+        "outgoing": false
+      },
+      "row": {
+        "type": "PRIV",
+        "outgoing": false
+      },
+      "expected": true,
+      "query": {
+        "outgoing": false
+      },
+      "server": true
+    },
+    {
+      "name": "both direction chips off is an empty state",
+      "filters": {
+        "incoming": false,
+        "outgoing": false
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": true,
+        "channel": "public"
+      },
+      "expected": false,
+      "query": null,
+      "server": true
+    },
+    {
+      "name": "DMs off and sent off keep a received channel row",
+      "filters": {
+        "priv": false,
+        "outgoing": false
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "public"
+      },
+      "expected": true,
+      "query": {
+        "type": "CHAN",
+        "outgoing": false
+      },
+      "server": true
+    },
+    {
+      "name": "DMs off and sent off hide a sent channel row",
+      "filters": {
+        "priv": false,
+        "outgoing": false
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": true,
+        "channel": "public"
+      },
+      "expected": false,
+      "query": {
+        "type": "CHAN",
+        "outgoing": false
+      },
+      "server": true
+    },
+    {
+      "name": "channels off and received off keep a sent DM",
+      "filters": {
+        "chan": false,
+        "incoming": false
+      },
+      "row": {
+        "type": "PRIV",
+        "outgoing": true
+      },
+      "expected": true,
+      "query": {
+        "type": "PRIV",
+        "outgoing": true
+      },
+      "server": true
+    },
+    {
+      "name": "channels off and received off hide a received DM",
+      "filters": {
+        "chan": false,
+        "incoming": false
+      },
+      "row": {
+        "type": "PRIV",
+        "outgoing": false
+      },
+      "expected": false,
+      "query": {
+        "type": "PRIV",
+        "outgoing": true
+      },
+      "server": true
+    },
+    {
+      "name": "messages source off is an empty state",
+      "filters": {
+        "sources": {
+          "messages": false
+        }
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "public"
+      },
+      "expected": false,
+      "query": null,
+      "server": true
+    },
+    {
+      "name": "a muted channel is hidden by default",
+      "filters": {},
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "mutedForever"
+      },
+      "expected": false,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "the muted chip shows a muted channel",
+      "filters": {
+        "includeMuted": true
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "mutedForever"
+      },
+      "expected": true,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "an expired timed mute is visible",
+      "filters": {},
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "mutedExpired"
+      },
+      "expected": true,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "a future timed mute is hidden",
+      "filters": {},
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "mutedFuture"
+      },
+      "expected": false,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "a future timed mute shows with the muted chip",
+      "filters": {
+        "includeMuted": true
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "mutedFuture"
+      },
+      "expected": true,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "a muted channel is not a DM: DMs ignore mute",
+      "filters": {},
+      "row": {
+        "type": "PRIV",
+        "outgoing": false
+      },
+      "expected": true,
+      "query": {},
+      "server": true
+    },
+    {
+      "name": "a pending channel is hidden by default",
+      "filters": {},
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "pending"
+      },
+      "expected": false,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "the pending chip shows a pending channel",
+      "filters": {
+        "includePending": true
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "pending"
+      },
+      "expected": true,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "a muted pending channel needs both chips",
+      "filters": {
+        "includePending": true
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "pendingMuted"
+      },
+      "expected": false,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "a muted pending channel shows with both chips",
+      "filters": {
+        "includePending": true,
+        "includeMuted": true
+      },
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "pendingMuted"
+      },
+      "expected": true,
+      "query": {},
+      "server": false
+    },
+    {
+      "name": "a deleted channel's row is visible",
+      "filters": {},
+      "row": {
+        "type": "CHAN",
+        "outgoing": false,
+        "channel": "deleted"
+      },
+      "expected": true,
+      "query": {},
+      "server": true
+    }
+  ]
+}

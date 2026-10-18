@@ -65,6 +65,37 @@ is untouched until the Control preset folds it in.
   window (`FEED_MAX_ROWS`, 2000) holds. The virtualizer follows the `MessageList`
   invariants below (`scrollMargin`, string sentinel keys, zero-height fallback).
   A prepended page keeps the reader's position by the growth of `scrollHeight`.
+- **Filters: one evaluator.** `utils/feedFilters.ts` holds `FeedFilters`, the defaults
+  (muted and pending hidden, DMs shown) and `rowPassesFilters(row, filters, channels,
+nowSec)`, the only place that decides whether a row shows: REST rows and WebSocket rows
+  alike, so add a filter there and nowhere else. `isChannelMuted` mirrors the backend's
+  `effective_channel_muted` (`muted && (muted_until == null || muted_until > now)`); the
+  view re-reads the clock once a minute (an expired timed mute reappears) and the
+  `channels` prop changes on every `channel` frame, so both re-evaluate in place. A
+  `CHAN` row of a deleted channel and every `PRIV` row ignore mute and pending.
+  `src/test/fixtures/feedFilters.json` drives the evaluator in `feedFilters.test.ts` and,
+  for the `server` cases, `tests/test_messages_feed_filters.py` against the route.
+- **Which filters are server-side, and why.** Only `type` (Channels/Direct messages) and
+  `outgoing` (Received/Sent) are sent to `GET /api/messages` (`filtersToQuery`), so a
+  hidden kind is not fetched at all. Changing one empties the store (`clearFeedRows`:
+  its cursor belongs to the old query) and reloads the first page after a 250 ms
+  debounce; both chips of a pair off is an empty state and sends nothing. Muted and
+  pending stay client-side (a timed mute changes with the clock, and a server-side
+  version needs the NULL-safe join of T22). The price is hollow pages:
+  `fillHiddenPages` fetches the next page while fewer than `FEED_MIN_VISIBLE` (20) rows
+  show, at most `FEED_MAX_PAGES_PER_GESTURE` (5) pages per gesture (mount, filter
+  change, scroll to the top, ticking Muted/Pending).
+- **Storage.** `localStorage` `meshloom-feed-filters` (the prefix matters under HA ingress,
+  where `localStorage` is on HA's origin). Read and written in `try/catch`; absent,
+  corrupted or blocked storage means the defaults, silently. Two tabs have two stores and
+  one `localStorage`: a filter changed in one tab reaches the other on reload only.
+- **Rows.** `FeedMessageRow` (memoized) shows the name, bidi-isolated sender with the
+  abbreviated key as `title`, time on `received_at`, `RegionBadge`, a _sent_ marker, and
+  the body through `MessageBody` (`remoteMedia={false}` for a pending channel; Open
+  reactions whose target is not loaded render as `ReactionPayload`). Names
+  (`feedNames.ts`): channel/contact by key from the client's lists, then the WebSocket
+  frame's `channel_name` / `sender_name`, then the abbreviated key. Day separators
+  (`feedDays.ts`) are virtualized items of their own; labels use `Intl` only.
 - **Navigation type.** `'feed'` is not yet in `ConversationType` (`types.ts` is
   owned elsewhere this wave): `components/feed/feedConversation.ts` carries
   `FeedConversation`, `isFeedConversation()` and `makeFeedConversation()` (one cast).
@@ -99,6 +130,7 @@ live packets (`received_at_ms` minus `timestamp`, read with
 `getServerClockOffsetSec()` from `stores/rawPacketStore.ts`, 0 when nothing is
 buffered) and sends no `until`. The modal recomputes the bounds on every open.
 Other server timestamps compared with `Date.now()`:
+
 - A message's `received_at` (server clock) drives the observer reach windows
   (`useVisibleObserverReach`: live ticks only while young, 2 s/60 s polling). Ages
   go through `messageAgeMs(msg, now, getServerClockOffsetSec())`.
@@ -237,7 +269,7 @@ purpose.
   is also computed during render, in the same pass, from the pre-clear count. Moving
   either one into an effect loses the divider (`src/test/useChannelUnreadMarker.test.ts`).
 - State keys come from `getStateKey()` (`channel-{key}`, `contact-{full public
-  key}`); they are not `Message.conversation_key`.
+key}`); they are not `Message.conversation_key`.
 
 ### Message rendering
 
@@ -323,7 +355,7 @@ no in-tab desktop notification.
   docs and the harness, and the Docker build (no `*.md`, no `src/test/`) would
   ship different CSS from the release build.
 - Cascade layers. Tailwind 4 emits native `@layer theme, base, components,
-  utilities`, and an unlayered rule beats every utility whatever its specificity.
+utilities`, and an unlayered rule beats every utility whatever its specificity.
   `index.css`, `themes.css` and `styles.css` place each rule explicitly: palettes and
   element selectors in `@layer base`; component classes no utility competes with in
   `@layer components`; rules that must beat utilities (theme restyling of

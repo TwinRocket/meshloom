@@ -4,16 +4,37 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown } from 'lucide-react';
 
 import { formatApiError } from '../../api';
-import { activateFeedStore, useFeedRows } from '../../stores/feedStore';
+import {
+  activateFeedStore,
+  clearFeedRows,
+  getFeedSnapshot,
+  useFeedRows,
+} from '../../stores/feedStore';
 import type { Channel, Contact, Message } from '../../types';
 import { formatNumber } from '../../utils/formatNumber';
-import { getContactDisplayName } from '../../utils/pubkey';
+import {
+  countHiddenRows,
+  filtersToQuery,
+  hasEmptySelection,
+  loadFeedFilters,
+  rowPassesFilters,
+  saveFeedFilters,
+  type FeedFilters,
+} from '../../utils/feedFilters';
 import { Button } from '../ui/button';
-import { MessageBody } from '../message/MessageBody';
 import { ToolPaneHeader } from '../ToolPaneHeader';
 import { FEED_DOM_MAX } from './feedConversation';
 import { countArrivedSince, FOLLOW_THRESHOLD_PX, highestId } from './feedFollow';
-import { loadFeedPage } from './feedHistory';
+import { buildFeedItems, createDayLabeler } from './feedDays';
+import { FeedFilterChips } from './FeedFilterChips';
+import {
+  fillHiddenPages,
+  FEED_MAX_PAGES_PER_GESTURE,
+  FEED_MIN_VISIBLE,
+  loadFeedPage,
+} from './feedHistory';
+import { FeedMessageRow } from './FeedMessageRow';
+import { createFeedNameResolver } from './feedNames';
 
 interface FeedViewProps {
   contacts: Contact[];
@@ -23,10 +44,15 @@ interface FeedViewProps {
 }
 
 const ESTIMATED_ROW_HEIGHT = 56;
+const ESTIMATED_DAY_HEIGHT = 32;
 // A viewport that measures zero (hidden pane, jsdom) must still mount a screenful.
 const FALLBACK_VIEWPORT_HEIGHT = 600;
 /** Scrolling within this distance of the top asks for the previous page. */
 const LOAD_OLDER_THRESHOLD_PX = 300;
+/** A change of `type` / `outgoing` reloads after this pause, so rapid clicks send one request. */
+const RELOAD_DEBOUNCE_MS = 250;
+/** Timed mutes expire silently: rows are re-evaluated this often. */
+const CLOCK_TICK_MS = 60_000;
 /** Frames the pin is re-applied while row heights settle. */
 const PIN_FRAMES = 12;
 
@@ -53,12 +79,19 @@ function useTimeFormatter(language: string) {
  * most `FEED_DOM_MAX` rows whatever the memory window holds. While the reader is
  * pinned to the bottom (follow mode) the view stays there; a scroll up turns follow
  * off and offers a button with the count of rows that arrived since.
+ *
+ * The filter chips are evaluated here by one function, `rowPassesFilters`, over the
+ * rows the store holds. `type` and `outgoing` are also sent to the server so hidden
+ * rows are not fetched; changing them empties the store and reloads the first page.
  */
 export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedViewProps) {
   const { t, i18n } = useTranslation();
   const { rows, hasOlder } = useFeedRows();
   const formatRowTime = useTimeFormatter(i18n.language);
+  const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
+  const [filters, setFilters] = useState<FeedFilters>(loadFeedFilters);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -73,61 +106,107 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   const loadingOlderRef = useRef(false);
   const hasOlderRef = useRef(hasOlder);
   const rowsRef = useRef<readonly Message[]>(rows);
+  const visibleRowsRef = useRef<readonly Message[]>([]);
   const previousRef = useRef<{ firstId: number | null; scrollHeight: number }>({
     firstId: null,
     scrollHeight: 0,
   });
+  const tRef = useRef(t);
+  const filtersRef = useRef(filters);
+  const channelsRef = useRef(channels);
+  const firstQueryRef = useRef(true);
+  const firstClientFilterRef = useRef(true);
   hasOlderRef.current = hasOlder;
   rowsRef.current = rows;
+  tRef.current = t;
+  filtersRef.current = filters;
+  channelsRef.current = channels;
 
-  const channelNames = useMemo(() => new Map(channels.map((c) => [c.key, c.name])), [channels]);
-  const contactNames = useMemo(
-    () =>
-      new Map(
-        contacts.map((c) => [
-          c.public_key,
-          getContactDisplayName(c.name, c.public_key, c.last_advert),
-        ])
-      ),
-    [contacts]
+  // Preferences are per browser (`localStorage`); a second tab only sees them on reload.
+  useEffect(() => saveFeedFilters(filters), [filters]);
+
+  // Rows are re-evaluated once a minute so an expired timed mute reappears. A `channel`
+  // frame reaches this view as a new `channels` prop, which the memo below depends on.
+  useEffect(() => {
+    const timer = setInterval(() => setNowSec(Math.floor(Date.now() / 1000)), CLOCK_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const emptySelection = hasEmptySelection(filters);
+  const query = useMemo(() => filtersToQuery(filters), [filters]);
+  const queryKey = emptySelection ? 'none' : JSON.stringify(query);
+
+  const visibleRows = useMemo(
+    () => rows.filter((row) => rowPassesFilters(row, filters, channels, nowSec)),
+    [rows, filters, channels, nowSec]
+  );
+  visibleRowsRef.current = visibleRows;
+  const hidden = useMemo(
+    () => countHiddenRows(rows, filters, channels, nowSec),
+    [rows, filters, channels, nowSec]
+  );
+  const items = useMemo(() => buildFeedItems(visibleRows), [visibleRows]);
+  const resolveLabels = useMemo(
+    () => createFeedNameResolver(channels, contacts),
+    [channels, contacts]
   );
 
-  const conversationLabel = useCallback(
-    (row: Message): string => {
-      if (row.type === 'CHAN') {
-        return (
-          channelNames.get(row.conversation_key) ??
-          row.channel_name ??
-          row.conversation_key.slice(0, 8)
-        );
-      }
-      return contactNames.get(row.conversation_key) ?? row.conversation_key.slice(0, 12);
-    },
-    [channelNames, contactNames]
+  /** Rows the current filters keep among those the store holds right now. */
+  const countVisibleNow = useCallback(
+    () =>
+      getFeedSnapshot().rows.filter((row) =>
+        rowPassesFilters(
+          row,
+          filtersRef.current,
+          channelsRef.current,
+          Math.floor(Date.now() / 1000)
+        )
+      ).length,
+    []
   );
 
   const loadNewest = useCallback(
-    async (signal?: AbortSignal) => {
+    async (serverQuery: ReturnType<typeof filtersToQuery>, signal?: AbortSignal) => {
       setStatus('loading');
       setLoadError(null);
       try {
-        await loadFeedPage(null, signal);
+        await loadFeedPage(null, signal, serverQuery);
         setStatus('ready');
+        await fillHiddenPages(countVisibleNow, serverQuery, signal, FEED_MAX_PAGES_PER_GESTURE - 1);
       } catch (err) {
         if (signal?.aborted) return;
-        setLoadError(formatApiError(err, t));
+        setLoadError(formatApiError(err, tRef.current));
         setStatus('error');
       }
     },
-    [t]
+    [countVisibleNow]
   );
 
+  // First mount loads at once; a later change of `type` / `outgoing` waits out the
+  // debounce, empties the store (its cursor belongs to the old query) and reloads.
   useEffect(() => {
     activateFeedStore();
+    if (queryKey === 'none') {
+      setStatus('ready');
+      return;
+    }
     const controller = new AbortController();
-    void loadNewest(controller.signal);
-    return () => controller.abort();
-  }, [loadNewest]);
+    if (firstQueryRef.current) {
+      firstQueryRef.current = false;
+      void loadNewest(query, controller.signal);
+      return () => controller.abort();
+    }
+    const timer = setTimeout(() => {
+      clearFeedRows();
+      void loadNewest(query, controller.signal);
+    }, RELOAD_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+    // `query` is derived from `queryKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey, loadNewest]);
 
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current || !hasOlderRef.current) return;
@@ -136,22 +215,51 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     loadingOlderRef.current = true;
     setLoadingOlder(true);
     setOlderError(null);
+    const serverQuery = filtersToQuery(filtersRef.current);
     try {
-      await loadFeedPage({ received_at: oldest.received_at, id: oldest.id });
+      await loadFeedPage(
+        { received_at: oldest.received_at, id: oldest.id },
+        undefined,
+        serverQuery
+      );
+      await fillHiddenPages(
+        countVisibleNow,
+        serverQuery,
+        undefined,
+        FEED_MAX_PAGES_PER_GESTURE - 1
+      );
     } catch (err) {
-      setOlderError(formatApiError(err, t));
+      setOlderError(formatApiError(err, tRef.current));
     } finally {
       loadingOlderRef.current = false;
       setLoadingOlder(false);
     }
-  }, [t]);
+  }, [countVisibleNow]);
+
+  // Muted / pending are client-side: ticking them in place can leave a short list that
+  // cannot be scrolled, so the same bounded fetch applies.
+  const clientFilterKey = `${filters.includeMuted}|${filters.includePending}`;
+  useEffect(() => {
+    if (firstClientFilterRef.current) {
+      firstClientFilterRef.current = false;
+      return;
+    }
+    if (status === 'ready' && !hasEmptySelection(filtersRef.current)) void loadOlderIfHollow();
+    // Only a change of these two chips is a gesture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientFilterKey]);
+
+  async function loadOlderIfHollow() {
+    if (countVisibleNow() < FEED_MIN_VISIBLE) await loadOlder();
+  }
 
   const virtualizer = useVirtualizer({
-    count: rows.length,
+    count: items.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    estimateSize: (index) =>
+      items[index]?.kind === 'day' ? ESTIMATED_DAY_HEIGHT : ESTIMATED_ROW_HEIGHT,
     scrollMargin,
-    getItemKey: (index) => rows[index]?.id ?? `__idx:${index}`,
+    getItemKey: (index) => items[index]?.key ?? `__idx:${index}`,
     overscan: 8,
     measureElement: (element) => element.getBoundingClientRect().height || ESTIMATED_ROW_HEIGHT,
     observeElementRect: (instance, cb) => {
@@ -195,7 +303,7 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   }, []);
 
   // A page prepended above the reader must not move what they are looking at.
-  const firstId = rows[0]?.id ?? null;
+  const firstId = visibleRows[0]?.id ?? null;
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const previous = previousRef.current;
@@ -204,7 +312,7 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
       if (grew > 0) el.scrollTop += grew;
     }
     previousRef.current = { firstId, scrollHeight: el?.scrollHeight ?? 0 };
-  }, [firstId, rows.length, totalSize]);
+  }, [firstId, visibleRows.length, totalSize]);
 
   // Follow mode: stay at the bottom as rows arrive and as their heights settle.
   useLayoutEffect(() => {
@@ -219,12 +327,12 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [rows.length, totalSize, status, pinToBottom]);
+  }, [visibleRows.length, totalSize, status, pinToBottom]);
 
   const setFollow = useCallback((next: boolean) => {
     if (followingRef.current === next) return;
     followingRef.current = next;
-    if (!next) setBaselineId(highestId(rowsRef.current));
+    if (!next) setBaselineId(highestId(visibleRowsRef.current));
     setFollowing(next);
   }, []);
 
@@ -242,16 +350,18 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   }, [pinToBottom, setFollow]);
 
   const arrived = useMemo(
-    () => (following ? 0 : countArrivedSince(rows, baselineId)),
-    [following, rows, baselineId]
+    () => (following ? 0 : countArrivedSince(visibleRows, baselineId)),
+    [following, visibleRows, baselineId]
   );
 
   const header = <ToolPaneHeader title={t('feed.title')} onBack={onBackToTools} />;
+  const chips = <FeedFilterChips filters={filters} hidden={hidden} onChange={setFilters} />;
 
   if (status === 'loading' && rows.length === 0) {
     return (
       <>
         {header}
+        {chips}
         <div
           role="status"
           className="flex flex-1 items-center justify-center text-muted-foreground"
@@ -266,12 +376,13 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     return (
       <>
         {header}
+        {chips}
         <div
           role="alert"
           className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-sm text-muted-foreground"
         >
           <p>{t('feed.loadError', { error: loadError })}</p>
-          <Button size="sm" onClick={() => void loadNewest()}>
+          <Button size="sm" onClick={() => void loadNewest(query)}>
             {t('feed.retry')}
           </Button>
         </div>
@@ -279,13 +390,23 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
     );
   }
 
-  if (status === 'ready' && rows.length === 0) {
+  if (visibleRows.length === 0) {
     return (
       <>
         {header}
-        <div className="flex flex-1 items-center justify-center p-4 text-center text-muted-foreground">
-          {t('feed.empty')}
-        </div>
+        {chips}
+        {loadingOlder || status === 'loading' ? (
+          <div
+            role="status"
+            className="flex flex-1 items-center justify-center text-muted-foreground"
+          >
+            {t('feed.loadingOlder')}
+          </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center p-4 text-center text-muted-foreground">
+            {rows.length === 0 && !emptySelection ? t('feed.empty') : t('feed.emptyFiltered')}
+          </div>
+        )}
       </>
     );
   }
@@ -293,6 +414,7 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
   return (
     <>
       {header}
+      {chips}
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           ref={scrollRef}
@@ -325,9 +447,27 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
             style={{ height: totalSize, position: 'relative' }}
           >
             {mounted.map((item) => {
-              const row = rows[item.index];
-              if (!row) return null;
-              const time = formatRowTime(row.received_at);
+              const entry = items[item.index];
+              if (!entry) return null;
+              const position = {
+                transform: `translateY(${item.start - scrollMargin}px)`,
+              };
+              if (entry.kind === 'day') {
+                return (
+                  <div
+                    key={item.key}
+                    ref={virtualizer.measureElement}
+                    data-index={item.index}
+                    role="presentation"
+                    className="absolute left-0 top-0 w-full pt-3 pb-1"
+                    style={position}
+                  >
+                    <h3 className="text-center text-xs font-medium text-muted-foreground">
+                      {labelDay(entry.at, nowSec)}
+                    </h3>
+                  </div>
+                );
+              }
               return (
                 <div
                   key={item.key}
@@ -336,20 +476,14 @@ export function FeedView({ contacts, channels, radioName, onBackToTools }: FeedV
                   role="listitem"
                   tabIndex={0}
                   className="absolute left-0 top-0 w-full border-b border-border/50 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                  style={{ transform: `translateY(${item.start - scrollMargin}px)` }}
+                  style={position}
                 >
-                  <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
-                    <time
-                      dateTime={new Date(row.received_at * 1000).toISOString()}
-                      title={time.full}
-                    >
-                      {time.short}
-                    </time>
-                    <span className="min-w-0 truncate font-medium text-foreground/80">
-                      {conversationLabel(row)}
-                    </span>
-                  </div>
-                  <MessageBody content={row.text} radioName={radioName} />
+                  <FeedMessageRow
+                    row={entry.row}
+                    labels={resolveLabels(entry.row)}
+                    time={formatRowTime(entry.row.received_at)}
+                    radioName={radioName}
+                  />
                 </div>
               );
             })}
