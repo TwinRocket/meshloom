@@ -462,7 +462,7 @@ def test_the_new_codes_are_typed_refusals_with_wording():
     for lang in ("en", "fr"):
         wording = json.loads((slices / f"aq.{lang}.json").read_text(encoding="utf-8"))
         errors = wording["plugins"]["capabilityErrors"]
-        for code in ("host_not_allowed", "https_required", "fetch_failed"):
+        for code in ("host_not_allowed", "https_required", "fetch_failed", "http_body_too_large"):
             assert errors[code], (lang, code)
 
 
@@ -606,3 +606,61 @@ async def test_a_real_child_gets_a_1_mib_answer_and_sends_a_256_kib_body(
 
     assert net.requests[-1].method == "POST"
     assert net.requests[-1].content == b"x" * http_capability.MAX_BODY_BYTES
+
+
+# --- request bodies heavy in JSON escaping ------------------------------------------
+
+
+@pytest.mark.parametrize("char", ['"', "\\", "\x01"])
+def test_the_sdk_refuses_a_body_whose_line_would_pass_the_cap(char):
+    from meshloom_plugin.errors import HostError
+    from meshloom_plugin.sdk import error_code, fetch_params
+
+    body = char * http_capability.MAX_BODY_BYTES
+    with pytest.raises(HostError) as info:
+        fetch_params("https://api.example.org/", "POST", None, body, 10)
+    assert error_code(info.value) == "http_body_too_large"
+    assert info.value.error["data"]["params"] == {
+        "limit": http_capability.MAX_BODY_BYTES,
+        "encoded_limit": rpc.HTTP_FETCH_REQUEST_BYTES,
+    }
+
+
+def test_the_sdk_sends_a_plain_256_kib_body():
+    from meshloom_plugin.sdk import HTTP_BODY_MAX_BYTES, fetch_params
+
+    assert HTTP_BODY_MAX_BYTES == http_capability.MAX_BODY_BYTES
+    params = fetch_params("https://api.example.org/", "POST", None, "x" * HTTP_BODY_MAX_BYTES, 10)
+    assert rpc.encode(rpc.request(2**53, "http.fetch", params))
+
+
+ESCAPED_POSTER = """
+    import meshloom_plugin
+    from meshloom_plugin.errors import HostError
+    from meshloom_plugin.sdk import Http, error_code
+
+    # A quote and a backslash: 256 KiB raw, 512 KiB once JSON-escaped.
+    BODY = '"\\\\' * (128 * 1024)
+    assert len(BODY.encode()) == 256 * 1024
+
+    async def on_message(params):
+        try:
+            await Http().fetch("https://api.example.org/", method="POST", body=BODY)
+        except HostError as exc:
+            return error_code(exc)
+        return "sent"
+"""
+
+
+async def test_a_real_child_gets_http_body_too_large_and_nothing_leaves(
+    manager,  # noqa: F811
+    tmp_path,
+    net,
+    monkeypatch,
+):
+    import tests.test_plugin_capabilities as capability_tests
+
+    monkeypatch.setattr(capability_tests, "PROBE", ESCAPED_POSTER)
+    inst = await probe(manager, tmp_path, "escaped", {"http": {"hosts": ["api.example.org"]}})
+    assert await run_test(manager, inst) == "http_body_too_large"
+    assert net.requests == []

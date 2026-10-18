@@ -22,12 +22,18 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import meshloom_plugin
+from meshloom_plugin import rpc
 from meshloom_plugin.errors import HostError
 
 # A direct message carries at most this many bytes of text; `plugin.init` may
 # announce another limit (`limits.message_bytes`), which `fit()` then uses.
 DEFAULT_MESSAGE_BYTES = 156
 DEFAULT_HTTP_TIMEOUT = 10.0
+# The server's cap on an `http.fetch` body (raw UTF-8 bytes); the request line,
+# JSON escaping included, must also fit `rpc.HTTP_FETCH_REQUEST_BYTES`.
+HTTP_BODY_MAX_BYTES = 256 * 1024
+# JSON-RPC code of a typed refusal (`app/plugins/capabilities/base.py`, REFUSED).
+_REFUSED = -32010
 
 LOG_LEVELS = ("debug", "info", "warning", "error")
 
@@ -199,7 +205,32 @@ def fetch_params(
         params["headers"] = dict(headers)
     if body is not None:
         params["body"] = body
+        _check_request_line(params)
     return params
+
+
+def _check_request_line(params: dict[str, Any]) -> None:
+    """Refuse, with the typed `http_body_too_large`, a body whose request line would
+    pass the RPC cap once JSON-escaped (quotes, backslashes and control characters
+    count twice to six times): the server would never see it."""
+    try:
+        line = rpc.encode(rpc.request(2**53, "http.fetch", params), sys.maxsize)
+    except ValueError:
+        return  # not JSON: the call itself reports it
+    if len(line) - 1 > rpc.HTTP_FETCH_REQUEST_BYTES:
+        raise HostError(
+            {
+                "code": _REFUSED,
+                "message": "the body is too large once encoded for the request",
+                "data": {
+                    "code": "http_body_too_large",
+                    "params": {
+                        "limit": HTTP_BODY_MAX_BYTES,
+                        "encoded_limit": rpc.HTTP_FETCH_REQUEST_BYTES,
+                    },
+                },
+            }
+        )
 
 
 def json_body(data: Any, headers: dict[str, str] | None) -> tuple[str, dict[str, str]]:

@@ -543,8 +543,8 @@ What the supervisor (MSHL-179) must provide, as the SDK uses it:
   `region`, `scoped`, `is_outgoing`) plus `conversation_key`, `is_public_channel`,
   `received_at`. The 2 s settle delay stays server-side, before the event.
 - `messages.send` takes an explicit target; `region` absent keeps the channel's
-  default. A result of `http.fetch` is `{status, headers, body, encoding?}`, `body`
-  a string (UTF-8 text, or base64 when `encoding` is `"base64"`).
+  default. A result of `http.fetch` is `{status, headers, body, encoding?, truncated}`,
+  `body` a string (UTF-8 text, or base64 when `encoding` is `"base64"`).
 - Result shapes the SDK expects: `messages.send` and `status.set` and
   `storage.set`/`storage.delete`: any JSON (ignored; `null` is fine);
   `timer.set`: ignored; `storage.get`: the stored JSON value, or `null` when absent;
@@ -562,13 +562,24 @@ What the supervisor (MSHL-179) must provide, as the SDK uses it:
   whatever the child sends: it must stay below the 25 s `call_sync` timeout and the 30 s
   event deadline. The shim and the SDK pass the value through unchanged.
 - **`http.fetch` answers.** `HttpResponse.truncated` is true when the server cut the
-  body at 1 MiB. While `call_sync` waits, a long answer to another `call()` is
-  delivered at once, never held back: only events and notifications (100 KiB lines)
-  go to the deferral buffer, bounded by `MAX_DEFERRED_LINES` and `MAX_DEFERRED_BYTES`
-  (1 MiB).
+  body at 1 MiB. While `call_sync` waits, an answer to another `call()` read before
+  the sync answer is delivered at once; events and notifications go to the deferral
+  buffer, and so do the complete lines that follow the sync answer in the same read
+  (any kind, answers included, so each is under the 64 KiB read size). The buffer is
+  bounded by `MAX_DEFERRED_LINES` and `MAX_DEFERRED_BYTES` (1 MiB); past it an event
+  is refused (`-32001`) and any other line dropped. A partial line stays in the
+  decoder and is read after the call, as usual.
+- **`http.fetch` bodies.** The server takes a body of at most 256 KiB (UTF-8 bytes,
+  `HTTP_BODY_MAX_BYTES`), and the request line, JSON escaping included, must fit
+  `rpc.HTTP_FETCH_REQUEST_BYTES` (384 KiB): quotes and backslashes count twice,
+  control characters six times. `fetch_params` (the SDK and the shim) checks the
+  encoded line and raises `HostError` with `data.code` `http_body_too_large`
+  (`params.limit`, `params.encoded_limit`) before anything is sent.
 - Refusals carry `error.data.code` (`permission_denied`, `host_not_allowed` (T7),
   `quota_exceeded`, `target_not_allowed`, `target_unknown`, `region_unknown`,
-  `message_too_long`, `send_failed`, `invalid_params`; "Capabilities", "Error codes").
+  `message_too_long`, `send_failed`, `invalid_params`, plus `https_required` and
+  `fetch_failed` (T7); "Capabilities", "Error codes"). `http_body_too_large` comes from
+  the SDK itself, never from the server.
 
 Tests: `tests/test_plugin_sdk.py` (the test is the server, over a real child).
 
@@ -811,7 +822,7 @@ else: a refusal has no side effect, uses no quota and touches no network.
 | `contacts.list` | `contacts.read` | `limit?` (1 to 200, default 100), `offset?` | contacts |
 | `contacts.get` | `contacts.read` | `key` (64 hex) | a contact or `null` |
 | `channels.list` | `channels.read` | none | `{key, name, is_public}` per channel |
-| `http.fetch` | `http` | `url`, `method?` (`GET` default, `POST`, `PUT`, `PATCH`, `DELETE`), `headers?` (at most 32 strings), `body?` (text, at most 256 KiB), `timeout?` (seconds, clamped to 10) | `{status, headers, body, encoding?, truncated}` |
+| `http.fetch` | `http` | `url`, `method?` (`GET` default, `POST`, `PUT`, `PATCH`, `DELETE`), `headers?` (at most 32 strings), `body?` (text, at most 256 KiB, and a request line of at most 384 KiB once escaped), `timeout?` (seconds, clamped to 10) | `{status, headers, body, encoding?, truncated}` |
 | `status.set` | none | `summary` (`""` clears) | `null` |
 | `log` | none | `level` (`debug`, `info`, `warning`, `error`), `message` | `null` (usually sent as a notification) |
 
