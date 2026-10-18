@@ -21,7 +21,7 @@ None of this weakens MeshCore's own encryption over the air: direct messages and
 
 ## The warning dialog
 
-While bots are enabled and no Basic login (the 4.x variables) is configured, Meshloom opens a full-screen warning titled "Unprotected bot execution is enabled". It offers two ways out:
+While bots are enabled and no account protects the instance, Meshloom opens a full-screen warning titled "Unprotected bot execution is enabled". It offers two ways out:
 
 - **Disable Bots Until Server Restart** turns the bot system off immediately. It comes back at the next restart unless you turn it off for good (see below).
 - Tick the acknowledgement box, then **Do Not Warn Me On This Device Again**. The choice is remembered by this browser only, so another browser or phone sees the warning again.
