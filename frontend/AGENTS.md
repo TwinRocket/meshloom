@@ -300,8 +300,9 @@ Acceptance is not recorded server-side yet (follow-up).
 `dm_encryption_available: false`
 (radio key not read yet) shows an explanation that only encrypted DM files are
 unavailable. Strings: slice `ar` (`settings.share.*`, `settingsNav.share`).
-Slice letters are taken per ticket at merge time; pick the next free one and never
-rename a slice. Tests: `src/test/settingsShareSection.test.tsx`.
+Never rename a slice. `share_preview_policy` is stored and shown but nothing reads it yet
+(no preview fetching). Tests: `src/test/settingsShareSection.test.tsx`. User docs:
+`docs/user/{en,fr}/deep/share.md`.
 
 **Composer shortening.** `MessageInput` reads `useShareStatus()` (local, no egress;
 off or `shorten_mode: never` means no button, no request). Pure helpers in

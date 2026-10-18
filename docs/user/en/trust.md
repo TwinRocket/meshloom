@@ -54,6 +54,7 @@ A few rules prevent most problems:
 - **Do not expose port `8000` to the Internet.** Do not forward it on your router. For remote access, use a VPN into your home or office network.
 - On a shared network (shared house, office, guest network), set the password and keep bots disabled.
 - Remember that the radio's private key is given to the server so it can decrypt direct messages. It is kept in memory only, but anyone who reaches the interface can read it back, through the API and in the full backup. A compromised machine is a compromised machine.
+- The optional short-link service (**Settings > Share: links and files**) is off by default and never contacted until an administrator turns it on. It uses a key of its own, never the radio's, and backups carry neither that key nor the consent: a restore never turns sharing on and always gives a new key (see [Short links](/en/docs/deep/share/)).
 - If you turn on **Settings > Proxy** to share your radio with other apps, know that it has no login at all, and that Basic auth does not cover it.
 - Treat channels for what they are. The key is the only access: giving it to someone lets them read and write there.
 

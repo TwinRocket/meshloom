@@ -54,6 +54,7 @@ Quelques règles évitent la plupart des ennuis :
 - **N’exposez pas le port `8000` à Internet.** Ne le redirigez pas depuis votre box. Pour un accès à distance, utilisez un VPN vers votre réseau domestique ou professionnel.
 - Sur un réseau partagé (colocation, bureau, réseau invité), définissez le mot de passe et gardez les bots désactivés.
 - Rappelez-vous que la clé privée de la radio est donnée au serveur pour qu’il déchiffre les messages directs. Elle reste en mémoire uniquement, mais quiconque atteint l’interface peut la relire, par l’API et dans la sauvegarde complète. Une machine compromise reste une machine compromise.
+- Le service optionnel de liens courts (**Réglages > Partage : liens et fichiers**) est désactivé par défaut et jamais contacté tant qu’un administrateur ne l’active pas. Il utilise une clé qui lui est propre, jamais celle de la radio, et les sauvegardes ne contiennent ni cette clé ni le consentement : une restauration n’active jamais le partage et donne toujours une clé neuve (voir [Liens courts](/docs/deep/share/)).
 - Si vous activez **Réglages > Proxy** pour partager votre radio avec d’autres applications, sachez qu’il n’a aucun identifiant, et que l’accès Basic ne le couvre pas.
 - Traitez les canaux pour ce qu’ils sont. La clé est le seul accès : la donner à quelqu’un lui permet d’y lire et d’y écrire.
 

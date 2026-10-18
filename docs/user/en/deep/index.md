@@ -1,6 +1,6 @@
 ---
 title: Go deeper
-description: Transports, other install paths, variables, Community, fanout, Home Assistant, troubleshooting.
+description: Transports, other install paths, variables, Community, short links, fanout, Home Assistant, troubleshooting.
 level: deep
 order: 10
 ---
@@ -14,4 +14,4 @@ Two pages are worth reading before the others:
 - [Variables and settings](/en/docs/deep/environment/) separates what is decided at startup from what lives in the database and is changed in the interface.
 - [Security](/en/docs/deep/security/) says what Meshloom does not protect.
 
-[Meshloom Community](/en/docs/deep/community/) is off until you join it, so read its page to know what it sends before you do.
+[Meshloom Community](/en/docs/deep/community/) is off until you join it, so read its page to know what it sends before you do. The same goes for [Short links](/en/docs/deep/share/), the optional sharing service that shortens long web addresses: it is off until an administrator turns it on.
