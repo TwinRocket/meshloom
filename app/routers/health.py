@@ -49,6 +49,9 @@ class PluginStatusResponse(BaseModel):
     last_error: str | None = None
     dropped_events: int = 0
     restarts: int = 0
+    # What the send guards refused since start (`total`, `by_scope`, `last`; `{}` when
+    # nothing); blanked for principals without `PLUGIN_ERROR_PERMISSION`.
+    send_guard: dict[str, Any] = Field(default_factory=dict)
 
 
 class NotificationLastError(BaseModel):
@@ -111,7 +114,7 @@ class HealthResponse(BaseModel):
     bots_disabled_source: Literal["env", "until_restart"] | None = None
     # The plugin host (app/plugins/lifecycle.py): None when the system is off.
     plugins_isolation: Literal["none", "setuid", "bwrap"] | None = None
-    plugins_disabled_source: Literal["env", "platform"] | None = None
+    plugins_disabled_source: Literal["env", "platform", "isolation"] | None = None
     plugin_statuses: dict[str, PluginStatusResponse] = Field(default_factory=dict)
     basic_auth_enabled: bool = False
     radio_proxy: RadioProxyStatus | None = None

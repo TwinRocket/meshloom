@@ -318,6 +318,12 @@ export interface PluginStatusEntry {
   restarts: number;
   /** The plugin's own one-line status (`status.set`), null when it set none. */
   summary?: string | null;
+  /** What the plugin send guards refused since start; absent or empty when nothing. */
+  send_guard?: {
+    total: number;
+    by_scope: Partial<Record<string, number>>;
+    last: { scope: string; at: number } | null;
+  };
 }
 
 export interface FanoutStatusEntry {
@@ -388,7 +394,7 @@ export interface HealthStatus {
   bots_disabled_source?: 'env' | 'until_restart' | null;
   /** Plugin host: isolation level, why it is off (null when on), and each instance. */
   plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
-  plugins_disabled_source?: 'env' | 'platform' | null;
+  plugins_disabled_source?: 'env' | 'platform' | 'isolation' | null;
   plugin_statuses?: Record<string, PluginStatusEntry>;
   basic_auth_enabled?: boolean;
   radio_proxy?: RadioProxyStatus | null;

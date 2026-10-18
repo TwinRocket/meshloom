@@ -20,7 +20,7 @@ import pytest
 from app.channel_constants import PUBLIC_CHANNEL_KEY
 from app.data.meshcore_channels import hashtag_key_from_name
 from app.plugins import host as host_module
-from app.plugins import quotas
+from app.plugins import isolation, quotas
 from app.plugins.capabilities import REGISTRY, messages
 from app.plugins.capabilities.grants import (
     effective_permissions,
@@ -382,6 +382,9 @@ async def test_the_loop_guards_answer_quota_exceeded_with_their_scope(
     assert 0 < result[1]["params"]["retry_after"] <= 30
     assert [s["text"] for s in sent] == ["one"]
     assert quotas.send_guard.hits(instance.instance_id)["by_scope"] == {"sender_cooldown": 1}
+    # ... and the plugin status says so, live and for the health listing.
+    assert instance.snapshot()["send_guard"]["last"]["scope"] == "sender_cooldown"
+    assert manager.statuses()[instance.instance_id]["send_guard"]["total"] == 1
 
 
 async def test_quota_counters_survive_a_restart_and_follow_the_window(test_db):
@@ -845,7 +848,11 @@ async def test_init_carries_language_isolation_and_effective_grants(manager, tmp
         config={"language": "fr"},
     )
     await wait_until(lambda: lines(instance, "init"))
-    assert lines(instance, "init")[0] == {"lang": "fr", "isolation": "none", "granted": ["storage"]}
+    assert lines(instance, "init")[0] == {
+        "lang": "fr",
+        "isolation": isolation.current().level,
+        "granted": ["storage"],
+    }
 
     other = await probe(manager, tmp_path, "init2", {}, config={"language": "de"})
     await wait_until(lambda: lines(other, "init"))

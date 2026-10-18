@@ -77,6 +77,7 @@ class PluginStatusPayload(TypedDict):
     last_error: str | None
     dropped_events: int
     restarts: int
+    send_guard: NotRequired[dict[str, Any]]
 
 
 class ToastPayload(TypedDict):

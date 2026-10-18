@@ -348,7 +348,9 @@ export DEBIAN_FRONTEND=noninteractive
 echo "[rpi-kiosk] Disk inside chroot before packages:"
 df -h /
 apt-get update -y
-apt-get install -y --no-install-recommends avahi-daemon ca-certificates curl
+# bubblewrap: the package only Recommends it and dpkg -i skips Recommends
+# (plugin isolation, app/plugins/isolation/bwrap.py).
+apt-get install -y --no-install-recommends avahi-daemon ca-certificates curl bubblewrap
 command -v chromium >/dev/null || command -v chromium-browser >/dev/null || {
     echo "chromium is missing from the Desktop base image" >&2
     exit 1
