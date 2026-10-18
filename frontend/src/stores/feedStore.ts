@@ -180,6 +180,17 @@ export function maxKnownId(): number {
   return max;
 }
 
+/**
+ * Empty the store but keep it attached: a change of the server-side filters (`type`,
+ * `outgoing`) reloads the first page, and the cursor must not cross the old query.
+ */
+export function clearFeedRows(): void {
+  working = [];
+  ids.clear();
+  hasOlder = true;
+  scheduleEmit();
+}
+
 /** Full reset, including the lazy-attach flag. Used by tests to isolate cases. */
 export function resetFeedStore(): void {
   active = false;

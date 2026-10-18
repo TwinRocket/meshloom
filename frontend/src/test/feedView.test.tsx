@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './qSlices';
@@ -15,6 +15,7 @@ import { FEED_DOM_MAX, FEED_PAGE_SIZE } from '../components/feed/feedConversatio
 import { countArrivedSince } from '../components/feed/feedFollow';
 import i18n from '../i18n';
 import { getFeedSnapshot, recordFeedMessage, resetFeedStore } from '../stores/feedStore';
+import { FEED_FILTERS_STORAGE_KEY } from '../utils/feedFilters';
 import type { Channel, Message } from '../types';
 
 const CHANNEL_KEY = '8B3387E9C5CDEA6AC9E5EDBAA115CD72';
@@ -59,8 +60,8 @@ function range(from: number, to: number): number[] {
   return out;
 }
 
-function renderFeed() {
-  return render(<FeedView contacts={[]} channels={channels} onBackToTools={vi.fn()} />);
+function renderFeed(withChannels: Channel[] = channels) {
+  return render(<FeedView contacts={[]} channels={withChannels} onBackToTools={vi.fn()} />);
 }
 
 /** jsdom lays nothing out: give the scroller the geometry the follow logic reads. */
@@ -94,6 +95,7 @@ async function findScroller(): Promise<HTMLElement> {
 beforeEach(() => {
   mocks.getMessages.mockReset();
   resetFeedStore();
+  localStorage.clear();
 });
 
 describe('FeedView pagination', () => {
@@ -296,5 +298,286 @@ describe('countArrivedSince', () => {
     const rows = [msg(1), msg(5), msg(6, { historical: true }), msg(7)];
     expect(countArrivedSince(rows, 5)).toBe(1);
     expect(countArrivedSince(rows, 0)).toBe(3);
+  });
+});
+
+const MUTED_KEY = '11111111111111111111111111111111';
+const PENDING_KEY = '44444444444444444444444444444444';
+
+function channel(key: string, name: string, extra: Partial<Channel> = {}): Channel {
+  return { ...channels[0], key, name, muted: false, ...extra } as Channel;
+}
+
+const chip = (name: string) => {
+  const found = screen
+    .getAllByRole('button')
+    .find((button) => button.firstChild?.textContent === name);
+  if (!found) throw new Error(`No chip named ${name}`);
+  return found;
+};
+const chipLabel = (key: string) => i18n.t(`feed.filters.${key}`);
+const hidden = (key: 'hiddenMuted' | 'hiddenPending', count: number) =>
+  i18n.t(`feed.${key}`, { count, formatted: String(count) });
+
+describe('FeedView filter chips', () => {
+  const mixedChannels = [
+    channels[0],
+    channel(MUTED_KEY, 'Quiet', { muted: true }),
+    channel(PENDING_KEY, 'Newcomer', { membership: 'pending' }),
+  ];
+  const mixedRows = () => [
+    msg(1),
+    msg(2, { conversation_key: MUTED_KEY }),
+    msg(3, { conversation_key: MUTED_KEY }),
+    msg(4, { conversation_key: PENDING_KEY }),
+    msg(5, { type: 'PRIV', conversation_key: 'aa'.repeat(32), text: 'psst' }),
+  ];
+
+  it('hides muted and pending channels by default and counts what is hidden', async () => {
+    mocks.getMessages.mockResolvedValue(serverPage([]).concat(mixedRows()));
+    renderFeed(mixedChannels);
+
+    const list = await screen.findByRole('list');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(chip(chipLabel('muted'))).getByText(hidden('hiddenMuted', 2))).toBeTruthy();
+    expect(within(chip(chipLabel('pending'))).getByText(hidden('hiddenPending', 1))).toBeTruthy();
+
+    fireEvent.click(chip(chipLabel('muted')));
+    expect(within(list).getAllByRole('listitem')).toHaveLength(4);
+    // Shown rows are no longer "hidden": the count goes away.
+    expect(within(chip(chipLabel('muted'))).queryByText(/hidden|masqu/)).toBeNull();
+    // Toggling a client-side chip never refetches.
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-evaluates rows when a channel frame flips muted, without reload', async () => {
+    mocks.getMessages.mockResolvedValue(mixedRows());
+    const view = renderFeed(mixedChannels);
+    const list = await screen.findByRole('list');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+
+    const unmuted = mixedChannels.map((c) => (c.key === MUTED_KEY ? { ...c, muted: false } : c));
+    view.rerender(<FeedView contacts={[]} channels={unmuted} onBackToTools={vi.fn()} />);
+    expect(within(await screen.findByRole('list')).getAllByRole('listitem')).toHaveLength(4);
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets an expired timed mute reappear on the minute tick', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const timed = channel(MUTED_KEY, 'Quiet', { muted: true, muted_until: nowSec + 90 });
+      mocks.getMessages.mockResolvedValue([msg(1), msg(2, { conversation_key: MUTED_KEY })]);
+      renderFeed([channels[0], timed]);
+      const list = await screen.findByRole('list');
+      expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+      await act(async () => {
+        vi.advanceTimersByTime(60_000);
+      });
+      expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('asks the server for the type and direction chips, debounced, from an emptied store', async () => {
+    mocks.getMessages.mockResolvedValue(mixedRows());
+    renderFeed(mixedChannels);
+    await screen.findByRole('list');
+    expect(mocks.getMessages).toHaveBeenLastCalledWith(
+      { limit: FEED_PAGE_SIZE },
+      expect.anything()
+    );
+
+    mocks.getMessages.mockResolvedValue([msg(1)]);
+    fireEvent.click(chip(chipLabel('direct')));
+    fireEvent.click(chip(chipLabel('sent')));
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    // Two clicks inside the debounce: one request carrying both.
+    expect(mocks.getMessages).toHaveBeenLastCalledWith(
+      { limit: FEED_PAGE_SIZE, type: 'CHAN', outgoing: false },
+      expect.anything()
+    );
+    await waitFor(() => expect(getFeedSnapshot().rows.map((r) => r.id)).toEqual([1]));
+  });
+
+  it('does not page with the new query from an old cursor while the reload is pending', async () => {
+    mocks.getMessages.mockResolvedValueOnce(serverPage(range(801, 1000)));
+    renderFeed();
+    const scroller = await findScroller();
+
+    mocks.getMessages.mockResolvedValue(serverPage(range(1, 3)));
+    fireEvent.click(chip(chipLabel('direct')));
+    // Inside the debounce the store still holds rows of the old query.
+    fireEvent.scroll(scroller);
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    expect(mocks.getMessages).toHaveBeenLastCalledWith(
+      { limit: FEED_PAGE_SIZE, type: 'CHAN' },
+      expect.anything()
+    );
+  });
+
+  it('sends no request and shows the empty state when both chips of a pair are off', async () => {
+    mocks.getMessages.mockResolvedValue(mixedRows());
+    renderFeed(mixedChannels);
+    await screen.findByRole('list');
+
+    fireEvent.click(chip(chipLabel('channels')));
+    fireEvent.click(chip(chipLabel('direct')));
+    expect(await screen.findByText(i18n.t('feed.emptyFiltered'))).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+    // The chips stay reachable to leave the empty state.
+    expect(chip(chipLabel('channels'))).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('keeps the filters across a reload, and starts from defaults on corrupted storage', async () => {
+    mocks.getMessages.mockResolvedValue(mixedRows());
+    const first = renderFeed(mixedChannels);
+    await screen.findByRole('list');
+    fireEvent.click(chip(chipLabel('muted')));
+    expect(JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) ?? '{}')).toMatchObject({
+      includeMuted: true,
+    });
+    first.unmount();
+
+    renderFeed(mixedChannels);
+    await screen.findByRole('list');
+    expect(chip(chipLabel('muted'))).toHaveAttribute('aria-pressed', 'true');
+    cleanup();
+
+    localStorage.setItem(FEED_FILTERS_STORAGE_KEY, '{not json');
+    renderFeed(mixedChannels);
+    await screen.findByRole('list');
+    expect(chip(chipLabel('muted'))).toHaveAttribute('aria-pressed', 'false');
+    expect(chip(chipLabel('channels'))).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('keeps Control and Events disabled until their sources exist', async () => {
+    mocks.getMessages.mockResolvedValue(mixedRows());
+    renderFeed(mixedChannels);
+    await screen.findByRole('list');
+    expect(chip(chipLabel('control'))).toBeDisabled();
+    expect(chip(chipLabel('events'))).toBeDisabled();
+  });
+});
+
+describe('FeedView hollow pages', () => {
+  const hollowChannels = [channel(MUTED_KEY, 'Quiet', { muted: true })];
+  const fullPage = (page: number) =>
+    range(page * 200 + 1, page * 200 + 200)
+      .reverse()
+      .map((id) => msg(id, { conversation_key: MUTED_KEY }));
+
+  it('fetches the next page by itself, at most five pages per gesture', async () => {
+    let page = 4;
+    mocks.getMessages.mockImplementation(async () => fullPage(page--));
+    renderFeed(hollowChannels);
+
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(5));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(mocks.getMessages).toHaveBeenCalledTimes(5);
+    expect(screen.getByText(i18n.t('feed.emptyFiltered'))).toBeInTheDocument();
+    expect(mocks.getMessages).toHaveBeenNthCalledWith(
+      2,
+      { limit: FEED_PAGE_SIZE, before: expect.any(Number), before_id: 801 },
+      expect.anything()
+    );
+  });
+
+  it('stops as soon as enough rows are visible', async () => {
+    // A full page of which fewer than 20 rows are visible, then a page of visible rows.
+    const first = range(100, 299).map((id) =>
+      msg(id, id % 13 === 0 ? {} : { conversation_key: MUTED_KEY })
+    );
+    const visibleInFirst = first.filter((m) => m.conversation_key !== MUTED_KEY).length;
+    expect(visibleInFirst).toBeLessThan(20);
+    const second = range(1, 99).map((id) => msg(id));
+    mocks.getMessages
+      .mockResolvedValueOnce([...first].reverse())
+      .mockResolvedValueOnce([...second].reverse());
+    renderFeed(hollowChannels);
+
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(mocks.getMessages).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('FeedView message rows', () => {
+  const dayOf = (iso: string) => Math.floor(new Date(iso).getTime() / 1000);
+
+  it('puts a day separator before the first row of each day', async () => {
+    mocks.getMessages.mockResolvedValue([
+      msg(3, { received_at: dayOf('2026-03-02T00:30:00') }),
+      msg(2, { received_at: dayOf('2026-03-01T22:00:00') }),
+      msg(1, { received_at: dayOf('2026-03-01T08:00:00') }),
+    ]);
+    renderFeed();
+
+    const list = await screen.findByRole('list');
+    expect(within(list).getAllByRole('heading', { level: 3 })).toHaveLength(2);
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3);
+  });
+
+  it('shows the sender with its key on hover, the sent marker and the region', async () => {
+    mocks.getMessages.mockResolvedValue([
+      msg(2, { outgoing: true, text: 'Me: out', region: 'EU' }),
+      msg(1, { text: 'Alice: hi', sender_key: 'ef'.repeat(32) }),
+    ]);
+    renderFeed();
+
+    const list = await screen.findByRole('list');
+    const [incoming, outgoing] = within(list).getAllByRole('listitem');
+    expect(within(incoming).getByText('Alice')).toHaveAttribute('title', 'efefefefefef');
+    expect(within(incoming).getByText('hi')).toBeInTheDocument();
+    expect(within(incoming).queryByText(i18n.t('feed.sent'))).toBeNull();
+    expect(within(outgoing).getByText(i18n.t('feed.sent'))).toBeInTheDocument();
+    expect(within(outgoing).getByText('EU')).toBeInTheDocument();
+  });
+
+  it('names a deleted channel by the WS name, then by its abbreviated key', async () => {
+    const gone = '77777777777777777777777777777777';
+    mocks.getMessages.mockResolvedValue([
+      msg(2, { conversation_key: gone, channel_name: 'Old name' }),
+      msg(1, { conversation_key: gone }),
+    ]);
+    renderFeed();
+
+    const list = await screen.findByRole('list');
+    expect(within(list).getByText('Old name')).toBeInTheDocument();
+    expect(within(list).getByText('77777777')).toBeInTheDocument();
+  });
+
+  it('renders a MeshCore Open reaction whose target is not loaded', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1, { text: 'Alice: r:abcd:00' })]);
+    renderFeed();
+
+    const item = within(await screen.findByRole('list')).getByRole('listitem');
+    expect(item).not.toHaveTextContent('r:abcd:00');
+    expect(item).toHaveTextContent(i18n.t('messageList.reacted'));
+  });
+
+  it('does not load remote media for a pending channel', async () => {
+    const pending = channel(PENDING_KEY, 'Newcomer', { membership: 'pending' });
+    mocks.getMessages.mockResolvedValue([
+      msg(2, { conversation_key: PENDING_KEY, text: 'Bob: g:abc123' }),
+      msg(1, { text: 'Alice: g:abc123' }),
+    ]);
+    localStorage.setItem(FEED_FILTERS_STORAGE_KEY, JSON.stringify({ includePending: true }));
+    renderFeed([channels[0], pending]);
+
+    const list = await screen.findByRole('list');
+    const [adopted, held] = within(list).getAllByRole('listitem');
+    expect(within(adopted).queryByTestId('message-gif')).not.toBeNull();
+    expect(within(held).queryByTestId('message-gif')).toBeNull();
+    expect(held).toHaveTextContent('g:abc123');
   });
 });
