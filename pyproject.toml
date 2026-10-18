@@ -69,12 +69,12 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["app", "meshloom_plugin"]
 
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
-include = ["app"]
+include = ["app", "meshloom_plugin"]
 exclude = ["references", ".venv", "tests"]
 reportMissingImports = true
 reportMissingTypeStubs = false

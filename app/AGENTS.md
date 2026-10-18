@@ -44,10 +44,17 @@ and the OpenAPI page (`/docs`), not a table here.
   `POST /tools/mesh-test`) stores no channel and no message.
 - `plugins/` is the plugin package format: manifest model, permission registry, config
   schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`),
-  plus the static attention scan of local sources (`plugins/attention.py`). The data
-  model is `repository/plugins.py` (instances, KV, write-only secrets: only
-  `config_for_init()` returns a secret in clear). No runtime yet. Change the contract
-  only through `scripts/build/export_plugin_contract.py`.
+  plus the static attention scan of local sources (`plugins/attention.py`, whose import
+  lists are `meshloom_plugin/policy.py`'s). The data model is `repository/plugins.py`
+  (instances, KV, write-only secrets: only `config_for_init()` returns a secret in
+  clear). Change the contract only through `scripts/build/export_plugin_contract.py`.
+  `plugins/launch.py` builds the launch contract of the plugin child, which runs
+  the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
+  `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`). Nothing
+  starts it yet (supervisor: MSHL-179). Every artefact that copies `app/` copies
+  `meshloom_plugin/` too (`Dockerfile`, `copy_project_files` in
+  `scripts/build/build_nfpm_packages.sh`, `Dockerfile.nfpm-armhf` and the armhf
+  tag overlay, the upgrade-matrix image); `tests/test_plugin_packaging.py` checks them.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
 
