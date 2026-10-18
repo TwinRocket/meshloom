@@ -85,6 +85,19 @@ The delays live in memory and start again empty when Meshloom restarts. A delay 
 
 Sign-in delays, the audit log and the session list record the address a request comes from. Behind a reverse proxy that is the proxy's, for every visitor, until you list the proxy in **Settings → Local Configuration → Trusted proxies**; Meshloom then uses the visitor's address the proxy forwards. List the proxy's own address only, never a Docker network or its gateway. See [HTTPS, trusted proxies](/en/docs/deep/https/#trusted-proxies).
 
+## Trusted networks
+
+An administrator can let devices on a chosen network in without a login, in **Settings → Users & Access → Trusted networks**: each rule is a network (`192.168.1.50`, `192.168.1.0/24`) and the account those devices act as. The list is empty by default. Use it for a device you control, such as a wall tablet, and give it the smallest network (its own address) and the weakest role that does the job (kiosk or viewer). A sign-in through a rule is written to the audit log once per device and per day.
+
+A rule is **off as soon as a proxy is in the loop**, because behind a proxy or a tunnel every visitor, from anywhere, arrives from the proxy's address:
+
+- a request that came through a reverse proxy or a tunnel (it carries `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `CF-Connecting-IP` or a similar header), or from an address listed in the trusted proxies, is never signed in by a rule;
+- so are requests through Meshloom Remote and Home Assistant ingress (Home Assistant signs those in itself);
+- a rule never covers this machine's own loopback (`127.0.0.1`, `::1`), except inside the Home Assistant add-on: a local proxy or an `ssh -L` tunnel would bring every visitor from there;
+- the address in the browser must be an IP address, `localhost`, a local name (`.local`, `.home.arpa`, `.lan`, `.internal`), this machine's name or a public address you declared, so a web page cannot use a name of its own to reach Meshloom as that account.
+
+Meshloom refuses to save a rule that overlaps a trusted proxy, one that covers loopback outside the add-on, and, while a public address is configured, one that covers the Docker gateway. Settings warns in red when a rule signs in an **administrator**: anyone on that network can then change every setting, account and plugin. The **Access security notice** at the top of **Users & Access** says when a rule signs in an administrator while plugins run with reduced isolation, or covers loopback or the Docker gateway while a public address is configured.
+
 ## Audit log
 
 Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, the first administrator setup, changes to the access settings, bots created, changed, deleted or stopped, backup restores, private key imports, radio factory resets and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.

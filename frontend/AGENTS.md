@@ -288,8 +288,12 @@ purpose.
   scroller; `details` is never shown). Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded
   `errors.auth_*`, the policy detail, and a generic line for an uncoded 429/503). Strings:
   slice `az` (`settings.access.*`, `settingsNav.access`), audit strings in slice `ba`
-  (`settings.access.audit.*`). Tests: `src/test/settingsAccessSection.test.tsx`,
-  `src/test/accessAuditPanel.test.tsx`. Add a settings section
+  (`settings.access.audit.*`), trusted networks and the Access security notice in slice
+  `bc` (`settings.access.trustedNetworks.*`, `settings.access.securityNotice.*`,
+  `errors.auth_trusted_*`). `AccessTrustedNetworksPanel` edits the rules (a strong
+  warning when one maps to an administrator); the notice banner at the top of the
+  section shows the server's `security_notices` and nothing else. Tests: `src/test/settingsAccessSection.test.tsx`,
+  `src/test/accessAuditPanel.test.tsx`, `src/test/accessTrustedNetworksPanel.test.tsx`. Add a settings section
   to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool
   that calls a refused route goes in `TOOL_CAPABILITY` (`navDestinations.ts`). A hook that
   loads at startup must not call an admin-only route for another role (members, viewers and
