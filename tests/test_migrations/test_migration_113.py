@@ -113,6 +113,7 @@ async def test_fresh_database_gets_only_builtin_push_with_the_current_defaults(t
     assert set(events) == {
         "message.dm",
         "message.channel",
+        "message.mention",
         "contact.first_seen",
         "channel.found",
         "telemetry.alert",

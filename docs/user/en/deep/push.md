@@ -67,6 +67,12 @@ For a companion, **New contacts** or **Companion advertisements** is enough.
 
 "First seen" alerts only fire when a **new contact** is added, after the radio has finished its start-up. A node you already know, an unknown node and a room server never trigger them.
 
+### Mentions
+
+A channel message **mentions you** when it contains `@[` + your radio's name + `]` (for example `@[Bob]`), in any case. With **Match whole words only** ticked (row *Mentions* of the table), your radio's name written as a whole word also counts: *Al* matches "hello al!" but not "Alpha". A mention is sent to the channels ticked on the **Mentions** row, instead of the ordinary channel notification on those channels, so a channel never receives both; it reads "Mention in #paris by Léa" and replaces the ordinary notification of that conversation in the tray. Channels where **Mentions** is not ticked keep receiving the ordinary notification. The mute of a channel, the block lists and Do not disturb apply as for any message, and a mention is **never urgent**. It is on by default for the channels that receive direct messages.
+
+**Mentions can be forged by anyone in range:** channel messages are not authenticated, so anyone who writes `@[your name]` makes your radio "mentioned". That is why a mention is never urgent, and why, on a **private channel** (one with its own key), it only reaches channels that are not a third party (Web Push, a self-hosted ntfy, an e-mail relay on your network...) or channels you explicitly allowed for that conversation with an exception (**on**) in the conversations list; an exception set to **on** receives the mention even if the channel is not ticked on the **Mentions** row. Apprise and webhook channels always count as a third party, since the type cannot tell where they send. Direct messages are not mentions.
+
 ### Conversations
 
 For channel messages, without an exception:

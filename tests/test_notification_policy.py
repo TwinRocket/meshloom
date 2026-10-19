@@ -31,6 +31,8 @@ def test_conversation_channel_enabled_vector(case: dict) -> None:
             muted=case["muted"],
             blocked=case["blocked"],
             now=case["now"],
+            mention=case.get("mention", False),
+            cloud=case.get("cloud", False),
         )
         is case["expected"]
     )
@@ -39,7 +41,7 @@ def test_conversation_channel_enabled_vector(case: dict) -> None:
 def test_fixture_names_are_unique_and_cover_the_rules() -> None:
     names = [c["name"] for c in CASES]
     assert len(names) == len(set(names))
-    for word in ("exception", "private_key", "pause", "muted", "blocked", "hashtag"):
+    for word in ("exception", "private_key", "pause", "muted", "blocked", "hashtag", "mention"):
         assert any(word in n for n in names), word
 
 
