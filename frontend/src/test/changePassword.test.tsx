@@ -50,6 +50,13 @@ beforeEach(async () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+/**
+ * Lets the effects of the last commit run. The session lands from a promise, outside
+ * `act`, so React schedules its passive effects (the gate's event listeners) after the
+ * DOM already shows the app: an event reported right then reaches nobody.
+ */
+const settled = () => act(async () => {});
+
 async function fill(user: ReturnType<typeof userEvent.setup>, current: string, next: string) {
   await user.type(await screen.findByLabelText(t('auth.changePassword.current')), current);
   await user.type(screen.getByLabelText(t('auth.changePassword.new')), next);
@@ -118,6 +125,7 @@ describe('forced password change', () => {
       </SessionProvider>
     );
     await screen.findByTestId('app');
+    await settled();
     act(() => reportPasswordChangeRequired());
     await waitFor(() =>
       expect(
@@ -144,6 +152,7 @@ describe('forced password change', () => {
       </SessionProvider>
     );
     const app = await screen.findByTestId('app');
+    await settled();
     act(() => reportPasswordChangeRequired());
     await fill(user, 'temporary-secret', 'a much better secret');
     await waitFor(() =>
