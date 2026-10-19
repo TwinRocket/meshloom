@@ -16,7 +16,7 @@ import pytest
 
 import app.main  # noqa: F401  (setup_logging runs at import, never inside a test)
 from app.models import BackupExportV2, BackupRestoreRequest, BackupRestoreSteps, BackupSection
-from app.notifications.channels import ChannelCreate
+from app.notifications.channels import ChannelCreate, ChannelError, ChannelUpdate
 from app.repository import AppSettingsRepository
 from app.repository.notification_channels import NotificationChannelRepository as Channels
 from app.repository.notification_channels import invalidate_cache
@@ -300,7 +300,7 @@ async def test_a_legacy_channel_absent_from_this_database_is_not_recreated(backu
         }
     )
     warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
-    assert warnings == ["notification_channel_dropped:legacy:webhook"]
+    assert warnings == []
     assert await Channels.get("legacy:webhook") is None
 
 
@@ -445,3 +445,195 @@ async def test_the_json_download_and_the_debug_snapshot_hold_no_channel_secret(b
 async def test_the_v2_fixture_is_a_valid_document(backup_db):
     doc = BackupExportV2.model_validate(V2_NOTIFICATIONS)
     assert NOTIFICATIONS_SECTION in doc.sections
+
+
+# -- review fixes (PR #272, round 1) --------------------------------------------
+
+
+def _email_section(**overrides):
+    channel = {
+        "id": "email-aaaa0001",
+        "type": "email",
+        "name": "Mail",
+        "config": {"host": "smtp.example.org", "to": "ops@example.org"},
+        "secret_omitted": {"password": True},
+    }
+    channel.update(overrides)
+    return BackupSection(data={"channels": [channel], "rules": {}})
+
+
+@pytest.mark.asyncio
+async def test_an_omitted_optional_secret_blocks_enabling_until_typed_or_cleared(backup_db):
+    await restore_sections({NOTIFICATIONS_SECTION: _email_section()})
+    channel = await Channels.get("email-aaaa0001")
+    assert channel is not None
+    assert (channel.enabled, channel.last_error) == (False, "secret_missing")
+
+    with pytest.raises(ChannelError) as refused:
+        await Channels.update("email-aaaa0001", ChannelUpdate(enabled=True))
+    assert refused.value.code == "secret_missing"
+    assert refused.value.params == {"fields": ["password"]}
+    # Editing another field does not clear the state.
+    await Channels.update(
+        "email-aaaa0001",
+        ChannelUpdate(
+            config={"host": "smtp.example.org", "to": "ops@example.org", "cc": "a@example.org"}
+        ),
+    )
+    again = await Channels.get("email-aaaa0001")
+    assert again is not None and again.last_error == "secret_missing"
+
+    # Typing the password again lets the channel be enabled.
+    done = await Channels.update(
+        "email-aaaa0001", ChannelUpdate(config={"password": "typed-again"}, enabled=True)
+    )
+    assert done.enabled and done.last_error is None
+
+
+@pytest.mark.asyncio
+async def test_clearing_an_omitted_secret_on_purpose_lets_the_channel_be_enabled(backup_db):
+    await restore_sections({NOTIFICATIONS_SECTION: _email_section()})
+    done = await Channels.update(
+        "email-aaaa0001", ChannelUpdate(config={"password": ""}, enabled=True)
+    )
+    assert done.enabled and done.last_error is None
+
+
+@pytest.mark.asyncio
+async def test_a_webhook_needs_every_omitted_secret_not_only_the_url(backup_db):
+    section = BackupSection(
+        data={
+            "channels": [
+                {
+                    "id": "webhook-aaaa0002",
+                    "type": "webhook",
+                    "name": "Hook",
+                    "secret_omitted": {"url": True, "hmac_secret": True},
+                }
+            ],
+            "rules": {},
+        }
+    )
+    await restore_sections({NOTIFICATIONS_SECTION: section})
+    with pytest.raises(ChannelError) as refused:
+        await Channels.update(
+            "webhook-aaaa0002",
+            ChannelUpdate(config={"url": "https://hooks.example.org/x"}, enabled=True),
+        )
+    assert refused.value.params == {"fields": ["hmac_secret"]}
+    saved = await Channels.update(
+        "webhook-aaaa0002",
+        ChannelUpdate(config={"url": "https://hooks.example.org/x"}),
+    )
+    assert not saved.enabled and saved.last_error == "secret_missing"
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_waiting_channel_forgets_its_pending_secrets(backup_db):
+    await restore_sections({NOTIFICATIONS_SECTION: _email_section()})
+    await Channels.delete("email-aaaa0001")
+    async with backup_db.readonly() as conn:
+        async with conn.execute(
+            "SELECT COUNT(*) FROM notification_state WHERE key LIKE 'secret_pending:%'"
+        ) as cursor:
+            assert (await cursor.fetchone())[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_malformed_rules_are_sanitized_and_served_in_a_shape_the_ui_reads(backup_db, client):
+    section = BackupSection(
+        data={
+            "channels": [],
+            "rules": {
+                "events": {
+                    "message.dm": {"channels": 5},
+                    "radio.offline": {"channels": ["builtin:push"], "always_deliver": True},
+                    "bogus.event": {"channels": []},
+                },
+                "keywords": "zz",
+                "conversations": "q",
+                "watched_nodes": [{"channels": "x"}, {"channels": ["builtin:push"], "key": "ab"}],
+            },
+        }
+    )
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert "notification_rules_sanitized" in warnings
+    response = await client.get("/api/notifications/rules")
+    body = response.json()
+    assert body["events"] == {
+        "radio.offline": {"channels": ["builtin:push"], "always_deliver": True}
+    }
+    assert body["keywords"] == [] and body["conversations"] == {}
+    assert [w["channels"] for w in body["watched_nodes"]] == [["builtin:push"]]
+
+
+@pytest.mark.asyncio
+async def test_the_restore_keeps_the_invariants_of_create(backup_db):
+    base = {"name": "X", "config": {"host": "smtp.example.org", "to": "ops@example.org"}}
+    section = BackupSection(
+        data={
+            "channels": [
+                {"id": "push-2", "type": "web_push", "name": "Second push"},
+                {"id": "evil:id", **base, "type": "email"},
+                {"id": "email-empty", "type": "email", "name": "Empty", "config": {}},
+                {"id": "builtin:other", "type": "web_push", "name": "Other"},
+                {"id": "email-ok", **base, "type": "email"},
+                {"id": "email-ok", **base, "type": "email"},
+            ],
+            "rules": {},
+        }
+    )
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert sorted(w for w in warnings if w.startswith("notification_channel_dropped")) == [
+        "notification_channel_dropped:builtin:other",
+        "notification_channel_dropped:duplicate",
+        "notification_channel_dropped:email-empty",
+        "notification_channel_dropped:invalid_id",
+        "notification_channel_dropped:push-2",
+    ]
+    ids = sorted(c.id for c in await Channels.list_all())
+    assert ids == ["builtin:push", "email-ok"]
+
+
+@pytest.mark.asyncio
+async def test_the_full_backup_carries_no_legacy_destination_secret(backup_db):
+    await restore_json(BackupRestoreRequest(confirm=True, **V1_4_18))
+    doc = await export_backup_v2()
+    text = json.dumps(export_document(doc))
+    for secret in SECRETS:
+        assert secret not in text
+    assert doc.settings is not None
+    assert doc.secret_omitted["settings.notification_destinations.email.password"] is True
+    section = doc.sections[NOTIFICATIONS_SECTION]
+    legacy = {c["id"]: c for c in section.data["channels"]}
+    assert legacy["legacy:email"]["secret_omitted"] == {"password": True}
+
+
+@pytest.mark.asyncio
+async def test_restoring_that_full_backup_keeps_the_stored_destination_secrets(backup_db):
+    await restore_json(BackupRestoreRequest(confirm=True, **V1_4_18))
+    doc = await export_backup_v2()
+    exported = BackupExportV2.model_validate(export_document(doc))
+    request = BackupRestoreRequest(
+        confirm=True,
+        settings=exported.settings,
+        push_defaults=exported.push_defaults,
+        push_conversation_overrides=exported.push_conversation_overrides,
+    )
+    await restore_json(request)
+    found = await Channels.get_for_send("legacy:email")
+    assert found is not None and found[1]["password"] == "smtp-pass-4182"
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_instance_warns_when_the_destination_secrets_are_missing(backup_db):
+    await restore_json(BackupRestoreRequest(confirm=True, **V1_4_18))
+    doc = await export_backup_v2()
+    section = doc.sections[NOTIFICATIONS_SECTION]
+    async with backup_db.tx() as conn:
+        await conn.execute("DELETE FROM notification_channels WHERE id LIKE 'legacy:%'")
+    from app.repository.notification_channels import invalidate_cache
+
+    invalidate_cache()
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert "notification_destination_secrets_missing" in warnings

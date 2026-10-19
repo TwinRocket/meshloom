@@ -756,6 +756,8 @@ describe('BackupRestoreFlow', () => {
       'notification_secrets_missing:2',
       'notification_channel_dropped:webhook-1a2b3c4d',
       'notification_rules_dropped',
+      'notification_rules_sanitized',
+      'notification_destination_secrets_missing',
     ];
     for (const language of ['en', 'fr']) {
       const t = i18n.getFixedT(language);

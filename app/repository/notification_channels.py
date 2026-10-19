@@ -114,6 +114,26 @@ def _split_config(entry: ChannelType, config: dict[str, Any]) -> tuple[dict, dic
     return public, secrets
 
 
+# ``notification_state`` key of the secrets a restored channel still waits for (JSON list of
+# names), written by the backup restore (``services/backup_notifications.py``).
+PENDING_SECRETS = "secret_pending:"
+
+
+async def _pending_secrets(channel_id: str) -> list[str]:
+    async with db.readonly() as conn:
+        async with conn.execute(
+            "SELECT value FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
+        ) as cursor:
+            row = await cursor.fetchone()
+    if row is None:
+        return []
+    try:
+        names = json.loads(row[0])
+    except json.JSONDecodeError:
+        return []
+    return [n for n in names if isinstance(n, str)] if isinstance(names, list) else []
+
+
 def _required_missing(entry: ChannelType, public: dict, secrets: dict) -> list[str]:
     return [f for f in entry.required if not (public.get(f) or secrets.get(f))]
 
@@ -364,6 +384,19 @@ class NotificationChannelRepository:
         if missing:
             raise ChannelError("config_required", fields=missing)
 
+        pending = await _pending_secrets(channel_id)
+        still_pending: list[str] = []
+        if pending:
+            # A restored channel waits for the secrets the backup left out (MSHL-117): it stays
+            # off until each is typed again or cleared on purpose (sent as "").
+            cleared = {
+                k for k, v in (patch.config or {}).items() if k in entry.secret_fields and v == ""
+            }
+            still_pending = [n for n in pending if not secrets.get(n) and n not in cleared]
+            wanted_on = current.enabled if patch.enabled is None else patch.enabled
+            if still_pending and wanted_on:
+                raise ChannelError("secret_missing", fields=still_pending)
+
         allow_private = (
             current.allow_private_network
             if patch.allow_private_network is None
@@ -384,9 +417,6 @@ class NotificationChannelRepository:
         if config_changed:
             sets["config"] = json.dumps(public, sort_keys=True)
             sets["secrets"] = json.dumps(secrets, sort_keys=True)
-            if current.last_error == "secret_missing":
-                # The restore left this channel waiting for its secret (MSHL-117): it is here.
-                sets["last_error"] = None
         for column in (
             "name",
             "enabled",
@@ -412,7 +442,13 @@ class NotificationChannelRepository:
                 sets[column] = (
                     value.strip() if isinstance(value, str) and column == "name" else value
                 )
+        if pending and not still_pending:
+            sets["last_error"] = None
         async with db.tx() as conn:
+            if pending and not still_pending:
+                await conn.execute(
+                    "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
+                )
             if sets:
                 assignments = ", ".join(f"{col} = ?" for col in sets)
                 await conn.execute(
@@ -438,6 +474,9 @@ class NotificationChannelRepository:
             )
             await conn.execute(
                 "DELETE FROM notification_counters WHERE channel_id = ?", (channel_id,)
+            )
+            await conn.execute(
+                "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
             )
             async with conn.execute(
                 "SELECT notification_rules FROM app_settings WHERE id = 1"

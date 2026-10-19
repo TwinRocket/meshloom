@@ -24,6 +24,7 @@ migration 113 (``restore_json``, ``legacy_sync``), see ``docs/dev/backup.md``.
 
 import json
 import logging
+import re
 import time
 from typing import Any, Literal
 
@@ -31,6 +32,7 @@ import aiosqlite
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.models import BackupSection
+from app.repository.notification_channels import PENDING_SECRETS
 from app.services.backup_sections import RestoreSource, register_backup_section, register_on_restore
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,11 @@ NOTIFICATIONS_SECTION_VERSION = 1
 SECRET_MISSING = "secret_missing"
 MAX_BACKUP_CHANNELS = 200
 MAX_RULES_BYTES = 1_000_000
+MAX_RULE_ENTRIES = 500
+MAX_RULE_CHANNELS = 200
+# The characters ``create()`` can give an id (no ``:``, which is reserved for the fixed ids).
+_CHANNEL_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+FIXED_IDS = frozenset({"builtin:push", "legacy:email", "legacy:webhook", "legacy:apprise"})
 
 
 class BackupNotificationChannel(BaseModel):
@@ -167,27 +174,45 @@ async def _restore_channel(
         "sort_order": item.sort_order,
     }
 
-    if item.id.startswith("legacy:"):
-        # Destination and secrets come from ``notification_destinations``.
-        if row is None:
+    if item.id.startswith("legacy:") or item.id.startswith("builtin:"):
+        if item.id not in FIXED_IDS:
             warnings.append(f"notification_channel_dropped:{item.id}")
             return False
-        await _update(conn, item.id, own)
-        return False
-    if item.id.startswith("builtin:"):
+        legacy = item.id.startswith("legacy:")
         if row is None:
-            warnings.append(f"notification_channel_dropped:{item.id}")
+            if legacy and item.secret_omitted:
+                # The destination itself (its address or password) was left out of the file.
+                warnings.append("notification_destination_secrets_missing")
+            elif not legacy:
+                warnings.append(f"notification_channel_dropped:{item.id}")
             return False
-        await _update(conn, item.id, {k: v for k, v in own.items() if k != "name"})
+        # Destination and secrets of a ``legacy:*`` channel come from
+        # ``notification_destinations``; ``builtin:push`` keeps its name.
+        await _update(
+            conn, item.id, own if legacy else {k: v for k, v in own.items() if k != "name"}
+        )
+        if legacy:
+            stored = _loads(row["secrets"])
+            if any(not stored.get(name) for name in item.secret_omitted):
+                warnings.append("notification_destination_secrets_missing")
         return False
 
+    # The invariants ``create()`` enforces: a free id, a known type that is not a singleton, the
+    # required fields.
+    if not _CHANNEL_ID.match(item.id):
+        warnings.append("notification_channel_dropped:invalid_id")
+        return False
     try:
         entry = get_type(item.type, item.preset)
     except ChannelError:
         warnings.append(f"notification_channel_dropped:{item.id}")
         return False
     public = _public_config(entry, item.config)
-    if public is None:
+    if (
+        entry.singleton_id is not None
+        or public is None
+        or any(not public.get(f) for f in entry.required if f not in entry.secret_fields)
+    ):
         warnings.append(f"notification_channel_dropped:{item.id}")
         return False
 
@@ -216,6 +241,18 @@ async def _restore_channel(
         columns["last_error"] = SECRET_MISSING
     elif row is not None and row["last_error"] == SECRET_MISSING:
         columns["last_error"] = None
+    # The names the channel still waits for: it cannot be enabled until each one is typed again
+    # or cleared on purpose (``NotificationChannelRepository.update``).
+    if missing:
+        await conn.execute(
+            "INSERT OR REPLACE INTO notification_state (key, value, expires_at)"
+            " VALUES (?, ?, NULL)",
+            (PENDING_SECRETS + item.id, json.dumps(missing)),
+        )
+    else:
+        await conn.execute(
+            "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + item.id,)
+        )
     if row is None:
         columns.update(id=item.id, created_at=item.created_at or int(time.time()))
         await conn.execute(
@@ -241,14 +278,18 @@ async def restore_notifications(section: BackupSection, conn: aiosqlite.Connecti
 
     data = BackupNotificationsData.model_validate(section.data)
     warnings: list[str] = []
-    needing_secret = 0
+    waiting = 0
+    seen: set[str] = set()
     for item in data.channels:
+        if item.id in seen:
+            warnings.append("notification_channel_dropped:duplicate")
+            continue
+        seen.add(item.id)
         if await _restore_channel(conn, item, warnings):
-            needing_secret += 1
+            waiting += 1
 
-    if data.rules and len(json.dumps(data.rules)) <= MAX_RULES_BYTES:
-        rules = json.loads(json.dumps(data.rules))
-        rules["paused_until"] = None
+    if data.rules:
+        rules = sanitize_rules(data.rules, warnings)
         known = await _channel_ids(conn)
         for channel_id in _referenced_ids(rules) - known:
             strip_channel_from_rules(rules, channel_id)
@@ -256,17 +297,108 @@ async def restore_notifications(section: BackupSection, conn: aiosqlite.Connecti
             "UPDATE app_settings SET notification_rules = ? WHERE id = 1",
             (json.dumps(rules, sort_keys=True),),
         )
-    elif data.rules:
-        warnings.append("notification_rules_dropped")
 
-    if needing_secret:
-        warnings.append(f"notification_secrets_missing:{needing_secret}")
+    if waiting:
+        warnings.append(f"notification_secrets_missing:{waiting}")
     logger.info(
-        "Backup restore: %d notification channel(s), %d need a secret",
+        "Backup restore: %d notification channel(s) read, %d restored switched off",
         len(data.channels),
-        needing_secret,
+        waiting,
     )
     return warnings
+
+
+class _EventRule(BaseModel):
+    """What the rules API accepts for one event (``EventRulePatch``)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    channels: list[str] = Field(default_factory=list, max_length=MAX_RULE_CHANNELS)
+    always_deliver: bool = False
+    contact_types: dict[str, list[str]] | None = None
+
+
+class _ListRule(BaseModel):
+    """A keyword or watched-node rule: free fields, but its channels are a list of ids."""
+
+    model_config = ConfigDict(extra="allow")
+
+    channels: list[str] = Field(default_factory=list, max_length=MAX_RULE_CHANNELS)
+
+
+CONTACT_TYPES = ("companion", "repeater", "sensor")
+
+
+def sanitize_rules(raw: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
+    """The rules a file may carry, validated entry by entry like the rules API does.
+
+    A malformed entry is dropped (one ``notification_rules_sanitized`` warning in all); the rest is
+    kept, so the settings page never reads a shape it cannot render. ``paused_until`` is emptied.
+    """
+    from app.notifications.events import EVENT_IDS
+
+    if len(json.dumps(raw)) > MAX_RULES_BYTES:
+        warnings.append("notification_rules_dropped")
+        return {"version": 1, "paused_until": None}
+    dropped = 0
+    rules: dict[str, Any] = {"version": 1, "paused_until": None}
+
+    events: dict[str, Any] = {}
+    raw_events = raw.get("events")
+    for event_id, entry in raw_events.items() if isinstance(raw_events, dict) else []:
+        try:
+            if event_id not in EVENT_IDS:
+                raise ValueError(event_id)
+            rule = _EventRule.model_validate(entry)
+            types = rule.contact_types
+            if types is not None and (
+                set(types) - set(CONTACT_TYPES)
+                or any(len(ids) > MAX_RULE_CHANNELS for ids in types.values())
+            ):
+                raise ValueError("contact_types")
+            events[event_id] = rule.model_dump(exclude_none=True)
+        except (ValueError, ValidationError):
+            dropped += 1
+    if isinstance(raw_events, dict):
+        rules["events"] = events
+    elif raw_events is not None:
+        dropped += 1
+
+    raw_conversations = raw.get("conversations")
+    conversations: dict[str, dict[str, bool]] = {}
+    for key, entry in raw_conversations.items() if isinstance(raw_conversations, dict) else []:
+        if (
+            isinstance(key, str)
+            and isinstance(entry, dict)
+            and len(conversations) < MAX_RULE_ENTRIES
+            and all(isinstance(k, str) and isinstance(v, bool) for k, v in entry.items())
+        ):
+            conversations[key] = dict(entry)
+        else:
+            dropped += 1
+    rules["conversations"] = conversations
+    if raw_conversations is not None and not isinstance(raw_conversations, dict):
+        dropped += 1
+
+    for name in ("keywords", "watched_nodes"):
+        raw_list = raw.get(name)
+        kept: list[dict[str, Any]] = []
+        for entry in raw_list if isinstance(raw_list, list) else []:
+            try:
+                if len(kept) >= MAX_RULE_ENTRIES:
+                    raise ValueError(name)
+                kept.append(_ListRule.model_validate(entry).model_dump())
+            except (ValueError, ValidationError):
+                dropped += 1
+        if raw_list is not None and not isinstance(raw_list, list):
+            dropped += 1
+        rules[name] = kept
+
+    if isinstance(raw.get("mention_whole_word"), bool):
+        rules["mention_whole_word"] = raw["mention_whole_word"]
+    if dropped:
+        warnings.append("notification_rules_sanitized")
+    return rules
 
 
 def _referenced_ids(rules: dict[str, Any]) -> set[str]:

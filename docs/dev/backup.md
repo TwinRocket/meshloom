@@ -274,11 +274,18 @@ imported by `services/backup.py`.
   with `paused_until` emptied. The delivery journal, counters and dedup state are runtime
   data and stay out; the block lists are `blocked_keys` / `blocked_names` in the v1 settings.
 - **Restore.** Channels merge by id, the rules are replaced minus the ids of channels
-  that exist nowhere. A channel with a missing secret (`secret_omitted`, or a required
-  secret absent) is written **disabled** with `last_error = "secret_missing"`
-  (`errors.secret_missing` in the UI); the warning `notification_secrets_missing:<n>` counts
-  them. `NotificationChannelRepository.update()` clears the state once the secret is saved,
-  and refuses to enable a channel whose required fields are empty (`config_required`). A
+  that exist nowhere, after `sanitize_rules` validated them entry by entry (event ids of the
+  catalogue, `EventRulePatch` shapes, boolean conversation overrides, list caps; a dropped
+  entry gives `notification_rules_sanitized`). A channel with a missing secret
+  (`secret_omitted`, or a required secret absent) is written **disabled** with
+  `last_error = "secret_missing"` (`errors.secret_missing` in the UI) and the omitted names in
+  `notification_state` (`secret_pending:<id>`); the warning `notification_secrets_missing:<n>`
+  counts them. `NotificationChannelRepository.update()` refuses to enable it
+  (400 `secret_missing`, `fields`) until every pending name is set or cleared with `""`, then
+  clears both. The restore keeps `create()`'s invariants: an id of `[A-Za-z0-9_-]{1,80}`, no
+  second singleton (`web_push`), the required public fields; else `notification_channel_dropped`.
+  The full backup redacts `notification_destinations` like the JSON download
+  (`export_backup_v2` → `_omit_settings_secrets`). A
   channel that already exists with the same type, preset, destination (public config,
   `allow_private_network`, `verify_tls`) keeps its stored secrets and takes the file's
   options; if the destination differs, the stored secrets are dropped (a kept secret never

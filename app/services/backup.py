@@ -867,6 +867,13 @@ async def export_backup_v2(
     from app.version_info import get_app_build_info
 
     base = await export_json(include_secrets=True)
+    # The notification secrets never leave, the full backup included: the destinations read
+    # ``********`` and a restore keeps the stored ones (the notifications section's rule).
+    redacted, omitted = _omit_settings_secrets(base.settings) if base.settings else (None, {})
+    if redacted is not None:
+        base = base.model_copy(
+            update={"settings": redacted, "secret_omitted": {**base.secret_omitted, **omitted}}
+        )
     extra = await export_meshloom_extra()
     warnings: list[str] = []
     identity: BackupIdentity | None = None
