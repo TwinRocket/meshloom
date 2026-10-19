@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import socket
 from dataclasses import replace
 from pathlib import Path
@@ -499,3 +500,99 @@ async def test_a_preset_channel_cannot_be_built_on_another_base_type(test_db):
         await Channels.prepare(ChannelCreate(type="apprise", preset="nope", name="x"))
     assert unknown.value.code == "channel_preset_unknown"
     assert isinstance(Channel(id="a", type="apprise", name="a", preset="telegram"), Channel)
+
+
+# ── Field validation (MSHL-309) ─────────────────────────────────────────
+
+
+def test_no_preset_pattern_uses_unicode_classes():
+    # Pydantic's JSON Schema pattern runs in Rust's regex, where \d and \w are Unicode.
+    for preset in PRESETS:
+        for spec in preset.fields:
+            assert not spec.pattern or not re.search(r"\\[dDwWsS]", spec.pattern), spec.name
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("config", "field"),
+    [
+        ({"bot_token": "\u0661\u0662\u0663:ABC"}, "bot_token"),
+        ({"bot_token": "123:ABC\u00e9"}, "bot_token"),
+        ({"chat_id": "\u0664\u0665"}, "chat_id"),
+        ({"chat_id": "@caf\u00e9_news"}, "chat_id"),
+        ({"topic_id": "\u0667"}, "topic_id"),
+    ],
+)
+async def test_telegram_refuses_non_ascii_digits_and_letters(test_db, config, field):
+    with pytest.raises(ChannelError) as refused:
+        await Channels.prepare(telegram(**config))
+    assert (refused.value.code, refused.value.params["fields"]) == ("invalid_config", [field])
+    (spec,) = (p for p in PRESETS if p.id == "telegram")
+    with pytest.raises(presets.PresetError):
+        compile_url(spec, {"bot_token": "1:A", "chat_id": "1", **config})
+
+
+@pytest.mark.asyncio
+async def test_home_assistant_refuses_a_non_ascii_service(test_db):
+    with pytest.raises(ChannelError) as refused:
+        await Channels.prepare(home_assistant(service="mobile_app_\u0661"))
+    assert refused.value.params["fields"] == ["service"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "server",
+    [
+        "https://g.example.org/a/../x",
+        "https://g.example.org/..",
+        "https://g.example.org/a%3Fb",
+        "https://g.example.org/a%20b",
+    ],
+)
+async def test_gotify_refuses_dot_dot_and_percent_in_the_path(test_db, server):
+    request = ChannelCreate(
+        type="apprise",
+        preset="gotify",
+        name="G",
+        config={"server": server, "token": "Ab12cd34"},
+    )
+    with pytest.raises(ChannelError) as refused:
+        await Channels.prepare(request)
+    assert (refused.value.code, refused.value.params["fields"]) == ("invalid_config", ["server"])
+    (spec,) = (p for p in PRESETS if p.id == "gotify")
+    with pytest.raises(presets.PresetError):
+        compile_url(spec, {"server": server, "token": "Ab12cd34"})
+
+
+def test_gotify_still_keeps_a_plain_path():
+    (spec,) = (p for p in PRESETS if p.id == "gotify")
+    url = compile_url(spec, {"server": "https://g.example.org/my gotify/", "token": "Ab12cd34"})
+    assert url == "gotifys://g.example.org/my%20gotify/Ab12cd34/?priority=normal"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", ["https://ha.example.org/ha", "http://192.168.1.10:8123/a/b"])
+async def test_home_assistant_refuses_a_path_instead_of_dropping_it(test_db, url):
+    with pytest.raises(ChannelError) as refused:
+        await Channels.prepare(home_assistant(url=url))
+    assert (refused.value.code, refused.value.params["fields"]) == ("invalid_config", ["url"])
+    (spec,) = (p for p in PRESETS if p.id == "home_assistant")
+    with pytest.raises(presets.PresetError):
+        compile_url(spec, {"url": url, "token": "t", "service": "notify.x"})
+
+
+def test_home_assistant_accepts_a_bare_address_with_or_without_a_slash():
+    (spec,) = (p for p in PRESETS if p.id == "home_assistant")
+    values = {"token": "t", "service": "notify.x"}
+    for url in ("https://ha.example.org", "https://ha.example.org/"):
+        assert compile_url(spec, {**values, "url": url}) == (
+            "hassios://ha.example.org/notify.x?accesstoken=t"
+        )
+
+
+def test_the_help_texts_of_the_url_fields_mention_the_path_rule():
+    root = Path(__file__).resolve().parents[1] / "frontend/src/i18n/locales/slices"
+    for lang in ("en", "fr"):
+        data = json.loads((root / f"cl.{lang}.json").read_text(encoding="utf-8"))
+        help_ = data["notifications"]["presets"]["home_assistant"]["help"]["url"]
+        assert "/ha" in help_

@@ -115,7 +115,7 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   `user_host` plugins, the scheme allowlist, the Telegram chat id rule) and the `verify_tls` rule,
   so a LAN Gotify or Home Assistant answers `egress_private_address` until `allow_private_network`
   is ticked. `required` secrets are `config_required`; a missing or malformed public field is
-  `invalid_config` naming the field (no value). Home Assistant uses `?accesstoken=` so the
+  `invalid_config` naming the field (no value). Patterns are ASCII (`[0-9]`, `[A-Za-z0-9_]`, never `\d`/`\w`; `_full` also uses `re.ASCII`); a `url` field refuses `..` and `%` in its path, and `no_path=True` (Home Assistant) refuses any path rather than dropping it. Home Assistant uses `?accesstoken=` so the
   service stays the path (Apprise would otherwise take the last path element for the token).
 - **`GET /types`.** A preset is an entry with `preset: true`, `type` its id, `base_type: "apprise"`,
   `help_key`, `wiki_url` and the JSON Schema of its model (`label_key` / `help_key` per field under
