@@ -1066,7 +1066,8 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   (the medium, save-time validation, the fanout) runs inside `secret_scope()`
   with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
   the ring buffer and `/api/debug` masked. Blocked senders and muted channels
-  never reach it (`app/services/message_filters.py`, shared with the Apprise
+  never reach it (the rules cut them for every channel, `app/notifications/rules.py`;
+  `app/services/message_filters.py` is the shared block-list rule, also used by the Apprise
   fanout). Its status (a code with the line, never the URL) is in the
   health payload as `notification_statuses["legacy:apprise"]`.
 - Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the

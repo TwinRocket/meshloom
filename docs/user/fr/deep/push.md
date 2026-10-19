@@ -72,7 +72,7 @@ Pour les messages de salon, sans exception :
 
 Les messages directs suivent la ligne **Messages directs**. Les notifications par e-mail, webhook ou Apprise pour un salon n’existent que si vous les activez pour ce salon (la cloche, ci-dessous).
 
-Les messages d’un contact ou d’un nom bloqué, et ceux d’un salon en sourdine, ne partent jamais vers Apprise.
+Les messages d’un contact ou d’un nom bloqué, et ceux d’un salon en sourdine (jusqu’à la fin de la sourdine), ne notifient sur aucun canal : Web Push, e-mail, webhook et Apprise. Seul un événement marqué **Toujours livrer** passe quand même. Rien ne change tant que vous ne bloquez personne et ne mettez aucun salon en sourdine.
 
 ### La cloche, pour une conversation
 

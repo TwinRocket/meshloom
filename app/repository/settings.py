@@ -279,6 +279,13 @@ async def _mirror_legacy_rules() -> None:
     await sync_rules()
 
 
+def _invalidate_block_lists() -> None:
+    """After the commit of a block-list write, so a reader never caches the old lists."""
+    from app.services.message_filters import invalidate_block_lists
+
+    invalidate_block_lists()
+
+
 class AppSettingsRepository:
     """Repository for app_settings table (single-row pattern).
 
@@ -870,6 +877,8 @@ class AppSettingsRepository:
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
         origin_policy.apply(result)
+        if blocked_keys is not None or blocked_names is not None:
+            _invalidate_block_lists()
         if (
             share_enabled is not None
             or share_shorten_mode is not None
@@ -955,7 +964,9 @@ class AppSettingsRepository:
             else:
                 new_keys = settings.blocked_keys + [normalized]
             await AppSettingsRepository._apply_updates(conn, blocked_keys=new_keys)
-            return await AppSettingsRepository._get_in_conn(conn)
+            result = await AppSettingsRepository._get_in_conn(conn)
+        _invalidate_block_lists()
+        return result
 
     @staticmethod
     async def toggle_blocked_name(name: str) -> AppSettings:
@@ -970,7 +981,9 @@ class AppSettingsRepository:
             else:
                 new_names = settings.blocked_names + [name]
             await AppSettingsRepository._apply_updates(conn, blocked_names=new_names)
-            return await AppSettingsRepository._get_in_conn(conn)
+            result = await AppSettingsRepository._get_in_conn(conn)
+        _invalidate_block_lists()
+        return result
 
     @staticmethod
     async def get_rejected_channels() -> list[RejectedChannel]:
