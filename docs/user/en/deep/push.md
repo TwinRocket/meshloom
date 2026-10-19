@@ -37,9 +37,13 @@ A browser's subscription only decides whether that browser receives notification
 
 ## Choosing what notifies
 
+### Do not disturb
+
+At the top of the rules in **Settings → Notifications**, **Do not disturb** pauses every notification for **1 hour**, **8 hours** or **until tomorrow 8:00** (your browser's clock), and **Resume now** ends it. The time left is shown. Events ticked **Always deliver** (a column that is always ticked and locked for the urgent events: radio offline, telemetry alerts and channel changes) still go through. The pause is shared by every browser and channel; it is written to the audit log.
+
 ### Events
 
-**Settings → Notifications → Default notifications** has one row per event, with four columns: **Push**, **Email**, **Webhook** and **Apprise**. Push is on for every event at the start.
+**Settings → Notifications → Default notifications** is a table: one row per event, grouped (Messages, Nodes, Radio, Telemetry, Meshloom), one column per channel (Web Push and the channels you added; a switched-off channel is greyed but keeps its ticks) and an **Always deliver** column that lets an event through the pause. Tick a box to send that event to that channel. The first column stays in view when the table scrolls sideways on a phone. Every box has a label, so the table can be used with the keyboard and a screen reader. **New node seen** has no box of its own, only one sub-row per node type (companions, repeaters, sensors). **Channel changed** always goes to Web Push (locked). **Mentions** has a **Match whole words only** tick. Web Push is on for the usual events at the start.
 
 | Event | When it fires |
 |-------|---------------|
@@ -55,7 +59,7 @@ A browser's subscription only decides whether that browser receives notification
 | Radio back online | The radio is reachable again after a **Radio offline** notification, with how long it was down |
 | Meshloom started | Meshloom has just started: its version, whether the radio connected and how fast. On by default for push |
 
-**Radio offline** and **Radio back online** never fire for a reboot Meshloom started itself (clock fix, Wi-Fi change) nor while the connection is paused in **Settings → Radio**; pausing ends an outage without a notification. Nothing is sent before the radio has connected once since Meshloom started, nor during the same delay right after a start, so an update or a restart does not raise a false alarm. Set the delay in **Settings → Notifications → Radio offline delay** (`radio_offline_grace_s` in `/api/settings`; 0 notifies at once, up to 3600 s). The radio is checked about every 5 seconds, and a reconnect attempt in progress can delay the check, so the notification may arrive a little after the delay. If Meshloom restarts during an outage, the downtime still counts from the real start.
+**Radio offline** and **Radio back online** never fire for a reboot Meshloom started itself (clock fix, Wi-Fi change) nor while the connection is paused in **Settings → Radio**; pausing ends an outage without a notification. Nothing is sent before the radio has connected once since Meshloom started, nor during the same delay right after a start, so an update or a restart does not raise a false alarm. Set the delay under the **Radio offline** row of the table (`radio_offline_grace_s` in `/api/settings`; 0 notifies at once, up to 3600 s). The radio is checked about every 5 seconds, and a reconnect attempt in progress can delay the check, so the notification may arrive a little after the delay. If Meshloom restarts during an outage, the downtime still counts from the real start.
 
 **Radio offline cannot warn you when Meshloom itself is down** (power cut, host reboot): nothing is running to send it. **Meshloom started** makes an unexpected restart visible. To be warned while it is stopped, use the Home Assistant `binary_sensor.<radio>_connected` with a “for” delay (see `README_HA.md`); a periodic heartbeat is planned.
 
@@ -78,7 +82,7 @@ Messages from a blocked contact or name, and messages on a muted channel (until 
 
 In the header of a conversation, the bell opens a menu with four tick boxes: **Push**, **Email**, **Webhook** and **Apprise**. Ticking one makes an **exception** to the defaults for that conversation only. If your browser is not subscribed yet, ticking **Push** subscribes it. **Email**, **Webhook** and **Apprise** are greyed out until a destination exists; a link takes you to the settings.
 
-Exceptions are listed in **Settings → Notifications → Conversation exceptions**, where you can remove them.
+Exceptions are listed in **Settings → Notifications → Conversation exceptions**, one line per conversation with a button per channel: click it to cycle between *inherit* (the event rule), *on* and *off*. The cross removes the exception.
 
 ### Muting a channel
 

@@ -1,0 +1,104 @@
+{
+  "settings": {
+    "notifications": {
+      "rulesSaveFailed": "Impossible d’enregistrer les règles de notification",
+      "exceptionsHelpN": "Conversations avec une règle propre. Cliquez sur un canal pour passer de : suivre la règle de l’événement, toujours notifier, ne jamais notifier.",
+      "exceptionState": {
+        "inherit": "hérite",
+        "on": "oui",
+        "off": "non"
+      },
+      "exceptionChip": "{{name}}, {{channel}} : {{state}}. Cliquer pour changer.",
+      "pause": {
+        "title": "Ne pas déranger",
+        "help": "Suspend toutes les notifications sauf celles marquées « toujours livrer ».",
+        "active": "En pause, encore {{hours}} h {{minutes}} min",
+        "inactive": "Les notifications sont actives.",
+        "choice_1h": "1 heure",
+        "choice_8h": "8 heures",
+        "choice_tomorrow": "Jusqu’à demain 8 h",
+        "off": "Reprendre"
+      },
+      "matrix": {
+        "help": "Choisissez les canaux notifiés pour chaque événement. « Toujours livrer » passe malgré la pause.",
+        "caption": "Événements par canal de notification",
+        "event": "Événement",
+        "alwaysDeliver": "Toujours livrer",
+        "alwaysDeliverFor": "{{event}} : toujours livrer",
+        "cell": "{{event}} — {{channel}}",
+        "kindCell": "Nouveau nœud {{kind}} — {{channel}}",
+        "channelOff": "désactivé",
+        "locked": "Toujours actif",
+        "mentionWholeWord": "Mots entiers uniquement",
+        "groups": {
+          "messages": "Messages",
+          "nodes": "Nœuds",
+          "radio": "Radio",
+          "telemetry": "Télémétrie",
+          "meshloom": "Meshloom"
+        },
+        "contactTypes": {
+          "companion": "Compagnons",
+          "repeater": "Répéteurs",
+          "sensor": "Capteurs"
+        },
+        "events": {
+          "message_dm": {
+            "label": "Messages privés",
+            "help": "Un message privé qui vous est adressé."
+          },
+          "message_channel": {
+            "label": "Messages de canal",
+            "help": "Canaux publics et hashtag (un canal à clé privée reste muet sans exception)."
+          },
+          "message_mention": {
+            "label": "Mentions",
+            "help": "Quelqu’un vous mentionne dans un canal."
+          },
+          "contact_first_seen": {
+            "label": "Nouveau nœud vu",
+            "help": "Un nœud entendu pour la première fois, selon son type."
+          },
+          "channel_found": {
+            "label": "Canal trouvé",
+            "help": "Un nouveau canal hashtag est trouvé."
+          },
+          "radio_offline": {
+            "label": "Radio hors ligne",
+            "help": "La radio reste déconnectée au-delà du délai de grâce."
+          },
+          "radio_online": {
+            "label": "Radio de retour",
+            "help": "La radio est reconnectée."
+          },
+          "telemetry_alert": {
+            "label": "Alerte de télémétrie",
+            "help": "Une mesure suivie déclenche une alerte."
+          },
+          "app_started": {
+            "label": "Meshloom démarré",
+            "help": "Le serveur a démarré."
+          },
+          "app_update": {
+            "label": "Mise à jour disponible",
+            "help": "Une nouvelle version de Meshloom est disponible."
+          },
+          "notify_destination_changed": {
+            "label": "Destination modifiée",
+            "help": "Une destination de notification a été modifiée."
+          },
+          "notify_channel_changed": {
+            "label": "Canal modifié",
+            "help": "Un canal de notification a été créé, modifié ou supprimé. Toujours envoyé en Web Push."
+          }
+        },
+        "alwaysUrgent": "Toujours actif : cet événement est urgent, la pause ne le retient jamais.",
+        "alwaysDeliverUrgent": "{{event}} : toujours livré (urgent)"
+      },
+      "exceptionOrphan": "{{name}}, {{channel}} : ce canal n’existe plus. Cliquer pour retirer.",
+      "exceptionOrphanState": "supprimé",
+      "rulesLoadFailed": "Impossible de charger les règles de notification.",
+      "rulesRetry": "Réessayer"
+    }
+  }
+}
