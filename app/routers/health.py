@@ -8,7 +8,7 @@ from app.auth.permissions import Permission, has_permission, public
 from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
-from app.notifications.dispatcher import notification_statuses
+from app.notifications.dispatcher import notification_statuses, notifications_capped
 from app.plugins import lifecycle as plugin_lifecycle
 from app.repository import RawPacketRepository
 from app.services.radio_lifecycle import expected_reboot_reason
@@ -140,6 +140,8 @@ class HealthResponse(BaseModel):
     oldest_undecrypted_timestamp: int | None
     fanout_statuses: dict[str, FanoutStatusResponse] = Field(default_factory=dict)
     notification_statuses: dict[str, NotificationStatusResponse] = Field(default_factory=dict)
+    # The global notification cap (rules ``limits.global_per_hour``) is reached.
+    notifications_capped: bool = False
     bots_disabled: bool = False
     bots_disabled_source: Literal["env", "until_restart"] | None = None
     # The plugin host (app/plugins/lifecycle.py): None when the system is off.
@@ -295,6 +297,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "oldest_undecrypted_timestamp": oldest_ts,
         "fanout_statuses": fanout_statuses,
         "notification_statuses": await notification_statuses(),
+        "notifications_capped": notifications_capped(),
         "bots_disabled": bots_disabled_source is not None,
         "bots_disabled_source": bots_disabled_source,
         "transport_configured": transport_configured,

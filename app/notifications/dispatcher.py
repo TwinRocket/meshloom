@@ -7,14 +7,20 @@ target channel in that channel's ``asyncio.Queue(maxsize=QUEUE_MAX)`` with
 queue is empty, that sends one job at a time, so a slow or failing channel only
 delays itself.
 
-- **Limiter** (minimal, MSHL-109; token buckets and the global cap come with
-  MSHL-125): one send at a time per channel and a minimum gap between two sends
-  (``min_interval_s``: per preset, else per type, from the registry). Beyond
-  ``MAX_PENDING`` waiting jobs a new job is folded (``aggregated``) and the worker
-  sends one "+N events" summary once the queue is empty. Urgent jobs are never
-  folded; a full queue drops the job (``rate_limited``). ``contact.first_seen`` is
-  capped at ``FIRST_SEEN_PER_HOUR`` per channel (``aiolimiter``); the rest are
-  summed into one "+N new contacts" job when the budget frees a slot.
+- **Limits** (MSHL-125, ``limits.py``): one send at a time per channel and a minimum
+  gap between two sends (``min_interval_s``). A job is admitted at ``emit`` time, in
+  this order: persisted dedup key (``DEDUP_TTL_S``), the global cap
+  (``limits.global_per_hour`` of the rules, default 600: over it the job is recorded
+  ``rate_limited`` and ``notifications_capped`` is raised in health), the channel's
+  daily quota (``quota_exceeded``, until the next UTC midnight), then the channel's
+  minute and hour buckets (``aiolimiter``, ``has_capacity()`` then ``acquire()``, never
+  waiting). A full bucket holds the job (``aggregated``) for ``AGGREGATION_WINDOW_S``,
+  then one summary per channel ("+12 messages: 12 in #paris, 2 DMs", counts only, never
+  text) takes its place in the queue once the buckets have room. An urgent job takes a
+  token like any other but passes a full bucket once per (channel, dedup key). A full
+  queue drops the job (``rate_limited``). ``contact.first_seen`` is also capped at
+  ``FIRST_SEEN_PER_HOUR`` per channel; the rest are summed into one "+N new contacts" job
+  when the budget frees a slot.
 - **Retries** (``tenacity``): ``RETRY_WAITS`` (0 s, 5 s, 30 s) only while the
   transport answers ``retry`` (5xx, timeout, network error, 429 whose
   ``Retry-After`` wins, capped at ``MAX_RETRY_AFTER_S``); never after a ``failed``.
@@ -58,13 +64,24 @@ from app.notifications.channels import (
     Channel,
     min_interval_s,
 )
-from app.notifications.events import NotificationEvent, event_from_payload
+from app.notifications.events import MessageData, NotificationEvent, event_from_payload
+from app.notifications.limits import (
+    DEDUP_PREFIX,
+    GLOBAL_PER_HOUR,
+    URGENT_PASS_TTL_S,
+    ChannelBuckets,
+    ClockedLimiter,
+    DedupStore,
+    dedup_ttl,
+    effective_limits,
+)
 from app.notifications.transports.base import Delivery, SendResult, Transport
 
 logger = logging.getLogger(__name__)
 
 QUEUE_MAX = 200
-MAX_PENDING = 20
+AGGREGATION_WINDOW_S = 60.0
+STATE_PRUNE_S = 3600.0
 FIRST_SEEN_PER_HOUR = 10
 RETRY_WAITS = (0.0, 5.0, 30.0)
 MAX_RETRY_AFTER_S = 120.0
@@ -94,7 +111,13 @@ LEGACY_CHANNEL_NAMES = {
 # ``secret_unreadable`` joins this list with the encryption at rest of the secrets.
 ChannelStatus = Literal["connected", "error", "paused", "disconnected"]
 DeliveryStatus = Literal[
-    "failed", "rate_limited", "aggregated", "suppressed_quiet", "paused", "aborted"
+    "failed",
+    "rate_limited",
+    "quota_exceeded",
+    "aggregated",
+    "suppressed_quiet",
+    "paused",
+    "aborted",
 ]
 
 
@@ -139,6 +162,53 @@ class _Job:
     # The one long retry of radio.offline / telemetry.alert: a single attempt.
     long_retry: bool = False
     attempts_before: int = 0
+    # A Public or ``#`` channel message: its name may appear in a summary.
+    is_open: bool = False
+
+
+@dataclass
+class _Held:
+    """What a channel's full bucket held back, as counts only (never a text)."""
+
+    count: int = 0
+    dms: int = 0
+    private: int = 0
+    other: int = 0
+    channels: dict[str, int] = field(default_factory=dict)
+
+    def add(self, job: _Job) -> None:
+        self.count += 1
+        event = job.delivery.event
+        if event is None or not event.event.startswith("message."):
+            self.other += 1
+        elif event.event == "message.dm":
+            self.dms += 1
+        else:
+            name = (
+                str(event.data.channel_name or "")[:40]
+                if isinstance(event.data, MessageData)
+                else ""
+            )
+            if job.is_open and name:
+                self.channels[name] = self.channels.get(name, 0) + 1
+            else:
+                self.private += 1
+
+    def payload(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"event": GROUPED_EVENT, "count": self.count}
+        if self.dms:
+            out["dms"] = self.dms
+        if self.private:
+            out["private"] = self.private
+        if self.other:
+            out["others"] = self.other
+        if self.channels:
+            top = sorted(self.channels.items(), key=lambda kv: (-kv[1], kv[0]))
+            out["channels"] = dict(top[:3])
+            rest = sum(n for _, n in top[3:])
+            if rest:
+                out["private"] = out.get("private", 0) + rest
+        return out
 
 
 @dataclass
@@ -158,7 +228,9 @@ class _Worker:
     first_seen: AsyncLimiter
     task: asyncio.Task[None] | None = None
     current: _Job | None = None
-    folded: int = 0
+    buckets: ChannelBuckets | None = None
+    held: _Held = field(default_factory=_Held)
+    agg_flusher: asyncio.Task[None] | None = None
     first_seen_held: int = 0
     first_seen_flusher: asyncio.Task[None] | None = None
     last_send_at: float | None = None
@@ -174,7 +246,7 @@ class Dispatcher:
         wall_clock: Callable[[], float] = time.time,
         transport_for: Callable[[Channel], Transport | None] = default_transport,
         queue_max: int = QUEUE_MAX,
-        max_pending: int = MAX_PENDING,
+        aggregation_window_s: float = AGGREGATION_WINDOW_S,
         first_seen_per_hour: int = FIRST_SEEN_PER_HOUR,
         first_seen_period_s: float = 3600.0,
     ) -> None:
@@ -183,7 +255,12 @@ class Dispatcher:
         self._wall = wall_clock
         self._transport_for = transport_for
         self._queue_max = queue_max
-        self._max_pending = max_pending
+        self._agg_window_s = aggregation_window_s
+        self._dedup = DedupStore(wall_clock)
+        self._cap: ClockedLimiter | None = None
+        self._cap_rate = 0
+        self._capped = False
+        self._last_prune = 0.0
         self._first_seen_per_hour = first_seen_per_hour
         self._first_seen_period_s = first_seen_period_s
         self._workers: dict[str, _Worker] = {}
@@ -253,13 +330,13 @@ class Dispatcher:
         urgent = bool(event.urgent if event is not None else payload.get("urgent"))
         if rules is None:
             rules = await rules_mod.load_rules()
+        if is_open is None and event is not None and event.event.startswith("message."):
+            is_open = await _is_open_channel(event)
         if targets is None:
             if event is None:
                 return 0
-            if is_open is None:
-                is_open = await _is_open_channel(event)
             channel_ids = rules_mod.event_channel_ids(
-                rules, event, is_public_or_hashtag=is_open, muted=muted, blocked=blocked
+                rules, event, is_public_or_hashtag=bool(is_open), muted=muted, blocked=blocked
             )
         else:
             channel_ids = list(targets)
@@ -275,22 +352,151 @@ class Dispatcher:
         )
         delivery = Delivery(name=name, payload=dict(payload), event=event)
         dedup_key = event.dedup_key if event is not None else ""
+        by_id = {c.id: c for c in channels}
         queued = 0
         for target in decided:
             if target.paused:
                 self._journal(target.channel_id, name, "paused", dedup_key=dedup_key)
                 continue
-            job = _Job(delivery, urgent=urgent, dedup_key=dedup_key)
-            if name == "contact.first_seen" and not urgent:
-                worker = self._worker(target.channel_id)
-                if not worker.first_seen.has_capacity():
-                    self._hold_first_seen(worker, job)
-                    queued += 1
-                    continue
-                await worker.first_seen.acquire()  # has capacity: returns at once
-            self._enqueue(target.channel_id, job)
-            queued += 1
+            job = _Job(delivery, urgent=urgent, dedup_key=dedup_key, is_open=bool(is_open))
+            if await self._admit(by_id[target.channel_id], job, rules):
+                queued += 1
         return queued
+
+    # -- admission --------------------------------------------------------------
+
+    def _global_cap(self, rules: Mapping[str, Any]) -> ClockedLimiter:
+        limits = rules.get("limits") if isinstance(rules, Mapping) else None
+        raw = limits.get("global_per_hour") if isinstance(limits, Mapping) else None
+        rate = raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 1 else None
+        rate = rate or GLOBAL_PER_HOUR
+        if self._cap is None or rate != self._cap_rate:
+            self._cap, self._cap_rate = ClockedLimiter(rate, 3600.0, self._clock), rate
+        return self._cap
+
+    async def _channel_buckets(self, worker: _Worker, channel: Channel) -> ChannelBuckets:
+        limits = effective_limits(channel)
+        if worker.buckets is None:
+            worker.buckets = ChannelBuckets(limits, self._clock, self._wall)
+        else:
+            worker.buckets.configure(limits)
+        buckets = worker.buckets
+        if buckets.needs_day_load():
+            buckets.load_day(await self._sent_today(channel.id, buckets.day_start_hour))
+        return buckets
+
+    async def _sent_today(self, channel_id: str, day_start_hour: int) -> int:
+        """Sends of the current UTC day: the flushed counters plus the unflushed ones."""
+        from app.repository.notification_channels import NotificationJournalRepository
+
+        total = sum(
+            n
+            for (cid, hour), n in self._sent.items()
+            if cid == channel_id and hour >= day_start_hour
+        )
+        try:
+            rows = await NotificationJournalRepository.hourly_counts(channel_id, day_start_hour)
+            total += sum(int(row["sent"]) for row in rows)
+        except Exception:
+            logger.debug("notification counters unreadable", exc_info=True)
+        return total
+
+    async def _admit(self, channel: Channel, job: _Job, rules: Mapping[str, Any]) -> bool:
+        """Decide what becomes of ``job`` on ``channel``: queued, held for the
+        aggregation window, or dropped with a journal row. True unless dropped."""
+        name, channel_id = job.delivery.name, channel.id
+        worker = self._worker(channel_id)
+        ttl = dedup_ttl(name) if job.dedup_key else None
+        dedup_key = f"{DEDUP_PREFIX}{channel_id}:{job.dedup_key}"
+        if ttl is not None:
+            await self._dedup.load()
+            if self._dedup.seen(dedup_key):
+                return False
+        cap = self._global_cap(rules)
+        if not cap.has_capacity():
+            self._update_capped()
+            self._journal(channel_id, name, "rate_limited", dedup_key=job.dedup_key)
+            return False
+        buckets = await self._channel_buckets(worker, channel)
+        if buckets.quota_exhausted():
+            self._journal(channel_id, name, "quota_exceeded", dedup_key=job.dedup_key)
+            return False
+        if ttl is not None:
+            self._dedup.mark(dedup_key, ttl)
+            self._start_counter_loop()
+        first_seen = name == "contact.first_seen" and not job.urgent
+        if first_seen and not worker.first_seen.has_capacity():
+            self._hold_first_seen(worker, job)
+            return True
+        if not buckets.has_capacity():
+            pass_key = f"{DEDUP_PREFIX}urgent:{channel_id}:{job.dedup_key}"
+            if not job.urgent or not job.dedup_key or self._dedup.seen(pass_key):
+                self._hold(worker, job)
+                return True
+            # Urgent passes a full bucket once per dedup key (and still takes a token).
+            self._dedup.mark(pass_key, URGENT_PASS_TTL_S)
+            self._start_counter_loop()
+        if first_seen:
+            await worker.first_seen.acquire()  # has capacity: returns at once
+        await cap.acquire()
+        await buckets.take()
+        self._update_capped()
+        self._enqueue(channel_id, job)
+        return True
+
+    def _update_capped(self) -> None:
+        capped = self._cap is not None and not self._cap.has_capacity()
+        if capped == self._capped:
+            return
+        self._capped = capped
+        if capped:
+            self._start_counter_loop()  # its tick notices the end of the cap
+        self._broadcast_health()
+
+    @property
+    def capped(self) -> bool:
+        """The global cap is reached (health ``notifications_capped``)."""
+        self._update_capped()
+        return self._capped
+
+    def _hold(self, worker: _Worker, job: _Job) -> None:
+        """A full bucket: keep the job as a count for the next summary."""
+        worker.held.add(job)
+        self._journal(worker.channel_id, job.delivery.name, "aggregated", dedup_key=job.dedup_key)
+        if worker.agg_flusher is None or worker.agg_flusher.done():
+            from app.background_tasks import spawn
+
+            worker.agg_flusher = spawn(
+                self._flush_held(worker), name=f"notify-aggregate:{worker.channel_id}"
+            )
+
+    async def _flush_held(self, worker: _Worker) -> None:
+        """After the window, queue one summary of what the buckets held, once the
+        buckets and the global cap have room for it (else wait one more window)."""
+        try:
+            await self._sleep(self._agg_window_s)
+            buckets = worker.buckets
+            while buckets is not None and not (
+                buckets.quota_exhausted()
+                or (buckets.has_capacity() and (self._cap is None or self._cap.has_capacity()))
+            ):
+                await self._sleep(self._agg_window_s)
+        except asyncio.CancelledError:
+            if worker.held.count:
+                worker.held = _Held()
+                self._journal(worker.channel_id, GROUPED_EVENT, "aborted")
+                await self._flush_journal()
+            raise
+        held, worker.held, worker.agg_flusher = worker.held, _Held(), None
+        if buckets is not None:
+            if buckets.quota_exhausted():
+                self._journal(worker.channel_id, GROUPED_EVENT, "quota_exceeded")
+                return
+            await buckets.take()
+        if self._cap is not None and self._cap.has_capacity():
+            await self._cap.acquire()
+        self._update_capped()
+        self._enqueue(worker.channel_id, _Job(Delivery(GROUPED_EVENT, held.payload())))
 
     async def _channels(self, ids: list[str], *, allow_legacy: bool) -> list[Channel]:
         from app.repository.notification_channels import NotificationChannelRepository
@@ -336,17 +542,11 @@ class Dispatcher:
 
     def _enqueue(self, channel_id: str, job: _Job) -> None:
         worker = self._worker(channel_id)
-        if not job.urgent and worker.queue.qsize() >= self._max_pending:
-            worker.folded += 1
-            self._journal(channel_id, job.delivery.name, "aggregated", dedup_key=job.dedup_key)
-        else:
-            try:
-                worker.queue.put_nowait(job)
-            except asyncio.QueueFull:
-                self._journal(
-                    channel_id, job.delivery.name, "rate_limited", dedup_key=job.dedup_key
-                )
-                return
+        try:
+            worker.queue.put_nowait(job)
+        except asyncio.QueueFull:
+            self._journal(channel_id, job.delivery.name, "rate_limited", dedup_key=job.dedup_key)
+            return
         self._start(worker)
 
     def _start(self, worker: _Worker) -> None:
@@ -373,11 +573,7 @@ class Dispatcher:
         try:
             return worker.queue.get_nowait()
         except asyncio.QueueEmpty:
-            pass
-        if worker.folded:
-            count, worker.folded = worker.folded, 0
-            return _Job(_grouped(GROUPED_EVENT, count))
-        return None
+            return None
 
     async def _run(self, worker: _Worker) -> None:
         try:
@@ -497,9 +693,6 @@ class Dispatcher:
                 break
         for job in held:
             self._journal(worker.channel_id, job.delivery.name, "aborted", dedup_key=job.dedup_key)
-        if worker.folded:
-            worker.folded = 0
-            self._journal(worker.channel_id, GROUPED_EVENT, "aborted")
         await self._flush_journal()
 
     # -- outcomes ---------------------------------------------------------------
@@ -580,6 +773,9 @@ class Dispatcher:
         live.reported = current
         if first and status == "connected":
             return  # nothing changed from what health already said
+        self._broadcast_health()
+
+    def _broadcast_health(self) -> None:
         try:
             from app.services.radio_runtime import radio_runtime
             from app.websocket import broadcast_health
@@ -619,13 +815,13 @@ class Dispatcher:
     async def _flush_journal(self) -> None:
         from app.repository.notification_channels import NotificationJournalRepository
 
-        rows, self._journal_rows = self._journal_rows, []
-        if not rows:
-            return
-        try:
-            await NotificationJournalRepository.add_deliveries(rows)
-        except Exception:
-            logger.debug("notification journal not written", exc_info=True)
+        # Rows queued while a write is in flight are written by the same task.
+        while self._journal_rows:
+            rows, self._journal_rows = self._journal_rows, []
+            try:
+                await NotificationJournalRepository.add_deliveries(rows)
+            except Exception:
+                logger.debug("notification journal not written", exc_info=True)
 
     def _start_counter_loop(self) -> None:
         if self._counter_task is None or self._counter_task.done():
@@ -638,6 +834,7 @@ class Dispatcher:
             while True:
                 await asyncio.sleep(COUNTER_FLUSH_S)
                 await self.flush_counters()
+                self._update_capped()
         finally:
             await self.flush_counters()
 
@@ -650,6 +847,13 @@ class Dispatcher:
 
         sent, self._sent = self._sent, {}
         ok_at, self._ok_at = self._ok_at, {}
+        await self._dedup.flush()
+        if self._wall() - self._last_prune >= STATE_PRUNE_S:
+            self._last_prune = self._wall()
+            try:
+                await NotificationJournalRepository.state_prune(int(self._wall()))
+            except Exception:
+                logger.debug("notification state not pruned", exc_info=True)
         try:
             for (channel_id, hour), count in sent.items():
                 await NotificationJournalRepository.add_sent(channel_id, hour, count)
@@ -814,6 +1018,14 @@ async def emit(
         muted=muted,
         blocked=blocked,
     )
+
+
+def notifications_capped() -> bool:
+    """The health payload's ``notifications_capped`` (never raises)."""
+    try:
+        return bool(_instance is not None and _instance.capped)
+    except Exception:
+        return False
 
 
 async def notification_statuses() -> dict[str, dict[str, Any]]:

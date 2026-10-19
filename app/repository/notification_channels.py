@@ -791,6 +791,31 @@ class NotificationJournalRepository:
             )
 
     @staticmethod
+    async def state_load_prefix(prefix: str, now: int) -> dict[str, int]:
+        """``{key: expires_at}`` of the live rows whose key starts with ``prefix``."""
+        like = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT key, expires_at FROM notification_state "
+                "WHERE key LIKE ? ESCAPE '\\' AND expires_at IS NOT NULL AND expires_at > ?",
+                (like, now),
+            ) as cursor:
+                return {row[0]: row[1] for row in await cursor.fetchall()}
+
+    @staticmethod
+    async def state_set_many(rows: dict[str, tuple[str, int | None]]) -> None:
+        """Upsert ``{key: (value, expires_at)}`` in one transaction."""
+        if not rows:
+            return
+        async with db.tx() as conn:
+            await conn.executemany(
+                "INSERT INTO notification_state (key, value, expires_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "expires_at = excluded.expires_at",
+                [(key, value, expires_at) for key, (value, expires_at) in rows.items()],
+            )
+
+    @staticmethod
     async def state_prune(now: int | None = None) -> None:
         async with db.tx() as conn:
             await conn.execute(
