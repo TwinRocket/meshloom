@@ -3,6 +3,7 @@ import { api, formatApiError } from '../api';
 import { takePrefetchOrFetch } from '../prefetch';
 import { toast } from '../components/ui/sonner';
 import i18n from '../i18n';
+import { noteLocalContact } from '../utils/feedEvents';
 import { getContactDisplayName } from '../utils/pubkey';
 import { findPublicChannel, PUBLIC_CHANNEL_KEY, PUBLIC_CHANNEL_NAME } from '../utils/publicChannel';
 import type { BulkCreateHashtagChannelsResult, Channel, Contact, Conversation } from '../types';
@@ -53,6 +54,8 @@ export function useContactsAndChannels({
 
   const handleCreateContact = useCallback(
     async (name: string, publicKey: string, tryHistorical: boolean, type?: number) => {
+      // Its `contact` frame can beat this answer: not a contact heard on the air.
+      noteLocalContact(publicKey);
       const created = await api.createContact(publicKey, name || undefined, tryHistorical, type);
       const data = await fetchAllContacts();
       setContacts(data);

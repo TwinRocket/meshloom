@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './qSlices';
 
-const mocks = vi.hoisted(() => ({ getMessages: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  getMessages: vi.fn(),
+  getNotificationRules: vi.fn(),
+}));
 const sessionMocks = vi.hoisted(() => ({ canReadPrivate: true, canSend: true, isAdmin: true }));
 
 vi.mock('../auth/SessionProvider', async (importOriginal) => {
@@ -23,7 +26,14 @@ vi.mock('../auth/SessionProvider', async (importOriginal) => {
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
-  return { ...actual, api: { ...actual.api, getMessages: mocks.getMessages } };
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      getMessages: mocks.getMessages,
+      getNotificationRules: mocks.getNotificationRules,
+    },
+  };
 });
 
 import { ApiError } from '../api';
@@ -39,6 +49,7 @@ import {
   resetFeedForRefetch,
   resetFeedStore,
 } from '../stores/feedStore';
+import { setRadioOfflineGraceS } from '../utils/feedEvents';
 import { FEED_FILTERS_STORAGE_KEY } from '../utils/feedFilters';
 import { RENDER_RICH_PAYLOADS_KEY } from '../utils/richPayloadPreference';
 import type { Channel, Message } from '../types';
@@ -119,6 +130,8 @@ async function findScroller(): Promise<HTMLElement> {
 
 beforeEach(() => {
   mocks.getMessages.mockReset();
+  mocks.getNotificationRules.mockReset();
+  mocks.getNotificationRules.mockResolvedValue({ radio_offline_grace_s: 60 });
   resetFeedStore();
   localStorage.clear();
 });
@@ -1262,5 +1275,52 @@ describe('FeedView event rows', () => {
     expect(screen.getByTestId('feed-event-open-contact').parentElement?.className).toContain(
       'flex-wrap'
     );
+  });
+});
+
+describe('FeedView event names stay cheap', () => {
+  it('indexes the contacts once per list, not once per event', async () => {
+    const { indexContacts, describeFeedEvent } = await import('../components/feed/feedEventText');
+    const contacts = Array.from({ length: 2000 }, (_, i) => ({
+      public_key: i.toString(16).padStart(64, '0'),
+      name: `n${i}`,
+    })) as unknown as import('../types').Contact[];
+    const index = indexContacts(contacts);
+    expect(index.size).toBe(2000);
+    const lookups = vi.spyOn(Array.prototype, 'find');
+    const event = {
+      key: 'k',
+      at: 1,
+      atMs: 1,
+      id: 'contact.first_seen',
+      publicKey: contacts[1999].public_key.toUpperCase(),
+      name: null,
+      contactType: 1,
+    } as const;
+    const view = describeFeedEvent(event, i18n.t.bind(i18n), 'fr', index, []);
+    expect(view.sentence).toContain('n1999');
+    expect(lookups).not.toHaveBeenCalled();
+    lookups.mockRestore();
+  });
+});
+
+describe('FeedView radio offline grace', () => {
+  afterEach(() => {
+    sessionMocks.isAdmin = true;
+    setRadioOfflineGraceS(null);
+  });
+
+  it('reads the configured grace for an administrator only', async () => {
+    mocks.getMessages.mockResolvedValue([]);
+    mocks.getNotificationRules.mockResolvedValue({ radio_offline_grace_s: 5 });
+    renderFeed();
+    await waitFor(() => expect(mocks.getNotificationRules).toHaveBeenCalledTimes(1));
+    cleanup();
+
+    mocks.getNotificationRules.mockClear();
+    sessionMocks.isAdmin = false;
+    renderFeed();
+    await screen.findByRole('list').catch(() => {});
+    expect(mocks.getNotificationRules).not.toHaveBeenCalled();
   });
 });

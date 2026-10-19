@@ -203,17 +203,17 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   `notification_event` frame (T26) changes that file only. `tests/test_feed_event_ids.py` fails when
   an id leaves the catalogue. Producers are store calls from the `useRealtimeAppState` handlers, no
   React state: `noteRadioHealth` (`onHealth`: `disconnected`/`connecting` arm a
-  `RADIO_OFFLINE_GRACE_MS` = 60 s timer, the same default as `rules.radio_offline_grace_s`, stamped at the
+  grace timer (`setRadioOfflineGraceS`: `rules.radio_offline_grace_s` read by `FeedView` for an administrator, the only role that may read the rules; 60 s default for everyone else), stamped at the
   outage start; `connected` before it fires clears it; `rebooting`, `paused` and the identity states end
   the outage without a row, so `EXPECTED_REBOOT_GRACE_SECONDS` reboots stay silent; `radio.online`
-  follows only an outage whose row was recorded; the first frame is a baseline),
+  follows only an outage whose row was recorded; the first frame is a baseline, so an outage already running at page load is not reported),
   `noteContactFrame` (`onContact`: a `contact` frame is a snapshot, so only a key neither the module
-  nor `contactsRef` (null until the first load, set in `App`) knew is `contact.first_seen`, keyed on
+  nor `contactsRef` (null until the first load, set in `App`) knew is `contact.first_seen` (not type 0/room, like `app/push/first_seen.py`; `noteLocalContact` marks a contact this tab creates by hand), keyed on
   key + `first_seen`, and only a changed non-empty name is `contact.renamed`; **ignored while
   `activeSnapshotsRef` is non-empty**, i.e. a post-reconnect resync, but remembered), `forgetContact`
   (`onContactDeleted`) and `noteChannelFrame` (`onChannel`: a pending channel the client did not hold).
   `at` is on the server clock, as messages are: browser time minus `getServerClockOffsetSec()` ("Clocks"),
-  `contact.first_seen` uses the frame's own stamp; `atMs` (browser) feeds the follow counter. Rows
+  `contact.first_seen` uses the frame's own stamp; `atMs` (browser) feeds the follow counter. `describeFeedEvent` resolves names through one `indexContacts` map per change of `contacts`. Rows
   follow the capabilities, not a role: the contact sheet always, the Discovered link with `canSend`
   and a channel still pending, the radio link with `isAdmin`; display mode renders them read-only. A
   picked node narrows events to its thread (`eventThreadId`: `us`, `contact:<key>`, `channel:<key>`).

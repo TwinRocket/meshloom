@@ -10,8 +10,10 @@ import { isFeedStoreActive, recordFeedEvent } from '../stores/feedStore';
  * Notifications catalogue's (`app/notifications/events.py`, `EVENT_IDS`), so a later switch of
  * the source to the `notification_event` frame changes this file and nothing else.
  * `tests/test_feed_event_ids.py` fails when one of `NOTIFICATION_EVENT_IDS` leaves the
- * catalogue. Delays follow the Notifications defaults too: `radio.offline` is only reported
- * after `RADIO_OFFLINE_GRACE_MS` (`rules.radio_offline_grace_s`, 60 s) of an unreachable radio.
+ * catalogue. `radio.offline` is only reported after the Notifications grace
+ * (`rules.radio_offline_grace_s`) of an unreachable radio: `setRadioOfflineGraceS` carries the
+ * configured value, which only an administrator can read (the rules API is admin-only); every other
+ * session keeps the default, `RADIO_OFFLINE_GRACE_MS` (60 s).
  */
 
 /** Ids shared with the Notifications catalogue. */
@@ -29,8 +31,18 @@ export type NotificationEventId = (typeof NOTIFICATION_EVENT_IDS)[number];
 export type FeedOnlyEventId = (typeof FEED_ONLY_EVENT_IDS)[number];
 export type FeedEventId = NotificationEventId | FeedOnlyEventId;
 
-/** Same default as `rules.radio_offline_grace_s` (`app/models.py`). */
+/** Default of `rules.radio_offline_grace_s` (`app/models.py`), used when the rule is not readable. */
 export const RADIO_OFFLINE_GRACE_MS = 60_000;
+
+let graceMs = RADIO_OFFLINE_GRACE_MS;
+
+/** The configured grace in seconds (0 = at once); anything invalid restores the default. */
+export function setRadioOfflineGraceS(seconds: number | null | undefined): void {
+  graceMs =
+    typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0
+      ? Math.min(seconds, 3600) * 1000
+      : RADIO_OFFLINE_GRACE_MS;
+}
 
 interface FeedEventBase {
   /** Unique and stable: a frame replayed with the same key adds no row. */
@@ -112,7 +124,8 @@ function fireOffline(startedMs: number): void {
  * start. `rebooting` (Meshloom's own expected reboot, `EXPECTED_REBOOT_GRACE_SECONDS`),
  * `paused` and the identity states are expected: they end a pending outage without a row.
  * `connected` after a reported outage records `radio.online`; after a shorter flap, nothing.
- * The first frame only sets the baseline.
+ * The first frame only sets the baseline: an outage already running when the page loaded is not
+ * reported (events are session-only).
  */
 export function noteRadioHealth(health: HealthStatus, nowMs: number = Date.now()): void {
   const state = radioStateOf(health);
@@ -142,7 +155,7 @@ export function noteRadioHealth(health: HealthStatus, nowMs: number = Date.now()
     if (outageStartedMs !== null || !isFeedStoreActive()) return;
     const startedMs = nowMs;
     outageStartedMs = startedMs;
-    offlineTimer = setTimeout(() => fireOffline(startedMs), RADIO_OFFLINE_GRACE_MS);
+    offlineTimer = setTimeout(() => fireOffline(startedMs), graceMs);
     return;
   }
 
@@ -173,6 +186,17 @@ export interface ContactFrameContext {
  * a burst after a reconnect), so only a key the client never held is a first sighting and only
  * a changed non-empty name is a rename. Frames during a resync are remembered, never reported.
  */
+/**
+ * A contact this tab is creating by hand: its `contact` frame can arrive before the REST answer
+ * and is not "heard" on the air. Call it before the request. (Another tab or browser cannot tell.)
+ */
+export function noteLocalContact(publicKey: string): void {
+  if (!seenContacts.has(publicKey)) seenContacts.set(publicKey, null);
+}
+
+/** Contact types Notifications never announces as first seen (`app/push/first_seen.py`). */
+const SILENT_FIRST_SEEN_TYPES: readonly number[] = [0, 3];
+
 export function noteContactFrame(
   contact: Contact,
   { previous, resyncing }: ContactFrameContext,
@@ -185,6 +209,8 @@ export function noteContactFrame(
   if (resyncing) return;
 
   if (!known) {
+    // Same exclusions as the catalogue's `contact.first_seen`: unknown and room contacts.
+    if (SILENT_FIRST_SEEN_TYPES.includes(contact.type)) return;
     recordFeedEvent({
       key: `contact.first_seen:${key}:${contact.first_seen ?? ''}`,
       id: 'contact.first_seen',
@@ -202,7 +228,7 @@ export function noteContactFrame(
   const from = lastName?.trim();
   if (to && from && to !== from) {
     recordFeedEvent({
-      key: `contact.renamed:${key}:${to}`,
+      key: `contact.renamed:${key}:${to}:${nowMs}`,
       id: 'contact.renamed',
       feedOnly: true,
       at: serverSeconds(nowMs),

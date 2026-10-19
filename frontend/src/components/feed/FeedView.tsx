@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, Monitor } from 'lucide-react';
 
-import { ApiError, formatApiError } from '../../api';
+import { api, ApiError, formatApiError } from '../../api';
 import { useCapabilities } from '../../auth/SessionProvider';
 import {
   activateFeedStore,
@@ -22,7 +22,7 @@ import {
 } from '../../stores/feedStore';
 import type { Channel, Contact, Conversation, Message, RawPacket } from '../../types';
 import { buildJournalEntries, type JournalEntry } from '../../utils/controlJournal';
-import { visibleFeedEvents } from '../../utils/feedEvents';
+import { setRadioOfflineGraceS, visibleFeedEvents } from '../../utils/feedEvents';
 import { formatNumber } from '../../utils/formatNumber';
 import {
   applyFeedQuery,
@@ -56,7 +56,7 @@ import {
 import { buildFeedNodes, visibleControlEntries } from './feedControl';
 import { FeedControlRow, type FeedControlActions } from './FeedControlRow';
 import { FeedEventRow, type FeedEventActions } from './FeedEventRow';
-import { describeFeedEvent } from './feedEventText';
+import { describeFeedEvent, indexContacts } from './feedEventText';
 import { FeedNodesFacet } from './FeedNodesFacet';
 import { buildFeedItems, createDayLabeler, type FeedItem } from './feedDays';
 import {
@@ -176,6 +176,21 @@ export function FeedView({
   useEffect(() => {
     setFeedAcceptsPrivate(canReadPrivate);
   }, [canReadPrivate]);
+  // The radio-offline delay of the Notifications rules; only an administrator may read the rules,
+  // every other session keeps the 60 s default. A failure keeps whatever was set.
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    api
+      .getNotificationRules()
+      .then((rules) => {
+        if (!cancelled) setRadioOfflineGraceS(rules.radio_offline_grace_s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
   // What storage held for `chan` and `priv`: a session without the capability overrides them in
   // memory but never writes the override back, so the same browser keeps its choice for a fuller
   // session.
@@ -716,15 +731,18 @@ export function FeedView({
           },
     [display, onOpenContactInfo, onSelectConversation, openPaired]
   );
+  // One index per change of the list: each `last_seen` frame replaces `contacts`, and a lookup
+  // per event over the whole list would cost events x contacts every time.
+  const contactIndex = useMemo(() => indexContacts(contacts), [contacts]);
   const eventViews = useMemo(
     () =>
       new Map(
         visibleEvents.map((event) => [
           event.key,
-          describeFeedEvent(event, t, i18n.language, contacts, channels),
+          describeFeedEvent(event, t, i18n.language, contactIndex, channels),
         ])
       ),
-    [visibleEvents, t, i18n.language, contacts, channels]
+    [visibleEvents, t, i18n.language, contactIndex, channels]
   );
   // Actions follow the session's capabilities (never a role name) and are off in display mode:
   // adopting a channel needs `send`, the radio settings `admin`; the contact sheet is a read.

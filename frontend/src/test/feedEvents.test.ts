@@ -12,7 +12,9 @@ import {
   isFeedOnlyEvent,
   noteChannelFrame,
   noteContactFrame,
+  noteLocalContact,
   noteRadioHealth,
+  setRadioOfflineGraceS,
   visibleFeedEvents,
 } from '../utils/feedEvents';
 
@@ -63,6 +65,37 @@ describe('feed events: radio', () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+    setRadioOfflineGraceS(null);
+  });
+
+  it('uses the configured grace instead of 60 s, 0 meaning at once', async () => {
+    setRadioOfflineGraceS(10);
+    noteRadioHealth(health('connected'));
+    noteRadioHealth(health('disconnected'));
+    vi.advanceTimersByTime(9_999);
+    await flush();
+    expect(events()).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    await flush();
+    expect(events().map((e) => e.id)).toEqual(['radio.offline']);
+
+    resetFeedStore();
+    activateFeedStore();
+    setRadioOfflineGraceS(0);
+    noteRadioHealth(health('connected'));
+    noteRadioHealth(health('disconnected'));
+    vi.advanceTimersByTime(0);
+    await flush();
+    expect(events().map((e) => e.id)).toEqual(['radio.offline']);
+  });
+
+  it('falls back to 60 s for an invalid grace', async () => {
+    setRadioOfflineGraceS(Number.NaN);
+    noteRadioHealth(health('connected'));
+    noteRadioHealth(health('disconnected'));
+    vi.advanceTimersByTime(RADIO_OFFLINE_GRACE_MS - 1);
+    await flush();
+    expect(events()).toHaveLength(0);
   });
 
   it('records radio.offline once the grace delay has passed, stamped at the outage start', async () => {
@@ -190,6 +223,41 @@ describe('feed events: contacts and channels', () => {
       name: 'Tower',
       at: NOW / 1000 - 5,
     });
+  });
+
+  it('skips unknown and room contacts, like the catalogue', async () => {
+    noteContactFrame(contact({ type: 0 }), { previous: undefined, resyncing: false }, NOW);
+    noteContactFrame(
+      contact({ public_key: 'cd'.repeat(32), type: 3 }),
+      { previous: undefined, resyncing: false },
+      NOW
+    );
+    noteContactFrame(
+      contact({ public_key: 'ef'.repeat(32), type: 1 }),
+      { previous: undefined, resyncing: false },
+      NOW
+    );
+    await flush();
+    expect(events().map((e) => (e.id === 'contact.first_seen' ? e.publicKey : ''))).toEqual([
+      'ef'.repeat(32),
+    ]);
+  });
+
+  it('does not call a contact created by hand in this tab "heard"', async () => {
+    noteLocalContact(KEY);
+    noteContactFrame(contact(), { previous: undefined, resyncing: false }, NOW);
+    await flush();
+    expect(events()).toHaveLength(0);
+  });
+
+  it('keeps every step of B -> A -> B (a repeated name is not deduped)', async () => {
+    const at = (name: string, ms: number) =>
+      noteContactFrame(contact({ name }), { previous: contact(), resyncing: false }, ms);
+    at('B', NOW + 1000);
+    at('A', NOW + 2000);
+    at('B', NOW + 3000);
+    await flush();
+    expect(events().map((e) => (e.id === 'contact.renamed' ? e.to : ''))).toEqual(['B', 'A', 'B']);
   });
 
   it('produces no row for a known, unchanged contact (last_seen snapshots)', async () => {

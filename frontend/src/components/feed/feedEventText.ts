@@ -32,9 +32,17 @@ export function formatOutage(language: string, seconds: number): string {
   return parts.join(' ');
 }
 
-function contactLabel(key: string, fallback: string | null, contacts: readonly Contact[]): string {
-  const live = contacts.find((c) => c.public_key.toLowerCase() === key.toLowerCase());
-  return live?.name || fallback || getPubkeyPrefix(key);
+/** Contacts by lowercase key: built once per change of the list, not once per event. */
+export function indexContacts(contacts: readonly Contact[]): ReadonlyMap<string, Contact> {
+  return new Map(contacts.map((c) => [c.public_key.toLowerCase(), c]));
+}
+
+function contactLabel(
+  key: string,
+  fallback: string | null,
+  contacts: ReadonlyMap<string, Contact>
+): string {
+  return contacts.get(key.toLowerCase())?.name || fallback || getPubkeyPrefix(key);
 }
 
 /** One translated sentence per event id, names from the current lists, then the frame's own. */
@@ -42,7 +50,7 @@ export function describeFeedEvent(
   event: FeedEvent,
   t: TFunction,
   language: string,
-  contacts: readonly Contact[],
+  contacts: ReadonlyMap<string, Contact>,
   channels: readonly Channel[]
 ): FeedEventView {
   const base = { contactKey: null, pendingChannelKey: null, radio: false };
