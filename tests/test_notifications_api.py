@@ -756,6 +756,38 @@ async def test_the_rules_decide_and_the_legacy_preferences_follow(test_db, clien
     assert key not in (await _preferences(client))["overrides"]
 
 
+async def test_media_without_a_channel_keep_their_legacy_flags(test_db, client):
+    from app.repository.settings import AppSettingsRepository
+
+    """The reviewer's case: ``new_dm.email`` is on but no SMTP is set yet, so the rules cannot
+    hold ``legacy:email``. A change through the new API must not wipe the 4.18.x flag."""
+    key = "contact-" + "ab" * 32
+    await AppSettingsRepository.set_push_defaults({"new_dm": {"push": True, "email": True}})
+    await AppSettingsRepository.set_push_conversation_override(key, {"email": True})
+    assert (await _preferences(client))["defaults"]["new_dm"]["email"] is True
+    ok = await client.patch(
+        "/api/notifications/rules", json={"events": {"message.dm": {"always_deliver": True}}}
+    )
+    assert ok.status_code == 200
+    other = await client.put(
+        "/api/notifications/rules/conversations/contact-" + "cd" * 32,
+        json={"channels": {"builtin:push": False}},
+    )
+    assert other.status_code == 200
+    prefs = await _preferences(client)
+    assert prefs["defaults"]["new_dm"]["email"] is True
+    assert prefs["overrides"][key] == {"email": True}
+    # The destination arrives: the kept flag becomes a rule again.
+    patched = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"email": {"host": "smtp.example.org", "to": "a@b.c"}}},
+    )
+    assert patched.status_code == 200
+    rules = await _rules(client)
+    assert "legacy:email" in rules["events"]["message.dm"]["channels"]
+    assert rules["conversations"][key] == {"legacy:email": True}
+
+
 async def test_a_rule_on_a_new_channel_stays_out_of_the_legacy_preferences(test_db, client):
     hook = await create(client, webhook())
     ok = await client.patch(

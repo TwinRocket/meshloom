@@ -286,7 +286,7 @@ async def test_without_app_settings_only_the_tables_are_created():
     conn = await aiosqlite.connect(":memory:")
     try:
         await set_version(conn, 112)
-        assert await run_migrations(conn) == 1
+        assert await run_migrations(conn) == LATEST_SCHEMA_VERSION - 112
         cursor = await conn.execute("SELECT COUNT(*) FROM notification_channels")
         assert (await cursor.fetchone())[0] == 0
     finally:

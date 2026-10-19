@@ -45,7 +45,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -199,14 +199,28 @@ class Dispatcher:
         payload: dict[str, Any] | None = None,
         targets: Iterable[str] | None = None,
         exclude: Iterable[str] = (),
-    ) -> None:
+        rules: Mapping[str, Any] | None = None,
+        is_open: bool | None = None,
+    ) -> int:
         """Queue ``event`` for each channel the rules give it (minus ``exclude``, the
         channels a producer rules out, such as a blocked sender's message), or for
-        ``targets`` when the caller already decided. Never raises, never waits on a send."""
+        ``targets`` when the caller already decided. A producer that already loaded the
+        rules or knows whether the conversation is a Public or ``#`` channel passes them
+        (``rules``, ``is_open``) to spare the lookups. Returns how many channels it queued
+        the event for (paused, disabled and unknown channels do not count). Never raises,
+        never waits on a send."""
         try:
-            await self._emit(event, payload=payload, targets=targets, exclude=frozenset(exclude))
+            return await self._emit(
+                event,
+                payload=payload,
+                targets=targets,
+                exclude=frozenset(exclude),
+                rules=rules,
+                is_open=is_open,
+            )
         except Exception:
             logger.exception("notification dispatch failed")
+            return 0
 
     async def _emit(
         self,
@@ -215,22 +229,25 @@ class Dispatcher:
         payload: dict[str, Any] | None,
         targets: Iterable[str] | None,
         exclude: frozenset[str] = frozenset(),
-    ) -> None:
+        rules: Mapping[str, Any] | None = None,
+        is_open: bool | None = None,
+    ) -> int:
         if payload is None:
             if event is None:
-                return
+                return 0
             payload = event.to_payload()
         if event is None:
             event = event_from_payload(payload)
         name = event.event if event is not None else str(payload.get("event") or "notification")
         urgent = bool(event.urgent if event is not None else payload.get("urgent"))
-        rules = await rules_mod.load_rules()
+        if rules is None:
+            rules = await rules_mod.load_rules()
         if targets is None:
             if event is None:
-                return
-            channel_ids = rules_mod.event_channel_ids(
-                rules, event, is_public_or_hashtag=await _is_open_channel(event)
-            )
+                return 0
+            if is_open is None:
+                is_open = await _is_open_channel(event)
+            channel_ids = rules_mod.event_channel_ids(rules, event, is_public_or_hashtag=is_open)
         else:
             channel_ids = list(targets)
         channel_ids = [c for c in channel_ids if c not in exclude]
@@ -245,6 +262,7 @@ class Dispatcher:
         )
         delivery = Delivery(name=name, payload=dict(payload), event=event)
         dedup_key = event.dedup_key if event is not None else ""
+        queued = 0
         for target in decided:
             if target.paused:
                 self._journal(target.channel_id, name, "paused", dedup_key=dedup_key)
@@ -254,9 +272,12 @@ class Dispatcher:
                 worker = self._worker(target.channel_id)
                 if not worker.first_seen.has_capacity():
                     self._hold_first_seen(worker, job)
+                    queued += 1
                     continue
                 await worker.first_seen.acquire()  # has capacity: returns at once
             self._enqueue(target.channel_id, job)
+            queued += 1
+        return queued
 
     async def _channels(self, ids: list[str], *, allow_legacy: bool) -> list[Channel]:
         from app.repository.notification_channels import NotificationChannelRepository
@@ -765,8 +786,12 @@ async def emit(
     payload: dict[str, Any] | None = None,
     targets: Iterable[str] | None = None,
     exclude: Iterable[str] = (),
-) -> None:
-    await notification_dispatcher().emit(event, payload=payload, targets=targets, exclude=exclude)
+    rules: Mapping[str, Any] | None = None,
+    is_open: bool | None = None,
+) -> int:
+    return await notification_dispatcher().emit(
+        event, payload=payload, targets=targets, exclude=exclude, rules=rules, is_open=is_open
+    )
 
 
 async def notification_statuses() -> dict[str, dict[str, Any]]:

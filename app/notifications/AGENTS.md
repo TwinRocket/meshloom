@@ -90,8 +90,8 @@ This file is a hypothesis: check it against the code.
   list goes to both `new_contact` and `advert_companion`, which 4.18.x ORs). The one refusal left
   is 409 `legacy_managed`: `PATCH` of `config` / `allow_private_network` / `verify_tls` and
   `DELETE` of a `legacy:*` channel, because the `legacy:*` transports still read
-  `notification_destinations` at send time. The telemetry rules' old `channels` field is neither
-  read nor written (`TelemetryAlertRules.channels` is `exclude=True`, accepted and ignored). The shims
+  `notification_destinations` at send time. Media with no channel yet (no SMTP, no URL) keep their stored flags and overrides: `sync_columns` only overwrites the media whose channel exists, so the flags come back as rules when the destination is configured. The telemetry rules' old `channels` field is neither
+  read nor written (migration 114 copied it into `push_defaults.telemetry_alert` where that key was missing) (`TelemetryAlertRules.channels` is `exclude=True`, accepted and ignored). The shims
   are removed in 5.2.0 (T34).
 
 ## API (`app/routers/notifications.py`, `api_support.py`)
@@ -153,7 +153,7 @@ muted channels, unless `always_deliver`, never notify; a blocked sender's messag
 `legacy:apprise` only, as in 4.18.x), `emit_payload(payload)` (first seen in
 `app/push/first_seen.py`, `hashtag_catalogue._notify_channel_found`, `telemetry_alerts._dispatch`,
 `radio_watch._dispatch`) and `emit_oss_update(current, latest)` (`services/oss_updates.py`, which
-keeps its `last_notified_update_version` guard: it records only when the rules reach a channel).
+keeps its `last_notified_update_version` guard: it records only when `emit` queued the event for at least one enabled, unpaused channel). `emit` returns that count and takes `rules` / `is_open` so the producer's lookups are not repeated; the block lists are read only when `legacy:apprise` is a candidate.
 The payload dict is what the transports render, so the golden fixtures hold
 (`tests/test_notification_producers.py` sends every golden case through the rules). `PushManager`
 (`app/push/manager.py`) is only the Web Push transport (`dispatch_event`).

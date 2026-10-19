@@ -119,35 +119,55 @@ async def sync_columns() -> None:
     """
     from app.notifications.rules import _ids
     from app.repository.notification_channels import NotificationChannelRepository
-    from app.repository.settings import AppSettingsRepository
+    from app.repository.settings import AppSettingsRepository, or_notification_media
 
     try:
         rules = await NotificationChannelRepository.get_rules()
         events = rules.get("events")
         if not isinstance(events, Mapping) or not events:
             return
+        existing = {c.id for c in await NotificationChannelRepository.list_all()}
+        current_defaults = await AppSettingsRepository.get_push_defaults()
+        current_overrides = await AppSettingsRepository.get_push_conversation_overrides()
+        # The rules hold a legacy medium only while its channel exists (no SMTP, no URL:
+        # none). A flag the user set for a medium that is not configured yet is kept as it is.
+        known = {m: cid in existing for m, cid in import_113.MEDIUM_CHANNEL.items()}
 
-        def flags(ids: object) -> dict[str, bool]:
+        def flags(ids: object, current: Mapping[str, Any]) -> dict[str, bool]:
             wanted = set(_ids(ids))
-            return {m: cid in wanted for m, cid in import_113.MEDIUM_CHANNEL.items()}
+            return {
+                m: (cid in wanted) if known[m] else bool(current.get(m, False))
+                for m, cid in import_113.MEDIUM_CHANNEL.items()
+            }
 
         defaults: dict[str, Any] = {}
         for key, event in import_113.EVENT_OF_KEY.items():
-            defaults[key] = flags((events.get(event) or {}).get("channels"))
+            defaults[key] = flags((events.get(event) or {}).get("channels"), current_defaults[key])  # type: ignore[literal-required]
         types = ((events.get("contact.first_seen") or {}).get("contact_types")) or {}
-        defaults["new_contact"] = defaults["advert_companion"] = flags(types.get("companion"))
-        defaults["advert_repeater"] = flags(types.get("repeater"))
-        defaults["advert_sensor"] = flags(types.get("sensor"))
+        defaults["new_contact"] = defaults["advert_companion"] = flags(
+            types.get("companion"),
+            or_notification_media(
+                current_defaults["new_contact"], current_defaults["advert_companion"]
+            ),
+        )
+        defaults["advert_repeater"] = flags(
+            types.get("repeater"), current_defaults["advert_repeater"]
+        )
+        defaults["advert_sensor"] = flags(types.get("sensor"), current_defaults["advert_sensor"])
         overrides: dict[str, Any] = {}
         conversations = rules.get("conversations")
         for key, entry in (conversations if isinstance(conversations, Mapping) else {}).items():
             stored = {
                 m: bool(entry[cid])
                 for m, cid in import_113.MEDIUM_CHANNEL.items()
-                if isinstance(entry, Mapping) and isinstance(entry.get(cid), bool)
+                if known[m] and isinstance(entry, Mapping) and isinstance(entry.get(cid), bool)
             }
-            if stored:
-                overrides[str(key)] = stored
+            overrides[str(key)] = stored
+        for key, entry in current_overrides.items():
+            kept = {m: v for m, v in entry.items() if not known.get(m, True)}
+            if kept:
+                overrides.setdefault(key, {}).update(kept)
+        overrides = {k: v for k, v in overrides.items() if v}
         await AppSettingsRepository.write_push_columns(defaults, overrides)
     except Exception:
         logger.warning("legacy preferences not mirrored from the notification rules", exc_info=True)

@@ -31,8 +31,9 @@ def emitted(monkeypatch) -> list[dict]:
     """What the producers hand to ``emit``: the event, the payload and the exclusions."""
     seen: list[dict] = []
 
-    async def fake_emit(event, *, payload=None, targets=None, exclude=()):
+    async def fake_emit(event, *, payload=None, targets=None, exclude=(), **_):
         seen.append({"event": event, "payload": dict(payload or {}), "exclude": tuple(exclude)})
+        return 1
 
     monkeypatch.setattr("app.notifications.producers.emit", fake_emit)
     return seen
@@ -54,7 +55,7 @@ def _dm(**extra) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_websocket_message_hook_emits_a_message_event(emitted):
+async def test_websocket_message_hook_emits_a_message_event(test_db, emitted):
     from app.websocket import broadcast_event
 
     with patch("app.websocket.ws_manager"), patch("app.fanout.manager.fanout_manager") as fm:
@@ -120,7 +121,11 @@ async def test_muted_channel_is_silent_unless_always_deliver(test_db, emitted):
 @pytest.mark.asyncio
 async def test_blocked_sender_skips_the_apprise_channel_only(test_db, emitted):
     from app.notifications.producers import emit_message
+    from app.repository.notification_channels import NotificationChannelRepository
 
+    rules = await NotificationChannelRepository.get_rules()
+    rules["events"]["message.dm"]["channels"] = ["builtin:push", "legacy:apprise"]
+    await NotificationChannelRepository.set_rules(rules)
     await AppSettingsRepository.update(blocked_keys=["aa" * 32])
     await emit_message(_dm())
     assert emitted[0]["exclude"] == ("legacy:apprise",)
@@ -188,12 +193,11 @@ async def test_oss_update_emits_an_update_event_and_keeps_its_guard(test_db, emi
 
 
 @pytest.mark.asyncio
-async def test_oss_update_off_is_not_recorded(test_db, emitted):
+async def test_oss_update_off_is_not_recorded(test_db):
     from app.notifications.producers import emit_oss_update
 
     await AppSettingsRepository.set_push_defaults({"oss_update": False})
     assert await emit_oss_update("1.0.0", "9.9.9") is False
-    assert emitted == []
 
 
 # ── Web push payloads equal the golden fixtures ──────────────────────────
@@ -262,3 +266,64 @@ async def test_push_payloads_through_the_rules_match_the_golden_fixtures(test_db
         "channel_found",
         "telemetry_battery",
     } <= delivered
+
+
+# ── review fixes: delivered only, hot path ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_oss_update_is_not_recorded_when_nothing_is_queued(test_db, monkeypatch):
+    import time
+
+    from app.notifications.producers import emit_oss_update
+    from app.push.manager import PushOutcome, push_manager
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    monkeypatch.setattr(push_manager, "dispatch_event", AsyncMock(return_value=PushOutcome()))
+    rules = await NotificationChannelRepository.get_rules()
+    rules["paused_until"] = int(time.time()) + 3600  # the global pause holds app.update
+    await NotificationChannelRepository.set_rules(rules)
+    assert await emit_oss_update("1.0.0", "9.9.9") is False
+    rules["paused_until"] = None
+    await NotificationChannelRepository.set_rules(rules)
+    assert await emit_oss_update("1.0.0", "9.9.9") is True
+
+
+@pytest.mark.asyncio
+async def test_oss_update_to_a_disabled_channel_is_not_recorded(test_db):
+    from app.notifications.channels import ChannelUpdate
+    from app.notifications.producers import emit_oss_update
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    rules = await NotificationChannelRepository.get_rules()
+    assert rules["events"]["app.update"]["channels"] == ["builtin:push"]
+    await NotificationChannelRepository.update("builtin:push", ChannelUpdate(enabled=False))
+    assert await emit_oss_update("1.0.0", "9.9.9") is False
+
+
+@pytest.mark.asyncio
+async def test_a_message_reads_the_channel_once_and_the_settings_only_for_apprise(
+    test_db, monkeypatch
+):
+    from app.notifications.producers import emit_message
+
+    lookups: list[str] = []
+    real = ChannelRepository.get_by_key
+
+    async def counting(key):
+        lookups.append(key)
+        return await real(key)
+
+    reads: list[int] = []
+    real_get = AppSettingsRepository.get
+
+    async def counting_get(*a, **k):
+        reads.append(1)
+        return await real_get(*a, **k)
+
+    monkeypatch.setattr(ChannelRepository, "get_by_key", counting)
+    monkeypatch.setattr(AppSettingsRepository, "get", counting_get)
+    await ChannelRepository.upsert(HASHTAG_KEY, "#ops", is_hashtag=True)
+    await emit_message({"type": "CHAN", "conversation_key": HASHTAG_KEY, "text": "x"})
+    assert lookups == [HASHTAG_KEY]  # not looked up again by the dispatcher
+    assert reads == []  # no Apprise channel is a candidate

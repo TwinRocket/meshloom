@@ -381,6 +381,9 @@ run as root).
   also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by
   `tests/test_migrations/test_migration_110.py`). It travels inside the `users` backup
   section (version 3). Rules: `docs/dev/auth.md`, "Passkeys".
+- Migration 114 fills `push_defaults.telemetry_alert` from the old `telemetry_alert_rules.channels`
+  when that key is missing (4.18.x read it as a fallback) and sets the legacy media of
+  `telemetry.alert` in the rules; it is idempotent.
 - Migration 113 adds the notification channels (`notification_channels`,
   `notification_deliveries`, `notification_counters`, `notification_state`, DDL also in
   `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by `tests/test_migrations/test_migration_113.py`)

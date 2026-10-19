@@ -46,7 +46,9 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
     msg_type = str(payload.get("type") or "")
     key = str(payload.get("conversation_key") or "")
     muted = False
+    is_open = False
     if msg_type == "CHAN" and key:
+        from app.channel_constants import is_public_channel_key
         from app.repository.channels import ChannelRepository
 
         try:
@@ -57,20 +59,33 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
         if channel is not None and channel.membership == "pending":
             return
         muted = bool(channel is not None and channel.muted)
-    if muted and not rules_mod.always_deliver(await rules_mod.load_rules(), event.event):
+        is_open = is_public_channel_key(key) or bool(channel is not None and channel.is_hashtag)
+    rules = await rules_mod.load_rules()
+    if muted and not rules_mod.always_deliver(rules, event.event):
+        return
+    candidates = rules_mod.event_channel_ids(rules, event, is_public_or_hashtag=is_open)
+    if not candidates:
         return
 
     blocked = False
-    try:
-        from app.repository.settings import AppSettingsRepository
-        from app.services.message_filters import is_blocked
+    if any(c in BLOCKED_SENDER_EXCLUDES for c in candidates):
+        # The block lists are read only when a channel they protect could be reached.
+        try:
+            from app.repository.settings import AppSettingsRepository
+            from app.services.message_filters import is_blocked
 
-        blocked = is_blocked(payload, await AppSettingsRepository.get())
-    except Exception:
-        # Could not read the block lists: fail closed for the medium they protected.
-        blocked = True
-        logger.debug("block lists unreadable", exc_info=True)
-    await emit(event, payload=payload, exclude=BLOCKED_SENDER_EXCLUDES if blocked else ())
+            blocked = is_blocked(payload, await AppSettingsRepository.get())
+        except Exception:
+            # Could not read the block lists: fail closed for the medium they protected.
+            blocked = True
+            logger.debug("block lists unreadable", exc_info=True)
+    await emit(
+        event,
+        payload=payload,
+        exclude=BLOCKED_SENDER_EXCLUDES if blocked else (),
+        rules=rules,
+        is_open=is_open,
+    )
 
 
 async def emit_payload(payload: Mapping[str, Any]) -> None:
@@ -84,13 +99,12 @@ async def emit_payload(payload: Mapping[str, Any]) -> None:
 
 
 async def emit_oss_update(current: str, latest: str) -> bool:
-    """``app.update``. True when the rules reach at least one channel (the caller then
-    records ``last_notified_update_version``), False when the event is off."""
+    """``app.update``. True when the event was queued for at least one enabled, unpaused
+    channel (the caller then records ``last_notified_update_version``); False when the event
+    is off, its channels are disabled or the global pause holds it: it is offered again at the
+    next check."""
     payload = {"event": "oss_update", "current": current, "latest": latest}
     event = event_from_payload(payload)
     if event is None:
         return False
-    if not rules_mod.event_channel_ids(await rules_mod.load_rules(), event):
-        return False
-    await emit(event, payload=payload)
-    return True
+    return bool(await emit(event, payload=payload))

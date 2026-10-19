@@ -126,8 +126,9 @@ def _settle_notifications(request, monkeypatch):
     emit = Dispatcher.emit
 
     async def emit_and_settle(self, *args, **kwargs):
-        await emit(self, *args, **kwargs)
+        queued = await emit(self, *args, **kwargs)
         await self.wait_idle()
+        return queued
 
     monkeypatch.setattr(Dispatcher, "emit", emit_and_settle)
     yield
