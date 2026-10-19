@@ -95,6 +95,10 @@ itself.
 
 Everything else (radio, notifications, integrations) is set in Meshloom's own **Settings**.
 
+### Notifications
+
+Meshloom notifies you through **channels** that you add in its own **Settings → Notifications**, nothing in this panel: Web Push (browsers), a **Home Assistant** channel for the Companion app on your phone, ntfy, Telegram, Discord, Gotify, e-mail, a webhook, or any Apprise service. The Home Assistant channel needs a long-lived access token from your Home Assistant profile and the address of Home Assistant on your network, with **Allow a private-network destination** ticked (a destination on your network is refused until you do). Channels and rules are in the full backup, but their secrets (tokens, passwords, addresses that carry a token) never are: after a restore, a channel comes back switched off until you type them again. Web Push needs HTTPS on a name of your own and does not work through ingress alone (see below); the other channels do not. The full guide is Meshloom's *Notifications* page (`docs/user/en/deep/notifications.md` in the repository).
+
 
 ## The radio proxy port
 

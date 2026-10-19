@@ -5,7 +5,7 @@ level: deep
 order: 16
 ---
 
-Fanout sends what Meshloom hears to other systems: your own MQTT broker, Home Assistant, Python bots, webhooks, chat and e-mail services through Apprise, Amazon SQS, community packet collectors, and the public MeshCore map. In the interface it is called **MQTT & Automation**.
+Fanout sends what Meshloom hears to other systems (to be told about events yourself, on your phone or in a chat, use [Notifications](/en/docs/deep/notifications/) instead): your own MQTT broker, Home Assistant, Python bots, webhooks, chat and e-mail services through Apprise, Amazon SQS, community packet collectors, and the public MeshCore map. In the interface it is called **MQTT & Automation**.
 
 Each destination is an **integration**. To add one:
 
@@ -25,8 +25,8 @@ The page carries a notice that integrations are an experimental feature in open 
 | Home Assistant MQTT Discovery | Makes your radio, repeaters and contacts appear as devices in Home Assistant. See [Home Assistant](/en/docs/deep/home-assistant/) |
 | Community MQTT / meshcoretomqtt | Sends raw packets to a community collector. Presets exist for **MeshRank** and **LetsMesh** (US and EU) |
 | Python Bot | Runs Python code you write in response to messages |
-| Webhook | Sends each message as JSON over HTTP, with an optional signature |
-| Apprise | Sends notifications to Discord, Telegram, Slack, e-mail, SMS and a hundred other services |
+| Webhook | Sends each message as JSON over HTTP, with an optional signature. Not the notification webhook, see [Webhooks](#webhooks) |
+| Apprise | Forwards each message to Discord, Telegram, Slack, e-mail, SMS and a hundred other services. Notifications moved to [channels](/en/docs/deep/notifications/), see [Apprise](#apprise) |
 | Amazon SQS | Drops each event into an Amazon SQS queue |
 | Map Upload | Sends the repeaters and room servers you hear to map.meshcore.io |
 
@@ -97,6 +97,8 @@ Limits: a bot waits two seconds before it runs (so that echoes can be recognized
 
 ## Webhooks
 
+There are two webhooks in Meshloom, and they are not the same. This one, the **fanout webhook**, is an integration for machines: it sends **every message** of the scope you chose, as JSON, to a script, Node-RED or n8n. The **notification webhook** (a *Webhook* channel in [Notifications](/en/docs/deep/notifications/#e-mail-and-webhook-destinations)) sends the **events** you tick in the rules table (a direct message, radio offline, a telemetry alert...), with its own signature and headers (`X-Webhook-Id`, `X-Webhook-Timestamp`). Use the fanout webhook to feed a system with the traffic, the notification one to be told about events.
+
 Meshloom sends each message as JSON, with the method you choose (`POST`, `PUT` or `PATCH`) and the extra headers you set. It waits up to 10 seconds for an answer. Each request carries an `X-Webhook-Event` header.
 
 If you set an **HMAC secret**, Meshloom signs the body with HMAC-SHA256 and sends the result as `sha256=<hex>` in a header. The header is `X-Webhook-Signature` unless you name another.
@@ -115,9 +117,11 @@ Integrations you had set up before this check keep working: the upgrade ticks th
 
 ## Apprise
 
+**Notifications have moved.** To be told about events (direct messages, mentions, radio offline, new contacts, alerts) on Telegram, Discord, ntfy, Home Assistant, Gotify or any Apprise service, add a **channel** in [Notifications](/en/docs/deep/notifications/): it has its own rules, a pause, a test button, retries, a delivery log and a text policy that keeps private messages out of third-party services. The Apprise output described here stays, and keeps doing what it did: forward every message of the channels and contacts you pick, rendered with your own templates. It has no rules, no pause and no per-event choice. A one-click conversion of an Apprise output into a notification channel is planned for a later release; until then, if the same address is in both, you will be notified twice.
+
 Give one address per line. Each message is sent to all of them. You can write your own text templates for direct messages and channel messages, with variables such as the sender, the text, the channel, the number of hops, and the signal strength. Messages you sent yourself are not forwarded unless you tick the option. For Discord, you can keep the webhook's own name and picture.
 
-Apprise skips messages from a blocked contact or name and messages on a muted channel (until the mute ends), like the conversation list. The machine outputs (Private MQTT, Webhook, Amazon SQS) still receive them: a script or a broker decides for itself. To be notified of system events (radio offline, new contacts, alerts) through Apprise, use the Apprise destination in [Notifications](/en/docs/deep/push/#apprise-destination) instead.
+Apprise skips messages from a blocked contact or name and messages on a muted channel (until the mute ends), like the conversation list. The machine outputs (Private MQTT, Webhook, Amazon SQS) still receive them: a script or a broker decides for itself. To be notified of system events (radio offline, new contacts, alerts) through Apprise, use an Apprise channel in [Notifications](/en/docs/deep/notifications/#apprise-destination) instead.
 
 Meshloom accepts these Apprise services:
 

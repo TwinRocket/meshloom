@@ -103,7 +103,7 @@ Elle part de ce que votre propre radio a entendu. Avec Meshloom Community activ�
 
 ## Les canaux découverts
 
-Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir la clé. Il essaie d’abord une liste intégrée de noms connus. Avec Community activé et un code d’aéroport enregistré, il demande aussi à Community des noms qui pourraient correspondre. Quand il en trouve un, il envoie une notification « Canaux trouvés » (voir [Notifications push](/docs/deep/push/)).
+Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir la clé. Il essaie d’abord une liste intégrée de noms connus. Avec Community activé et un code d’aéroport enregistré, il demande aussi à Community des noms qui pourraient correspondre. Quand il en trouve un, il envoie une notification « Canaux trouvés » (voir [Notifications](/docs/deep/notifications/)).
 
 Un salon trouvé ainsi n’entre pas tout seul dans vos discussions. Il apparaît dans **Canaux découverts**, où **Adopter** l’ajoute à vos discussions et **Refuser** l’écarte. Les canaux refusés sont conservés dans une liste, ce qui permet de revenir sur sa décision.
 

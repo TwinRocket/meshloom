@@ -81,12 +81,14 @@ The installer sets these for you. You rarely edit them by hand.
 
 ## Notifications
 
-The language of notifications is chosen in **Settings → Notifications** and stored in the database, not in a variable:
+Notifications are set in **Settings → Notifications** and stored in the database, not in variables (see [Notifications](/en/docs/deep/notifications/)). The channels (their settings, secrets and limits) live in their own tables; the settings below are in the settings table:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `notification_language` | `auto` | `auto`, `fr` or `en`. The language of e-mail and Apprise notifications; `auto` follows the browsers subscribed to push (English only with a strict majority of English browsers, a tie is French) |
-| `notification_rules` | `{}` | The notification rules (which channel receives which event, per-conversation exceptions). Written by the 4.18 to 5.0 import and by the notification channels; no screen edits it yet |
+| `notification_language` | `auto` | `auto`, `fr` or `en`. The language of the instance for notifications (a channel can set its own); `auto` follows the browsers subscribed to push (English only with a strict majority of English browsers, a tie is French) |
+| `notification_rules` | `{}` | The notification rules (which channel receives which event, per-conversation exceptions). Written by the 4.18 to 5.0 import, the rules table, the bell, **Do not disturb** and the channels' deletion; `paused_until` (the pause) and the options of the table (`mention_whole_word`) are in it |
+| `radio_offline_grace_s` | `60` | Seconds the radio may stay unreachable before **Radio offline** is sent (0 to 3600; 0 notifies at once). Set under the **Radio offline** row of the rules table |
+| `push_allow_private_endpoints` | `false` | Accept Web Push endpoints on a private network, for a self-hosted UnifiedPush distributor. See [Push](/en/docs/deep/push/#push-services-on-a-private-network) |
 
 ## Retired variables
 
@@ -127,7 +129,7 @@ You change these in the web interface. Nothing here is set through the environme
 | **Database** | `auto_decrypt_dm_on_advert` |
 | **Radio-App Management** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 of each at most), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alerts** | `telemetry_alert_rules` |
-| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (email and webhook), `notification_rules`; the new tables `notification_channels`, `notification_deliveries`, `notification_counters` and `notification_state` |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail, webhook and Apprise, the 4.18.x destinations), `notification_language`, `notification_rules`, `radio_offline_grace_s`, `push_allow_private_endpoints`; the new tables `notification_channels`, `notification_deliveries`, `notification_counters` and `notification_state` |
 | **Updates** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
 | **Users & Access** | `public_urls` (**Public addresses**: the names Meshloom answers to from outside, declared by an administrator; no environment variable exists for them), `host_guard_mode` (observe or enforce) |
 | **Local Configuration** and **Navigation** | `ui_preferences`: theme, label of the instance, left rail; `auth_allowed_origins`: the other sites allowed to call the API (**Allowed origins**) |

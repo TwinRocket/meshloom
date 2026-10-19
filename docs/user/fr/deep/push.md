@@ -1,15 +1,13 @@
 ---
 title: Notifications push
-description: Des notifications même quand l’onglet est fermé. HTTPS requis.
+description: Des notifications dans le navigateur même quand l’onglet est fermé. HTTPS requis.
 level: deep
 order: 18
 ---
 
-Web Push peut prévenir votre navigateur d’un message entrant alors que l’onglet de Meshloom est fermé. C’est distinct du [fanout](/docs/deep/fanout/) : chaque navigateur a son propre abonnement, alors que les règles (quoi notifier, et pour quelles conversations) sont communes à toute l’installation.
+Web Push peut prévenir votre navigateur d’un message entrant alors que l’onglet de Meshloom est fermé. Cette page couvre ce qui est propre aux navigateurs : HTTPS, l’adresse de contact (VAPID), l’abonnement et la liste des appareils. Tout le reste, c’est-à-dire les canaux, les événements, le tableau des règles, Ne pas déranger, les mentions, la cloche, les sauvegardes et les autres façons d’être prévenu (e-mail, webhook, ntfy, Discord, Telegram, Gotify, Home Assistant, Apprise), est sur [Notifications](/docs/deep/notifications/).
 
-Il n’y a pas de fenêtres contextuelles venant de l’onglet ouvert lui-même. Web Push est la seule manière dont Meshloom notifie un navigateur.
-
-Les mêmes règles peuvent aussi envoyer un **e-mail**, appeler un **webhook** ou notifier par **Apprise** (ntfy, Telegram, Discord, Home Assistant et bien d’autres). Le push est activé par défaut. L’e-mail, le webhook et Apprise sont désactivés par défaut, et ne fonctionnent qu’une fois une destination configurée. Voir « Choisir ce qui notifie » plus bas.
+Web Push est un canal parmi d’autres (le canal intégré **Web Push**). Chaque navigateur a son propre abonnement, alors que les règles (quoi notifier, et pour quelles conversations) sont communes à toute l’installation et à tous les canaux. C’est distinct du [fanout](/docs/deep/fanout/). Il n’y a pas de fenêtre contextuelle depuis l’onglet ouvert : Web Push est la seule façon dont Meshloom notifie un navigateur. En HTTP simple, ntfy, Gotify ou Home Assistant sur votre réseau sont la réponse.
 
 ## Ce qu’il vous faut
 
@@ -33,165 +31,13 @@ Voir la [documentation Apple](https://developer.apple.com/documentation/usernoti
 
 Dans **Réglages → Notifications → Canaux**, ouvrez **Appareils et réglages Web Push** sur la carte Web Push et choisissez **Abonner ce navigateur**. La liste des appareils enregistrés montre alors chaque navigateur, avec un bouton **Tester** et un moyen de le désabonner.
 
-L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les règles sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés.
+L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les règles sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés. Ce qu’il faut notifier se choisit dans [Notifications](/docs/deep/notifications/#le-tableau-des-règles), cloche et Ne pas déranger compris.
 
-## Choisir ce qui notifie
-
-### Ne pas déranger
-
-En haut des règles dans **Réglages → Notifications**, **Ne pas déranger** suspend toutes les notifications pendant **1 heure**, **8 heures** ou **jusqu’à demain 8 h** (heure de l’horloge du navigateur), et **Reprendre** y met fin. Le temps restant est affiché. Les événements cochés **Toujours livrer** (colonne toujours cochée et verrouillée pour les événements urgents : radio hors ligne, alertes de télémétrie et canal modifié) passent quand même. La pause est commune à tous les navigateurs et à tous les canaux ; elle est inscrite au journal d’audit.
-
-### Les événements
-
-**Réglages → Notifications → Notifications par défaut** est un tableau : une ligne par événement, regroupée (Messages, Nœuds, Radio, Télémétrie, Meshloom), une colonne par canal (Web Push et les canaux ajoutés ; un canal désactivé est grisé mais garde ses coches) et une colonne **Toujours livrer** qui laisse passer un événement malgré la pause. Cochez une case pour envoyer cet événement à ce canal. La première colonne reste visible quand le tableau défile sur un téléphone. Chaque case a une étiquette : le tableau se parcourt au clavier et au lecteur d’écran. **Nouveau nœud vu** n’a pas de case propre, seulement une sous-ligne par type de nœud (compagnons, répéteurs, capteurs). **Canal modifié** va toujours vers Web Push (verrouillé). **Mentions** a une case **Mots entiers uniquement**. Web Push est activé pour les événements usuels au départ.
-
-| Événement | Quand il se déclenche |
-|-----------|-----------------------|
-| Nouveaux contacts | Un compagnon (la radio d’une personne) est vu pour la première fois |
-| Messages directs | Un message direct arrive, y compris les messages de serveurs de salon |
-| Publicités répéteur | Un répéteur est vu pour la première fois |
-| Publicités compagnon | Un compagnon est vu pour la première fois |
-| Publicités capteur | Un capteur est vu pour la première fois |
-| Canaux trouvés | Meshloom trouve un nouveau canal hashtag |
-| Alertes télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils et les canaux qui les reçoivent (un bouton par canal) se règlent sur la page **Alertes** |
-| Mises à jour Meshloom | Une nouvelle version de Meshloom est disponible |
-| Radio hors ligne | La radio est injoignable depuis plus longtemps que le délai réglé sous le tableau (60 s par défaut). Envoyé comme urgent (le sujet de l’e-mail commence par `[URGENT]`), une fois par panne |
-| Radio de nouveau en ligne | La radio est de nouveau joignable après une notification **Radio hors ligne**, avec la durée de la panne |
-| Meshloom a démarré | Meshloom vient de démarrer : sa version, si la radio s’est connectée et en combien de temps. Activé par défaut pour le push |
-
-**Radio hors ligne** et **Radio de nouveau en ligne** ne se déclenchent jamais pour un redémarrage de la radio lancé par Meshloom (correction de l’horloge, changement Wi-Fi) ni tant que la connexion est en pause dans **Réglages → Radio** ; une pause termine une panne sans notification. Rien n’est envoyé avant que la radio se soit connectée une fois depuis le démarrage de Meshloom, ni pendant le même délai juste après un démarrage : une mise à jour ou un redémarrage ne déclenche pas de fausse alerte. Le délai se règle sous la ligne **Radio hors ligne** du tableau (`radio_offline_grace_s` dans `/api/settings` ; 0 notifie aussitôt, jusqu’à 3600 s). La radio est vérifiée environ toutes les 5 secondes, et une tentative de reconnexion en cours peut retarder la vérification : la notification peut arriver un peu après le délai. Si Meshloom redémarre pendant une panne, la durée compte toujours depuis le vrai début.
-
-**Radio hors ligne ne peut pas vous prévenir quand Meshloom lui-même est arrêté** (coupure de courant, redémarrage de l’hôte) : plus rien ne tourne pour l’envoyer. **Meshloom a démarré** rend visible un redémarrage inattendu. Pour être prévenu pendant l’arrêt, utilisez le `binary_sensor.<radio>_connected` de Home Assistant avec un délai « pendant » (voir `README_HA.md`) ; un battement de cœur périodique est prévu.
-
-Pour un compagnon, **Nouveaux contacts** ou **Publicités compagnon** suffit.
-
-Les alertes « vu pour la première fois » ne se déclenchent que lorsqu’un **nouveau contact** est ajouté, après la fin du démarrage de la radio. Un nœud déjà connu, un nœud de type inconnu ou un serveur de salon ne les déclenchent jamais.
-
-### Les mentions
-
-Un message de canal **vous mentionne** quand il contient `@[` + le nom de votre radio + `]` (par exemple `@[Bob]`), quelle que soit la casse. Avec **Mots entiers uniquement** coché (ligne *Mentions* du tableau), le nom de votre radio écrit comme un mot entier compte aussi : *Al* correspond à « salut al ! » mais pas à « Alpha ». Une mention est envoyée aux canaux cochés sur la ligne **Mentions**, à la place de la notification ordinaire du canal sur ces canaux : un canal ne reçoit donc jamais les deux ; elle s’intitule « Mention dans #paris par Léa » et remplace la notification ordinaire de cette conversation dans la barre de notifications. Les canaux où **Mentions** n’est pas coché continuent de recevoir la notification ordinaire. La sourdine d’un canal, les listes de blocage et Ne pas déranger s’appliquent comme pour tout message, et une mention n’est **jamais urgente**. Elle est activée par défaut pour les canaux qui reçoivent les messages privés.
-
-**N’importe qui à portée peut forger une mention :** les messages de canal ne sont pas authentifiés, donc quiconque écrit `@[votre nom]` fait « mentionner » votre radio. C’est pourquoi une mention n’est jamais urgente, et pourquoi, sur un **canal privé** (qui a sa propre clé), elle n’atteint que les canaux qui ne sont pas un tiers (Web Push, un ntfy auto-hébergé, un relais e-mail sur votre réseau…) ou ceux que vous avez explicitement autorisés pour cette conversation par une exception (**activé**) dans la liste des conversations ; une exception sur **activé** reçoit la mention même si le canal n’est pas coché sur la ligne **Mentions**. Les canaux Apprise et webhook comptent toujours comme un tiers, car le type ne dit pas où ils envoient. Les messages privés ne sont pas des mentions.
-
-### Les conversations
-
-Pour les messages de salon, sans exception :
-
-- les salons publics et les salons `#` (hashtag) notifient par push ;
-- les salons à clé privée ne notifient pas.
-
-Les messages directs suivent la ligne **Messages directs**. Les autres canaux (e-mail, ntfy, Telegram…) suivent les mêmes lignes, cochées canal par canal dans le tableau ci-dessus, et peuvent être activés ou coupés pour une conversation avec la cloche (ci-dessous).
-
-Les messages d’un contact ou d’un nom bloqué, et ceux d’un salon en sourdine (jusqu’à la fin de la sourdine), ne notifient sur aucun canal : Web Push, e-mail, webhook et Apprise. Seul un événement marqué **Toujours livrer** passe quand même. Rien ne change tant que vous ne bloquez personne et ne mettez aucun salon en sourdine.
-
-### La cloche, pour une conversation
-
-Dans l’en-tête d’une conversation, la cloche (réservée aux administrateurs ; les autres rôles n’en ont pas) ouvre un menu avec une case par canal de notification activé, avec l’icône de son type, son nom et un point d’état (connecté, erreur, en pause, déconnecté). Une case montre si le canal notifie cette conversation, et le mot gris à côté dit pourquoi : *par défaut* (les lignes du tableau décident), *activé ici* ou *coupé ici* (une **exception** faite pour cette conversation seulement). Cocher une case que le défaut laisse déjà cochée, ou décocher une case que le défaut laisse vide, fait suivre à nouveau le défaut à la conversation et supprime l’exception. Si votre navigateur n’est pas encore abonné, activer **Web Push** l’abonne d’abord. La cloche est pleine tant qu’au moins un canal notifie la conversation. Elle montre la configuration : un salon en sourdine ou un Ne pas déranger actif laisse les cases cochées tout en retenant les notifications.
-
-Le même menu contient le raccourci **Ne pas déranger** (1 heure, 8 heures, jusqu’à demain 8:00, **Reprendre maintenant** : la même pause générale que dans les réglages) et un lien **Configurer les canaux de notification**. Dans la liste des conversations, le même menu est sous les trois points d’une ligne, **Notifications**.
-
-Les exceptions sont listées dans **Réglages → Notifications → Exceptions par conversation**, une ligne par conversation avec un bouton par canal : cliquez pour passer de *hérite* (la règle de l’événement) à *oui* puis *non*. La croix supprime l’exception.
-
-### Mettre un salon en sourdine
-
-Sur un salon, le bouton de sourdine fait taire tout pendant la durée choisie (de 15 minutes à 24 heures, ou indéfiniment). Il masque aussi le compteur de non lus. Il l’emporte sur les valeurs par défaut et les exceptions, et ce n’est pas le même contrôle que la cloche.
-
-### Canaux
-
-**Réglages → Notifications → Canaux** (administrateurs) liste en cartes tous les endroits où Meshloom envoie des notifications : son type, un voyant d’état (fonctionne, erreur, en pause, désactivé), la dernière erreur, un interrupteur, **Tester**, **Modifier** et **Supprimer**. La carte **Web Push** est toujours là et ne se supprime pas ; ouvrez-y **Appareils et réglages Web Push** pour l’abonnement de ce navigateur, les autres appareils, le sujet VAPID et l’interrupteur des points d’accès privés. En HTTP simple, la carte indique que Web Push est indisponible.
-
-**Ajouter un canal** ouvre un dialogue en trois étapes. D’abord choisir un type ou un préréglage (E-mail, Webhook, Apprise, et les services ajoutés à la liste). Ensuite remplir son formulaire, que le serveur décrit lui-même : les champs obligatoires sont marqués d’une étoile, les erreurs de validation du serveur apparaissent sous le champ, et un secret (mot de passe, jeton, adresse de webhook) n’est jamais affiché, même après l’enregistrement : le formulaire indique qu’une valeur est définie et propose **Remplacer** et **Effacer** (n’y touchez pas pour la conserver). Un service tiers (« cloud ») affiche une note de confidentialité et permet de choisir si le texte des messages est inclus (canaux publics seulement par défaut). **Envoyer un test et continuer** envoie un test avant tout enregistrement ; s’il échoue, l’erreur est expliquée et vous pouvez corriger le formulaire, ou continuer sans test réussi. Enfin, **Que recevoir ici ?** pré-remplit les événements : **Comme Push** (les événements que reçoit Web Push, par défaut), **Alertes seulement** (radio hors ligne ou revenue, alertes de télémétrie, mentions, changements de canal) ou **Tout**. Vous pourrez le modifier ensuite dans le tableau ci-dessous.
-
-Les canaux `legacy:email`, `legacy:webhook` et `legacy:apprise` (vos destinations 4.18.x) suivent encore l’ancien réglage tant que Meshloom ne livre pas depuis les nouvelles règles. **Modifier** sur leur carte ouvre le même formulaire qu’en 4.18.x (il enregistre quand vous quittez un champ), et **Supprimer cette destination** la vide ; leur type n’est plus proposé dans **Ajouter un canal**.
-
-### Canaux ntfy
-
-**Ajouter un canal → ntfy** publie vers un sujet [ntfy](https://ntfy.sh) : gratuit, auto-hébergeable, avec des applications Android, iOS et bureau, et utilisable avec un Meshloom servi en HTTP simple sur votre réseau local. Abonnez-vous au même sujet dans l'application ntfy.
-
-- **Serveur** : `https://ntfy.sh` par défaut, ou le vôtre (`http://192.168.1.20:8080`; ni nom d'utilisateur ni mot de passe dans l'adresse, utilisez les champs ci-dessous). Un serveur de votre réseau privé, ou de cette machine, demande **Autoriser une destination sur un réseau privé**.
-- **Sujet** (obligatoire, en écriture seule) : 1 à 64 lettres, chiffres, `-` ou `_`. Sur ntfy.sh le sujet est le seul secret : qui le connaît peut lire et publier, les sujets sont donc « publics par obscurité ». Générez-en un long et aléatoire vous-même, par exemple `openssl rand -base64 18 | tr '+/' '-_'` (24 caractères sûrs pour une URL). Meshloom publie le message en JSON à l'adresse du serveur : le sujet ne figure jamais dans une URL ni dans un journal, et il n'est plus jamais affiché après l'enregistrement.
-- **Jeton d'accès**, ou **nom d'utilisateur et mot de passe** (en écriture seule), pour un serveur à accès contrôlé. Le jeton l'emporte si les deux sont renseignés. Changer de serveur demande de ressaisir les secrets : ils ne suivent jamais une nouvelle destination.
-- **Priorités** : les événements ordinaires utilisent la priorité par défaut (3), les urgents (*radio hors ligne*, alertes de télémétrie) la priorité urgente (5, qui sonne sur la plupart des téléphones). Les **étiquettes** sont des étiquettes ntfy (les codes emoji s'affichent en icônes).
-- **Adresse de ce Meshloom** (`https://meshloom.example.net/`) : toucher la notification ouvre la conversation ou le nœud (pas de partie `#` dans l'adresse).
-- **Markdown** met en forme le message dans l'application web ntfy.
-- **Vérification du certificat** : elle ne peut être désactivée que pour un serveur dont toutes les adresses sont privées (un ntfy auto-signé chez vous), jamais pour un hôte public.
-
-Erreurs affichées par un test ou la carte du canal : *identifiants refusés* (401/403), *quota atteint* (le quota journalier de ntfy.sh est épuisé : auto-hébergez ntfy ou abonnez-vous ; Meshloom ne réessaie pas), *trop de requêtes* (le `Retry-After` de ntfy est respecté), *erreur de certificat*, *erreur du service* (erreur serveur ou message trop long).
-
-ntfy.sh est un tiers, et conserve les messages 12 heures par défaut. Un canal ntfy.sh n'envoie donc que le texte des canaux Public et `#` (titre seul pour les messages privés et les canaux privés) tant que vous ne choisissez pas **Toujours**, et affiche une limite par défaut de 10 messages par minute, 30 par heure et **200 par jour**, sous les 250 par jour de l'offre gratuite (voir [ntfy.sh/pricing](https://ntfy.sh/pricing)). Ces limites sont affichées dès maintenant et seront appliquées par le limiteur de notifications qui suit ; d'ici là seul le quota de ntfy.sh s'applique, et un canal très actif peut l'épuiser. Un serveur auto-hébergé n'a pas de limite journalière par défaut.
-
-### Destinations e-mail et webhook
-
-Dans **Réglages → Notifications → Canaux**, choisissez **Ajouter un canal** et saisissez un serveur SMTP (hôte, port, chiffrement, utilisateur, mot de passe, expéditeur et destinataire) et/ou l’adresse d’un webhook avec un secret HMAC facultatif. Les secrets ne sont plus affichés après l’enregistrement. Laissez un champ secret vide pour le conserver. L’adresse du webhook est elle aussi un secret, car elle contient souvent un jeton : une fois enregistrée, son champ ne montre que le schéma et l’hôte ; saisissez une nouvelle adresse pour la remplacer, ou appuyez sur **Effacer** pour la supprimer avec son secret HMAC. Le téléchargement de la sauvegarde JSON les laisse de côté (voir [Sécurité](/docs/deep/security/#secrets-des-intégrations-et-des-notifications)). Chaque destination a un bouton de test. Ce webhook sert aux notifications de Meshloom. Ce n’est pas le webhook de messages du fanout.
-
-Meshloom refuse un webhook sur un réseau privé (votre réseau local, cette machine, `localhost`, le NAT d’opérateur, les adresses lien-local) sauf si vous cochez **Autoriser une destination sur un réseau privé (réseau local, localhost)** sous l’adresse : Home Assistant, Node-RED ou un script sur votre réseau en ont besoin. La vérification a lieu à l’enregistrement de l’adresse puis avant chaque envoi, et Meshloom se connecte ensuite uniquement à l’adresse vérifiée : une réponse DNS qui change entre-temps ne peut pas détourner l’appel. Les adresses de métadonnées cloud (`169.254.169.254` et ses équivalents) sont toujours refusées. Si le nom d’hôte est introuvable, saisissez plutôt l’adresse IP. Un webhook enregistré avant cette vérification continue de fonctionner : la case est cochée pour lui, et un avis unique le signale.
-
-**Plusieurs destinataires et une langue (e-mail).** Une destination e-mail accepte plusieurs destinataires, un par ligne (les virgules marchent aussi), et un Cc facultatif (chaque adresse en Cc reçoit son propre message, une seule fois). Meshloom les confie au serveur de messagerie en une fois : si le serveur refuse un destinataire, toute la notification compte comme échouée, même si les autres l’ont peut-être reçue, et elle n’est pas renvoyée. Le message est rédigé dans la langue du canal (Automatique suit la langue des notifications). Quand le texte d’un message est retenu (le réglage qui garde le texte des messages hors des services tiers), le sujet est « Nouveau message » et le corps montre l’expéditeur et la conversation mais pas le texte.
-
-**En-têtes du webhook.** Chaque appel porte `X-Webhook-Event`, `X-Webhook-Id` et `X-Webhook-Timestamp` (secondes depuis l’epoch de cette tentative), et `X-Webhook-Signature` (`sha256=` et le HMAC-SHA256 du corps) quand un secret est défini. L’identifiant est le même à chaque nouvelle tentative d’une notification : un récepteur comme Node-RED peut ignorer un identifiant déjà vu. La signature ne couvre que le corps, elle n’a donc pas changé. L’identifiant et l’horodatage ne sont pas signés : ils aident un récepteur à écarter une nouvelle tentative honnête, pas une requête rejouée (une version signée est prévue). Désactiver la vérification du certificat (pour un certificat auto-signé sur votre réseau) n’est accepté que pour une destination sur un réseau privé ; une adresse publique garde toujours sa vérification. Un identifiant et un mot de passe e-mail ne sont jamais envoyés sans chiffrement (mode **Aucun**) à un serveur de messagerie hors de votre réseau privé.
-
-L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage dans le message (image intégrée) : ouvrir l’e-mail ne charge rien depuis Internet, et il ne contient aucun lien.
-
-### Destination Apprise
-
-Le canal **Apprise**, ajouté de la même façon, prend une [URL Apprise](https://appriseit.com/getting-started/universal-syntax/) par ligne. Quelques exemples :
-
-| Service | URL |
-|---------|-----|
-| ntfy | `ntfys://ntfy.sh/mon-sujet-meshloom` (ou `ntfys://ntfy.example.org/sujet` pour votre propre serveur) |
-| Telegram | `tgram://bot_token/chat_id` (l’identifiant de discussion est obligatoire) |
-| Discord | `discord://webhook_id/webhook_token` |
-| Home Assistant | `hassios://homeassistant.local:8123/jeton_longue_duree` |
-
-Les URL contiennent des jetons : ce sont des secrets. Après l’enregistrement elles s’affichent `********` et ne sont plus jamais montrées ; le téléchargement de la sauvegarde JSON les laisse de côté. Pour les changer, saisissez-en de nouvelles ; videz le champ pour les supprimer. Seuls les services que Meshloom a examinés sont acceptés (la même liste que pour le [fanout Apprise](/docs/deep/fanout/)) ; une URL refusée est désignée par sa ligne à l’enregistrement. Cette destination transporte les notifications système choisies dans le tableau ci-dessus ; ce n’est pas le fanout Apprise, qui transfère tous les messages des salons choisis.
-
-- **Texte des messages.** *Canaux publics et # seulement* (par défaut) envoie le texte des messages du canal Public et des canaux `#`, et seulement un titre pour les messages directs et les salons privés (« Message de Léa »). *Toujours* envoie tous les textes ; *Jamais* n’envoie que des titres.
-- **Format.** Texte brut, ou Markdown. En Markdown le texte des messages est échappé (un message ne peut pas injecter de lien ni de titre), et dans les deux formats les mentions de tout un salon (`@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@…>`, `<!…>`) sont neutralisées.
-- **Autoriser une destination sur un réseau privé (LAN, localhost).** Désactivé par défaut, comme pour le webhook : cochez-le pour un serveur ntfy, Gotify ou Home Assistant sur votre réseau ou sur cette machine. La vérification a lieu à l’enregistrement puis avant chaque envoi.
-
-Chaque URL est envoyée séparément : un service en panne n’empêche pas les autres. Un envoi raté est retenté après 5 s puis 30 s quand le service est injoignable, répond une erreur serveur ou demande de ralentir (son `Retry-After` est respecté), jamais quand il refuse la requête (un jeton faux, par exemple). Une URL à plusieurs destinataires (plusieurs sujets ntfy, discussions Telegram ou destinataires e-mail) n’est essayée qu’une fois, pour que ceux déjà atteints ne reçoivent pas le message deux fois. Pour protéger vos comptes, Meshloom envoie au plus une notification Apprise toutes les 2 secondes, en garde 20 en attente et remplace le reste par un seul « +N évènements » ; les nouveaux contacts et annonces notifient au plus 10 fois par heure, puis un seul « +N nouveaux contacts ». Le dernier échec (son code, la ligne de l’URL, son schéma et son hôte seulement) figure dans `/api/health` sous `notification_statuses["legacy:apprise"]` (voir « Comment les notifications partent » ci-dessous).
-
-### Destination Discord
-
-Le canal **Discord** publie dans un salon Discord par un webhook (dans Discord : paramètres du salon, **Intégrations**, **Webhooks**, **Copier l’URL du webhook**). Collez l’URL dans le formulaire du canal ; elle doit commencer par `https://discord.com/api/webhooks/` (ou `discordapp.com`), toute autre adresse est refusée. L’URL contient le jeton : c’est un secret, jamais réaffiché après l’enregistrement ni dans la sauvegarde JSON. Un **Nom d’utilisateur** facultatif remplace le nom du webhook ; Meshloom ne change jamais son avatar.
-
-Quoi que dise un nœud ou un message, il ne peut mentionner personne : chaque requête porte `allowed_mentions: {"parse": []}`, donc `@everyone`, `@here`, les membres et les rôles ne sont jamais notifiés, le texte est échappé (aucun lien, titre ou mise en forme injecté, `@everyone` est cassé) et les aperçus de liens sont désactivés. Discord est un tiers : par défaut le texte des messages des **canaux Public et #** est envoyé, et les messages privés et les canaux privés n’envoient qu’un titre (« Message de Léa ») ; changez-le avec **Texte du message**. Les vérifications de certificat ne peuvent pas être désactivées (l’adresse est publique). Meshloom attend quand Discord indique que le webhook est limité et réessaie après le délai donné ; un webhook supprimé apparaît comme une erreur d’authentification.
-
-### Canaux Telegram, Gotify et Home Assistant
-
-Ces trois canaux sont des **préréglages** : des formulaires prêts à l’emploi pour des services que Meshloom joint par Apprise. Vous remplissez des champs nommés, Meshloom construit lui-même l’adresse Apprise au moment de l’envoi et la vérifie comme toute autre destination. Les secrets (jeton du bot, jeton Gotify, jeton Home Assistant) sont en écriture seule : ils ne sont jamais réaffichés, et Meshloom ne conserve jamais l’adresse générée.
-
-**Telegram** (un tiers : le texte des messages privés et des salons privés reste chez vous par défaut). Créez un bot avec `@BotFather` (envoyez `/newbot`) et copiez son jeton (`123456789:AAH…`). Trouvez l’**identifiant de conversation** : écrivez à votre bot, ouvrez `https://api.telegram.org/bot<jeton>/getUpdates` dans un navigateur et lisez `chat` → `id` (ou demandez à `@userinfobot`) ; l’identifiant d’un groupe est négatif (`-100…`), un canal public peut être son `@nom`. Pour un groupe ou un canal, ajoutez d’abord le bot. L’**identifiant de sujet** ne sert que pour un groupe à sujets. L’identifiant de conversation est obligatoire : sans lui le canal est refusé. Limite par défaut : 15 messages par minute, 200 par heure ; quand Telegram répond *trop de requêtes*, Meshloom attend le délai demandé.
-
-**Gotify** (votre propre serveur). Dans Gotify, créez une *application* et copiez son jeton. Saisissez l’adresse du serveur (`https://gotify.exemple.org`, un préfixe de chemin est conservé ; `..` et `%` y sont refusés) et le jeton ; la priorité s’applique à toutes les notifications. Un serveur sur votre réseau local demande de cocher **Autoriser une destination sur réseau privé**, et changer le serveur oblige à ressaisir le jeton. Limite par défaut : 60 messages par minute.
-
-**Home Assistant** (l’application Companion de votre téléphone, ou tout service `notify`). Dans votre profil Home Assistant, créez un **jeton d’accès longue durée**. Saisissez l’adresse de Home Assistant (`http://homeassistant.local:8123` ; uniquement l’adresse, un chemin comme `/ha` est refusé), le jeton et le **service notify** : `mobile_app_votre_telephone` (le nom exact est dans Home Assistant, Outils de développement, Actions ; `notify.alertes` fonctionne aussi). Home Assistant est presque toujours sur votre réseau : cochez **Autoriser une destination sur réseau privé** ; l’erreur le dit quand c’est nécessaire. Limite par défaut : 60 messages par minute.
-
-Chaque formulaire a un bouton **Tester** qui envoie un message avant tout enregistrement.
-
-### Comment les notifications partent
-
-Chaque destination (push, e-mail, webhook, Apprise) a sa propre file et envoie une notification à la fois : un service lent ou en panne ne retarde jamais les autres, ni le push. L’e-mail envoie au plus une notification toutes les 10 secondes et Apprise une toutes les 2 secondes. Quand plus de 20 notifications attendent pour une destination, les suivantes sont remplacées par un seul « +N évènements » ; les urgentes (radio hors ligne, alerte de télémétrie) ne sont jamais regroupées. Les nouveaux contacts et annonces notifient au plus 10 fois par heure et par destination, puis un seul « +N nouveaux contacts ». Ce regroupement et ce plafond valent pour toutes les destinations, push, e-mail et webhook compris, pas seulement Apprise. Un webhook injoignable, trop lent, qui répond une erreur serveur ou demande de ralentir est retenté après 5 s puis 30 s (son `Retry-After` est respecté, jusqu’à 2 minutes), jamais quand il refuse la requête. Une notification de message qui échoue encore est abandonnée (elle arriverait trop tard) ; une radio hors ligne ou une alerte de télémétrie a droit à un essai de plus 5 minutes plus tard quand le service était injoignable, jamais après un refus. Les notifications encore en attente quand Meshloom s’arrête ne partent pas après le redémarrage.
-
-L’état de chaque destination figure dans `/api/health`, sous `notification_statuses`, par identifiant (`builtin:push`, `legacy:email`, `legacy:webhook`, `legacy:apprise`) : `status` (`connected`, `error`, `paused` ou `disconnected`), la dernière erreur sous forme de code, jamais un mot de passe ni un jeton (administrateurs seulement), et l’heure du dernier envoi réussi. Meshloom garde un court journal des notifications en échec, regroupées, abandonnées et annulées, sans leur texte ; les envois réussis sont seulement comptés.
-
-Le bouton de test envoie une notification de test à chaque URL ; un échec indique la ligne de l’URL et le type d’échec, jamais le jeton.
-
-### Langue
-
-**Réglages → Notifications → Langue des notifications** fixe la langue des notifications par e-mail et Apprise : **Automatique**, **Français** ou **English**. Automatique suit les navigateurs abonnés au push : anglais seulement si la plupart d’entre eux (une majorité stricte) sont en anglais, français en cas d’égalité. Les notifications push gardent toujours la langue du navigateur abonné, et le webhook envoie des données, pas du texte.
-
-### Preuve de modification
-
-Toute modification d’une destination (e-mail, webhook ou Apprise) envoie à chaque navigateur abonné une notification push **Destination de notification modifiée**, qui dit ce qui a changé. Elle ne peut pas être désactivée : si ce n’est pas vous, quelqu’un d’autre l’a fait.
-
-## En coulisses
-
-### Service worker et nettoyage
+## Service worker et nettoyage
 
 `sw.js` affiche les notifications reçues et, au clic, met au premier plan ou ouvre la bonne conversation. Si un service de push répond `403`, `404` ou `410` pour un abonnement, Meshloom le supprime. Il faut alors réabonner le navigateur.
 
-### Points d’accès
+## Points d’accès
 
 | Méthode | Point d’accès | Effet |
 |---------|---------------|-------|
@@ -207,27 +53,9 @@ Toute modification d’une destination (e-mail, webhook ou Apprise) envoie à ch
 
 Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l’existant. Les anciennes routes `/api/push/conversations` n’existent plus.
 
-Les trois routes `preferences` sont **dépréciées** : elles répondent un en-tête `Deprecation` et seront retirées en 5.2.0. Elles fonctionnent comme avant et chaque changement qu’elles font est recopié dans les règles de notification (`GET /api/notifications/rules`), pour les quatre médias push, e-mail, webhook et Apprise seulement ; les autres canaux n’y sont pas visibles. L’en-tête `Deprecation` porte la date comme le demande la RFC 9745 (`@1792368000`). Meshloom livre depuis les règles : un changement fait par `PATCH /api/notifications/rules` ou `PUT .../rules/conversations/{key}` s’applique tout de suite et est recopié, pour push, e-mail, webhook et Apprise, dans ce que montrent ces routes et **Réglages → Notifications** (un changement fait là est recopié de la même façon dans les règles). Un changement de destination, ou la suppression des canaux `legacy:email`, `legacy:webhook` et `legacy:apprise`, répond toujours `409 legacy_managed` : ces destinations se règlent dans les Réglages. Activer l’e-mail, le webhook ou Apprise pour une conversation alors que cette destination n’est pas configurée répond `400` avec le code `channel_missing`. Il en va de même pour `notification_destinations` dans `PATCH /api/settings` et pour `POST /api/settings/notification-destinations/test`, qui teste désormais la destination comme `POST /api/notifications/channels/{id}/test` (codes `invalid_config`, `auth_failed`, `timeout`, `rate_limited`, `service_error`, `egress_*`, un test par 5 secondes au plus).
+Les trois routes `preferences` sont **dépréciées** : elles répondent un en-tête `Deprecation` et seront retirées en 5.2.0. Utilisez plutôt `/api/notifications` ; le détail, et ce que veut dire la réponse `409 legacy_managed`, sont dans [Mise à jour et retour en arrière](/docs/deep/notifications/#mise-à-jour-et-retour-en-arrière) et [Points d’accès](/docs/deep/notifications/#points-daccès).
 
-### API des canaux de notification
-
-Les administrateurs gèrent les canaux sous `/api/notifications` :
-
-| Méthode | Point d’accès | Effet |
-|---------|---------------|-------|
-| GET | `/api/notifications/types` | Les types de canal : schéma JSON (les champs secrets sont `writeOnly`), limites par défaut |
-| GET, POST | `/api/notifications/channels` | Liste et crée des canaux (les secrets s’affichent `********`) |
-| POST | `/api/notifications/channels/test` | Teste une configuration avant de l’enregistrer (rien n’est stocké) |
-| GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Lit, modifie (le type ne peut pas changer) et supprime un canal ; `builtin:push` ne peut pas être supprimé (`403 builtin_channel`) |
-| POST | `/api/notifications/channels/{id}/test` | Envoie un test ; un par 5 secondes et par canal, puis `429 rate_limited` |
-| GET, PATCH | `/api/notifications/rules` | Canaux par évènement, `always_deliver`, pause globale (`paused_until`), délai de radio hors ligne |
-| PUT | `/api/notifications/rules/conversations/{key}` | Canaux d’une conversation (`{"channels": {"id": true}}`, ou `null` pour effacer) |
-| GET | `/api/notifications/deliveries` | Le journal des envois (échecs et suppressions, jamais le texte) et les compteurs horaires |
-| GET | `/api/notifications/events` | Le catalogue des évènements |
-
-Pour conserver un secret en modifiant un canal, omettez-le, envoyez `null` ou envoyez `********` ; `""` l’efface. Les erreurs sont `{"code": ..., "params": ...}` et ne contiennent jamais un hôte, une adresse ou un texte d’exception. Créer, supprimer, activer ou désactiver un canal, ou changer sa destination, notifie le Web Push (cela ne peut pas se désactiver) et les autres canaux actifs, et s’inscrit dans le journal d’audit.
-
-### Services push sur un réseau privé
+## Services push sur un réseau privé
 
 Les services push des navigateurs (Google, Mozilla, Apple) sont sur Internet. `POST /api/push/subscribe` refuse une adresse sur un réseau privé (réponse `400`, code `egress_private_address`), et Meshloom n’y envoie jamais rien, sauf si **Accepter les points de terminaison push sur un réseau privé** est coché dans **Réglages → Notifications** (réglage `push_allow_private_endpoints` de `/api/settings`). Cochez-le uniquement pour un distributeur UnifiedPush auto-hébergé sur votre réseau local ou sur cette machine. Comme pour le webhook, chaque push part uniquement vers l’adresse vérifiée par Meshloom (le certificat du service push reste contrôlé pour son nom), et une redirection n’est jamais suivie.
 
@@ -243,9 +71,9 @@ Restaurer une sauvegarde d’avant cette vérification suit la même règle : si
 
 1. Vérifiez que la page est servie en HTTPS (ou depuis `localhost`).
 2. Vérifiez l’autorisation de notifications dans votre navigateur et votre système.
-3. Envoyez un test depuis **Réglages → Notifications**. Une destination sur un réseau privé non autorisée est refusée tout de suite, avant toute connexion. Une fois cette vérification passée, quand un test échoue, Meshloom indique seulement le type d’échec (injoignable, pas de réponse à temps, échec TLS, statut HTTP renvoyé par le webhook, ou abonnement que le service push n’accepte plus) ; il n’affiche jamais l’erreur réseau elle-même, un nom d’hôte ni une adresse (une page ne peut donc pas se servir du test pour sonder votre réseau). Le journal du serveur indique le type d’erreur, ainsi que l’hôte et le statut HTTP du webhook, sous `Test push failed` ou `Notification test (webhook) failed` ; il n’enregistre jamais l’adresse du webhook ni son jeton.
-4. Vérifiez les valeurs par défaut et les exceptions, visibles aussi sur `/api/push/preferences`. Un salon à clé privée reste muet sans exception qui l’active. Un salon en sourdine reste muet quels que soient les réglages.
-5. Sur Apple, vérifiez le sujet VAPID (voir plus haut) et cherchez `403 BadJwtToken` dans le journal du serveur.
-6. Vérifiez que le serveur peut joindre Internet.
+3. Appuyez sur **Test** sur l’appareil dans la liste : un échec dit seulement de quel type il est (injoignable, pas de réponse à temps, échec TLS, ou abonnement que le service push n’accepte plus), jamais un nom d’hôte ni une adresse. Le journal du serveur indique le type d’erreur sous `Test push failed`.
+4. Sur Apple, vérifiez le sujet VAPID (voir plus haut) et cherchez `403 BadJwtToken` dans le journal du serveur.
+5. Vérifiez que le serveur peut joindre Internet.
+6. Pour les règles (l’événement est-il coché, une sourdine, Ne pas déranger, une exception de conversation), voir [Quand rien n’arrive](/docs/deep/notifications/#quand-rien-narrive) sur la page Notifications.
 
 Au niveau de journal `DEBUG`, les réponses des services de push sont écrites dans le journal. Voir [Dépannage](/docs/deep/troubleshooting/).
