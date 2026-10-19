@@ -37,9 +37,13 @@ L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les 
 
 ## Choisir ce qui notifie
 
+### Ne pas déranger
+
+En haut des règles dans **Réglages → Notifications**, **Ne pas déranger** suspend toutes les notifications pendant **1 heure**, **8 heures** ou **jusqu’à demain 8 h** (heure de l’horloge du navigateur), et **Reprendre** y met fin. Le temps restant est affiché. Les événements cochés **Toujours livrer** (par défaut, la radio hors ligne) passent quand même. La pause est commune à tous les navigateurs et à tous les canaux ; elle est inscrite au journal d’audit.
+
 ### Les événements
 
-**Réglages → Notifications → Notifications par défaut** a une ligne par événement, avec quatre colonnes : **Push**, **E-mail**, **Webhook** et **Apprise**. Le push est activé pour chaque événement au départ.
+**Réglages → Notifications → Notifications par défaut** est un tableau : une ligne par événement, regroupée (Messages, Nœuds, Radio, Télémétrie, Meshloom), une colonne par canal (Web Push et les canaux ajoutés ; un canal désactivé est grisé mais garde ses coches) et une colonne **Toujours livrer** qui laisse passer un événement malgré la pause. Cochez une case pour envoyer cet événement à ce canal. La première colonne reste visible quand le tableau défile sur un téléphone. Chaque case a une étiquette : le tableau se parcourt au clavier et au lecteur d’écran. **Nouveau nœud vu** a une sous-ligne par type de nœud (compagnons, répéteurs, capteurs). **Canal modifié** va toujours vers Web Push (verrouillé). **Mentions** a une case **Mots entiers uniquement**. Web Push est activé pour les événements usuels au départ.
 
 | Événement | Quand il se déclenche |
 |-----------|-----------------------|
@@ -55,7 +59,7 @@ L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les 
 | Radio de nouveau en ligne | La radio est de nouveau joignable après une notification **Radio hors ligne**, avec la durée de la panne |
 | Meshloom a démarré | Meshloom vient de démarrer : sa version, si la radio s’est connectée et en combien de temps. Activé par défaut pour le push |
 
-**Radio hors ligne** et **Radio de nouveau en ligne** ne se déclenchent jamais pour un redémarrage de la radio lancé par Meshloom (correction de l’horloge, changement Wi-Fi) ni tant que la connexion est en pause dans **Réglages → Radio** ; une pause termine une panne sans notification. Rien n’est envoyé avant que la radio se soit connectée une fois depuis le démarrage de Meshloom, ni pendant le même délai juste après un démarrage : une mise à jour ou un redémarrage ne déclenche pas de fausse alerte. Le délai se règle dans **Réglages → Notifications → Délai « radio hors ligne »** (`radio_offline_grace_s` dans `/api/settings` ; 0 notifie aussitôt, jusqu’à 3600 s). La radio est vérifiée environ toutes les 5 secondes, et une tentative de reconnexion en cours peut retarder la vérification : la notification peut arriver un peu après le délai. Si Meshloom redémarre pendant une panne, la durée compte toujours depuis le vrai début.
+**Radio hors ligne** et **Radio de nouveau en ligne** ne se déclenchent jamais pour un redémarrage de la radio lancé par Meshloom (correction de l’horloge, changement Wi-Fi) ni tant que la connexion est en pause dans **Réglages → Radio** ; une pause termine une panne sans notification. Rien n’est envoyé avant que la radio se soit connectée une fois depuis le démarrage de Meshloom, ni pendant le même délai juste après un démarrage : une mise à jour ou un redémarrage ne déclenche pas de fausse alerte. Le délai se règle sous la ligne **Radio hors ligne** du tableau (`radio_offline_grace_s` dans `/api/settings` ; 0 notifie aussitôt, jusqu’à 3600 s). La radio est vérifiée environ toutes les 5 secondes, et une tentative de reconnexion en cours peut retarder la vérification : la notification peut arriver un peu après le délai. Si Meshloom redémarre pendant une panne, la durée compte toujours depuis le vrai début.
 
 **Radio hors ligne ne peut pas vous prévenir quand Meshloom lui-même est arrêté** (coupure de courant, redémarrage de l’hôte) : plus rien ne tourne pour l’envoyer. **Meshloom a démarré** rend visible un redémarrage inattendu. Pour être prévenu pendant l’arrêt, utilisez le `binary_sensor.<radio>_connected` de Home Assistant avec un délai « pendant » (voir `README_HA.md`) ; un battement de cœur périodique est prévu.
 
@@ -78,7 +82,7 @@ Les messages d’un contact ou d’un nom bloqué, et ceux d’un salon en sourd
 
 Dans l’en-tête d’une conversation, la cloche ouvre un menu avec quatre cases : **Push**, **E-mail**, **Webhook** et **Apprise**. En cocher une crée une **exception** aux valeurs par défaut, pour cette conversation seulement. Si votre navigateur n’est pas encore abonné, cocher **Push** l’abonne. **E-mail**, **Webhook** et **Apprise** sont grisés tant qu’aucune destination n’existe ; un lien mène aux réglages.
 
-Les exceptions sont listées dans **Réglages → Notifications → Exceptions par conversation**, où on peut les retirer.
+Les exceptions sont listées dans **Réglages → Notifications → Exceptions par conversation**, une ligne par conversation avec un bouton par canal : cliquez pour passer de *hérite* (la règle de l’événement) à *oui* puis *non*. La croix supprime l’exception.
 
 ### Mettre un salon en sourdine
 

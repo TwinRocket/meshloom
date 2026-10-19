@@ -705,6 +705,18 @@ The server answers `409 legacy_managed` for the `legacy:*` channels' config/dele
 dialog or Delete; `AddChannelDialog` disables a type a `legacy:<type>` channel owns. Secrets are
 write-only (`secret_fields`, `********`): never prefilled. Tests: `src/test/notificationsChannels.test.tsx`.
 
+The rules half (`NotificationRulesPanel`, same state hook, `setRules` takes each `PATCH /rules` /
+`PUT /rules/conversations/{key}` answer) renders, in order: `GlobalPauseControl` (1 h / 8 h /
+tomorrow 08:00 local / resume, writes `paused_until`; reused by the bell), `RulesMatrix` (events
+from `/events`, `configurable` only, grouped by `rulesShared.groupOf`; a checkbox per channel
+with a sticky first column inside an `overflow-x-auto` box; `always_deliver` falls back to the
+event's `urgent`; `locked_channels` are checked and disabled; `contact.first_seen` sub-rows
+materialise all three `contact_types` kinds on a toggle; the offline grace and the whole-word
+mention tick ride their rows) and `ConversationExceptions` (chip per channel cycling
+inherit/on/off, `PUT null` to remove). Strings: slice `ci` (`settings.notifications.matrix.*`,
+`.pause.*`). Test: `src/test/notificationsRules.test.tsx`. The old `push_defaults` table and
+exceptions list are gone from `SettingsNotificationsSection`.
+
 ### Styling
 
 - Use rem-based text sizes (`text-[0.8125rem]`, not `text-[13px]`): the font-scale
