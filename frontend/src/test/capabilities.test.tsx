@@ -65,6 +65,9 @@ async function renderAs(role: AuthRole, ui: React.ReactElement) {
   stubSession(role);
   const view = render(<SessionProvider>{ui}</SessionProvider>);
   await waitFor(() => expect(screen.queryByText(i18n.t('auth.loading'))).toBeNull());
+  // The session lands from a promise, outside `act`: React runs the gate's passive effects
+  // (its event listeners) after the DOM changed. Flush them before a test reports an event.
+  await act(async () => {});
   return view;
 }
 
@@ -80,6 +83,8 @@ async function hookAs<T>(role: AuthRole, hook: () => T) {
   const Wrapper = wrapperFor(role);
   const gated = renderHook(hook, { wrapper: Wrapper });
   await waitFor(() => expect(gated.result.current).not.toBeNull());
+  // Same as `renderAs`: the hook's mount effects run after the gate's DOM change.
+  await act(async () => {});
   return gated;
 }
 
@@ -385,7 +390,8 @@ describe('legacy favourites migration', () => {
       await result.current.fetchAppSettings();
     });
     await waitFor(() => expect(toggle).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 0));
+    // Let the rejection settle before reading what the migration left behind.
+    await act(async () => {});
     expect(localStorage.getItem('meshloom-favorites')).not.toBeNull();
   });
 });

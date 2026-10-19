@@ -51,6 +51,13 @@ function Probe() {
 
 const t = (key: string, options?: Record<string, unknown>) => i18n.t(key, options);
 
+/**
+ * Lets the effects of the last commit run. The session lands from a promise, outside
+ * `act`, so React schedules its passive effects (the gate's event listeners) after the
+ * DOM already shows the app: an event reported right then reaches nobody.
+ */
+const settled = () => act(async () => {});
+
 beforeEach(async () => {
   await i18n.changeLanguage('fr');
 });
@@ -72,12 +79,16 @@ describe('session gate', () => {
     expect(screen.queryByLabelText(t('auth.setup.code'))).toBeNull();
     expect(screen.queryByTestId('app')).toBeNull();
 
-    await user.type(screen.getByLabelText(t('auth.username')), 'owner');
-    await user.type(screen.getByLabelText(t('auth.password')), 'correct horse battery');
-    await user.type(
-      screen.getByLabelText(t('auth.setup.confirmPassword')),
-      'correct horse battery'
-    );
+    // Paste, not type: one change event per field instead of one re-render per key, so the
+    // form's readiness no longer depends on how fast the machine runs 60 keystrokes.
+    for (const [label, value] of [
+      [t('auth.username'), 'owner'],
+      [t('auth.password'), 'correct horse battery'],
+      [t('auth.setup.confirmPassword'), 'correct horse battery'],
+    ]) {
+      await user.click(screen.getByLabelText(label));
+      await user.paste(value);
+    }
     await user.click(screen.getByRole('button', { name: t('auth.setup.submit') }));
 
     expect(await screen.findByTestId('app')).toHaveTextContent('app for Olive');
@@ -348,6 +359,8 @@ describe('session gate', () => {
     await screen.findByTestId('app');
     await user.type(screen.getByLabelText('draft'), 'half a message');
 
+    await settled();
+
     act(() => reportAuthRequired('auth_required'));
     const dialog = await screen.findByTestId('relogin-dialog');
     expect(dialog).toBeInTheDocument();
@@ -373,6 +386,7 @@ describe('session gate', () => {
     );
     await screen.findByTestId('app');
     session = { ...base, setup_required: true };
+    await settled();
     act(() => reportAuthRequired('auth_setup_required'));
     await screen.findByRole('heading', { name: t('auth.setup.title') });
   });
@@ -509,6 +523,7 @@ describe('review fixes', () => {
     );
     await screen.findByTestId('app');
     session = ingressAnonymous;
+    await settled();
     act(() => reportAuthRequired('auth_required'));
     await screen.findByRole('heading', { name: t('auth.ingress.title') });
     expect(screen.queryByTestId('relogin-dialog')).toBeNull();
