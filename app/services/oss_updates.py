@@ -214,9 +214,9 @@ async def _maybe_notify_oss_update() -> None:
     if last == latest:
         return
 
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_oss_update
 
-    sent = await push_manager.dispatch_oss_update(status["current"], latest)
+    sent = await emit_oss_update(status["current"], latest)
     if sent:
         await AppSettingsRepository.set_last_notified_update_version(latest)
 

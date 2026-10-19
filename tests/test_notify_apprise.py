@@ -272,7 +272,11 @@ def apprise_sends(monkeypatch) -> list[dict]:
 
 
 async def _dispatch(payload: dict, flags: dict) -> None:
-    await notify.dispatch_system_event(payload, flags)
+    """Set the event's media in the preferences (mirrored into the rules), then emit it."""
+    from app.notifications.producers import emit_payload
+
+    await AppSettingsRepository.set_push_defaults({"app_started": {"push": False, **flags}})
+    await emit_payload(payload)
     await notification_dispatcher().wait_idle()
 
 
@@ -290,12 +294,12 @@ async def test_dispatch_enqueues_only_with_urls_and_flag(test_db, apprise_sends)
 
 @pytest.mark.asyncio
 async def test_dm_matrix_apprise_flag_reaches_the_queue(test_db, apprise_sends):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
 
     submitted = apprise_sends
     await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
     await AppSettingsRepository.set_push_defaults({"new_dm": {"push": False, "apprise": True}})
-    await push_manager.dispatch_message(_dm())
+    await emit_message(_dm())
     await notification_dispatcher().wait_idle()
     assert len(submitted) == 1
     assert submitted[0]["text"] == "secret plans"  # the policy applies at send time
@@ -424,7 +428,11 @@ async def test_test_route_covers_apprise_with_coded_errors(
 async def test_health_reports_notification_statuses(test_db, client, monkeypatch, sleeps):
     _fake_sends(monkeypatch, {"1001": [_Response(status=500)]})
     await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
-    await _dispatch(_dm(), {"apprise": True})
+    from app.notifications.producers import emit_message
+
+    await AppSettingsRepository.set_push_defaults({"new_dm": {"push": True, "apprise": True}})
+    await emit_message(_dm())
+    await notification_dispatcher().wait_idle()
     body = (await client.get("/api/health")).json()
     status = body["notification_statuses"]["legacy:apprise"]
     assert status["status"] == "error"

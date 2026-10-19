@@ -12,8 +12,8 @@ Pure functions over ``app_settings.notification_rules`` (``app/notifications/AGE
 - the global pause (``paused_until``) and a channel's own ``paused_until`` hold
   every event except ``always_deliver`` ones and urgent ones.
 
-Block lists and mutes (MSHL-113) are applied by the producer until that ticket
-moves them here; the legacy adapter keeps its producers' decisions as they are.
+Mute and block lists are applied by the message producer
+(``app/notifications/producers.py``) until MSHL-113 moves the block lists here.
 """
 
 from __future__ import annotations
@@ -62,26 +62,76 @@ def always_deliver(rules: Mapping[str, Any], name: str) -> bool:
     return bool(_event_rule(rules, name).get("always_deliver"))
 
 
+def _message_event(message_type: str) -> str:
+    return "message.dm" if message_type == "PRIV" else "message.channel"
+
+
+def _exceptions(rules: Mapping[str, Any], state_key: str) -> Mapping[str, Any]:
+    conversations = rules.get("conversations")
+    stored = conversations.get(state_key) if isinstance(conversations, Mapping) else None
+    return stored if isinstance(stored, Mapping) else {}
+
+
+def conversation_channel_enabled(
+    *,
+    state_key: str,
+    message_type: str,
+    rules: Mapping[str, Any],
+    channel_id: str,
+    is_hashtag: bool = False,
+    is_public: bool = False,
+    muted: bool = False,
+    blocked: bool = False,
+    now: float | None = None,
+) -> bool:
+    """Whether a message of this conversation reaches ``channel_id`` (the module doc).
+
+    A stored exception for (conversation, channel) wins; else a DM follows the channels of
+    ``message.dm``, a Public or ``#`` channel those of ``message.channel``, a channel with its
+    own key none. A muted conversation, a blocked sender and the global pause (when ``now``
+    is given) cut everything but an ``always_deliver`` event. Pending channels and outgoing
+    messages never reach this point (the producer drops them).
+    """
+    name = _message_event(message_type)
+    if not always_deliver(rules, name) and (
+        muted or blocked or (now is not None and globally_paused(rules, now))
+    ):
+        return False
+    stored = _exceptions(rules, state_key).get(channel_id)
+    if isinstance(stored, bool):
+        return stored
+    if message_type != "PRIV" and not (is_public or is_hashtag):
+        return False
+    return channel_id in _ids(_event_rule(rules, name).get("channels"))
+
+
 def message_channel_ids(
     rules: Mapping[str, Any],
     *,
     state_key: str,
     is_dm: bool,
     is_public_or_hashtag: bool,
+    muted: bool = False,
+    blocked: bool = False,
 ) -> list[str]:
-    """The channels a message reaches (the conversation policy, module doc)."""
-    if is_dm:
-        defaults = _ids(_event_rule(rules, "message.dm").get("channels"))
-    elif is_public_or_hashtag:
-        defaults = _ids(_event_rule(rules, "message.channel").get("channels"))
-    else:
-        defaults = []
-    conversations = rules.get("conversations")
-    stored = conversations.get(state_key) if isinstance(conversations, Mapping) else None
-    exceptions = stored if isinstance(stored, Mapping) else {}
-    chosen = [cid for cid in defaults if exceptions.get(cid) is not False]
-    chosen += [cid for cid, on in exceptions.items() if on is True and cid not in chosen]
-    return chosen
+    """The channels a message reaches, ``conversation_channel_enabled`` for each candidate."""
+    message_type = "PRIV" if is_dm else "CHAN"
+    name = _message_event(message_type)
+    candidates = _ids(_event_rule(rules, name).get("channels"))
+    candidates += [cid for cid in _exceptions(rules, state_key) if cid not in candidates]
+    return [
+        cid
+        for cid in candidates
+        if conversation_channel_enabled(
+            state_key=state_key,
+            message_type=message_type,
+            rules=rules,
+            channel_id=cid,
+            is_public=is_public_or_hashtag,
+            muted=muted,
+            blocked=blocked,
+        )
+    ]
 
 
 def event_channel_ids(

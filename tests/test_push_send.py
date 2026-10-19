@@ -408,11 +408,11 @@ def _patch_push_send(monkeypatch) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_dispatch_message_sends_for_default_dm(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
 
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "PRIV",
             "outgoing": False,
@@ -428,14 +428,14 @@ async def test_dispatch_message_sends_for_default_dm(test_db, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dispatch_message_override_false_skips_dm(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository.settings import AppSettingsRepository
 
     key = "aa" * 32
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
     await AppSettingsRepository.set_push_conversation_override(f"contact-{key}", False)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "PRIV",
             "outgoing": False,
@@ -450,7 +450,7 @@ async def test_dispatch_message_override_false_skips_dm(test_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_dispatch_message_muted_channel_skips_even_with_override(test_db, monkeypatch):
     from app.channel_constants import PUBLIC_CHANNEL_KEY
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository import ChannelRepository
     from app.repository.settings import AppSettingsRepository
 
@@ -461,7 +461,7 @@ async def test_dispatch_message_muted_channel_skips_even_with_override(test_db, 
     await AppSettingsRepository.set_push_conversation_override(
         f"channel-{PUBLIC_CHANNEL_KEY}", True
     )
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "CHAN",
             "outgoing": False,
@@ -476,11 +476,11 @@ async def test_dispatch_message_muted_channel_skips_even_with_override(test_db, 
 @pytest.mark.asyncio
 async def test_dispatch_message_public_without_override_sends(test_db, monkeypatch):
     from app.channel_constants import PUBLIC_CHANNEL_KEY
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
 
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "CHAN",
             "outgoing": False,
@@ -494,14 +494,14 @@ async def test_dispatch_message_public_without_override_sends(test_db, monkeypat
 
 @pytest.mark.asyncio
 async def test_dispatch_message_hashtag_without_override_sends(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository import ChannelRepository
 
     hashtag_key = "cc" * 16
     await ChannelRepository.upsert(key=hashtag_key, name="#ops", is_hashtag=True)
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "CHAN",
             "outgoing": False,
@@ -515,14 +515,14 @@ async def test_dispatch_message_hashtag_without_override_sends(test_db, monkeypa
 
 @pytest.mark.asyncio
 async def test_dispatch_message_private_channel_without_override_skips(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository import ChannelRepository
 
     private_key = "dd" * 16
     await ChannelRepository.upsert(key=private_key, name="secret", is_hashtag=False)
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "CHAN",
             "outgoing": False,
@@ -539,7 +539,7 @@ async def test_dispatch_message_override_does_not_email_when_matrix_off(test_db,
     from unittest.mock import AsyncMock
 
     from app.models import NotificationDestinations, NotificationEmailDest
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository.settings import AppSettingsRepository
 
     key = "aa" * 32
@@ -555,7 +555,7 @@ async def test_dispatch_message_override_does_not_email_when_matrix_off(test_db,
         )
     )
     await AppSettingsRepository.set_push_conversation_override(f"contact-{key}", True)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "PRIV",
             "outgoing": False,
@@ -573,7 +573,7 @@ async def test_dispatch_message_emails_dm_only_when_matrix_enables_email(test_db
     from unittest.mock import AsyncMock
 
     from app.models import NotificationDestinations, NotificationEmailDest
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository.settings import AppSettingsRepository
 
     key = "aa" * 32
@@ -585,7 +585,7 @@ async def test_dispatch_message_emails_dm_only_when_matrix_enables_email(test_db
         )
     )
     await AppSettingsRepository.set_push_defaults({"new_dm": {"email": True}})
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "PRIV",
             "outgoing": False,
@@ -954,13 +954,13 @@ async def test_dispatch_oss_update_skips_if_already_notified(test_db, monkeypatc
 
 @pytest.mark.asyncio
 async def test_dispatch_oss_update_skips_when_default_off(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_oss_update
     from app.repository.settings import AppSettingsRepository
 
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
     await AppSettingsRepository.set_push_defaults({"oss_update": False})
-    sent_flag = await push_manager.dispatch_oss_update("1.0.0", "9.9.9")
+    sent_flag = await emit_oss_update("1.0.0", "9.9.9")
     assert sent_flag is False
     assert sent == []
 

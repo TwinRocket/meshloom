@@ -717,39 +717,96 @@ async def test_every_notifications_route_is_admin_only(test_db, client, sign_in_
     assert (await client.get("/api/notifications/channels")).status_code == 200
 
 
-# ── What the legacy preferences still decide (until MSHL-112) ───────────
+# ── The rules decide; the deprecated preferences follow ─────────────────
 
 
-async def test_legacy_media_of_a_legacy_event_are_refused_in_the_new_rules(test_db, client):
-    before = await _rules(client)
+async def _preferences(client) -> dict:
+    response = await client.get("/api/push/preferences")
+    assert response.status_code == 200
+    return response.json()
+
+
+async def test_the_rules_decide_and_the_legacy_preferences_follow(test_db, client):
     response = await client.patch(
         "/api/notifications/rules", json={"events": {"message.dm": {"channels": []}}}
     )
-    assert (response.status_code, code_of(response)) == (409, "legacy_managed")
+    assert response.status_code == 200
+    assert (await _preferences(client))["defaults"]["new_dm"]["push"] is False
+
+    before = await _rules(client)
     current = before["events"]["contact.first_seen"]["contact_types"]["repeater"]
     flipped = [] if "builtin:push" in current else ["builtin:push"]
-    refused = await client.patch(
+    ok = await client.patch(
         "/api/notifications/rules",
         json={"events": {"contact.first_seen": {"contact_types": {"repeater": flipped}}}},
     )
-    assert refused.status_code == 409 and code_of(refused) == "legacy_managed"
+    assert ok.status_code == 200
+    assert (await _preferences(client))["defaults"]["advert_repeater"]["push"] == bool(flipped)
+
     key = "contact-" + "ef" * 32
     conversation = await client.put(
-        f"/api/notifications/rules/conversations/{key}", json={"channels": {"builtin:push": True}}
+        f"/api/notifications/rules/conversations/{key}", json={"channels": {"builtin:push": False}}
     )
-    assert conversation.status_code == 409 and code_of(conversation) == "legacy_managed"
-    assert await _rules(client) == before
-    # always_deliver and events no legacy flag decides stay editable.
+    assert conversation.status_code == 200
+    assert (await _preferences(client))["overrides"][key] == {"push": False}
+    cleared = await client.put(
+        f"/api/notifications/rules/conversations/{key}", json={"channels": None}
+    )
+    assert cleared.status_code == 200
+    assert key not in (await _preferences(client))["overrides"]
+
+
+async def test_media_without_a_channel_keep_their_legacy_flags(test_db, client):
+    from app.repository.settings import AppSettingsRepository
+
+    """The reviewer's case: ``new_dm.email`` is on but no SMTP is set yet, so the rules cannot
+    hold ``legacy:email``. A change through the new API must not wipe the 4.18.x flag."""
+    key = "contact-" + "ab" * 32
+    await AppSettingsRepository.set_push_defaults({"new_dm": {"push": True, "email": True}})
+    await AppSettingsRepository.set_push_conversation_override(key, {"email": True})
+    assert (await _preferences(client))["defaults"]["new_dm"]["email"] is True
     ok = await client.patch(
-        "/api/notifications/rules",
-        json={
-            "events": {
-                "message.dm": {"always_deliver": True},
-                "message.channel": {"channels": []},
-            }
-        },
+        "/api/notifications/rules", json={"events": {"message.dm": {"always_deliver": True}}}
     )
     assert ok.status_code == 200
+    other = await client.put(
+        "/api/notifications/rules/conversations/contact-" + "cd" * 32,
+        json={"channels": {"builtin:push": False}},
+    )
+    assert other.status_code == 200
+    prefs = await _preferences(client)
+    assert prefs["defaults"]["new_dm"]["email"] is True
+    assert prefs["overrides"][key] == {"email": True}
+    # The destination arrives: the kept flag becomes a rule again.
+    patched = await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"email": {"host": "smtp.example.org", "to": "a@b.c"}}},
+    )
+    assert patched.status_code == 200
+    rules = await _rules(client)
+    assert "legacy:email" in rules["events"]["message.dm"]["channels"]
+    assert rules["conversations"][key] == {"legacy:email": True}
+
+
+async def test_a_rule_on_a_new_channel_stays_out_of_the_legacy_preferences(test_db, client):
+    hook = await create(client, webhook())
+    ok = await client.patch(
+        "/api/notifications/rules",
+        json={"events": {"message.dm": {"channels": ["builtin:push", hook["id"]]}}},
+    )
+    assert ok.status_code == 200
+    assert (await _preferences(client))["defaults"]["new_dm"] == {
+        "push": True,
+        "email": False,
+        "webhook": False,
+        "apprise": False,
+    }
+    # The legacy write that follows keeps the new channel in the rules.
+    await client.patch("/api/push/preferences", json={"defaults": {"new_dm": {"push": True}}})
+    assert (await _rules(client))["events"]["message.dm"]["channels"] == [
+        "builtin:push",
+        hook["id"],
+    ]
 
 
 async def test_legacy_channels_destinations_are_set_through_the_settings(test_db, client):
@@ -789,7 +846,7 @@ async def test_rules_changes_and_the_global_pause_are_audited(test_db, client):
     assert rows[0].target == "notification_rules"
     # A refused change writes nothing.
     await client.patch(
-        "/api/notifications/rules", json={"events": {"message.dm": {"channels": []}}}
+        "/api/notifications/rules", json={"events": {"message.dm": {"channels": ["nope"]}}}
     )
     assert (
         len(

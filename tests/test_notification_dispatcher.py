@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from app.notifications import dispatcher as dispatcher_module
 from app.notifications.channels import Channel, min_interval_s
 from app.notifications.dispatcher import (
     GROUPED_EVENT,
@@ -711,37 +710,12 @@ async def test_shutdown_aborts_a_pending_long_retry(test_db):
     assert [(r["status"], r["attempts"]) for r in rows] == [("aborted", 3)]
 
 
-# -- the legacy adapter ---------------------------------------------------------
+# -- the producers' entry point -------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_adapter_maps_media_to_legacy_channels(test_db, monkeypatch):
-    from app import notify
-    from app.models import NotificationDestinations
-
-    seen: list[tuple[list[str], dict]] = []
-
-    async def fake_emit(event, *, payload=None, targets=None):
-        seen.append((list(targets or []), dict(payload or {})))
-
-    monkeypatch.setattr(dispatcher_module, "emit", fake_emit)
-    dest = NotificationDestinations.model_validate(
-        {"email": {"host": "smtp.example.org", "to": "a@example.org"}}
-    )
-    monkeypatch.setattr(
-        "app.notify.AppSettingsRepository.get",
-        AsyncMock(return_value=type("S", (), {"notification_destinations": dest})()),
-    )
-    await notify.dispatch_system_event(
-        {"event": "oss_update"}, {"push": True, "email": True, "webhook": True, "apprise": True}
-    )
-    # The webhook and Apprise have no destination: skipped, as before the dispatcher.
-    assert seen == [(["builtin:push", "legacy:email"], {"event": "oss_update"})]
-
-
-@pytest.mark.asyncio
-async def test_adapter_delivers_web_push_through_the_dispatcher(test_db, monkeypatch):
-    from app import notify
+async def test_an_event_reaches_web_push_through_the_rules(test_db, monkeypatch):
+    from app.notifications.producers import emit_payload
     from app.push.manager import PushOutcome, push_manager
 
     sent: list[dict] = []
@@ -751,9 +725,30 @@ async def test_adapter_delivers_web_push_through_the_dispatcher(test_db, monkeyp
         return PushOutcome(total=1, delivered=1)
 
     monkeypatch.setattr(push_manager, "dispatch_event", fake_dispatch_event)
-    await notify.dispatch_system_event({"event": "app_started", "version": "5"}, {"push": True})
+    await emit_payload({"event": "app_started", "version": "5"})
     await notification_dispatcher().wait_idle()
     assert sent == [{"event": "app_started", "version": "5"}]
+
+
+@pytest.mark.asyncio
+async def test_exclude_drops_a_channel_the_rules_chose(test_db, monkeypatch):
+    seen: list[str] = []
+
+    class Spy:
+        async def send(self, channel, rendered, event, secrets):
+            seen.append(channel.id)
+            return SendResult("ok")
+
+    async def instant(seconds: float) -> None:
+        return None
+
+    dispatcher = Dispatcher(sleep=instant, transport_for=lambda _c: Spy())
+    await dispatcher.emit(None, payload={"event": "app_started"}, exclude=["builtin:push"])
+    await dispatcher.wait_idle()
+    assert seen == []
+    await dispatcher.emit(None, payload={"event": "app_started"})
+    await dispatcher.wait_idle()
+    assert seen == ["builtin:push"]
 
 
 @pytest.mark.asyncio

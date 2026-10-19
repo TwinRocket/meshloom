@@ -18,10 +18,9 @@ from app.email_template import (
 )
 from app.models import AppSettings, NotificationDestinations, NotificationWebhookDest
 from app.net.egress_guard import EgressBlocked
-from app.notifications.dispatcher import notification_dispatcher
+from app.notifications.dispatcher import emit, notification_dispatcher
 from app.notify import (
     TEST_ALERT_PAYLOAD,
-    dispatch_system_event,
     send_webhook_alert,
     webhook_last_error,
 )
@@ -165,7 +164,7 @@ async def test_lan_webhook_sent_with_the_flag_and_last_error_cleared(webhook_req
 @pytest.mark.asyncio
 async def test_dispatch_logs_a_refused_webhook_as_a_warning(webhook_requests, monkeypatch, caplog):
     monkeypatch.setattr(
-        "app.notify.AppSettingsRepository.get",
+        "app.repository.settings.AppSettingsRepository.get",
         AsyncMock(
             return_value=SimpleNamespace(
                 notification_destinations=NotificationDestinations(
@@ -175,7 +174,7 @@ async def test_dispatch_logs_a_refused_webhook_as_a_warning(webhook_requests, mo
         ),
     )
     with caplog.at_level(logging.WARNING, logger="app.notifications.transports.legacy"):
-        await dispatch_system_event({"event": "oss_update"}, {"webhook": True})
+        await emit(None, payload={"event": "oss_update"}, targets=["legacy:webhook"])
         await notification_dispatcher().wait_idle()
     assert "webhook dispatch failed: egress_private_address" in caplog.text
     assert "tok3n" not in caplog.text
@@ -300,8 +299,6 @@ def test_backup_from_before_the_guard_restores_the_lan_opt_in():
 
 @pytest.mark.asyncio
 async def test_dispatch_uses_explicit_channels(monkeypatch):
-    from app.notify import dispatch_system_event
-
     push = AsyncMock()
     email = AsyncMock()
     webhook = AsyncMock()
@@ -319,8 +316,10 @@ async def test_dispatch_uses_explicit_channels(monkeypatch):
         AsyncMock(return_value=type("S", (), {"notification_destinations": destinations})()),
     )
 
-    await dispatch_system_event(
-        {"event": "oss_update"}, {"push": False, "email": True, "webhook": True}
+    await emit(
+        None,
+        payload={"event": "oss_update"},
+        targets=["legacy:email", "legacy:webhook"],
     )
     await notification_dispatcher().wait_idle()
     push.assert_not_called()

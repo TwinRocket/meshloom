@@ -16,7 +16,6 @@ from typing import Any, Literal, TypeGuard
 from app.models import (
     NotificationDestinations,
     NotificationDestinationsUpdate,
-    TelemetryAlertChannels,
     TelemetryAlertRuleOverride,
     TelemetryAlertRules,
     TelemetryRuleSpec,
@@ -101,7 +100,6 @@ DEFAULT_RULE_DICTS: dict[str, dict[str, Any]] = {
     "lpp:temperature": {"enabled": False, "op": "gt", "threshold": 50, "hysteresis": 1},
 }
 
-DEFAULT_CHANNELS = {"push": True, "email": False, "webhook": False}
 
 DEFAULT_NOTIFICATION_DESTINATIONS: dict[str, Any] = {
     "email": {
@@ -125,7 +123,6 @@ PollOutcome = Literal["success", "miss", "busy"]
 class ResolvedNodeRules:
     alerting: bool
     rules: dict[str, TelemetryRuleSpec]
-    channels: TelemetryAlertChannels
 
 
 def battery_volts_from_status(status: Mapping[str, Any] | None) -> float | None:
@@ -347,7 +344,6 @@ def stored_rules_dict(rules: TelemetryAlertRules) -> dict[str, Any]:
             }
         overrides[key] = entry
     return {
-        "channels": rules.channels.model_dump(),
         "rules": {
             rule_id: spec.model_dump(exclude_none=True) for rule_id, spec in rules.rules.items()
         },
@@ -368,20 +364,6 @@ def coerce_telemetry_alert_rules(raw: object) -> TelemetryAlertRules:
         )
     else:
         parsed = _parse_json_object(raw)
-
-    channels_raw = parsed.get("channels")
-    channels = TelemetryAlertChannels(
-        push=bool(channels_raw.get("push", True)) if isinstance(channels_raw, Mapping) else True,
-        email=bool(channels_raw.get("email", False))
-        if isinstance(channels_raw, Mapping)
-        else False,
-        webhook=(
-            bool(channels_raw.get("webhook", False)) if isinstance(channels_raw, Mapping) else False
-        ),
-        apprise=(
-            bool(channels_raw.get("apprise", False)) if isinstance(channels_raw, Mapping) else False
-        ),
-    )
 
     rules = default_rule_specs()
     raw_rules = parsed.get("rules")
@@ -407,7 +389,7 @@ def coerce_telemetry_alert_rules(raw: object) -> TelemetryAlertRules:
                 continue
             overrides[key.lower()] = _coerce_override(value)
 
-    return TelemetryAlertRules(channels=channels, rules=rules, overrides=overrides)
+    return TelemetryAlertRules(rules=rules, overrides=overrides)
 
 
 def merge_telemetry_alert_rules(
@@ -415,7 +397,8 @@ def merge_telemetry_alert_rules(
 ) -> TelemetryAlertRules:
     """Deep-merge a PATCH fragment into stored rules.
 
-    Channels merge field-by-field, rules by id, overrides by pubkey then rule.
+    A ``channels`` field of an old PATCH body is accepted and ignored (the notification rules
+    choose the channels); rules merge by id, overrides by pubkey then rule.
     Omit/null keeps the stored value. ``overrides: {}`` replaces the map.
     A legacy 3-field PATCH only updates those three thresholds.
     """
@@ -425,14 +408,6 @@ def merge_telemetry_alert_rules(
     incoming_dump = incoming.model_dump(exclude=_COMPAT_RULE_FIELDS)
     if any(field in incoming.model_fields_set for field in _COMPAT_RULE_FIELDS):
         payload.setdefault("rules", incoming_dump.get("rules") or {})
-
-    raw_channels = payload.get("channels")
-    if isinstance(raw_channels, Mapping):
-        merged_channels = dict(merged.get("channels") or DEFAULT_CHANNELS)
-        for key, value in raw_channels.items():
-            if value is not None:
-                merged_channels[key] = value
-        merged["channels"] = merged_channels
 
     raw_rules = payload.get("rules")
     if isinstance(raw_rules, Mapping):
@@ -501,7 +476,7 @@ def resolve_node_rules(rules: TelemetryAlertRules, public_key: str) -> ResolvedN
     if override is not None and override.rules:
         for rule_id, patch in override.rules.items():
             merged[rule_id] = _merge_spec(merged.get(rule_id, TelemetryRuleSpec()), patch)
-    return ResolvedNodeRules(alerting=alerting, rules=merged, channels=rules.channels)
+    return ResolvedNodeRules(alerting=alerting, rules=merged)
 
 
 def alerting_off_patch(public_key: str) -> TelemetryAlertRules:
@@ -1059,9 +1034,8 @@ async def _dispatch(
     op: str | None = None,
 ) -> None:
     from app.email_template import enrich_notification_payload
-    from app.notify import dispatch_system_event
+    from app.notifications.producers import emit_payload
 
-    defaults = await AppSettingsRepository.get_push_defaults()
     payload: dict[str, Any] = {
         "event": "telemetry_alert",
         "public_key": public_key,
@@ -1072,7 +1046,4 @@ async def _dispatch(
     }
     if op:
         payload["op"] = op
-    await dispatch_system_event(
-        enrich_notification_payload(payload),
-        defaults["telemetry_alert"],
-    )
+    await emit_payload(enrich_notification_payload(payload))

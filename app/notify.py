@@ -1,12 +1,9 @@
 """The 4.18.x notification media (push, email, webhook, Apprise) and their adapter.
 
-``dispatch_system_event`` is the legacy adapter: it turns the producers' payload
-and medium flags into a catalogue event and the channel ids the media became
-(``builtin:push``, ``legacy:email|webhook|apprise``) and hands them to the
-dispatcher (``app/notifications/dispatcher.py``), which queues, limits, retries
-and records them. The send functions below are what the legacy transports
-(``app/notifications/transports/legacy.py``) call until the native ones replace
-them (MSHL-110); the adapter goes once the producers are rewired (MSHL-112).
+The producers no longer call this module: they emit events and the rules choose the
+channels (``app/notifications/producers.py``). The send functions below are what the
+``legacy:*`` transports (``app/notifications/transports/legacy.py``) call until the
+native ones replace them.
 """
 
 from __future__ import annotations
@@ -19,15 +16,13 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from app.migrations._113_notification_channels import MEDIUM_CHANNEL
-from app.models import NotificationDestinations, TelemetryAlertChannels
+from app.models import NotificationDestinations
 from app.net.apprise_urls import split_apprise_urls
 from app.net.egress_guard import error_code, pinned_async_client, validate_destination
 from app.notifications.apprise_medium import send_to_urls
 from app.notifications.executor import run_blocking
 from app.notifications.transports.email import build_email_apprise_url
 from app.notifications.transports.email import send_email_sync as _send_email_sync
-from app.repository.settings import AppSettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -52,17 +47,6 @@ TEST_ALERT_PAYLOAD = {
     "threshold": 3.5,
     "op": "lt",
 }
-
-
-def _channel_flags(channels: TelemetryAlertChannels | Mapping[str, Any]) -> TelemetryAlertChannels:
-    if isinstance(channels, TelemetryAlertChannels):
-        return channels
-    return TelemetryAlertChannels(
-        push=bool(channels.get("push", False)),
-        email=bool(channels.get("email", False)),
-        webhook=bool(channels.get("webhook", False)),
-        apprise=bool(channels.get("apprise", False)),
-    )
 
 
 async def _email_message(payload: Mapping[str, Any]) -> tuple[str, str]:
@@ -227,40 +211,3 @@ def notify_destination_changed(
         )
     except Exception:
         logger.debug("notify: destination change notice failed", exc_info=True)
-
-
-def legacy_targets(flags: TelemetryAlertChannels, dest: NotificationDestinations) -> list[str]:
-    """The channels a producer's medium flags name, for the media that are configured.
-
-    A medium with no destination is skipped, as before the dispatcher: it would
-    only record a failure for a setting the user never filled in.
-    """
-    targets: list[str] = []
-    if flags.push:
-        targets.append(MEDIUM_CHANNEL["push"])
-    if flags.email and (dest.email.host or dest.email.to):
-        targets.append(MEDIUM_CHANNEL["email"])
-    if flags.webhook and (dest.webhook.url or "").strip():
-        targets.append(MEDIUM_CHANNEL["webhook"])
-    if flags.apprise and (dest.apprise.urls or "").strip():
-        targets.append(MEDIUM_CHANNEL["apprise"])
-    return targets
-
-
-async def dispatch_system_event(
-    payload: dict[str, Any],
-    channels: TelemetryAlertChannels | Mapping[str, Any],
-) -> None:
-    """Hand an event to the dispatcher for the enabled media. Never raises, and
-    returns once it is queued (the sends happen in the channels' workers)."""
-    from app.notifications.dispatcher import emit
-
-    flags = _channel_flags(channels)
-    try:
-        dest = (await AppSettingsRepository.get()).notification_destinations
-    except Exception:
-        dest = NotificationDestinations()
-        logger.debug("notify: failed to load notification destinations", exc_info=True)
-    targets = legacy_targets(flags, dest)
-    if targets:
-        await emit(None, payload=dict(payload), targets=targets)

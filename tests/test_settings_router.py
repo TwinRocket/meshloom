@@ -747,7 +747,7 @@ class TestTelemetryAlertRulesPatchMerge:
         assert overrides[keep].alerting is False
 
     @pytest.mark.asyncio
-    async def test_legacy_three_field_patch_keeps_channels_and_lpp(self, test_db):
+    async def test_legacy_three_field_patch_keeps_lpp_and_ignores_channels(self, test_db):
         from app.models import TelemetryAlertChannels, TelemetryRuleSpec
 
         await AppSettingsRepository.update(
@@ -775,8 +775,8 @@ class TestTelemetryAlertRulesPatchMerge:
         assert rules.battery_volts_min == 3.2
         assert rules.noise_floor_max_dbm == -80
         assert rules.misses_before_alert == 4
-        assert rules.channels.email is True
-        assert rules.channels.webhook is False
+        assert "channels" not in rules.model_dump()
+        assert rules.channels.email is False  # an old body's channels are ignored, never stored
         assert rules.rules["lpp:temperature"].enabled is True
         assert rules.rules["lpp:temperature"].threshold == 40
 

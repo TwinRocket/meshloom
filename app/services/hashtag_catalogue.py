@@ -107,21 +107,9 @@ def _mac_matches(name: str, packets: list[bytes]) -> bytes | None:
 
 
 async def _notify_channel_found(name: str, key_hex: str) -> None:
-    from app.repository.settings import any_media_enabled
+    from app.notifications.producers import emit_payload
 
-    defaults = await AppSettingsRepository.get_push_defaults()
-    if not any_media_enabled(defaults, "channel_found"):
-        return
-    from app.notify import dispatch_system_event
-
-    await dispatch_system_event(
-        {
-            "event": "channel_found",
-            "name": name,
-            "channel_key": key_hex,
-        },
-        defaults["channel_found"],
-    )
+    await emit_payload({"event": "channel_found", "name": name, "channel_key": key_hex})
 
 
 async def _apply_matched_name(name: str, packets: list[bytes]) -> bool:

@@ -1359,7 +1359,9 @@ class TelemetryAlertRuleOverride(BaseModel):
 class TelemetryAlertRules(BaseModel):
     """Global telemetry alert rules plus optional per-public-key overrides."""
 
-    channels: TelemetryAlertChannels = Field(default_factory=TelemetryAlertChannels)
+    # Deprecated, ignored: the notification rules choose the channels. Accepted so an old
+    # PATCH body still validates; never stored and never returned.
+    channels: TelemetryAlertChannels = Field(default_factory=TelemetryAlertChannels, exclude=True)
     rules: dict[str, TelemetryRuleSpec] = Field(default_factory=dict)
     overrides: dict[str, TelemetryAlertRuleOverride] | None = Field(
         default_factory=dict,

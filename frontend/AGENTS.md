@@ -679,7 +679,9 @@ The browser never calls GitHub. Install / auto-update show only when
 ### Web Push
 
 `public/sw.js` displays notifications and handles clicks; `utils/pushPolicy.ts`
-mirrors `app/push/policy.py`. The `ChatHeader` bell opens `ConversationNotifyMenu`
+mirrors the 4.18.x conversation policy (`app/push/policy.py`, now a deprecated adapter over
+`app/notifications/rules.py`, whose shared fixture is `tests/fixtures/notification_policy_cases.json`;
+the N-channel mirror `notificationPolicy.ts` comes with the bell ticket). The `ChatHeader` bell opens `ConversationNotifyMenu`
 (push, email, webhook, Apprise per conversation). Turning push on subscribes this browser
 first when needed, then sets the per-conversation override (`App.tsx`). There is
 no in-tab desktop notification.

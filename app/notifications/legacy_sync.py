@@ -1,18 +1,20 @@
 """The 4.18.x settings as channels and rules, kept in step both ways of writing.
 
-Until the producers read the rules (MSHL-112), the delivery source is still
-``push_defaults``, ``push_conversation_overrides`` and ``notification_destinations``: the
-producers compute their medium flags from them and the ``legacy:*`` transports read the
-destinations at send time. The deprecated routes (``/api/push/preferences*``,
-``PATCH /api/settings`` with ``notification_destinations``) therefore keep writing those
-columns, and the repository calls the two functions below after every such write, so the
-channels and the rules the new API shows say the same thing:
+The producers emit events and the rules decide the delivery (``app/notifications/producers.py``);
+the ``legacy:*`` transports still read ``notification_destinations`` at send time. The
+deprecated routes (``/api/push/preferences*``, ``PATCH /api/settings`` with
+``notification_destinations``) keep writing ``push_defaults``, ``push_conversation_overrides``
+and the destinations, and the repository calls the two functions below after every such write,
+so the channels and the rules the new API shows say the same thing:
 
 - ``sync_destinations()`` upserts ``legacy:email|webhook|apprise`` from the destinations
   (a destination that is no longer configured deletes its channel, with the cascade);
 - ``sync_rules()`` sets, in ``notification_rules``, which of ``builtin:push`` and the
   ``legacy:*`` channels each event and each conversation reaches. The other channels in
   those rules, ``message.channel`` and every other rule key are left as they are.
+
+The other way, ``sync_columns()`` copies the legacy media of the rules into the two preference
+columns after the new API changed them, so the deprecated routes show what is delivered.
 
 Never raises into the writer: a failure is logged and the next write repairs it.
 """
@@ -107,13 +109,65 @@ async def sync_destinations() -> None:
     await sync_rules()
 
 
-# The events whose legacy media (push, e-mail, webhook, Apprise) are still decided by the
-# 4.18.x flags: the new rules API refuses to change those ids until MSHL-112.
-LEGACY_EVENTS = frozenset(
-    {*import_113.EVENT_OF_KEY.values(), "contact.first_seen"} - SKIPPED_EVENTS
-)
+async def sync_columns() -> None:
+    """Mirror the four legacy media of the rules back into the 4.18.x preference columns.
 
+    The rules decide the delivery; the deprecated ``/api/push/preferences*`` routes still read
+    the columns, so a change made through ``/api/notifications/rules`` is copied there. A
+    companion follows ``new_contact`` OR ``advert_companion`` in 4.18.x, so both take the
+    companion list. Other channels are not representable and stay in the rules only.
+    """
+    from app.notifications.rules import _ids
+    from app.repository.notification_channels import NotificationChannelRepository
+    from app.repository.settings import AppSettingsRepository, or_notification_media
 
-def legacy_ids(ids: object) -> set[str]:
-    """The ``builtin:push`` / ``legacy:*`` ids of a list or mapping of channel ids."""
-    return {str(i) for i in (ids or ()) if str(i) in MEDIUM_IDS}  # type: ignore[attr-defined]
+    try:
+        rules = await NotificationChannelRepository.get_rules()
+        events = rules.get("events")
+        if not isinstance(events, Mapping) or not events:
+            return
+        existing = {c.id for c in await NotificationChannelRepository.list_all()}
+        current_defaults = await AppSettingsRepository.get_push_defaults()
+        current_overrides = await AppSettingsRepository.get_push_conversation_overrides()
+        # The rules hold a legacy medium only while its channel exists (no SMTP, no URL:
+        # none). A flag the user set for a medium that is not configured yet is kept as it is.
+        known = {m: cid in existing for m, cid in import_113.MEDIUM_CHANNEL.items()}
+
+        def flags(ids: object, current: Mapping[str, Any]) -> dict[str, bool]:
+            wanted = set(_ids(ids))
+            return {
+                m: (cid in wanted) if known[m] else bool(current.get(m, False))
+                for m, cid in import_113.MEDIUM_CHANNEL.items()
+            }
+
+        defaults: dict[str, Any] = {}
+        for key, event in import_113.EVENT_OF_KEY.items():
+            defaults[key] = flags((events.get(event) or {}).get("channels"), current_defaults[key])  # type: ignore[literal-required]
+        types = ((events.get("contact.first_seen") or {}).get("contact_types")) or {}
+        defaults["new_contact"] = defaults["advert_companion"] = flags(
+            types.get("companion"),
+            or_notification_media(
+                current_defaults["new_contact"], current_defaults["advert_companion"]
+            ),
+        )
+        defaults["advert_repeater"] = flags(
+            types.get("repeater"), current_defaults["advert_repeater"]
+        )
+        defaults["advert_sensor"] = flags(types.get("sensor"), current_defaults["advert_sensor"])
+        overrides: dict[str, Any] = {}
+        conversations = rules.get("conversations")
+        for key, entry in (conversations if isinstance(conversations, Mapping) else {}).items():
+            stored = {
+                m: bool(entry[cid])
+                for m, cid in import_113.MEDIUM_CHANNEL.items()
+                if known[m] and isinstance(entry, Mapping) and isinstance(entry.get(cid), bool)
+            }
+            overrides[str(key)] = stored
+        for key, entry in current_overrides.items():
+            kept = {m: v for m, v in entry.items() if not known.get(m, True)}
+            if kept:
+                overrides.setdefault(key, {}).update(kept)
+        overrides = {k: v for k, v in overrides.items() if v}
+        await AppSettingsRepository.write_push_columns(defaults, overrides)
+    except Exception:
+        logger.warning("legacy preferences not mirrored from the notification rules", exc_info=True)

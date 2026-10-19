@@ -35,7 +35,7 @@ from app.notifications.channels import (
     types_schema,
 )
 from app.notifications.events import EVENT_IDS
-from app.notifications.legacy_sync import LEGACY_EVENTS, MEDIUM_IDS, legacy_ids
+from app.notifications.legacy_sync import MEDIUM_IDS, sync_columns
 from app.repository.notification_channels import (
     DELIVERIES_PER_CHANNEL,
     NotificationChannelRepository,
@@ -72,7 +72,7 @@ def fail(
 
 
 def legacy_managed() -> HTTPException:
-    """409: this is still decided by the 4.18.x preferences and destinations (MSHL-112)."""
+    """409: the ``legacy:*`` destinations are still the 4.18.x ``notification_destinations``."""
     return fail("legacy_managed", 409)
 
 
@@ -464,11 +464,8 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
             if event_id not in EVENT_IDS or event_id in NOT_CONFIGURABLE:
                 raise fail("invalid_config", 400, fields=[f"events.{event_id}"])
             entry = dict(events.get(event_id) or {})
-            managed = event_id in LEGACY_EVENTS
             if patch.channels is not None:
                 _check_ids(patch.channels, known)
-                if managed and legacy_ids(patch.channels) != legacy_ids(entry.get("channels")):
-                    raise legacy_managed()
                 if event_id in LOCKED_PUSH_EVENTS and BUILTIN_PUSH_ID not in patch.channels:
                     raise fail("builtin_channel", 403, event=event_id)
                 entry["channels"] = list(dict.fromkeys(patch.channels))
@@ -481,11 +478,8 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
                     "sensor",
                 }:
                     raise fail("invalid_config", 400, fields=[f"events.{event_id}.contact_types"])
-                current_types = entry.get("contact_types") or {}
-                for kind, ids in patch.contact_types.items():
+                for ids in patch.contact_types.values():
                     _check_ids(ids, known)
-                    if legacy_ids(ids) != legacy_ids(current_types.get(kind)):
-                        raise legacy_managed()
                 entry["contact_types"] = {
                     kind: list(dict.fromkeys(ids)) for kind, ids in patch.contact_types.items()
                 }
@@ -502,6 +496,8 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
         rules["mention_whole_word"] = body.mention_whole_word
     rules.setdefault("version", 1)
     await NotificationChannelRepository.set_rules(rules)
+    if body.events:
+        await sync_columns()
 
     if body.radio_offline_grace_s is not None or body.push_allow_private_endpoints is not None:
         await AppSettingsRepository.update(
@@ -538,11 +534,6 @@ async def put_conversation_rule(
     rules = await NotificationChannelRepository.get_rules()
     conversations = dict(rules.get("conversations") or {})
 
-    def legacy_part(entry: object) -> dict[str, Any]:
-        return {k: v for k, v in (entry or {}).items() if k in MEDIUM_IDS}  # type: ignore[attr-defined]
-
-    if legacy_part(body.channels) != legacy_part(conversations.get(key)):
-        raise legacy_managed()
     if body.channels is None or not body.channels:
         conversations.pop(key, None)
     else:
@@ -551,6 +542,7 @@ async def put_conversation_rule(
     rules["conversations"] = conversations
     rules.setdefault("version", 1)
     await NotificationChannelRepository.set_rules(rules)
+    await sync_columns()
     await _audit_rules(request, ["conversations"], None)
     return await _rules_view()
 
