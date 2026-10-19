@@ -384,6 +384,9 @@ class NotificationChannelRepository:
         if config_changed:
             sets["config"] = json.dumps(public, sort_keys=True)
             sets["secrets"] = json.dumps(secrets, sort_keys=True)
+            if current.last_error == "secret_missing":
+                # The restore left this channel waiting for its secret (MSHL-117): it is here.
+                sets["last_error"] = None
         for column in (
             "name",
             "enabled",

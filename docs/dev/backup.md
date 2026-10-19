@@ -260,6 +260,46 @@ imported by `services/backup.py`.
   (public keys).
 - Tests: `tests/test_backup_accounts.py`.
 
+## Notifications (`notifications`)
+
+`app/services/backup_notifications.py` registers the `notifications` section
+(MSHL-117, version 1, not `sensitive`: `secrets_omitted` is set instead),
+imported by `services/backup.py`.
+
+- **Data.** `{"channels": [...], "rules": {...}}`. A channel carries its id, type,
+  preset, name, enabled, language, **public** config, `allow_private_network`,
+  `include_message_text`, `verify_tls`, `quiet_hours_exempt`, the three rates,
+  `sort_order` and `secret_omitted` (`{field: true}` for each write-only field that held a
+  value; the values are never exported). `rules` is `app_settings.notification_rules`
+  with `paused_until` emptied. The delivery journal, counters and dedup state are runtime
+  data and stay out; the block lists are `blocked_keys` / `blocked_names` in the v1 settings.
+- **Restore.** Channels merge by id, the rules are replaced minus the ids of channels
+  that exist nowhere. A channel with a missing secret (`secret_omitted`, or a required
+  secret absent) is written **disabled** with `last_error = "secret_missing"`
+  (`errors.secret_missing` in the UI); the warning `notification_secrets_missing:<n>` counts
+  them. `NotificationChannelRepository.update()` clears the state once the secret is saved,
+  and refuses to enable a channel whose required fields are empty (`config_required`). A
+  channel that already exists with the same type, preset, destination (public config,
+  `allow_private_network`, `verify_tls`) keeps its stored secrets and takes the file's
+  options; if the destination differs, the stored secrets are dropped (a kept secret never
+  follows a destination change). `legacy:*` and `builtin:push` only take their own options
+  (name excluded for `builtin:`); the `legacy:*` destination and secrets come from
+  `notification_destinations` in the v1 settings, restored first. An unknown type, a
+  config the type refuses or a `legacy:*` channel absent here is dropped with
+  `notification_channel_dropped:<id>`.
+- **Hook.** `on_restore("notifications")` empties the channel cache and runs
+  `legacy_sync.sync_columns()`, so the deprecated `push_defaults` and
+  `push_conversation_overrides` columns follow the restored rules.
+- **4.18.x files** have no such section. `restore_json` writes the destinations
+  (`AppSettingsRepository.update` → `legacy_sync.sync_destinations`, which builds the
+  `legacy:*` channels with migration 113's `build_channels`) and `push_defaults` /
+  `push_conversation_overrides` (→ `legacy_sync.sync_rules`, `build_rules`): the same code as
+  the migration, merged into the rules of the target. Fixtures:
+  `tests/fixtures/backup/v1_4.18.2_destinations.json` (the real 4.18.2 export with
+  destinations and preferences filled in) and `v2_notifications.json`.
+- `GET /settings/backup/json` stays `meshloom-backup-v1` and has no channel;
+  `GET /api/debug` lists each channel with `secret_fields_set` (names), never a value.
+
 ## The `on_restore` hook
 
 ```python
@@ -300,6 +340,9 @@ too; `services/backup_accounts.py` registers `accounts` (reloads the trusted
 network rules).
 
 ## Tests
+
+`tests/test_backup_notifications.py` covers the notifications section and the 4.18.x
+restore.
 
 `tests/test_backup_sections.py` (fixtures in `tests/fixtures/backup/`: a real
 4.18.2 export and a #156 full backup) covers the round trips, a registered

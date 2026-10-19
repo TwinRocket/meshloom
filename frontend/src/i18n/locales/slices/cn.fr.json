@@ -1,0 +1,14 @@
+{
+  "settings": {
+    "fullRestore": {
+      "warnings": {
+        "notification_secrets_missing": "{{value}} canal(aux) de notification restauré(s) désactivé(s) : les secrets ne quittent jamais Meshloom, saisissez-les à nouveau dans Réglages > Notifications, puis activez le canal.",
+        "notification_channel_dropped": "Un canal de notification de la sauvegarde ({{value}}) n’a pas pu être restauré et a été laissé de côté.",
+        "notification_rules_dropped": "Les règles de notification de la sauvegarde sont trop volumineuses et n’ont pas été restaurées."
+      }
+    }
+  },
+  "errors": {
+    "secret_missing": "Secret manquant après une restauration : saisissez-le à nouveau, puis activez le canal."
+  }
+}

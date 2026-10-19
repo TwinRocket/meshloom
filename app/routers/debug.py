@@ -152,6 +152,20 @@ class DebugAppSettings(BaseModel):
     auto_clock_wraparound: bool = True
 
 
+class DebugNotificationChannel(BaseModel):
+    """A notification channel for the support snapshot: no config, no secret value."""
+
+    id: str
+    type: str
+    preset: str | None = None
+    enabled: bool
+    secret_fields_set: list[str] = Field(
+        description="Names of the write-only fields that hold a value (never the values)"
+    )
+    last_error: str | None = None
+    failure_count: int = 0
+
+
 class DebugCompanionCli(BaseModel):
     supported: bool
     reason: CapabilityReason = Field(
@@ -173,6 +187,7 @@ class DebugSnapshotResponse(BaseModel):
     environment: DebugEnvironment
     health: DebugHealthSummary
     settings: DebugAppSettings
+    notification_channels: list[DebugNotificationChannel] = Field(default_factory=list)
     runtime: DebugRuntimeInfo
     database: DebugDatabaseInfo
     radio_probe: DebugRadioProbe
@@ -300,6 +315,28 @@ def _build_debug_app_settings(app_settings: AppSettings) -> DebugAppSettings:
         load_with_autoevict=app_settings.load_with_autoevict,
         auto_clock_wraparound=app_settings.auto_clock_wraparound,
     )
+
+
+async def _build_notification_channels() -> list[DebugNotificationChannel]:
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    try:
+        channels = await NotificationChannelRepository.list_all()
+    except Exception:
+        logger.debug("notification channels unreadable for the debug snapshot", exc_info=True)
+        return []
+    return [
+        DebugNotificationChannel(
+            id=channel.id,
+            type=channel.type,
+            preset=channel.preset,
+            enabled=channel.enabled,
+            secret_fields_set=channel.secret_fields_set,
+            last_error=channel.last_error,
+            failure_count=channel.failure_count,
+        )
+        for channel in channels
+    ]
 
 
 def _derive_debug_radio_state(
@@ -506,6 +543,7 @@ async def debug_support_snapshot() -> DebugSnapshotResponse:
         environment=await _build_environment(),
         health=_build_debug_health_summary(health_data, radio_state=radio_state),
         settings=_build_debug_app_settings(app_settings),
+        notification_channels=await _build_notification_channels(),
         runtime=DebugRuntimeInfo(
             connection_info=connection_info,
             connection_desired=connection_desired,

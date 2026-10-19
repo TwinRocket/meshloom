@@ -55,7 +55,10 @@ from app.repository import (
 
 # Imported for its side effect: the instance identities' on_restore hook, so it is
 # registered before the lifespan runs the SQLite restore hooks.
-from app.services import instance_identity  # noqa: F401, E402
+from app.services import (
+    backup_notifications,  # noqa: F401  registers the notifications section
+    instance_identity,  # noqa: F401, E402
+)
 from app.services.backup_accounts import ACCOUNT_SECTIONS  # registers the users section
 from app.services.backup_sections import (
     export_sections,
@@ -255,17 +258,16 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "access settings of this host (networks, proxies, URLs) and the setup code hash",
     ),
-    # Notification channels (MSHL-108). The channels and their rules get a backup
-    # section with the notification backup ticket; until then they are not in the
-    # JSON backup (the SQLite download carries them, secrets included, like
-    # ``notification_destinations``).
+    # Notification channels (MSHL-108, MSHL-117): the ``notifications`` backup section
+    # (services/backup_notifications.py) holds the channels without their secrets and the
+    # rules. The SQLite download carries the secrets, like ``notification_destinations``.
     "app_settings.notification_rules": (
-        "excluded",
-        "notification rules: backup section with the notification backup ticket",
+        "included",
+        "notifications section (services/backup_notifications.py)",
     ),
     "notification_channels": (
-        "excluded",
-        "notification channels: backup section with the notification backup ticket",
+        "included",
+        "notifications section, write-only fields never exported (secret_omitted)",
     ),
     "notification_deliveries": ("excluded", "delivery journal: runtime state"),
     "notification_counters": ("excluded", "hourly send counters: runtime state"),
