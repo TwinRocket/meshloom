@@ -66,6 +66,7 @@ from app.notifications.channels import (
 )
 from app.notifications.events import MessageData, NotificationEvent, event_from_payload
 from app.notifications.limits import (
+    DEDUP_MAX_ENTRIES,
     DEDUP_PREFIX,
     GLOBAL_PER_HOUR,
     URGENT_PASS_TTL_S,
@@ -412,12 +413,14 @@ class Dispatcher:
             await self._dedup.load()
             if self._dedup.seen(dedup_key):
                 return False
+        # The only real suspension point (a counter read on the first call of the UTC day)
+        # comes first, so the cap test below and its charge never have a wait between them.
+        buckets = await self._channel_buckets(worker, channel)
         cap = self._global_cap(rules)
         if not cap.has_capacity():
             self._update_capped()
             self._journal(channel_id, name, "rate_limited", dedup_key=job.dedup_key)
             return False
-        buckets = await self._channel_buckets(worker, channel)
         if buckets.quota_exhausted():
             self._journal(channel_id, name, "quota_exceeded", dedup_key=job.dedup_key)
             return False
@@ -438,7 +441,10 @@ class Dispatcher:
             self._start_counter_loop()
         if first_seen:
             await worker.first_seen.acquire()  # has capacity: returns at once
-        await cap.acquire()
+        if not cap.try_acquire():  # test and take in one step: never waits
+            self._update_capped()
+            self._journal(channel_id, name, "rate_limited", dedup_key=job.dedup_key)
+            return False
         await buckets.take()
         self._update_capped()
         self._enqueue(channel_id, job)
@@ -488,13 +494,17 @@ class Dispatcher:
                 await self._flush_journal()
             raise
         held, worker.held, worker.agg_flusher = worker.held, _Held(), None
+        if buckets is not None and buckets.quota_exhausted():
+            self._journal(worker.channel_id, GROUPED_EVENT, "quota_exceeded")
+            return
+        # A summary counts against the global cap like any send: the wait above ended with
+        # room, and nothing suspends between that test and this charge.
+        if self._cap is not None and not self._cap.try_acquire():
+            self._update_capped()
+            self._journal(worker.channel_id, GROUPED_EVENT, "rate_limited")
+            return
         if buckets is not None:
-            if buckets.quota_exhausted():
-                self._journal(worker.channel_id, GROUPED_EVENT, "quota_exceeded")
-                return
             await buckets.take()
-        if self._cap is not None and self._cap.has_capacity():
-            await self._cap.acquire()
         self._update_capped()
         self._enqueue(worker.channel_id, _Job(Delivery(GROUPED_EVENT, held.payload())))
 
@@ -852,6 +862,9 @@ class Dispatcher:
             self._last_prune = self._wall()
             try:
                 await NotificationJournalRepository.state_prune(int(self._wall()))
+                await NotificationJournalRepository.state_trim_prefix(
+                    DEDUP_PREFIX, DEDUP_MAX_ENTRIES
+                )
             except Exception:
                 logger.debug("notification state not pruned", exc_info=True)
         try:
