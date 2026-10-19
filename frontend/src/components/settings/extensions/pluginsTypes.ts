@@ -43,15 +43,81 @@ export interface PluginInstallRequest {
   label?: string;
   granted_permissions: Record<string, unknown>;
   config?: Record<string, unknown>;
+  /** A local plugin's subscriptions. */
+  hooks?: string[];
 }
 
 export interface PluginPatch {
   enabled?: boolean;
   label?: string;
+  /** Plain fields replace the stored ones; a secret absent or masked is kept, `""` clears it. */
+  config?: Record<string, unknown>;
   scope?: Record<string, unknown>;
   granted_permissions?: Record<string, unknown>;
   quotas?: Record<string, unknown>;
   sort_order?: number;
+  /** A local plugin's subscriptions. */
+  hooks?: string[];
+}
+
+export const LOCAL_HOOKS = [
+  'message',
+  'raw_packet',
+  'contact',
+  'telemetry',
+  'health',
+  'timer',
+] as const;
+export type LocalHook = (typeof LOCAL_HOOKS)[number];
+
+export interface LocalPluginCreate {
+  label: string;
+  hooks: LocalHook[];
+  permissions: Record<string, Record<string, unknown>>;
+  template: 'blank' | 'echo';
+}
+
+/** One finding of the static scan of a local plugin's code (`PUT source`). */
+export interface ScanReason {
+  code: string;
+  line: number;
+  detail: string | null;
+  informative: boolean;
+}
+
+export interface PluginSourceResult {
+  instance: PluginInstance;
+  scan: ScanReason[];
+  http_hosts: string[];
+}
+
+export interface CheckFinding {
+  stage: string;
+  code: string;
+  message: string;
+  path: string;
+  line: number | null;
+  informative: boolean;
+}
+
+export interface PluginCheckResult {
+  ok: boolean;
+  errors: CheckFinding[];
+  warnings: CheckFinding[];
+  http_hosts: string[];
+}
+
+export interface PluginTestRequest {
+  text: string;
+  channel?: string;
+  contact?: string;
+}
+
+export interface PluginTestResult {
+  result: unknown;
+  sends: Array<Record<string, unknown>>;
+  truncated: boolean;
+  logs: string[];
 }
 
 export type { PluginInstance };

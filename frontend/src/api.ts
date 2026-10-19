@@ -8,10 +8,15 @@ import {
 } from './auth/authEvents';
 import type {
   BundledPlugin,
+  LocalPluginCreate,
+  PluginCheckResult,
   PluginDiagnostic,
   PluginInstallRequest,
   PluginLogs,
   PluginPatch,
+  PluginSourceResult,
+  PluginTestRequest,
+  PluginTestResult,
 } from './components/settings/extensions/pluginsTypes';
 import type {
   NotificationChannel,
@@ -1210,6 +1215,20 @@ export const api = {
   patchPlugin: (id: string, body: PluginPatch) =>
     fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}`, {
       method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  createLocalPlugin: (body: LocalPluginCreate) =>
+    fetchJson<PluginInstance>('/plugins', { method: 'POST', body: JSON.stringify(body) }),
+  putPluginSource: (id: string, source: string) =>
+    fetchJson<PluginSourceResult>(`/plugins/${encodeURIComponent(id)}/source`, {
+      method: 'PUT',
+      body: JSON.stringify({ source }),
+    }),
+  checkPlugin: (id: string) =>
+    fetchJson<PluginCheckResult>(`/plugins/${encodeURIComponent(id)}/check`, { method: 'POST' }),
+  testPlugin: (id: string, body: PluginTestRequest) =>
+    fetchJson<PluginTestResult>(`/plugins/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
       body: JSON.stringify(body),
     }),
   restartPlugin: (id: string) =>

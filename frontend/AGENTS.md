@@ -371,23 +371,84 @@ purpose.
 
 Settings → Extensions (section id `extensions`, `SettingsExtensionsSection.tsx`, admin only
 through `canOpenSettingsSection`; icon `Puzzle`). Over `/api/plugins` (`api.getPlugins`,
-`getBundledPlugins`, `installPlugin`, `patchPlugin`, `restartPlugin`, `getPluginLogs`,
-`getPluginDiagnostic`, `deletePlugin`; types in `extensions/pluginsTypes.ts`, `PluginInstance`
-stays in `types.ts`). It reads `health` (`plugins_isolation`, `plugins_disabled_source`) and
+`getBundledPlugins`, `installPlugin`, `createLocalPlugin`, `patchPlugin`, `putPluginSource`,
+`checkPlugin`, `testPlugin`, `restartPlugin`, `getPluginLogs`, `getPluginDiagnostic`,
+`deletePlugin`; types in `extensions/pluginsTypes.ts`, `PluginInstance` stays in `types.ts`).
+It reads `health` (`plugins_isolation`, `plugins_disabled_source`) and
 reloads the list whenever `health.plugin_statuses` changes (the server announces `plugin_status`
 and a health refresh follows, so no extra WebSocket handler). Rules: `enableBlock()`
 (`pluginsShared.ts`) keeps `revoked`/`incompatible` from being enabled (the toggle is disabled
 and `toggle()` refuses too); `needs_attention` for a reason other than `config_required` is
 enabled only through the drawer's **Accept and enable** (resends `granted_permissions`, then
-`enabled: true`); config is read-only and secret fields show only "set / not set" (the API
-returns `********`, never shown); with `plugins_disabled_source` set every write is off but
+`enabled: true`); with `plugins_disabled_source` set every write is off but
 Uninstall. The consent (`AddBundledDialog`) grants exactly the declared permissions and shows
 `plugins.permissions.http.private_messages_warning` when `messages.read` (direct or all channels)
 meets `http`. `ScopeEditor` is a small own editor (not the fanout `ScopeSelector`, which is private
 to `SettingsFanoutSection.tsx`). Quotas: only `messages.send` per hour/day, lowered only.
 `MigrationBanner` is ready for the bot-migration health warning (Store T9) and not mounted yet.
-Strings: slice `cc` (`settings.extensions.*`, `errors.*` plugin codes) and slice `al`
-(permissions in plain words). Tests: `src/test/pluginsSection.test.tsx`.
+Strings: slice `cc` (`settings.extensions.*`, `errors.*` plugin codes), slice `al`
+(permissions in plain words) and slice `ce` (`schemaForm.*`, `settings.extensions.config.*`
+form strings, `settings.extensions.local.*`). Tests: `src/test/pluginsSection.test.tsx`,
+`src/test/pluginsEditor.test.tsx`.
+
+- **Config form** (`PluginConfigForm.tsx`): a `SchemaForm` over the instance's `config_schema`
+  with `languageMapResolver(i18n.language)`. `secretsSet` is the `secret_fields` whose
+  `config` value is the `********` mask; the mask is never rendered. Save is `PATCH {config}` with
+  only what the form returns (the API replaces plain fields and keeps an omitted secret); a
+  `config_invalid` answer (`params.issues`: code and path) becomes field errors. The form
+  remounts on `updated_at`. `attention.fields` flag the required fields still empty and the drawer's
+  **Go to the settings** button (`focusConfigForm`) focuses the first one.
+- **Local plugins** (`kind: 'local'`): `CreateLocalDialog` (`POST /plugins`, `echo` or `blank`
+  template, hooks) and `LocalPluginEditor` in the drawer: the lazy `BotCodeEditor` (shared with the
+  bot editor, `ariaLabel` prop) saved with `PUT source`, the static scan listed with line numbers,
+  `http_hosts` offered as an **Allow** button (a `granted_permissions` patch), hooks and permissions
+  (`PATCH hooks` then `granted_permissions`: a local plugin declares and grants together, so the
+  generic permission list is not shown), **Check** (`POST /check`, disabled while the code is
+  unsaved) and **Test with a message** (`POST /test`; the page states nothing reached the radio;
+  needs the instance enabled and the `message` hook). The bot editor in `SettingsFanoutSection.tsx`
+  stays until the bots are retired.
+
+### Shared `SchemaForm` (`components/forms/`)
+
+`SchemaForm.tsx` renders a form from a JSON Schema; `schemaFormModel.ts` is the pure half
+(`buildFormModel`, `collectValues`, resolvers, `groupFieldErrors`). It is **generic**: nothing in
+`components/forms/` imports from `components/settings/extensions/` or the plugin code. Consumers:
+the plugin config form (Store T11b) and the Notifications channel forms (T17), which render the
+JSON Schema of `model_json_schema()`; never fork it, extend it. Tests: `src/test/schemaForm.test.tsx`
+(hand-written plugin schemas and `src/test/fixtures/schemaForm.pydantic.json`, kept equal to
+pydantic's output by `tests/test_schema_form_fixture.py`).
+
+- **Props.** `schema`, `values` (stored plain values), `secretsSet`, `resolver`, `onSubmit(values)`
+  (a promise: resolve = saved, reject = keep the form as typed), `submitLabel`, `errors`
+  (field name to messages, from the server), `disabled`, `flagged`, `idPrefix`. No client-side schema
+  validator (no `ajv`): the inputs carry only the native `required`, `min`, `max`, `minlength`,
+  `maxlength`, `pattern` and `type` hints; the server validates and its error paths are mapped to
+  fields. A hand-written renderer was chosen over `@rjsf/core` and `@jsonforms/react` (both need a
+  custom theme for shadcn/Tailwind and ship far more than the subset).
+- **Supported subset** (JSON Schema 2020-12): a root `type: object` (or no `type`) with
+  `properties`, `required`, `title`, `description`, `$defs`; per property `type` `string` (`enum`,
+  `minLength`, `maxLength`, `pattern`, `format: uri|email|password`), `integer` and `number`
+  (`enum`, `minimum`, `maximum`), `boolean`, `array` of strings (`minItems`, `maxItems`,
+  `uniqueItems`; `items.enum` renders checkboxes, else one value per line); `title`, `description`,
+  `default`, `writeOnly`, `examples`. The shapes pydantic emits are read: `anyOf: [<type>,
+  {type: null}]` is an optional field, a local `$ref` into `$defs` (also with sibling `default` or
+  `title`) is inlined. Titles and descriptions may be a string or a `{lang: text}` map.
+  Anything else (`oneOf`, `allOf`, `const`, `type: object` nested, a remote `$ref`, an unknown
+  `format`...) renders a typed error (`data-testid="schema-form-unsupported"`, naming the field and the
+  keyword), never a silently dropped field; an unsupported root replaces the whole form.
+- **Secrets.** A `writeOnly: true` property is a write-only field: its value is never read from
+  `values`, never displayed, never rendered in the DOM. With `secretsSet` it shows "a value is set"
+  with **Replace** (a password input; left empty it keeps the value) and **Clear** (not for a
+  required one; sends `""`); without, a password input. `format: password` counts as `writeOnly`. `collectValues` returns a secret only when
+  replaced (its new value) or cleared (`""`), so an untouched one is omitted, which is the server's
+  "keep" rule. After `onSubmit` settles, resolved or rejected, every secret draft is emptied (the server may have stored it before a later step failed); plain fields keep what was typed.
+- **Label resolvers** (`LabelResolver`: `label`, `description`, `option`): `languageMapResolver(lang)`
+  reads the schema's own `title`/`description` (string or per-language map, exact tag, base language,
+  English, first); `i18nKeyResolver(t, prefix, lang)` looks up `<prefix>.<name>.label`,
+  `.description` and `.options.<value>` in i18next and falls back to the schema text. Without a
+  resolver text the label is the schema `title`, then the property name. Empty optional values are
+  left out of the submitted object.
+- Strings: slice `ce` (`schemaForm.*`).
 
 ### Share API (`api.ts`)
 

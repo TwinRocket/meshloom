@@ -146,12 +146,7 @@
       },
       "config": {
         "title": "Settings",
-        "none": "This extension has no settings.",
-        "unset": "Not set",
-        "secretSet": "Secret set",
-        "secretUnset": "Secret not set",
-        "required": "(required)",
-        "placeholder": "Editing these settings will arrive in a coming update. Secret values are never shown."
+        "none": "This extension has no settings."
       },
       "logs": {
         "title": "Logs",

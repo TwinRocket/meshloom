@@ -94,4 +94,15 @@ Administrators manage plugins in **Settings → Extensions** (the interface call
 
 - **Add a bundled extension** shows what it may do in plain words, the servers it talks to and its privacy declaration. When it can read private messages (direct messages or every channel) and reach the internet, a warning says it can send your private messages to those servers. Nothing is installed until you tick the box and confirm.
 - A **revoked** or **incompatible** extension cannot be turned on. One that needs a review stays off until you open it and choose **Accept and enable**.
-- The detail drawer lets you untick permissions, choose the conversations it may read, lower its sending limits (never above what it asks for), read its log, restart it, **copy a diagnostic** for a bug report (no setting values, no secrets) and uninstall it, keeping its stored data or not. Secret settings are never shown. Editing an extension's own settings arrives later.
+- The detail drawer lets you untick permissions, choose the conversations it may read, lower its sending limits (never above what it asks for), read its log, restart it, **copy a diagnostic** for a bug report (no setting values, no secrets) and uninstall it, keeping its stored data or not.
+- The **Settings** block of the drawer is generated from the extension's own description of its settings (required fields are starred). A secret setting (an API key, a password) is never shown, not even after you save it: the drawer only says a value is set, and you can **Replace** it (leave the field empty to keep the current value) or **Clear** it. Only what you change is sent. An extension waiting for required settings stays off; its drawer has a **Go to the settings** button.
+
+### Local extensions
+
+**New local extension** (in the Installed tab) creates a small Python program kept in Meshloom, from a starting code (an echo that answers `!pling` with `Plong!`, or an empty one). It starts off, with only the permissions you give it. In its drawer:
+
+- **Code**: edit it in the editor and **Save code**. The code is read, never run, when you save: lines worth a look (a module that is not allowed, `print`, a value lost at restart...) are listed with their line number, and a server named in the code (`https://...`) is offered with an **Allow** button that adds it to the servers the extension may contact.
+- **Events and permissions**: the events it listens to and what it may do, changed and saved from the same place.
+- **Check** reads the manifest and scans the code without running anything; errors and warnings come with their line.
+- **Test with a message** sends a made-up message to the running extension (from a test channel, one of your channels or a contact) and shows what it answered and its log. **Nothing is sent to the radio**: the answers are captured. Save the code first, and turn the extension on to test it.
+- The log under the drawer shows what the extension printed, so you can see errors without a command line.
