@@ -23,6 +23,12 @@ import {
   renameFeedConversation,
 } from '../stores/feedStore';
 import { reconcileFeed } from '../components/feed/feedHistory';
+import {
+  forgetContact,
+  noteChannelFrame,
+  noteContactFrame,
+  noteRadioHealth,
+} from '../utils/feedEvents';
 import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
 import { noteCommunityLiveOptedOut, refreshCommunityStatus } from '../stores/communityStore';
 import { refreshRadioWifiAfterReconnect, setRadioWifiState } from '../stores/radioWifiStore';
@@ -54,6 +60,8 @@ interface UseRealtimeAppStateArgs {
   blockedKeysRef: MutableRefObject<string[]>;
   blockedNamesRef: MutableRefObject<string[]>;
   channelsRef: MutableRefObject<Channel[]>;
+  /** The contact list as the client holds it, or null until its first load (feed event rows). */
+  contactsRef: MutableRefObject<Contact[] | null>;
   activeConversationRef: MutableRefObject<Conversation | null>;
   observeMessage: (msg: Message) => { added: boolean; activeConversation: boolean };
   recordMessageEvent: (args: {
@@ -150,6 +158,7 @@ export function useRealtimeAppState({
   blockedKeysRef,
   blockedNamesRef,
   channelsRef,
+  contactsRef,
   activeConversationRef,
   observeMessage,
   recordMessageEvent,
@@ -196,6 +205,8 @@ export function useRealtimeAppState({
         const prev = prevHealthRef.current;
         prevHealthRef.current = data;
         setHealth(data);
+        // Store-side bookkeeping, no React state: a flag check until the feed is first opened.
+        noteRadioHealth(data);
         const nextRadioState =
           data.radio_state ??
           (data.radio_initializing
@@ -351,6 +362,13 @@ export function useRealtimeAppState({
         }
       },
       onContact: (contact: Contact) => {
+        // A `contact` frame is a snapshot, not an event: the feed reports only a key the client
+        // never held, and nothing while the list is unloaded or a reconnect resync is in flight.
+        const held = contactsRef.current;
+        noteContactFrame(contact, {
+          previous: held?.find((c) => c.public_key === contact.public_key),
+          resyncing: held === null || activeSnapshotsRef.current.size > 0,
+        });
         noteDelta('contacts', contact.public_key);
         setContacts((prev) => mergeContactIntoList(prev, contact));
       },
@@ -381,6 +399,7 @@ export function useRealtimeAppState({
       onChannel: (channel: Channel) => {
         noteDelta('channels', channel.key);
         const existed = channelsRef.current.some((item) => item.key === channel.key);
+        noteChannelFrame(channel, existed);
         mergeChannelIntoList(channel);
         if (!existed && channel.membership === 'pending') {
           toast(i18n.t('discovered.toast', { name: channel.name }), {
@@ -397,6 +416,7 @@ export function useRealtimeAppState({
         }
       },
       onContactDeleted: (publicKey: string) => {
+        forgetContact(publicKey);
         noteDelta('contacts', publicKey);
         setContacts((prev) => prev.filter((c) => c.public_key !== publicKey));
         removeConversationMessages(publicKey);
@@ -456,6 +476,7 @@ export function useRealtimeAppState({
       blockedKeysRef,
       blockedNamesRef,
       channelsRef,
+      contactsRef,
       checkMention,
       fetchAllContacts,
       fetchConfig,

@@ -41,7 +41,13 @@ import { NotificationStatusProvider } from './contexts/NotificationStatusContext
 import { messageContainsMention } from './utils/messageParser';
 import { getStateKey } from './utils/conversationState';
 import { seedCommunityEnabled, useCommunityEnabled } from './stores/communityStore';
-import type { BulkCreateHashtagChannelsResult, Channel, Conversation, Message } from './types';
+import type {
+  BulkCreateHashtagChannelsResult,
+  Channel,
+  Contact,
+  Conversation,
+  Message,
+} from './types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM } from './types';
 import { shouldAutoFocusInput } from './utils/autoFocusInput';
 import { resetClientStateAfterIdentityAdopt } from './utils/identityAdoptReset';
@@ -226,6 +232,12 @@ export function App() {
   useEffect(() => {
     channelsRef.current = channels;
   }, [channels]);
+  // Same for the contacts, null until the first load: the feed's event rows tell a new contact
+  // from a snapshot frame by what the client already held.
+  const contactsRef = useRef<Contact[] | null>(null);
+  useEffect(() => {
+    contactsRef.current = contactsLoaded ? contacts : null;
+  }, [contacts, contactsLoaded]);
 
   const handleToggleFavorite = useCallback(
     async (type: 'channel' | 'contact', id: string) => {
@@ -452,6 +464,7 @@ export function App() {
     blockedKeysRef,
     blockedNamesRef,
     channelsRef,
+    contactsRef,
     activeConversationRef,
     observeMessage,
     recordMessageEvent,

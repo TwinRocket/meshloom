@@ -94,6 +94,7 @@ function createRealtimeArgs(overrides: Partial<Parameters<typeof useRealtimeAppS
       setContacts,
       blockedKeysRef: { current: [] as string[] },
       channelsRef: { current: [publicChannel] },
+      contactsRef: { current: [] as Contact[] | null },
       blockedNamesRef: { current: [] as string[] },
       activeConversationRef: { current: null as Conversation | null },
       observeMessage: vi.fn(() => ({ added: false, activeConversation: false })),
@@ -749,5 +750,133 @@ describe('useRealtimeAppState', () => {
       expect(getRawPackets()).toHaveLength(1);
       expect(getFeedSnapshot().controlPackets).toHaveLength(1);
     });
+  });
+});
+
+describe('useRealtimeAppState feed event rows', () => {
+  const KEY = 'cd'.repeat(32);
+  const known = (overrides: Partial<Contact> = {}): Contact => ({
+    public_key: KEY,
+    name: 'Tower',
+    type: 2,
+    flags: 0,
+    direct_path: null,
+    direct_path_len: 0,
+    direct_path_hash_mode: 0,
+    last_advert: null,
+    lat: null,
+    lon: null,
+    last_seen: null,
+    on_radio: false,
+    favorite: false,
+    last_contacted: null,
+    last_read_at: null,
+    first_seen: 1_700_000_000,
+    ...overrides,
+  });
+  const eventIds = () => getFeedSnapshot().events.map((e) => e.id);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetFeedStore();
+    activateFeedStore();
+    mocks.api.getChannels.mockResolvedValue([publicChannel]);
+    mocks.api.getMessages.mockResolvedValue([]);
+  });
+
+  it('reports a contact the client never held, not a known one', async () => {
+    const { args } = createRealtimeArgs({ contactsRef: { current: [known()] } });
+    const { result } = renderHook(() => useRealtimeAppState(args));
+    act(() => {
+      result.current.onContact?.(known({ last_seen: 5 }));
+      result.current.onContact?.(known({ public_key: 'ee'.repeat(32), name: 'Newcomer' }));
+    });
+    await Promise.resolve();
+    expect(eventIds()).toEqual(['contact.first_seen']);
+  });
+
+  it('reports nothing before the contact list is loaded', async () => {
+    const { args } = createRealtimeArgs({ contactsRef: { current: null } });
+    const { result } = renderHook(() => useRealtimeAppState(args));
+    act(() => {
+      result.current.onContact?.(known());
+    });
+    await Promise.resolve();
+    expect(eventIds()).toEqual([]);
+  });
+
+  it('ignores contact frames while a post-reconnect resync is in flight', async () => {
+    let resolveContacts: (value: Contact[]) => void = () => {};
+    const slow = new Promise<Contact[]>((resolve) => {
+      resolveContacts = resolve;
+    });
+    const { args } = createRealtimeArgs({
+      contactsRef: { current: [] },
+      fetchAllContacts: vi.fn(() => slow),
+    });
+    const { result } = renderHook(() => useRealtimeAppState(args));
+    act(() => {
+      result.current.onReconnect?.();
+    });
+    // The burst of snapshots a reconnect brings: no row, whoever the contact is.
+    act(() => {
+      result.current.onContact?.(known());
+    });
+    await act(async () => {
+      resolveContacts([known()]);
+      await slow;
+    });
+    await Promise.resolve();
+    expect(eventIds()).toEqual([]);
+    // Once the window is closed a frame for a contact seen during it is still not new.
+    act(() => {
+      result.current.onContact?.(known({ last_seen: 9 }));
+    });
+    await Promise.resolve();
+    expect(eventIds()).toEqual([]);
+  });
+
+  it('reports a newly discovered pending channel once', async () => {
+    const pending: Channel = {
+      ...publicChannel,
+      key: '11'.repeat(16),
+      name: '#mesh',
+      is_hashtag: true,
+      membership: 'pending',
+    };
+    const { args } = createRealtimeArgs();
+    const { result } = renderHook(() => useRealtimeAppState(args));
+    act(() => {
+      result.current.onChannel?.(pending);
+      result.current.onChannel?.(pending);
+    });
+    await Promise.resolve();
+    expect(eventIds()).toEqual(['channel.found']);
+  });
+
+  it('feeds health frames to the radio events', async () => {
+    vi.useFakeTimers();
+    try {
+      const { args } = createRealtimeArgs();
+      const { result } = renderHook(() => useRealtimeAppState(args));
+      const frame = (radio_state: HealthStatus['radio_state']) =>
+        ({
+          status: 'ok',
+          radio_connected: radio_state === 'connected',
+          radio_initializing: false,
+          radio_state,
+        }) as HealthStatus;
+      act(() => {
+        result.current.onHealth?.(frame('connected'));
+        result.current.onHealth?.(frame('disconnected'));
+      });
+      act(() => {
+        vi.advanceTimersByTime(60_000);
+      });
+      await Promise.resolve();
+      expect(eventIds()).toEqual(['radio.offline']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

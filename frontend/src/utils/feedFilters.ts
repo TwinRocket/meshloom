@@ -30,7 +30,7 @@ export interface FeedFilters {
 export const FEED_FILTERS_STORAGE_KEY = 'meshloom-feed-filters';
 
 export const defaultFeedFilters: FeedFilters = {
-  sources: { messages: true, control: true, events: false },
+  sources: { messages: true, control: true, events: true },
   chan: true,
   priv: true,
   incoming: true,
@@ -116,9 +116,9 @@ export function hasNoMessages(filters: FeedFilters): boolean {
   );
 }
 
-/** True when nothing at all can show: no message and no control row. */
+/** True when nothing at all can show: no message, no control row and no event row. */
 export function hasEmptySelection(filters: FeedFilters): boolean {
-  return hasNoMessages(filters) && !filters.sources.control;
+  return hasNoMessages(filters) && !filters.sources.control && !filters.sources.events;
 }
 
 /**

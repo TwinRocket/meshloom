@@ -1,5 +1,6 @@
 import type { Message } from '../../types';
 import type { JournalEntry } from '../../utils/controlJournal';
+import type { FeedEvent } from '../../utils/feedEvents';
 
 /** Distance from the bottom, in px, that still counts as "pinned to the bottom". */
 export const FOLLOW_THRESHOLD_PX = 48;
@@ -35,5 +36,12 @@ export function countControlArrivedSince(
 ): number {
   let count = 0;
   for (const entry of entries) if ((entry.packet.received_at_ms ?? 0) > baselineMs) count++;
+  return count;
+}
+
+/** Event rows produced (browser clock, `atMs`) after `baselineMs`. */
+export function countEventsArrivedSince(events: readonly FeedEvent[], baselineMs: number): number {
+  let count = 0;
+  for (const event of events) if (event.atMs > baselineMs) count++;
   return count;
 }

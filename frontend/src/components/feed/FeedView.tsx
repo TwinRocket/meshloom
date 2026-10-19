@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, Monitor } from 'lucide-react';
 
-import { ApiError, formatApiError } from '../../api';
+import { api, ApiError, formatApiError } from '../../api';
 import { useCapabilities } from '../../auth/SessionProvider';
 import {
   activateFeedStore,
@@ -22,6 +22,7 @@ import {
 } from '../../stores/feedStore';
 import type { Channel, Contact, Conversation, Message, RawPacket } from '../../types';
 import { buildJournalEntries, type JournalEntry } from '../../utils/controlJournal';
+import { setRadioOfflineGraceS, visibleFeedEvents } from '../../utils/feedEvents';
 import { formatNumber } from '../../utils/formatNumber';
 import {
   applyFeedQuery,
@@ -48,11 +49,14 @@ import { FEED_DOM_MAX, makeFeedConversation } from './feedConversation';
 import {
   countArrivedSince,
   countControlArrivedSince,
+  countEventsArrivedSince,
   FOLLOW_THRESHOLD_PX,
   highestId,
 } from './feedFollow';
 import { buildFeedNodes, visibleControlEntries } from './feedControl';
 import { FeedControlRow, type FeedControlActions } from './FeedControlRow';
+import { FeedEventRow, type FeedEventActions } from './FeedEventRow';
+import { describeFeedEvent, indexContacts } from './feedEventText';
 import { FeedNodesFacet } from './FeedNodesFacet';
 import { buildFeedItems, createDayLabeler, type FeedItem } from './feedDays';
 import {
@@ -95,6 +99,8 @@ interface FeedViewProps {
   onSelectConversation?: (conversation: Conversation) => void;
   /** Opens the contact sheet beside the feed. */
   onOpenContactInfo?: (publicKey: string, fromChannel?: boolean) => void;
+  /** Opens the radio's settings (the radio events' "Radio status" action). */
+  onOpenRadioSettings?: () => void;
 }
 
 const ESTIMATED_ROW_HEIGHT = 56;
@@ -152,16 +158,17 @@ export function FeedView({
   onNavigateToMessage,
   onSelectConversation,
   onOpenContactInfo,
+  onOpenRadioSettings,
 }: FeedViewProps) {
   const { t, i18n } = useTranslation();
-  const { rows, controlPackets, hasOlder, epoch } = useFeedRows();
+  const { rows, controlPackets, events, hasOlder, epoch } = useFeedRows();
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
   // The session's capability, never a role name: without `read_private` (the kiosk role) the
   // feed offers no Direct messages chip, asks the server for channels only and drops any DM
   // frame. The server refuses DMs anyway; this only stops the feed from offering what fails.
-  const { canReadPrivate } = useCapabilities();
+  const { canReadPrivate, canSend, isAdmin } = useCapabilities();
   const canReadPrivateRef = useRef(canReadPrivate);
   canReadPrivateRef.current = canReadPrivate;
   // An effect, declared before the one that attaches the store. It is not reset on unmount: the
@@ -169,6 +176,21 @@ export function FeedView({
   useEffect(() => {
     setFeedAcceptsPrivate(canReadPrivate);
   }, [canReadPrivate]);
+  // The radio-offline delay of the Notifications rules; only an administrator may read the rules,
+  // every other session keeps the 60 s default. A failure keeps whatever was set.
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    api
+      .getNotificationRules()
+      .then((rules) => {
+        if (!cancelled) setRadioOfflineGraceS(rules.radio_offline_grace_s);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
   // What storage held for `chan` and `priv`: a session without the capability overrides them in
   // memory but never writes the override back, so the same browser keeps its choice for a fuller
   // session.
@@ -342,13 +364,18 @@ export function FeedView({
     [entries, shown.sources.control, activeNode]
   );
   visibleControlRef.current = visibleControl;
+  // Events follow the Events chip; a picked node narrows them to its own thread like control rows.
+  const visibleEvents = useMemo(
+    () => visibleFeedEvents(events, shown.sources.events, activeNode),
+    [events, shown.sources.events, activeNode]
+  );
   const hidden = useMemo(
     () => countHiddenRows(rows, effective, channels, nowSec),
     [rows, effective, channels, nowSec]
   );
   const items = useMemo(
-    () => buildFeedItems(visibleRows, newSinceId, visibleControl),
-    [visibleRows, newSinceId, visibleControl]
+    () => buildFeedItems(visibleRows, newSinceId, visibleControl, visibleEvents),
+    [visibleRows, newSinceId, visibleControl, visibleEvents]
   );
   const itemCount = items.length;
   const resolveLabels = useMemo(
@@ -515,7 +542,9 @@ export function FeedView({
     count: items.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: (index) =>
-      items[index]?.kind === 'row' || items[index]?.kind === 'control'
+      items[index]?.kind === 'row' ||
+      items[index]?.kind === 'control' ||
+      items[index]?.kind === 'event'
         ? ESTIMATED_ROW_HEIGHT
         : ESTIMATED_DAY_HEIGHT,
     scrollMargin,
@@ -641,8 +670,9 @@ export function FeedView({
       following
         ? 0
         : countArrivedSince(visibleRows, baselineId) +
-          countControlArrivedSince(visibleControl, baselineMs),
-    [following, visibleRows, visibleControl, baselineId, baselineMs]
+          countControlArrivedSince(visibleControl, baselineMs) +
+          countEventsArrivedSince(visibleEvents, baselineMs),
+    [following, visibleRows, visibleControl, visibleEvents, baselineId, baselineMs]
   );
 
   // Without the three callbacks (a bare view) rows are read-only, no menu either.
@@ -701,6 +731,32 @@ export function FeedView({
           },
     [display, onOpenContactInfo, onSelectConversation, openPaired]
   );
+  // One index per change of the list: each `last_seen` frame replaces `contacts`, and a lookup
+  // per event over the whole list would cost events x contacts every time.
+  const contactIndex = useMemo(() => indexContacts(contacts), [contacts]);
+  const eventViews = useMemo(
+    () =>
+      new Map(
+        visibleEvents.map((event) => [
+          event.key,
+          describeFeedEvent(event, t, i18n.language, contactIndex, channels),
+        ])
+      ),
+    [visibleEvents, t, i18n.language, contactIndex, channels]
+  );
+  // Actions follow the session's capabilities (never a role name) and are off in display mode:
+  // adopting a channel needs `send`, the radio settings `admin`; the contact sheet is a read.
+  const eventActions = useMemo<FeedEventActions | undefined>(() => {
+    if (display) return undefined;
+    return {
+      onOpenContact: onOpenContactInfo,
+      onOpenDiscovered:
+        canSend && onSelectConversation
+          ? () => onSelectConversation({ type: 'discovered', id: 'discovered', name: 'discovered' })
+          : undefined,
+      onOpenRadio: isAdmin ? onOpenRadioSettings : undefined,
+    };
+  }, [display, canSend, isAdmin, onOpenContactInfo, onSelectConversation, onOpenRadioSettings]);
   const itemKeys = useMemo(() => new Set(items.map((item) => item.key)), [items]);
 
   const enterDisplay = useCallback(() => {
@@ -789,7 +845,7 @@ export function FeedView({
       {inspector}
     </>
   );
-  const hasNothing = rows.length === 0 && entries.length === 0;
+  const hasNothing = rows.length === 0 && entries.length === 0 && events.length === 0;
 
   if (status === 'loading' && itemCount === 0) {
     return shell(
@@ -922,6 +978,22 @@ export function FeedView({
                   }
                   highlighted={highlightKey === item.key}
                   readOnly={display}
+                />
+              );
+            }
+            if (entry.kind === 'event') {
+              const view = eventViews.get(entry.event.key);
+              if (!view) return null;
+              return (
+                <FeedEventRow
+                  key={item.key}
+                  measureRef={virtualizer.measureElement}
+                  index={item.index}
+                  offset={item.start - scrollMargin}
+                  event={entry.event}
+                  view={view}
+                  time={formatRowTime(entry.event.at)}
+                  actions={eventActions}
                 />
               );
             }

@@ -53,7 +53,6 @@ export function FeedFilterChips({
 }: FeedFilterChipsProps) {
   const { t } = useTranslation();
   const set = (patch: Partial<FeedFilters>) => onChange({ ...filters, ...patch });
-  const soon = t('feed.filters.soon');
   const hiddenHint = (key: 'hiddenMuted' | 'hiddenPending', count: number, shown: boolean) =>
     !shown && count > 0 ? t(`feed.${key}`, { count, formatted: formatNumber(count) }) : undefined;
 
@@ -74,8 +73,15 @@ export function FeedFilterChips({
             set({ sources: { ...filters.sources, control: !filters.sources.control } })
           }
         />
-        <Chip label={t('feed.filters.events')} pressed={false} disabled title={soon} />
+        <Chip
+          label={t('feed.filters.events')}
+          pressed={filters.sources.events}
+          onToggle={() => set({ sources: { ...filters.sources, events: !filters.sources.events } })}
+        />
       </div>
+      {filters.sources.events && (
+        <p className="text-xs text-muted-foreground">{t('feed.events.sessionOnly')}</p>
+      )}
       <div role="group" aria-label={t('feed.filters.show')} className="flex flex-wrap gap-1.5">
         <Chip
           label={t('feed.filters.channels')}

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   FEED_CONTROL_MAX,
+  FEED_EVENT_MAX,
   FEED_MAX_ROWS,
   activateFeedStore,
   applyFeedAck,
@@ -9,6 +10,7 @@ import {
   maxKnownId,
   mergeHistoryPage,
   recordFeedControlPacket,
+  recordFeedEvent,
   mergeReconciledRows,
   recordFeedMessage,
   removeFeedMessage,
@@ -20,6 +22,7 @@ import {
   clearFeedRows,
 } from '../stores/feedStore';
 import { recordRawPacket, resetRawPacketStore } from '../stores/rawPacketStore';
+import type { FeedEvent } from '../utils/feedEvents';
 import type { Message, RawPacket } from '../types';
 
 function msg(id: number, received_at: number, overrides: Partial<Message> = {}): Message {
@@ -337,5 +340,59 @@ describe('direct messages without read_private', () => {
     resetFeedStore();
     activateFeedStore();
     expect(recordFeedMessage(dm(2)).added).toBe(true);
+  });
+});
+
+describe('feedStore event rows', () => {
+  const event = (n: number, at = n): FeedEvent => ({
+    key: `radio.offline:${n}`,
+    id: 'radio.offline',
+    at,
+    atMs: at * 1000,
+  });
+
+  beforeEach(() => {
+    resetFeedStore();
+  });
+
+  it('records nothing, and says so, until the store is active', async () => {
+    expect(recordFeedEvent(event(1))).toBe(false);
+    await flush();
+    expect(getFeedSnapshot().events).toHaveLength(0);
+  });
+
+  it('orders by (at, key) and dedupes by key', async () => {
+    activateFeedStore();
+    recordFeedEvent(event(3, 300));
+    recordFeedEvent(event(1, 100));
+    recordFeedEvent(event(1, 100));
+    recordFeedEvent(event(2, 200));
+    await flush();
+    expect(getFeedSnapshot().events.map((e) => e.at)).toEqual([100, 200, 300]);
+  });
+
+  it('keeps the newest FEED_EVENT_MAX rows', async () => {
+    activateFeedStore();
+    for (let n = 1; n <= FEED_EVENT_MAX + 5; n += 1) recordFeedEvent(event(n));
+    await flush();
+    const held = getFeedSnapshot().events;
+    expect(held).toHaveLength(FEED_EVENT_MAX);
+    expect(held[0].at).toBe(6);
+    // A dropped key can be recorded again.
+    recordFeedEvent(event(1, 1000));
+    await flush();
+    const after = getFeedSnapshot().events;
+    expect(after[after.length - 1].at).toBe(1000);
+  });
+
+  it('survives a filter reload and a reconnect refetch; only a full reset empties it', async () => {
+    activateFeedStore();
+    recordFeedEvent(event(1));
+    clearFeedRows();
+    resetFeedForRefetch();
+    await flush();
+    expect(getFeedSnapshot().events).toHaveLength(1);
+    resetFeedStore();
+    expect(getFeedSnapshot().events).toHaveLength(0);
   });
 });

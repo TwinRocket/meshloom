@@ -213,7 +213,7 @@ describe('FeedView with a pinned query', () => {
     await waitFor(() => expect(mocks.getMessages).toHaveBeenCalled());
     const control = await screen.findByRole('button', { name: /control|contrôle/i });
     fireEvent.click(control);
-    await waitFor(() => expect(window.location.hash).toMatch(/^#feed\?src=messages&/));
+    await waitFor(() => expect(window.location.hash).toMatch(/^#feed\?src=messages,events&/));
     expect(window.location.hash).toContain('dir=in');
     expect(window.location.hash).not.toMatch(HEX32);
     expect(getLastViewedConversation()?.feedQuery).toBe(window.location.hash.split('?')[1]);
