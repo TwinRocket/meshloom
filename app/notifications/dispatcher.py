@@ -106,6 +106,7 @@ def default_transport(channel: Channel) -> Transport | None:
         LegacyEmailTransport,
         LegacyWebhookTransport,
     )
+    from app.notifications.transports.ntfy import NtfyTransport
     from app.notifications.transports.web_push import WebPushTransport
     from app.notifications.transports.webhook import WebhookTransport
 
@@ -116,6 +117,7 @@ def default_transport(channel: Channel) -> Transport | None:
             "email": EmailTransport,
             "webhook": WebhookTransport,
             "apprise": AppriseTransport,
+            "ntfy": NtfyTransport,
         }.get(channel.type)
         if native:
             return native()

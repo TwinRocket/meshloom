@@ -20,6 +20,7 @@ from app.net.apprise_urls import AppriseUrlRefused, split_apprise_urls, validate
 from app.net.egress_guard import EgressBlocked, tls_check_may_be_off, validate_destination
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
+    NTFY_DEFAULT_SERVER,
     Channel,
     ChannelCreate,
     ChannelError,
@@ -127,6 +128,13 @@ async def _check_destination(
         if entry.id == "webhook" and secrets.get("url"):
             dest = await validate_destination(
                 secrets["url"], allow_private_network=allow_private_network
+            )
+            if not verify_tls and not tls_check_may_be_off(dest.ips):
+                raise ChannelError("verify_tls_requires_private_destination")
+        elif entry.id == "ntfy":
+            dest = await validate_destination(
+                str(public.get("server") or NTFY_DEFAULT_SERVER),
+                allow_private_network=allow_private_network,
             )
             if not verify_tls and not tls_check_may_be_off(dest.ips):
                 raise ChannelError("verify_tls_requires_private_destination")

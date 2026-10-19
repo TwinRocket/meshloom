@@ -22,13 +22,13 @@ This file is a hypothesis: check it against the code.
   them under their old names (tests import `_build_payload` from `push.manager`).
 
 - `channels.py`: the channel models and the type registry. A type declares a Pydantic
-  config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`); secret
+  config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`, `NtfyConfig`); secret
   fields are `SecretStr` with `writeOnly: true` in `json_schema_extra`, labels and help are
   i18n keys (`label_key`, `help_key`) in the schema, the texts live in the frontend.
   `types_schema()` is what `GET /api/notifications/types` serves and the shared schema-driven form renders. A registry entry also carries
   `default_limits` (per minute, hour, day), `cloud` (default `include_message_text`
   `public_only`, else `always`), `quiet_hours_exempt_default` and `required` fields.
-  `ntfy`, `discord` and the presets add entries later.
+  `limits_check` replaces `default_limits` for a config (`limits_for(public)`; ntfy.sh gets a daily cap). `discord` and the presets add entries later.
 - `app/repository/notification_channels.py`: `NotificationChannelRepository` (CRUD, the
   in-memory cache of the public channels, status updates, `get_rules()`) and
   `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).
@@ -38,7 +38,7 @@ This file is a hypothesis: check it against the code.
 - `transports/`: `base.py` (`Transport.send(channel, rendered, event, secrets) ->
   SendResult(status, retry_after, error_code)`, `result_from_exception()` for httpx),
   `web_push.py` (wraps `PushManager.dispatch_event`), `email.py`, `webhook.py`,
-  `apprise.py` (the native transports of the `email`, `webhook` and `apprise` channel types,
+  `apprise.py`, `ntfy.py` (the native transports of the `email`, `webhook`, `apprise` and `ntfy` channel types,
   see "Native transports"), `legacy.py` (`legacy:email`, `legacy:webhook`,
   `legacy:apprise` through the `app/notify.py` send functions, which read
   `notification_destinations` at send time; `default_transport` gives a `legacy:*` id the legacy transport, any other channel its
@@ -226,8 +226,24 @@ The payload dict is what the transports render, so the golden fixtures hold
 - **Apprise** (`apprise.py`). `apprise_medium.send_to_urls` sends each URL on its own (retries per
   URL); any URL still failing makes the delivery `failed` with `line N (redacted url): code`,
   never `retry`. Discord URLs get `avatar=False`; `verify_tls` maps to `verify_certificate`.
+- **ntfy** (`ntfy.py`). ntfy's JSON publish mode: `POST {server}` with `{topic, title, message,
+  priority, tags, click, markdown}` through `pinned_async_client` (no `Title:` header, which httpx
+  would refuse for a French title; the topic, the only secret on ntfy.sh, stays out of the URL and
+  the logs). `topic`, `token` and `password` are write-only and follow a change of `server`
+  (`secret_required`). A token wins over `username` + `password` (Bearer / Basic). The priority is
+  `priority_urgent` when the catalogue event is `urgent`, else `priority_default`; `click` is
+  `click_url` + the push payload's `url_hash`. Answers: 401/403 `auth_failed`, 413 `service_error`,
+  429 `rate_limited` (`retry`, with `Retry-After`) or `quota_exceeded` (`failed`, never
+  retried) when the body's error text names a quota or a daily/message limit, 5xx `service_error`,
+  a certificate failure `tls_error`. The quota test is a text match on ntfy's error: re-check it when
+  ntfy changes its wording. `cloud` and the daily limit (200, 10/min, 30/h) apply when the host is
+  `ntfy.sh` (`ntfy_is_hosted`); a self-hosted server gets 30/min and no daily cap. The daily and hourly
+  windows are enforced with the limiter (MSHL-125). `generate_ntfy_topic()` (24 URL-safe characters) is
+  the topic generator the form offers. CI: `tests/integration/test_ntfy_e2e.py` against a real
+  `binwiederhier/ntfy` container (`scripts/quality/ntfy_integration.sh`, job `ntfy-integration`; skipped
+  without `MESHLOOM_NTFY_URL`).
 - **TLS.** `verify_tls=false` is honoured only when every resolved address of the destination
-  is private (`tls_check_may_be_off`, webhook URL, SMTP host, each Apprise user-chosen host; a
+  is private (`tls_check_may_be_off`, webhook URL, ntfy server, SMTP host, each Apprise user-chosen host; a
   fixed-host service never): else `verify_tls_requires_private_destination`, at create/update and
   again at send. E-mail `mode=none` with a login is refused outside the private network
   (`smtp_plaintext_auth_refused`, same two places). Cc addresses join the recipients (Apprise

@@ -1,7 +1,7 @@
 """Notification channels: the models and the type registry.
 
 A channel is one destination of a given type (``web_push``, ``email``, ``webhook``,
-``apprise``; ``ntfy``, ``discord`` and the presets come with their own tickets). Each
+``apprise``, ``ntfy``; ``discord`` and the presets come with their own tickets). Each
 type declares a Pydantic config model; ``model_json_schema()`` of it is the JSON Schema
 the shared schema-driven form renders. Secret fields are ``writeOnly``: they are stored
 apart (``notification_channels.secrets``) and no read path returns them, only the names
@@ -14,11 +14,14 @@ Labels and help texts live in the frontend: the schema only carries i18n keys
 from __future__ import annotations
 
 import ipaddress
+import re
+import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 IncludeMessageText = Literal["always", "public_only", "never"]
 ChannelLanguage = Literal["auto", "fr", "en"]
@@ -103,6 +106,80 @@ class AppriseConfig(_ConfigBase):
     format: Literal["text", "markdown"] = _field("format", default="text")
 
 
+NTFY_DEFAULT_SERVER = "https://ntfy.sh"
+NTFY_TOPIC_LENGTH = 24
+# ntfy accepts 1 to 64 characters of this set in a topic.
+_NTFY_TOPIC = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def generate_ntfy_topic() -> str:
+    """A random topic of 24 URL-safe characters (144 bits): on ntfy.sh the topic is the
+    only secret, so it must not be guessable."""
+    return secrets.token_urlsafe(NTFY_TOPIC_LENGTH * 3 // 4)[:NTFY_TOPIC_LENGTH]
+
+
+def _http_url(value: str, *, what: str) -> str:
+    value = value.strip()
+    if not value:
+        return value
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError(f"{what} must be an http(s) URL")
+    return value
+
+
+class NtfyConfig(_ConfigBase):
+    server: str = _field(
+        "server", default=NTFY_DEFAULT_SERVER, help_key="ntfy_server", max_length=255
+    )
+    topic: SecretStr | None = _field(
+        "topic", default=None, secret=True, help_key="ntfy_topic", max_length=64
+    )
+    # Authentication: a token wins over a user name and password.
+    token: SecretStr | None = _field(
+        "token", default=None, secret=True, help_key="ntfy_token", max_length=256
+    )
+    username: str = _field("username", default="", max_length=255)
+    password: SecretStr | None = _field("password", default=None, secret=True, max_length=1024)
+    priority_default: int = _field("priority_default", default=3, ge=1, le=5)
+    priority_urgent: int = _field("priority_urgent", default=5, ge=1, le=5)
+    # Comma-separated ntfy tags (emoji short codes show as icons).
+    tags: str = _field("tags", default="", help_key="ntfy_tags", max_length=255)
+    # Base URL of this Meshloom: the notification's own link is appended as ``#...``.
+    click_url: str = _field("click_url", default="", help_key="ntfy_click_url", max_length=2048)
+    markdown: bool = _field("markdown", default=False)
+
+    @field_validator("server")
+    @classmethod
+    def _server(cls, value: str) -> str:
+        return _http_url(value, what="server") or NTFY_DEFAULT_SERVER
+
+    @field_validator("click_url")
+    @classmethod
+    def _click_url(cls, value: str) -> str:
+        return _http_url(value, what="click_url")
+
+    @field_validator("topic")
+    @classmethod
+    def _topic(cls, value: SecretStr | None) -> SecretStr | None:
+        raw = value.get_secret_value() if value else ""
+        if raw and not _NTFY_TOPIC.match(raw):
+            raise ValueError("topic must be 1 to 64 letters, digits, - or _")
+        return value
+
+
+def ntfy_host(public: dict[str, Any]) -> str:
+    """The host of the channel's ntfy server, lower case (the default server when unset)."""
+    server = str(public.get("server") or NTFY_DEFAULT_SERVER)
+    return (urlsplit(server).hostname or "").lower().rstrip(".")
+
+
+def ntfy_is_hosted(public: dict[str, Any]) -> bool:
+    """True for the public ntfy.sh service: a third party with a daily message quota."""
+    host = ntfy_host(public)
+    return host == "ntfy.sh" or host.endswith(".ntfy.sh")
+
+
 @dataclass(frozen=True)
 class Limits:
     """Default send limits; ``None`` means no cap for that window."""
@@ -131,6 +208,12 @@ class ChannelType:
     # Decides ``cloud`` from the public config, for a type whose destination is
     # chosen by the user (e-mail: a public SMTP relay is a third party).
     cloud_check: Callable[[dict[str, Any]], bool] | None = None
+    # Replaces ``default_limits`` for a config whose destination changes them (ntfy.sh).
+    limits_check: Callable[[dict[str, Any]], Limits] | None = None
+
+    def limits_for(self, public: dict[str, Any]) -> Limits:
+        """The default limits of a channel with this public config."""
+        return self.limits_check(public) if self.limits_check else self.default_limits
 
     @property
     def secret_fields(self) -> frozenset[str]:
@@ -169,6 +252,11 @@ def email_is_cloud(public: dict[str, Any]) -> bool:
     return not (ip.is_private or ip.is_loopback or ip.is_link_local)
 
 
+# ntfy.sh's free plan allows 250 messages a day per visitor (ntfy.sh/pricing, 2026-10): the
+# default stays under it, and the hourly cap spreads it so a busy channel cannot use it all
+# before noon.
+NTFY_HOSTED_LIMITS = Limits(10, 30, 200)
+
 REGISTRY: dict[str, ChannelType] = {
     entry.id: entry
     for entry in (
@@ -203,6 +291,21 @@ REGISTRY: dict[str, ChannelType] = {
             Limits(30, 300, None),
             required=("urls",),
             min_interval_s=2.0,
+        ),
+        ChannelType(
+            "ntfy",
+            NtfyConfig,
+            # Self-hosted: no daily cap. ntfy.sh gets a daily one below its free plan.
+            Limits(30, None, None),
+            required=("topic",),
+            cloud=True,
+            min_interval_s=1.0,
+            destination_keys=("server",),
+            secret_follows=("topic", "token", "password"),
+            cloud_check=ntfy_is_hosted,
+            limits_check=lambda public: (
+                NTFY_HOSTED_LIMITS if ntfy_is_hosted(public) else Limits(30, None, None)
+            ),
         ),
     )
 }

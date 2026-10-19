@@ -65,7 +65,7 @@ async def _get_rules(db) -> dict:
 
 class TestRegistry:
     def test_every_native_type_is_registered(self):
-        assert set(REGISTRY) == {"web_push", "email", "webhook", "apprise"}
+        assert set(REGISTRY) == {"web_push", "email", "webhook", "apprise", "ntfy"}
 
     def test_secret_fields_are_write_only_in_the_schema(self):
         by_type = {entry["type"]: entry["schema"] for entry in types_schema()}

@@ -1,0 +1,24 @@
+{
+  "notifications": {
+    "channels": {
+      "fields": {
+        "server": "Server",
+        "topic": "Topic",
+        "token": "Access token (optional)",
+        "username": "User name (optional)",
+        "priority_default": "Priority (ordinary events)",
+        "priority_urgent": "Priority (urgent events)",
+        "tags": "Tags (comma-separated)",
+        "click_url": "Address of this Meshloom",
+        "markdown": "Markdown"
+      },
+      "help": {
+        "ntfy_server": "ntfy.sh by default, or your own server. ntfy.sh has a daily message quota: Meshloom stops at 200 a day.",
+        "ntfy_topic": "On ntfy.sh the topic is the only secret: topics are public by obscurity, so use a long random one (24 URL-safe characters). Write-only.",
+        "ntfy_token": "For a server with access control. A token wins over a user name and password. Write-only.",
+        "ntfy_tags": "ntfy tags; emoji short codes such as warning show as icons.",
+        "ntfy_click_url": "For example https://meshloom.example.net/ — a tap on the notification opens the conversation."
+      }
+    }
+  }
+}

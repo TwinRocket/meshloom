@@ -164,7 +164,7 @@ async def _statuses() -> dict[str, dict[str, Any]]:
 
 def _present(channel: Channel, statuses: dict[str, dict[str, Any]]) -> ChannelOut:
     entry = REGISTRY.get(channel.type)
-    defaults = entry.default_limits if entry else None
+    defaults = entry.limits_for(channel.config) if entry else None
     state = statuses.get(channel.id) or {}
     return ChannelOut(
         id=channel.id,
