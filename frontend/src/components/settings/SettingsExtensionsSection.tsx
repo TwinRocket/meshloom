@@ -5,6 +5,7 @@ import { api, formatApiError } from '../../api';
 import type { HealthStatus } from '../../types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { AddBundledDialog } from './extensions/AddBundledDialog';
+import { CreateLocalDialog } from './extensions/CreateLocalDialog';
 import { InstalledTab } from './extensions/InstalledTab';
 import { InstanceDrawer } from './extensions/InstanceDrawer';
 import type { PluginInstance } from './extensions/pluginsTypes';
@@ -25,6 +26,7 @@ export function SettingsExtensionsSection({
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const [reloadTick, setReloadTick] = useState(0);
   const reload = useCallback(() => setReloadTick((n) => n + 1), []);
@@ -130,6 +132,7 @@ export function SettingsExtensionsSection({
               locked={locked}
               onOpen={(i) => setOpenId(i.instance_id)}
               onAdd={() => setAdding(true)}
+              onCreateLocal={() => setCreating(true)}
               onChanged={replace}
               onReordered={reload}
             />
@@ -147,6 +150,14 @@ export function SettingsExtensionsSection({
         open={adding}
         onOpenChange={setAdding}
         onInstalled={(instance) => {
+          replace(instance);
+          setOpenId(instance.instance_id);
+        }}
+      />
+      <CreateLocalDialog
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={(instance) => {
           replace(instance);
           setOpenId(instance.instance_id);
         }}

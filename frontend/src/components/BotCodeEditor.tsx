@@ -8,9 +8,17 @@ interface BotCodeEditorProps {
   onChange: (value: string) => void;
   id?: string;
   height?: string;
+  /** Accessible name; defaults to the bot editor's. */
+  ariaLabel?: string;
 }
 
-export function BotCodeEditor({ value, onChange, id, height = '256px' }: BotCodeEditorProps) {
+export function BotCodeEditor({
+  value,
+  onChange,
+  id,
+  height = '256px',
+  ariaLabel,
+}: BotCodeEditorProps) {
   const { t } = useTranslation();
   return (
     <div className="w-full overflow-hidden rounded-md border border-input">
@@ -27,7 +35,7 @@ export function BotCodeEditor({ value, onChange, id, height = '256px' }: BotCode
         }}
         className="text-sm"
         id={id}
-        aria-label={t('settings.fanout.bot.editorAria')}
+        aria-label={ariaLabel ?? t('settings.fanout.bot.editorAria')}
       />
     </div>
   );

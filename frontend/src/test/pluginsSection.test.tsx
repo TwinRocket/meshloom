@@ -31,7 +31,10 @@ function instance(overrides: Partial<PluginInstance> = {}): PluginInstance {
     },
     config: { greeting: 'hi', api_key: '********' },
     config_schema: {
-      properties: { greeting: { title: 'Greeting' }, api_key: { title: 'API key' } },
+      properties: {
+        greeting: { type: 'string', title: 'Greeting' },
+        api_key: { type: 'string', title: 'API key', writeOnly: true },
+      },
     },
     secret_fields: ['api_key'],
     scope: {},
@@ -218,7 +221,7 @@ describe('SettingsExtensionsSection', () => {
 
     // The drawer opens on the new instance: log, secrets masked, diagnostic copy.
     expect(await screen.findByText('started ok')).toBeInTheDocument();
-    expect(screen.getByText(t('settings.extensions.config.secretSet'))).toBeInTheDocument();
+    expect(screen.getByText(t('schemaForm.secretSet'))).toBeInTheDocument();
     expect(screen.queryByText('********')).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: t('settings.extensions.drawer.copyDiagnostic') })

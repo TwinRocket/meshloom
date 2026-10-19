@@ -146,12 +146,7 @@
       },
       "config": {
         "title": "Réglages",
-        "none": "Cette extension n'a pas de réglages.",
-        "unset": "Non défini",
-        "secretSet": "Secret défini",
-        "secretUnset": "Secret non défini",
-        "required": "(obligatoire)",
-        "placeholder": "La modification de ces réglages arrivera dans une prochaine mise à jour. Les valeurs secrètes ne sont jamais affichées."
+        "none": "Cette extension n'a pas de réglages."
       },
       "logs": {
         "title": "Journal",

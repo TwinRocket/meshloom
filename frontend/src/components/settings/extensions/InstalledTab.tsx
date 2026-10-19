@@ -14,6 +14,7 @@ export function InstalledTab({
   locked,
   onOpen,
   onAdd,
+  onCreateLocal,
   onChanged,
   onReordered,
 }: {
@@ -21,6 +22,7 @@ export function InstalledTab({
   locked: boolean;
   onOpen: (instance: PluginInstance) => void;
   onAdd: () => void;
+  onCreateLocal: () => void;
   onChanged: (instance: PluginInstance) => void;
   onReordered: () => void;
 }) {
@@ -65,7 +67,11 @@ export function InstalledTab({
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button size="sm" variant="outline" onClick={onCreateLocal} disabled={locked}>
+          <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+          {t('settings.extensions.local.newButton')}
+        </Button>
         <Button size="sm" onClick={onAdd} disabled={locked}>
           <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
           {t('settings.extensions.add.button')}
