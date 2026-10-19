@@ -16,7 +16,7 @@ const PUBKEY_PREFIX_LENGTH = 12;
  * Extract the 12-character prefix from a public key.
  * Works with both full keys and existing prefixes.
  */
-function getPubkeyPrefix(key: string): string {
+export function getPubkeyPrefix(key: string): string {
   return key.slice(0, PUBKEY_PREFIX_LENGTH);
 }
 

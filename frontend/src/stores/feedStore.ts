@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react';
 import type { Message, MessagePath, RawPacket } from '../types';
 import { forgetControlDecode, isControlJournalPacket } from '../utils/controlJournal';
 import { getRawPacketObservationKey } from '../utils/rawPacketIdentity';
+import { resetFeedEvents, type FeedEvent } from '../utils/feedEvents';
 import { getRawPackets } from './rawPacketStore';
 
 /**
@@ -17,6 +18,8 @@ import { getRawPackets } from './rawPacketStore';
  * - Control rows: the feed also keeps its own Request / Response / AnonRequest / GroupData
  *   packets (bounded by `FEED_CONTROL_MAX`). They are fed by the same handler as
  *   `rawPacketStore` but are NOT cleared on reconnect, which empties that store.
+ * - Event rows: the feed also keeps its own event rows (`utils/feedEvents.ts`, bounded by
+ *   `FEED_EVENT_MAX`), session-only. Like control rows they survive a reconnect and a filter reload.
  * - Batched emits: mutations edit a private working array and one microtask publishes a
  *   fresh immutable snapshot and notifies once, so a historical-decryption burst is one
  *   render, not thousands.
@@ -25,6 +28,9 @@ import { getRawPackets } from './rawPacketStore';
 export const FEED_MAX_ROWS = 2000;
 /** Control packets held (not packets of all types); the oldest are dropped first. */
 export const FEED_CONTROL_MAX = 500;
+
+/** Event rows held; the oldest go first. */
+export const FEED_EVENT_MAX = 200;
 
 export interface FeedAckExtras {
   packet_hash?: string | null;
@@ -35,6 +41,8 @@ export interface FeedSnapshot {
   rows: readonly Message[];
   /** Control packets, oldest first by `(timestamp, observation key)`; survive a reconnect. */
   controlPackets: readonly RawPacket[];
+  /** Event rows (`utils/feedEvents.ts`), oldest first by `(at, key)`; session-only, survive a reconnect. */
+  events: readonly FeedEvent[];
   /** True when rows older than the first one may exist on the server. */
   hasOlder: boolean;
   /** Bumped by `resetFeedForRefetch()`: the view must fetch the newest page again. */
@@ -47,12 +55,14 @@ let working: Message[] = [];
 const ids = new Set<number>();
 let controlWorking: RawPacket[] = [];
 const controlKeys = new Set<string>();
+let eventsWorking: FeedEvent[] = [];
+const eventKeys = new Set<string>();
 let hasOlder = true;
 let epoch = 0;
 // Highest id ever seen, held or not: a live row older than the window is not stored (the
 // next page returns it) but reconciliation must not ask for it again.
 let highWater = 0;
-let snapshot: FeedSnapshot = { rows: [], controlPackets: [], hasOlder: true, epoch: 0 };
+let snapshot: FeedSnapshot = { rows: [], controlPackets: [], events: [], hasOlder: true, epoch: 0 };
 let flushScheduled = false;
 const listeners = new Set<() => void>();
 
@@ -68,7 +78,13 @@ export const subscribeFeedStore = subscribe;
 
 function flush(): void {
   flushScheduled = false;
-  snapshot = { rows: [...working], controlPackets: [...controlWorking], hasOlder, epoch };
+  snapshot = {
+    rows: [...working],
+    controlPackets: [...controlWorking],
+    events: [...eventsWorking],
+    hasOlder,
+    epoch,
+  };
   for (const listener of listeners) {
     listener();
   }
@@ -208,6 +224,31 @@ export function recordFeedControlPacket(packet: RawPacket): boolean {
   return true;
 }
 
+/**
+ * Record one event row (`utils/feedEvents.ts` produces them). Inactive store: nothing, and
+ * `false`, so a caller never counts an outage the feed did not show. Deduped by `key`.
+ */
+export function recordFeedEvent(event: FeedEvent): boolean {
+  if (!active) return false;
+  if (eventKeys.has(event.key)) return true;
+  let lo = 0;
+  let hi = eventsWorking.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const other = eventsWorking[mid];
+    if (other.at < event.at || (other.at === event.at && other.key <= event.key)) lo = mid + 1;
+    else hi = mid;
+  }
+  eventsWorking.splice(lo, 0, event);
+  eventKeys.add(event.key);
+  const overflow = eventsWorking.length - FEED_EVENT_MAX;
+  if (overflow > 0) {
+    for (const dropped of eventsWorking.splice(0, overflow)) eventKeys.delete(dropped.key);
+  }
+  scheduleEmit();
+  return true;
+}
+
 export function applyFeedAck(
   messageId: number,
   ackCount: number,
@@ -309,10 +350,13 @@ export function resetFeedStore(): void {
   ids.clear();
   controlWorking = [];
   controlKeys.clear();
+  eventsWorking = [];
+  eventKeys.clear();
+  resetFeedEvents();
   highWater = 0;
   epoch = 0;
   hasOlder = true;
-  snapshot = { rows: [], controlPackets: [], hasOlder: true, epoch: 0 };
+  snapshot = { rows: [], controlPackets: [], events: [], hasOlder: true, epoch: 0 };
   flushScheduled = false;
   for (const listener of listeners) listener();
 }

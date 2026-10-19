@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import './qSlices';
 
 const mocks = vi.hoisted(() => ({ getMessages: vi.fn() }));
-const sessionMocks = vi.hoisted(() => ({ canReadPrivate: true }));
+const sessionMocks = vi.hoisted(() => ({ canReadPrivate: true, canSend: true, isAdmin: true }));
 
 vi.mock('../auth/SessionProvider', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../auth/SessionProvider')>();
@@ -15,6 +15,8 @@ vi.mock('../auth/SessionProvider', async (importOriginal) => {
     useCapabilities: () => ({
       ...actual.useCapabilities(),
       canReadPrivate: sessionMocks.canReadPrivate,
+      canSend: sessionMocks.canSend,
+      isAdmin: sessionMocks.isAdmin,
     }),
   };
 });
@@ -32,6 +34,7 @@ import i18n from '../i18n';
 import { FEED_LAST_SEEN_STORAGE_KEY } from '../components/feed/feedLastSeen';
 import {
   getFeedSnapshot,
+  recordFeedEvent,
   recordFeedMessage,
   resetFeedForRefetch,
   resetFeedStore,
@@ -482,13 +485,14 @@ describe('FeedView filter chips', () => {
     expect(chip(chipLabel('channels'))).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('enables Control (on by default) and keeps Events disabled until its source exists', async () => {
+  it('enables Control and Events (both on by default)', async () => {
     mocks.getMessages.mockResolvedValue(mixedRows());
     renderFeed(mixedChannels);
     await screen.findByRole('list');
     expect(chip(chipLabel('control'))).toBeEnabled();
     expect(chip(chipLabel('control'))).toHaveAttribute('aria-pressed', 'true');
-    expect(chip(chipLabel('events'))).toBeDisabled();
+    expect(chip(chipLabel('events'))).toBeEnabled();
+    expect(chip(chipLabel('events'))).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
@@ -1091,5 +1095,172 @@ describe('display mode stylesheet', () => {
   it('keeps platform variants in CSS under [data-platform]', () => {
     expect(css).toMatch(/\[data-platform='ios'\] \[data-feed-display-bar\]/);
     expect(css).toMatch(/\[data-platform='android'\] \[data-feed-display-bar\]/);
+  });
+});
+
+describe('FeedView event rows', () => {
+  const T0 = 1700000000;
+  const base = (key: string, at: number) => ({ key, at, atMs: at * 1000 });
+  const offline = () =>
+    ({ ...base('radio.offline:1', T0 + 15), id: 'radio.offline' }) as Parameters<
+      typeof recordFeedEvent
+    >[0];
+  const found = () =>
+    ({
+      ...base('channel.found:K', T0 + 25),
+      id: 'channel.found',
+      channelKey: 'CC'.repeat(16),
+      name: '#fresh',
+    }) as Parameters<typeof recordFeedEvent>[0];
+  const heard = () =>
+    ({
+      ...base('contact.first_seen:K', T0 + 35),
+      id: 'contact.first_seen',
+      publicKey: 'ab'.repeat(32),
+      name: 'Tower',
+      contactType: 2,
+    }) as Parameters<typeof recordFeedEvent>[0];
+  const pendingChannel = {
+    key: 'CC'.repeat(16),
+    name: '#fresh',
+    is_hashtag: true,
+    on_radio: false,
+    last_read_at: null,
+    favorite: false,
+    muted: false,
+    membership: 'pending',
+  } as unknown as Channel;
+
+  afterEach(() => {
+    sessionMocks.canSend = true;
+    sessionMocks.isAdmin = true;
+    cleanup();
+    document.documentElement.removeAttribute('data-feed-display');
+  });
+
+  async function renderWithEvents(
+    props: Partial<React.ComponentProps<typeof FeedView>> = {},
+    query?: string
+  ) {
+    mocks.getMessages.mockResolvedValue([msg(1), msg(3)]);
+    render(
+      <FeedView
+        contacts={[]}
+        channels={[...channels, pendingChannel]}
+        initialQuery={query}
+        {...props}
+      />
+    );
+    await screen.findByRole('list');
+    act(() => {
+      recordFeedEvent(offline());
+      recordFeedEvent(found());
+      recordFeedEvent(heard());
+    });
+    await waitFor(() => expect(screen.getByTestId('feed-event-row-radio.offline')).toBeTruthy());
+  }
+
+  it('interleaves event rows with messages by server time, one translated sentence each', async () => {
+    await renderWithEvents();
+    const items = within(screen.getByRole('list')).getAllByRole('listitem');
+    // msg(1) at +10, offline +15, msg(2 absent), msg(3) at +30 comes after found (+25).
+    expect(items.map((item) => item.getAttribute('data-testid') ?? 'message')).toEqual([
+      'message',
+      'feed-event-row-radio.offline',
+      'feed-event-row-channel.found',
+      'message',
+      'feed-event-row-contact.first_seen',
+    ]);
+    expect(screen.getByText(i18n.t('feed.events.radioOffline'))).toBeTruthy();
+    expect(screen.getByText(i18n.t('feed.events.channelFound', { name: '#fresh' }))).toBeTruthy();
+    expect(
+      screen.getByText(i18n.t('feed.events.contactFirstSeen', { name: 'Tower' }))
+    ).toBeTruthy();
+  });
+
+  it('reads naturally in English too', async () => {
+    await i18n.changeLanguage('en');
+    try {
+      await renderWithEvents();
+      expect(screen.getByText('The radio is offline.')).toBeTruthy();
+      expect(screen.getByText('Channel discovered: #fresh.')).toBeTruthy();
+      expect(screen.getByText('New contact heard: Tower.')).toBeTruthy();
+    } finally {
+      await i18n.changeLanguage('fr');
+    }
+  });
+
+  it('shows the session-only hint with the chip on, and neither rows nor hint with it off', async () => {
+    await renderWithEvents();
+    expect(screen.getByText(i18n.t('feed.events.sessionOnly'))).toBeTruthy();
+    fireEvent.click(chip(chipLabel('events')));
+    await waitFor(() => expect(screen.queryByTestId('feed-event-row-radio.offline')).toBeNull());
+    expect(screen.queryByText(i18n.t('feed.events.sessionOnly'))).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem(FEED_FILTERS_STORAGE_KEY) as string).sources.events
+    ).toBe(false);
+  });
+
+  it('opens the contact sheet, the Discovered page and the radio settings', async () => {
+    const onOpenContactInfo = vi.fn();
+    const onSelectConversation = vi.fn();
+    const onOpenRadioSettings = vi.fn();
+    await renderWithEvents({ onOpenContactInfo, onSelectConversation, onOpenRadioSettings });
+    fireEvent.click(screen.getByTestId('feed-event-open-contact'));
+    expect(onOpenContactInfo).toHaveBeenCalledWith('ab'.repeat(32));
+    fireEvent.click(screen.getByTestId('feed-event-open-discovered'));
+    expect(onSelectConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'discovered' })
+    );
+    fireEvent.click(screen.getByTestId('feed-event-open-radio'));
+    expect(onOpenRadioSettings).toHaveBeenCalled();
+  });
+
+  it('offers only what the session may use: no adopt link without send, no radio link without admin', async () => {
+    sessionMocks.canSend = false;
+    sessionMocks.isAdmin = false;
+    await renderWithEvents({
+      onOpenContactInfo: vi.fn(),
+      onSelectConversation: vi.fn(),
+      onOpenRadioSettings: vi.fn(),
+    });
+    expect(screen.queryByTestId('feed-event-open-discovered')).toBeNull();
+    expect(screen.queryByTestId('feed-event-open-radio')).toBeNull();
+    expect(screen.getByTestId('feed-event-open-contact')).toBeTruthy();
+  });
+
+  it('keeps the adopt link only while the channel is still pending', async () => {
+    await renderWithEvents({ onSelectConversation: vi.fn() });
+    expect(screen.getByTestId('feed-event-open-discovered')).toBeTruthy();
+    cleanup();
+    resetFeedStore();
+    await renderWithEvents(
+      { onSelectConversation: vi.fn(), channels: [{ ...pendingChannel, membership: 'adopted' }] },
+      undefined
+    );
+    expect(screen.queryByTestId('feed-event-open-discovered')).toBeNull();
+  });
+
+  it('renders event rows read-only in display mode (no actions)', async () => {
+    await renderWithEvents(
+      {
+        onOpenContactInfo: vi.fn(),
+        onSelectConversation: vi.fn(),
+        onOpenRadioSettings: vi.fn(),
+      },
+      'display=1'
+    );
+    expect(screen.getByTestId('feed-event-row-radio.offline')).toBeTruthy();
+    expect(screen.queryByTestId('feed-event-open-contact')).toBeNull();
+    expect(screen.queryByTestId('feed-event-open-radio')).toBeNull();
+  });
+
+  it('wraps long names and actions instead of overflowing a 360 px screen', async () => {
+    await renderWithEvents({ onOpenContactInfo: vi.fn() });
+    const row = screen.getByTestId('feed-event-row-contact.first_seen');
+    expect(row.querySelector('p')?.className).toMatch(/min-w-0.*break-words|break-words.*min-w-0/);
+    expect(screen.getByTestId('feed-event-open-contact').parentElement?.className).toContain(
+      'flex-wrap'
+    );
   });
 });

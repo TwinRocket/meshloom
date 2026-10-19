@@ -272,13 +272,16 @@ describe('control source and node', () => {
     expect(normalizeFeedFilters({ node: 'us' }).node).toBe('us');
   });
 
-  it('is empty only when neither messages nor control can show', () => {
+  it('is empty only when no message, control or event row can show', () => {
     const noMessages = filtersOf({ sources: { messages: false } });
     expect(hasNoMessages(noMessages)).toBe(true);
     expect(hasEmptySelection(noMessages)).toBe(false);
     expect(hasEmptySelection(filtersOf({ sources: { messages: false, control: false } }))).toBe(
-      true
+      false
     );
+    expect(
+      hasEmptySelection(filtersOf({ sources: { messages: false, control: false, events: false } }))
+    ).toBe(true);
   });
 
   it('keeps only the picked channel messages when a channel node is selected', () => {

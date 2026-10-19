@@ -451,6 +451,7 @@ export function ConversationPane({
           onNavigateToMessage={onNavigateToMessage}
           onSelectConversation={onSelectConversation}
           onOpenContactInfo={onOpenContactInfo}
+          onOpenRadioSettings={onOpenRadioSettings}
         />
       </LazyBoundary>
     );

@@ -49,6 +49,10 @@ feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
   `rawPacketStore` at `activateFeedStore()`. `onReconnect` clears `rawPacketStore` and
   **not** these rows; `clearFeedRows()` (a server-filter reload) does not either, only
   `resetFeedStore()` does.
+- **Event rows.** `recordFeedEvent(event)` (active store only; returns `false` otherwise) holds the
+  session-only rows of `utils/feedEvents.ts`, sorted by `(at, key)`, deduped by `key`, bounded by
+  `FEED_EVENT_MAX` = 200. Like control rows they survive `onReconnect`, `clearFeedRows()` and
+  `resetFeedForRefetch()`; only `resetFeedStore()` empties them. Nothing is persisted or fetched.
 - **Batched emits.** Mutations edit a private working array; one `queueMicrotask`
   publishes a new immutable snapshot and notifies once, so a burst (historical
   decryption) is a single render. Read the snapshot with `getFeedSnapshot()` after
@@ -190,6 +194,32 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   channel opens the conversation; the "Paired" badge scrolls to the twin (a plain badge
   when the twin is filtered out). The follow counter counts control rows by the browser
   receipt time (`received_at_ms`), messages by id.
+- **Event source.** `Sources > Events` (on by default, owner Q2) interleaves `FeedEventRow`s
+  (`feedDays.ts`, kind `event`, merged after messages and control entries on a tie). **The ids come
+  from Notifications**: `utils/feedEvents.ts` is the only module of the feed that knows them
+  (`NOTIFICATION_EVENT_IDS` = `radio.offline`, `radio.online`, `contact.first_seen`, `channel.found`,
+  all of `app/notifications/events.py` `EVENT_IDS`; `FEED_ONLY_EVENT_IDS` = `contact.renamed`, which
+  Notifications does not have), with their delays, so switching the source to the
+  `notification_event` frame (T26) changes that file only. `tests/test_feed_event_ids.py` fails when
+  an id leaves the catalogue. Producers are store calls from the `useRealtimeAppState` handlers, no
+  React state: `noteRadioHealth` (`onHealth`: `disconnected`/`connecting` arm a
+  `RADIO_OFFLINE_GRACE_MS` = 60 s timer, the same default as `rules.radio_offline_grace_s`, stamped at the
+  outage start; `connected` before it fires clears it; `rebooting`, `paused` and the identity states end
+  the outage without a row, so `EXPECTED_REBOOT_GRACE_SECONDS` reboots stay silent; `radio.online`
+  follows only an outage whose row was recorded; the first frame is a baseline),
+  `noteContactFrame` (`onContact`: a `contact` frame is a snapshot, so only a key neither the module
+  nor `contactsRef` (null until the first load, set in `App`) knew is `contact.first_seen`, keyed on
+  key + `first_seen`, and only a changed non-empty name is `contact.renamed`; **ignored while
+  `activeSnapshotsRef` is non-empty**, i.e. a post-reconnect resync, but remembered), `forgetContact`
+  (`onContactDeleted`) and `noteChannelFrame` (`onChannel`: a pending channel the client did not hold).
+  `at` is on the server clock, as messages are: browser time minus `getServerClockOffsetSec()` ("Clocks"),
+  `contact.first_seen` uses the frame's own stamp; `atMs` (browser) feeds the follow counter. Rows
+  follow the capabilities, not a role: the contact sheet always, the Discovered link with `canSend`
+  and a channel still pending, the radio link with `isAdmin`; display mode renders them read-only. A
+  picked node narrows events to its thread (`eventThreadId`: `us`, `contact:<key>`, `channel:<key>`).
+  The chips line says events are kept for this session only. Copy: slice `cr` (`feed.events.*`).
+  Tests: `feedEvents.test.ts` (fake timers), `feedView.test.tsx` ("event rows"),
+  `useRealtimeAppState.test.ts`, `feedDaysEvents.test.ts`, `appFeedIsolation.test.tsx`.
 - **Nodes facet.** `FeedNodesFacet` (a `md:w-64` column, a sheet on a phone) lists the
   control threads (`classifyThread`: repeaters and rooms, channels, us, unresolved) with
   counts. The pick is `FeedFilters.node` (a thread id, per browser, in the same
@@ -200,7 +230,7 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   control rows to its thread; a channel node narrows the messages to that channel, any
   other node hides the messages (`rowPassesFilters`, client-side only). With Messages off
   and Control on no request is sent (`hasNoMessages`); `hasEmptySelection` is true only
-  when nothing can show.
+  when nothing can show (no message, control or event source).
 - jsdom measures no layout: `src/test/feedView.test.tsx` fakes the scroller geometry.
   Virtualization and the single scroller need a check in a real browser.
 

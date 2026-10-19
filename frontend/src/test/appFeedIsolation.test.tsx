@@ -141,6 +141,7 @@ import {
   activateFeedStore,
   getFeedSnapshot,
   isFeedStoreActive,
+  recordFeedEvent,
   resetFeedStore,
   useFeedRows,
 } from '../stores/feedStore';
@@ -283,6 +284,30 @@ describe('feed messages and the chat render path', () => {
     // ... while nothing between App and the view did.
     expect(mocks.conversationPane.mock.calls.length).toBe(paneRendersBefore);
     expect(mocks.messageList).not.toHaveBeenCalled();
+  });
+
+  it('keeps event rows off the chat render path, and records them only once the feed is active', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId('message-list')).toBeInTheDocument());
+    const event = (n: number) =>
+      ({
+        key: `radio.offline:${n}`,
+        id: 'radio.offline',
+        at: 1_700_000_000 + n,
+        atMs: (1_700_000_000 + n) * 1000,
+      }) as const;
+    const rendersBefore = mocks.messageList.mock.calls.length;
+    // Inactive: the store refuses the row and says so.
+    expect(recordFeedEvent(event(0))).toBe(false);
+    expect(getFeedSnapshot().events).toHaveLength(0);
+
+    activateFeedStore();
+    await act(async () => {
+      for (let n = 1; n <= 150; n += 1) recordFeedEvent(event(n));
+      await Promise.resolve();
+    });
+    expect(getFeedSnapshot().events).toHaveLength(150);
+    expect(mocks.messageList.mock.calls.length).toBe(rendersBefore);
   });
 
   it('keeps control packets off the chat render path, and records them only once the feed is active', async () => {
