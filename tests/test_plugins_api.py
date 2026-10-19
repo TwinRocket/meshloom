@@ -576,6 +576,28 @@ async def test_put_source_scan_reports_review_reasons(api, manager):
     assert {"import_not_allowed", "print_call"} <= codes
 
 
+async def test_put_source_and_check_return_the_https_hosts_to_accept(api, manager):
+    created = (await api.post("/api/plugins", json={"label": "Hosts"})).json()
+    source = "URL = 'https://api.example.com/v1'\n"
+    saved = await api.put(f"/api/plugins/{created['instance_id']}/source", json={"source": source})
+    assert saved.json()["http_hosts"] == ["api.example.com"]
+    checked = await api.post(f"/api/plugins/{created['instance_id']}/check")
+    assert checked.json()["http_hosts"] == ["api.example.com"]
+
+
+async def test_patch_hooks_rewrites_a_local_manifest_only(api, manager):
+    local = (await api.post("/api/plugins", json={"label": "Hooks"})).json()
+    url = f"/api/plugins/{local['instance_id']}"
+    changed = await api.patch(url, json={"hooks": ["message", "health", "message"]})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["manifest"]["hooks"] == ["message", "health"]
+    unknown = await api.patch(url, json={"hooks": ["nope"]})
+    assert unknown.status_code == 422
+    bundled = await install(api, manager)
+    refused = await api.patch(f"/api/plugins/{bundled['instance_id']}", json={"hooks": ["message"]})
+    assert refused.status_code == 409 and code_of(refused) == "not_local"
+
+
 async def test_put_source_is_local_only_and_bounded(api, manager):
     bundled = await install(api, manager)
     response = await api.put(f"/api/plugins/{bundled['instance_id']}/source", json={"source": ""})
