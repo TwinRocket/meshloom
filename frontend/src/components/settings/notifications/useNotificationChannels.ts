@@ -15,6 +15,7 @@ export interface NotificationChannelsState {
   events: NotificationEventInfo[];
   loading: boolean;
   error: unknown;
+  setRules: (rules: NotificationRules) => void;
   reload: () => Promise<void>;
 }
 
@@ -52,5 +53,5 @@ export function useNotificationChannels(): NotificationChannelsState {
     void reload();
   }, [reload]);
 
-  return { channels, types, rules, events, loading, error, reload };
+  return { channels, types, rules, events, loading, error, setRules, reload };
 }

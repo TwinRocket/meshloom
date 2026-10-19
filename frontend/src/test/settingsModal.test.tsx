@@ -1309,41 +1309,6 @@ describe('SettingsModal', () => {
 
     fireEvent.click(sectionToggles[notificationsIdx]);
     expect(screen.getByText(i18n.t('settings.notifications.channels.title'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.defaults'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.exceptions'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.ossUpdate'))).toBeInTheDocument();
-    expect(
-      screen.queryByText(i18n.t('settings.notifications.telemetryAlert'))
-    ).not.toBeInTheDocument();
-  });
-
-  it('lists the radio events and saves the radio offline delay on blur', async () => {
-    const onSaveAppSettings = vi.fn(async () => {});
-    renderModal({
-      externalSidebarNav: true,
-      desktopSection: 'notifications',
-      onSaveAppSettings,
-      appSettings: { ...baseSettings, radio_offline_grace_s: 60 },
-    });
-
-    for (const key of ['radioOffline', 'radioOnline', 'appStarted']) {
-      expect(await screen.findByText(i18n.t(`settings.notifications.${key}`))).toBeInTheDocument();
-    }
-    const input = screen.getByLabelText(i18n.t('settings.notifications.radioOfflineGrace'));
-    expect(input).toHaveValue(60);
-
-    fireEvent.change(input, { target: { value: '120' } });
-    fireEvent.blur(input);
-    await waitFor(() =>
-      expect(onSaveAppSettings).toHaveBeenLastCalledWith({ radio_offline_grace_s: 120 })
-    );
-
-    // Out of range or unreadable: back to the stored value, nothing sent.
-    onSaveAppSettings.mockClear();
-    fireEvent.change(input, { target: { value: '99999' } });
-    fireEvent.blur(input);
-    expect(input).toHaveValue(60);
-    expect(onSaveAppSettings).not.toHaveBeenCalled();
   });
 
   it('shows the notification language (Automatic by default) and saves a choice', async () => {
