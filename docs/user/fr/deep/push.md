@@ -53,7 +53,7 @@ En haut des règles dans **Réglages → Notifications**, **Ne pas déranger** s
 | Publicités compagnon | Un compagnon est vu pour la première fois |
 | Publicités capteur | Un capteur est vu pour la première fois |
 | Canaux trouvés | Meshloom trouve un nouveau canal hashtag |
-| Alertes télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils se règlent sur la page **Alertes** |
+| Alertes télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils et les canaux qui les reçoivent (un bouton par canal) se règlent sur la page **Alertes** |
 | Mises à jour Meshloom | Une nouvelle version de Meshloom est disponible |
 | Radio hors ligne | La radio est injoignable depuis plus longtemps que le délai réglé sous le tableau (60 s par défaut). Envoyé comme urgent (le sujet de l’e-mail commence par `[URGENT]`), une fois par panne |
 | Radio de nouveau en ligne | La radio est de nouveau joignable après une notification **Radio hors ligne**, avec la durée de la panne |
@@ -80,13 +80,15 @@ Pour les messages de salon, sans exception :
 - les salons publics et les salons `#` (hashtag) notifient par push ;
 - les salons à clé privée ne notifient pas.
 
-Les messages directs suivent la ligne **Messages directs**. Les notifications par e-mail, webhook ou Apprise pour un salon n’existent que si vous les activez pour ce salon (la cloche, ci-dessous).
+Les messages directs suivent la ligne **Messages directs**. Les autres canaux (e-mail, ntfy, Telegram…) suivent les mêmes lignes, cochées canal par canal dans le tableau ci-dessus, et peuvent être activés ou coupés pour une conversation avec la cloche (ci-dessous).
 
 Les messages d’un contact ou d’un nom bloqué, et ceux d’un salon en sourdine (jusqu’à la fin de la sourdine), ne notifient sur aucun canal : Web Push, e-mail, webhook et Apprise. Seul un événement marqué **Toujours livrer** passe quand même. Rien ne change tant que vous ne bloquez personne et ne mettez aucun salon en sourdine.
 
 ### La cloche, pour une conversation
 
-Dans l’en-tête d’une conversation, la cloche ouvre un menu avec quatre cases : **Push**, **E-mail**, **Webhook** et **Apprise**. En cocher une crée une **exception** aux valeurs par défaut, pour cette conversation seulement. Si votre navigateur n’est pas encore abonné, cocher **Push** l’abonne. **E-mail**, **Webhook** et **Apprise** sont grisés tant qu’aucune destination n’existe ; un lien mène aux réglages.
+Dans l’en-tête d’une conversation, la cloche (réservée aux administrateurs ; les autres rôles n’en ont pas) ouvre un menu avec une case par canal de notification activé, avec l’icône de son type, son nom et un point d’état (connecté, erreur, en pause, déconnecté). Une case montre si le canal notifie cette conversation, et le mot gris à côté dit pourquoi : *par défaut* (les lignes du tableau décident), *activé ici* ou *coupé ici* (une **exception** faite pour cette conversation seulement). Cocher une case que le défaut laisse déjà cochée, ou décocher une case que le défaut laisse vide, fait suivre à nouveau le défaut à la conversation et supprime l’exception. Si votre navigateur n’est pas encore abonné, activer **Web Push** l’abonne d’abord. La cloche est pleine tant qu’au moins un canal notifie la conversation. Elle montre la configuration : un salon en sourdine ou un Ne pas déranger actif laisse les cases cochées tout en retenant les notifications.
+
+Le même menu contient le raccourci **Ne pas déranger** (1 heure, 8 heures, jusqu’à demain 8:00, **Reprendre maintenant** : la même pause générale que dans les réglages) et un lien **Configurer les canaux de notification**. Dans la liste des conversations, le même menu est sous les trois points d’une ligne, **Notifications**.
 
 Les exceptions sont listées dans **Réglages → Notifications → Exceptions par conversation**, une ligne par conversation avec un bouton par canal : cliquez pour passer de *hérite* (la règle de l’événement) à *oui* puis *non*. La croix supprime l’exception.
 

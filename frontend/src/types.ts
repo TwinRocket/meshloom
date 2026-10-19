@@ -1079,9 +1079,12 @@ export interface TelemetryAlertNodeOverride {
   rules?: Record<string, TelemetryAlertRuleOverrideSpec>;
 }
 
-/** Telemetry-alert v2 document persisted on GET/PATCH /api/settings. */
+/**
+ * Telemetry-alert v2 document persisted on GET/PATCH /api/settings. Where the alerts go is
+ * the `telemetry.alert` row of the notification rules, not a field here; a stored `channels`
+ * key from an older document is ignored.
+ */
 export interface TelemetryAlertRules {
-  channels: { push: boolean; email: boolean; webhook: boolean; apprise?: boolean };
   rules: Record<string, TelemetryAlertRuleSpec>;
   overrides: Record<string, TelemetryAlertNodeOverride>;
 }
@@ -1216,7 +1219,6 @@ export const DEFAULT_NOTIFICATION_DESTINATIONS: NotificationDestinations = {
 };
 
 export const DEFAULT_TELEMETRY_ALERT_RULES: TelemetryAlertRules = {
-  channels: { push: true, email: false, webhook: false },
   rules: {
     battery: { enabled: true, op: 'lt', threshold: 3.5, hysteresis: 0.2 },
     noise: { enabled: true, op: 'gt', threshold: -90, hysteresis: 3 },
@@ -1328,15 +1330,6 @@ export function resolveTelemetryAlertRules(
   if (!isNewTelemetryAlertRulesShape(raw)) return migrateLegacyTelemetryAlertRules(raw);
 
   const next = structuredClone(DEFAULT_TELEMETRY_ALERT_RULES);
-  const channels = asRecord(raw.channels);
-  if (channels) {
-    next.channels = {
-      push: typeof channels.push === 'boolean' ? channels.push : next.channels.push,
-      email: typeof channels.email === 'boolean' ? channels.email : next.channels.email,
-      webhook: typeof channels.webhook === 'boolean' ? channels.webhook : next.channels.webhook,
-    };
-  }
-
   const incomingRules = asRecord(raw.rules);
   if (incomingRules) {
     for (const [id, spec] of Object.entries(incomingRules)) {

@@ -30,6 +30,9 @@ const mocks = vi.hoisted(() => ({
     requestTrace: vi.fn(),
     updateRadioConfig: vi.fn(),
     setPrivateKey: vi.fn(),
+    getNotificationChannels: vi.fn(),
+    getNotificationRules: vi.fn(),
+    setNotificationConversationRule: vi.fn(),
   },
   toast: {
     success: vi.fn(),
@@ -39,9 +42,6 @@ const mocks = vi.hoisted(() => ({
     isSupported: false,
     isSubscribed: false,
     subscribe: vi.fn<() => Promise<string | null>>(async () => null),
-    setConversationOverride: vi.fn(async () => {}),
-    isConversationPushEnabled: vi.fn(() => false),
-    isConversationMediaEnabled: vi.fn(() => false),
   },
   hookFns: {
     fetchOlderMessages: vi.fn(async () => {}),
@@ -72,14 +72,10 @@ vi.mock('../contexts/PushSubscriptionContext', () => ({
     isSubscribed: mocks.push.isSubscribed,
     currentSubscriptionId: mocks.push.isSubscribed ? 'sub-1' : null,
     allSubscriptions: [],
-    overrideEntries: [],
     preferences: null,
     loading: false,
     subscribe: mocks.push.subscribe,
     unsubscribe: vi.fn(async () => {}),
-    setConversationOverride: mocks.push.setConversationOverride,
-    isConversationPushEnabled: mocks.push.isConversationPushEnabled,
-    isConversationMediaEnabled: mocks.push.isConversationMediaEnabled,
     deleteSubscription: vi.fn(async () => {}),
     testPush: vi.fn(async () => {}),
     refreshSubscriptions: vi.fn(async () => []),
@@ -236,20 +232,43 @@ const publicChannel = {
   favorite: false,
 };
 
+async function openBellAndCheckPush() {
+  await waitFor(() => {
+    expect(
+      screen.getByRole('button', { name: i18n.t('chatHeader.notifications') })
+    ).toBeInTheDocument();
+  });
+  fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.notifications') }));
+  fireEvent.click(await screen.findByRole('checkbox', { name: /Browser push/ }));
+}
+
 describe('App favorite toggle flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.push.isSupported = false;
     mocks.push.isSubscribed = false;
     mocks.push.subscribe.mockResolvedValue(null);
-    mocks.push.isConversationPushEnabled.mockReturnValue(false);
-    mocks.push.isConversationMediaEnabled.mockReturnValue(false);
 
     mocks.api.getRadioConfig.mockResolvedValue(baseConfig);
     mocks.api.getSettings.mockResolvedValue({ ...baseSettings });
     mocks.api.getUndecryptedPacketCount.mockResolvedValue({ count: 0 });
     mocks.api.getChannels.mockResolvedValue([publicChannel]);
     mocks.api.getContacts.mockResolvedValue([]);
+    mocks.api.getNotificationChannels.mockResolvedValue([
+      { id: 'builtin:push', type: 'web_push', name: 'Browser push', enabled: true },
+    ]);
+    mocks.api.getNotificationRules.mockResolvedValue({
+      version: 1,
+      paused_until: null,
+      events: { 'message.dm': { channels: [] }, 'message.channel': { channels: [] } },
+      conversations: {},
+    });
+    mocks.api.setNotificationConversationRule.mockResolvedValue({
+      version: 1,
+      paused_until: null,
+      events: { 'message.dm': { channels: [] }, 'message.channel': { channels: [] } },
+      conversations: {},
+    });
     mocks.api.toggleFavorite.mockResolvedValue({
       type: 'channel',
       id: publicChannel.key,
@@ -367,72 +386,48 @@ describe('App favorite toggle flow', () => {
     mocks.push.subscribe.mockResolvedValue('sub-1');
 
     render(<App />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: i18n.t('chatHeader.notifications') })
-      ).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.notifications') }));
-    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyPush')));
+    await openBellAndCheckPush();
 
     await waitFor(() => {
       expect(mocks.push.subscribe).toHaveBeenCalledTimes(1);
     });
-    expect(mocks.push.setConversationOverride).toHaveBeenCalledWith(
-      `channel-${publicChannel.key}`,
-      { push: true }
-    );
+    await waitFor(() => {
+      expect(mocks.api.setNotificationConversationRule).toHaveBeenCalledWith(
+        `channel-${publicChannel.key}`,
+        { 'builtin:push': true }
+      );
+    });
   });
 
-  it('sets a push override from the notify menu when already subscribed', async () => {
+  it('writes the exception without subscribing when already subscribed', async () => {
     mocks.push.isSupported = true;
     mocks.push.isSubscribed = true;
-    mocks.push.isConversationMediaEnabled.mockReturnValue(false);
 
     render(<App />);
+    await openBellAndCheckPush();
 
     await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: i18n.t('chatHeader.notifications') })
-      ).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.notifications') }));
-    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyPush')));
-
-    await waitFor(() => {
-      expect(mocks.push.setConversationOverride).toHaveBeenCalledWith(
+      expect(mocks.api.setNotificationConversationRule).toHaveBeenCalledWith(
         `channel-${publicChannel.key}`,
-        { push: true }
+        { 'builtin:push': true }
       );
     });
     expect(mocks.push.subscribe).not.toHaveBeenCalled();
   });
 
-  it('still writes the override when subscription setup fails', async () => {
+  it('still writes the exception when subscription setup fails', async () => {
     mocks.push.isSupported = true;
     mocks.push.isSubscribed = false;
     mocks.push.subscribe.mockResolvedValue(null);
 
     render(<App />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole('button', { name: i18n.t('chatHeader.notifications') })
-      ).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.notifications') }));
-    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyPush')));
+    await openBellAndCheckPush();
 
     await waitFor(() => {
       expect(mocks.push.subscribe).toHaveBeenCalledTimes(1);
     });
-    expect(mocks.push.setConversationOverride).toHaveBeenCalledWith(
-      `channel-${publicChannel.key}`,
-      { push: true }
-    );
+    await waitFor(() => {
+      expect(mocks.api.setNotificationConversationRule).toHaveBeenCalledTimes(1);
+    });
   });
 });

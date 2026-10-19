@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveTelemetryAlertRules } from '../types';
+import { DEFAULT_TELEMETRY_ALERT_RULES, resolveTelemetryAlertRules } from '../types';
 
 describe('resolveTelemetryAlertRules without channels', () => {
-  it('tolerates a stored document that no longer has a channels field', () => {
-    const resolved = resolveTelemetryAlertRules({ rules: {}, overrides: {} });
-    expect(resolved.channels).toEqual({ push: true, email: false, webhook: false });
-    expect(resolved.overrides).toEqual({});
+  it('has no channels field: alerts go where the telemetry.alert rules row says', () => {
+    expect(DEFAULT_TELEMETRY_ALERT_RULES).not.toHaveProperty('channels');
+    expect(resolveTelemetryAlertRules({ rules: {}, overrides: {} })).not.toHaveProperty('channels');
   });
 
-  it('keeps a legacy channels field readable', () => {
-    const resolved = resolveTelemetryAlertRules({ channels: { push: false, email: true } });
-    expect(resolved.channels.push).toBe(false);
-    expect(resolved.channels.email).toBe(true);
+  it('ignores a stored legacy channels field but keeps the rest', () => {
+    const resolved = resolveTelemetryAlertRules({
+      channels: { push: false, email: true },
+      rules: { battery: { enabled: false, threshold: 3.1 } },
+    });
+    expect(resolved).not.toHaveProperty('channels');
+    expect(resolved.rules.battery.threshold).toBe(3.1);
   });
 });

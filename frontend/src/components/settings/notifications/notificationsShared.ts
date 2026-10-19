@@ -39,6 +39,14 @@ export function iconFor(type: string): LucideIcon {
   return TYPE_ICONS[type] ?? BellRing;
 }
 
+/** The status dot of a channel (`connected`, `error`, `paused`, `disconnected`). */
+export const STATUS_DOT_CLASS: Record<string, string> = {
+  connected: 'bg-success',
+  error: 'bg-destructive',
+  paused: 'bg-warning',
+  disconnected: 'bg-muted-foreground/50',
+};
+
 /** `legacy:*` channels still decided by the 4.18.x settings (MSHL-112). */
 export function isLegacyChannel(id: string): boolean {
   return id.startsWith('legacy:');

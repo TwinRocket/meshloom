@@ -10,15 +10,7 @@ import {
   X,
   Plus,
 } from 'lucide-react';
-import type {
-  Channel,
-  Contact,
-  Conversation,
-  HealthStatus,
-  Message,
-  NotificationMediaChannel,
-  NotificationMediaFlags,
-} from '../types';
+import type { Channel, Contact, Conversation, HealthStatus, Message } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 import { RadioStatusChip } from './RadioStatusChip';
 import { useCapabilities } from '../auth/SessionProvider';
@@ -34,6 +26,7 @@ import {
 } from '../utils/messagePreview';
 import { countUnreadConversations } from '../utils/unreadConversations';
 import { adoptedChannels } from '../utils/channelMembership';
+import { notifyTargetOf } from '../utils/notifyTarget';
 import { cn } from '../lib/utils';
 
 function describeConversationPreview(
@@ -95,16 +88,7 @@ interface Props {
   onDeleteChannel?: (key: string) => void;
   onDeleteContact?: (publicKey: string) => void;
   onSetChannelFloodScopeOverride?: (key: string, floodScopeOverride: string) => void;
-  getNotifyMediaEnabled?: (conversation: Conversation) => NotificationMediaFlags;
-  onSetConversationMedia?: (
-    conversation: Conversation,
-    channel: NotificationMediaChannel,
-    enabled: boolean
-  ) => void;
   onOpenNotifySettings?: () => void;
-  emailReady?: boolean;
-  webhookReady?: boolean;
-  appriseReady?: boolean;
 }
 
 interface Row {
@@ -219,12 +203,7 @@ export function ConversationListView({
   onDeleteChannel,
   onDeleteContact,
   onSetChannelFloodScopeOverride,
-  getNotifyMediaEnabled,
-  onSetConversationMedia,
   onOpenNotifySettings,
-  emailReady = false,
-  webhookReady = false,
-  appriseReady = false,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [query, setQuery] = useState('');
@@ -644,11 +623,8 @@ export function ConversationListView({
                           onOpenChange={(next) => setOpenMenuKey(next ? menuKey : null)}
                           pinned={row.pinned}
                           favorite={row.favorite}
-                          canNotify={!!onSetConversationMedia && !!getNotifyMediaEnabled}
-                          notifyMediaEnabled={getNotifyMediaEnabled?.(row.conversation)}
-                          emailReady={emailReady}
-                          webhookReady={webhookReady}
-                          appriseReady={appriseReady}
+                          canNotify={capabilities.isAdmin}
+                          notifyTarget={notifyTargetOf(row.conversation, row.channel)}
                           canMute={row.kind === 'channel' && !!onMuteChannel}
                           muted={row.channel?.muted}
                           mutedUntil={row.channel?.muted_until}
@@ -661,12 +637,6 @@ export function ConversationListView({
                           isChannel={row.kind === 'channel'}
                           onTogglePin={() => onTogglePin(row.kind, row.key)}
                           onToggleFavorite={() => onToggleFavorite(row.kind, row.key)}
-                          onSetMedia={
-                            onSetConversationMedia
-                              ? (channel, enabled) =>
-                                  onSetConversationMedia(row.conversation, channel, enabled)
-                              : undefined
-                          }
                           onOpenNotifySettings={onOpenNotifySettings}
                           onMute={
                             onMuteChannel ? (seconds) => onMuteChannel(row.key, seconds) : undefined

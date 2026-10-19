@@ -11,6 +11,7 @@ import type {
   RadioWifiState,
   RawPacket,
 } from './types';
+import { invalidateConversationNotifications } from './hooks/useConversationNotifications';
 import { isDispatchableWsEvent, parseWsEvent } from './wsEvents';
 
 interface ErrorEvent {
@@ -250,6 +251,10 @@ export function useWebSocket(options: UseWebSocketOptions) {
             break;
           case 'success':
             handlers.onSuccess?.(msg.data as SuccessEvent);
+            break;
+          case 'notification_channel_changed':
+            // The bells' cached channel list is stale.
+            invalidateConversationNotifications();
             break;
           case 'plugin_status':
             // A health refresh follows (`app/plugins/host.py`): nothing to do here.

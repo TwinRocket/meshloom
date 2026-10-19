@@ -9,7 +9,6 @@ import fFr from '../i18n/locales/slices/f.fr.json';
 import kEn from '../i18n/locales/slices/k.en.json';
 import kFr from '../i18n/locales/slices/k.fr.json';
 import { DEFAULT_NOTIFICATION_MEDIA } from '../types';
-import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
 
 i18n.addResourceBundle('en', 'translation', fEn, true, true);
 i18n.addResourceBundle('fr', 'translation', fFr, true, true);
@@ -43,7 +42,6 @@ const mocks = vi.hoisted(() => ({
     getVapidPublicKey: vi.fn(),
     pushSubscribe: vi.fn(),
     deletePushSubscription: vi.fn(),
-    setPushConversationOverride: vi.fn(),
     patchPushPreferences: vi.fn(),
     testPushSubscription: vi.fn(),
   },
@@ -266,77 +264,12 @@ describe('usePushSubscription', () => {
     expect(result.current.currentSubscriptionId).toBe('sub-2');
   });
 
-  it('loads preferences on mount and evaluates conversations via policy', async () => {
+  it('loads the push preferences on mount', async () => {
     const { result } = renderHook(() => usePushSubscription());
 
     await waitFor(() => {
       expect(result.current.preferences).toEqual(EMPTY_PREFERENCES);
     });
-
-    expect(result.current.overrideEntries).toEqual([]);
-    expect(
-      result.current.isConversationPushEnabled(`channel-${PUBLIC_CHANNEL_KEY}`, {
-        messageType: 'CHAN',
-        isPublic: true,
-      })
-    ).toBe(true);
-    expect(
-      result.current.isConversationPushEnabled('channel-dd'.padEnd(16 + 8, 'd'), {
-        messageType: 'CHAN',
-      })
-    ).toBe(false);
-    expect(
-      result.current.isConversationPushEnabled('contact-aa'.padEnd(8 + 64, 'a'), {
-        messageType: 'PRIV',
-      })
-    ).toBe(true);
-  });
-
-  it('writes a conversation override and exposes override keys only', async () => {
-    const key = 'channel-private';
-    const updated = {
-      defaults: ALL_ON_DEFAULTS,
-      overrides: { [key]: true },
-      vapid_subject: '',
-    };
-    mocks.api.setPushConversationOverride.mockResolvedValue(updated);
-
-    const { result } = renderHook(() => usePushSubscription());
-    await waitFor(() => {
-      expect(result.current.preferences).not.toBeNull();
-    });
-
-    await act(async () => {
-      await result.current.setConversationOverride(key, true);
-    });
-
-    expect(mocks.api.setPushConversationOverride).toHaveBeenCalledWith(key, true);
-    expect(result.current.preferences).toEqual(updated);
-    expect(result.current.overrideEntries).toEqual([key]);
-    expect(result.current.isConversationPushEnabled(key, { messageType: 'CHAN' })).toBe(true);
-  });
-
-  it('clears a conversation override with null', async () => {
-    const key = `channel-${PUBLIC_CHANNEL_KEY}`;
-    mocks.api.getPushPreferences.mockResolvedValue({
-      defaults: ALL_ON_DEFAULTS,
-      overrides: { [key]: false },
-      vapid_subject: '',
-    });
-    mocks.api.setPushConversationOverride.mockResolvedValue(EMPTY_PREFERENCES);
-
-    const { result } = renderHook(() => usePushSubscription());
-    await waitFor(() => {
-      expect(result.current.overrideEntries).toEqual([key]);
-    });
-
-    await act(async () => {
-      await result.current.setConversationOverride(key, null);
-    });
-
-    expect(mocks.api.setPushConversationOverride).toHaveBeenCalledWith(key, null);
-    expect(result.current.preferences).toEqual(EMPTY_PREFERENCES);
-    expect(result.current.overrideEntries).toEqual([]);
   });
 
   it('patches defaults and vapid_subject', async () => {
@@ -364,11 +297,6 @@ describe('usePushSubscription', () => {
       vapid_subject: 'mailto:ops@example.com',
     });
     expect(result.current.preferences).toEqual(updated);
-    expect(
-      result.current.isConversationPushEnabled('contact-aa'.padEnd(8 + 64, 'a'), {
-        messageType: 'PRIV',
-      })
-    ).toBe(false);
   });
 
   it('shows the translated code of a failed test push, never the backend text', async () => {

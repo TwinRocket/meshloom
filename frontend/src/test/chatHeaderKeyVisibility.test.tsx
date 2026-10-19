@@ -101,29 +101,6 @@ describe('ChatHeader key visibility', () => {
     expect(screen.getAllByText('#Esperance')).toHaveLength(2);
   });
 
-  it('opens a notify menu and sets email for the conversation', () => {
-    const conversation: Conversation = { type: 'contact', id: '11'.repeat(32), name: 'Alice' };
-    const onSetConversationMedia = vi.fn();
-
-    render(
-      <ChatHeader
-        {...baseProps}
-        conversation={conversation}
-        channels={[]}
-        notifyMediaEnabled={{ push: true, email: false, webhook: false, apprise: false }}
-        emailReady
-        webhookReady
-        onSetConversationMedia={onSetConversationMedia}
-      />
-    );
-
-    const bellBtn = screen.getByRole('button', { name: i18n.t('chatHeader.notifications') });
-    expect(bellBtn).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(bellBtn);
-    fireEvent.click(screen.getByLabelText(i18n.t('chatHeader.notifyEmail')));
-    expect(onSetConversationMedia).toHaveBeenCalledWith('email', true);
-  });
-
   it('opens a mute menu and mutes for 15 minutes', () => {
     const key = 'AB'.repeat(16);
     const channel = makeChannel(key, '#flightless', true);
@@ -167,14 +144,7 @@ describe('ChatHeader key visibility', () => {
     const conversation: Conversation = { type: 'contact', id: pubKey, name: 'Ops Board' };
 
     render(
-      <ChatHeader
-        {...baseProps}
-        conversation={conversation}
-        channels={[]}
-        contacts={[contact]}
-        notifyMediaEnabled={{ push: false, email: false, webhook: false, apprise: false }}
-        onSetConversationMedia={vi.fn()}
-      />
+      <ChatHeader {...baseProps} conversation={conversation} channels={[]} contacts={[contact]} />
     );
 
     expect(

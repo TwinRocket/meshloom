@@ -6,9 +6,6 @@
     "service_rejected_apprise": "URL Apprise {{line}} ({{url}}) : le service a refusé la notification (HTTP {{status}}). Vérifiez le jeton ou l'adresse.",
     "send_failed_apprise": "URL Apprise {{line}} ({{url}}) : Apprise n'a pas pu envoyer la notification."
   },
-  "chatHeader": {
-    "notifyApprise": "Apprise"
-  },
   "settings": {
     "notifications": {
       "mediaApprise": "Apprise",

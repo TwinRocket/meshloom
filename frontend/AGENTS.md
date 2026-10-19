@@ -431,7 +431,7 @@ pydantic's output by `tests/test_schema_form_fixture.py`).
   (`enum`, `minimum`, `maximum`), `boolean`, `array` of strings (`minItems`, `maxItems`,
   `uniqueItems`; `items.enum` renders checkboxes, else one value per line); `title`, `description`,
   `default`, `writeOnly`, `examples`. The shapes pydantic emits are read: `anyOf: [<type>,
-  {type: null}]` is an optional field, a local `$ref` into `$defs` (also with sibling `default` or
+{type: null}]` is an optional field, a local `$ref` into `$defs` (also with sibling `default` or
   `title`) is inlined. Titles and descriptions may be a string or a `{lang: text}` map.
   Anything else (`oneOf`, `allOf`, `const`, `type: object` nested, a remote `$ref`, an unknown
   `format`...) renders a typed error (`data-testid="schema-form-unsupported"`, naming the field and the
@@ -678,13 +678,32 @@ The browser never calls GitHub. Install / auto-update show only when
 
 ### Web Push
 
-`public/sw.js` displays notifications and handles clicks; `utils/pushPolicy.ts`
-mirrors the 4.18.x conversation policy (`app/push/policy.py`, now a deprecated adapter over
-`app/notifications/rules.py`, whose shared fixture is `tests/fixtures/notification_policy_cases.json`;
-the N-channel mirror `notificationPolicy.ts` comes with the bell ticket). The `ChatHeader` bell opens `ConversationNotifyMenu`
-(push, email, webhook, Apprise per conversation). Turning push on subscribes this browser
-first when needed, then sets the per-conversation override (`App.tsx`). There is
-no in-tab desktop notification.
+`public/sw.js` displays notifications and handles clicks. There is no in-tab desktop
+notification.
+
+`utils/notificationPolicy.ts` (`conversationChannelEnabled`; `utils/pushPolicy.ts` only
+re-exports it for one release) mirrors `rules.conversation_channel_enabled`
+(`app/notifications/rules.py`, which `app/push/policy.py` now adapts). Both suites read
+`tests/fixtures/notification_policy_cases.json` (`test/notificationPolicy.test.ts` here,
+`tests/test_notification_policy.py` in the backend), so a case added there must pass on both
+sides: change one implementation, change the other. Cases cover DMs, public/`#`/private-key
+channels, exceptions, mute, block, the pause and `always_deliver`, and the `mention` and
+`cloud` inputs (a mention only reaches the channels of `message.mention` and stored `true`
+exceptions; on a private-key channel only a non-cloud one).
+
+The conversation bell (`ConversationNotifyMenu`, in `ChatHeader`, administrators only: the
+API is admin-only, so the kiosk, viewer and member roles get none) and the "Notifications"
+panel of a list row's three-dots menu (`ConversationOverflowMenu`) share
+`ConversationNotifyPanel` (state in `hooks/useConversationNotifications.ts`: it loads
+`/api/notifications/channels` + `/rules` once into a module cache shared by every bell (a header remount does not refetch), refetched when a bell opens and on the `notification_channel_changed` WS event, replaced by the answer of each write; writes
+`PUT /rules/conversations/{key}` and `PATCH /rules` `paused_until`). One checkbox per
+**enabled** channel (type icon, name, status dot from `health.notification_statuses` through
+`NotificationStatusContext`, fed by `App.tsx`); the box is the policy result, the caption says
+`inherit`/`on`/`off`; toggling to what the default gives clears the exception (`null`), orphan
+ids are dropped from the write, and turning `builtin:push` on subscribes this browser first
+(`usePush().subscribe()`, a refusal toasts and the exception is still written). "Do not
+disturb" is `GlobalPauseControl`, reused. `utils/notifyTarget.ts` builds the policy input from a
+conversation. Strings: slice `cp` (`chatHeader.notify*`). Test: `test/conversationNotifyMenu.test.tsx`.
 
 ### Notifications channels (`components/settings/notifications/`)
 
@@ -716,6 +735,12 @@ mention tick ride their rows) and `ConversationExceptions` (chip per channel cyc
 inherit/on/off, `PUT null` to remove; orphan channel ids get a removable chip and are dropped from every write, the server refuses unknown ids). A failed load shows an alert with a retry. Strings: slice `ci` (`settings.notifications.matrix.*`,
 `.pause.*`). Test: `src/test/notificationsRules.test.tsx`. The old `push_defaults` table and
 exceptions list are gone from `SettingsNotificationsSection`.
+
+The Alerts page (`SettingsAlertsSection`) picks where telemetry alerts go with
+`TelemetryAlertChannels`: a chip per channel (`aria-pressed`) editing the `telemetry.alert` row
+of the rules (`PATCH /rules`, the same row as the matrix). `TelemetryAlertRules` in `types.ts`
+no longer has `channels`: a stored `channels` key is ignored. Strings: slice `cp`
+(`settings.alerts.channels*`). Test: `src/test/settingsAlertsSection.test.tsx`.
 
 ### Styling
 

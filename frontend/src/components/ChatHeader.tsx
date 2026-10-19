@@ -24,17 +24,10 @@ import { isPrefixOnlyContact } from '../utils/pubkey';
 import { cn } from '../lib/utils';
 import { ContactAvatar } from './ContactAvatar';
 import { ContactStatusInfo } from './ContactStatusInfo';
-import type {
-  Channel,
-  Contact,
-  Conversation,
-  NotificationMediaChannel,
-  NotificationMediaFlags,
-  PathDiscoveryResponse,
-  RadioConfig,
-} from '../types';
+import type { Channel, Contact, Conversation, PathDiscoveryResponse, RadioConfig } from '../types';
 import { CONTACT_TYPE_ROOM } from '../types';
 import { isolateBidi } from '../utils/messageText';
+import { notifyTargetOf } from '../utils/notifyTarget';
 
 interface ChatHeaderProps {
   conversation: Conversation;
@@ -43,11 +36,6 @@ interface ChatHeaderProps {
   config: RadioConfig | null;
   onTrace: () => void;
   onPathDiscovery: (publicKey: string) => Promise<PathDiscoveryResponse>;
-  notifyMediaEnabled?: NotificationMediaFlags;
-  emailReady?: boolean;
-  webhookReady?: boolean;
-  appriseReady?: boolean;
-  onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenNotifySettings?: () => void;
   onToggleFavorite: (type: 'channel' | 'contact', id: string) => void;
   onTogglePin?: (type: 'channel' | 'contact', id: string) => void;
@@ -72,11 +60,6 @@ export function ChatHeader({
   config,
   onTrace,
   onPathDiscovery,
-  notifyMediaEnabled,
-  emailReady = false,
-  webhookReady = false,
-  appriseReady = false,
-  onSetConversationMedia,
   onOpenNotifySettings,
   onToggleFavorite,
   onTogglePin,
@@ -291,13 +274,9 @@ export function ChatHeader({
                   <DirectTraceIcon className="h-4 w-4 text-muted-foreground" />
                 </button>
               )}
-              {!pending && isAdmin && onSetConversationMedia && notifyMediaEnabled && (
+              {!pending && isAdmin && (
                 <ConversationNotifyMenu
-                  mediaEnabled={notifyMediaEnabled}
-                  emailReady={emailReady}
-                  webhookReady={webhookReady}
-                  appriseReady={appriseReady}
-                  onSetMedia={onSetConversationMedia}
+                  target={notifyTargetOf(conversation, activeChannel)}
                   onOpenSettings={onOpenNotifySettings}
                 />
               )}
