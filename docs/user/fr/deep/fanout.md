@@ -5,7 +5,7 @@ level: deep
 order: 16
 ---
 
-Le fanout envoie ce que Meshloom entend vers d’autres systèmes : votre propre broker MQTT, Home Assistant, des bots Python, des webhooks, des services de messagerie et d’e-mail via Apprise, Amazon SQS, des collecteurs communautaires de paquets, et la carte publique MeshCore. Dans l’interface, il s’appelle **MQTT et automatisation**.
+Le fanout envoie ce que Meshloom entend vers d’autres systèmes (pour être prévenu vous-même d’événements, sur votre téléphone ou dans une discussion, utilisez plutôt les [Notifications](/docs/deep/notifications/)) : votre propre broker MQTT, Home Assistant, des bots Python, des webhooks, des services de messagerie et d’e-mail via Apprise, Amazon SQS, des collecteurs communautaires de paquets, et la carte publique MeshCore. Dans l’interface, il s’appelle **MQTT et automatisation**.
 
 Chaque destination est une **intégration**. Pour en ajouter une :
 
@@ -25,8 +25,8 @@ La page affiche un avertissement : les intégrations sont une fonctionnalité ex
 | MQTT Discovery Home Assistant | Fait apparaître votre radio, vos répéteurs et vos contacts comme des appareils dans Home Assistant. Voir [Home Assistant](/docs/deep/home-assistant/) |
 | MQTT communautaire / meshcoretomqtt | Envoie les paquets bruts à un collecteur communautaire. Des préréglages existent pour **MeshRank** et **LetsMesh** (US et EU) |
 | Bot Python | Exécute du code Python que vous écrivez en réponse aux messages |
-| Webhook | Envoie chaque message en JSON par HTTP, avec une signature facultative |
-| Apprise | Envoie des notifications vers Discord, Telegram, Slack, e-mail, SMS et une centaine d’autres services |
+| Webhook | Envoie chaque message en JSON par HTTP, avec une signature facultative. Pas le webhook de notification, voir [Webhooks](#webhooks) |
+| Apprise | Transmet chaque message vers Discord, Telegram, Slack, e-mail, SMS et une centaine d’autres services. Les notifications ont déménagé vers les [canaux](/docs/deep/notifications/), voir [Apprise](#apprise) |
 | Amazon SQS | Dépose chaque événement dans une file Amazon SQS |
 | Envoi vers la carte | Envoie les répéteurs et serveurs de salon entendus vers map.meshcore.io |
 
@@ -97,6 +97,8 @@ Limites : un bot attend deux secondes avant de s’exécuter (pour reconnaître 
 
 ## Webhooks
 
+Il y a deux webhooks dans Meshloom, et ils ne sont pas les mêmes. Celui-ci, le **webhook du fanout**, est une intégration pour les machines : il envoie **chaque message** du périmètre choisi, en JSON, à un script, Node-RED ou n8n. Le **webhook de notification** (un canal *Webhook* des [Notifications](/docs/deep/notifications/#destinations-e-mail-et-webhook)) envoie les **événements** que vous cochez dans le tableau des règles (un message direct, radio hors ligne, une alerte de télémétrie…), avec sa propre signature et ses propres en-têtes (`X-Webhook-Id`, `X-Webhook-Timestamp`). Utilisez le webhook du fanout pour alimenter un système avec le trafic, celui des notifications pour être prévenu d’événements.
+
 Meshloom envoie chaque message en JSON, avec la méthode que vous choisissez (`POST`, `PUT` ou `PATCH`) et les en-têtes supplémentaires que vous définissez. Il attend une réponse jusqu’à 10 secondes. Chaque requête porte un en-tête `X-Webhook-Event`.
 
 Si vous définissez un **secret HMAC**, Meshloom signe le corps avec HMAC-SHA256 et envoie le résultat sous la forme `sha256=<hex>` dans un en-tête. L’en-tête est `X-Webhook-Signature`, sauf si vous en nommez un autre.
@@ -115,9 +117,11 @@ Les intégrations configurées avant cette vérification continuent de fonctionn
 
 ## Apprise
 
+**Les notifications ont déménagé.** Pour être prévenu d’événements (messages directs, mentions, radio hors ligne, nouveaux contacts, alertes) sur Telegram, Discord, ntfy, Home Assistant, Gotify ou tout service Apprise, ajoutez un **canal** dans les [Notifications](/docs/deep/notifications/) : il a ses propres règles, une pause, un bouton de test, des nouvelles tentatives, un journal des envois et une politique de texte qui garde les messages privés hors des services tiers. La sortie Apprise décrite ici reste, et continue de faire ce qu’elle faisait : transmettre chaque message des salons et contacts que vous choisissez, mis en forme avec vos propres modèles. Elle n’a ni règles, ni pause, ni choix par événement. Une conversion en un clic d’une sortie Apprise en canal de notification est prévue dans une version ultérieure ; d’ici là, si la même adresse figure aux deux endroits, vous serez prévenu deux fois.
+
 Indiquez une adresse par ligne. Chaque message est envoyé à toutes. Vous pouvez écrire vos propres modèles de texte pour les messages directs et les messages de salon, avec des variables comme l’expéditeur, le texte, le salon, le nombre de sauts et la force du signal. Les messages que vous avez envoyés vous-même ne sont pas transmis, sauf si vous cochez l’option. Pour Discord, vous pouvez conserver le nom et l’image propres au webhook.
 
-Apprise ignore les messages d’un contact ou d’un nom bloqué et ceux d’un salon en sourdine (jusqu’à la fin de la sourdine), comme la liste des conversations. Les sorties machine (MQTT privé, Webhook, Amazon SQS) les reçoivent toujours : un script ou un broker décide lui-même. Pour être averti des événements système (radio hors ligne, nouveaux contacts, alertes) par Apprise, utilisez plutôt la destination Apprise des [Notifications](/docs/deep/push/#destination-apprise).
+Apprise ignore les messages d’un contact ou d’un nom bloqué et ceux d’un salon en sourdine (jusqu’à la fin de la sourdine), comme la liste des conversations. Les sorties machine (MQTT privé, Webhook, Amazon SQS) les reçoivent toujours : un script ou un broker décide lui-même. Pour être averti des événements système (radio hors ligne, nouveaux contacts, alertes) par Apprise, utilisez plutôt un canal Apprise des [Notifications](/docs/deep/notifications/#destination-apprise).
 
 Meshloom accepte ces services Apprise :
 

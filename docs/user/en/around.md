@@ -103,7 +103,7 @@ It starts from what your own radio heard. With Meshloom Community on, it also us
 
 ## Discovered channels
 
-Meshloom tries to recognize hashtag channels it hears but has no key for. It first tries a built-in list of well-known names. With Community on and an airport code saved, it also asks Community for names that could match. When it finds one, it sends a "Found channels" notification (see [Push notifications](/en/docs/deep/push/)).
+Meshloom tries to recognize hashtag channels it hears but has no key for. It first tries a built-in list of well-known names. With Community on and an airport code saved, it also asks Community for names that could match. When it finds one, it sends a "Found channels" notification (see [Notifications](/en/docs/deep/notifications/)).
 
 A channel found this way does not enter your conversations by itself. It appears in **Discovered channels**, where you choose **Adopt** to add it to your chats or **Refuse** to dismiss it. Refused channels are kept in a list, so you can reverse your decision.
 

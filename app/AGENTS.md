@@ -1020,14 +1020,16 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Telemetry alerts and notifications
 
+- **User guide: `docs/user/{en,fr}/deep/notifications.md`** (channels, privacy, rules, backups, upgrading); `push.md` keeps only the browser side (HTTPS, VAPID, devices). Same headings in both languages. A change to a channel type, an event, an error code or a default (text policy, limits) updates them in the same PR.
 - **Catalogue and renderer: `app/notifications/AGENTS.md`.** Every notification
   text (push payload, e-mail subject and bodies, Apprise text, webhook enrichment) is
   rendered in `app/notifications/render.py`; `push/manager.py` and `email_template.py`
   only re-export it. `app_settings.notification_language` (`auto`|`fr`|`en`) picks the
   e-mail and Apprise language (`resolve_instance_language()`).
-- Four media: `push`, `email`, `webhook`, `apprise` (`NOTIFICATION_MEDIA_KEYS`,
-  `app/repository/settings.py`; the push router models and
-  the frontend legacy forms list them too). A missing key reads as off
+- Four **legacy** media: `push`, `email`, `webhook`, `apprise` (`NOTIFICATION_MEDIA_KEYS`,
+  `app/repository/settings.py`; the deprecated push router models and
+  the frontend legacy forms list them). They are the 4.18.x fixed media, kept for the shims
+  until 5.2.0; the engine itself has N typed channels (`app/notifications/AGENTS.md`). A missing key reads as off
   (`coerce_notification_media`), so adding one needs no migration. A channel
   reaches a medium other than push only through its conversation exception.
 - Secrets (SMTP password, webhook `url` and secret, Apprise `urls` in
@@ -1064,8 +1066,8 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   rest one `first_seen_grouped`). The text policy (`include_message_text`:
   `public_only` default, `always`, `never`) and the format apply once, in
   `event_notification_text` (`app/notifications/render.py`, re-exported by `app/push/manager.py`); room-wide mentions
-  (`@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@…>`, `<!…>`) are
-  always neutralised, Markdown escapes the text. Every Apprise parse and send
+  (`@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@…>`, `<!…>`, `<#…>`) are
+  always neutralised (the Apprise text format too), Markdown escapes the text. Every Apprise parse and send
   (the medium, save-time validation, the fanout) runs inside `secret_scope()`
   with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
   the ring buffer and `/api/debug` masked. Blocked senders and muted channels

@@ -81,12 +81,14 @@ L’installateur les définit pour vous. On les modifie rarement à la main.
 
 ## Notifications
 
-La langue des notifications se choisit dans **Réglages → Notifications** et se stocke dans la base de données, pas dans une variable :
+Les notifications se règlent dans **Réglages → Notifications** et se stockent dans la base de données, pas dans des variables (voir [Notifications](/docs/deep/notifications/)). Les canaux (leurs réglages, secrets et limites) ont leurs propres tables ; les réglages ci-dessous sont dans la table des réglages :
 
 | Réglage | Défaut | Description |
 |---------|--------|-------------|
-| `notification_language` | `auto` | `auto`, `fr` ou `en`. La langue des notifications par e-mail et Apprise ; `auto` suit les navigateurs abonnés au push (anglais seulement si une majorité stricte des navigateurs est en anglais, français en cas d’égalité) |
-| `notification_rules` | `{}` | Les règles de notification (quel canal reçoit quel événement, exceptions par conversation). Écrites par l’import 4.18 vers 5.0 et par les canaux de notification ; aucun écran ne les modifie encore |
+| `notification_language` | `auto` | `auto`, `fr` ou `en`. La langue de l’instance pour les notifications (un canal peut avoir la sienne) ; `auto` suit les navigateurs abonnés au push (anglais seulement si une majorité stricte des navigateurs est en anglais, français en cas d’égalité) |
+| `notification_rules` | `{}` | Les règles de notification (quel canal reçoit quel événement, exceptions par conversation). Écrites par l’import 4.18 vers 5.0, le tableau des règles, la cloche, **Ne pas déranger** et la suppression d’un canal ; `paused_until` (la pause) et les options du tableau (`mention_whole_word`) y sont |
+| `radio_offline_grace_s` | `60` | Secondes pendant lesquelles la radio peut rester injoignable avant l’envoi de **Radio hors ligne** (0 à 3600 ; 0 notifie tout de suite). Se règle sous la ligne **Radio hors ligne** du tableau des règles |
+| `push_allow_private_endpoints` | `false` | Accepte les points d’accès Web Push sur un réseau privé, pour un distributeur UnifiedPush auto-hébergé. Voir [Push](/docs/deep/push/#services-push-sur-un-réseau-privé) |
 
 ## Variables retirées
 
@@ -127,7 +129,7 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 | **Base de données** | `auto_decrypt_dm_on_advert` |
 | **Gestion radio-application** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 de chaque au maximum), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alertes** | `telemetry_alert_rules` |
-| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail et webhook), `notification_rules` ; les nouvelles tables `notification_channels`, `notification_deliveries`, `notification_counters` et `notification_state` |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail, webhook et Apprise, les destinations 4.18.x), `notification_language`, `notification_rules`, `radio_offline_grace_s`, `push_allow_private_endpoints` ; les nouvelles tables `notification_channels`, `notification_deliveries`, `notification_counters` et `notification_state` |
 | **Mises à jour** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
 | **Utilisateurs et accès** | `public_urls` (**Adresses publiques** : les noms auxquels Meshloom répond depuis l’extérieur, déclarés par un administrateur ; aucune variable d’environnement n’existe pour cela), `host_guard_mode` (observation ou strict) |
 | **Configuration locale** et **Navigation** | `ui_preferences` : thème, étiquette de l’instance, barre de gauche ; `auth_allowed_origins` : les autres sites autorisés à appeler l’API (**Origines autorisées**) |

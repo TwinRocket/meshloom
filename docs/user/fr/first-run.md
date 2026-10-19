@@ -110,6 +110,6 @@ Le bouton **Ajouter canal/contact** crée une conversation : un contact à parti
 
 Autres pages utiles dans **Réglages** : **Notifications** (ci-dessous), **Mises à jour**, **MQTT et automatisation** (sorties et bots), **Alertes** (seuils de télémétrie), **Base de données** (taille et nettoyage du stockage), **Statistiques** et **À propos**.
 
-**Réglages > Notifications** sert à choisir ce dont Meshloom vous prévient (nouveaux contacts, messages directs, nouveaux répéteurs ou capteurs, canaux trouvés, alertes télémétrie, mises à jour), et par quel moyen : Web Push sur ce navigateur, e-mail ou webhook. Le push fonctionne aussi navigateur fermé, mais il exige HTTPS. Meshloom n’affiche aucune alerte contextuelle dans l’onglet ouvert. Voir [Notifications push](/docs/deep/push/).
+**Réglages > Notifications** sert à choisir ce dont Meshloom vous prévient (nouveaux contacts, messages directs, nouveaux répéteurs ou capteurs, canaux trouvés, alertes télémétrie, mises à jour), et par quel moyen. Chaque moyen est un **canal** : Web Push sur ce navigateur, e-mail, un webhook, ntfy, Discord, Telegram, Gotify, Home Assistant ou tout service [Apprise](https://appriseit.com/). Web Push fonctionne aussi navigateur fermé, mais il exige HTTPS ; ntfy, Gotify ou Home Assistant sur votre réseau, non. Meshloom n’affiche aucune alerte contextuelle dans l’onglet ouvert. Voir [Notifications](/docs/deep/notifications/) et, pour les navigateurs, [Notifications push](/docs/deep/push/).
 
 Pour envoyer votre premier message : [Messages](/docs/messages/).
