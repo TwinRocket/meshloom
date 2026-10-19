@@ -46,7 +46,8 @@ class PresetField:
     kind: FieldKind = "text"
     secret: bool = False
     required: bool = False
-    # ``re.fullmatch`` pattern of the value (text fields).
+    # ``re.fullmatch`` pattern of the value (text fields), ASCII only: write ``[0-9]`` and
+    # ``[A-Za-z0-9_]``, never ``\d`` or ``\w`` (Pydantic's JSON Schema pattern is Unicode).
     pattern: str | None = None
     max_length: int = 256
     default: str = ""
@@ -54,6 +55,8 @@ class PresetField:
     choices: tuple[str, ...] = ()
     # ``url``: the Apprise scheme for each URL scheme (``{"http": "gotify", ...}``).
     scheme_map: Mapping[str, str] = field(default_factory=dict)
+    # ``url``: the service has no sub-path (a path is refused, not dropped).
+    no_path: bool = False
     # A change of this field must not keep a stored secret (``secret_follows``).
     destination: bool = False
     # The field has a help text (``notifications.presets.<id>.help.<name>``).
@@ -89,7 +92,7 @@ PRESETS: tuple[Preset, ...] = (
                 "bot_token",
                 secret=True,
                 required=True,
-                pattern=r"\d+:[\w-]+",
+                pattern=r"[0-9]+:[A-Za-z0-9_-]+",
                 max_length=130,
                 help=True,
                 example="123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw",
@@ -98,12 +101,12 @@ PRESETS: tuple[Preset, ...] = (
             PresetField(
                 "chat_id",
                 required=True,
-                pattern=r"-?\d{1,32}|@[A-Za-z][\w]{3,63}",
+                pattern=r"-?[0-9]{1,32}|@[A-Za-z][A-Za-z0-9_]{3,63}",
                 max_length=64,
                 help=True,
                 example="-1001234567",
             ),
-            PresetField("topic_id", pattern=r"\d{1,12}", max_length=12, help=True, example="7"),
+            PresetField("topic_id", pattern=r"[0-9]{1,12}", max_length=12, help=True, example="7"),
         ),
         # 15 a minute: Telegram allows about 20 messages a minute to one group.
         Limits(15, 200, None),
@@ -153,6 +156,7 @@ PRESETS: tuple[Preset, ...] = (
                 required=True,
                 max_length=255,
                 scheme_map={"http": "hassio", "https": "hassios"},
+                no_path=True,
                 destination=True,
                 help=True,
                 example="http://homeassistant.local:8123",
@@ -196,7 +200,7 @@ class PresetError(Exception):
 
 
 def _full(pattern: str, value: str) -> bool:
-    return re.fullmatch(pattern, value) is not None
+    return re.fullmatch(pattern, value, re.ASCII) is not None
 
 
 def split_url(value: str) -> tuple[str, str, str]:
@@ -221,6 +225,12 @@ def _check_url(value: str, spec: PresetField) -> str:
         raise ValueError("must not carry a user name or password")
     if parts.query or parts.fragment or ";" in parts.path:
         raise ValueError("must not have a query or a fragment")
+    if ".." in parts.path or "%" in parts.path:
+        # The path is percent-encoded once when the URL is built: a typed "%" would be
+        # encoded twice, and ".." would climb out of the prefix the user meant.
+        raise ValueError("must not contain '..' or '%' in its path")
+    if spec.no_path and parts.path.rstrip("/"):
+        raise ValueError("must not have a path")
     return value.rstrip("/")
 
 

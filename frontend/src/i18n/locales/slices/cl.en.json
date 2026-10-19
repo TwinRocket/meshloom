@@ -34,7 +34,7 @@
           "service": "Notify service"
         },
         "help": {
-          "url": "For example http://homeassistant.local:8123. Home Assistant is usually on your home network: tick “Allow a private-network destination” below.",
+          "url": "For example http://homeassistant.local:8123. Home Assistant is usually on your home network: tick “Allow a private-network destination” below. Only the address: a path such as /ha (Home Assistant behind a reverse proxy on a sub-path) is refused.",
           "token": "Profile, Security, Long-lived access tokens. Write-only: it is never shown again.",
           "service": "The service name without “notify.”: mobile_app_your_phone (see Developer tools, Actions). A full name such as notify.alerts works too."
         }
