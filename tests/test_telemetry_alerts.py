@@ -7,7 +7,6 @@ import pytest
 
 from app.models import (
     CONTACT_TYPE_REPEATER,
-    TelemetryAlertChannels,
     TelemetryAlertRuleOverride,
     TelemetryAlertRules,
     TelemetryRuleSpec,
@@ -407,16 +406,16 @@ class TestTelemetryAlerts:
 
         await _track_repeater()
         await AppSettingsRepository.update(
-            telemetry_alert_rules=TelemetryAlertRules(
-                channels=TelemetryAlertChannels(push=True, email=True, webhook=True)
-            ),
-            # A medium with no destination is skipped by the adapter.
+            # A medium with no destination has no channel, so no rule can reach it.
             notification_destinations=NotificationDestinations.model_validate(
                 {
                     "email": {"host": "smtp.example.org", "to": "ops@example.org"},
                     "webhook": {"url": "https://hooks.example.org/x"},
                 }
             ),
+        )
+        await AppSettingsRepository.set_push_defaults(
+            {"telemetry_alert": {"push": True, "email": True, "webhook": True}}
         )
         # The "destination changed" push notice is a spawned task: wait for it.
         from app.background_tasks import _tasks

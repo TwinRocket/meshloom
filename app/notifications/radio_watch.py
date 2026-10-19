@@ -81,12 +81,10 @@ def _dispatch_in_background(event: str, payload: dict[str, Any]) -> None:
 
 
 async def _dispatch(event: str, payload: dict[str, Any]) -> None:
-    from app.notify import dispatch_system_event
-    from app.repository.settings import AppSettingsRepository
+    from app.notifications.producers import emit_payload
 
     try:
-        defaults = await AppSettingsRepository.get_push_defaults()
-        await dispatch_system_event({"event": event, **payload}, defaults[event])
+        await emit_payload({"event": event, **payload})
     except Exception:
         logger.warning("Failed to dispatch %s", event, exc_info=True)
 

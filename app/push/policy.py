@@ -1,13 +1,17 @@
-"""Pure conversation-enablement policy for notifications.
+"""Deprecated: the 4.18.x conversation policy, kept for one release.
 
-Mute is a separate manager-level circuit breaker and is not evaluated here.
-The frontend Vague C hook must mirror these cases exactly.
+The policy now lives in ``app.notifications.rules.conversation_channel_enabled``, over N
+channels and the ``notification_rules`` document. This adapter turns the legacy
+``push_defaults`` / ``push_conversation_overrides`` shapes into rules and asks that function;
+it is removed with the shims in 5.2.0.
 """
 
 from collections.abc import Mapping
 from typing import Any
 
-from app.repository.settings import PushDefaults, coerce_conversation_override, media_enabled
+from app.migrations._113_notification_channels import MEDIUM_CHANNEL, build_rules
+from app.notifications.rules import conversation_channel_enabled
+from app.repository.settings import PushDefaults
 
 
 def conversation_is_enabled(
@@ -21,21 +25,17 @@ def conversation_is_enabled(
     contact_type: int | None = None,
     channel: str = "push",
 ) -> bool:
-    """Return whether a conversation should receive a notification.
+    """Whether a conversation notifies the medium ``channel`` (``push``, ``email``, ...).
 
-    The chat-header menu writes per-medium overrides. A stored flag for
-    that medium wins; otherwise PRIV follows ``new_dm`` and CHAN is push
-    for public/hashtag only.
-
-    ``contact_type`` is unused for enablement (rooms are PRIV). Kept so
-    callers can pass it without a second signature.
+    ``contact_type`` is unused (rooms are PRIV); kept so callers need no second signature.
     """
     _ = contact_type
-    stored = coerce_conversation_override(overrides[state_key]) if state_key in overrides else {}
-    if channel in stored:
-        return bool(stored[channel])
-    if message_type == "PRIV":
-        return media_enabled(defaults, "new_dm", channel)
-    if channel != "push":
-        return False
-    return bool(is_public or is_hashtag)
+    rules = build_rules(defaults, overrides, set(MEDIUM_CHANNEL.values()))
+    return conversation_channel_enabled(
+        state_key=state_key,
+        message_type=message_type,
+        rules=rules,
+        channel_id=MEDIUM_CHANNEL[channel],
+        is_hashtag=is_hashtag,
+        is_public=is_public,
+    )

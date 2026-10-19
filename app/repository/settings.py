@@ -272,8 +272,8 @@ def _store_push_overrides(overrides: Mapping[str, object]) -> dict[str, Conversa
 
 
 async def _mirror_legacy_rules() -> None:
-    """The 4.18.x preference columns are still the delivery source (MSHL-112 switches
-    the producers): mirror each write into the notification rules."""
+    """The notification rules are the delivery source, the 4.18.x preference columns the view
+    the deprecated routes read: mirror each write of the columns into the rules."""
     from app.notifications.legacy_sync import sync_rules
 
     await sync_rules()
@@ -1138,23 +1138,11 @@ class AppSettingsRepository:
         """Return per-event media flags. Not part of AppSettings."""
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT push_defaults, telemetry_alert_rules FROM app_settings WHERE id = 1"
+                "SELECT push_defaults FROM app_settings WHERE id = 1"
             ) as cursor:
                 row = await cursor.fetchone()
         parsed = _load_json_object(row["push_defaults"] if row else None)
-        defaults = _known_push_defaults(parsed)
-        stored_alert = parsed.get("telemetry_alert")
-        if row is not None and not isinstance(stored_alert, Mapping):
-            from app.telemetry_alerts import coerce_telemetry_alert_rules
-
-            rules = coerce_telemetry_alert_rules(row["telemetry_alert_rules"])
-            defaults["telemetry_alert"] = NotificationMediaFlags(
-                push=bool(rules.channels.push),
-                email=bool(rules.channels.email),
-                webhook=bool(rules.channels.webhook),
-                apprise=bool(rules.channels.apprise),
-            )
-        return defaults
+        return _known_push_defaults(parsed)
 
     @staticmethod
     async def set_push_defaults(defaults: Mapping[str, Any]) -> PushDefaults:
@@ -1166,23 +1154,24 @@ class AppSettingsRepository:
                 "UPDATE app_settings SET push_defaults = ? WHERE id = 1",
                 (json.dumps(merged),),
             )
-            async with conn.execute(
-                "SELECT telemetry_alert_rules FROM app_settings WHERE id = 1"
-            ) as cursor:
-                row = await cursor.fetchone()
-            from app.telemetry_alerts import coerce_telemetry_alert_rules, stored_rules_dict
-
-            rules = coerce_telemetry_alert_rules(row["telemetry_alert_rules"] if row else None)
-            rules.channels.push = merged["telemetry_alert"]["push"]
-            rules.channels.email = merged["telemetry_alert"]["email"]
-            rules.channels.webhook = merged["telemetry_alert"]["webhook"]
-            rules.channels.apprise = merged["telemetry_alert"]["apprise"]
-            await conn.execute(
-                "UPDATE app_settings SET telemetry_alert_rules = ? WHERE id = 1",
-                (json.dumps(stored_rules_dict(rules)),),
-            )
         await _mirror_legacy_rules()
         return merged
+
+    @staticmethod
+    async def write_push_columns(
+        defaults: Mapping[str, Any], overrides: Mapping[str, object]
+    ) -> None:
+        """Store both 4.18.x preference columns as they are, without mirroring them into the
+        rules: ``legacy_sync.sync_columns`` calls it after the rules changed, so the deprecated
+        preference routes keep showing what is delivered."""
+        merged = _coerce_push_defaults(defaults, await AppSettingsRepository.get_push_defaults())
+        stored = _store_push_overrides(overrides)
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET push_defaults = ?, push_conversation_overrides = ?"
+                " WHERE id = 1",
+                (json.dumps(merged), json.dumps(stored)),
+            )
 
     @staticmethod
     async def get_push_conversation_overrides() -> dict[str, ConversationOverride]:

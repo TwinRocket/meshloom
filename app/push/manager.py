@@ -1,8 +1,8 @@
-"""Web Push dispatch manager.
+"""Web Push transport: sends one payload to every subscription.
 
-Conversation enablement uses ``policy.conversation_is_enabled`` plus a
-separate muted-channel circuit breaker. First-seen contact alerts are
-sent out-of-band to subscriptions and never go through WebSocket.
+Which events reach Web Push is decided by the notification rules and the dispatcher
+(``app/notifications``); this manager only sends (``dispatch_event``) and keeps the
+subscriptions healthy.
 """
 
 from __future__ import annotations
@@ -11,13 +11,12 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from pywebpush import WebPushException
 
-from app.channel_constants import is_public_channel_key
 from app.net.egress_guard import EgressBlocked
 from app.notifications.render import (  # noqa: F401  (re-exported: callers import them from here)
     DESTINATION_CHANGED_EVENT,
@@ -29,16 +28,10 @@ from app.notifications.render import (  # noqa: F401  (re-exported: callers impo
     neutralise_mentions,
     state_key_for_message,
 )
-from app.push.policy import conversation_is_enabled
 from app.push.send import send_push
 from app.push.vapid import get_vapid_claims, get_vapid_private_key
-from app.repository.channels import ChannelRepository
 from app.repository.push_subscriptions import PushSubscriptionRepository
-from app.repository.settings import (
-    NOTIFICATION_MEDIA_KEYS,
-    AppSettingsRepository,
-    any_media_enabled,
-)
+from app.repository.settings import AppSettingsRepository
 
 logger = logging.getLogger(__name__)
 
@@ -121,114 +114,11 @@ class PushManager:
         self._forbidden_since.move_to_end(sub_id)
         return now - first >= FORBIDDEN_ANSWER_CONFIRM_SECONDS
 
-    async def dispatch_message(self, data: dict) -> None:
-        """Send push notifications for a message event to all devices."""
-        # Don't notify for messages the operator just sent themselves
-        if data.get("outgoing"):
-            return
-
-        state_key = state_key_for_message(data)
-        msg_type = data.get("type", "")
-        conversation_key = str(data.get("conversation_key") or "")
-
-        try:
-            defaults = await AppSettingsRepository.get_push_defaults()
-            overrides = await AppSettingsRepository.get_push_conversation_overrides()
-        except Exception:
-            logger.debug("Push dispatch: failed to load push preferences", exc_info=True)
-            return
-
-        is_hashtag = False
-        is_public = False
-        channel = None
-        if msg_type == "CHAN" and conversation_key:
-            is_public = is_public_channel_key(conversation_key)
-            try:
-                channel = await ChannelRepository.get_by_key(conversation_key)
-            except Exception:
-                logger.debug("Push dispatch: failed to load channel", exc_info=True)
-            if channel is not None:
-                is_hashtag = bool(channel.is_hashtag)
-            if channel is not None and channel.membership == "pending":
-                return
-
-        flags = {
-            media: conversation_is_enabled(
-                state_key=state_key,
-                message_type=msg_type,
-                defaults=defaults,
-                overrides=overrides,
-                is_hashtag=is_hashtag,
-                is_public=is_public,
-                channel=media,
-            )
-            for media in NOTIFICATION_MEDIA_KEYS
-        }
-        if not any(flags.values()):
-            return
-
-        # Muted-channel circuit breaker — separate from conversation policy.
-        if msg_type == "CHAN" and channel is not None and channel.muted:
-            return
-
-        if flags["apprise"]:
-            from app.services.message_filters import is_blocked
-
-            try:
-                if is_blocked(data, await AppSettingsRepository.get()):
-                    flags["apprise"] = False
-            except Exception:
-                logger.debug("Push dispatch: failed to load block lists", exc_info=True)
-                flags["apprise"] = False
-
-        from app.notify import dispatch_system_event
-
-        payload = dict(data)
-        payload.setdefault("event", "message")
-        await dispatch_system_event(payload, flags)
-
     async def dispatch_event(self, data: dict) -> PushOutcome:
         """Send a push payload to all subscriptions. Not a WebSocket event."""
         return await self._send_to_all_subscriptions(
             lambda sub: build_push_payload(data, sub.get("language") or "fr")
         )
-
-    async def dispatch_first_seen(self, contact: Mapping[str, Any]) -> None:
-        """Send a first-seen contact alert to all subscriptions (no WebSocket)."""
-        public_key = str(contact.get("public_key") or "")
-        await self.dispatch_event(
-            {
-                "event": "first_seen",
-                "public_key": public_key,
-                "name": contact.get("name") or "",
-                "contact_type": contact.get("type", 0),
-            }
-        )
-
-    async def dispatch_oss_update(self, current: str, latest: str) -> bool:
-        """Notify devices that a newer Meshloom release is available (no WebSocket).
-
-        Returns True when the default is on and a send was attempted (even with
-        zero subscriptions). Returns False when ``oss_update`` is disabled.
-        """
-        try:
-            defaults = await AppSettingsRepository.get_push_defaults()
-        except Exception:
-            logger.debug("Push dispatch: failed to load push defaults", exc_info=True)
-            return False
-        if not any_media_enabled(defaults, "oss_update"):
-            return False
-        from app.notify import dispatch_system_event
-
-        await dispatch_system_event(
-            {
-                "event": "oss_update",
-                "current": current,
-                "latest": latest,
-            },
-            defaults["oss_update"],
-        )
-        return True
 
     async def _send_to_all_subscriptions(
         self, payload_for_sub: Callable[[dict], str]

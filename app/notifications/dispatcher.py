@@ -36,9 +36,8 @@ delays itself.
   and the counter loop flushes once more.
 
 The clock and the sleep are injected (``Dispatcher(clock=..., sleep=...)``): the
-tests drive retries and spacing on a fake clock. ``app.notify.dispatch_system_event``
-is the legacy adapter that feeds this module until the producers are rewired
-(MSHL-112).
+tests drive retries and spacing on a fake clock. The producers emit through
+``app/notifications/producers.py``, never to a medium directly.
 """
 
 from __future__ import annotations
@@ -199,12 +198,13 @@ class Dispatcher:
         *,
         payload: dict[str, Any] | None = None,
         targets: Iterable[str] | None = None,
+        exclude: Iterable[str] = (),
     ) -> None:
-        """Queue ``event`` for each channel the rules give it, or for ``targets``
-        when the caller already decided (the legacy adapter). Never raises, never
-        waits on a send."""
+        """Queue ``event`` for each channel the rules give it (minus ``exclude``, the
+        channels a producer rules out, such as a blocked sender's message), or for
+        ``targets`` when the caller already decided. Never raises, never waits on a send."""
         try:
-            await self._emit(event, payload=payload, targets=targets)
+            await self._emit(event, payload=payload, targets=targets, exclude=frozenset(exclude))
         except Exception:
             logger.exception("notification dispatch failed")
 
@@ -214,6 +214,7 @@ class Dispatcher:
         *,
         payload: dict[str, Any] | None,
         targets: Iterable[str] | None,
+        exclude: frozenset[str] = frozenset(),
     ) -> None:
         if payload is None:
             if event is None:
@@ -232,6 +233,7 @@ class Dispatcher:
             )
         else:
             channel_ids = list(targets)
+        channel_ids = [c for c in channel_ids if c not in exclude]
         channels = await self._channels(channel_ids, allow_legacy=targets is not None)
         decided = rules_mod.apply_pauses(
             rules,
@@ -762,8 +764,9 @@ async def emit(
     *,
     payload: dict[str, Any] | None = None,
     targets: Iterable[str] | None = None,
+    exclude: Iterable[str] = (),
 ) -> None:
-    await notification_dispatcher().emit(event, payload=payload, targets=targets)
+    await notification_dispatcher().emit(event, payload=payload, targets=targets, exclude=exclude)
 
 
 async def notification_statuses() -> dict[str, dict[str, Any]]:

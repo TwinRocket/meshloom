@@ -328,19 +328,39 @@ async def test_db_store_round_trip_and_default_grace(test_db):
 
 
 @pytest.mark.asyncio
-async def test_dispatch_uses_the_push_defaults_of_the_event(test_db, monkeypatch):
+async def test_dispatch_emits_a_typed_event(test_db, monkeypatch):
     from app.notifications import radio_watch as module
+    from app.notifications.events import RadioOfflineEvent
 
-    sent: list[tuple[dict, object]] = []
+    emitted: list[tuple[object, dict]] = []
 
-    async def fake_dispatch(payload, channels):
-        sent.append((payload, channels))
+    async def fake_emit(event, *, payload=None, **_):
+        emitted.append((event, dict(payload or {})))
 
-    monkeypatch.setattr("app.notify.dispatch_system_event", fake_dispatch)
+    monkeypatch.setattr("app.notifications.producers.emit", fake_emit)
     await module._dispatch("radio_offline", {"urgent": True, "offline_s": 61})
-    assert sent[0][0]["event"] == "radio_offline"
-    assert sent[0][1]["push"] is True  # push on by default, no migration
-    assert sent[0][1]["email"] is False
+    event, payload = emitted[0]
+    assert isinstance(event, RadioOfflineEvent) and event.event == "radio.offline"
+    assert payload["event"] == "radio_offline" and payload["offline_s"] == 61
+
+
+@pytest.mark.asyncio
+async def test_radio_offline_follows_the_rules_by_default(test_db, monkeypatch):
+    from app.notifications import radio_watch as module
+    from app.push.manager import PushOutcome, push_manager
+
+    sent: list[dict] = []
+
+    async def fake_dispatch_event(data):
+        sent.append(dict(data))
+        return PushOutcome(total=1, delivered=1)
+
+    monkeypatch.setattr(push_manager, "dispatch_event", fake_dispatch_event)
+    await module._dispatch("radio_offline", {"urgent": True, "offline_s": 61})
+    from app.notifications.dispatcher import notification_dispatcher
+
+    await notification_dispatcher().wait_idle()
+    assert [d["event"] for d in sent] == ["radio_offline"]  # push on by default, no migration
 
 
 class _StartupRadio:

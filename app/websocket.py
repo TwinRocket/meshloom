@@ -609,9 +609,9 @@ def broadcast_event(
         if event_type == WsEvent.MESSAGE:
             spawn(fanout_manager.broadcast_message(data))
 
-            from app.push.manager import push_manager
+            from app.notifications.producers import emit_message
 
-            spawn(push_manager.dispatch_message(data))
+            spawn(emit_message(data), name="notify-message")
         elif event_type == WsEvent.RAW_PACKET:
             spawn(fanout_manager.broadcast_raw(data))
         elif event_type == WsEvent.CONTACT:

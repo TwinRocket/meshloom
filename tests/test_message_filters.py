@@ -77,39 +77,39 @@ async def apprise_submissions(test_db, monkeypatch) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_blocked_sender_never_reaches_the_apprise_medium(apprise_submissions):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
 
     await AppSettingsRepository.update(blocked_keys=[DM_KEY])
-    await push_manager.dispatch_message(_dm())
+    await emit_message(_dm())
     await notification_dispatcher().wait_idle()
     assert apprise_submissions == []
 
     await AppSettingsRepository.update(blocked_keys=[], blocked_names=["Alice"])
-    await push_manager.dispatch_message(_dm())
+    await emit_message(_dm())
     await notification_dispatcher().wait_idle()
     assert apprise_submissions == []
 
     await AppSettingsRepository.update(blocked_names=[])
-    await push_manager.dispatch_message(_dm())
+    await emit_message(_dm())
     await notification_dispatcher().wait_idle()
     assert len(apprise_submissions) == 1
 
 
 @pytest.mark.asyncio
 async def test_muted_channel_never_reaches_the_apprise_medium(apprise_submissions):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
 
     await ChannelRepository.upsert(CHAN_KEY, "#ops")
     await AppSettingsRepository.set_push_conversation_override(
         f"channel-{CHAN_KEY}", {"apprise": True}
     )
     await ChannelRepository.set_muted(CHAN_KEY, True)
-    await push_manager.dispatch_message(_chan())
+    await emit_message(_chan())
     await notification_dispatcher().wait_idle()
     assert apprise_submissions == []
 
     await ChannelRepository.set_muted(CHAN_KEY, True, muted_until=int(time.time()) - 5)
-    await push_manager.dispatch_message(_chan())
+    await emit_message(_chan())
     await notification_dispatcher().wait_idle()
     assert len(apprise_submissions) == 1
 

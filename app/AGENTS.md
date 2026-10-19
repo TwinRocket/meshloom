@@ -499,8 +499,8 @@ run as root).
   loss does not survive one. `app_started` comes from
   `_startup_radio_connect_and_setup` (`main.py`) once, after the first connect
   attempt (connected or not; not when shutdown cancels it). Events go through
-  `dispatch_system_event` with the `PUSH_DEFAULT_KEYS` flags, from a `spawn()`ed
-  task; `radio_offline` carries `urgent` (e-mail subject prefix `[URGENT]`).
+  `app/notifications/producers.py` (`emit_payload`), from a `spawn()`ed task, and the
+  rules choose the channels; `radio_offline` carries `urgent` (e-mail subject prefix `[URGENT]`).
   Tests: `tests/test_radio_watch.py` (fake clock).
 - A broadcast `error` with a `code` is translated by the frontend from
   `errors.<code>`; its details from `errors.<code>Detail` when that key exists,
@@ -1051,8 +1051,8 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   that records only inside `_send_sync` (a context variable, carried into
   Apprise 2's own pool by `submit_with_context`). Blocking sends run in
   `app/notifications/executor.py` (4 threads, with e-mail and pywebpush).
-  `dispatch_system_event` never sends directly: it hands the event to the
-  dispatcher (`app/notifications/AGENTS.md`, "Dispatcher"), whose `legacy:apprise`
+  The producers never send directly: they emit the event to the
+  dispatcher (`app/notifications/producers.py`, `app/notifications/AGENTS.md`, "Dispatcher"), whose `legacy:apprise`
   worker is the limiter (one send at a time, 2 s apart, 20 pending, then one
   `notifications_grouped` "+N events"; `first_seen` capped at 10 an hour, the
   rest one `first_seen_grouped`). The text policy (`include_message_text`:
@@ -1089,8 +1089,11 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 ## Web Push (`app/push/`)
 
 VAPID subject: `app_settings.vapid_subject`, falling back to `DEFAULT_VAPID_SUBJECT`;
-Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
-`frontend/src/utils/pushPolicy.ts`) decides per conversation. A push service
+Apple rejects `.local`. Which events reach Web Push is the notification rules' decision
+(`app/notifications/rules.py`, `conversation_channel_enabled`; `app/push/policy.py` is a
+deprecated adapter kept for one release, and `frontend/src/utils/pushPolicy.ts` still mirrors the
+4.18.x shape until the bell moves to N channels). `PushManager` only sends
+(`dispatch_event`) and keeps the subscriptions healthy. A push service
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
 urllib3 connections); a private endpoint needs the instance setting

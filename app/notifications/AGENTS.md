@@ -40,8 +40,8 @@ This file is a hypothesis: check it against the code.
   `web_push.py` (wraps `PushManager.dispatch_event`), `email.py`, `webhook.py`,
   `apprise.py` (the native transports of the `email`, `webhook` and `apprise` channel types,
   see "Native transports"), `legacy.py` (`legacy:email`, `legacy:webhook`,
-  `legacy:apprise` through the `app/notify.py` send functions, until MSHL-112 switches the
-  producers; `default_transport` gives a `legacy:*` id the legacy transport, any other channel its
+  `legacy:apprise` through the `app/notify.py` send functions, which read
+  `notification_destinations` at send time; `default_transport` gives a `legacy:*` id the legacy transport, any other channel its
   native one).
 
 ## Channels (data model)
@@ -76,21 +76,23 @@ This file is a hypothesis: check it against the code.
 - **Journal.** 200 `notification_deliveries` rows per channel (trimmed at insert, plus the
   daily `prune_deliveries()`); successes are counted per channel and hour
   (`notification_counters`); `notification_state` holds dedup timestamps with an expiry.
-- **The import runs once, the shims keep the two in step.** The legacy columns
-  (`push_defaults`, `push_conversation_overrides`, `notification_destinations`) stay the
-  delivery source until the producers read the rules (MSHL-112): they still compute medium
-  flags from them and the legacy transports read the destinations at send time. The
-  deprecated routes (`/api/push/preferences*`, `PATCH /api/settings` with
-  `notification_destinations`) therefore keep writing the columns, and
-  `AppSettingsRepository` calls `legacy_sync.sync_rules()` / `sync_destinations()` after
-  each such write: `legacy:*` channels follow the destinations (one that is no longer
-  configured is deleted, with the cascade) and `builtin:push` / `legacy:*` ids follow the
-  flags in the rules, leaving the other channels, `message.channel` and every other rule key
-  alone. The mirror goes one way, so the new API refuses what would diverge: `PATCH /rules` and
-  `PUT /rules/conversations/{key}` answer 409 `legacy_managed` when they change the
-  `builtin:push` / `legacy:*` ids of an event in `legacy_sync.LEGACY_EVENTS` (or of a
-  conversation), and `PATCH` of `config` / `allow_private_network` / `verify_tls` and `DELETE` of a
-  `legacy:*` channel do too. MSHL-112 lifts these refusals when the producers read the rules. The shims are removed in 5.2.0 (T34).
+- **The rules decide, the shims keep the 4.18.x columns in step.** The producers emit events
+  (`producers.py`) and the rules choose the channels. The deprecated routes
+  (`/api/push/preferences*`, `PATCH /api/settings` with `notification_destinations`) still write
+  the legacy columns (`push_defaults`, `push_conversation_overrides`,
+  `notification_destinations`), and `AppSettingsRepository` calls `legacy_sync.sync_rules()` /
+  `sync_destinations()` after each such write: `legacy:*` channels follow the destinations (one
+  that is no longer configured is deleted, with the cascade) and `builtin:push` / `legacy:*` ids
+  follow the flags in the rules, leaving the other channels, `message.channel` and every other
+  rule key alone. The other way round, `PATCH /rules` (events) and `PUT /rules/conversations/{key}`
+  call `legacy_sync.sync_columns()`, which copies the four legacy media of the rules back into the
+  two preference columns so `GET /api/push/preferences` shows what is delivered (a companion
+  list goes to both `new_contact` and `advert_companion`, which 4.18.x ORs). The one refusal left
+  is 409 `legacy_managed`: `PATCH` of `config` / `allow_private_network` / `verify_tls` and
+  `DELETE` of a `legacy:*` channel, because the `legacy:*` transports still read
+  `notification_destinations` at send time. The telemetry rules' old `channels` field is neither
+  read nor written (`TelemetryAlertRules.channels` is `exclude=True`, accepted and ignored). The shims
+  are removed in 5.2.0 (T34).
 
 ## API (`app/routers/notifications.py`, `api_support.py`)
 
@@ -127,18 +129,34 @@ This file is a hypothesis: check it against the code.
 ## Dispatcher
 
 - **Entry.** `emit(event, *, payload=None, targets=None)` never raises and never waits on a
-  send. Without `targets` the rules choose the channels (`rules.event_channel_ids`); the
-  legacy adapter `app.notify.dispatch_system_event(payload, flags)` passes `targets`: each
-  medium flag whose destination is configured becomes `builtin:push` or
-  `legacy:email|webhook|apprise` (a legacy id is delivered even without its row, since its
-  destination lives in `notification_destinations`). Unknown and disabled channels are
-  skipped without a journal row.
+  send. Without `targets` the rules choose the channels (`rules.event_channel_ids`), minus the
+  channels in `exclude` (a producer ruling a channel out); `targets` is for a caller that
+  already decided (`notify.channel_changed`, tests). Unknown and disabled channels are skipped
+  without a journal row. Producers never call `emit` with `targets`: see "Producers".
 - **Rules** (`rules.py`). A stored conversation exception wins either way; else a DM follows
   `message.dm`, a Public or `#` channel `message.channel`, a channel with its own key no
   one; `contact.first_seen` follows `contact_types` (1 companion, 2 repeater, 4 sensor; a
   room or an unknown type never). The global `paused_until` and a channel's own
   `paused_until` hold everything but urgent and `always_deliver` events (journal `paused`).
-  Block lists and mutes are still applied by the producers (MSHL-113 moves them here).
+  `conversation_channel_enabled(state_key, message_type, rules, channel_id, is_hashtag, is_public)`
+  is the per-channel predicate (plus `muted`, `blocked` and `now` for the pause: they cut
+  everything but an `always_deliver` event); its cases are the shared fixture
+  `tests/fixtures/notification_policy_cases.json` (the frontend suite reads it too, T19).
+  `app/push/policy.py` is a deprecated adapter over it, removed with the shims.
+  Block lists and mutes are applied by `producers.emit_message` (MSHL-113 moves them here).
+
+## Producers
+
+`producers.py` is what the rest of the app calls: `emit_message(data)` (the
+`broadcast_event("message")` hook in `app/websocket.py`: outgoing messages, pending channels and
+muted channels, unless `always_deliver`, never notify; a blocked sender's message skips
+`legacy:apprise` only, as in 4.18.x), `emit_payload(payload)` (first seen in
+`app/push/first_seen.py`, `hashtag_catalogue._notify_channel_found`, `telemetry_alerts._dispatch`,
+`radio_watch._dispatch`) and `emit_oss_update(current, latest)` (`services/oss_updates.py`, which
+keeps its `last_notified_update_version` guard: it records only when the rules reach a channel).
+The payload dict is what the transports render, so the golden fixtures hold
+(`tests/test_notification_producers.py` sends every golden case through the rules). `PushManager`
+(`app/push/manager.py`) is only the Web Push transport (`dispatch_event`).
 - **Queues.** One `asyncio.Queue(maxsize=200)` and one worker task per channel (`spawn()`),
   started by a job and ended when the queue is empty. One send at a time per channel;
   `min_interval_s` between sends (`channels.min_interval_s`: preset `telegram` 3 s,
