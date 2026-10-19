@@ -1,0 +1,74 @@
+{
+  "notifications": {
+    "presets": {
+      "telegram": {
+        "about": "Messages come from your own Telegram bot. Create one with @BotFather (send /newbot), copy its token, then find your chat id (send the bot a message and open https://api.telegram.org/bot<token>/getUpdates, or ask @userinfobot).",
+        "fields": {
+          "bot_token": "Bot token",
+          "chat_id": "Chat id",
+          "topic_id": "Topic id (optional)"
+        },
+        "help": {
+          "bot_token": "Given by @BotFather, like 123456789:AAH… Write-only: it is never shown again.",
+          "chat_id": "A user id (123456789), a group id (-1001234567890) or a public channel (@name). Add the bot to the group or channel first.",
+          "topic_id": "Only for a group with topics: the number of the topic that receives the messages."
+        }
+      },
+      "gotify": {
+        "about": "Gotify is a push server you host yourself. Create an application in its web page and copy the application token.",
+        "fields": {
+          "server": "Gotify server",
+          "token": "Application token",
+          "priority": "Priority"
+        },
+        "help": {
+          "server": "The address of your server, for example https://gotify.example.org. On your home network tick “Allow a private-network destination” below.",
+          "token": "The token of the application (not a client token). Write-only: it is never shown again."
+        }
+      },
+      "home_assistant": {
+        "about": "Posts to a Home Assistant notify service, for example your phone's Companion app. Create a long-lived access token in your Home Assistant profile.",
+        "fields": {
+          "url": "Home Assistant address",
+          "token": "Long-lived access token",
+          "service": "Notify service"
+        },
+        "help": {
+          "url": "For example http://homeassistant.local:8123. Home Assistant is usually on your home network: tick “Allow a private-network destination” below.",
+          "token": "Profile, Security, Long-lived access tokens. Write-only: it is never shown again.",
+          "service": "The service name without “notify.”: mobile_app_your_phone (see Developer tools, Actions). A full name such as notify.alerts works too."
+        }
+      }
+    }
+  },
+  "settings": {
+    "notifications": {
+      "types": {
+        "telegram": {
+          "name": "Telegram",
+          "description": "A message from your Telegram bot to a chat, a group or a channel."
+        },
+        "gotify": {
+          "name": "Gotify",
+          "description": "Push to your own Gotify server.",
+          "priority": {
+            "options": {
+              "low": "Low",
+              "moderate": "Moderate",
+              "normal": "Normal",
+              "high": "High",
+              "emergency": "Emergency"
+            }
+          }
+        },
+        "home_assistant": {
+          "name": "Home Assistant",
+          "description": "A Home Assistant notify service, such as the Companion app on a phone."
+        }
+      },
+      "channels": {
+        "presetDocs": "Service documentation"
+      }
+    }
+  }
+}

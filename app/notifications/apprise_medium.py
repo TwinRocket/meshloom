@@ -115,6 +115,17 @@ _capture_installed = False
 _capture_lock = threading.Lock()
 
 
+def _body_retry_after(response: Any) -> str | None:
+    """Telegram answers a 429 with ``{"parameters": {"retry_after": N}}`` (seconds)."""
+    if response.status_code != 429:
+        return None
+    try:
+        seconds = response.json()["parameters"]["retry_after"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return str(int(seconds)) if isinstance(seconds, int | float) and seconds >= 0 else None
+
+
 def _install_response_capture() -> None:
     global _capture_installed
     with _capture_lock:
@@ -134,7 +145,7 @@ def _install_response_capture() -> None:
                 record.network_error = True
                 raise
             record.status = response.status_code
-            record.retry_after = response.headers.get("Retry-After")
+            record.retry_after = response.headers.get("Retry-After") or _body_retry_after(response)
             record.network_error = False
             return response
 

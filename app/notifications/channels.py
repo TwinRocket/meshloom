@@ -1,7 +1,7 @@
 """Notification channels: the models and the type registry.
 
 A channel is one destination of a given type (``web_push``, ``email``, ``webhook``,
-``apprise``, ``ntfy``, ``discord``; the presets come with their own tickets). Each
+``apprise``, ``ntfy``, ``discord``) or a preset of ``apprise`` (``presets.py``). Each
 type declares a Pydantic config model; ``model_json_schema()`` of it is the JSON Schema
 the shared schema-driven form renders. Secret fields are ``writeOnly``: they are stored
 apart (``notification_channels.secrets``) and no read path returns them, only the names
@@ -251,6 +251,14 @@ class ChannelType:
     cloud_check: Callable[[dict[str, Any]], bool] | None = None
     # Replaces ``default_limits`` for a config whose destination changes them (ntfy.sh).
     limits_check: Callable[[dict[str, Any]], Limits] | None = None
+    # The ``Preset`` (``presets.py``) this entry was generated from: its channels are
+    # stored as the base type ``apprise`` with ``preset = id``.
+    preset: Any = None
+
+    @property
+    def row_type(self) -> str:
+        """The ``type`` column of a channel of this entry (a preset rides on its base type)."""
+        return self.preset.base_type if self.preset is not None else self.id
 
     def limits_for(self, public: dict[str, Any]) -> Limits:
         """The default limits of a channel with this public config."""
@@ -360,13 +368,18 @@ REGISTRY: dict[str, ChannelType] = {
 }
 
 
-# The minimal limiter's gap for a preset (an Apprise service) or a native type that
-# is not registered yet; a preset wins over its type.
-PRESET_MIN_INTERVAL_S: dict[str, float] = {"telegram": 3.0, "discord": 2.0, "ntfy": 1.0}
+# The minimal limiter's gap for a native type that is not registered yet (the presets
+# of ``presets.py`` carry their own); a preset wins over its type.
+PRESET_MIN_INTERVAL_S: dict[str, float] = {"discord": 2.0, "ntfy": 1.0}
 
 
 def min_interval_s(type_id: str, preset: str | None = None) -> float:
     """Seconds between two sends of one channel (the dispatcher's minimal limiter)."""
+    if preset:
+        from app.notifications.presets import PRESET_TYPES
+
+        if preset in PRESET_TYPES:
+            return PRESET_TYPES[preset].min_interval_s
     if preset in PRESET_MIN_INTERVAL_S:
         return PRESET_MIN_INTERVAL_S[preset]
     entry = REGISTRY.get(type_id)
@@ -375,7 +388,16 @@ def min_interval_s(type_id: str, preset: str | None = None) -> float:
     return PRESET_MIN_INTERVAL_S.get(type_id, 0.0)
 
 
-def get_type(type_id: str) -> ChannelType:
+def get_type(type_id: str, preset: str | None = None) -> ChannelType:
+    """The registry entry of a channel: its preset's when it has one (a preset rides on
+    its base type, ``apprise``), else its type's."""
+    if preset:
+        from app.notifications.presets import get_preset_type
+
+        entry = get_preset_type(preset)
+        if entry.row_type != type_id:
+            raise ChannelError("channel_preset_unknown", preset=preset[:40])
+        return entry
     entry = REGISTRY.get(type_id)
     if entry is None:
         raise ChannelError("channel_type_unknown", type=type_id)
@@ -383,8 +405,12 @@ def get_type(type_id: str) -> ChannelType:
 
 
 def types_schema() -> list[dict[str, Any]]:
-    """What ``GET /api/notifications/types`` serves: one entry per registered type."""
-    return [
+    """What ``GET /api/notifications/types`` serves: one entry per registered type, then
+    one per preset (``preset: true``, ``type`` the preset id, ``base_type`` the type a
+    channel of it is created with)."""
+    from app.notifications.presets import PRESET_TYPES
+
+    natives = [
         {
             "type": entry.id,
             "schema": entry.json_schema(),
@@ -401,6 +427,27 @@ def types_schema() -> list[dict[str, Any]]:
         }
         for entry in REGISTRY.values()
     ]
+    presets = [
+        {
+            "type": entry.id,
+            "base_type": entry.row_type,
+            "schema": entry.json_schema(),
+            "cloud": entry.cloud,
+            "singleton": False,
+            "preset": True,
+            "default_limits": {
+                "per_min": entry.default_limits.per_min,
+                "per_hour": entry.default_limits.per_hour,
+                "per_day": entry.default_limits.per_day,
+            },
+            "quiet_hours_exempt_default": entry.quiet_hours_exempt_default,
+            "include_message_text_default": entry.include_message_text_default,
+            "help_key": entry.preset.help_key,
+            "wiki_url": entry.preset.wiki_url,
+        }
+        for entry in PRESET_TYPES.values()
+    ]
+    return natives + presets
 
 
 def is_builtin(channel_id: str) -> bool:

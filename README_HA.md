@@ -179,13 +179,7 @@ automation:
 
 ### Meshloom notifications in the Home Assistant app
 
-Meshloom can send its own notifications (direct messages, radio offline, new contacts, alerts) to the Home Assistant companion app through the **Apprise** destination in Settings → Notifications. Create a long-lived access token in your Home Assistant profile, then enter one URL:
-
-```
-hassios://homeassistant.local:8123/YOUR_LONG_LIVED_TOKEN
-```
-
-Use `hassio://` without TLS, and the host and port of your instance. Home Assistant is on your network, so tick **Allow a destination on a private network (LAN, localhost)** under the URLs; from the add-on, `hassio://homeassistant:8123/YOUR_LONG_LIVED_TOKEN` also works. Tick **Apprise** in the notification table for the events you want, then press **Test Apprise**.
+Meshloom can send its own notifications (direct messages, radio offline, new contacts, alerts) to the Home Assistant companion app with its **Home Assistant** channel: **Settings → Notifications → Channels → Add a channel → Home Assistant**. Create a long-lived access token in your Home Assistant profile, then enter Home Assistant's address (`http://homeassistant.local:8123`), the token and the notify service of your phone (`mobile_app_your_phone`). Home Assistant is on your network, so tick **Allow a private-network destination**; press **Send a test and continue**, then choose what the channel receives. The automations below stay useful when you want Home Assistant to decide.
 
 ### Alert on any message from a specific room
 

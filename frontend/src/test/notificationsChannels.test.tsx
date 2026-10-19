@@ -83,6 +83,8 @@ const TYPES: NotificationTypeInfo[] = [
     type: 'telegram',
     preset: true,
     base_type: 'apprise',
+    help_key: 'notifications.presets.telegram.about',
+    wiki_url: 'https://core.telegram.org/bots/tutorial',
     cloud: true,
     include_message_text_default: 'public_only',
     schema: {
@@ -323,6 +325,11 @@ describe('add dialog', () => {
 
     const picker = await openAdd();
     fireEvent.click(within(picker).getByText('Telegram'));
+    // The preset's how-to and a link to the service's own documentation.
+    expect(screen.getByTestId('preset-about')).toHaveTextContent(/@BotFather/);
+    expect(
+      screen.getByRole('link', { name: t('settings.notifications.channels.presetDocs') })
+    ).toHaveAttribute('href', 'https://core.telegram.org/bots/tutorial');
     fireEvent.change(screen.getByLabelText(t('settings.notifications.channels.name')), {
       target: { value: 'Bot' },
     });

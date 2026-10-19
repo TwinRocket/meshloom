@@ -1,7 +1,9 @@
 """The generic Apprise transport: one Apprise object per URL, each its own result.
 
 The escape hatch for every service without a native transport or a preset. The
-channel's ``urls`` (one per line) are write-only secrets. Each URL is checked by the
+channel's ``urls`` (one per line) are write-only secrets. A preset channel (``presets.py``)
+has no ``urls``: its URL is compiled from its fields right before the send, then goes
+through the same path. Each URL is checked by the
 egress guard right before its send (scheme allowlist, user-chosen host, redirects
 off), sent on its own with Apprise's connect and read timeouts, and retried by
 ``apprise_medium`` (0/5/30 s on a network error, a 5xx or a 429) while the others are
@@ -19,6 +21,7 @@ import logging
 from app.net.apprise_urls import split_apprise_urls
 from app.notifications.apprise_medium import send_to_urls
 from app.notifications.channels import Channel
+from app.notifications.presets import PresetError, compile_url, preset_for
 from app.notifications.render import Rendered, event_notification_text
 from app.notifications.transports.base import SEND_OK, Delivery, SendResult, channel_language
 
@@ -33,10 +36,19 @@ class AppriseTransport:
         event: Delivery,
         secrets: dict[str, str],
     ) -> SendResult:
-        urls = split_apprise_urls(secrets.get("urls", ""))
+        preset = preset_for(channel.preset)
+        if preset is not None:
+            # The URL exists only here and in the validation: built from the fields.
+            try:
+                urls = [compile_url(preset, {**channel.config, **secrets})]
+            except PresetError:
+                return SendResult("failed", error_code="not_configured")
+            markdown = preset.format == "markdown"
+        else:
+            urls = split_apprise_urls(secrets.get("urls", ""))
+            markdown = channel.config.get("format") == "markdown"
         if not urls:
             return SendResult("failed", error_code="not_configured")
-        markdown = channel.config.get("format") == "markdown"
         title, body = event_notification_text(
             dict(event.payload),
             await channel_language(channel),
