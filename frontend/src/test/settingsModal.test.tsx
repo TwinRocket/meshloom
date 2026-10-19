@@ -1401,8 +1401,7 @@ describe('SettingsModal', () => {
       desktopSection: 'alerts',
     });
 
-    expect(await screen.findByText(i18n.t('settings.alerts.voices'))).toBeInTheDocument();
-    expect(screen.getByLabelText(i18n.t('settings.alerts.voicePush'))).toBeInTheDocument();
+    expect(await screen.findByText(i18n.t('settings.alerts.channelsGroup'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.alerts.globalRules'))).toBeInTheDocument();
   });
 

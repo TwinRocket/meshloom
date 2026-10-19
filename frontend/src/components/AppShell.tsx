@@ -392,12 +392,7 @@ export function AppShell({
       onDeleteChannel={sidebarProps.onDeleteChannel}
       onDeleteContact={sidebarProps.onDeleteContact}
       onSetChannelFloodScopeOverride={sidebarProps.onSetChannelFloodScopeOverride}
-      getNotifyMediaEnabled={sidebarProps.getNotifyMediaEnabled}
-      onSetConversationMedia={sidebarProps.onSetConversationMediaFor}
       onOpenNotifySettings={sidebarProps.onOpenNotifySettings}
-      emailReady={sidebarProps.emailReady}
-      webhookReady={sidebarProps.webhookReady}
-      appriseReady={sidebarProps.appriseReady}
     />
   );
 

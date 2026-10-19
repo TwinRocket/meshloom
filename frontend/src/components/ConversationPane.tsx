@@ -22,8 +22,6 @@ import type {
   Conversation,
   HealthStatus,
   Message,
-  NotificationMediaChannel,
-  NotificationMediaFlags,
   PathDiscoveryResponse,
   RadioAdvertMode,
   RadioConfig,
@@ -117,11 +115,6 @@ interface ConversationPaneProps {
   onDismissUnreadMarker: () => void;
   onSendMessage: (text: string) => Promise<void>;
   onMessageDeleted?: (messageId: number) => void;
-  notifyMediaEnabled?: NotificationMediaFlags;
-  emailReady?: boolean;
-  webhookReady?: boolean;
-  appriseReady?: boolean;
-  onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenNotifySettings?: () => void;
   trackedTelemetryRepeaters: string[];
   onToggleTrackedTelemetry: (publicKey: string) => Promise<void>;
@@ -219,11 +212,6 @@ export function ConversationPane({
   onDismissUnreadMarker,
   onSendMessage,
   onMessageDeleted,
-  notifyMediaEnabled,
-  emailReady,
-  webhookReady,
-  appriseReady,
-  onSetConversationMedia,
   onOpenNotifySettings,
   trackedTelemetryRepeaters,
   onToggleTrackedTelemetry,
@@ -541,11 +529,6 @@ export function ConversationPane({
           contacts={contacts}
           channels={channels}
           config={config}
-          notifyMediaEnabled={notifyMediaEnabled}
-          emailReady={emailReady}
-          webhookReady={webhookReady}
-          appriseReady={appriseReady}
-          onSetConversationMedia={onSetConversationMedia}
           onOpenNotifySettings={onOpenNotifySettings}
           onTrace={onTrace}
           onPathDiscovery={onPathDiscovery}
@@ -607,11 +590,6 @@ export function ConversationPane({
         contacts={contacts}
         channels={channels}
         config={config}
-        notifyMediaEnabled={notifyMediaEnabled}
-        emailReady={emailReady}
-        webhookReady={webhookReady}
-        appriseReady={appriseReady}
-        onSetConversationMedia={onSetConversationMedia}
         onOpenNotifySettings={onOpenNotifySettings}
         onTrace={onTrace}
         onPathDiscovery={onPathDiscovery}

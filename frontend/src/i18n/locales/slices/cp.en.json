@@ -1,0 +1,25 @@
+{
+  "chatHeader": {
+    "notifyLoading": "Loading channels…",
+    "notifyLoadFailed": "Could not load the notification channels.",
+    "notifyNone": "No notification channel is enabled.",
+    "notifyConfigureChannels": "Configure notification channels",
+    "notifyState": {
+      "inherit": "default",
+      "on": "on here",
+      "off": "off here"
+    }
+  },
+  "settings": {
+    "alerts": {
+      "channelsHelp": "Telemetry alerts go to the channels ticked here. The matrix in Notifications edits the same row.",
+      "channelsLoadFailed": "Could not load the notification channels.",
+      "channelsNone": "No notification channel is enabled.",
+      "channelsGroup": "Channels for telemetry alerts",
+      "channelChip": "{{channel}}: {{state}}",
+      "channelOn": "on",
+      "channelOff": "off",
+      "channelsSaveFailed": "Could not save the alert channels"
+    }
+  }
+}

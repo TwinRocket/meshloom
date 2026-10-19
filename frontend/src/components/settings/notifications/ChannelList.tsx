@@ -5,14 +5,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { BUILTIN_PUSH_ID } from '../../../notifications/ids';
 import type { NotificationChannel } from '../../../notifications/types';
 import { Button } from '../../ui/button';
-import { iconFor, isLegacyChannel } from './notificationsShared';
-
-const DOT_CLASS: Record<string, string> = {
-  connected: 'bg-success',
-  error: 'bg-destructive',
-  paused: 'bg-warning',
-  disconnected: 'bg-muted-foreground/50',
-};
+import { iconFor, isLegacyChannel, STATUS_DOT_CLASS } from './notificationsShared';
 
 export function ChannelList({
   channels,
@@ -81,7 +74,7 @@ export function ChannelList({
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span
-                    className={`inline-block h-2 w-2 rounded-full ${DOT_CLASS[status] ?? DOT_CLASS.disconnected}`}
+                    className={`inline-block h-2 w-2 rounded-full ${STATUS_DOT_CLASS[status] ?? STATUS_DOT_CLASS.disconnected}`}
                     aria-hidden="true"
                   />
                   <span data-testid={`channel-status-${channel.id}`}>

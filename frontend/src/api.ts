@@ -118,7 +118,6 @@ import type {
   PathDiscoveryResponse,
   NotificationDestinationChannel,
   PushDefaultsPatch,
-  ConversationMediaOverride,
   PushPreferences,
   PushSubscriptionInfo,
   TelemetryAlertCatalog,
@@ -1310,13 +1309,5 @@ export const api = {
     fetchJson<PushPreferences>('/push/preferences', {
       method: 'PATCH',
       body: JSON.stringify(partial),
-    }),
-  setPushConversationOverride: (
-    key: string,
-    override: boolean | ConversationMediaOverride | null
-  ) =>
-    fetchJson<PushPreferences>(`/push/preferences/conversations/${encodeURIComponent(key)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ override }),
     }),
 };
