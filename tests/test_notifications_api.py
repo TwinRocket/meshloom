@@ -128,12 +128,13 @@ async def test_types_every_secret_field_is_write_only_and_kinds_stay_in_the_subs
     response = await client.get("/api/notifications/types")
     assert response.status_code == 200
     types = {entry["type"]: entry for entry in response.json()}
-    assert set(types) == {"web_push", "email", "webhook", "apprise", "ntfy"}
+    assert set(types) == {"web_push", "email", "webhook", "apprise", "ntfy", "discord"}
     secret_names = {
         "email": {"password"},
         "webhook": {"url", "hmac_secret"},
         "apprise": {"urls"},
         "ntfy": {"topic", "token", "password"},
+        "discord": {"webhook_url"},
     }
     for name, entry in types.items():
         assert entry["preset"] is False

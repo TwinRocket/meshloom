@@ -100,6 +100,7 @@ DeliveryStatus = Literal[
 
 def default_transport(channel: Channel) -> Transport | None:
     from app.notifications.transports.apprise import AppriseTransport
+    from app.notifications.transports.discord import DiscordTransport
     from app.notifications.transports.email import EmailTransport
     from app.notifications.transports.legacy import (
         LegacyAppriseTransport,
@@ -115,6 +116,7 @@ def default_transport(channel: Channel) -> Transport | None:
     if channel.id not in LEGACY_CHANNEL_TYPES:
         native = {
             "email": EmailTransport,
+            "discord": DiscordTransport,
             "webhook": WebhookTransport,
             "apprise": AppriseTransport,
             "ntfy": NtfyTransport,

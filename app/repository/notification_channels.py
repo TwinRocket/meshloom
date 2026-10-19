@@ -17,9 +17,15 @@ from pydantic import ValidationError
 
 from app.database import db
 from app.net.apprise_urls import AppriseUrlRefused, split_apprise_urls, validate_apprise_urls
-from app.net.egress_guard import EgressBlocked, tls_check_may_be_off, validate_destination
+from app.net.egress_guard import (
+    EgressBlocked,
+    HostAllowlist,
+    tls_check_may_be_off,
+    validate_destination,
+)
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
+    DISCORD_HOSTS,
     NTFY_DEFAULT_SERVER,
     Channel,
     ChannelCreate,
@@ -135,6 +141,15 @@ async def _check_destination(
             dest = await validate_destination(
                 str(public.get("server") or NTFY_DEFAULT_SERVER),
                 allow_private_network=allow_private_network,
+            )
+            if not verify_tls and not tls_check_may_be_off(dest.ips):
+                raise ChannelError("verify_tls_requires_private_destination")
+        elif entry.id == "discord" and secrets.get("webhook_url"):
+            dest = await validate_destination(
+                secrets["webhook_url"],
+                allow_private_network=allow_private_network,
+                schemes=frozenset({"https"}),
+                allowed_hosts=HostAllowlist.parse(DISCORD_HOSTS),
             )
             if not verify_tls and not tls_check_may_be_off(dest.ips):
                 raise ChannelError("verify_tls_requires_private_destination")

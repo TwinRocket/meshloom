@@ -1,7 +1,7 @@
 """Notification channels: the models and the type registry.
 
 A channel is one destination of a given type (``web_push``, ``email``, ``webhook``,
-``apprise``, ``ntfy``; ``discord`` and the presets come with their own tickets). Each
+``apprise``, ``ntfy``, ``discord``; the presets come with their own tickets). Each
 type declares a Pydantic config model; ``model_json_schema()`` of it is the JSON Schema
 the shared schema-driven form renders. Secret fields are ``writeOnly``: they are stored
 apart (``notification_channels.secrets``) and no read path returns them, only the names
@@ -186,6 +186,41 @@ def ntfy_is_hosted(public: dict[str, Any]) -> bool:
     return host == "ntfy.sh" or host.endswith(".ntfy.sh")
 
 
+# Discord's webhook hosts: the only ones a ``discord`` channel may reach.
+DISCORD_HOSTS = ("discord.com", "discordapp.com")
+_DISCORD_WEBHOOK = re.compile(
+    r"https://(?P<host>[^/?#@:]+)/api(?:/v\d+)?/webhooks/(?P<id>\d{15,25})/(?P<token>[A-Za-z0-9._-]{20,200})/?"
+)
+
+
+def parse_discord_webhook(url: str) -> tuple[str, str] | None:
+    """``(webhook id, token)`` of a Discord webhook URL, None when it is anything else
+    (another host, scheme, port, user info, a query or fragment)."""
+    match = _DISCORD_WEBHOOK.fullmatch(url.strip())
+    if match is None or match["host"].lower() not in DISCORD_HOSTS:
+        return None
+    return match["id"], match["token"]
+
+
+class DiscordConfig(_ConfigBase):
+    webhook_url: SecretStr | None = _field(
+        "webhook_url", default=None, secret=True, help_key="discord_webhook", max_length=512
+    )
+    # Shown instead of the webhook's own name; the avatar is never overridden.
+    username: str = _field("username", default="", max_length=80)
+
+    @field_validator("webhook_url")
+    @classmethod
+    def _webhook_url_is_discord(cls, value: SecretStr | None) -> SecretStr | None:
+        if (
+            value is not None
+            and value.get_secret_value()
+            and not parse_discord_webhook(value.get_secret_value())
+        ):
+            raise ValueError("not a Discord webhook URL")
+        return value
+
+
 @dataclass(frozen=True)
 class Limits:
     """Default send limits; ``None`` means no cap for that window."""
@@ -290,6 +325,14 @@ REGISTRY: dict[str, ChannelType] = {
             quiet_hours_exempt_default=True,
             destination_keys=("url",),
             secret_follows=("hmac_secret",),
+        ),
+        ChannelType(
+            "discord",
+            DiscordConfig,
+            Limits(30, 600, None),
+            required=("webhook_url",),
+            cloud=True,
+            min_interval_s=2.0,
         ),
         ChannelType(
             "apprise",

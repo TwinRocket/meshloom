@@ -1,0 +1,23 @@
+{
+  "notifications": {
+    "channels": {
+      "fields": {
+        "webhook_url": "Discord webhook URL",
+        "username": "Username (optional)"
+      },
+      "help": {
+        "discord_webhook": "Copy it from Discord: channel settings, Integrations, Webhooks. Only discord.com addresses are accepted. Write-only: it is never shown again."
+      }
+    }
+  },
+  "settings": {
+    "notifications": {
+      "types": {
+        "discord": {
+          "name": "Discord",
+          "description": "Post to a Discord channel through a webhook. Nobody is ever pinged."
+        }
+      }
+    }
+  }
+}
