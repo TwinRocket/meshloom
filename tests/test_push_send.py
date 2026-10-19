@@ -600,6 +600,7 @@ async def test_dispatch_message_emails_dm_only_when_matrix_enables_email(test_db
 @pytest.mark.asyncio
 async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
     from app.models import Contact
+    from app.notifications.dispatcher import notification_dispatcher
     from app.push.first_seen import maybe_notify_contact_first_seen
     from app.radio import radio_manager
     from app.repository.settings import AppSettingsRepository
@@ -621,6 +622,7 @@ async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
     assert len(sent) == 1
 
     sent.clear()
+    notification_dispatcher()._dedup._seen.clear()  # the same contact again: a new test case
     await AppSettingsRepository.set_push_defaults(
         {
             "new_contact": False,
@@ -633,6 +635,7 @@ async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
     assert len(sent) == 1
 
     sent.clear()
+    notification_dispatcher()._dedup._seen.clear()  # the same contact again: a new test case
     await AppSettingsRepository.set_push_defaults(
         {
             "new_contact": False,

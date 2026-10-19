@@ -1061,8 +1061,9 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   `app/notifications/executor.py` (4 threads, with e-mail and pywebpush).
   The producers never send directly: they emit the event to the
   dispatcher (`app/notifications/producers.py`, `app/notifications/AGENTS.md`, "Dispatcher"), whose `legacy:apprise`
-  worker is the limiter (one send at a time, 2 s apart, 20 pending, then one
-  `notifications_grouped` "+N events"; `first_seen` capped at 10 an hour, the
+  worker is the limiter (one send at a time, 2 s apart; the channel's token buckets, daily
+  quota and the global cap of `app/notifications/limits.py`, a full bucket held one minute
+  then one `notifications_grouped` summary of counts; `first_seen` capped at 10 an hour, the
   rest one `first_seen_grouped`). The text policy (`include_message_text`:
   `public_only` default, `always`, `never`) and the format apply once, in
   `event_notification_text` (`app/notifications/render.py`, re-exported by `app/push/manager.py`); room-wide mentions
