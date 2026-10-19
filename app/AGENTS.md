@@ -1023,10 +1023,10 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   only re-export it. `app_settings.notification_language` (`auto`|`fr`|`en`) picks the
   e-mail and Apprise language (`resolve_instance_language()`).
 - Four media: `push`, `email`, `webhook`, `apprise` (`NOTIFICATION_MEDIA_KEYS`,
-  `app/repository/settings.py`; the push router models, `pushPolicy.ts` and
-  the frontend matrix list them too). A missing key reads as off
+  `app/repository/settings.py`; the push router models and
+  the frontend legacy forms list them too). A missing key reads as off
   (`coerce_notification_media`), so adding one needs no migration. A channel
-  reaches a medium other than push only through its bell override.
+  reaches a medium other than push only through its conversation exception.
 - Secrets (SMTP password, webhook `url` and secret, Apprise `urls` in
   `notification_destinations`, `NOTIFICATION_SECRET_KEYS` in
   `app/secret_fields.py`) are returned as `********`; a PATCH that sends
@@ -1095,8 +1095,8 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 VAPID subject: `app_settings.vapid_subject`, falling back to `DEFAULT_VAPID_SUBJECT`;
 Apple rejects `.local`. Which events reach Web Push is the notification rules' decision
 (`app/notifications/rules.py`, `conversation_channel_enabled`; `app/push/policy.py` is a
-deprecated adapter kept for one release, and `frontend/src/utils/pushPolicy.ts` still mirrors the
-4.18.x shape until the bell moves to N channels). `PushManager` only sends
+deprecated adapter kept for one release; `frontend/src/utils/notificationPolicy.ts` mirrors it
+over the same fixture, `pushPolicy.ts` only re-exports it for one release). `PushManager` only sends
 (`dispatch_event`) and keeps the subscriptions healthy. A push service
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned

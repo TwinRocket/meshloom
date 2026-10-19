@@ -53,7 +53,7 @@ At the top of the rules in **Settings → Notifications**, **Do not disturb** pa
 | Companion advertisements | A companion is seen for the first time |
 | Sensor advertisements | A sensor is seen for the first time |
 | Found channels | Meshloom finds a new hashtag channel |
-| Telemetry alerts | A tracked repeater or contact crosses an alert threshold. The thresholds are set on the **Alerts** page |
+| Telemetry alerts | A tracked repeater or contact crosses an alert threshold. The thresholds and the channels that receive them (a button per channel) are set on the **Alerts** page |
 | Meshloom updates | A new Meshloom version is available |
 | Radio offline | The radio has been unreachable for longer than the delay set below the table (60 s by default). Sent as urgent (the e-mail subject starts with `[URGENT]`), once per outage |
 | Radio back online | The radio is reachable again after a **Radio offline** notification, with how long it was down |
@@ -80,13 +80,15 @@ For channel messages, without an exception:
 - public channels and `#` (hashtag) channels notify by push;
 - channels with a private key do not.
 
-Direct messages follow the **Direct messages** row. E-mail, webhook and Apprise notifications for a channel only exist if you switch them on for that channel (the bell, below).
+Direct messages follow the **Direct messages** row. Other channels (e-mail, ntfy, Telegram...) follow the same rows, ticked per channel in the table above, and can be switched on or off for one conversation with the bell (below).
 
 Messages from a blocked contact or name, and messages on a muted channel (until the mute ends), never notify on any channel: Web Push, e-mail, webhook and Apprise alike. Only an event marked **Always deliver** still goes through. Nothing changes until you block someone or mute a channel.
 
 ### The bell, for one conversation
 
-In the header of a conversation, the bell opens a menu with four tick boxes: **Push**, **Email**, **Webhook** and **Apprise**. Ticking one makes an **exception** to the defaults for that conversation only. If your browser is not subscribed yet, ticking **Push** subscribes it. **Email**, **Webhook** and **Apprise** are greyed out until a destination exists; a link takes you to the settings.
+In the header of a conversation, the bell (administrators only; there is none for the other roles) opens a menu with one tick box per enabled notification channel, with its type icon, its name and a status dot (connected, error, paused, disconnected). A box shows whether the channel notifies this conversation, and the grey word beside it says why: *default* (the rows of the table decide), *on here* or *off here* (an **exception** made for this conversation only). Ticking a box that the default already leaves ticked, or unticking one the default leaves empty, makes the conversation follow the default again and removes the exception. If your browser is not subscribed yet, switching **Web Push** on subscribes it first. The bell is filled while at least one channel notifies the conversation.
+
+The same menu has the **Do not disturb** shortcut (1 hour, 8 hours, until tomorrow 8:00, **Resume now**: the same global pause as in the settings) and a **Configure notification channels** link. In the conversation list, the same menu is under the three dots of a row, **Notifications**.
 
 Exceptions are listed in **Settings → Notifications → Conversation exceptions**, one line per conversation with a button per channel: click it to cycle between *inherit* (the event rule), *on* and *off*. The cross removes the exception.
 

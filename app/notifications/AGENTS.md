@@ -219,7 +219,7 @@ never urgent). The channels table is read (`cloud_channel_ids`) only for a menti
 private-key channel. Mute, block lists and the pauses apply as for `message.channel`. Migration
 115 gives an existing install the rule `message.mention` = channels of `message.dm`.
 `tests/fixtures/notification_policy_cases.json` carries the `mention`/`cloud` cases; the
-frontend mirror (`notificationPolicy.ts`) belongs to MSHL-120.
+frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationPolicy.test.ts`) passes every case.
 - **Queues.** One `asyncio.Queue(maxsize=200)` and one worker task per channel (`spawn()`),
   started by a job and ended when the queue is empty. One send at a time per channel;
   `min_interval_s` between sends (`channels.min_interval_s`: preset `telegram` 3 s,

@@ -1,6 +1,6 @@
 """Shared push conversation-enablement policy vector.
 
-Vague C frontend ``pushPolicy.ts`` must mirror these case names and outcomes.
+The frontend mirror is ``notificationPolicy.ts`` (``notification_policy_cases.json``).
 """
 
 import pytest
