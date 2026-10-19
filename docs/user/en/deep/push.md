@@ -72,7 +72,7 @@ For channel messages, without an exception:
 
 Direct messages follow the **Direct messages** row. E-mail, webhook and Apprise notifications for a channel only exist if you switch them on for that channel (the bell, below).
 
-Messages from a blocked contact or name, and messages on a muted channel, never go to Apprise.
+Messages from a blocked contact or name, and messages on a muted channel (until the mute ends), never notify on any channel: Web Push, e-mail, webhook and Apprise alike. Only an event marked **Always deliver** still goes through. Nothing changes until you block someone or mute a channel.
 
 ### The bell, for one conversation
 

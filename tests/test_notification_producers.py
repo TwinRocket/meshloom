@@ -119,17 +119,156 @@ async def test_muted_channel_is_silent_unless_always_deliver(test_db, emitted):
     assert len(emitted) == 1
 
 
-@pytest.mark.asyncio
-async def test_blocked_sender_skips_the_apprise_channel_only(test_db, emitted):
-    from app.notifications.producers import emit_message
+@pytest.fixture
+def real_emit(monkeypatch) -> list[dict]:
+    """The channels each event is queued for after the rules (muted/blocked included)."""
+    from app.notifications import rules as rules_mod
+
+    seen: list[dict] = []
+
+    async def fake_emit(
+        event, *, payload=None, rules=None, is_open=None, muted=False, blocked=False, **_
+    ):
+        seen.append(
+            {
+                "event": event.event,
+                "channels": rules_mod.event_channel_ids(
+                    rules, event, is_public_or_hashtag=bool(is_open), muted=muted, blocked=blocked
+                ),
+            }
+        )
+        return 1
+
+    monkeypatch.setattr("app.notifications.producers.emit", fake_emit)
+    return seen
+
+
+async def _route_to(*channels: str, event: str = "message.dm", always_deliver: bool = False):
     from app.repository.notification_channels import NotificationChannelRepository
 
     rules = await NotificationChannelRepository.get_rules()
-    rules["events"]["message.dm"]["channels"] = ["builtin:push", "legacy:apprise"]
+    rules["events"][event]["channels"] = list(channels)
+    rules["events"][event]["always_deliver"] = always_deliver
     await NotificationChannelRepository.set_rules(rules)
+
+
+@pytest.mark.asyncio
+async def test_blocked_key_never_notifies_any_channel(test_db, real_emit):
+    from app.notifications.producers import emit_message
+
+    await _route_to("builtin:push", "legacy:apprise", "legacy:email")
+    await emit_message(_dm())
+    assert real_emit[0]["channels"] == ["builtin:push", "legacy:apprise", "legacy:email"]
+
+    real_emit.clear()
+    await AppSettingsRepository.update(blocked_keys=["AA" * 32])  # stored lowercase
+    await emit_message(_dm())
+    assert real_emit == []  # no candidate left: nothing is emitted
+
+    await emit_message(_dm(conversation_key="bb" * 32, sender_key="bb" * 32))
+    assert len(real_emit) == 1  # another contact is not affected
+
+
+@pytest.mark.asyncio
+async def test_blocked_key_of_a_channel_sender_and_blocked_name(test_db, real_emit):
+    from app.notifications.producers import emit_message
+
+    await _route_to("builtin:push", event="message.channel")
+    channel_message = {
+        "type": "CHAN",
+        "conversation_key": PUBLIC_KEY,
+        "text": "hi",
+        "sender_name": "Bob",
+        "sender_key": "bb" * 32,
+    }
+    await AppSettingsRepository.update(blocked_keys=["bb" * 32])
+    await emit_message(channel_message)
+    assert real_emit == []
+
+    await AppSettingsRepository.update(blocked_keys=[], blocked_names=["Spammer"])
+    await emit_message({**channel_message, "sender_name": "Spammer", "sender_key": None})
+    assert real_emit == []
+    await emit_message(channel_message)  # Bob is no longer blocked
+    assert len(real_emit) == 1
+
+
+@pytest.mark.asyncio
+async def test_block_toggles_take_effect_at_once(test_db, real_emit):
+    from app.notifications.producers import emit_message
+
+    await emit_message(_dm())  # reads and caches the (empty) lists
+    assert len(real_emit) == 1
+    await AppSettingsRepository.toggle_blocked_key("aa" * 32)
+    await emit_message(_dm())
+    assert len(real_emit) == 1
+    await AppSettingsRepository.toggle_blocked_key("aa" * 32)
+    await emit_message(_dm())
+    assert len(real_emit) == 2
+    await AppSettingsRepository.toggle_blocked_name("Alice")
+    await emit_message(_dm())
+    assert len(real_emit) == 2
+
+
+@pytest.mark.asyncio
+async def test_always_deliver_spares_a_blocked_sender(test_db, real_emit):
+    from app.notifications.producers import emit_message
+
+    await _route_to("builtin:push", always_deliver=True)
     await AppSettingsRepository.update(blocked_keys=["aa" * 32])
     await emit_message(_dm())
-    assert emitted[0]["exclude"] == ("legacy:apprise",)
+    assert real_emit[0]["channels"] == ["builtin:push"]
+
+
+@pytest.mark.asyncio
+async def test_muted_channel_cuts_every_channel_and_an_exception_until_it_expires(
+    test_db, real_emit
+):
+    import time
+
+    from app.notifications.producers import emit_message
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    await ChannelRepository.upsert(HASHTAG_KEY, "#ops", is_hashtag=True)
+    await _route_to("builtin:push", "legacy:email", event="message.channel")
+    rules = await NotificationChannelRepository.get_rules()
+    rules["conversations"] = {f"channel-{HASHTAG_KEY}": {"legacy:apprise": True}}
+    await NotificationChannelRepository.set_rules(rules)
+    message = {"type": "CHAN", "conversation_key": HASHTAG_KEY, "text": "x"}
+
+    await ChannelRepository.set_muted(HASHTAG_KEY, True)
+    await emit_message(message)
+    assert real_emit == []
+
+    await ChannelRepository.set_muted(HASHTAG_KEY, True, muted_until=int(time.time()) + 600)
+    await emit_message(message)
+    assert real_emit == []
+
+    # An expired mute notifies again, with the exception.
+    await ChannelRepository.set_muted(HASHTAG_KEY, True, muted_until=int(time.time()) - 5)
+    await emit_message(message)
+    assert set(real_emit[0]["channels"]) == {"builtin:push", "legacy:email", "legacy:apprise"}
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_instance_notifies_as_before(test_db, real_emit):
+    from app.notifications.producers import emit_message
+
+    await emit_message(_dm())
+    await emit_message({"type": "CHAN", "conversation_key": PUBLIC_KEY, "text": "x"})
+    assert len(real_emit) == 2
+
+
+@pytest.mark.asyncio
+async def test_unreadable_block_lists_fail_closed(test_db, real_emit, monkeypatch):
+    from app.notifications.producers import emit_message
+    from app.services import message_filters
+
+    async def boom():
+        raise RuntimeError("db")
+
+    monkeypatch.setattr(message_filters, "block_lists", boom)
+    await emit_message(_dm())
+    assert real_emit == []
 
 
 # ── The other producers ──────────────────────────────────────────────────
@@ -303,7 +442,7 @@ async def test_oss_update_to_a_disabled_channel_is_not_recorded(test_db):
 
 
 @pytest.mark.asyncio
-async def test_a_message_reads_the_channel_once_and_the_settings_only_for_apprise(
+async def test_a_message_reads_the_channel_once_and_the_block_lists_once_in_all(
     test_db, monkeypatch
 ):
     from app.notifications.producers import emit_message
@@ -327,4 +466,6 @@ async def test_a_message_reads_the_channel_once_and_the_settings_only_for_appris
     await ChannelRepository.upsert(HASHTAG_KEY, "#ops", is_hashtag=True)
     await emit_message({"type": "CHAN", "conversation_key": HASHTAG_KEY, "text": "x"})
     assert lookups == [HASHTAG_KEY]  # not looked up again by the dispatcher
-    assert reads == []  # no Apprise channel is a candidate
+    assert reads == [1]  # the block lists, read once and kept in memory
+    await emit_message({"type": "CHAN", "conversation_key": HASHTAG_KEY, "text": "y"})
+    assert reads == [1]

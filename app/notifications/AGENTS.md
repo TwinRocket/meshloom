@@ -143,17 +143,24 @@ This file is a hypothesis: check it against the code.
   everything but an `always_deliver` event); its cases are the shared fixture
   `tests/fixtures/notification_policy_cases.json` (the frontend suite reads it too, T19).
   `app/push/policy.py` is a deprecated adapter over it, removed with the shims.
-  Block lists and mutes are applied by `producers.emit_message` (MSHL-113 moves them here).
+  Block lists and mutes are applied here, for every channel: `event_channel_ids(..., muted=, blocked=)`
+  (a `message.*` event only) cuts the candidates, stored exceptions included, unless the event is
+  `always_deliver`. The producer passes the channel's effective mute (`channel.muted`, `muted_until`
+  applied) and `rules.message_blocked(payload)`, which is `services/message_filters.is_blocked` (the one
+  block-list rule, the messages listing's case rules) over the lists `message_filters.block_lists()`
+  keeps in memory (dropped by `AppSettingsRepository.update` and the block toggles, so no database
+  read per message; lists that cannot be read fail closed). The Apprise fanout, outside the engine,
+  keeps `message_filters.is_filtered` (same rule plus the mute).
 
 ## Producers
 
 `producers.py` is what the rest of the app calls: `emit_message(data)` (the
 `broadcast_event("message")` hook in `app/websocket.py`: outgoing messages, pending channels and
-muted channels, unless `always_deliver`, never notify; a blocked sender's message skips
-`legacy:apprise` only, as in 4.18.x), `emit_payload(payload)` (first seen in
+muted channels, unless `always_deliver`, never notify; a blocked sender's or a muted channel's message
+reaches no channel: the rules decide, `emit(..., muted=, blocked=)`), `emit_payload(payload)` (first seen in
 `app/push/first_seen.py`, `hashtag_catalogue._notify_channel_found`, `telemetry_alerts._dispatch`,
 `radio_watch._dispatch`) and `emit_oss_update(current, latest)` (`services/oss_updates.py`, which
-keeps its `last_notified_update_version` guard: it records only when `emit` queued the event for at least one enabled, unpaused channel). `emit` returns that count and takes `rules` / `is_open` so the producer's lookups are not repeated; the block lists are read only when `legacy:apprise` is a candidate.
+keeps its `last_notified_update_version` guard: it records only when `emit` queued the event for at least one enabled, unpaused channel). `emit` returns that count and takes `rules` / `is_open` so the producer's lookups are not repeated.
 The payload dict is what the transports render, so the golden fixtures hold
 (`tests/test_notification_producers.py` sends every golden case through the rules). `PushManager`
 (`app/push/manager.py`) is only the Web Push transport (`dispatch_event`).

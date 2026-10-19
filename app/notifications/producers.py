@@ -18,16 +18,13 @@ from app.notifications.events import event_from_payload
 
 logger = logging.getLogger(__name__)
 
-# The block lists were applied to the Apprise medium only (4.18.x); MSHL-113 moves them to
-# the rules and every channel.
-BLOCKED_SENDER_EXCLUDES = ("legacy:apprise",)
-
 
 async def emit_message(data: Mapping[str, Any]) -> None:
     """``message.dm`` / ``message.channel`` for an incoming message. Never raises.
 
-    Outgoing messages, messages of a pending channel and of a muted one (unless the event is
-    ``always_deliver``) never notify; a blocked sender's message skips the Apprise channel.
+    Outgoing messages and messages of a pending channel never notify; the rules cut a muted
+    channel and a blocked sender's messages for every channel (unless the event is
+    ``always_deliver``).
     """
     try:
         await _emit_message(data)
@@ -61,31 +58,13 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
         muted = bool(channel is not None and channel.muted)
         is_open = is_public_channel_key(key) or bool(channel is not None and channel.is_hashtag)
     rules = await rules_mod.load_rules()
-    if muted and not rules_mod.always_deliver(rules, event.event):
-        return
-    candidates = rules_mod.event_channel_ids(rules, event, is_public_or_hashtag=is_open)
+    blocked = await rules_mod.message_blocked(payload)
+    candidates = rules_mod.event_channel_ids(
+        rules, event, is_public_or_hashtag=is_open, muted=muted, blocked=blocked
+    )
     if not candidates:
         return
-
-    blocked = False
-    if any(c in BLOCKED_SENDER_EXCLUDES for c in candidates):
-        # The block lists are read only when a channel they protect could be reached.
-        try:
-            from app.repository.settings import AppSettingsRepository
-            from app.services.message_filters import is_blocked
-
-            blocked = is_blocked(payload, await AppSettingsRepository.get())
-        except Exception:
-            # Could not read the block lists: fail closed for the medium they protected.
-            blocked = True
-            logger.debug("block lists unreadable", exc_info=True)
-    await emit(
-        event,
-        payload=payload,
-        exclude=BLOCKED_SENDER_EXCLUDES if blocked else (),
-        rules=rules,
-        is_open=is_open,
-    )
+    await emit(event, payload=payload, rules=rules, is_open=is_open, muted=muted, blocked=blocked)
 
 
 async def emit_payload(payload: Mapping[str, Any]) -> None:

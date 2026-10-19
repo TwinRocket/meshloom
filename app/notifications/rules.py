@@ -12,8 +12,11 @@ Pure functions over ``app_settings.notification_rules`` (``app/notifications/AGE
 - the global pause (``paused_until``) and a channel's own ``paused_until`` hold
   every event except ``always_deliver`` ones and urgent ones.
 
-Mute and block lists are applied by the message producer
-(``app/notifications/producers.py``) until MSHL-113 moves the block lists here.
+Mute and block lists are applied here, for every channel (``muted`` and ``blocked`` of
+``event_channel_ids``): the producer (``app/notifications/producers.py``) reads the channel's
+effective mute and asks ``message_blocked`` (the one block-list rule, ``message_filters``), and a
+muted channel or a blocked sender cuts every ``message.*`` event, stored exceptions included,
+unless the event is ``always_deliver``.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.notifications.events import FirstSeenEvent, NotificationEvent
+from app.services import message_filters
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,19 @@ async def load_rules() -> dict[str, Any]:
     except Exception:
         logger.debug("notification rules unreadable", exc_info=True)
         return {}
+
+
+async def message_blocked(message: Mapping[str, Any]) -> bool:
+    """Whether an incoming message comes from a blocked key or name (block lists in memory).
+
+    Fails closed: lists that cannot be read silence the message rather than let a blocked
+    sender through.
+    """
+    try:
+        return message_filters.is_blocked(message, await message_filters.block_lists())
+    except Exception:
+        logger.debug("block lists unreadable", exc_info=True)
+        return True
 
 
 def _ids(value: object) -> list[str]:
@@ -139,8 +156,13 @@ def event_channel_ids(
     event: NotificationEvent,
     *,
     is_public_or_hashtag: bool = False,
+    muted: bool = False,
+    blocked: bool = False,
 ) -> list[str]:
-    """The channels ``event`` reaches before pauses and channel state."""
+    """The channels ``event`` reaches before pauses and channel state.
+
+    ``muted`` (the conversation's effective mute) and ``blocked`` (the sender is on a block
+    list) only concern ``message.*`` events."""
     if event.event.startswith("message."):
         payload = event.to_payload()
         is_dm = payload.get("type") == "PRIV"
@@ -150,6 +172,8 @@ def event_channel_ids(
             state_key=state_key,
             is_dm=is_dm,
             is_public_or_hashtag=is_public_or_hashtag,
+            muted=muted,
+            blocked=blocked,
         )
     entry = _event_rule(rules, event.event)
     if isinstance(event, FirstSeenEvent):

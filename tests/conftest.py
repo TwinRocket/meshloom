@@ -201,10 +201,13 @@ async def _stop_community_status_clear():
 def _reset_radio_workarounds():
     """A workaround switched on by one test must not leak into the next one."""
     from app import radio_workarounds
+    from app.services.message_filters import invalidate_block_lists
 
     radio_workarounds.reset()
+    invalidate_block_lists()
     yield
     radio_workarounds.reset()
+    invalidate_block_lists()
 
 
 @pytest.fixture(autouse=True)

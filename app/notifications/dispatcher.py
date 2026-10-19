@@ -201,12 +201,15 @@ class Dispatcher:
         exclude: Iterable[str] = (),
         rules: Mapping[str, Any] | None = None,
         is_open: bool | None = None,
+        muted: bool = False,
+        blocked: bool = False,
     ) -> int:
         """Queue ``event`` for each channel the rules give it (minus ``exclude``, the
         channels a producer rules out, such as a blocked sender's message), or for
         ``targets`` when the caller already decided. A producer that already loaded the
         rules or knows whether the conversation is a Public or ``#`` channel passes them
-        (``rules``, ``is_open``) to spare the lookups. Returns how many channels it queued
+        (``rules``, ``is_open``) to spare the lookups, and tells whether the conversation is
+        muted or the sender blocked (``muted``, ``blocked``: ``rules.event_channel_ids``). Returns how many channels it queued
         the event for (paused, disabled and unknown channels do not count). Never raises,
         never waits on a send."""
         try:
@@ -217,6 +220,8 @@ class Dispatcher:
                 exclude=frozenset(exclude),
                 rules=rules,
                 is_open=is_open,
+                muted=muted,
+                blocked=blocked,
             )
         except Exception:
             logger.exception("notification dispatch failed")
@@ -231,6 +236,8 @@ class Dispatcher:
         exclude: frozenset[str] = frozenset(),
         rules: Mapping[str, Any] | None = None,
         is_open: bool | None = None,
+        muted: bool = False,
+        blocked: bool = False,
     ) -> int:
         if payload is None:
             if event is None:
@@ -247,7 +254,9 @@ class Dispatcher:
                 return 0
             if is_open is None:
                 is_open = await _is_open_channel(event)
-            channel_ids = rules_mod.event_channel_ids(rules, event, is_public_or_hashtag=is_open)
+            channel_ids = rules_mod.event_channel_ids(
+                rules, event, is_public_or_hashtag=is_open, muted=muted, blocked=blocked
+            )
         else:
             channel_ids = list(targets)
         channel_ids = [c for c in channel_ids if c not in exclude]
@@ -788,9 +797,18 @@ async def emit(
     exclude: Iterable[str] = (),
     rules: Mapping[str, Any] | None = None,
     is_open: bool | None = None,
+    muted: bool = False,
+    blocked: bool = False,
 ) -> int:
     return await notification_dispatcher().emit(
-        event, payload=payload, targets=targets, exclude=exclude, rules=rules, is_open=is_open
+        event,
+        payload=payload,
+        targets=targets,
+        exclude=exclude,
+        rules=rules,
+        is_open=is_open,
+        muted=muted,
+        blocked=blocked,
     )
 
 
