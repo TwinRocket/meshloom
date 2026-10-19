@@ -69,6 +69,7 @@ _PASS_THROUGH: dict[str, int] = {
     "smtp_plaintext_auth_refused": 400,
     "apprise_url_invalid": 400,
     "apprise_chat_id_required": 400,
+    "invalid_config": 400,
     "auth_failed": 502,
     "service_error": 502,
     "tls_error": 502,

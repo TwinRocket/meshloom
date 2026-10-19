@@ -175,6 +175,51 @@
     "type": "webhook"
   },
   {
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 600,
+      "per_min": 30
+    },
+    "include_message_text_default": "public_only",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "default": "",
+          "label_key": "notifications.channels.fields.username",
+          "maxLength": 80,
+          "title": "Username",
+          "type": "string"
+        },
+        "webhook_url": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 512,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.discord_webhook",
+          "label_key": "notifications.channels.fields.webhook_url",
+          "title": "Webhook Url",
+          "writeOnly": true
+        }
+      },
+      "title": "DiscordConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "discord"
+  },
+  {
     "cloud": false,
     "default_limits": {
       "per_day": null,

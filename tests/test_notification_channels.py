@@ -7,6 +7,7 @@ import socket
 
 import pytest
 
+from app.notifications import api_support
 from app.notifications import channels as channels_module
 from app.notifications.channels import (
     REGISTRY,
@@ -65,7 +66,7 @@ async def _get_rules(db) -> dict:
 
 class TestRegistry:
     def test_every_native_type_is_registered(self):
-        assert set(REGISTRY) == {"web_push", "email", "webhook", "apprise"}
+        assert set(REGISTRY) == {"web_push", "email", "webhook", "apprise", "discord"}
 
     def test_secret_fields_are_write_only_in_the_schema(self):
         by_type = {entry["type"]: entry["schema"] for entry in types_schema()}
@@ -409,3 +410,35 @@ class TestTransportDefaults:
             )
         )
         assert lan.secret_fields_set == ["password"]
+
+
+class TestDiscordChannel:
+    URL = "https://discord.com/api/webhooks/123456789012345678/tok_en-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+    async def test_secret_url_is_stored_apart_and_never_read_back(self, test_db):
+        channel = await Channels.create(
+            ChannelCreate(type="discord", name="D", config={"webhook_url": self.URL})
+        )
+        assert channel.secret_fields_set == ["webhook_url"]
+        assert "webhook_url" not in channel.config
+        assert channel.include_message_text == "public_only"
+        assert "tok_en" not in channel.model_dump_json()
+        assert "tok_en" not in json.dumps(api_support.redacted_config(channel))
+
+    async def test_wrong_host_is_invalid_config_without_echo(self, test_db):
+        for url in ("https://evil.example/api/webhooks/123456789012345678/" + "a" * 30, "nope"):
+            with pytest.raises(ChannelError) as exc:
+                await Channels.create(
+                    ChannelCreate(type="discord", name="D", config={"webhook_url": url})
+                )
+            assert exc.value.code == "invalid_config"
+            assert "evil.example" not in json.dumps(exc.value.detail())
+
+    async def test_verify_tls_off_is_refused_on_discord(self, test_db):
+        with pytest.raises(ChannelError) as exc:
+            await Channels.create(
+                ChannelCreate(
+                    type="discord", name="D", config={"webhook_url": self.URL}, verify_tls=False
+                )
+            )
+        assert exc.value.code == "verify_tls_requires_private_destination"
