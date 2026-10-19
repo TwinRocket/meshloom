@@ -96,17 +96,17 @@ The `legacy:email`, `legacy:webhook` and `legacy:apprise` channels (your 4.18.x 
 
 **Add a channel → ntfy** publishes to an [ntfy](https://ntfy.sh) topic: free, self-hostable, with Android, iOS and desktop apps, and it works for a Meshloom served over plain HTTP on your LAN. Subscribe to the same topic in the ntfy app.
 
-- **Server**: `https://ntfy.sh` by default, or your own (`http://192.168.1.20:8080`). A server on your private network, or on this machine, needs **Allow a destination on a private network**.
-- **Topic** (required, write-only): 1 to 64 letters, digits, `-` or `_`. On ntfy.sh the topic is the only secret: anyone who knows it can read and post, so "topics are public by obscurity". The form can generate a random one of 24 URL-safe characters. Meshloom publishes the message as JSON to the server address: the topic is never part of a URL or a log line, and it is never shown again after saving.
+- **Server**: `https://ntfy.sh` by default, or your own (`http://192.168.1.20:8080`; no user name or password in the address, use the fields below). A server on your private network, or on this machine, needs **Allow a destination on a private network**.
+- **Topic** (required, write-only): 1 to 64 letters, digits, `-` or `_`. On ntfy.sh the topic is the only secret: anyone who knows it can read and post, so "topics are public by obscurity". Generate a long random one yourself, for example `openssl rand -base64 18 | tr '+/' '-_'` (24 URL-safe characters). Meshloom publishes the message as JSON to the server address: the topic is never part of a URL or a log line, and it is never shown again after saving.
 - **Access token**, or **user name and password** (write-only), for a server with access control. A token wins when both are set. Changing the server asks you to enter the secrets again, so they never follow a new destination.
 - **Priorities**: ordinary events use the default priority (3), urgent ones (*radio offline*, telemetry alerts) the urgent priority (5, which rings on most phones). **Tags** are ntfy tags (emoji short codes show as icons).
-- **Address of this Meshloom** (`https://meshloom.example.net/`): a tap on the notification opens the conversation or the node.
+- **Address of this Meshloom** (`https://meshloom.example.net/`): a tap on the notification opens the conversation or the node (no `#` part in the address).
 - **Markdown** formats the message in the ntfy web app.
 - **Certificate check**: it can only be turned off for a server whose every address is on a private network (a self-signed ntfy on your LAN); never for a public host.
 
 Errors a test or the channel card shows: *credentials refused* (401/403), *quota reached* (ntfy.sh's daily allowance is spent: self-host ntfy or subscribe; Meshloom does not retry), *too many requests* (ntfy's `Retry-After` is honoured), *certificate error*, *service error* (a server error or a message that is too long).
 
-ntfy.sh is a third party, and it keeps messages for 12 hours by default. A ntfy.sh channel therefore sends the text of Public and `#` channels only (title only for direct messages and private channels) until you choose **Always**, and has a default limit of 10 messages a minute, 30 an hour and **200 a day**, under the free plan's 250 a day (check [ntfy.sh/pricing](https://ntfy.sh/pricing)), so that a busy channel cannot spend the allowance before noon. A self-hosted server has no daily limit by default.
+ntfy.sh is a third party, and it keeps messages for 12 hours by default. A ntfy.sh channel therefore sends the text of Public and `#` channels only (title only for direct messages and private channels) until you choose **Always**, and shows a default limit of 10 messages a minute, 30 an hour and **200 a day**, under the free plan's 250 a day (check [ntfy.sh/pricing](https://ntfy.sh/pricing)). These limits are displayed now and will be enforced by the notification limiter that comes next; until then only ntfy.sh's own quota applies, and a busy channel can spend it. A self-hosted server has no daily limit by default.
 
 ### E-mail and webhook destinations
 

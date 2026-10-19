@@ -13,8 +13,8 @@
         "markdown": "Markdown"
       },
       "help": {
-        "ntfy_server": "ntfy.sh par défaut, ou votre propre serveur. ntfy.sh a un quota quotidien de messages : Meshloom s’arrête à 200 par jour.",
-        "ntfy_topic": "Sur ntfy.sh le sujet est le seul secret : les sujets sont publics par obscurité, prenez-en un long et aléatoire (24 caractères sûrs pour une URL). En écriture seule.",
+        "ntfy_server": "ntfy.sh par défaut, ou votre propre serveur. ntfy.sh a un quota quotidien de messages : Meshloom affiche une limite par défaut de 200 par jour.",
+        "ntfy_topic": "Sur ntfy.sh le sujet est le seul secret : les sujets sont publics par obscurité, prenez-en un long et aléatoire (par exemple 24 caractères sûrs pour une URL). En écriture seule.",
         "ntfy_token": "Pour un serveur à accès contrôlé. Un jeton l’emporte sur un nom d’utilisateur et un mot de passe. En écriture seule.",
         "ntfy_tags": "Étiquettes ntfy ; les codes emoji comme warning s’affichent en icônes.",
         "ntfy_click_url": "Par exemple https://meshloom.example.net/ — toucher la notification ouvre la conversation."

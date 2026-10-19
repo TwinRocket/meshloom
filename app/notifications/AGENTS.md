@@ -234,12 +234,10 @@ The payload dict is what the transports render, so the golden fixtures hold
   `priority_urgent` when the catalogue event is `urgent`, else `priority_default`; `click` is
   `click_url` + the push payload's `url_hash`. Answers: 401/403 `auth_failed`, 413 `service_error`,
   429 `rate_limited` (`retry`, with `Retry-After`) or `quota_exceeded` (`failed`, never
-  retried) when the body's error text names a quota or a daily/message limit, 5xx `service_error`,
-  a certificate failure `tls_error`. The quota test is a text match on ntfy's error: re-check it when
-  ntfy changes its wording. `cloud` and the daily limit (200, 10/min, 30/h) apply when the host is
-  `ntfy.sh` (`ntfy_is_hosted`); a self-hosted server gets 30/min and no daily cap. The daily and hourly
-  windows are enforced with the limiter (MSHL-125). `generate_ntfy_topic()` (24 URL-safe characters) is
-  the topic generator the form offers. CI: `tests/integration/test_ntfy_e2e.py` against a real
+  retried) when the body's JSON `code` is 42908 (daily message quota; a plain rate limit is 42901, checked on v2.11.0), 5xx `service_error`,
+  a certificate failure `tls_error`. `server` and `click_url` refuse userinfo and `click_url` a fragment (`click_url()` joins with `urlsplit`). `cloud` and the daily limit (200, 10/min, 30/h) apply when the host is
+  `ntfy.sh` (`ntfy_is_hosted`); a self-hosted server gets 30/min and no daily cap. The limits are only displayed until the limiter of MSHL-125 reads `limits_for`. `generate_ntfy_topic()` (24 URL-safe characters) is
+  a helper for a future form button (no caller yet; the user docs give an `openssl` one-liner). CI: `tests/integration/test_ntfy_e2e.py` against a real
   `binwiederhier/ntfy` container (`scripts/quality/ntfy_integration.sh`, job `ntfy-integration`; skipped
   without `MESHLOOM_NTFY_URL`).
 - **TLS.** `verify_tls=false` is honoured only when every resolved address of the destination

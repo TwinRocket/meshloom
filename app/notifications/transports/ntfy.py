@@ -8,7 +8,7 @@ are write-only channel secrets, never logged.
 
 Answers: 401/403 ``auth_failed``; 413 ``service_error``; 429 ``rate_limited`` with the
 server's ``Retry-After`` (the dispatcher waits that long), or ``quota_exceeded`` when
-the body names a daily/message quota (not retried: it does not clear in seconds); 5xx
+the body's ``code`` is ntfy's daily-quota one (42908) (not retried: it does not clear in seconds); 5xx
 ``service_error`` (retried); a certificate failure ``tls_error``. Retries are the
 dispatcher's.
 """
@@ -19,6 +19,7 @@ import base64
 import json
 import logging
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -41,9 +42,10 @@ from app.notifications.transports.base import (
 logger = logging.getLogger(__name__)
 
 NTFY_TIMEOUT_SECONDS = 10.0
-# ntfy's own wording of a spent allowance ("daily message quota reached", "limit reached:
-# ... daily ... ") also matches its numeric 4290x family; the text is what we can test.
-_QUOTA_WORDS = ("quota", "daily", "message limit")
+# ntfy answers a spent daily message allowance with ``{"code": 42908, "http": 429, "error":
+# "limit reached: daily message quota reached"}``; a plain rate limit is code 42901 ("limit
+# reached: too many requests"). The code is what we match (checked against v2.11.0).
+QUOTA_ERROR_CODE = 42908
 
 
 def auth_header(secrets: dict[str, str], config: dict[str, Any]) -> dict[str, str]:
@@ -60,13 +62,20 @@ def auth_header(secrets: dict[str, str], config: dict[str, Any]) -> dict[str, st
 
 
 def is_quota_response(response: httpx.Response) -> bool:
-    """A 429 whose body says the daily allowance is spent (ntfy.sh's free plan)."""
+    """A 429 whose JSON ``code`` is ntfy's daily message quota (ntfy.sh's free plan)."""
     try:
-        error = str(response.json().get("error") or "")
-    except Exception:
-        error = response.text[:500]
-    lowered = error.lower()
-    return any(word in lowered for word in _QUOTA_WORDS)
+        body = response.json()
+        return isinstance(body, dict) and body.get("code") == QUOTA_ERROR_CODE
+    except ValueError:
+        return False
+
+
+def click_url(base: str, url_hash: str) -> str:
+    """``base`` with ``url_hash`` (``#contact/...``) as its fragment; any query is kept, any
+    fragment of ``base`` is replaced, and a base with no path gets ``/``."""
+    parts = urlsplit(base)
+    path = parts.path or "/"
+    return urlunsplit((parts.scheme, parts.netloc, path, parts.query, url_hash.lstrip("#")))
 
 
 def build_body(
@@ -87,7 +96,7 @@ def build_body(
     base = str(config.get("click_url") or "").strip()
     if base:
         link = str(json.loads(build_push_payload(dict(event.payload), lang)).get("url_hash") or "")
-        body["click"] = base + link
+        body["click"] = click_url(base, link)
     if config.get("markdown"):
         body["markdown"] = True
     return body

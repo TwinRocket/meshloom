@@ -125,6 +125,9 @@ def _http_url(value: str, *, what: str) -> str:
     parts = urlsplit(value)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise ValueError(f"{what} must be an http(s) URL")
+    if parts.username is not None or parts.password is not None:
+        # Public config is returned by the API: credentials have their own write-only fields.
+        raise ValueError(f"{what} must not carry a user name or password")
     return value
 
 
@@ -157,7 +160,10 @@ class NtfyConfig(_ConfigBase):
     @field_validator("click_url")
     @classmethod
     def _click_url(cls, value: str) -> str:
-        return _http_url(value, what="click_url")
+        value = _http_url(value, what="click_url")
+        if value and urlsplit(value).fragment:
+            raise ValueError("click_url must not have a fragment")
+        return value
 
     @field_validator("topic")
     @classmethod

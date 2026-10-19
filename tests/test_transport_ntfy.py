@@ -170,13 +170,15 @@ async def test_no_auth_header_without_credentials(requests_seen):
         (httpx.Response(502), "retry", "service_error", None),
         (httpx.Response(429, headers={"Retry-After": "17"}), "retry", "rate_limited", 17.0),
         (
-            httpx.Response(429, json={"error": "limit reached: too many requests"}),
+            httpx.Response(429, json={"code": 42901, "error": "limit reached: too many requests"}),
             "retry",
             "rate_limited",
             None,
         ),
         (
-            httpx.Response(429, json={"code": 42908, "error": "daily message quota reached"}),
+            httpx.Response(
+                429, json={"code": 42908, "error": "limit reached: daily message quota reached"}
+            ),
             "failed",
             "quota_exceeded",
             None,
@@ -288,3 +290,40 @@ def test_ntfy_sh_is_cloud_with_a_daily_limit_and_a_self_hosted_server_is_not_cap
     assert entry.limits_for({"server": "http://192.168.1.20"}).per_day is None
     assert entry.include_message_text_for({}) == "public_only"
     assert entry.include_message_text_for({"server": "http://192.168.1.20"}) == "always"
+
+
+def test_quota_is_detected_by_the_json_code_not_the_wording():
+    from app.notifications.transports.ntfy import is_quota_response
+
+    assert is_quota_response(httpx.Response(429, json={"code": 42908, "error": "anything"}))
+    assert not is_quota_response(
+        httpx.Response(429, json={"code": 42901, "error": "daily quota too many requests"})
+    )
+    assert not is_quota_response(httpx.Response(429, text="daily quota"))
+    assert not is_quota_response(httpx.Response(429, json=["code", 42908]))
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        ("https://m.example", "https://m.example/#contact/ab"),
+        ("https://m.example/", "https://m.example/#contact/ab"),
+        ("https://m.example/app/?x=1", "https://m.example/app/?x=1#contact/ab"),
+    ],
+)
+def test_click_url_is_joined_with_urlsplit(base, expected):
+    from app.notifications.transports.ntfy import click_url
+
+    assert click_url(base, "#contact/ab") == expected
+    assert click_url("https://m.example/#old", "#contact/ab") == "https://m.example/#contact/ab"
+
+
+def test_server_and_click_url_refuse_userinfo_and_a_click_fragment():
+    for bad in ("https://u:pw@ntfy.example/x", "https://tok@ntfy.example"):
+        with pytest.raises(ValueError):
+            NtfyConfig(server=bad)
+        with pytest.raises(ValueError):
+            NtfyConfig(click_url=bad)
+    with pytest.raises(ValueError):
+        NtfyConfig(click_url="https://m.example/#a")
+    assert NtfyConfig(server="https://ntfy.example/base").server == "https://ntfy.example/base"
