@@ -61,8 +61,9 @@ async def test_websocket_message_hook_emits_a_message_event(test_db, emitted):
     with patch("app.websocket.ws_manager"), patch("app.fanout.manager.fanout_manager") as fm:
         fm.broadcast_message = AsyncMock()
         broadcast_event("message", _dm())
-        for _ in range(10):
-            await asyncio.sleep(0)
+        from app.background_tasks import _tasks
+
+        await asyncio.gather(*[t for t in _tasks if t.get_name() == "notify-message"])
     assert len(emitted) == 1
     assert isinstance(emitted[0]["event"], ev.MessageEvent)
     assert emitted[0]["event"].event == "message.dm"
