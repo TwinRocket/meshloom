@@ -823,6 +823,18 @@ class NotificationJournalRepository:
                 (int(time.time()) if now is None else now,),
             )
 
+    @staticmethod
+    async def state_trim_prefix(prefix: str, keep: int) -> None:
+        """Keep the ``keep`` rows of ``prefix`` that expire last, delete the others."""
+        like = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        async with db.tx() as conn:
+            await conn.execute(
+                "DELETE FROM notification_state WHERE key LIKE ? ESCAPE '\\' AND key NOT IN ("
+                "SELECT key FROM notification_state WHERE key LIKE ? ESCAPE '\\' "
+                "ORDER BY expires_at DESC, key LIMIT ?)",
+                (like, like, keep),
+            )
+
 
 __all__ = [
     "BUILTIN_PUSH_ID",

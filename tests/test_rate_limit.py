@@ -543,3 +543,101 @@ async def test_a_channel_edit_changes_its_limits_at_once():
     await _emit(dispatcher, _chan(3))
     await _settle(dispatcher)
     assert len(transport.singles) == 3
+
+
+# -- follow-ups of the #276 review (MSHL-310) -------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dedup_pending_keys_and_stored_rows_are_bounded(monkeypatch):
+    from app.notifications import limits
+    from app.repository.notification_channels import NotificationJournalRepository as Journal
+
+    monkeypatch.setattr(limits, "DEDUP_MAX_ENTRIES", 20)
+    monkeypatch.setattr(limits, "DEDUP_DIRTY_MAX", 20)
+    clock = FakeClock()
+    store = limits.DedupStore(clock)
+    for n in range(100):
+        store.mark(f"{limits.DEDUP_PREFIX}c:{n}", 1000 + n)
+    assert len(store._seen) <= 20
+    assert len(store._dirty) <= 20
+    assert f"{limits.DEDUP_PREFIX}c:99" in store._dirty  # the newest survive
+
+    await Journal.state_set_many({f"{limits.DEDUP_PREFIX}c:{n}": ("1", T0 + n) for n in range(50)})
+    await Journal.state_set_many({"other:key": ("1", T0 + 1)})
+    await Journal.state_trim_prefix(limits.DEDUP_PREFIX, 20)
+    rows = await Journal.state_load_prefix(limits.DEDUP_PREFIX, T0 - 1)
+    assert sorted(rows) == sorted(f"{limits.DEDUP_PREFIX}c:{n}" for n in range(30, 50))
+    assert await Journal.state_load_prefix("other:", T0 - 1) == {"other:key": T0 + 1}
+
+
+@pytest.mark.asyncio
+async def test_a_flood_of_held_jobs_keeps_the_dedup_bounded(monkeypatch):
+    from app.notifications import limits
+
+    monkeypatch.setattr(limits, "DEDUP_MAX_ENTRIES", 30)
+    monkeypatch.setattr(limits, "DEDUP_DIRTY_MAX", 30)
+    await _add_channel(per_min=1)
+    clock = FakeClock()
+    dispatcher = _dispatcher(StubTransport(), clock)
+    clock.gate.clear()
+    try:
+        for n in range(100):
+            await _emit(dispatcher, _chan(n))
+    finally:
+        clock.gate.set()
+    assert len(dispatcher._dedup._seen) <= 30
+    assert len(dispatcher._dedup._dirty) <= 30
+    await _settle(dispatcher)
+
+
+@pytest.mark.asyncio
+async def test_the_global_cap_is_taken_without_waiting():
+    cap = ClockedLimiter(2, 3600.0, FakeClock())
+    assert cap.try_acquire()
+    assert cap.try_acquire()
+    assert not cap.try_acquire()  # returns at once, parks nothing
+    assert cap._waiters == []
+
+
+@pytest.mark.asyncio
+async def test_admit_never_waits_when_another_emit_drains_the_cap(monkeypatch):
+    """The day-counter read is the one await of ``_admit``: it comes before the cap
+    test, so a cap drained meanwhile is seen as full instead of parking ``acquire()``."""
+    await _add_channel(per_min=1000, per_day=100)
+    clock = FakeClock()
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, clock)
+    rules = {"limits": {"global_per_hour": 1}}
+    real = dispatcher._sent_today
+
+    async def drained(channel_id: str, day_start_hour: int) -> int:
+        await dispatcher._global_cap(rules).acquire()  # another emit takes the last token
+        return await real(channel_id, day_start_hour)
+
+    monkeypatch.setattr(dispatcher, "_sent_today", drained)
+    assert await asyncio.wait_for(_emit(dispatcher, _chan(1), rules=rules), 1) == 0
+    await _settle(dispatcher)
+    assert transport.payloads == []
+    assert _statuses(await _rows()) == ["rate_limited"]
+
+
+@pytest.mark.asyncio
+async def test_a_summary_counts_against_the_global_cap():
+    await _add_channel(per_min=2)
+    clock = FakeClock()
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, clock)
+    rules = {"limits": {"global_per_hour": 3}}
+    clock.gate.clear()
+    try:
+        for n in range(6):
+            await _emit(dispatcher, _chan(n), rules=rules)
+    finally:
+        clock.gate.set()
+    await _settle(dispatcher)
+    # 2 singles + 1 summary of the 4 held fill the cap of 3; nothing goes over it.
+    assert len(transport.singles) == 2
+    assert len(transport.groups) == 1
+    assert len(transport.payloads) == 3
+    assert dispatcher._cap is not None and not dispatcher._cap.has_capacity()

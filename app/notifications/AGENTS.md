@@ -250,7 +250,9 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
   (`ChannelBuckets`: a count of the UTC day, started from `notification_counters` plus the
   unflushed counts, so a restart keeps it; exhausted: `quota_exceeded` row, no summary, until
   the next UTC midnight), (4) the minute and hour buckets (`ClockedLimiter`, an `AsyncLimiter`
-  on the injected clock: `has_capacity()` then `acquire()` with room, never a waiter). Limits
+  on the injected clock: `has_capacity()` then `acquire()` with room, never a waiter; the cap is
+  charged with `try_acquire()`, test and take in one step, after the only real await of `_admit`,
+  the day-counter read). Limits
   are `effective_limits(channel)`: the channel's `rate_per_*` column, else the registry's
   `limits_for(config)` (so ntfy.sh gets its 10/30/200 and a self-hosted ntfy 30/min); editing
   them rebuilds the changed bucket on the next job. A full bucket holds the job as a count
@@ -259,15 +261,19 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
   the payload has `count` and optional `channels` (open channels only, top 3), `dms`,
   `private`, `others`: counts, never a text, a sender or a private channel's name. An urgent
   job takes a token from every bucket that has room but passes a full one once per
-  (channel, dedup key) (`dedup:urgent:` key, 24 h). Summaries take a token too. In-memory
+  (channel, dedup key) (`dedup:urgent:` key, 24 h). Summaries take a cap token too (the
+  wait loop ends only with room in the cap; a summary that still finds none is `rate_limited`),
+  so the 600 an hour holds. `used_today` counts admissions, a restart reseeds it from the
+  actual sends: the quota is never exceeded. In-memory
   state is per process: one Meshloom process owns the radio, the database and these buckets
   (see "Caches").
 - **Dedup keys** (`DedupStore`, `notification_state` rows `dedup:<channel>:<dedup_key>`, value
   `1`, `expires_at`): `contact.first_seen` 24 h, `radio.offline` 24 h (its key carries the
   outage start), `message.*` 24 h (its key carries the message id); `telemetry.alert` has none
   (hysteresis only). Memory is authoritative (loaded once per process, 20 000 entries at most),
-  new keys are written in a batch by the counter flush (60 s and at shutdown), expired rows
-  pruned hourly. A duplicate is dropped without a journal row.
+  new keys are written in a batch by the counter flush (60 s and at shutdown; the pending batch
+  is capped at 20 000 too, the keys closest to expiry dropped first), expired rows pruned
+  hourly and the `dedup:` rows trimmed to the 20 000 that expire last (`state_trim_prefix`). A duplicate is dropped without a journal row.
 - **Retries** (`tenacity`, `retry_if_result`): `RETRY_WAITS` 0/5/30 s while the transport
   answers `retry` (5xx, timeout, network error, 429 whose `Retry-After` wins, capped at
   120 s); a `failed` answer (other 4xx, refused destination, not configured) is never

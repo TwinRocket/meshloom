@@ -6,7 +6,12 @@ database); only the dedup keys and the daily count survive a restart, through
 ``notification_state`` and ``notification_counters``. The buckets are
 ``aiolimiter.AsyncLimiter`` instances read with ``has_capacity()`` and charged with
 ``acquire()`` once capacity is known, so nothing here ever waits: a full bucket diverts
-the job to the aggregation window of the dispatcher.
+the job to the aggregation window of the dispatcher. The global cap is charged with
+``ClockedLimiter.try_acquire()``, which tests and takes in one step.
+
+``used_today`` counts admissions, while a restart reseeds it from ``notification_counters``
+(actual sends): a job admitted but never sent counts before the restart and not after.
+The quota is never exceeded, only slightly under-used.
 """
 
 from __future__ import annotations
@@ -26,6 +31,8 @@ GLOBAL_PER_HOUR = 600
 DAY_S = 86400
 DEDUP_PREFIX = "dedup:"
 DEDUP_MAX_ENTRIES = 20000
+# Written keys waiting for the next counter flush are bounded like the live ones.
+DEDUP_DIRTY_MAX = DEDUP_MAX_ENTRIES
 
 # How long a dedup key is remembered, per event (prefix match): a contact once per key
 # for a day, a radio outage once (its key carries the outage start), a message once per
@@ -48,6 +55,14 @@ class ClockedLimiter(AsyncLimiter):
         super().__init__(max_rate, time_period)
         self._clock = clock
         self._last_check = clock()
+
+    def try_acquire(self) -> bool:
+        """Check and take one unit in a single synchronous step: no suspension point
+        between the test and the charge, so nothing can drain the bucket in between."""
+        if not self.has_capacity():
+            return False
+        self._level += 1
+        return True
 
     def _leak(self) -> None:
         now = self._clock()
@@ -163,6 +178,7 @@ class DedupStore:
             return
         for key, expires_at in rows.items():
             self._seen.setdefault(key, expires_at)
+        self._evict(self._seen, DEDUP_MAX_ENTRIES)
 
     def seen(self, key: str) -> bool:
         expires_at = self._seen.get(key)
@@ -177,13 +193,19 @@ class DedupStore:
         expires_at = int(self._wall()) + ttl_s
         if len(self._seen) >= DEDUP_MAX_ENTRIES:
             self._prune()
-        if len(self._seen) >= DEDUP_MAX_ENTRIES:
-            for oldest in sorted(self._seen, key=lambda k: self._seen[k])[
-                : DEDUP_MAX_ENTRIES // 10
-            ]:
-                del self._seen[oldest]
+            self._evict(self._seen, DEDUP_MAX_ENTRIES - DEDUP_MAX_ENTRIES // 10)
         self._seen[key] = expires_at
+        if len(self._dirty) >= DEDUP_DIRTY_MAX:
+            self._evict(self._dirty, DEDUP_DIRTY_MAX - DEDUP_DIRTY_MAX // 10)
         self._dirty[key] = expires_at
+
+    @staticmethod
+    def _evict(keys: dict[str, int], keep: int) -> None:
+        """Drop the keys closest to expiry until at most ``keep`` remain."""
+        excess = len(keys) - keep
+        if excess > 0:
+            for oldest in sorted(keys, key=lambda k: keys[k])[:excess]:
+                del keys[oldest]
 
     def _prune(self) -> None:
         now = self._wall()
@@ -202,6 +224,7 @@ class DedupStore:
             )
         except Exception:
             self._dirty = {**dirty, **self._dirty}
+            self._evict(self._dirty, DEDUP_DIRTY_MAX)
             logger.debug("notification dedup keys not written", exc_info=True)
 
 
