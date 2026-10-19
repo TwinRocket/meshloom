@@ -125,7 +125,10 @@
         "lan": "Autoriser une destination sur réseau privé",
         "lanWarning": "À cocher seulement si la destination est à vous (un serveur de votre LAN ou cette machine). Meshloom pourra alors joindre des adresses privées.",
         "verifyTls": "Vérifier le certificat TLS",
-        "verifyTlsHelp": "À décocher seulement pour un serveur au certificat auto-signé de confiance."
+        "verifyTlsHelp": "À décocher seulement pour un serveur au certificat auto-signé de confiance.",
+        "legacyHelp": "C’est votre destination 4.18.x : elle se modifie ici, avec son propre formulaire, tant que Meshloom ne livre pas depuis les nouvelles règles.",
+        "legacyTaken": "Déjà configuré comme destination 4.18.x : modifiez-la depuis sa carte.",
+        "legacyRemove": "Supprimer cette destination"
       }
     }
   }

@@ -9,7 +9,8 @@
     },
     "notifications": {
       "webhookUrlKept": "Inchangée ({{url}}). Saisissez une nouvelle URL pour la remplacer.",
-      "webhookUrlClear": "Effacer"
+      "webhookUrlClear": "Effacer",
+      "webhookUrlClearHelp": "Effacer l'URL supprime aussi le secret HMAC enregistré."
     }
   }
 }

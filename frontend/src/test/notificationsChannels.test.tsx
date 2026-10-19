@@ -22,6 +22,7 @@ import { api, ApiError } from '../api';
 import { NotificationChannelsPanel } from '../components/settings/notifications/NotificationChannelsPanel';
 import { useNotificationChannels } from '../components/settings/notifications/useNotificationChannels';
 import i18n from '../i18n';
+import { SECRET_REDACTED, type AppSettings, type AppSettingsUpdate } from '../types';
 import type {
   NotificationChannel,
   NotificationEventInfo,
@@ -159,9 +160,17 @@ const RULES: NotificationRules = {
   host_timezone: 'UTC',
 };
 
-function Harness() {
+function Harness({
+  appSettings = null,
+  onSave,
+}: {
+  appSettings?: AppSettings | null;
+  onSave?: (update: AppSettingsUpdate) => Promise<void>;
+}) {
   const state = useNotificationChannels();
-  return <NotificationChannelsPanel state={state} appSettings={null} />;
+  return (
+    <NotificationChannelsPanel state={state} appSettings={appSettings} onSaveAppSettings={onSave} />
+  );
 }
 
 function mockApi(channels: NotificationChannel[] = [PUSH, channel({})]) {
@@ -368,5 +377,121 @@ describe('edit dialog', () => {
     // The kept secret is not sent.
     expect(body.config).not.toHaveProperty('token');
     expect(document.body.innerHTML).not.toContain('********');
+  });
+});
+
+describe('4.18.x destinations (legacy channels)', () => {
+  const legacy = (medium: 'email' | 'webhook' | 'apprise') =>
+    channel({
+      id: `legacy:${medium}`,
+      type: medium,
+      name: medium,
+      config: {},
+      secret_fields: [],
+      deletable: true,
+    });
+  // What a 4.18.x settings payload looks like: secrets read ********.
+  const settings = {
+    notification_destinations: {
+      email: {
+        host: 'smtp.example.org',
+        port: 587,
+        mode: 'starttls',
+        user: 'me',
+        password: SECRET_REDACTED,
+        from: 'me@example.org',
+        to: 'you@example.org',
+      },
+      webhook: {
+        url: SECRET_REDACTED,
+        url_redacted: 'https://example.org/****',
+        hmac_secret: SECRET_REDACTED,
+        allow_private_network: false,
+        private_network_grandfathered: false,
+      },
+      apprise: {
+        urls: SECRET_REDACTED,
+        allow_private_network: false,
+        include_message_text: 'public_only',
+        format: 'text',
+      },
+    },
+  } as unknown as AppSettings;
+
+  it('shows every destination and edits it through the legacy settings, not the 409 routes', async () => {
+    mockApi([PUSH, legacy('email'), legacy('webhook'), legacy('apprise')]);
+    const update = vi.spyOn(api, 'updateNotificationChannel');
+    const onSave = vi.fn(async () => {});
+    render(<Harness appSettings={settings} onSave={onSave} />);
+    for (const medium of ['email', 'webhook', 'apprise']) {
+      expect(await screen.findByTestId(`channel-card-legacy:${medium}`)).toBeInTheDocument();
+    }
+    const editLabel = t('settings.notifications.channels.edit');
+
+    // E-mail: prefilled, secret kept; a change saves through `notification_destinations`.
+    const email = screen.getByTestId('channel-card-legacy:email');
+    fireEvent.click(within(email).getByRole('button', { name: editLabel }));
+    const host = within(email).getByLabelText(t('settings.notifications.emailHost'));
+    expect(host).toHaveValue('smtp.example.org');
+    expect(within(email).getByLabelText(t('settings.notifications.emailPassword'))).toHaveValue(
+      SECRET_REDACTED
+    );
+    fireEvent.change(host, { target: { value: 'smtp.other.org' } });
+    fireEvent.blur(host);
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const patch = (onSave.mock.calls[0] as unknown[])[0] as {
+      notification_destinations: { email: Record<string, unknown> };
+    };
+    expect(patch.notification_destinations.email.host).toBe('smtp.other.org');
+    expect(patch.notification_destinations.email).not.toHaveProperty('password');
+
+    // Webhook and Apprise forms open too, with their secrets shown as kept.
+    const webhook = screen.getByTestId('channel-card-legacy:webhook');
+    fireEvent.click(within(webhook).getByRole('button', { name: editLabel }));
+    expect(
+      within(webhook).getByPlaceholderText(
+        t('settings.notifications.webhookUrlKept', { url: 'https://example.org/****' })
+      )
+    ).toBeInTheDocument();
+    const apprise = screen.getByTestId('channel-card-legacy:apprise');
+    fireEvent.click(within(apprise).getByRole('button', { name: editLabel }));
+    expect(
+      within(apprise).getByText(t('settings.notifications.appriseUrlsKept'))
+    ).toBeInTheDocument();
+
+    // A legacy card has no generic Delete (always 409) and Edit never PATCHes the channel.
+    expect(
+      within(email).queryByRole('button', { name: t('settings.notifications.channels.delete') })
+    ).not.toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('removes a destination by emptying it in the legacy settings', async () => {
+    mockApi([PUSH, legacy('webhook')]);
+    const onSave = vi.fn(async () => {});
+    render(<Harness appSettings={settings} onSave={onSave} />);
+    const card = await screen.findByTestId('channel-card-legacy:webhook');
+    fireEvent.click(
+      within(card).getByRole('button', { name: t('settings.notifications.channels.edit') })
+    );
+    fireEvent.click(
+      within(card).getByRole('button', { name: t('settings.notifications.channels.legacyRemove') })
+    );
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const patch = (onSave.mock.calls[0] as unknown[])[0] as {
+      notification_destinations: { webhook: Record<string, unknown> };
+    };
+    expect(patch.notification_destinations.webhook).toMatchObject({ url: '', hmac_secret: '' });
+  });
+
+  it('does not offer a second channel of a type owned by a legacy destination', async () => {
+    mockApi([PUSH, legacy('webhook')]);
+    const picker = await openAdd();
+    const webhookChoice = within(picker).getByText('Webhook').closest('button');
+    expect(webhookChoice).toBeDisabled();
+    expect(
+      within(picker).getByText(t('settings.notifications.channels.legacyTaken'))
+    ).toBeInTheDocument();
+    expect(within(picker).getByText('ntfy').closest('button')).not.toBeDisabled();
   });
 });

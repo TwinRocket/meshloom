@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { BUILTIN_PUSH_ID } from '../../../notifications/ids';
 import type { NotificationChannel } from '../../../notifications/types';
 import { Button } from '../../ui/button';
-import { iconFor } from './notificationsShared';
+import { iconFor, isLegacyChannel } from './notificationsShared';
 
 const DOT_CLASS: Record<string, string> = {
   connected: 'bg-success',
@@ -19,6 +19,7 @@ export function ChannelList({
   busyId,
   pushBlock,
   pushOpen = false,
+  legacyBlock,
   onToggle,
   onTest,
   onEdit,
@@ -30,6 +31,8 @@ export function ChannelList({
   pushBlock: ReactNode;
   /** Start with the Web Push card open (a notice about private endpoints is waiting there). */
   pushOpen?: boolean;
+  /** The 4.18.x destination form of a `legacy:*` channel (its Edit opens it in the card). */
+  legacyBlock: (medium: 'email' | 'webhook' | 'apprise') => ReactNode;
   onToggle: (channel: NotificationChannel, enabled: boolean) => void;
   onTest: (channel: NotificationChannel) => void;
   onEdit: (channel: NotificationChannel) => void;
@@ -52,6 +55,7 @@ export function ChannelList({
       {channels.map((channel) => {
         const Icon = iconFor(channel.type);
         const builtin = channel.id === BUILTIN_PUSH_ID;
+        const legacy = isLegacyChannel(channel.id);
         const status = channel.status.status;
         const busy = busyId === channel.id;
         const expanded = open === channel.id;
@@ -143,10 +147,19 @@ export function ChannelList({
                   <Button variant="ghost" size="sm" disabled={busy} onClick={() => onTest(channel)}>
                     {t('settings.notifications.test')}
                   </Button>
-                  <Button variant="ghost" size="sm" disabled={busy} onClick={() => onEdit(channel)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    aria-expanded={legacy ? expanded : undefined}
+                    onClick={() =>
+                      legacy ? setOpen(expanded ? null : channel.id) : onEdit(channel)
+                    }
+                  >
                     {t('settings.notifications.channels.edit')}
                   </Button>
                   {channel.deletable &&
+                    !legacy &&
                     (confirming === channel.id ? (
                       <>
                         <Button
@@ -179,6 +192,14 @@ export function ChannelList({
               )}
             </div>
             {builtin && expanded && <div className="mt-3">{pushBlock}</div>}
+            {legacy && expanded && (
+              <div className="mt-3 space-y-2">
+                <p className="text-[0.8125rem] text-muted-foreground">
+                  {t('settings.notifications.channels.legacyHelp')}
+                </p>
+                {legacyBlock(channel.id.slice('legacy:'.length) as 'email' | 'webhook' | 'apprise')}
+              </div>
+            )}
           </li>
         );
       })}

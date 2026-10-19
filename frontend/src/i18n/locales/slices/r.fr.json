@@ -12,9 +12,23 @@
   "settings": {
     "notifications": {
       "mediaApprise": "Apprise",
+      "appriseTitle": "Apprise",
+      "appriseHelp": "Envoyez les notifications vers ntfy, Telegram, Discord, Home Assistant et bien d'autres services grâce aux URL Apprise. Ce n'est pas l'intégration fanout Apprise : celle-ci transporte les notifications système choisies dans le tableau ci-dessous.",
+      "appriseWiki": "Formats d'URL Apprise",
       "appriseUrls": "URL, une par ligne",
+      "appriseUrlsHelp": "Exemples : ntfys://ntfy.sh/mon-sujet, tgram://bot_token/chat_id, discord://webhook_id/webhook_token, hassios://homeassistant.local:8123/jeton. Les URL contiennent des jetons : elles ne sont plus affichées après l'enregistrement.",
       "appriseUrlsKept": "Les URL enregistrées sont masquées (********). Remplacez-les pour les modifier, ou videz le champ pour les supprimer.",
-      "appriseText": "Texte des messages"
+      "appriseText": "Texte des messages",
+      "appriseTextPublicOnly": "Canaux publics et # seulement",
+      "appriseTextAlways": "Toujours",
+      "appriseTextNever": "Jamais (titre seul)",
+      "apprisePrivacy": "Les messages privés et les canaux privés sont envoyés en titre seul (« Message de Léa ») sauf si vous choisissez Toujours. Les services destinataires (ntfy.sh, Telegram, Discord…) reçoivent et peuvent conserver ce que vous envoyez : vous êtes responsable du transfert des messages d'autres personnes.",
+      "appriseFormat": "Format",
+      "appriseFormatText": "Texte brut",
+      "appriseFormatMarkdown": "Markdown",
+      "appriseAllowPrivate": "Autoriser une destination sur un réseau privé (LAN, localhost)",
+      "appriseAllowPrivateHelp": "Désactivé par défaut. Activez-le pour un serveur ntfy, Gotify ou Home Assistant sur votre réseau ou sur cette machine. Les adresses de métadonnées cloud sont toujours refusées.",
+      "testApprise": "Tester Apprise"
     }
   }
 }

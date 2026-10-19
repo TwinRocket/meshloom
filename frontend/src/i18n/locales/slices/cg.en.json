@@ -125,7 +125,10 @@
         "lan": "Allow a private-network destination",
         "lanWarning": "Only tick this if the destination is yours (a server on your LAN or this machine). It lets Meshloom reach private addresses.",
         "verifyTls": "Verify the TLS certificate",
-        "verifyTlsHelp": "Untick only for a server with a self-signed certificate you trust."
+        "verifyTlsHelp": "Untick only for a server with a self-signed certificate you trust.",
+        "legacyHelp": "This is your 4.18.x destination: it is edited here, with its own form, until Meshloom delivers from the new rules.",
+        "legacyTaken": "Already set up as a 4.18.x destination: edit it from its card.",
+        "legacyRemove": "Remove this destination"
       }
     }
   }

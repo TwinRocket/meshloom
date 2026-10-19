@@ -12,6 +12,7 @@ import { AddChannelDialog } from './AddChannelDialog';
 import { ChannelEditDialog } from './ChannelEditDialog';
 import { ChannelList } from './ChannelList';
 import { entryOfChannel } from './notificationsShared';
+import { LegacyDestinationForm } from './LegacyDestinationForm';
 import { PushDevicesBlock } from './PushDevicesBlock';
 import type { NotificationChannelsState } from './useNotificationChannels';
 
@@ -78,6 +79,13 @@ export function NotificationChannelsPanel({
             appSettings?.push_private_endpoints_grandfathered === true ||
             appSettings?.push_private_endpoints_review === true
           }
+          legacyBlock={(medium) => (
+            <LegacyDestinationForm
+              medium={medium}
+              appSettings={appSettings}
+              onSaveAppSettings={onSaveAppSettings}
+            />
+          )}
           pushBlock={
             <PushDevicesBlock appSettings={appSettings} onSaveAppSettings={onSaveAppSettings} />
           }
@@ -120,6 +128,7 @@ export function NotificationChannelsPanel({
       {adding && (
         <AddChannelDialog
           types={types}
+          channels={channels}
           rules={rules}
           events={events}
           onClose={() => setAdding(false)}

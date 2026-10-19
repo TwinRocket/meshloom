@@ -697,8 +697,10 @@ renders no field itself. `AddChannelDialog` is pick, settings (the **Test** call
 `POST /channels/test` before any save) and "What to receive here?" (`receivePatch` in
 `notificationsShared.ts` adds the new id to the events of the preset through `PATCH /rules`).
 A preset entry (`preset: true`) is created as `{type: base_type ?? 'apprise', preset: <id>}`.
-The server answers `409 legacy_managed` for the `legacy:*` channels and legacy event rows until
-MSHL-112: the UI shows `errors.legacy_managed` and never works around it. Secrets are
+The server answers `409 legacy_managed` for the `legacy:*` channels' config/deletion and legacy event rows
+(kept by MSHL-112): a `legacy:*` card's Edit opens `LegacyDestinationForm` (the 4.18.x forms, saving
+`notification_destinations` through `PATCH /api/settings`, remove = empty it), never the generic edit
+dialog or Delete; `AddChannelDialog` disables a type a `legacy:<type>` channel owns. Secrets are
 write-only (`secret_fields`, `********`): never prefilled. Tests: `src/test/notificationsChannels.test.tsx`.
 
 ### Styling

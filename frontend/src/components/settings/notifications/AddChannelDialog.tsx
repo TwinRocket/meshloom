@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { api, formatApiError } from '../../../api';
 import type {
+  NotificationChannel,
   NotificationEventInfo,
   NotificationRules,
   NotificationTypeInfo,
@@ -38,12 +39,14 @@ const PRESETS: ReceivePreset[] = ['like_push', 'alerts_only', 'everything'];
  */
 export function AddChannelDialog({
   types,
+  channels,
   rules,
   events,
   onClose,
   onCreated,
 }: {
   types: NotificationTypeInfo[];
+  channels: NotificationChannel[];
   rules: NotificationRules | null;
   events: NotificationEventInfo[];
   onClose: () => void;
@@ -63,6 +66,10 @@ export function AddChannelDialog({
 
   // A singleton type (Web Push) already exists; it is not offered again.
   const choices = types.filter((e) => !e.singleton);
+  // A 4.18.x destination (`legacy:<type>`) owns its type: the rules of a second channel of
+  // that type would answer 409 `legacy_managed`, so it is edited from its own card instead.
+  const legacyTaken = (e: NotificationTypeInfo) =>
+    !e.preset && channels.some((c) => c.id === `legacy:${e.type}`);
 
   const runTest = async (draft: ChannelDraft, config: JsonObject) => {
     if (!entry) return;
@@ -129,11 +136,12 @@ export function AddChannelDialog({
                 <li key={`${choice.preset ? 'p' : 't'}-${choice.type}`}>
                   <button
                     type="button"
+                    disabled={legacyTaken(choice)}
                     onClick={() => {
                       setEntry(choice);
                       setStep('settings');
                     }}
-                    className="flex w-full items-start gap-3 rounded-md border border-border/60 p-3 text-left hover:bg-accent"
+                    className="flex w-full items-start gap-3 rounded-md border border-border/60 p-3 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
                   >
                     <Icon
                       className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground"
@@ -150,6 +158,11 @@ export function AddChannelDialog({
                           defaultValue: '',
                         })}
                       </span>
+                      {legacyTaken(choice) && (
+                        <span className="block text-[0.8125rem] text-warning">
+                          {t('settings.notifications.channels.legacyTaken')}
+                        </span>
+                      )}
                     </span>
                   </button>
                 </li>

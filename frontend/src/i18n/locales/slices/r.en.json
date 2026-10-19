@@ -12,9 +12,23 @@
   "settings": {
     "notifications": {
       "mediaApprise": "Apprise",
+      "appriseTitle": "Apprise",
+      "appriseHelp": "Send notifications to ntfy, Telegram, Discord, Home Assistant and many other services through Apprise URLs. Not the Apprise fanout integration: this one carries the system notifications chosen in the table below.",
+      "appriseWiki": "Apprise URL formats",
       "appriseUrls": "URLs, one per line",
+      "appriseUrlsHelp": "Examples: ntfys://ntfy.sh/my-topic, tgram://bot_token/chat_id, discord://webhook_id/webhook_token, hassios://homeassistant.local:8123/token. The URLs hold tokens: they are never shown again after saving.",
       "appriseUrlsKept": "The saved URLs are hidden (********). Replace them to change them, or empty the field to remove them.",
-      "appriseText": "Message text"
+      "appriseText": "Message text",
+      "appriseTextPublicOnly": "Public and # channels only",
+      "appriseTextAlways": "Always",
+      "appriseTextNever": "Never (title only)",
+      "apprisePrivacy": "Private messages and private channels are sent as a title only (\"Message from Léa\") unless you choose Always. The services you send to (ntfy.sh, Telegram, Discord…) receive and may keep what you send: you are responsible for forwarding other people's messages.",
+      "appriseFormat": "Format",
+      "appriseFormatText": "Plain text",
+      "appriseFormatMarkdown": "Markdown",
+      "appriseAllowPrivate": "Allow a destination on a private network (LAN, localhost)",
+      "appriseAllowPrivateHelp": "Off by default. Turn it on for an ntfy, Gotify or Home Assistant server on your network or on this machine. Cloud metadata addresses are always refused.",
+      "testApprise": "Test Apprise"
     }
   }
 }

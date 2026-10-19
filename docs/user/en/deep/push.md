@@ -90,7 +90,7 @@ On a channel, the mute button silences everything for a time you choose (15 minu
 
 **Add a channel** opens a dialog in three steps. First pick a type or a preset (Email, Webhook, Apprise, and the services added to the list). Then fill its form, which the server describes itself: required fields are starred, the server's validation errors appear under the field, and a secret (a password, a token, a webhook address) is never shown, not even after saving: the form says a value is set and offers **Replace** and **Clear** (leaving it alone keeps it). A third-party service (a "cloud" one) shows a privacy note and lets you choose whether the message text is included (public channels only by default). **Send a test and continue** sends a test before anything is saved; if it fails, the error is explained and you can fix the form, or continue without a successful test. Last, **What to receive here?** pre-fills the events: **Like Push** (the events Web Push receives, the default), **Alerts only** (radio offline or back, telemetry alerts, mentions, channel changes) or **Everything**. Change it later in the table below.
 
-The `legacy:email`, `legacy:webhook` and `legacy:apprise` channels (your 4.18.x destinations) still follow the older setting until Meshloom delivers from the new rules: changing their address or deleting them answers that the 4.18.x setting still decides.
+The `legacy:email`, `legacy:webhook` and `legacy:apprise` channels (your 4.18.x destinations) still follow the older setting until Meshloom delivers from the new rules. Their card's **Edit** opens the same form as in 4.18.x (it saves as you leave a field), and **Remove this destination** empties it; their type is not offered again in **Add a channel**.
 
 ### E-mail and webhook destinations
 
