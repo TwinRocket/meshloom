@@ -140,23 +140,38 @@ export function LocalPluginEditor({
     }
   };
 
-  const savePermissions = async (next: Permissions, nextHooks: LocalHook[]) => {
+  /** One PATCH with whatever changed (hooks and/or permissions), so a refusal leaves nothing half-saved. */
+  const savePermissions = async (patch: { permissions?: Permissions; hooks?: LocalHook[] }) => {
     setBusy('permissions');
     setError(null);
     try {
-      let updated = instance;
-      const currentHooks = (instance.manifest.hooks as string[] | undefined) ?? [];
-      if (JSON.stringify([...nextHooks].sort()) !== JSON.stringify([...currentHooks].sort())) {
-        updated = await api.patchPlugin(instance.instance_id, { hooks: nextHooks });
-      }
-      updated = await api.patchPlugin(instance.instance_id, { granted_permissions: next });
+      const updated = await api.patchPlugin(instance.instance_id, {
+        ...(patch.permissions ? { granted_permissions: patch.permissions } : {}),
+        ...(patch.hooks ? { hooks: patch.hooks } : {}),
+      });
       onChanged(updated);
-      setGranted({ ...declaredPermissions(updated) } as Permissions);
-      toast.success(t('settings.extensions.local.permissionsSaved'));
+      return updated;
     } catch (err) {
       setError(formatApiError(err, t));
+      return null;
     } finally {
       setBusy(null);
+    }
+  };
+
+  const savePending = async () => {
+    const currentHooks = (instance.manifest.hooks as string[] | undefined) ?? [];
+    const hooksChanged =
+      JSON.stringify([...hooks].sort()) !== JSON.stringify([...currentHooks].sort());
+    const permissionsChanged =
+      JSON.stringify(granted) !== JSON.stringify(declaredPermissions(instance));
+    const updated = await savePermissions({
+      ...(permissionsChanged ? { permissions: granted } : {}),
+      ...(hooksChanged ? { hooks } : {}),
+    });
+    if (updated) {
+      setGranted({ ...declaredPermissions(updated) } as Permissions);
+      toast.success(t('settings.extensions.local.permissionsSaved'));
     }
   };
 
@@ -174,10 +189,17 @@ export function LocalPluginEditor({
     }
   };
 
-  const acceptHost = (host: string) => {
-    const next = { ...granted, http: { hosts: [...new Set([...httpHosts(granted), host])] } };
-    setGranted(next);
-    void savePermissions(next, hooks);
+  // Only the host is saved: other unsaved edits in the section stay pending.
+  const acceptHost = async (host: string) => {
+    const saved = declaredPermissions(instance) as Permissions;
+    const next = { ...saved, http: { hosts: [...new Set([...httpHosts(saved), host])] } };
+    const updated = await savePermissions({ permissions: next });
+    if (updated) {
+      setGranted((prev) => ({
+        ...prev,
+        http: { hosts: [...new Set([...httpHosts(prev), host])] },
+      }));
+    }
   };
   const pendingHosts = hosts.filter((h) => !httpHosts(granted).includes(h));
 
@@ -256,10 +278,7 @@ export function LocalPluginEditor({
         <HooksPicker value={hooks} onChange={setHooks} disabled={off} />
         <PermissionsEditor value={granted} onChange={setGranted} disabled={off} />
         {permsChanged && (
-          <Button
-            onClick={() => savePermissions(granted, hooks)}
-            disabled={off || hooks.length === 0}
-          >
+          <Button onClick={() => void savePending()} disabled={off || hooks.length === 0}>
             {t('settings.extensions.local.savePermissions')}
           </Button>
         )}

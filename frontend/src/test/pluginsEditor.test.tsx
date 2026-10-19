@@ -371,20 +371,72 @@ describe('local plugin editor', () => {
     expect(await screen.findByText(t('settings.extensions.local.noReply'))).toBeInTheDocument();
   });
 
-  it('saves permissions and events through PATCH', async () => {
+  it('saves hooks and permissions in one PATCH, and nothing is half-saved on refusal', async () => {
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([local()]);
+    const patch = vi
+      .spyOn(api, 'patchPlugin')
+      .mockRejectedValueOnce(new ApiError('bad', 400, { code: 'manifest_invalid' }))
+      .mockResolvedValue(local());
+    render(<SettingsExtensionsSection health={health} />);
+    await openDrawer('Pling');
+    fireEvent.click(await screen.findByLabelText(t('settings.extensions.local.hooks.health')));
+    fireEvent.click(screen.getByLabelText(t('plugins.permissions.storage.title')));
+    const save = screen.getByRole('button', {
+      name: t('settings.extensions.local.savePermissions'),
+    });
+    fireEvent.click(save);
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
+    expect(patch).toHaveBeenCalledWith(local().instance_id, {
+      granted_permissions: { 'messages.send': { targets: 'reply' }, storage: {} },
+      hooks: ['message', 'health'],
+    });
+    // Still pending after the refusal: the button stays and can be retried.
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
+  });
+
+  it('sends only hooks when only hooks changed', async () => {
     vi.spyOn(api, 'getPlugins').mockResolvedValue([local()]);
     const patch = vi.spyOn(api, 'patchPlugin').mockResolvedValue(local());
     render(<SettingsExtensionsSection health={health} />);
     await openDrawer('Pling');
     fireEvent.click(await screen.findByLabelText(t('settings.extensions.local.hooks.health')));
-    fireEvent.click(screen.getByLabelText(t('plugins.permissions.storage.title')));
     fireEvent.click(
       screen.getByRole('button', { name: t('settings.extensions.local.savePermissions') })
     );
-    await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
-    expect(patch).toHaveBeenNthCalledWith(1, local().instance_id, { hooks: ['message', 'health'] });
-    expect(patch).toHaveBeenNthCalledWith(2, local().instance_id, {
-      granted_permissions: { 'messages.send': { targets: 'reply' }, storage: {} },
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith(local().instance_id, { hooks: ['message', 'health'] })
+    );
+  });
+
+  it('accepting a host does not save other pending edits', async () => {
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([local()]);
+    vi.spyOn(api, 'putPluginSource').mockResolvedValue({
+      instance: local({ source: 'x\n' }),
+      scan: [],
+      http_hosts: ['api.example.com'],
     });
+    const patch = vi.spyOn(api, 'patchPlugin').mockResolvedValue(local());
+    render(<SettingsExtensionsSection health={health} />);
+    await openDrawer('Pling');
+    fireEvent.click(await screen.findByLabelText(t('plugins.permissions.storage.title')));
+    fireEvent.change(screen.getByTestId('code-editor'), { target: { value: 'x\n' } });
+    fireEvent.click(screen.getByRole('button', { name: t('settings.extensions.local.saveCode') }));
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: t('settings.extensions.local.allowHost', { host: 'api.example.com' }),
+      })
+    );
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith(local().instance_id, {
+        granted_permissions: {
+          'messages.send': { targets: 'reply' },
+          http: { hosts: ['api.example.com'] },
+        },
+      })
+    );
+    // The unsaved storage edit is still pending.
+    expect(screen.getByLabelText(t('plugins.permissions.storage.title'))).toBeChecked();
   });
 });

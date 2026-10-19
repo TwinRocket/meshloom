@@ -154,14 +154,28 @@ describe('SchemaForm: write-only secrets', () => {
     expect(document.body.innerHTML).not.toContain('new-secret');
   });
 
-  it('keeps what was typed when the save fails', async () => {
+  it('drops a typed secret when the save fails, and keeps plain fields', async () => {
     const onSubmit = vi.fn().mockRejectedValue(new Error('no'));
     renderForm({ schema: pluginSchema, values: { city: 'Paris' } }, onSubmit);
     fireEvent.change(screen.getByLabelText(/API key/), { target: { value: 'typed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalled());
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
-    expect((screen.getByLabelText(/API key/) as HTMLInputElement).value).toBe('typed');
+    expect((screen.getByLabelText(/API key/) as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText(/City/) as HTMLInputElement).value).toBe('Paris');
+    expect(document.body.innerHTML).not.toContain('typed');
+  });
+
+  it('treats format: password as write-only', () => {
+    renderForm({
+      schema: {
+        type: 'object',
+        properties: { pw: { type: 'string', format: 'password', title: 'Pw' } },
+      },
+      values: { pw: 'leaked' },
+    });
+    expect((screen.getByLabelText('Pw') as HTMLInputElement).value).toBe('');
+    expect(document.body.innerHTML).not.toContain('leaked');
   });
 
   it('clears a secret with "" and can undo', async () => {

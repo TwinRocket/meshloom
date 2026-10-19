@@ -93,16 +93,17 @@ export function SchemaForm({
     setBusy(true);
     try {
       await onSubmit(collectValues(fields, drafts, modes));
-      // Saved: no secret stays in the page.
+    } catch {
+      // The caller reports it (and maps field errors); plain fields keep what was typed.
+    } finally {
+      // Saved or refused, no secret stays in the page: the server may have stored it
+      // even when a later step failed, so retyping is safer than keeping it.
       setModes({});
       setDrafts((prev) => {
         const next = { ...prev };
         for (const field of fields) if (field.secret) next[field.name] = '';
         return next;
       });
-    } catch {
-      // The caller reports it (and maps field errors); the form keeps what was typed.
-    } finally {
       setBusy(false);
     }
   };
@@ -110,7 +111,7 @@ export function SchemaForm({
   const off = disabled || busy;
 
   return (
-    <form onSubmit={submit} className="space-y-4" noValidate={false}>
+    <form onSubmit={submit} className="space-y-4">
       {model.entries.map((entry) => {
         if (entry.unsupported) {
           return (

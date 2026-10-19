@@ -439,9 +439,9 @@ pydantic's output by `tests/test_schema_form_fixture.py`).
 - **Secrets.** A `writeOnly: true` property is a write-only field: its value is never read from
   `values`, never displayed, never rendered in the DOM. With `secretsSet` it shows "a value is set"
   with **Replace** (a password input; left empty it keeps the value) and **Clear** (not for a
-  required one; sends `""`); without, a password input. `collectValues` returns a secret only when
+  required one; sends `""`); without, a password input. `format: password` counts as `writeOnly`. `collectValues` returns a secret only when
   replaced (its new value) or cleared (`""`), so an untouched one is omitted, which is the server's
-  "keep" rule. After a resolved `onSubmit` every secret draft is emptied.
+  "keep" rule. After `onSubmit` settles, resolved or rejected, every secret draft is emptied (the server may have stored it before a later step failed); plain fields keep what was typed.
 - **Label resolvers** (`LabelResolver`: `label`, `description`, `option`): `languageMapResolver(lang)`
   reads the schema's own `title`/`description` (string or per-language map, exact tag, base language,
   English, first); `i18nKeyResolver(t, prefix, lang)` looks up `<prefix>.<name>.label`,

@@ -176,7 +176,8 @@ function readField(root: JsonObject, name: string, raw: unknown, required: boole
     name,
     required,
     nullable,
-    secret: schema.writeOnly === true,
+    // `format: password` is write-only too: a password is never prefilled or shown.
+    secret: schema.writeOnly === true || schema.format === 'password',
     title: readLocalized(schema.title),
     description: readLocalized(schema.description),
     default: schema.default,
