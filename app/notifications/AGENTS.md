@@ -68,6 +68,11 @@ This file is a hypothesis: check it against the code.
   `conversations[key][channel_id] = bool`, `keywords[*].channels`,
   `watched_nodes[*].channels`. The import drops a medium whose channel it did not create
   (no SMTP, no URL): it could not deliver, and a reference would be an orphan.
+- **Backup.** The `notifications` backup section (`services/backup_notifications.py`) exports
+  the channels without secrets and the rules; a restore writes a channel missing a secret
+  disabled with `last_error = "secret_missing"`, which `update()` clears once the secret is
+  saved. A 4.18.x file reaches the rules and the `legacy:*` channels through `legacy_sync`
+  (the migration 113 builders). See `docs/dev/backup.md`.
 - **Deletion cascade.** `delete()` removes the channel, its deliveries and counters, and its
   id from `events[*].channels`, `contact_types`, `conversations`, `keywords[*].channels`
   and `watched_nodes[*].channels` (`strip_channel_from_rules`) in one transaction. A
