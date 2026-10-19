@@ -424,22 +424,29 @@ async def test_a_burst_on_a_telegram_channel_is_spaced_and_summarised(test_db):
     clock = FakeClock()
     gate = asyncio.Event()  # the first send waits until the whole burst is in
     transport = StubTransport(clock, gate=gate)
+    plain_sleep = clock.sleep
+
+    async def window_after_the_burst(seconds: float) -> None:
+        await gate.wait()  # the fake sleep is instant: hold the window until the burst is in
+        await plain_sleep(seconds)
+
+    clock.sleep = window_after_the_burst  # type: ignore[method-assign]
     dispatcher = _dispatcher(transport, clock)
     for n in range(50):
         await dispatcher.emit(None, payload=_chan(n), targets=["apprise-tg"])
     gate.set()
     await _settle(dispatcher)
 
-    stamps = [c[2] for c in transport.calls]
-    assert all(b - a == 3.0 for a, b in zip(stamps, stamps[1:], strict=False))
+    # Telegram: 15 a minute. The rest waits one window, then goes as one summary.
     grouped = [p for p in transport.payloads if p["event"] == GROUPED_EVENT]
     assert len(grouped) == 1
-    singles = len(transport.payloads) - 1
     assert transport.payloads[-1] == grouped[0]
-    assert singles + grouped[0]["count"] == 50
-    assert singles == 21  # one in flight, MAX_PENDING queued
+    assert grouped[0] == {"event": GROUPED_EVENT, "count": 35, "channels": {"Public": 35}}
+    assert len(transport.payloads) - 1 == 15
+    stamps = [c[2] for c in transport.calls[:15]]
+    assert all(b - a >= 3.0 for a, b in zip(stamps, stamps[1:], strict=False))
     rows = await _deliveries()
-    assert [r["status"] for r in rows] == ["aggregated"] * grouped[0]["count"]
+    assert [r["status"] for r in rows] == ["aggregated"] * 35
 
 
 @pytest.mark.asyncio
@@ -449,8 +456,12 @@ async def test_a_full_queue_records_rate_limited(test_db):
     transport = StubTransport(gate=gate)
     dispatcher = _dispatcher(transport, FakeClock(), queue_max=3)
     # Urgent jobs are never folded into a summary: only the queue bound stops them.
-    for _ in range(6):
-        await dispatcher.emit(None, payload={"event": "radio_offline"}, targets=["webhook-1"])
+    for n in range(6):
+        await dispatcher.emit(
+            None,
+            payload={"event": "radio_offline", "outage_started_at": n},
+            targets=["webhook-1"],
+        )
         await asyncio.sleep(0)
     gate.set()
     await _settle(dispatcher)

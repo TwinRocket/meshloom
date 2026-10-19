@@ -387,6 +387,8 @@ async def test_push_payloads_through_the_rules_match_the_golden_fixtures(test_db
     delivered = set()
     for name, payload in _cases().items():
         sent.clear()
+        # Several cases share one contact or message id: each is its own delivery here.
+        notification_dispatcher()._dedup._seen.clear()
         if payload.get("type") in ("PRIV", "CHAN"):
             await emit_message(payload)
         else:

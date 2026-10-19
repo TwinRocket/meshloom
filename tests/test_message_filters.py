@@ -175,3 +175,42 @@ async def test_machine_outputs_still_get_blocked_and_muted_messages(test_db):
     mqtt._publisher = publisher
     await mqtt.on_message(message)
     publisher.publish.assert_awaited_once()
+
+
+# -- the in-memory block-list cache (carried over from MSHL-113 / #265) ---------------
+
+
+@pytest.mark.asyncio
+async def test_block_list_cache_is_dropped_by_every_write_path(test_db, client):
+    """``block_lists()`` serves memory once read; a PATCH, a toggle and a restore must each
+    be seen by the very next call (a blocked sender would otherwise still notify)."""
+    from app.models import BackupRestoreRequest
+    from app.services.backup import restore_json
+    from app.services.message_filters import block_lists
+
+    assert (await block_lists()).blocked_keys == ()  # now cached
+
+    # REST: PATCH /api/settings
+    response = await client.patch("/api/settings", json={"blocked_keys": [BOB_KEY.upper()]})
+    assert response.status_code == 200
+    assert (await block_lists()).blocked_keys == (BOB_KEY,)
+
+    # Toggles (REST routes): key off, name on, name off
+    response = await client.post("/api/settings/blocked-keys/toggle", json={"key": BOB_KEY})
+    assert response.status_code == 200
+    assert (await block_lists()).blocked_keys == ()
+    response = await client.post("/api/settings/blocked-names/toggle", json={"name": "Spammer"})
+    assert response.status_code == 200
+    assert (await block_lists()).blocked_names == ("Spammer",)
+    await client.post("/api/settings/blocked-names/toggle", json={"name": "Spammer"})
+    assert (await block_lists()).blocked_names == ()
+
+    # Restore of a JSON backup
+    await block_lists()
+    settings = (await AppSettingsRepository.get()).model_copy(
+        update={"blocked_keys": [DM_KEY], "blocked_names": ["Mallory"]}
+    )
+    await restore_json(BackupRestoreRequest(confirm=True, settings=settings))
+    lists = await block_lists()
+    assert (lists.blocked_keys, lists.blocked_names) == ((DM_KEY,), ("Mallory",))
+    assert is_blocked(_dm(), lists)

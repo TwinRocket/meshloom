@@ -33,6 +33,7 @@ This file is a hypothesis: check it against the code.
   in-memory cache of the public channels, status updates, `get_rules()`) and
   `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).
 - `rules.py`: pure evaluation of `notification_rules` (see "Dispatcher").
+- `limits.py`: the dispatcher's token buckets (`ClockedLimiter`), the daily quota, `effective_limits()` and the persisted dedup keys (see "Dispatcher", "Limits").
 - `dispatcher.py`: `emit()`, the queue and worker per channel, the limiter, the retry
   policy, the journal, the counters and `notification_statuses()` (see "Dispatcher").
 - `transports/`: `base.py` (`Transport.send(channel, rendered, event, secrets) ->
@@ -78,9 +79,16 @@ This file is a hypothesis: check it against the code.
   and `watched_nodes[*].channels` (`strip_channel_from_rules`) in one transaction. A
   disabled channel keeps its rules. `resolve(ids)` skips an orphan id and logs it once.
 - **Cache.** `list_all()`/`get()`/`resolve()` read a cache invalidated by every write.
+- **Caches assume one process** (carried over from MSHL-113). The channel cache, the block lists
+  (`services/message_filters.py`, dropped by `AppSettingsRepository.update` and the block toggles;
+  `tests/test_message_filters.py` covers the PATCH, the toggles and a restore), the rules'
+  readers and the dispatcher's buckets, quota counts and dedup keys live in the memory of the
+  one Meshloom process that owns the radio and the database. A second process on the same
+  database (a script writing settings with `meshloom-admin`, a second instance) would not
+  invalidate them: it is unsupported, and a change made that way is seen after a restart.
 - **Journal.** 200 `notification_deliveries` rows per channel (trimmed at insert, plus the
   daily `prune_deliveries()`); successes are counted per channel and hour
-  (`notification_counters`); `notification_state` holds dedup timestamps with an expiry.
+  (`notification_counters`); `notification_state` holds the dedup keys (`dedup:*`), the pending secrets of a restored channel, with an expiry.
 - **The rules decide, the shims keep the 4.18.x columns in step.** The producers emit events
   (`producers.py`) and the rules choose the channels. The deprecated routes
   (`/api/push/preferences*`, `PATCH /api/settings` with `notification_destinations`) still write
@@ -229,12 +237,37 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
   started by a job and ended when the queue is empty. One send at a time per channel;
   `min_interval_s` between sends (`channels.min_interval_s`: preset `telegram` 3 s,
   `discord` 2 s, `ntfy` 1 s; type `email` 10 s, `apprise` 2 s, `webhook` and `web_push` 0).
-  Past `MAX_PENDING` (20) waiting, a non-urgent job is folded (`aggregated`) into one
-  `notifications_grouped` "+N events" sent once the queue is empty; a full queue drops the
-  job (`rate_limited`). `contact.first_seen` is capped at 10 an hour per channel
-  (`aiolimiter`), the rest summed into one `first_seen_grouped`. The spacing and the retries
-  read the injected `clock`/`sleep` (fake-clock tests); token buckets, daily quotas and the
-  global cap come with MSHL-125.
+  A full queue drops the job (`rate_limited`). `contact.first_seen` is capped at 10 an hour
+  per channel (`aiolimiter`), the rest summed into one `first_seen_grouped`. The spacing, the
+  retries, the buckets and the aggregation window read the injected `clock`/`sleep`/
+  `wall_clock` (fake-clock tests); the fake `sleep` is instant, so a test that emits a burst
+  holds it (`tests/test_rate_limit.py`, `_burst`) or the window closes between two emits.
+- **Limits** (MSHL-125, `limits.py`). `Dispatcher._admit()` decides each (event, channel) at
+  `emit` time, in this order: (1) persisted dedup (`DedupStore`, below), (2) the global cap
+  (`ClockedLimiter(limits.global_per_hour, 3600)`, the rules' `limits.global_per_hour`, default
+  600, a bad value reads as 600; over it `rate_limited`, urgent included, and `notifications_capped`
+  in `/api/health`, `Dispatcher.capped`, `broadcast_health` on change), (3) the daily quota
+  (`ChannelBuckets`: a count of the UTC day, started from `notification_counters` plus the
+  unflushed counts, so a restart keeps it; exhausted: `quota_exceeded` row, no summary, until
+  the next UTC midnight), (4) the minute and hour buckets (`ClockedLimiter`, an `AsyncLimiter`
+  on the injected clock: `has_capacity()` then `acquire()` with room, never a waiter). Limits
+  are `effective_limits(channel)`: the channel's `rate_per_*` column, else the registry's
+  `limits_for(config)` (so ntfy.sh gets its 10/30/200 and a self-hosted ntfy 30/min); editing
+  them rebuilds the changed bucket on the next job. A full bucket holds the job as a count
+  (`_Held`, `aggregated` row) and `_flush_held` queues one `notifications_grouped` summary after
+  `AGGREGATION_WINDOW_S` (60 s) once the buckets and the cap have room (else one more window);
+  the payload has `count` and optional `channels` (open channels only, top 3), `dms`,
+  `private`, `others`: counts, never a text, a sender or a private channel's name. An urgent
+  job takes a token from every bucket that has room but passes a full one once per
+  (channel, dedup key) (`dedup:urgent:` key, 24 h). Summaries take a token too. In-memory
+  state is per process: one Meshloom process owns the radio, the database and these buckets
+  (see "Caches").
+- **Dedup keys** (`DedupStore`, `notification_state` rows `dedup:<channel>:<dedup_key>`, value
+  `1`, `expires_at`): `contact.first_seen` 24 h, `radio.offline` 24 h (its key carries the
+  outage start), `message.*` 24 h (its key carries the message id); `telemetry.alert` has none
+  (hysteresis only). Memory is authoritative (loaded once per process, 20 000 entries at most),
+  new keys are written in a batch by the counter flush (60 s and at shutdown), expired rows
+  pruned hourly. A duplicate is dropped without a journal row.
 - **Retries** (`tenacity`, `retry_if_result`): `RETRY_WAITS` 0/5/30 s while the transport
   answers `retry` (5xx, timeout, network error, 429 whose `Retry-After` wins, capped at
   120 s); a `failed` answer (other 4xx, refused destination, not configured) is never
@@ -251,7 +284,7 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
   `notification_counters` with the channel's `last_ok_at` (one write a minute, not one per
   send); a success after failures resets `failure_count` at once. A failure updates
   `failure_count` and `last_error` (a code, `secret_fields.scrub_error` with the channel's
-  secrets). `notification_deliveries` rows only for `failed`, `rate_limited`, `aggregated`,
+  secrets). `notification_deliveries` rows only for `failed`, `rate_limited`, `quota_exceeded`, `aggregated`,
   `paused`, `aborted` (`suppressed_quiet` with the quiet hours), batched in one transaction;
   a row holds the event id, the hashed `dedup_key`, a code and the attempts, never the text.
 - **Status.** `notification_statuses()` is the health payload's `notification_statuses`:
@@ -312,7 +345,7 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
   429 `rate_limited` (`retry`, with `Retry-After`) or `quota_exceeded` (`failed`, never
   retried) when the body's JSON `code` is 42908 (daily message quota; a plain rate limit is 42901, checked on v2.11.0), 5xx `service_error`,
   a certificate failure `tls_error`. `server` and `click_url` refuse userinfo and `click_url` a fragment (`click_url()` joins with `urlsplit`). `cloud` and the daily limit (200, 10/min, 30/h) apply when the host is
-  `ntfy.sh` (`ntfy_is_hosted`); a self-hosted server gets 30/min and no daily cap. The limits are only displayed until the limiter of MSHL-125 reads `limits_for`. `generate_ntfy_topic()` (24 URL-safe characters) is
+  `ntfy.sh` (`ntfy_is_hosted`); a self-hosted server gets 30/min and no daily cap. The limits are enforced by the dispatcher (`effective_limits`). `generate_ntfy_topic()` (24 URL-safe characters) is
   a helper for a future form button (no caller yet; the user docs give an `openssl` one-liner). CI: `tests/integration/test_ntfy_e2e.py` against a real
   `binwiederhier/ntfy` container (`scripts/quality/ntfy_integration.sh`, job `ntfy-integration`; skipped
   without `MESHLOOM_NTFY_URL`).

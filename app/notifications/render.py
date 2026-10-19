@@ -240,6 +240,28 @@ def state_key_for_message(data: dict) -> str:
     return f"channel-{conversation_key}"
 
 
+def _grouped_title(data: dict, count: int, lang: str) -> str:
+    """ "+14 messages: 12 in #paris, 2 DMs": counts and open-channel names, never a text.
+    Without the breakdown (older callers) it is "+N events"."""
+    en = lang == "en"
+    channels = data.get("channels") or {}
+    dms = int(data.get("dms") or 0)
+    private = int(data.get("private") or 0)
+    others = int(data.get("others") or 0)
+    if not (channels or dms or private):
+        return f"+{count} events" if en else f"+{count} évènements"
+    parts = [f"{n} in {name}" if en else f"{n} dans {name}" for name, n in channels.items()]
+    if private:
+        parts.append(f"{private} in other channels" if en else f"{private} dans d'autres canaux")
+    if dms:
+        parts.append(f"{dms} DMs" if en else f"{dms} MP")
+    if others:
+        parts.append(f"{others} other events" if en else f"{others} autres évènements")
+    messages = count - others
+    head = f"+{messages} messages" if en else f"+{messages} messages"
+    return f"{head}: {', '.join(parts)}"
+
+
 def build_push_payload(data: dict, language: str = "fr") -> str:
     """Build the push notification JSON payload from a message or first-seen event."""
     lang = language if language in ("fr", "en") else "fr"
@@ -298,7 +320,7 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
         if data["event"] == "first_seen_grouped":
             title = f"+{count} new contacts" if lang == "en" else f"+{count} nouveaux contacts"
         else:
-            title = f"+{count} events" if lang == "en" else f"+{count} évènements"
+            title = _grouped_title(data, count, lang)
         return json.dumps({"title": title, "body": title, "tag": "meshcore-grouped"})
 
     if data.get("event") == DESTINATION_CHANGED_EVENT:

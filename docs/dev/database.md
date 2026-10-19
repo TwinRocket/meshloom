@@ -221,8 +221,10 @@ Successful sends per channel and hour: PK `(channel_id, hour)`, `sent`. Written 
 
 ### `notification_state`
 
-Small dedup state: PK `key`, `value`, `expires_at` (first-seen timestamps, per-day
-`channel_failed`, outage state). Expired rows are pruned.
+Small state with an expiry: PK `key`, `value`, `expires_at`. Keys: `dedup:<channel>:<dedup_key>`
+and `dedup:urgent:<channel>:<dedup_key>` (the dispatcher's persisted dedup, 24 h, written in
+batches) and the pending secrets of a restored channel. Expired rows are
+pruned hourly by the dispatcher.
 
 ### `push_subscriptions`
 
