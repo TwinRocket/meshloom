@@ -93,7 +93,8 @@ the `setuid` level needs root and the `meshloom-plugin` account (CI's
 | `all_quality.sh` | Repo-standard gate: autofix (ruff, eslint, prettier), then pyright, pytest, vitest, and frontend build. Run before finishing any code change. |
 | `extended_quality.sh` | `all_quality.sh`, then `e2e.sh` (needs a radio), then `docker_ci.sh`. Manual; no workflow calls it. |
 | `e2e.sh` | Thin wrapper that runs Playwright e2e tests from `tests/e2e/`. |
-| `docker_ci.sh` | Builds the frontend (`npm ci && npm run build`) in `node:*-slim` containers across a Node/npm version matrix. It does not build the Meshloom image. |
+| `docker_ci.sh` | Builds the frontend (`npm ci && npm run build`) in `node:*-slim` containers across a Node/npm version matrix. It does not build the Meshloom image. `docker_ci.sh --ntfy` runs `ntfy_integration.sh` instead. |
+| `ntfy_integration.sh` | Starts a pinned `binwiederhier/ntfy` container and runs `tests/integration/test_ntfy_e2e.py` against it (needs Docker). CI runs it as the `ntfy-integration` job, part of `all-quality`. |
 
 </details>
 

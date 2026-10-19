@@ -266,5 +266,131 @@
     },
     "singleton": false,
     "type": "apprise"
+  },
+  {
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 30
+    },
+    "include_message_text_default": "public_only",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "click_url": {
+          "default": "",
+          "help_key": "notifications.channels.help.ntfy_click_url",
+          "label_key": "notifications.channels.fields.click_url",
+          "maxLength": 2048,
+          "title": "Click Url",
+          "type": "string"
+        },
+        "markdown": {
+          "default": false,
+          "label_key": "notifications.channels.fields.markdown",
+          "title": "Markdown",
+          "type": "boolean"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 1024,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "label_key": "notifications.channels.fields.password",
+          "title": "Password",
+          "writeOnly": true
+        },
+        "priority_default": {
+          "default": 3,
+          "label_key": "notifications.channels.fields.priority_default",
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Priority Default",
+          "type": "integer"
+        },
+        "priority_urgent": {
+          "default": 5,
+          "label_key": "notifications.channels.fields.priority_urgent",
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Priority Urgent",
+          "type": "integer"
+        },
+        "server": {
+          "default": "https://ntfy.sh",
+          "help_key": "notifications.channels.help.ntfy_server",
+          "label_key": "notifications.channels.fields.server",
+          "maxLength": 255,
+          "title": "Server",
+          "type": "string"
+        },
+        "tags": {
+          "default": "",
+          "help_key": "notifications.channels.help.ntfy_tags",
+          "label_key": "notifications.channels.fields.tags",
+          "maxLength": 255,
+          "title": "Tags",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.ntfy_token",
+          "label_key": "notifications.channels.fields.token",
+          "title": "Token",
+          "writeOnly": true
+        },
+        "topic": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 64,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.ntfy_topic",
+          "label_key": "notifications.channels.fields.topic",
+          "title": "Topic",
+          "writeOnly": true
+        },
+        "username": {
+          "default": "",
+          "label_key": "notifications.channels.fields.username",
+          "maxLength": 255,
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "title": "NtfyConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "ntfy"
   }
 ]

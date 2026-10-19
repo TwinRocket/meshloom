@@ -96,6 +96,22 @@ Sur un salon, le bouton de sourdine fait taire tout pendant la durée choisie (d
 
 Les canaux `legacy:email`, `legacy:webhook` et `legacy:apprise` (vos destinations 4.18.x) suivent encore l’ancien réglage tant que Meshloom ne livre pas depuis les nouvelles règles. **Modifier** sur leur carte ouvre le même formulaire qu’en 4.18.x (il enregistre quand vous quittez un champ), et **Supprimer cette destination** la vide ; leur type n’est plus proposé dans **Ajouter un canal**.
 
+### Canaux ntfy
+
+**Ajouter un canal → ntfy** publie vers un sujet [ntfy](https://ntfy.sh) : gratuit, auto-hébergeable, avec des applications Android, iOS et bureau, et utilisable avec un Meshloom servi en HTTP simple sur votre réseau local. Abonnez-vous au même sujet dans l'application ntfy.
+
+- **Serveur** : `https://ntfy.sh` par défaut, ou le vôtre (`http://192.168.1.20:8080`; ni nom d'utilisateur ni mot de passe dans l'adresse, utilisez les champs ci-dessous). Un serveur de votre réseau privé, ou de cette machine, demande **Autoriser une destination sur un réseau privé**.
+- **Sujet** (obligatoire, en écriture seule) : 1 à 64 lettres, chiffres, `-` ou `_`. Sur ntfy.sh le sujet est le seul secret : qui le connaît peut lire et publier, les sujets sont donc « publics par obscurité ». Générez-en un long et aléatoire vous-même, par exemple `openssl rand -base64 18 | tr '+/' '-_'` (24 caractères sûrs pour une URL). Meshloom publie le message en JSON à l'adresse du serveur : le sujet ne figure jamais dans une URL ni dans un journal, et il n'est plus jamais affiché après l'enregistrement.
+- **Jeton d'accès**, ou **nom d'utilisateur et mot de passe** (en écriture seule), pour un serveur à accès contrôlé. Le jeton l'emporte si les deux sont renseignés. Changer de serveur demande de ressaisir les secrets : ils ne suivent jamais une nouvelle destination.
+- **Priorités** : les événements ordinaires utilisent la priorité par défaut (3), les urgents (*radio hors ligne*, alertes de télémétrie) la priorité urgente (5, qui sonne sur la plupart des téléphones). Les **étiquettes** sont des étiquettes ntfy (les codes emoji s'affichent en icônes).
+- **Adresse de ce Meshloom** (`https://meshloom.example.net/`) : toucher la notification ouvre la conversation ou le nœud (pas de partie `#` dans l'adresse).
+- **Markdown** met en forme le message dans l'application web ntfy.
+- **Vérification du certificat** : elle ne peut être désactivée que pour un serveur dont toutes les adresses sont privées (un ntfy auto-signé chez vous), jamais pour un hôte public.
+
+Erreurs affichées par un test ou la carte du canal : *identifiants refusés* (401/403), *quota atteint* (le quota journalier de ntfy.sh est épuisé : auto-hébergez ntfy ou abonnez-vous ; Meshloom ne réessaie pas), *trop de requêtes* (le `Retry-After` de ntfy est respecté), *erreur de certificat*, *erreur du service* (erreur serveur ou message trop long).
+
+ntfy.sh est un tiers, et conserve les messages 12 heures par défaut. Un canal ntfy.sh n'envoie donc que le texte des canaux Public et `#` (titre seul pour les messages privés et les canaux privés) tant que vous ne choisissez pas **Toujours**, et affiche une limite par défaut de 10 messages par minute, 30 par heure et **200 par jour**, sous les 250 par jour de l'offre gratuite (voir [ntfy.sh/pricing](https://ntfy.sh/pricing)). Ces limites sont affichées dès maintenant et seront appliquées par le limiteur de notifications qui suit ; d'ici là seul le quota de ntfy.sh s'applique, et un canal très actif peut l'épuiser. Un serveur auto-hébergé n'a pas de limite journalière par défaut.
+
 ### Destinations e-mail et webhook
 
 Dans **Réglages → Notifications → Canaux**, choisissez **Ajouter un canal** et saisissez un serveur SMTP (hôte, port, chiffrement, utilisateur, mot de passe, expéditeur et destinataire) et/ou l’adresse d’un webhook avec un secret HMAC facultatif. Les secrets ne sont plus affichés après l’enregistrement. Laissez un champ secret vide pour le conserver. L’adresse du webhook est elle aussi un secret, car elle contient souvent un jeton : une fois enregistrée, son champ ne montre que le schéma et l’hôte ; saisissez une nouvelle adresse pour la remplacer, ou appuyez sur **Effacer** pour la supprimer avec son secret HMAC. Le téléchargement de la sauvegarde JSON les laisse de côté (voir [Sécurité](/docs/deep/security/#secrets-des-intégrations-et-des-notifications)). Chaque destination a un bouton de test. Ce webhook sert aux notifications de Meshloom. Ce n’est pas le webhook de messages du fanout.

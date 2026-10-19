@@ -51,6 +51,7 @@ def _offline(monkeypatch):
         ("webhook", "WebhookTransport"),
         ("email", "EmailTransport"),
         ("apprise", "AppriseTransport"),
+        ("ntfy", "NtfyTransport"),
         ("web_push", "WebPushTransport"),
     ):
         monkeypatch.setattr(f"app.notifications.transports.{module}.{name}.send", send)
@@ -127,11 +128,12 @@ async def test_types_every_secret_field_is_write_only_and_kinds_stay_in_the_subs
     response = await client.get("/api/notifications/types")
     assert response.status_code == 200
     types = {entry["type"]: entry for entry in response.json()}
-    assert set(types) == {"web_push", "email", "webhook", "apprise", "discord"}
+    assert set(types) == {"web_push", "email", "webhook", "apprise", "ntfy", "discord"}
     secret_names = {
         "email": {"password"},
         "webhook": {"url", "hmac_secret"},
         "apprise": {"urls"},
+        "ntfy": {"topic", "token", "password"},
         "discord": {"webhook_url"},
     }
     for name, entry in types.items():
@@ -261,6 +263,88 @@ async def test_patch_refuses_a_kept_secret_that_would_follow_a_destination_chang
     response = await client.patch(
         f"/api/notifications/channels/{created['id']}",
         json={"config": {"host": "other.example.org"}},
+    )
+    assert response.status_code == 400
+    assert code_of(response) == "secret_required"
+
+
+NTFY_TOPIC = "ntfy-topic-secret-1"
+
+
+def ntfy(**extra):
+    config = {"server": "https://ntfy.example.org", "topic": NTFY_TOPIC, "token": "tk_secret_1"}
+    return {"type": "ntfy", "name": "Phone", "config": config, **extra}
+
+
+async def test_ntfy_channel_never_shows_its_secrets(test_db, client):
+    created = await create(client, ntfy())
+    assert created["secret_fields"] == ["token", "topic"]
+    assert created["config"]["topic"] == "********"
+    assert created["config"]["token"] == "********"
+    assert created["config"]["priority_default"] == 3 or "priority_default" not in created["config"]
+    for response in (
+        await client.get("/api/notifications/channels"),
+        await client.get(f"/api/notifications/channels/{created['id']}"),
+    ):
+        assert NTFY_TOPIC not in response.text
+        assert "tk_secret_1" not in response.text
+    # A public self-hosted server: no daily cap, text always sent.
+    assert created["limits"]["per_day"] is None
+    assert created["include_message_text"] == "always"
+
+
+async def test_ntfy_sh_defaults_to_a_daily_limit_and_public_only(test_db, client):
+    created = await create(
+        client, {"type": "ntfy", "name": "Hosted", "config": {"topic": NTFY_TOPIC}}
+    )
+    assert created["limits"]["per_day"] == 200
+    assert created["include_message_text"] == "public_only"
+
+
+@pytest.mark.parametrize(
+    ("payload", "code"),
+    [
+        (
+            ntfy(config={"server": "http://192.168.1.20", "topic": NTFY_TOPIC}),
+            "egress_private_address",
+        ),
+        (ntfy(config={"server": "https://ntfy.example.org"}), "config_required"),
+        (ntfy(verify_tls=False), "verify_tls_requires_private_destination"),
+    ],
+)
+async def test_ntfy_create_refusals(test_db, client, payload, code):
+    response = await client.post("/api/notifications/channels", json=payload)
+    assert response.status_code == 400
+    assert code_of(response) == code
+    assert NTFY_TOPIC not in response.text
+
+
+async def test_ntfy_lan_server_with_the_flag_may_turn_tls_checks_off(test_db, client):
+    created = await create(
+        client,
+        ntfy(
+            config={"server": "https://192.168.1.20", "topic": NTFY_TOPIC},
+            allow_private_network=True,
+            verify_tls=False,
+        ),
+    )
+    assert created["verify_tls"] is False
+
+
+async def test_ntfy_invalid_topic_error_does_not_echo_it(test_db, client):
+    response = await client.post(
+        "/api/notifications/channels",
+        json=ntfy(config={"server": "https://ntfy.example.org", "topic": "bad topic/with secret"}),
+    )
+    assert response.status_code in (400, 422)
+    assert "with secret" not in response.text
+
+
+async def test_ntfy_credentials_do_not_follow_a_new_server(test_db, client):
+    created = await create(client, ntfy())
+    response = await client.patch(
+        f"/api/notifications/channels/{created['id']}",
+        json={"config": {"server": "https://other.example.org"}},
     )
     assert response.status_code == 400
     assert code_of(response) == "secret_required"
