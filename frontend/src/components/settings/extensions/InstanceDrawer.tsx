@@ -14,10 +14,11 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../ui/sheet';
 import { toast } from '../../ui/sonner';
 import { InstanceBadges } from './InstanceBadges';
+import { LocalPluginEditor } from './LocalPluginEditor';
+import { focusConfigForm, PluginConfigForm } from './PluginConfigForm';
 import { ConsentWarnings, PermissionList } from './PermissionList';
 import { buildScope, parseScope, ScopeEditor } from './ScopeEditor';
 import {
-  attentionFields,
   attentionType,
   declaredPermissions,
   displayName,
@@ -84,60 +85,6 @@ function LogsPanel({ instanceId }: { instanceId: string }) {
       {truncated && (
         <p className="text-xs text-muted-foreground">{t('settings.extensions.logs.truncated')}</p>
       )}
-    </div>
-  );
-}
-
-/**
- * The saved config, read-only. Secret fields only say whether a value is set: the API
- * returns `********` for them and the page never shows more. The editable, schema-driven
- * form is MSHL-187.
- */
-function ConfigReadOnly({ instance }: { instance: PluginInstance }) {
-  const { t } = useTranslation();
-  const properties = (instance.config_schema.properties ?? {}) as Record<
-    string,
-    { title?: unknown }
-  >;
-  const names = Object.keys(properties);
-  const missing = attentionFields(instance);
-  if (names.length === 0) {
-    return <p className="text-sm text-muted-foreground">{t('settings.extensions.config.none')}</p>;
-  }
-  return (
-    <div className="space-y-2">
-      <dl className="space-y-1 text-sm">
-        {names.map((name) => {
-          const secret = instance.secret_fields.includes(name);
-          const value = instance.config[name];
-          const unset = value === undefined || value === null || value === '';
-          const title = typeof properties[name]?.title === 'string' ? properties[name].title : name;
-          return (
-            <div key={name} className="flex flex-wrap justify-between gap-x-3">
-              <dt className="text-muted-foreground">{String(title)}</dt>
-              <dd className="min-w-0 break-words">
-                {secret
-                  ? t(
-                      unset
-                        ? 'settings.extensions.config.secretUnset'
-                        : 'settings.extensions.config.secretSet'
-                    )
-                  : unset
-                    ? t('settings.extensions.config.unset')
-                    : Array.isArray(value)
-                      ? value.map(String).join(', ')
-                      : String(value)}
-                {missing.includes(name) && (
-                  <span className="ml-1 text-warning">
-                    {t('settings.extensions.config.required')}
-                  </span>
-                )}
-              </dd>
-            </div>
-          );
-        })}
-      </dl>
-      <p className="text-xs text-muted-foreground">{t('settings.extensions.config.placeholder')}</p>
     </div>
   );
 }
@@ -347,6 +294,15 @@ function DrawerBody({
                 defaultValue: t('settings.extensions.attention.other.text'),
               })}
             </p>
+            {reason === 'config_required' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => focusConfigForm(instance.instance_id)}
+              >
+                {t('settings.extensions.config.goTo')}
+              </Button>
+            )}
             {reason !== 'config_required' && !frozen && (
               <ConsentWarnings permissions={declared} manifest={instance.manifest} />
             )}
@@ -359,24 +315,26 @@ function DrawerBody({
         )}
       </Group>
 
-      <Group title={t('settings.extensions.drawer.permissionsTitle')}>
-        <p className="text-xs text-muted-foreground">
-          {t('settings.extensions.drawer.permissionsHint')}
-        </p>
-        <PermissionList
-          declared={declared}
-          granted={granted}
-          disabled={readOnly || frozen}
-          onToggle={(name, on) =>
-            setGranted((prev) => {
-              const next = { ...prev };
-              if (on) next[name] = declared[name] ?? {};
-              else delete next[name];
-              return next;
-            })
-          }
-        />
-      </Group>
+      {instance.kind !== 'local' && (
+        <Group title={t('settings.extensions.drawer.permissionsTitle')}>
+          <p className="text-xs text-muted-foreground">
+            {t('settings.extensions.drawer.permissionsHint')}
+          </p>
+          <PermissionList
+            declared={declared}
+            granted={granted}
+            disabled={readOnly || frozen}
+            onToggle={(name, on) =>
+              setGranted((prev) => {
+                const next = { ...prev };
+                if (on) next[name] = declared[name] ?? {};
+                else delete next[name];
+                return next;
+              })
+            }
+          />
+        </Group>
+      )}
 
       <Group title={t('settings.extensions.drawer.scopeTitle')}>
         <ScopeEditor scope={scope} onChange={setScope} disabled={readOnly || frozen} />
@@ -430,8 +388,14 @@ function DrawerBody({
         </Button>
       )}
 
+      {instance.kind === 'local' && (
+        <Group title={t('settings.extensions.local.title')}>
+          <LocalPluginEditor instance={instance} locked={locked || frozen} onChanged={onChanged} />
+        </Group>
+      )}
+
       <Group title={t('settings.extensions.config.title')}>
-        <ConfigReadOnly instance={instance} />
+        <PluginConfigForm instance={instance} locked={locked || frozen} onChanged={onChanged} />
       </Group>
 
       <Group title={t('settings.extensions.logs.title')}>

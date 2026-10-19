@@ -1,0 +1,110 @@
+{
+  "schemaForm": {
+    "required": "(obligatoire)",
+    "secretSet": "Une valeur est définie",
+    "replace": "Remplacer",
+    "clear": "Effacer",
+    "replaceFor": "Remplacer {{name}}",
+    "clearFor": "Effacer {{name}}",
+    "cancel": "Annuler",
+    "undo": "Annuler",
+    "willClear": "La valeur sera supprimée à l’enregistrement.",
+    "keepHint": "Laissez vide pour garder la valeur actuelle.",
+    "none": "Aucun",
+    "onePerLine": "Un par ligne",
+    "unsupported": "Le champ « {{name}} » ne peut pas être affiché : son schéma utilise « {{keyword}} », que ce formulaire ne gère pas.",
+    "rootUnsupported": "Ce formulaire ne peut pas être affiché : son schéma utilise « {{keyword}} », qui n’est pas géré."
+  },
+  "settings": {
+    "extensions": {
+      "config": {
+        "save": "Enregistrer les réglages",
+        "saved": "Réglages enregistrés.",
+        "goTo": "Aller aux réglages",
+        "issue": {
+          "config_value_invalid": "Cette valeur n’est pas acceptée.",
+          "config_field_unknown": "Ce champ est inconnu de l’extension.",
+          "config_value_missing": "Ce champ est obligatoire."
+        }
+      },
+      "local": {
+        "newButton": "Nouvelle extension locale",
+        "title": "Code et essais",
+        "line": "ligne {{line}}",
+        "create": {
+          "title": "Nouvelle extension locale",
+          "text": "Une extension locale est un petit programme Python conservé dans Meshloom. Elle démarre éteinte, avec seulement les permissions que vous lui donnez.",
+          "label": "Nom",
+          "template": "Code de départ",
+          "templateEcho": "Écho : répond « Plong! » à « !pling »",
+          "templateBlank": "Vide",
+          "confirm": "Créer"
+        },
+        "hooks": {
+          "title": "Événements écoutés",
+          "message": "Messages",
+          "raw_packet": "Paquets radio",
+          "contact": "Contacts",
+          "telemetry": "Télémétrie",
+          "health": "Santé",
+          "timer": "Minuteur"
+        },
+        "codeTitle": "Code",
+        "editorAria": "Code de l’extension",
+        "saveCode": "Enregistrer le code",
+        "unsaved": "Modifications non enregistrées",
+        "codeSaved": "Code enregistré.",
+        "syntaxError": "Le code n’est pas du Python valide (ligne {{line}}).",
+        "scanTitle": "À vérifier",
+        "hostsFound": "Le code mentionne ces serveurs. Il ne peut joindre que les serveurs que vous autorisez.",
+        "allowHost": "Autoriser {{host}}",
+        "permissionsTitle": "Événements et permissions",
+        "savePermissions": "Enregistrer les permissions et événements",
+        "permissionsSaved": "Permissions enregistrées.",
+        "hostsLabel": "Serveurs qu’elle peut joindre",
+        "hostsPlaceholder": "Un serveur par ligne, par exemple api.example.com",
+        "checkTitle": "Vérification",
+        "checkHint": "Lit le manifeste et analyse le code. Rien n’est exécuté.",
+        "check": "Vérifier",
+        "saveFirst": "Enregistrez d’abord le code.",
+        "checkOk": "Aucune erreur trouvée.",
+        "checkFailed": "La vérification a trouvé des erreurs.",
+        "testTitle": "Tester avec un message",
+        "testHint": "Envoie un faux message à l’extension en cours d’exécution et montre sa réponse.",
+        "testNoHook": "Cette extension n’écoute pas les messages.",
+        "testNeedsOn": "Activez l’extension pour la tester.",
+        "testText": "Texte du message",
+        "testTarget": "Faire comme s’il venait de",
+        "targetDefault": "Un canal de test",
+        "targetChannel": "Un de mes canaux",
+        "targetContact": "Un contact",
+        "pickChannel": "Choisir un canal",
+        "contactPlaceholder": "Clé publique du contact",
+        "nothingSent": "Rien n’a été envoyé à la radio : les réponses ci-dessous ont été interceptées.",
+        "echoTitle": "Ce que l’extension a répondu",
+        "noReply": "Elle n’a pas répondu.",
+        "truncated": "Certaines réponses ont été coupées.",
+        "testLog": "Journal",
+        "reason": {
+          "threading": "Les threads sont interdits ({{detail}}).",
+          "import_not_allowed": "Module non autorisé : {{detail}}.",
+          "global_statement": "« global » ({{detail}}) : la valeur est perdue au redémarrage de l’extension.",
+          "module_state": "L’état au niveau du module est perdu au redémarrage de l’extension.",
+          "print_call": "« print » écrit dans le journal.",
+          "process_call": "Lancer un processus est refusé ({{detail}}).",
+          "long_literal": "Un texte plus long qu’un message.",
+          "eval_call": "« eval » est refusé.",
+          "exec_call": "« exec » est refusé.",
+          "open_call": "Ouvrir des fichiers est refusé.",
+          "compile_call": "« compile » est refusé.",
+          "import_call": "Les imports dynamiques sont refusés.",
+          "syntax_error": "Le code n’est pas du Python valide.",
+          "source_too_large": "Le code dépasse 1 Mio.",
+          "too_complex": "Le code est trop complexe à analyser.",
+          "manifest_invalid": "Le manifeste est invalide."
+        },
+        "test": "Lancer le test"
+      }
+    }
+  }
+}

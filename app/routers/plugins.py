@@ -182,6 +182,9 @@ class PatchRequest(_Body):
     quotas: dict[str, Any] | None = None
     auto_update: bool | None = None
     sort_order: int | None = Field(default=None, ge=0, le=100_000)
+    hooks: (
+        list[Literal["message", "raw_packet", "contact", "telemetry", "health", "timer"]] | None
+    ) = Field(default=None, max_length=6, description="A local plugin's subscriptions.")
 
 
 class SourceRequest(_Body):
@@ -191,6 +194,9 @@ class SourceRequest(_Body):
 class SourceResult(BaseModel):
     instance: PluginInstanceView
     scan: list[dict[str, Any]]
+    http_hosts: list[str] = Field(
+        default_factory=list, description="``https://`` hosts found in the code (to accept)."
+    )
 
 
 class TestRequest(_Body):
@@ -221,6 +227,10 @@ class CheckResult(BaseModel):
     ok: bool
     errors: list[CheckFinding]
     warnings: list[CheckFinding]
+    http_hosts: list[str] = Field(
+        default_factory=list,
+        description="A local plugin: ``https://`` hosts found in the code, to accept.",
+    )
 
 
 class LogsResult(BaseModel):
@@ -651,6 +661,20 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
             )
         else:
             changes["granted_permissions"] = body.granted_permissions
+    if "hooks" in fields and body.hooks is not None:
+        if row["kind"] != "local":
+            raise _error(409, "not_local", "Only a local plugin has editable hooks")
+        draft = {
+            **(changes.get("manifest") or row["manifest"]),
+            "hooks": list(dict.fromkeys(body.hooks)),
+        }
+        try:
+            parse_manifest(draft, origin="local")
+        except PluginValidationError as exc:
+            raise _error(
+                400, "manifest_invalid", "The hooks are invalid", issues=_issues(exc.issues)
+            ) from None
+        changes["manifest"] = draft
     if "scope" in fields and body.scope is not None:
         if not _check_scope(body.scope):
             raise _error(400, "scope_invalid", "The scope is not valid")
@@ -694,7 +718,7 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
     if updated is None:
         raise _error(404, "plugin_not_found", "No such plugin instance")
     restart = enabling or bool(
-        set(changes) & {"config", "scope", "granted_permissions", "quotas", "label"}
+        set(changes) & {"config", "scope", "granted_permissions", "quotas", "label", "manifest"}
     )
     if updated["enabled"] != row["enabled"] or (restart and updated["enabled"]):
         try:
@@ -734,7 +758,9 @@ async def put_source(instance_id: str, body: SourceRequest) -> SourceResult:
         {"code": r.code, "line": r.line, "detail": r.detail, "informative": r.informative}
         for r in report.reasons
     ]
-    return SourceResult(instance=await _view(await _row(instance_id), True), scan=scan)
+    return SourceResult(
+        instance=await _view(await _row(instance_id), True), scan=scan, http_hosts=report.http_hosts
+    )
 
 
 # --- actions ---------------------------------------------------------------------
@@ -761,6 +787,7 @@ async def check_plugin(instance_id: str) -> CheckResult:
     from meshloom_plugin.dev import CheckReport, Finding, check_directory
 
     row = await _row(instance_id)
+    http_hosts: list[str] = []
     if row["kind"] == "local":
         report = CheckReport()
         try:
@@ -768,7 +795,9 @@ async def check_plugin(instance_id: str) -> CheckResult:
         except PluginValidationError as exc:
             for issue in exc.issues:
                 report.errors.append(Finding("package", issue.code, issue.message, issue.path))
-        for reason in scan_source(row["source"] or "").reasons:
+        scanned = scan_source(row["source"] or "")
+        http_hosts = list(scanned.http_hosts)
+        for reason in scanned.reasons:
             text = reason.code if reason.detail is None else f"{reason.code}: {reason.detail}"
             report.warnings.append(
                 Finding(
@@ -788,6 +817,7 @@ async def check_plugin(instance_id: str) -> CheckResult:
         ok=body["ok"],
         errors=[CheckFinding(**f) for f in body["errors"]],
         warnings=[CheckFinding(**f) for f in body["warnings"]],
+        http_hosts=http_hosts,
     )
 
 

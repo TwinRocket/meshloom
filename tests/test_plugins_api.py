@@ -576,6 +576,76 @@ async def test_put_source_scan_reports_review_reasons(api, manager):
     assert {"import_not_allowed", "print_call"} <= codes
 
 
+async def test_put_source_and_check_return_the_https_hosts_to_accept(api, manager):
+    created = (await api.post("/api/plugins", json={"label": "Hosts"})).json()
+    source = "URL = 'https://api.example.com/v1'\n"
+    saved = await api.put(f"/api/plugins/{created['instance_id']}/source", json={"source": source})
+    assert saved.json()["http_hosts"] == ["api.example.com"]
+    checked = await api.post(f"/api/plugins/{created['instance_id']}/check")
+    assert checked.json()["http_hosts"] == ["api.example.com"]
+
+
+async def test_patch_hooks_rewrites_a_local_manifest_only(api, manager):
+    local = (await api.post("/api/plugins", json={"label": "Hooks"})).json()
+    url = f"/api/plugins/{local['instance_id']}"
+    changed = await api.patch(url, json={"hooks": ["message", "health", "message"]})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["manifest"]["hooks"] == ["message", "health"]
+    unknown = await api.patch(url, json={"hooks": ["nope"]})
+    assert unknown.status_code == 422
+    bundled = await install(api, manager)
+    refused = await api.patch(f"/api/plugins/{bundled['instance_id']}", json={"hooks": ["message"]})
+    assert refused.status_code == 409 and code_of(refused) == "not_local"
+
+
+async def test_patch_hooks_and_permissions_in_one_request(api, manager):
+    local = (await api.post("/api/plugins", json={"label": "Both"})).json()
+    url = f"/api/plugins/{local['instance_id']}"
+    both = await api.patch(
+        url, json={"hooks": ["message", "health"], "granted_permissions": {"storage": {}}}
+    )
+    assert both.status_code == 200, both.text
+    manifest = both.json()["manifest"]
+    assert manifest["hooks"] == ["message", "health"]
+    assert "storage" in manifest["permissions"]
+    # A refused permission leaves the hooks untouched (one transaction).
+    refused = await api.patch(url, json={"hooks": ["contact"], "granted_permissions": {"nope": {}}})
+    assert refused.status_code == 400
+    again = (await api.get("/api/plugins")).json()
+    row = next(p for p in again if p["instance_id"] == local["instance_id"])
+    assert row["manifest"]["hooks"] == ["message", "health"]
+
+
+async def test_patch_hooks_restarts_an_enabled_local_plugin(api, manager):
+    local = (await api.post("/api/plugins", json={"label": "Run"})).json()
+    iid = local["instance_id"]
+    started = await api.patch(f"/api/plugins/{iid}", json={"enabled": True})
+    assert started.status_code == 200, started.text
+    first = manager.get(iid)
+    assert first is not None
+    await wait_until(lambda: first.status == "running", what="running")
+    pid = first.pid
+    changed = await api.patch(f"/api/plugins/{iid}", json={"hooks": ["message", "health"]})
+    assert changed.status_code == 200, changed.text
+    second = manager.get(iid)
+    assert second is not None
+    await wait_until(lambda: second.status == "running", what="running again")
+    assert second.pid != pid
+
+
+async def test_patch_hooks_cannot_enable_a_frozen_local_plugin(api, manager):
+    from app.repository.plugins import PluginRepository
+
+    local = (await api.post("/api/plugins", json={"label": "Frozen"})).json()
+    iid = local["instance_id"]
+    await PluginRepository.update(iid, status="revoked")
+    hooks = await api.patch(f"/api/plugins/{iid}", json={"hooks": ["message", "health"]})
+    assert hooks.status_code == 200
+    assert hooks.json()["status"] == "revoked"
+    enable = await api.patch(f"/api/plugins/{iid}", json={"enabled": True})
+    assert enable.status_code == 409 and code_of(enable) == "plugin_revoked"
+
+
 async def test_put_source_is_local_only_and_bounded(api, manager):
     bundled = await install(api, manager)
     response = await api.put(f"/api/plugins/{bundled['instance_id']}/source", json={"source": ""})
