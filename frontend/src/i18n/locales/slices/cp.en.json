@@ -16,7 +16,6 @@
       "channelsLoadFailed": "Could not load the notification channels.",
       "channelsNone": "No notification channel is enabled.",
       "channelsGroup": "Channels for telemetry alerts",
-      "channelChip": "{{channel}}: {{state}}",
       "channelOn": "on",
       "channelOff": "off",
       "channelsSaveFailed": "Could not save the alert channels"

@@ -5,7 +5,7 @@ import type { NotificationChannelStatus } from '../types';
 const NotificationStatusContext = createContext<Record<string, NotificationChannelStatus>>({});
 
 /**
- * `health.notification_statuses` (admin only, kept live by the `health` WebSocket event),
+ * `health.notification_statuses` (shown to administrators only, in the bell; kept live by the `health` WebSocket event),
  * for the status dots of the conversation bell.
  */
 export function NotificationStatusProvider({

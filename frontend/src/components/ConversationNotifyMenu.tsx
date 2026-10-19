@@ -55,7 +55,7 @@ export function ConversationNotifyMenu({ target, onOpenSettings }: ConversationN
       <button
         className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded p-2 transition-colors hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => {
-          if (!open) void load();
+          if (!open) void load(true);
           setOpen((value) => !value);
         }}
         title={t('chatHeader.notifications')}

@@ -16,7 +16,6 @@
       "channelsLoadFailed": "Impossible de charger les canaux de notification.",
       "channelsNone": "Aucun canal de notification n'est activé.",
       "channelsGroup": "Canaux des alertes de télémétrie",
-      "channelChip": "{{channel}} : {{state}}",
       "channelOn": "activé",
       "channelOff": "désactivé",
       "channelsSaveFailed": "Impossible d'enregistrer les canaux des alertes"

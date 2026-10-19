@@ -53,7 +53,7 @@ En haut des règles dans **Réglages → Notifications**, **Ne pas déranger** s
 | Publicités compagnon | Un compagnon est vu pour la première fois |
 | Publicités capteur | Un capteur est vu pour la première fois |
 | Canaux trouvés | Meshloom trouve un nouveau canal hashtag |
-| Alertes télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils se règlent sur la page **Alertes** |
+| Alertes télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils et les canaux qui les reçoivent (un bouton par canal) se règlent sur la page **Alertes** |
 | Mises à jour Meshloom | Une nouvelle version de Meshloom est disponible |
 | Radio hors ligne | La radio est injoignable depuis plus longtemps que le délai réglé sous le tableau (60 s par défaut). Envoyé comme urgent (le sujet de l’e-mail commence par `[URGENT]`), une fois par panne |
 | Radio de nouveau en ligne | La radio est de nouveau joignable après une notification **Radio hors ligne**, avec la durée de la panne |
@@ -86,7 +86,7 @@ Les messages d’un contact ou d’un nom bloqué, et ceux d’un salon en sourd
 
 ### La cloche, pour une conversation
 
-Dans l’en-tête d’une conversation, la cloche (réservée aux administrateurs ; les autres rôles n’en ont pas) ouvre un menu avec une case par canal de notification activé, avec l’icône de son type, son nom et un point d’état (connecté, erreur, en pause, déconnecté). Une case montre si le canal notifie cette conversation, et le mot gris à côté dit pourquoi : *par défaut* (les lignes du tableau décident), *activé ici* ou *coupé ici* (une **exception** faite pour cette conversation seulement). Cocher une case que le défaut laisse déjà cochée, ou décocher une case que le défaut laisse vide, fait suivre à nouveau le défaut à la conversation et supprime l’exception. Si votre navigateur n’est pas encore abonné, activer **Web Push** l’abonne d’abord. La cloche est pleine tant qu’au moins un canal notifie la conversation.
+Dans l’en-tête d’une conversation, la cloche (réservée aux administrateurs ; les autres rôles n’en ont pas) ouvre un menu avec une case par canal de notification activé, avec l’icône de son type, son nom et un point d’état (connecté, erreur, en pause, déconnecté). Une case montre si le canal notifie cette conversation, et le mot gris à côté dit pourquoi : *par défaut* (les lignes du tableau décident), *activé ici* ou *coupé ici* (une **exception** faite pour cette conversation seulement). Cocher une case que le défaut laisse déjà cochée, ou décocher une case que le défaut laisse vide, fait suivre à nouveau le défaut à la conversation et supprime l’exception. Si votre navigateur n’est pas encore abonné, activer **Web Push** l’abonne d’abord. La cloche est pleine tant qu’au moins un canal notifie la conversation. Elle montre la configuration : un salon en sourdine ou un Ne pas déranger actif laisse les cases cochées tout en retenant les notifications.
 
 Le même menu contient le raccourci **Ne pas déranger** (1 heure, 8 heures, jusqu’à demain 8:00, **Reprendre maintenant** : la même pause générale que dans les réglages) et un lien **Configurer les canaux de notification**. Dans la liste des conversations, le même menu est sous les trois points d’une ligne, **Notifications**.
 

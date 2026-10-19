@@ -695,7 +695,7 @@ The conversation bell (`ConversationNotifyMenu`, in `ChatHeader`, administrators
 API is admin-only, so the kiosk, viewer and member roles get none) and the "Notifications"
 panel of a list row's three-dots menu (`ConversationOverflowMenu`) share
 `ConversationNotifyPanel` (state in `hooks/useConversationNotifications.ts`: it loads
-`/api/notifications/channels` + `/rules` when the bell mounts and when it opens, writes
+`/api/notifications/channels` + `/rules` once into a module cache shared by every bell (a header remount does not refetch), refetched when a bell opens and on the `notification_channel_changed` WS event, replaced by the answer of each write; writes
 `PUT /rules/conversations/{key}` and `PATCH /rules` `paused_until`). One checkbox per
 **enabled** channel (type icon, name, status dot from `health.notification_statuses` through
 `NotificationStatusContext`, fed by `App.tsx`); the box is the policy result, the caption says

@@ -44,7 +44,7 @@ export function channelOn(
   });
 }
 
-/** The panel with its own state: loads when mounted, so mount it when the menu opens. */
+/** The panel on the shared cache: refreshes when mounted, so mount it when the menu opens. */
 export function ConversationNotifyPanel(props: {
   target: ConversationNotifyTarget;
   idPrefix: string;
@@ -53,7 +53,7 @@ export function ConversationNotifyPanel(props: {
   const state = useConversationNotifications();
   const { load } = state;
   useEffect(() => {
-    void load();
+    void load(true);
   }, [load]);
   return <ConversationNotifyPanelView {...props} state={state} />;
 }

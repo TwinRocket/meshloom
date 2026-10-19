@@ -6,6 +6,10 @@ import { capabilitiesFor } from '../auth/capabilities';
 import { ChatHeader } from '../components/ChatHeader';
 import { ConversationNotifyMenu } from '../components/ConversationNotifyMenu';
 import { ConversationOverflowMenu } from '../components/ConversationOverflowMenu';
+import {
+  invalidateConversationNotifications,
+  resetConversationNotifications,
+} from '../hooks/useConversationNotifications';
 import { NotificationStatusProvider } from '../contexts/NotificationStatusContext';
 import i18n from '../i18n';
 import type { NotificationChannel, NotificationRules } from '../notifications/types';
@@ -82,6 +86,7 @@ async function openBell() {
 
 describe('conversation bell', () => {
   beforeEach(() => {
+    resetConversationNotifications();
     mocks.capabilities = null;
     mocks.push.isSupported = false;
     mocks.push.isSubscribed = false;
@@ -302,6 +307,7 @@ describe('conversation bell', () => {
 });
 
 describe('conversation bell access', () => {
+  beforeEach(() => resetConversationNotifications());
   const baseProps = {
     contacts: [],
     channels: [],
@@ -345,5 +351,88 @@ describe('conversation bell access', () => {
     expect(
       screen.getByRole('button', { name: i18n.t('chatHeader.notifications') })
     ).toBeInTheDocument();
+  });
+});
+
+describe('conversation notifications cache', () => {
+  beforeEach(() => {
+    resetConversationNotifications();
+    mocks.capabilities = null;
+    vi.spyOn(api, 'getNotificationChannels').mockResolvedValue([PUSH, NTFY]);
+    vi.spyOn(api, 'getNotificationRules').mockResolvedValue(rules());
+  });
+
+  afterEach(() => {
+    resetConversationNotifications();
+    vi.restoreAllMocks();
+  });
+
+  it('fetches once for several bells and remounts', async () => {
+    const first = render(<ConversationNotifyMenu target={contactTarget} />);
+    const second = render(<ConversationNotifyMenu target={contactTarget} />);
+    await waitFor(() => {
+      expect(
+        within(first.container).getByRole('button', { name: i18n.t('chatHeader.notifications') })
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+    first.unmount();
+    second.unmount();
+    render(<ConversationNotifyMenu target={contactTarget} />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: i18n.t('chatHeader.notifications') })
+      ).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(api.getNotificationChannels).toHaveBeenCalledTimes(1);
+    expect(api.getNotificationRules).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches when the bell opens', async () => {
+    render(<ConversationNotifyMenu target={contactTarget} />);
+    await waitFor(() => expect(api.getNotificationRules).toHaveBeenCalledTimes(1));
+    await openBell();
+    await waitFor(() => expect(api.getNotificationRules).toHaveBeenCalledTimes(2));
+  });
+
+  it('refetches on notification_channel_changed and updates a mounted bell', async () => {
+    render(<ConversationNotifyMenu target={contactTarget} />);
+    await openBell();
+    await screen.findByRole('checkbox', { name: /Browser push/ });
+    expect(screen.queryByRole('checkbox', { name: /My ntfy/ })).toBeInTheDocument();
+    const calls = vi.mocked(api.getNotificationChannels).mock.calls.length;
+
+    vi.mocked(api.getNotificationChannels).mockResolvedValue([PUSH]);
+    invalidateConversationNotifications();
+
+    await waitFor(() => {
+      expect(screen.queryByRole('checkbox', { name: /My ntfy/ })).not.toBeInTheDocument();
+    });
+    expect(api.getNotificationChannels).toHaveBeenCalledTimes(calls + 1);
+  });
+
+  it('does not fetch on a change when no bell has loaded', () => {
+    invalidateConversationNotifications();
+    expect(api.getNotificationChannels).not.toHaveBeenCalled();
+  });
+
+  it('keeps the answer of a write in the cache, shown before the refresh on open', async () => {
+    vi.spyOn(api, 'setNotificationConversationRule').mockResolvedValue(
+      rules({ conversations: { [CONTACT_KEY]: { ntfy: true } } })
+    );
+    const first = render(<ConversationNotifyMenu target={contactTarget} />);
+    await openBell();
+    fireEvent.click(await screen.findByRole('checkbox', { name: /My ntfy/ }));
+    await waitFor(() => expect(screen.getByRole('checkbox', { name: /My ntfy/ })).toBeChecked());
+    first.unmount();
+
+    const fetches = vi.mocked(api.getNotificationRules).mock.calls.length;
+    vi.mocked(api.getNotificationRules).mockReturnValue(new Promise(() => {}));
+
+    render(<ConversationNotifyMenu target={contactTarget} />);
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('chatHeader.notifications') }));
+    // Served from the cache before the refresh on open answers.
+    expect(await screen.findByRole('checkbox', { name: /My ntfy/ })).toBeChecked();
+    expect(api.getNotificationRules).toHaveBeenCalledTimes(fetches + 1);
   });
 });
