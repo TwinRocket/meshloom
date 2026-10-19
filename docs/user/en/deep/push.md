@@ -21,7 +21,7 @@ The same rules can also send an **e-mail**, call a **webhook** or notify through
 
 Meshloom signs each notification with a key pair created on first start. The signature also carries a contact address, called the VAPID subject.
 
-Set it in **Settings → Notifications**, in the **VAPID subject** field. It must be `mailto:you@domain.tld` (recommended) or `https://your-host` with no path. When the field is empty, Meshloom uses `mailto:noreply@meshcore.local`.
+Set it in **Settings → Notifications → Channels**, in the **VAPID subject** field of the Web Push card (**Devices and Web Push settings**). It must be `mailto:you@domain.tld` (recommended) or `https://your-host` with no path. When the field is empty, Meshloom uses `mailto:noreply@meshcore.local`.
 
 **Apple requires a real address.** APNs rejects a subject that is not a genuine contact and the `.local` default, answering `403 BadJwtToken`. Set a real address in that field.
 
@@ -31,7 +31,7 @@ See [Apple's documentation](https://developer.apple.com/documentation/usernotifi
 
 ## Subscribing a browser
 
-In **Settings → Notifications**, choose **Subscribe This Browser**. The list of registered devices then shows each browser, with a **Test** button and a way to unsubscribe.
+In **Settings → Notifications → Channels**, open **Devices and Web Push settings** on the Web Push card and choose **Subscribe This Browser**. The list of registered devices then shows each browser, with a **Test** button and a way to unsubscribe.
 
 A browser's subscription only decides whether that browser receives notifications. The rules are shared: if you switch on a conversation from your phone, it is on for every subscribed browser.
 
@@ -84,9 +84,17 @@ Exceptions are listed in **Settings → Notifications → Conversation exception
 
 On a channel, the mute button silences everything for a time you choose (15 minutes up to 24 hours, or indefinitely). It also hides the unread counter. It overrides defaults and exceptions, and it is not the same control as the bell.
 
+### Channels
+
+**Settings → Notifications → Channels** (administrators) lists every place Meshloom sends notifications to as a card: its type, a status dot (working, error, paused, off), the last error, an on/off switch, **Test**, **Edit** and **Delete**. The **Web Push** card is always there and cannot be deleted; open **Devices and Web Push settings** on it for this browser's subscription, the other devices, the VAPID subject and the private-endpoint switch. Over plain HTTP the card says Web Push is unavailable.
+
+**Add a channel** opens a dialog in three steps. First pick a type or a preset (Email, Webhook, Apprise, and the services added to the list). Then fill its form, which the server describes itself: required fields are starred, the server's validation errors appear under the field, and a secret (a password, a token, a webhook address) is never shown, not even after saving: the form says a value is set and offers **Replace** and **Clear** (leaving it alone keeps it). A third-party service (a "cloud" one) shows a privacy note and lets you choose whether the message text is included (public channels only by default). **Send a test and continue** sends a test before anything is saved; if it fails, the error is explained and you can fix the form, or continue without a successful test. Last, **What to receive here?** pre-fills the events: **Like Push** (the events Web Push receives, the default), **Alerts only** (radio offline or back, telemetry alerts, mentions, channel changes) or **Everything**. Change it later in the table below.
+
+The `legacy:email`, `legacy:webhook` and `legacy:apprise` channels (your 4.18.x destinations) still follow the older setting until Meshloom delivers from the new rules: changing their address or deleting them answers that the 4.18.x setting still decides.
+
 ### E-mail and webhook destinations
 
-In **Settings → Notifications → Delivery destinations**, enter an SMTP server (host, port, encryption, user, password, sender and recipient) and/or a webhook address with an optional HMAC secret. Secrets are not shown again after saving. Leave a secret field empty to keep it. The webhook address is a secret too, since it often holds a token: once saved, its field shows only the scheme and host; type a new address to replace it, or press **Clear** to remove it with its HMAC secret. The JSON backup download leaves them out (see [Security](/en/docs/deep/security/#integration-and-notification-secrets)). Each destination has a test button. This webhook is for Meshloom notifications. It is not the message webhook of fanout.
+In **Settings → Notifications → Channels**, choose **Add a channel** and enter an SMTP server (host, port, encryption, user, password, sender and recipient) and/or a webhook address with an optional HMAC secret. Secrets are not shown again after saving. Leave a secret field empty to keep it. The webhook address is a secret too, since it often holds a token: once saved, its field shows only the scheme and host; type a new address to replace it, or press **Clear** to remove it with its HMAC secret. The JSON backup download leaves them out (see [Security](/en/docs/deep/security/#integration-and-notification-secrets)). Each destination has a test button. This webhook is for Meshloom notifications. It is not the message webhook of fanout.
 
 Meshloom refuses a webhook on a private network (your LAN, this machine, `localhost`, carrier-grade NAT, link-local addresses) unless you tick **Allow a destination on a private network (LAN, localhost)** under the address: Home Assistant, Node-RED or a script on your network need it. The check runs when you save the address and again before each send, and Meshloom then connects only to the address it checked, so a DNS answer that changes in between cannot redirect the call. Cloud metadata addresses (`169.254.169.254` and its equivalents) are always refused. If the host name cannot be found, type the IP address instead. A webhook saved before this check existed keeps working: the box starts ticked for it, and a one-time notice says so.
 
@@ -98,7 +106,7 @@ The e-mail is HTML, with a plain-text copy. The Meshloom logo travels inside the
 
 ### Apprise destination
 
-The **Apprise** destination, in the same place, takes one [Apprise URL](https://appriseit.com/getting-started/universal-syntax/) per line. A few examples:
+The **Apprise** channel, added the same way, takes one [Apprise URL](https://appriseit.com/getting-started/universal-syntax/) per line. A few examples:
 
 | Service | URL |
 |---------|-----|

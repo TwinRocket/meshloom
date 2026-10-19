@@ -1,0 +1,132 @@
+{
+  "notifications": {
+    "channels": {
+      "fields": {
+        "host": "SMTP server",
+        "port": "Port",
+        "mode": "Encryption",
+        "user": "User name",
+        "password": "Password",
+        "from": "From address",
+        "to": "To (comma-separated)",
+        "cc": "Cc (comma-separated)",
+        "url": "Webhook URL",
+        "hmac_secret": "HMAC secret (optional)",
+        "urls": "Apprise URLs (one per line)",
+        "format": "Message format"
+      },
+      "help": {
+        "email_to": "Separate several addresses with commas.",
+        "webhook_url": "The URL receives a JSON POST. It is write-only: it is never shown again.",
+        "apprise_urls": "One Apprise URL per line, for example ntfys://ntfy.sh/my-topic. Write-only."
+      }
+    }
+  },
+  "settings": {
+    "notifications": {
+      "types": {
+        "web_push": {
+          "name": "Web Push",
+          "description": "Browser and phone notifications (needs HTTPS)."
+        },
+        "email": {
+          "name": "Email",
+          "description": "Send an email through your SMTP server.",
+          "mode": {
+            "options": {
+              "none": "None",
+              "starttls": "STARTTLS",
+              "ssl": "SSL/TLS"
+            }
+          }
+        },
+        "webhook": {
+          "name": "Webhook",
+          "description": "POST a JSON message to a URL you control."
+        },
+        "apprise": {
+          "name": "Apprise",
+          "description": "Any of the services Apprise supports, through its URLs.",
+          "format": {
+            "options": {
+              "text": "Plain text",
+              "markdown": "Markdown"
+            }
+          }
+        },
+        "ntfy": {
+          "name": "ntfy",
+          "description": "Publish to an ntfy topic (ntfy.sh or your own server)."
+        },
+        "telegram": {
+          "name": "Telegram",
+          "description": "A Telegram bot message to a chat."
+        }
+      },
+      "channels": {
+        "title": "Channels",
+        "help": "Each channel is a place Meshloom sends notifications to. Add one, test it, then choose what it receives.",
+        "empty": "No channel yet.",
+        "loading": "Loading channels…",
+        "builtinPushName": "Web Push (this server's browsers)",
+        "status": {
+          "connected": "Working",
+          "error": "Error",
+          "paused": "Paused",
+          "disconnected": "Off"
+        },
+        "lastError": "Last error: {{code}}",
+        "pushUnavailableHttp": "Unavailable over HTTP: open Meshloom over HTTPS (or localhost) to use Web Push.",
+        "enabledFor": "Enable {{name}}",
+        "devices": "Devices and Web Push settings",
+        "edit": "Edit",
+        "delete": "Delete",
+        "deleteConfirm": "Confirm delete",
+        "cancel": "Cancel",
+        "editTitle": "Edit {{name}}",
+        "editHelp": "Secrets show “A value is set”: leave them alone to keep them.",
+        "save": "Save",
+        "saved": "Channel saved.",
+        "fieldInvalid": "This value is not valid.",
+        "add": "Add a channel",
+        "addTitle": "Add a channel",
+        "step": {
+          "pick": "Step 1 of 3: choose a type.",
+          "settings": "Step 2 of 3: configure it. The test is sent before anything is saved.",
+          "receive": "Step 3 of 3: choose what it receives."
+        },
+        "testAndContinue": "Send a test and continue",
+        "testSent": "Test notification sent.",
+        "skipTest": "Continue without a successful test",
+        "back": "Back",
+        "receiveTitle": "What to receive here?",
+        "receive": {
+          "like_push": "Like Push",
+          "like_pushHelp": "The same events as Web Push, for this channel too.",
+          "alerts_only": "Alerts only",
+          "alerts_onlyHelp": "Radio offline or back, telemetry alerts, mentions and channel changes.",
+          "everything": "Everything",
+          "everythingHelp": "Every event you can configure."
+        },
+        "untested": "This configuration was not tested successfully.",
+        "created": "Channel added.",
+        "rulesFailed": "The channel was added, but its events could not be set.",
+        "toggleFailed": "Could not change {{name}}.",
+        "testFailed": "The test on {{name}} failed.",
+        "deleteFailed": "Could not delete {{name}}.",
+        "deleted": "Channel deleted.",
+        "name": "Name",
+        "language": "Language of the notifications",
+        "cloudNote": "This service is operated by a third party: what you send leaves your network. By default, messages from private conversations are not included.",
+        "includeText": "Include message text",
+        "includeTextPublicOnly": "Public channels only (default)",
+        "includeTextAlways": "Always",
+        "includeTextNever": "Never (a generic notice)",
+        "lan": "Allow a private-network destination",
+        "lanWarning": "Only tick this if the destination is yours (a server on your LAN or this machine). It lets Meshloom reach private addresses.",
+        "verifyTls": "Verify the TLS certificate",
+        "verifyTlsHelp": "Untick only for a server with a self-signed certificate you trust."
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+[      32ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ http://localhost:5173/site.webmanifest:0
+[     392ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=698f1f37:15804
+[     638ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ http://localhost:5173/site.webmanifest:0
+[   36227ms] [WARNING] WebSocket connection to 'ws://localhost:5173/api/ws' failed: WebSocket is closed before the connection is established. @ http://localhost:5173/src/useWebSocket.ts:221
+[   36296ms] [ERROR] Failed to load resource: the server responded with a status of 423 (Locked) @ http://localhost:5173/api/radio/config:0
+[   36310ms] [ERROR] Failed to load resource: the server responded with a status of 423 (Locked) @ http://localhost:5173/api/radio/config:0
+[   36323ms] [ERROR] Failed to fetch config: ApiError: Radio not connected
+    at apiErrorFrom (http://localhost:5173/src/api.ts:131:9)
+    at async fetchJson (http://localhost:5173/src/api.ts:80:17)
+    at async http://localhost:5173/src/hooks/useRadioControl.ts:33:17 @ http://localhost:5173/@vite/client:356
+[   36326ms] [ERROR] Failed to fetch config: ApiError: Radio not connected
+    at apiErrorFrom (http://localhost:5173/src/api.ts:131:9)
+    at async fetchJson (http://localhost:5173/src/api.ts:80:17)
+    at async http://localhost:5173/src/hooks/useRadioControl.ts:33:17 @ http://localhost:5173/@vite/client:356
+[  259921ms] [VERBOSE] [DOM] Password forms should have (optionally hidden) username fields for accessibility: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5173/#settings/notifications:0
+[  263162ms] [VERBOSE] [DOM] Password forms should have (optionally hidden) username fields for accessibility: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5173/#settings/notifications:0
+[  282548ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ http://localhost:5173/site.webmanifest:0
+[  282572ms] [ERROR] Failed to load resource: the server responded with a status of 423 (Locked) @ http://localhost:5173/api/radio/config:0
+[  282572ms] [ERROR] Error: Prefetch failed for ./api/radio/config: {"detail":{"code":"radio_not_connected","message":"Radio not connected"}}
+    at http://localhost:5173/:67:19 @ http://localhost:5173/@vite/client:356
+[  282592ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=698f1f37:15804
+[  282644ms] [ERROR] Manifest: Line: 1, column: 1, Syntax error. @ http://localhost:5173/site.webmanifest:0
+[  282690ms] [WARNING] WebSocket connection to 'ws://localhost:5173/api/ws' failed: WebSocket is closed before the connection is established. @ http://localhost:5173/src/useWebSocket.ts:221
+[  282732ms] [WARNING] Prefetch for "config" failed, falling back to live fetch. Error: Prefetch failed for ./api/radio/config: {"detail":{"code":"radio_not_connected","message":"Radio not connected"}}
+    at http://localhost:5173/:67:19 @ http://localhost:5173/@vite/client:356
+[  282734ms] [ERROR] Failed to load resource: the server responded with a status of 423 (Locked) @ http://localhost:5173/api/radio/config:0
+[  282756ms] [ERROR] Failed to load resource: the server responded with a status of 423 (Locked) @ http://localhost:5173/api/radio/config:0
+[  282803ms] [ERROR] Failed to fetch config: ApiError: Radio not connected
+    at apiErrorFrom (http://localhost:5173/src/api.ts:131:9)
+    at async fetchJson (http://localhost:5173/src/api.ts:80:17)
+    at async http://localhost:5173/src/hooks/useRadioControl.ts:33:17 @ http://localhost:5173/@vite/client:356
+[  282814ms] [ERROR] Failed to fetch config: ApiError: Radio not connected
+    at apiErrorFrom (http://localhost:5173/src/api.ts:131:9)
+    at async fetchJson (http://localhost:5173/src/api.ts:80:17)
+    at async http://localhost:5173/src/hooks/useRadioControl.ts:33:17 @ http://localhost:5173/@vite/client:356
+[  285529ms] [VERBOSE] [DOM] Password forms should have (optionally hidden) username fields for accessibility: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5173/#settings/notifications:0
+[  285582ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:5173/api/notifications/channels/test:0
+[  292466ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5173/@vite/client:1082
+[  293235ms] [ERROR] WebSocket connection to 'ws://localhost:5173/api/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/src/useWebSocket.ts:41
+[  293235ms] [ERROR] WebSocket error: Event @ http://localhost:5173/@vite/client:356
+[  295274ms] [ERROR] WebSocket connection to 'ws://localhost:5173/api/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/src/useWebSocket.ts:41
+[  295274ms] [ERROR] WebSocket error: Event @ http://localhost:5173/@vite/client:356
+[  299016ms] [ERROR] WebSocket connection to 'ws://localhost:5173/api/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/src/useWebSocket.ts:41
+[  299016ms] [ERROR] WebSocket error: Event @ http://localhost:5173/@vite/client:356
+[  305765ms] [ERROR] WebSocket connection to 'ws://localhost:5173/api/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/src/useWebSocket.ts:41
+[  305765ms] [ERROR] WebSocket error: Event @ http://localhost:5173/@vite/client:356
+[  321557ms] [ERROR] WebSocket connection to 'ws://localhost:5173/api/ws' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/src/useWebSocket.ts:41
+[  321557ms] [ERROR] WebSocket error: Event @ http://localhost:5173/@vite/client:356

@@ -21,7 +21,7 @@ Les mêmes règles peuvent aussi envoyer un **e-mail**, appeler un **webhook** o
 
 Meshloom signe chaque notification avec une paire de clés créée au premier démarrage. La signature porte aussi une adresse de contact, appelée sujet VAPID.
 
-Réglez-la dans **Réglages → Notifications**, champ **Sujet VAPID**. Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise `mailto:noreply@meshcore.local`.
+Réglez-la dans **Réglages → Notifications → Canaux**, champ **Sujet VAPID** de la carte Web Push (**Appareils et réglages Web Push**). Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise `mailto:noreply@meshcore.local`.
 
 **Apple exige une vraie adresse.** APNs rejette un sujet qui n’est pas un vrai contact, ainsi que le `.local` par défaut, avec `403 BadJwtToken`. Saisissez une vraie adresse dans ce champ.
 
@@ -31,7 +31,7 @@ Voir la [documentation Apple](https://developer.apple.com/documentation/usernoti
 
 ## Abonner un navigateur
 
-Dans **Réglages → Notifications**, choisissez **Abonner ce navigateur**. La liste des appareils enregistrés montre alors chaque navigateur, avec un bouton **Tester** et un moyen de le désabonner.
+Dans **Réglages → Notifications → Canaux**, ouvrez **Appareils et réglages Web Push** sur la carte Web Push et choisissez **Abonner ce navigateur**. La liste des appareils enregistrés montre alors chaque navigateur, avec un bouton **Tester** et un moyen de le désabonner.
 
 L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les règles sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés.
 
@@ -84,9 +84,17 @@ Les exceptions sont listées dans **Réglages → Notifications → Exceptions p
 
 Sur un salon, le bouton de sourdine fait taire tout pendant la durée choisie (de 15 minutes à 24 heures, ou indéfiniment). Il masque aussi le compteur de non lus. Il l’emporte sur les valeurs par défaut et les exceptions, et ce n’est pas le même contrôle que la cloche.
 
+### Canaux
+
+**Réglages → Notifications → Canaux** (administrateurs) liste en cartes tous les endroits où Meshloom envoie des notifications : son type, un voyant d’état (fonctionne, erreur, en pause, désactivé), la dernière erreur, un interrupteur, **Tester**, **Modifier** et **Supprimer**. La carte **Web Push** est toujours là et ne se supprime pas ; ouvrez-y **Appareils et réglages Web Push** pour l’abonnement de ce navigateur, les autres appareils, le sujet VAPID et l’interrupteur des points d’accès privés. En HTTP simple, la carte indique que Web Push est indisponible.
+
+**Ajouter un canal** ouvre un dialogue en trois étapes. D’abord choisir un type ou un préréglage (E-mail, Webhook, Apprise, et les services ajoutés à la liste). Ensuite remplir son formulaire, que le serveur décrit lui-même : les champs obligatoires sont marqués d’une étoile, les erreurs de validation du serveur apparaissent sous le champ, et un secret (mot de passe, jeton, adresse de webhook) n’est jamais affiché, même après l’enregistrement : le formulaire indique qu’une valeur est définie et propose **Remplacer** et **Effacer** (n’y touchez pas pour la conserver). Un service tiers (« cloud ») affiche une note de confidentialité et permet de choisir si le texte des messages est inclus (canaux publics seulement par défaut). **Envoyer un test et continuer** envoie un test avant tout enregistrement ; s’il échoue, l’erreur est expliquée et vous pouvez corriger le formulaire, ou continuer sans test réussi. Enfin, **Que recevoir ici ?** pré-remplit les événements : **Comme Push** (les événements que reçoit Web Push, par défaut), **Alertes seulement** (radio hors ligne ou revenue, alertes de télémétrie, mentions, changements de canal) ou **Tout**. Vous pourrez le modifier ensuite dans le tableau ci-dessous.
+
+Les canaux `legacy:email`, `legacy:webhook` et `legacy:apprise` (vos destinations 4.18.x) suivent encore l’ancien réglage tant que Meshloom ne livre pas depuis les nouvelles règles : modifier leur adresse ou les supprimer répond que le réglage 4.18.x décide encore.
+
 ### Destinations e-mail et webhook
 
-Dans **Réglages → Notifications → Destinations de livraison**, saisissez un serveur SMTP (hôte, port, chiffrement, utilisateur, mot de passe, expéditeur et destinataire) et/ou l’adresse d’un webhook avec un secret HMAC facultatif. Les secrets ne sont plus affichés après l’enregistrement. Laissez un champ secret vide pour le conserver. L’adresse du webhook est elle aussi un secret, car elle contient souvent un jeton : une fois enregistrée, son champ ne montre que le schéma et l’hôte ; saisissez une nouvelle adresse pour la remplacer, ou appuyez sur **Effacer** pour la supprimer avec son secret HMAC. Le téléchargement de la sauvegarde JSON les laisse de côté (voir [Sécurité](/docs/deep/security/#secrets-des-intégrations-et-des-notifications)). Chaque destination a un bouton de test. Ce webhook sert aux notifications de Meshloom. Ce n’est pas le webhook de messages du fanout.
+Dans **Réglages → Notifications → Canaux**, choisissez **Ajouter un canal** et saisissez un serveur SMTP (hôte, port, chiffrement, utilisateur, mot de passe, expéditeur et destinataire) et/ou l’adresse d’un webhook avec un secret HMAC facultatif. Les secrets ne sont plus affichés après l’enregistrement. Laissez un champ secret vide pour le conserver. L’adresse du webhook est elle aussi un secret, car elle contient souvent un jeton : une fois enregistrée, son champ ne montre que le schéma et l’hôte ; saisissez une nouvelle adresse pour la remplacer, ou appuyez sur **Effacer** pour la supprimer avec son secret HMAC. Le téléchargement de la sauvegarde JSON les laisse de côté (voir [Sécurité](/docs/deep/security/#secrets-des-intégrations-et-des-notifications)). Chaque destination a un bouton de test. Ce webhook sert aux notifications de Meshloom. Ce n’est pas le webhook de messages du fanout.
 
 Meshloom refuse un webhook sur un réseau privé (votre réseau local, cette machine, `localhost`, le NAT d’opérateur, les adresses lien-local) sauf si vous cochez **Autoriser une destination sur un réseau privé (réseau local, localhost)** sous l’adresse : Home Assistant, Node-RED ou un script sur votre réseau en ont besoin. La vérification a lieu à l’enregistrement de l’adresse puis avant chaque envoi, et Meshloom se connecte ensuite uniquement à l’adresse vérifiée : une réponse DNS qui change entre-temps ne peut pas détourner l’appel. Les adresses de métadonnées cloud (`169.254.169.254` et ses équivalents) sont toujours refusées. Si le nom d’hôte est introuvable, saisissez plutôt l’adresse IP. Un webhook enregistré avant cette vérification continue de fonctionner : la case est cochée pour lui, et un avis unique le signale.
 
@@ -98,7 +106,7 @@ L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage
 
 ### Destination Apprise
 
-La destination **Apprise**, au même endroit, prend une [URL Apprise](https://appriseit.com/getting-started/universal-syntax/) par ligne. Quelques exemples :
+Le canal **Apprise**, ajouté de la même façon, prend une [URL Apprise](https://appriseit.com/getting-started/universal-syntax/) par ligne. Quelques exemples :
 
 | Service | URL |
 |---------|-----|

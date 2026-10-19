@@ -15,7 +15,6 @@
   "settings": {
     "notifications": {
       "webhookAllowPrivate": "Autoriser une destination sur un réseau privé (réseau local, localhost)",
-      "webhookAllowPrivateHelp": "Désactivé par défaut : Meshloom refuse un webhook sur votre réseau local ou sur cette machine, pour qu'un réglage modifié ne fasse pas du serveur une sonde de votre réseau. Activez-le pour Home Assistant, Node-RED ou un script sur votre réseau local. Les adresses de métadonnées cloud sont toujours refusées.",
       "webhookGrandfathered": "Ce webhook a été configuré avant que Meshloom ne vérifie les destinations : les adresses de réseau privé restent autorisées pour lui et il continue de fonctionner. Décochez la case ci-dessous s'il pointe vers un service public.",
       "webhookGrandfatheredDismiss": "Compris",
       "pushAllowPrivate": "Accepter les points de terminaison push sur un réseau privé",

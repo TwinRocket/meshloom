@@ -12,7 +12,7 @@
     "channel_exists": "A channel with this id already exists.",
     "channel_id_reserved": "This channel id is reserved.",
     "channel_type_unknown": "Unknown channel type.",
-    "legacy_managed": "Until the producers read the rules, this is still set through Settings → Notifications (the 4.18.x preferences): change it there."
+    "legacy_managed": "This channel is still managed by the 4.18.x notification setting, which decides until Meshloom reads the new rules: it cannot be changed here yet."
   },
   "settings": {
     "access": {
