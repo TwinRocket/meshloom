@@ -47,7 +47,6 @@ import {
   REOPEN_LAST_CONVERSATION_KEY,
 } from '../utils/lastViewedConversation';
 import { ApiError, api } from '../api';
-import { DEFAULT_NOTIFICATION_DESTINATIONS, SECRET_REDACTED } from '../types';
 import { toast } from '../components/ui/sonner';
 import { DISTANCE_UNIT_KEY } from '../utils/distanceUnits';
 import { SHOW_PATH_HOP_WIDTH_KEY } from '../utils/pathHopWidthPreference';
@@ -270,6 +269,47 @@ function openDatabaseSection() {
 
 describe('SettingsModal', () => {
   beforeEach(() => {
+    vi.spyOn(api, 'getNotificationChannels').mockResolvedValue([
+      {
+        id: 'builtin:push',
+        type: 'web_push',
+        preset: null,
+        name: 'Web Push',
+        enabled: true,
+        language: 'auto',
+        config: {},
+        secret_fields: [],
+        secret_unreadable: false,
+        allow_private_network: false,
+        include_message_text: 'always',
+        verify_tls: true,
+        quiet_hours_exempt: false,
+        rate_per_min: null,
+        rate_per_hour: null,
+        rate_per_day: null,
+        limits: { per_min: null, per_hour: null, per_day: null },
+        sort_order: 0,
+        created_at: 1,
+        paused_until: null,
+        failure_count: 0,
+        deletable: false,
+        status: { status: 'connected', last_error: null, last_ok_at: null },
+      },
+    ]);
+    vi.spyOn(api, 'getNotificationTypes').mockResolvedValue([]);
+    vi.spyOn(api, 'getNotificationEvents').mockResolvedValue({ contract_version: 1, events: [] });
+    vi.spyOn(api, 'getNotificationRules').mockResolvedValue({
+      version: 1,
+      paused_until: null,
+      events: {},
+      conversations: {},
+      keywords: [],
+      watched_nodes: [],
+      radio_offline_grace_s: 60,
+      mention_whole_word: false,
+      push_allow_private_endpoints: false,
+      host_timezone: 'UTC',
+    });
     vi.spyOn(api, 'getFanoutConfigs').mockResolvedValue([]);
     vi.spyOn(api, 'getRadioTransport').mockResolvedValue(baseTransport);
     vi.spyOn(api, 'updateRadioTransport').mockResolvedValue(baseTransport);
@@ -1268,183 +1308,13 @@ describe('SettingsModal', () => {
     expect(notificationsIdx).toBe(localIdx + 2);
 
     fireEvent.click(sectionToggles[notificationsIdx]);
-    expect(screen.getByText(i18n.t('settings.notifications.thisDevice'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.notifications.channels.title'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.notifications.defaults'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.notifications.exceptions'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.vapidSubject'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.notifications.ossUpdate'))).toBeInTheDocument();
     expect(
       screen.queryByText(i18n.t('settings.notifications.telemetryAlert'))
     ).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.destinations'))).toBeInTheDocument();
-  });
-
-  it('saves the Apprise destination without resending kept URLs', async () => {
-    const onSaveAppSettings = vi.fn(async () => {});
-    renderModal({
-      externalSidebarNav: true,
-      desktopSection: 'notifications',
-      onSaveAppSettings,
-      appSettings: {
-        ...baseSettings,
-        notification_destinations: {
-          ...DEFAULT_NOTIFICATION_DESTINATIONS,
-          apprise: { ...DEFAULT_NOTIFICATION_DESTINATIONS.apprise, urls: SECRET_REDACTED },
-        },
-      },
-    });
-
-    expect(
-      await screen.findByText(i18n.t('settings.notifications.appriseUrlsKept'))
-    ).toBeInTheDocument();
-    expect(
-      screen.getAllByText(i18n.t('settings.notifications.mediaApprise')).length
-    ).toBeGreaterThan(0);
-
-    fireEvent.change(screen.getByLabelText(i18n.t('settings.notifications.appriseText')), {
-      target: { value: 'never' },
-    });
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
-    const update = (onSaveAppSettings.mock.calls[0] as unknown[])[0] as {
-      notification_destinations: { apprise: Record<string, unknown> };
-    };
-    expect(update.notification_destinations.apprise).toEqual({
-      allow_private_network: false,
-      include_message_text: 'never',
-      format: 'text',
-    });
-
-    const urls = screen.getByLabelText(i18n.t('settings.notifications.appriseUrls'));
-    fireEvent.change(urls, { target: { value: '' } });
-    fireEvent.blur(urls);
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(2));
-    expect(onSaveAppSettings).toHaveBeenLastCalledWith({
-      notification_destinations: expect.objectContaining({
-        apprise: expect.objectContaining({ urls: '' }),
-      }),
-    });
-  });
-
-  it('keeps a write-only webhook URL and clears it with its secret', async () => {
-    const onSaveAppSettings = vi.fn(async () => {});
-    renderModal({
-      externalSidebarNav: true,
-      desktopSection: 'notifications',
-      onSaveAppSettings,
-      appSettings: {
-        ...baseSettings,
-        notification_destinations: {
-          ...DEFAULT_NOTIFICATION_DESTINATIONS,
-          webhook: {
-            ...DEFAULT_NOTIFICATION_DESTINATIONS.webhook,
-            url: SECRET_REDACTED,
-            hmac_secret: SECRET_REDACTED,
-            url_redacted: 'https://hooks.example.org/****',
-          },
-        },
-      },
-    });
-
-    const url = (await screen.findByLabelText(
-      i18n.t('settings.notifications.webhookUrl')
-    )) as HTMLInputElement;
-    expect(url.value).toBe('');
-    expect(url.placeholder).toBe(
-      i18n.t('settings.notifications.webhookUrlKept', { url: 'https://hooks.example.org/****' })
-    );
-    // Typed then emptied: back to the kept URL, nothing saved.
-    fireEvent.change(url, { target: { value: 'https://typo' } });
-    fireEvent.change(url, { target: { value: '' } });
-    fireEvent.blur(url);
-    expect(onSaveAppSettings).not.toHaveBeenCalled();
-
-    // Another field saved: the kept URL and secret are not sent back.
-    fireEvent.click(screen.getByLabelText(i18n.t('settings.notifications.webhookAllowPrivate')));
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
-    const update = (onSaveAppSettings.mock.calls[0] as unknown[])[0] as {
-      notification_destinations: { webhook: Record<string, unknown> };
-    };
-    expect(update.notification_destinations.webhook).not.toHaveProperty('url');
-    expect(update.notification_destinations.webhook).not.toHaveProperty('hmac_secret');
-    expect(update.notification_destinations.webhook).not.toHaveProperty('url_redacted');
-
-    fireEvent.click(
-      screen.getByRole('button', { name: i18n.t('settings.notifications.webhookUrlClear') })
-    );
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(2));
-    expect(onSaveAppSettings).toHaveBeenLastCalledWith({
-      notification_destinations: expect.objectContaining({
-        webhook: expect.objectContaining({ url: '', hmac_secret: '' }),
-      }),
-    });
-  });
-
-  it('shows the grandfathered webhook banner and saves the private-network flags', async () => {
-    const onSaveAppSettings = vi.fn(async () => {});
-    renderModal({
-      externalSidebarNav: true,
-      desktopSection: 'notifications',
-      onSaveAppSettings,
-      appSettings: {
-        ...baseSettings,
-        push_allow_private_endpoints: false,
-        notification_destinations: {
-          email: {
-            host: '',
-            port: 587,
-            mode: 'starttls',
-            user: '',
-            password: '',
-            from: '',
-            to: '',
-          },
-          webhook: {
-            url: 'http://192.168.1.10/hook',
-            hmac_secret: '',
-            allow_private_network: true,
-            private_network_grandfathered: true,
-          },
-          apprise: DEFAULT_NOTIFICATION_DESTINATIONS.apprise,
-        },
-      },
-    });
-
-    expect(
-      await screen.findByText(i18n.t('settings.notifications.webhookGrandfathered'))
-    ).toBeInTheDocument();
-    const allow = screen.getByLabelText(i18n.t('settings.notifications.webhookAllowPrivate'));
-    expect(allow).toBeChecked();
-
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: i18n.t('settings.notifications.webhookGrandfatheredDismiss'),
-      })
-    );
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
-    expect(onSaveAppSettings).toHaveBeenLastCalledWith({
-      notification_destinations: expect.objectContaining({
-        webhook: expect.objectContaining({
-          allow_private_network: true,
-          private_network_grandfathered: false,
-        }),
-      }),
-    });
-    expect(
-      screen.queryByText(i18n.t('settings.notifications.webhookGrandfathered'))
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(allow);
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(2));
-    expect(onSaveAppSettings).toHaveBeenLastCalledWith({
-      notification_destinations: expect.objectContaining({
-        webhook: expect.objectContaining({ allow_private_network: false }),
-      }),
-    });
-
-    fireEvent.click(screen.getByLabelText(i18n.t('settings.notifications.pushAllowPrivate')));
-    await waitFor(() =>
-      expect(onSaveAppSettings).toHaveBeenLastCalledWith({ push_allow_private_endpoints: true })
-    );
   });
 
   it('lists the radio events and saves the radio offline delay on blur', async () => {
@@ -1558,60 +1428,6 @@ describe('SettingsModal', () => {
     await waitFor(() =>
       expect(onSaveAppSettings).toHaveBeenLastCalledWith({ push_private_endpoints_review: false })
     );
-  });
-
-  it('keeps the secret-kept placeholder in step with the saved secret, rollback included', async () => {
-    let rejectSave: (err: Error) => void = () => {};
-    const onSaveAppSettings = vi.fn(
-      () =>
-        new Promise<void>((_resolve, reject) => {
-          rejectSave = reject;
-        })
-    );
-    renderModal({
-      externalSidebarNav: true,
-      desktopSection: 'notifications',
-      onSaveAppSettings,
-      appSettings: {
-        ...baseSettings,
-        notification_destinations: {
-          email: {
-            host: 'smtp.example.org',
-            port: 587,
-            mode: 'starttls',
-            user: 'me',
-            password: SECRET_REDACTED,
-            from: 'me@example.org',
-            to: 'you@example.org',
-          },
-          webhook: {
-            url: 'https://example.org/hook',
-            hmac_secret: SECRET_REDACTED,
-            allow_private_network: false,
-            private_network_grandfathered: false,
-          },
-          apprise: DEFAULT_NOTIFICATION_DESTINATIONS.apprise,
-        },
-      },
-    });
-
-    const kept = i18n.t('settings.notifications.secretKept');
-    const password = await screen.findByLabelText(i18n.t('settings.notifications.emailPassword'));
-    expect(password).toHaveAttribute('placeholder', kept);
-    expect(screen.getByLabelText(i18n.t('settings.notifications.webhookHmac'))).toHaveAttribute(
-      'placeholder',
-      kept
-    );
-
-    // A new password is saved optimistically: the placeholder no longer claims a kept secret.
-    fireEvent.change(password, { target: { value: 'new-secret' } });
-    fireEvent.blur(password);
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
-    expect(password).not.toHaveAttribute('placeholder');
-
-    // The save fails: the saved secret rolls back, and so does the placeholder.
-    rejectSave(new Error('boom'));
-    await waitFor(() => expect(password).toHaveAttribute('placeholder', kept));
   });
 
   it('renders the alerts section from the external sidebar', async () => {

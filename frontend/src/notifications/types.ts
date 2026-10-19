@@ -6,7 +6,7 @@ export type NotificationChannelStatusName = 'connected' | 'error' | 'paused' | '
 
 /** One property of a type's JSON Schema, in the field kinds of the shared form subset. */
 export interface NotificationSchemaProperty {
-  type?: 'string' | 'integer' | 'boolean';
+  type?: 'string' | 'integer' | 'boolean' | 'null';
   anyOf?: NotificationSchemaProperty[];
   enum?: string[];
   default?: unknown;
@@ -24,6 +24,8 @@ export interface NotificationSchemaProperty {
 
 export interface NotificationTypeInfo {
   type: NotificationChannelType | string;
+  /** A preset (an Apprise service): `type` is then the preset id. */
+  base_type?: string;
   schema: { properties: Record<string, NotificationSchemaProperty>; required?: string[] };
   cloud: boolean;
   singleton: boolean;

@@ -413,8 +413,8 @@ form strings, `settings.extensions.local.*`). Tests: `src/test/pluginsSection.te
 `SchemaForm.tsx` renders a form from a JSON Schema; `schemaFormModel.ts` is the pure half
 (`buildFormModel`, `collectValues`, resolvers, `groupFieldErrors`). It is **generic**: nothing in
 `components/forms/` imports from `components/settings/extensions/` or the plugin code. Consumers:
-the plugin config form (Store T11b) and the Notifications channel forms (T17), which render the
-JSON Schema of `model_json_schema()`; never fork it, extend it. Tests: `src/test/schemaForm.test.tsx`
+the plugin config form (Store T11b) and the Notifications channel forms (T17,
+`components/settings/notifications/`), which render the JSON Schema of `model_json_schema()`; never fork it, extend it. Tests: `src/test/schemaForm.test.tsx`
 (hand-written plugin schemas and `src/test/fixtures/schemaForm.pydantic.json`, kept equal to
 pydantic's output by `tests/test_schema_form_fixture.py`).
 
@@ -683,6 +683,25 @@ mirrors `app/push/policy.py`. The `ChatHeader` bell opens `ConversationNotifyMen
 (push, email, webhook, Apprise per conversation). Turning push on subscribes this browser
 first when needed, then sets the per-conversation override (`App.tsx`). There is
 no in-tab desktop notification.
+
+### Notifications channels (`components/settings/notifications/`)
+
+`SettingsNotificationsSection` mounts `NotificationChannelsPanel` (state from
+`useNotificationChannels`: channels, `/types`, rules, events) above the legacy defaults table
+and the conversation exceptions. `ChannelList` renders the cards (`builtin:push` expands
+`PushDevicesBlock`: subscription, devices, VAPID subject). `ChannelForm` is a thin wrapper: the
+channel-level fields (name, language, cloud text policy, LAN, TLS) plus the shared `SchemaForm`
+fed with the type's JSON Schema from `GET /notifications/types` (hidden fields dropped, labels
+from `label_key`/`help_key`, then `settings.notifications.types.<type>.<field>.label`); it
+renders no field itself. `AddChannelDialog` is pick, settings (the **Test** calls
+`POST /channels/test` before any save) and "What to receive here?" (`receivePatch` in
+`notificationsShared.ts` adds the new id to the events of the preset through `PATCH /rules`).
+A preset entry (`preset: true`) is created as `{type: base_type ?? 'apprise', preset: <id>}`.
+The server answers `409 legacy_managed` for the `legacy:*` channels' config/deletion and legacy event rows
+(kept by MSHL-112): a `legacy:*` card's Edit opens `LegacyDestinationForm` (the 4.18.x forms, saving
+`notification_destinations` through `PATCH /api/settings`, remove = empty it), never the generic edit
+dialog or Delete; `AddChannelDialog` disables a type a `legacy:<type>` channel owns. Secrets are
+write-only (`secret_fields`, `********`): never prefilled. Tests: `src/test/notificationsChannels.test.tsx`.
 
 ### Styling
 
