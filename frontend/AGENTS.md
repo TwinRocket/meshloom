@@ -128,6 +128,14 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   absent when `navigator.clipboard` is undefined (HTTP on the LAN). A view rendered
   without the three callbacks is read-only. No reply, react or resend. Tests:
   `src/test/feedRowActions.test.tsx`.
+- **Capabilities, not roles.** `FeedView` reads `useCapabilities().canReadPrivate` (`read_private`),
+  never a role name. Without it: no Direct messages chip (`FeedFilterChips` `showDirect`), filters
+  loaded through `withoutPrivate` (URL `types=priv` and a stored `priv` are overridden in memory;
+  the stored `priv` is written back as it was, and a mount alone writes nothing), so `filtersToQuery`
+  sends `type=CHAN`; `feedStore` drops a `PRIV` row on insert (`setFeedAcceptsPrivate`); a 403 on the
+  first page is `feed.forbidden` in the empty state, not the error panel. Control, muted and pending
+  stay as the server returns them. The feed implements no access rule. Tests:
+  `feedView.test.tsx` ("without read_private").
 - **Live merge.** A live row goes through `recordFeedMessage`, sorted by `(received_at, id)`
   wherever it lands (a `historical` row sits in the middle and is never counted as new). A row
   older than the first held row while `hasOlder` is true is not stored: as the new oldest row
@@ -358,6 +366,28 @@ purpose.
 - Strings: slice `aa` (`auth.*`, plus the error codes slice `x` lacks), slice `ai`
   (`auth.ingress.*`, `errors.auth_ingress_only`).
   Tests: `src/test/auth.test.tsx`.
+
+### Extensions section (`components/settings/extensions/`)
+
+Settings → Extensions (section id `extensions`, `SettingsExtensionsSection.tsx`, admin only
+through `canOpenSettingsSection`; icon `Puzzle`). Over `/api/plugins` (`api.getPlugins`,
+`getBundledPlugins`, `installPlugin`, `patchPlugin`, `restartPlugin`, `getPluginLogs`,
+`getPluginDiagnostic`, `deletePlugin`; types in `extensions/pluginsTypes.ts`, `PluginInstance`
+stays in `types.ts`). It reads `health` (`plugins_isolation`, `plugins_disabled_source`) and
+reloads the list whenever `health.plugin_statuses` changes (the server announces `plugin_status`
+and a health refresh follows, so no extra WebSocket handler). Rules: `enableBlock()`
+(`pluginsShared.ts`) keeps `revoked`/`incompatible` from being enabled (the toggle is disabled
+and `toggle()` refuses too); `needs_attention` for a reason other than `config_required` is
+enabled only through the drawer's **Accept and enable** (resends `granted_permissions`, then
+`enabled: true`); config is read-only and secret fields show only "set / not set" (the API
+returns `********`, never shown); with `plugins_disabled_source` set every write is off but
+Uninstall. The consent (`AddBundledDialog`) grants exactly the declared permissions and shows
+`plugins.permissions.http.private_messages_warning` when `messages.read` (direct or all channels)
+meets `http`. `ScopeEditor` is a small own editor (not the fanout `ScopeSelector`, which is private
+to `SettingsFanoutSection.tsx`). Quotas: only `messages.send` per hour/day, lowered only.
+`MigrationBanner` is ready for the bot-migration health warning (Store T9) and not mounted yet.
+Strings: slice `cc` (`settings.extensions.*`, `errors.*` plugin codes) and slice `al`
+(permissions in plain words). Tests: `src/test/pluginsSection.test.tsx`.
 
 ### Share API (`api.ts`)
 

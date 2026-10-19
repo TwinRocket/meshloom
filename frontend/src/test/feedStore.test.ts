@@ -13,6 +13,7 @@ import {
   recordFeedMessage,
   removeFeedMessage,
   renameFeedConversation,
+  setFeedAcceptsPrivate,
   resetFeedForRefetch,
   resetFeedStore,
   subscribeFeedStore,
@@ -310,5 +311,31 @@ describe('feedStore control rows', () => {
     activateFeedStore();
     await flush();
     expect(controlIds()).toEqual([1]);
+  });
+});
+
+describe('direct messages without read_private', () => {
+  const dm = (id: number) => msg(id, 100 + id, { type: 'PRIV', conversation_key: 'bb'.repeat(32) });
+
+  beforeEach(() => {
+    resetFeedStore();
+    activateFeedStore();
+  });
+
+  it('drops a PRIV row on insert and keeps channel rows', async () => {
+    setFeedAcceptsPrivate(false);
+    expect(recordFeedMessage(dm(1)).added).toBe(false);
+    expect(recordFeedMessage(msg(2, 102)).added).toBe(true);
+    mergeHistoryPage([dm(3), msg(4, 104)], { hasOlder: false });
+    await Promise.resolve();
+    expect(getFeedSnapshot().rows.map((r) => r.id)).toEqual([2, 4]);
+  });
+
+  it('accepts PRIV rows by default and again after a reset', () => {
+    expect(recordFeedMessage(dm(1)).added).toBe(true);
+    setFeedAcceptsPrivate(false);
+    resetFeedStore();
+    activateFeedStore();
+    expect(recordFeedMessage(dm(2)).added).toBe(true);
   });
 });

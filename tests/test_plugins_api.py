@@ -230,6 +230,7 @@ async def test_bundled_lists_the_shipped_plugins_with_their_instance_count(api, 
     greeter = listed[1]
     assert greeter["config_schema"]["required"] == ["greeting"]
     assert greeter["permissions"]["messages.send"] == {"targets": "reply"}
+    assert greeter["privacy"] == {"sends_to_third_parties": [], "stores_message_content": False}
     assert greeter["instances"] == 0
     await install(api, manager, "meshloom.echo")
     await install(api, manager, "meshloom.echo", label="Second")

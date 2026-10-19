@@ -78,7 +78,7 @@ Display mode is the Feed made for a wall screen: larger text (25 % on top of you
 
 What it changes: the Feed's own filters are untouched and come back when you leave the mode. Only channels are asked from the server (`type=CHAN`), **direct messages are hidden** and **images and GIFs are not loaded**, whatever the address says: nothing inside the mode turns them back on. Rows can no longer be clicked or focused, and **Exit** is the only control left. Your choice of showing reactions is never changed. Blur and shadows are turned off.
 
-**Display mode locks nothing.** Hiding direct messages only decides what this screen draws: the browser still receives them, and anyone who can sign in can read them elsewhere. What keeps direct messages off the screen is the `kiosk` account the image runs under, which the server refuses them to (it still reads muted and pending channels, and control packets). See [A trusted network](/en/docs/trust/).
+**Display mode locks nothing.** Hiding direct messages only decides what this screen draws: the browser still receives them, and anyone who can sign in can read them elsewhere. What keeps direct messages off the screen is the `kiosk` account the image runs under, which the server refuses them to; the Feed under that account has no **Direct messages** chip, asks for channels only and never lands on an error (it still reads muted and pending channels, and control packets). See [A trusted network](/en/docs/trust/).
 
 Inside Home Assistant, the full screen button needs `allowfullscreen` on Home Assistant's own frame: see [Home Assistant](/en/docs/deep/home-assistant/).
 
