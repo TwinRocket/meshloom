@@ -92,6 +92,10 @@ If the repeater has environment sensors (CayenneLPP format), Meshloom adds one s
 | `conversation_key` | `aabbccdd...` | Key of the contact or the channel |
 | `outgoing` | `false` | Whether you sent it |
 
+## Meshloom notifications in the Home Assistant app
+
+Meshloom can send its own notifications (direct messages, radio offline, new contacts, alerts) to the Home Assistant Companion app with the **Home Assistant** channel: **Settings → Notifications → Channels → Add a channel → Home Assistant**. Create a long-lived access token in your Home Assistant profile, then enter Home Assistant's address, the token and the notify service of your phone (`mobile_app_your_phone`). Tick **Allow a private-network destination** (Home Assistant is on your network), press **Send a test and continue**, and choose what the channel receives. The details are in [Notifications](push.md#telegram-gotify-and-home-assistant-channels). The automations below remain a good choice when you want Home Assistant to decide (conditions, several devices, actions).
+
 ## Example automations
 
 ### Low repeater battery

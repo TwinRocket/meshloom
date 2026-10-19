@@ -127,8 +127,15 @@ def _kind(prop: dict) -> str:
 async def test_types_every_secret_field_is_write_only_and_kinds_stay_in_the_subset(test_db, client):
     response = await client.get("/api/notifications/types")
     assert response.status_code == 200
-    types = {entry["type"]: entry for entry in response.json()}
+    all_types = {entry["type"]: entry for entry in response.json()}
+    # The presets (tests/test_apprise_presets.py) ride on ``apprise``.
+    types = {k: v for k, v in all_types.items() if not v["preset"]}
     assert set(types) == {"web_push", "email", "webhook", "apprise", "ntfy", "discord"}
+    assert {k for k, v in all_types.items() if v["preset"]} == {
+        "telegram",
+        "gotify",
+        "home_assistant",
+    }
     secret_names = {
         "email": {"password"},
         "webhook": {"url", "hmac_secret"},

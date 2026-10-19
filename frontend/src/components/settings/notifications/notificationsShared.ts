@@ -1,4 +1,13 @@
-import { Bell, BellRing, Mail, MessageCircle, Send, Webhook, type LucideIcon } from 'lucide-react';
+import {
+  Bell,
+  BellRing,
+  House,
+  Mail,
+  MessageCircle,
+  Send,
+  Webhook,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { ApiError, getApiErrorCode } from '../../../api';
 import type {
@@ -21,6 +30,8 @@ export const TYPE_ICONS: Record<string, LucideIcon> = {
   webhook: Webhook,
   apprise: BellRing,
   telegram: Send,
+  gotify: BellRing,
+  home_assistant: House,
   discord: MessageCircle,
 };
 

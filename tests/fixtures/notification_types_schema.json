@@ -392,5 +392,197 @@
     },
     "singleton": false,
     "type": "ntfy"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 200,
+      "per_min": 15
+    },
+    "help_key": "notifications.presets.telegram.about",
+    "include_message_text_default": "public_only",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "bot_token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 130,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.telegram.help.bot_token",
+          "label_key": "notifications.presets.telegram.fields.bot_token",
+          "title": "Bot Token",
+          "writeOnly": true
+        },
+        "chat_id": {
+          "help_key": "notifications.presets.telegram.help.chat_id",
+          "label_key": "notifications.presets.telegram.fields.chat_id",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:-?\\d{1,32}|@[A-Za-z][\\w]{3,63})$",
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "topic_id": {
+          "default": "",
+          "help_key": "notifications.presets.telegram.help.topic_id",
+          "label_key": "notifications.presets.telegram.fields.topic_id",
+          "maxLength": 12,
+          "pattern": "^(?:|\\d{1,12})$",
+          "title": "Topic Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chat_id"
+      ],
+      "title": "TelegramConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "telegram",
+    "wiki_url": "https://core.telegram.org/bots/tutorial"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 60
+    },
+    "help_key": "notifications.presets.gotify.about",
+    "include_message_text_default": "always",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "priority": {
+          "default": "normal",
+          "enum": [
+            "low",
+            "moderate",
+            "normal",
+            "high",
+            "emergency"
+          ],
+          "label_key": "notifications.presets.gotify.fields.priority",
+          "maxLength": 256,
+          "title": "Priority",
+          "type": "string"
+        },
+        "server": {
+          "format": "uri",
+          "help_key": "notifications.presets.gotify.help.server",
+          "label_key": "notifications.presets.gotify.fields.server",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Server",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.gotify.help.token",
+          "label_key": "notifications.presets.gotify.fields.token",
+          "title": "Token",
+          "writeOnly": true
+        }
+      },
+      "required": [
+        "server"
+      ],
+      "title": "GotifyConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "gotify",
+    "wiki_url": "https://gotify.net/docs/pushmsg"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 60
+    },
+    "help_key": "notifications.presets.home_assistant.about",
+    "include_message_text_default": "always",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "help_key": "notifications.presets.home_assistant.help.service",
+          "label_key": "notifications.presets.home_assistant.fields.service",
+          "maxLength": 130,
+          "minLength": 1,
+          "pattern": "^(?:[a-z0-9_]{1,64}(\\.[a-z0-9_]{1,64})?)$",
+          "title": "Service",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 2048,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.home_assistant.help.token",
+          "label_key": "notifications.presets.home_assistant.fields.token",
+          "title": "Token",
+          "writeOnly": true
+        },
+        "url": {
+          "format": "uri",
+          "help_key": "notifications.presets.home_assistant.help.url",
+          "label_key": "notifications.presets.home_assistant.fields.url",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "service"
+      ],
+      "title": "HomeAssistantConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "home_assistant",
+    "wiki_url": "https://www.home-assistant.io/integrations/notify/"
   }
 ]

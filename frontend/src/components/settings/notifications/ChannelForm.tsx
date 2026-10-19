@@ -198,6 +198,24 @@ export function ChannelForm({
       </div>
 
       <div className="border-t border-border/60 pt-3">
+        {entry.help_key && (
+          <p className="mb-3 text-[0.8125rem] text-muted-foreground" data-testid="preset-about">
+            {t(entry.help_key, { defaultValue: '' })}
+            {entry.wiki_url && (
+              <>
+                {' '}
+                <a
+                  href={entry.wiki_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  {t('settings.notifications.channels.presetDocs')}
+                </a>
+              </>
+            )}
+          </p>
+        )}
         <SchemaForm
           key={
             channel

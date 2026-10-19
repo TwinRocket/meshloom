@@ -57,10 +57,6 @@
         "ntfy": {
           "name": "ntfy",
           "description": "Publier sur un sujet ntfy (ntfy.sh ou votre serveur)."
-        },
-        "telegram": {
-          "name": "Telegram",
-          "description": "Un message de bot Telegram vers une discussion."
         }
       },
       "channels": {

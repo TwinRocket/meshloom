@@ -26,6 +26,9 @@ export interface NotificationTypeInfo {
   type: NotificationChannelType | string;
   /** A preset (an Apprise service): `type` is then the preset id. */
   base_type?: string;
+  /** A preset's one-paragraph how-to (i18n key) and the page of the service's own docs. */
+  help_key?: string;
+  wiki_url?: string;
   schema: { properties: Record<string, NotificationSchemaProperty>; required?: string[] };
   cloud: boolean;
   singleton: boolean;

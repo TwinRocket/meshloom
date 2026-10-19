@@ -35,6 +35,7 @@ from app.notifications.channels import (
     get_type,
     is_builtin,
 )
+from app.notifications.presets import PresetError, compile_url
 from app.secret_fields import REDACTED, destination_changed
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,22 @@ async def _check_destination(
     private network never gets a login over ``mode=none`` (``smtp_plaintext_auth_refused``).
     """
     try:
-        if entry.id == "webhook" and secrets.get("url"):
+        if entry.preset is not None:
+            # The URL a preset generates goes through the same checks as a typed one.
+            try:
+                url = compile_url(entry.preset, {**public, **secrets})
+            except PresetError as exc:
+                raise ChannelError(exc.code, fields=exc.fields) from None
+            validated = await validate_apprise_urls(
+                [url], allow_private_network=allow_private_network
+            )
+            if not verify_tls:
+                for item in validated:
+                    if item.destination is None or not tls_check_may_be_off(item.destination.ips):
+                        raise ChannelError(
+                            "verify_tls_requires_private_destination", scheme=item.scheme
+                        )
+        elif entry.id == "webhook" and secrets.get("url"):
             dest = await validate_destination(
                 secrets["url"], allow_private_network=allow_private_network
             )
@@ -237,7 +253,7 @@ class NotificationChannelRepository:
         """Every check of a creation but the write: the type, the config (public and
         secret parts), the required fields and the destination (egress guard). Also
         what ``POST /channels/test`` runs, so a test and a save refuse the same things."""
-        entry = get_type(body.type)
+        entry = get_type(body.type, body.preset)
         public, secrets = _split_config(entry, body.config)
         missing = _required_missing(entry, public, secrets)
         if missing:
@@ -249,7 +265,7 @@ class NotificationChannelRepository:
 
     @staticmethod
     async def create(body: ChannelCreate) -> Channel:
-        entry = get_type(body.type)
+        entry = get_type(body.type, body.preset)
         if entry.singleton_id is None:
             candidate = body.id or f"{entry.id}-{uuid.uuid4().hex[:8]}"
             if is_builtin(candidate) or ":" in candidate:
@@ -278,7 +294,7 @@ class NotificationChannelRepository:
                 """,
                 (
                     channel_id,
-                    entry.id,
+                    entry.row_type,
                     body.preset,
                     body.name.strip(),
                     1 if body.enabled else 0,
@@ -315,7 +331,7 @@ class NotificationChannelRepository:
         current, stored_secrets = found
         if patch.type is not None and patch.type != current.type:
             raise ChannelError("type_immutable")
-        entry = get_type(current.type)
+        entry = get_type(current.type, current.preset)
 
         public = dict(current.config)
         secrets = dict(stored_secrets)

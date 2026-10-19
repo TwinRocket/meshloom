@@ -92,6 +92,10 @@ Si le répéteur a des capteurs d’environnement (format CayenneLPP), Meshloom 
 | `conversation_key` | `aabbccdd...` | Clé du contact ou du salon |
 | `outgoing` | `false` | Indique si c’est vous qui l’avez envoyé |
 
+## Notifications Meshloom dans l’application Home Assistant
+
+Meshloom peut envoyer ses propres notifications (messages privés, radio hors ligne, nouveaux contacts, alertes) à l’application Companion de Home Assistant avec le canal **Home Assistant** : **Réglages → Notifications → Canaux → Ajouter un canal → Home Assistant**. Créez un jeton d’accès longue durée dans votre profil Home Assistant, puis saisissez l’adresse de Home Assistant, le jeton et le service notify de votre téléphone (`mobile_app_votre_telephone`). Cochez **Autoriser une destination sur réseau privé** (Home Assistant est sur votre réseau), appuyez sur **Envoyer un test et continuer**, puis choisissez ce que le canal reçoit. Le détail est dans [Notifications](push.md#canaux-telegram-gotify-et-home-assistant). Les automatisations ci-dessous restent un bon choix quand vous voulez que Home Assistant décide (conditions, plusieurs appareils, actions).
+
 ## Exemples d’automatisations
 
 ### Batterie de répéteur faible

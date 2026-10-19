@@ -26,7 +26,6 @@ from app.auth.permissions import require
 from app.notifications import api_support
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
-    REGISTRY,
     Channel,
     ChannelCreate,
     ChannelError,
@@ -163,7 +162,10 @@ async def _statuses() -> dict[str, dict[str, Any]]:
 
 
 def _present(channel: Channel, statuses: dict[str, dict[str, Any]]) -> ChannelOut:
-    entry = REGISTRY.get(channel.type)
+    try:
+        entry = get_type(channel.type, channel.preset)
+    except ChannelError:
+        entry = None
     defaults = entry.limits_for(channel.config) if entry else None
     state = statuses.get(channel.id) or {}
     return ChannelOut(
@@ -272,10 +274,10 @@ async def _run_test(channel: Channel, secrets: dict[str, str], *, record: bool) 
 
 
 def _draft_channel(body: ChannelCreate, public: dict[str, Any]) -> Channel:
-    entry = get_type(body.type)
+    entry = get_type(body.type, body.preset)
     return Channel(
         id=entry.singleton_id or "draft",
-        type=entry.id,
+        type=entry.row_type,
         preset=body.preset,
         name=body.name,
         enabled=True,
@@ -318,7 +320,7 @@ async def get_channel(channel_id: str) -> ChannelOut:
 def _destination_of(channel: Channel, secrets: dict[str, str]) -> tuple[Any, ...]:
     """What decides where a channel's notifications go: its public settings and the secrets
     that are destinations themselves (a webhook URL, Apprise URLs), not the credentials."""
-    entry = get_type(channel.type)
+    entry = get_type(channel.type, channel.preset)
     follows = set(entry.secret_follows)
     destination_secrets = {k: v for k, v in secrets.items() if k not in follows}
     return (

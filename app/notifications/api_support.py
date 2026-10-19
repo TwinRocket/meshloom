@@ -107,7 +107,7 @@ def redacted_config(channel: Channel) -> dict[str, Any]:
     holds a value and ``""`` when it does not."""
     config = dict(channel.config)
     try:
-        secret_names = get_type(channel.type).secret_fields
+        secret_names = get_type(channel.type, channel.preset).secret_fields
     except Exception:
         secret_names = frozenset(channel.secret_fields_set)
     for name in secret_names:
