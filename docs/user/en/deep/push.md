@@ -67,6 +67,12 @@ For a companion, **New contacts** or **Companion advertisements** is enough.
 
 "First seen" alerts only fire when a **new contact** is added, after the radio has finished its start-up. A node you already know, an unknown node and a room server never trigger them.
 
+### Mentions
+
+A channel message **mentions you** when it contains `@[` + your radio's name + `]` (for example `@[Bob]`), in any case. With **Match whole words only** ticked (row *Mentions* of the table), your radio's name written as a whole word also counts: *Al* matches "hello al!" but not "Alpha". A mention is sent to the channels ticked on the **Mentions** row, instead of the ordinary channel notification on those channels, so a channel never receives both; it reads "Mention in #paris by Léa" and replaces the ordinary notification of that conversation in the tray. Channels where **Mentions** is not ticked keep receiving the ordinary notification. The mute of a channel, the block lists and Do not disturb apply as for any message, and a mention is **never urgent**. It is on by default for the channels that receive direct messages.
+
+**Mentions can be forged by anyone in range:** channel messages are not authenticated, so anyone who writes `@[your name]` makes your radio "mentioned". That is why a mention is never urgent, and why, on a **private channel** (one with its own key), it only reaches channels that are not a third party (Web Push, a self-hosted ntfy, an e-mail relay on your network...) or channels you explicitly allowed for that conversation with an exception (**on**) in the conversations list; an exception set to **on** receives the mention even if the channel is not ticked on the **Mentions** row. Apprise and webhook channels always count as a third party, since the type cannot tell where they send. Direct messages are not mentions.
+
 ### Conversations
 
 For channel messages, without an exception:
@@ -155,9 +161,9 @@ These three are **presets**: ready-made forms for services that Meshloom reaches
 
 **Telegram** (a third party: the text of direct messages and private channels stays home by default). Create a bot with `@BotFather` (send `/newbot`) and copy its token (`123456789:AAH…`). Get the **chat id**: send your bot a message, then open `https://api.telegram.org/bot<token>/getUpdates` in a browser and read `chat` → `id` (or ask `@userinfobot`); a group's id is negative (`-100…`), a public channel can be its `@name`. For a group or channel, add the bot to it first. **Topic id** is only for a group with topics. A chat id is required: without it the channel is refused. Default limit: 15 messages a minute, 200 an hour; when Telegram answers *too many requests* Meshloom waits the time it asks for.
 
-**Gotify** (your own server). In Gotify, create an *application* and copy its token. Enter the server address (`https://gotify.example.org`, a path prefix is kept) and the token; the priority applies to every notification. A server on your home network needs **Allow a private-network destination** ticked, and changing the server asks you to enter the token again. Default limit: 60 messages a minute.
+**Gotify** (your own server). In Gotify, create an *application* and copy its token. Enter the server address (`https://gotify.example.org`, a path prefix is kept; `..` and `%` are refused in it) and the token; the priority applies to every notification. A server on your home network needs **Allow a private-network destination** ticked, and changing the server asks you to enter the token again. Default limit: 60 messages a minute.
 
-**Home Assistant** (your phone's Companion app, or any `notify` service). In your Home Assistant profile, create a **long-lived access token**. Enter the address of Home Assistant (`http://homeassistant.local:8123`), the token and the **notify service**: `mobile_app_your_phone` (find the exact name in Home Assistant, Developer tools, Actions; `notify.alerts` works too). Home Assistant is nearly always on your network, so tick **Allow a private-network destination**; the error says so when it is needed. Default limit: 60 messages a minute.
+**Home Assistant** (your phone's Companion app, or any `notify` service). In your Home Assistant profile, create a **long-lived access token**. Enter the address of Home Assistant (`http://homeassistant.local:8123`; only the address, a path such as `/ha` is refused), the token and the **notify service**: `mobile_app_your_phone` (find the exact name in Home Assistant, Developer tools, Actions; `notify.alerts` works too). Home Assistant is nearly always on your network, so tick **Allow a private-network destination**; the error says so when it is needed. Default limit: 60 messages a minute.
 
 Each form has a **Test** that sends a message before anything is saved.
 

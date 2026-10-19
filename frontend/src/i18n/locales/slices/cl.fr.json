@@ -34,7 +34,7 @@
           "service": "Service notify"
         },
         "help": {
-          "url": "Par exemple http://homeassistant.local:8123. Home Assistant est le plus souvent sur votre réseau local : cochez « Autoriser une destination sur réseau privé » plus bas.",
+          "url": "Par exemple http://homeassistant.local:8123. Home Assistant est le plus souvent sur votre réseau local : cochez « Autoriser une destination sur réseau privé » plus bas. Uniquement l’adresse : un chemin comme /ha (Home Assistant derrière un proxy inverse sur un sous-chemin) est refusé.",
           "token": "Profil, Sécurité, Jetons d'accès longue durée. En écriture seule : il n'est jamais réaffiché.",
           "service": "Le nom du service sans « notify. » : mobile_app_votre_telephone (Outils de développement, Actions). Un nom complet comme notify.alertes fonctionne aussi."
         }

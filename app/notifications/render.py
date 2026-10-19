@@ -384,7 +384,18 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
     sender_name = data.get("sender_name") or ""
     channel_name = data.get("channel_name") or ""
 
-    if msg_type == "PRIV":
+    if data.get("mention") and msg_type == "CHAN":
+        where = channel_name or ("this channel" if lang == "en" else "ce canal")
+        if lang == "en":
+            title = f"Mention in {where} by {sender_name}" if sender_name else f"Mention in {where}"
+        else:
+            title = (
+                f"Mention dans {where} par {sender_name}"
+                if sender_name
+                else f"Mention dans {where}"
+            )
+        body = text
+    elif msg_type == "PRIV":
         if lang == "en":
             title = f"Message from {sender_name}" if sender_name else "New direct message"
         else:

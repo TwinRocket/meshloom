@@ -119,7 +119,7 @@ async def test_migrations_stay_contiguous(tmp_path):
     assert numbers == list(range(1, LATEST_SCHEMA_VERSION + 1))
     conn = await aiosqlite.connect(tmp_path / "x.db")
     try:
-        await set_version(conn, 113)
+        await set_version(conn, LATEST_SCHEMA_VERSION - 1)
         assert await run_migrations(conn) == 1
     finally:
         await conn.close()

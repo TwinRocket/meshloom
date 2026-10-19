@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 114 (the value of
+- Numbering is contiguous from 001. The current head is 115 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op

@@ -431,7 +431,7 @@
           "label_key": "notifications.presets.telegram.fields.chat_id",
           "maxLength": 64,
           "minLength": 1,
-          "pattern": "^(?:-?\\d{1,32}|@[A-Za-z][\\w]{3,63})$",
+          "pattern": "^(?:-?[0-9]{1,32}|@[A-Za-z][A-Za-z0-9_]{3,63})$",
           "title": "Chat Id",
           "type": "string"
         },
@@ -440,7 +440,7 @@
           "help_key": "notifications.presets.telegram.help.topic_id",
           "label_key": "notifications.presets.telegram.fields.topic_id",
           "maxLength": 12,
-          "pattern": "^(?:|\\d{1,12})$",
+          "pattern": "^(?:|[0-9]{1,12})$",
           "title": "Topic Id",
           "type": "string"
         }

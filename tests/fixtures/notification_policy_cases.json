@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared by tests/test_notification_policy.py (rules.conversation_channel_enabled) and, with the cadrage's T19 ticket, the frontend notificationPolicy.ts suite. Each case: rules, a conversation and a channel in, one boolean out. `now` is epoch seconds for the global pause; when null the pause is not evaluated.",
+  "_comment": "Shared by tests/test_notification_policy.py (rules.conversation_channel_enabled) and, with the cadrage's T19 ticket, the frontend notificationPolicy.ts suite. Each case: rules, a conversation and a channel in, one boolean out. `now` is epoch seconds for the global pause; when null the pause is not evaluated. Optional `mention` (the question is about the message.mention notification of a CHAN message) and `cloud` (the channel is a third party) default to false; a mention reaches the channels of events[\"message.mention\"] and those with a stored true exception.",
   "cases": [
     {
       "name": "dm_follows_message_dm",
@@ -857,6 +857,568 @@
       "muted": false,
       "blocked": false,
       "now": null
+    },
+    {
+      "name": "mention_public_channel_listed_cloud",
+      "expected": true,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": true,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_hashtag_channel_listed_cloud",
+      "expected": true,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": true,
+      "is_public": false,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_channel_not_in_mention_rule",
+      "expected": false,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "other",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": true,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_private_key_cloud_without_exception",
+      "expected": false,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": false,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_private_key_non_cloud_channel",
+      "expected": true,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": false,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": false
+    },
+    {
+      "name": "mention_private_key_cloud_with_exception",
+      "expected": true,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {
+          "channel-00112233445566778899aabbccddeeff": {
+            "tg": true
+          }
+        }
+      },
+      "is_hashtag": false,
+      "is_public": false,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_private_key_exception_off_wins",
+      "expected": false,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {
+          "channel-00112233445566778899aabbccddeeff": {
+            "tg": false
+          }
+        }
+      },
+      "is_hashtag": false,
+      "is_public": false,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": false
+    },
+    {
+      "name": "mention_public_exception_off_wins",
+      "expected": false,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {
+          "channel-00112233445566778899aabbccddeeff": {
+            "tg": false
+          }
+        }
+      },
+      "is_hashtag": false,
+      "is_public": true,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_private_key_exception_on_without_mention_row",
+      "expected": true,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "other",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {
+          "channel-00112233445566778899aabbccddeeff": {
+            "other": true
+          }
+        }
+      },
+      "is_hashtag": false,
+      "is_public": false,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": false
+    },
+    {
+      "name": "mention_muted_channel",
+      "expected": false,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": true,
+      "muted": true,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_muted_channel_always_deliver",
+      "expected": true,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": true
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": true,
+      "muted": true,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_blocked_sender",
+      "expected": false,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": true,
+      "muted": false,
+      "blocked": true,
+      "now": null,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_global_pause",
+      "expected": false,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "CHAN",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": 2000,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": true,
+      "muted": false,
+      "blocked": false,
+      "now": 1000,
+      "mention": true,
+      "cloud": true
+    },
+    {
+      "name": "mention_never_a_direct_message",
+      "expected": false,
+      "state_key": "channel-00112233445566778899aabbccddeeff",
+      "message_type": "PRIV",
+      "channel_id": "tg",
+      "rules": {
+        "version": 1,
+        "paused_until": null,
+        "events": {
+          "message.dm": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.channel": {
+            "channels": [
+              "builtin:push"
+            ],
+            "always_deliver": false
+          },
+          "message.mention": {
+            "channels": [
+              "tg"
+            ],
+            "always_deliver": false
+          }
+        },
+        "conversations": {}
+      },
+      "is_hashtag": false,
+      "is_public": false,
+      "muted": false,
+      "blocked": false,
+      "now": null,
+      "mention": true,
+      "cloud": false
     }
   ]
 }
