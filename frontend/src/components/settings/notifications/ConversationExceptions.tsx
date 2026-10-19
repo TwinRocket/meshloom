@@ -5,6 +5,7 @@ import type { NotificationChannel, NotificationRules } from '../../../notificati
 import type { Channel, Contact } from '../../../types';
 import { getContactDisplayName } from '../../../utils/pubkey';
 import {
+  channelLabel,
   exceptionState,
   nextExceptionState,
   withExceptionState,
@@ -66,6 +67,10 @@ export function ConversationExceptions({
     <ul className="space-y-2" data-testid="notification-exceptions">
       {keys.map((key) => {
         const map = rules.conversations[key];
+        const known = new Set(channels.map((c) => c.id));
+        const orphans = Object.keys(map).filter((id) => !known.has(id));
+        // The server refuses unknown channel ids, so every write drops the orphans.
+        const live = Object.fromEntries(Object.entries(map).filter(([id]) => known.has(id)));
         const name = conversationName(key, contacts, chatChannels);
         return (
           <li
@@ -83,7 +88,7 @@ export function ConversationExceptions({
                     type="button"
                     disabled={disabled}
                     onClick={() =>
-                      onSet(key, withExceptionState(map, channel.id, nextExceptionState(state)))
+                      onSet(key, withExceptionState(live, channel.id, nextExceptionState(state)))
                     }
                     aria-label={t('settings.notifications.exceptionChip', {
                       name,
@@ -96,6 +101,22 @@ export function ConversationExceptions({
                   </button>
                 );
               })}
+              {orphans.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onSet(key, Object.keys(live).length ? live : null)}
+                  aria-label={t('settings.notifications.exceptionOrphan', {
+                    name,
+                    channel: channelLabel(channels, id),
+                  })}
+                  className="rounded-full border border-dashed border-border px-2.5 py-0.5 text-[0.75rem] text-muted-foreground disabled:opacity-50"
+                >
+                  {channelLabel(channels, id)} · {t('settings.notifications.exceptionOrphanState')}{' '}
+                  <X className="inline h-3 w-3" aria-hidden="true" />
+                </button>
+              ))}
             </div>
             <button
               type="button"

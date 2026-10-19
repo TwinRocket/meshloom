@@ -166,7 +166,13 @@ describe('RulesMatrix', () => {
           event: t(`settings.notifications.matrix.events.${event}.label`),
         }),
       });
-    expect(always('radio_offline')).toBeChecked();
+    expect(
+      screen.getByRole('checkbox', {
+        name: t('settings.notifications.matrix.alwaysDeliverUrgent', {
+          event: t('settings.notifications.matrix.events.radio_offline.label'),
+        }),
+      })
+    ).toBeDisabled();
     expect(always('message_dm')).not.toBeChecked();
     fireEvent.click(always('message_dm'));
     await waitFor(() =>
@@ -237,7 +243,195 @@ describe('RulesMatrix', () => {
   });
 });
 
+const ALL_IDS = [
+  'message.dm',
+  'message.channel',
+  'message.mention',
+  'contact.first_seen',
+  'channel.found',
+  'telemetry.alert',
+  'radio.offline',
+  'radio.online',
+  'app.started',
+  'app.update',
+  'notify.destination_changed',
+  'notify.channel_changed',
+];
+const URGENT = ['radio.offline', 'telemetry.alert', 'notify.channel_changed'];
+
+/** What migration 113 writes for a 4.18.x install: `contact_types` plus a union in `channels`. */
+const MIGRATED: NotificationRules = {
+  ...RULES,
+  events: {
+    'message.dm': { channels: ['builtin:push', 'ntfy-1'] },
+    'message.channel': { channels: ['builtin:push'] },
+    'contact.first_seen': {
+      channels: ['builtin:push', 'ntfy-1'],
+      contact_types: { companion: ['builtin:push'], repeater: ['ntfy-1'], sensor: [] },
+    },
+    'channel.found': { channels: ['builtin:push'] },
+    'radio.offline': { channels: ['builtin:push'], always_deliver: true },
+    'radio.online': { channels: ['builtin:push'] },
+    'app.started': { channels: ['builtin:push'] },
+    'app.update': { channels: ['builtin:push'] },
+    'notify.channel_changed': { channels: ['builtin:push'] },
+  },
+  radio_offline_grace_s: 90,
+  mention_whole_word: true,
+};
+
+describe('a 4.18.x-shaped payload', () => {
+  const events: NotificationEventInfo[] = ALL_IDS.map((id) => ({
+    id,
+    urgent: URGENT.includes(id),
+    configurable: true,
+    locked_channels: id === 'notify.channel_changed' ? ['builtin:push'] : [],
+  }));
+
+  it('shows every setting and reads contact types from contact_types', async () => {
+    mockApi(MIGRATED);
+    vi.spyOn(api, 'getNotificationEvents').mockResolvedValue({ contract_version: 1, events });
+    render(<Harness />);
+    await screen.findByRole('table');
+    for (const id of ALL_IDS) {
+      const key = id.replace(/\./g, '_');
+      expect(
+        screen.getByText(t(`settings.notifications.matrix.events.${key}.label`))
+      ).toBeInTheDocument();
+    }
+    expect(screen.getByLabelText(t('settings.notifications.radioOfflineGrace'))).toHaveValue(90);
+    expect(
+      screen.getByLabelText(t('settings.notifications.matrix.mentionWholeWord'))
+    ).toBeChecked();
+    const kind = (k: string, channel: string) =>
+      screen.getByRole('checkbox', {
+        name: t('settings.notifications.matrix.kindCell', {
+          kind: t(`settings.notifications.matrix.contactTypes.${k}`),
+          channel,
+        }),
+      });
+    expect(kind('companion', 'Web Push')).toBeChecked();
+    expect(kind('companion', 'Phone')).not.toBeChecked();
+    expect(kind('repeater', 'Phone')).toBeChecked();
+    expect(kind('sensor', 'Web Push')).not.toBeChecked();
+    // The parent row has no box: the engine ignores the event's own channels here.
+    expect(
+      screen.queryByRole('checkbox', {
+        name: t('settings.notifications.matrix.cell', {
+          event: t('settings.notifications.matrix.events.contact_first_seen.label'),
+          channel: 'Phone',
+        }),
+      })
+    ).toBeNull();
+  });
+
+  it('round-trips a contact-type toggle through the answer of the server', async () => {
+    mockApi(MIGRATED);
+    vi.spyOn(api, 'getNotificationEvents').mockResolvedValue({ contract_version: 1, events });
+    const next = {
+      ...MIGRATED,
+      events: {
+        ...MIGRATED.events,
+        'contact.first_seen': {
+          channels: ['builtin:push', 'ntfy-1'],
+          contact_types: { companion: ['builtin:push'], repeater: ['ntfy-1'], sensor: ['ntfy-1'] },
+        },
+      },
+    };
+    const patch = vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(next);
+    render(<Harness />);
+    await screen.findByRole('table');
+    const sensorPhone = screen.getByRole('checkbox', {
+      name: t('settings.notifications.matrix.kindCell', {
+        kind: t('settings.notifications.matrix.contactTypes.sensor'),
+        channel: 'Phone',
+      }),
+    });
+    fireEvent.click(sensorPhone);
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({
+        events: {
+          'contact.first_seen': {
+            contact_types: {
+              companion: ['builtin:push'],
+              repeater: ['ntfy-1'],
+              sensor: ['ntfy-1'],
+            },
+          },
+        },
+      })
+    );
+    await waitFor(() => expect(sensorPhone).toBeChecked());
+  });
+
+  it('shows urgent events as always delivered, read-only', async () => {
+    mockApi(MIGRATED);
+    vi.spyOn(api, 'getNotificationEvents').mockResolvedValue({ contract_version: 1, events });
+    const patch = vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(MIGRATED);
+    render(<Harness />);
+    await screen.findByRole('table');
+    for (const id of URGENT) {
+      const box = screen.getByRole('checkbox', {
+        name: t('settings.notifications.matrix.alwaysDeliverUrgent', {
+          event: t(`settings.notifications.matrix.events.${id.replace('.', '_')}.label`),
+        }),
+      });
+      expect(box).toBeChecked();
+      expect(box).toBeDisabled();
+    }
+    expect(patch).not.toHaveBeenCalled();
+  });
+});
+
+describe('keyboard', () => {
+  it('toggles a cell with the space key', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    mockApi();
+    const patch = vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(RULES);
+    render(<Harness />);
+    await screen.findByRole('table');
+    const user = userEvent.setup();
+    cell('message_dm', 'Phone').focus();
+    await user.keyboard(' ');
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({
+        events: { 'message.dm': { channels: ['builtin:push', 'ntfy-1'] } },
+      })
+    );
+  });
+});
+
+describe('load errors', () => {
+  it('shows an error with a retry instead of hiding the panel', async () => {
+    mockApi();
+    const rules = vi.spyOn(api, 'getNotificationRules');
+    rules.mockRejectedValueOnce(new Error('down'));
+    render(<Harness />);
+    const alert = await screen.findByTestId('notification-rules-error');
+    expect(alert).toHaveTextContent(t('settings.notifications.rulesLoadFailed'));
+    rules.mockResolvedValue(RULES);
+    fireEvent.click(screen.getByRole('button', { name: t('settings.notifications.rulesRetry') }));
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+  });
+});
+
 describe('ConversationExceptions', () => {
+  it('lets an orphan channel be cleared, dropping orphans from the write', async () => {
+    mockApi({
+      ...RULES,
+      conversations: { 'contact-aa11': { 'ntfy-1': true, 'gone-1': true, 'gone-2': false } },
+    });
+    const put = vi.spyOn(api, 'setNotificationConversationRule').mockResolvedValue(RULES);
+    render(<Harness />);
+    await screen.findByTestId('notification-exceptions');
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: t('settings.notifications.exceptionOrphan', { name: 'Alice', channel: 'gone-1' }),
+      })
+    );
+    await waitFor(() => expect(put).toHaveBeenCalledWith('contact-aa11', { 'ntfy-1': true }));
+  });
+
   it('shows names from contacts and channels and cycles a chip', async () => {
     mockApi();
     const put = vi.spyOn(api, 'setNotificationConversationRule').mockResolvedValue(RULES);

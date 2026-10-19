@@ -91,8 +91,14 @@
             "label": "Channel changed",
             "help": "A notification channel was created, changed or removed. Always sent to Web Push."
           }
-        }
-      }
+        },
+        "alwaysUrgent": "Always on: this event is urgent, so the pause never holds it.",
+        "alwaysDeliverUrgent": "{{event}}: always delivered (urgent)"
+      },
+      "exceptionOrphan": "{{name}}, {{channel}}: channel no longer exists. Click to remove.",
+      "exceptionOrphanState": "removed",
+      "rulesLoadFailed": "Could not load the notification rules.",
+      "rulesRetry": "Retry"
     }
   }
 }

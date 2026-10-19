@@ -39,11 +39,11 @@ A browser's subscription only decides whether that browser receives notification
 
 ### Do not disturb
 
-At the top of the rules in **Settings → Notifications**, **Do not disturb** pauses every notification for **1 hour**, **8 hours** or **until tomorrow 8:00** (the server's browser clock), and **Resume now** ends it. The time left is shown. Events ticked **Always deliver** (the radio going offline, by default) still go through. The pause is shared by every browser and channel; it is written to the audit log.
+At the top of the rules in **Settings → Notifications**, **Do not disturb** pauses every notification for **1 hour**, **8 hours** or **until tomorrow 8:00** (your browser's clock), and **Resume now** ends it. The time left is shown. Events ticked **Always deliver** (a column that is always ticked and locked for the urgent events: radio offline, telemetry alerts and channel changes) still go through. The pause is shared by every browser and channel; it is written to the audit log.
 
 ### Events
 
-**Settings → Notifications → Default notifications** is a table: one row per event, grouped (Messages, Nodes, Radio, Telemetry, Meshloom), one column per channel (Web Push and the channels you added; a switched-off channel is greyed but keeps its ticks) and an **Always deliver** column that lets an event through the pause. Tick a box to send that event to that channel. The first column stays in view when the table scrolls sideways on a phone. Every box has a label, so the table can be used with the keyboard and a screen reader. **New node seen** has one sub-row per node type (companions, repeaters, sensors). **Channel changed** always goes to Web Push (locked). **Mentions** has a **Match whole words only** tick. Web Push is on for the usual events at the start.
+**Settings → Notifications → Default notifications** is a table: one row per event, grouped (Messages, Nodes, Radio, Telemetry, Meshloom), one column per channel (Web Push and the channels you added; a switched-off channel is greyed but keeps its ticks) and an **Always deliver** column that lets an event through the pause. Tick a box to send that event to that channel. The first column stays in view when the table scrolls sideways on a phone. Every box has a label, so the table can be used with the keyboard and a screen reader. **New node seen** has no box of its own, only one sub-row per node type (companions, repeaters, sensors). **Channel changed** always goes to Web Push (locked). **Mentions** has a **Match whole words only** tick. Web Push is on for the usual events at the start.
 
 | Event | When it fires |
 |-------|---------------|

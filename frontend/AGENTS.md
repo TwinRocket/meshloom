@@ -709,11 +709,11 @@ The rules half (`NotificationRulesPanel`, same state hook, `setRules` takes each
 `PUT /rules/conversations/{key}` answer) renders, in order: `GlobalPauseControl` (1 h / 8 h /
 tomorrow 08:00 local / resume, writes `paused_until`; reused by the bell), `RulesMatrix` (events
 from `/events`, `configurable` only, grouped by `rulesShared.groupOf`; a checkbox per channel
-with a sticky first column inside an `overflow-x-auto` box; `always_deliver` falls back to the
-event's `urgent`; `locked_channels` are checked and disabled; `contact.first_seen` sub-rows
-materialise all three `contact_types` kinds on a toggle; the offline grace and the whole-word
+with a sticky first column inside an `overflow-x-auto` box; an `urgent` event shows "Always deliver" checked and disabled
+(the engine exempts it from the pause whatever is stored); other events read `always_deliver`; `locked_channels` are checked and disabled; `contact.first_seen` has no box of its own (the engine reads `contact_types`, never its
+`channels`) and its sub-rows materialise all three `contact_types` kinds on a toggle; the offline grace and the whole-word
 mention tick ride their rows) and `ConversationExceptions` (chip per channel cycling
-inherit/on/off, `PUT null` to remove). Strings: slice `ci` (`settings.notifications.matrix.*`,
+inherit/on/off, `PUT null` to remove; orphan channel ids get a removable chip and are dropped from every write, the server refuses unknown ids). A failed load shows an alert with a retry. Strings: slice `ci` (`settings.notifications.matrix.*`,
 `.pause.*`). Test: `src/test/notificationsRules.test.tsx`. The old `push_defaults` table and
 exceptions list are gone from `SettingsNotificationsSection`.
 

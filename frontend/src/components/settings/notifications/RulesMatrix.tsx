@@ -127,18 +127,45 @@ export function RulesMatrix({
                         </span>
                       </th>
                       <td className="px-2 py-2 text-center">
-                        <Checkbox
-                          checked={always}
-                          disabled={disabled}
-                          aria-label={t('settings.notifications.matrix.alwaysDeliverFor', {
-                            event: label,
-                          })}
-                          onCheckedChange={(v) =>
-                            onPatch({ events: { [event.id]: { always_deliver: v === true } } })
-                          }
-                        />
+                        {event.urgent ? (
+                          <span
+                            className="inline-flex items-center gap-1"
+                            title={t('settings.notifications.matrix.alwaysUrgent')}
+                          >
+                            <Checkbox
+                              checked
+                              disabled
+                              aria-label={t('settings.notifications.matrix.alwaysDeliverUrgent', {
+                                event: label,
+                              })}
+                            />
+                            <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                          </span>
+                        ) : (
+                          <Checkbox
+                            checked={always}
+                            disabled={disabled}
+                            aria-label={t('settings.notifications.matrix.alwaysDeliverFor', {
+                              event: label,
+                            })}
+                            onCheckedChange={(v) =>
+                              onPatch({ events: { [event.id]: { always_deliver: v === true } } })
+                            }
+                          />
+                        )}
                       </td>
                       {channels.map((channel) => {
+                        if (event.id === 'contact.first_seen') {
+                          // The engine reads `contact_types` here, never the event's channels: the
+                          // sub-rows below are the only controls.
+                          return (
+                            <td key={channel.id} className="px-2 py-2 text-center">
+                              <span aria-hidden="true" className="text-muted-foreground">
+                                –
+                              </span>
+                            </td>
+                          );
+                        }
                         const locked = event.locked_channels.includes(channel.id);
                         const checked = locked || rule.channels.includes(channel.id);
                         return (

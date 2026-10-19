@@ -5,6 +5,7 @@ import { api, formatApiError } from '../../../api';
 import type { NotificationRulesPatch } from '../../../notifications/types';
 import type { Channel, Contact } from '../../../types';
 import { Separator } from '../../ui/separator';
+import { Button } from '../../ui/button';
 import { toast } from '../../ui/sonner';
 import { SettingsGroupHeader } from '../settingsPrimitives';
 import { ConversationExceptions } from './ConversationExceptions';
@@ -23,7 +24,7 @@ export function NotificationRulesPanel({
   chatChannels: Channel[];
 }) {
   const { t } = useTranslation();
-  const { channels, rules, events, loading, error, setRules } = state;
+  const { channels, rules, events, loading, error, setRules, reload } = state;
   const [busy, setBusy] = useState(false);
 
   const run = async (call: () => Promise<NonNullable<typeof rules>>, failure: string) => {
@@ -40,7 +41,20 @@ export function NotificationRulesPanel({
   const patch = (body: NotificationRulesPatch) =>
     void run(() => api.patchNotificationRules(body), t('settings.notifications.rulesSaveFailed'));
 
-  if (error || loading || !rules) return null;
+  if (loading) return null;
+  if (error || !rules) {
+    return (
+      <div className="space-y-2" role="alert" data-testid="notification-rules-error">
+        <p className="text-sm text-destructive">
+          {t('settings.notifications.rulesLoadFailed')}
+          {error ? ` ${formatApiError(error, t)}` : ''}
+        </p>
+        <Button variant="outline" size="sm" onClick={() => void reload()}>
+          {t('settings.notifications.rulesRetry')}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <>
