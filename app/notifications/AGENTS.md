@@ -199,6 +199,27 @@ keeps its `last_notified_update_version` guard: it records only when `emit` queu
 The payload dict is what the transports render, so the golden fixtures hold
 (`tests/test_notification_producers.py` sends every golden case through the rules). `PushManager`
 (`app/push/manager.py`) is only the Web Push transport (`dispatch_event`).
+
+### Mentions (`mention.py`, MSHL-121)
+
+`is_mention(text, radio_name, whole_word=)`: `@[<name>]`, or with `rules.mention_whole_word`
+the name as a whole word (`(?<!\w)name(?!\w)`, not `\b`: names may start or end with a
+symbol); case-insensitive, name `re.escape`d, one pattern compiled per (name, mode)
+(`lru_cache`), so a message costs one regex search and no database read (the radio name is
+`radio_runtime.meshcore.self_info`, in memory). The producer decides it for an incoming `CHAN`
+message and ignores a `mention` key in the input. The rules then give two disjoint sets: the
+channels of `events["message.mention"]` get `message.mention` (title "Mention in #x by Y", the
+same push `tag` as the plain message so it replaces it), the other `message.channel` channels
+keep the plain event (`emit(..., exclude=mentioned)`): one notification per channel. A mention
+reaches the channels of its own rule plus those with a stored `true` exception for the conversation (listed or not); on a private-key
+channel it also needs a non-cloud channel (`rules.channel_is_cloud`: registry `cloud` /
+`cloud_check`; an Apprise or webhook channel always counts as cloud (their URL is a secret); unknown or unreadable counts as cloud)
+or a stored `true` exception for the conversation (Q6: a mention is forged by anyone in range,
+never urgent). The channels table is read (`cloud_channel_ids`) only for a mention of a
+private-key channel. Mute, block lists and the pauses apply as for `message.channel`. Migration
+115 gives an existing install the rule `message.mention` = channels of `message.dm`.
+`tests/fixtures/notification_policy_cases.json` carries the `mention`/`cloud` cases; the
+frontend mirror (`notificationPolicy.ts`) belongs to MSHL-120.
 - **Queues.** One `asyncio.Queue(maxsize=200)` and one worker task per channel (`spawn()`),
   started by a job and ended when the queue is empty. One send at a time per channel;
   `min_interval_s` between sends (`channels.min_interval_s`: preset `telegram` 3 s,
@@ -303,7 +324,7 @@ Consumed by the Feed, the webhook v2 and the plugin `plugin.notification` event
 without redefining anything.
 
 - **Id**: `event` is `domain.name`, lower case: `message.dm`, `message.channel`,
-  `message.mention` (placeholder, no producer yet), `contact.first_seen`,
+  `message.mention` (see "Mentions"), `contact.first_seen`,
   `channel.found`, `telemetry.alert`, `radio.offline`, `radio.online`,
   `app.started`, `app.update`, `notify.destination_changed`, `notify.test`
   (`EVENT_IDS`). These are notification ids, not WebSocket types

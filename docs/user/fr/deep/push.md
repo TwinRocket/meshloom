@@ -67,6 +67,12 @@ Pour un compagnon, **Nouveaux contacts** ou **Publicités compagnon** suffit.
 
 Les alertes « vu pour la première fois » ne se déclenchent que lorsqu’un **nouveau contact** est ajouté, après la fin du démarrage de la radio. Un nœud déjà connu, un nœud de type inconnu ou un serveur de salon ne les déclenchent jamais.
 
+### Les mentions
+
+Un message de canal **vous mentionne** quand il contient `@[` + le nom de votre radio + `]` (par exemple `@[Bob]`), quelle que soit la casse. Avec **Mots entiers uniquement** coché (ligne *Mentions* du tableau), le nom de votre radio écrit comme un mot entier compte aussi : *Al* correspond à « salut al ! » mais pas à « Alpha ». Une mention est envoyée aux canaux cochés sur la ligne **Mentions**, à la place de la notification ordinaire du canal sur ces canaux : un canal ne reçoit donc jamais les deux ; elle s’intitule « Mention dans #paris par Léa » et remplace la notification ordinaire de cette conversation dans la barre de notifications. Les canaux où **Mentions** n’est pas coché continuent de recevoir la notification ordinaire. La sourdine d’un canal, les listes de blocage et Ne pas déranger s’appliquent comme pour tout message, et une mention n’est **jamais urgente**. Elle est activée par défaut pour les canaux qui reçoivent les messages privés.
+
+**N’importe qui à portée peut forger une mention :** les messages de canal ne sont pas authentifiés, donc quiconque écrit `@[votre nom]` fait « mentionner » votre radio. C’est pourquoi une mention n’est jamais urgente, et pourquoi, sur un **canal privé** (qui a sa propre clé), elle n’atteint que les canaux qui ne sont pas un tiers (Web Push, un ntfy auto-hébergé, un relais e-mail sur votre réseau…) ou ceux que vous avez explicitement autorisés pour cette conversation par une exception (**activé**) dans la liste des conversations ; une exception sur **activé** reçoit la mention même si le canal n’est pas coché sur la ligne **Mentions**. Les canaux Apprise et webhook comptent toujours comme un tiers, car le type ne dit pas où ils envoient. Les messages privés ne sont pas des mentions.
+
 ### Les conversations
 
 Pour les messages de salon, sans exception :

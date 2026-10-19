@@ -170,7 +170,7 @@ class MessageEvent(NotificationEvent):
 
 @dataclass(frozen=True, kw_only=True)
 class MentionEvent(NotificationEvent):
-    """``message.mention``: placeholder until the mention producer exists (never urgent)."""
+    """``message.mention``: a channel message that names the radio (``mention.py``); never urgent."""
 
     data: MessageData
 
