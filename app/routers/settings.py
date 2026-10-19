@@ -4,8 +4,7 @@ import tempfile
 import time
 from typing import Any, Literal
 
-import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -32,9 +31,11 @@ from app.models import (
     UiPreferences,
     is_valid_start_view,
 )
-from app.net.egress_guard import EgressBlocked, egress_detail, error_code, validate_destination
+from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.region_scope import normalize_region_scope
 from app.repository import AppSettingsRepository, ChannelRepository, ContactRepository
+from app.repository.notification_channels import NotificationChannelRepository
+from app.routers.push import deprecated_route
 from app.services.backup import (
     PRIVATE_KEY_WARNING,
     BackupError,
@@ -403,7 +404,10 @@ async def get_settings_view(request: Request) -> AppSettingsView:
 
 
 @router.patch("", response_model=AppSettings, dependencies=[Depends(require("admin"))])
-async def update_settings(update: AppSettingsUpdate) -> AppSettings:
+async def update_settings(
+    update: AppSettingsUpdate,
+    response: Response = None,  # type: ignore[assignment]  # injected by FastAPI
+) -> AppSettings:
     """Update application settings.
 
     Settings are persisted to the database and survive restarts.
@@ -520,6 +524,9 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         kwargs["telemetry_alert_rules"] = update.telemetry_alert_rules
 
     if update.notification_destinations is not None:
+        # Deprecated, removed in 5.2.0: the destinations are the channels of /api/notifications.
+        if response is not None:  # a direct call (tests) has none
+            deprecated_route(response)
         from app.secret_fields import SecretRequiredError
 
         try:
@@ -973,23 +980,6 @@ async def get_telemetry_alert_catalog() -> TelemetryAlertCatalog:
     )
 
 
-_WEBHOOK_TEST_MESSAGES = {
-    "timeout": "The destination did not answer in time",
-    "tls_error": "The TLS handshake with the destination failed (certificate or protocol)",
-    "service_error": "The destination answered with an HTTP error",
-}
-
-
-def _webhook_test_detail(exc: BaseException) -> dict[str, Any]:
-    code = error_code(exc)
-    if code not in _WEBHOOK_TEST_MESSAGES:
-        return {"code": "notification_test_failed", "message": "Notification test failed"}
-    detail: dict[str, Any] = {"code": code, "message": _WEBHOOK_TEST_MESSAGES[code]}
-    if isinstance(exc, httpx.HTTPStatusError):
-        detail["params"] = {"status": exc.response.status_code}
-    return detail
-
-
 async def _check_webhook_destination(patch: NotificationDestinationsUpdate) -> None:
     """Refuse at save a webhook or Apprise URL the guard would refuse at send
     (400, coded), and a kept secret that would follow a destination change
@@ -1034,64 +1024,24 @@ async def _check_webhook_destination(patch: NotificationDestinationsUpdate) -> N
 @router.post(
     "/notification-destinations/test",
     response_model=NotificationDestTestResponse,
-    dependencies=[Depends(require("admin"))],
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
 )
 async def test_notification_destinations(
     request: NotificationDestTestRequest,
 ) -> NotificationDestTestResponse:
-    """Send a fixed test payload on one channel. Does not create a latch."""
-    from app.net.apprise_urls import AppriseUrlRefused
-    from app.notifications.apprise_medium import AppriseSendFailed
-    from app.notify import (
-        TEST_ALERT_PAYLOAD,
-        describe_webhook_failure,
-        send_apprise_alert,
-        send_email_alert,
-        send_webhook_alert,
-    )
+    """Deprecated (removed in 5.2.0): ``POST /api/notifications/channels/{id}/test`` on
+    ``legacy:email``, ``legacy:webhook`` or ``legacy:apprise``, which this calls (same
+    dispatcher, egress guard, rate limit and coded errors)."""
+    from app.routers.notifications import test_channel
 
-    dest = (await AppSettingsRepository.get()).notification_destinations
-    try:
-        if request.channel == "email":
-            await send_email_alert(dest, TEST_ALERT_PAYLOAD)
-        elif request.channel == "apprise":
-            await send_apprise_alert(dest, TEST_ALERT_PAYLOAD)
-        else:
-            await send_webhook_alert(dest, TEST_ALERT_PAYLOAD)
-    except AppriseUrlRefused as exc:
-        raise HTTPException(status_code=400, detail=exc.detail()) from None
-    except AppriseSendFailed as exc:
-        # Line, scheme, host and HTTP status: the guard passed for that URL.
-        raise HTTPException(status_code=502, detail=exc.detail()) from None
-    except ValueError as exc:
-        logger.info("Notification test (%s) refused: %s", request.channel, exc)
+    channel_id = f"legacy:{request.channel}"
+    if await NotificationChannelRepository.get(channel_id) is None:
+        # Not configured: there is no channel to test (the old 400, now coded).
         raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "notification_destination_invalid",
-                "message": "Notification destination is not configured or invalid",
-            },
-        ) from None
-    except EgressBlocked as exc:
-        # Refused before any connection, so the answer time says nothing either.
-        logger.info("Notification test (%s) refused by the egress guard: %s", request.channel, exc)
-        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
-    except Exception as exc:
-        # Never the exception text, in the answer (a LAN-scanning oracle) or in
-        # the log (an HTTPStatusError carries the full webhook URL and its token).
-        if request.channel != "webhook":
-            logger.warning("Notification test (email) failed: %s", type(exc).__name__)
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "notification_test_failed", "message": "Notification test failed"},
-            ) from None
-        logger.warning(
-            "Notification test (webhook) failed: %s",
-            describe_webhook_failure(exc, dest.webhook.url or ""),
+            status_code=400, detail={"code": "invalid_config", "params": {"fields": []}}
         )
-        # The guard passed: the destination is public, or one the user allowed
-        # on their network, so the failure class may be shown.
-        raise HTTPException(status_code=502, detail=_webhook_test_detail(exc)) from None
+    await test_channel(channel_id)
     return NotificationDestTestResponse(status="ok", channel=request.channel)
 
 

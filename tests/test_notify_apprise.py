@@ -399,26 +399,25 @@ async def test_test_route_covers_apprise_with_coded_errors(
     route = "/api/settings/notification-destinations/test"
     response = await client.post(route, json={"channel": "apprise"})
     assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "notification_destination_invalid"
+    assert response.json()["detail"]["code"] == "invalid_config"
 
     await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
     _fake_sends(monkeypatch, {"1001": [_Response(status=401)]})
     response = await client.post(route, json={"channel": "apprise"})
     assert response.status_code == 502
-    detail = response.json()["detail"]
-    assert detail["code"] == "service_rejected"
-    assert detail["params"] == {
-        "line": 1,
-        "context": "apprise",
-        "url": "tgram://****",
-        "status": 401,
-    }
+    assert response.json()["detail"] == {"code": "auth_failed", "params": {}}
     assert "AAAA" not in response.text
 
     _fake_sends(monkeypatch, {})
+    # One test per channel every five seconds: a second one is a 429.
+    assert (await client.post(route, json={"channel": "apprise"})).status_code == 429
+    from app.notifications.api_support import reset_test_limiters
+
+    reset_test_limiters()
     response = await client.post(route, json={"channel": "apprise"})
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "channel": "apprise"}
+    assert response.headers["Deprecation"] == "@1792368000"
 
 
 @pytest.mark.asyncio
@@ -429,7 +428,7 @@ async def test_health_reports_notification_statuses(test_db, client, monkeypatch
     body = (await client.get("/api/health")).json()
     status = body["notification_statuses"]["legacy:apprise"]
     assert status["status"] == "error"
-    assert status["last_error"] == "line 1 (tgram://****): service_error"
+    assert status["last_error"] == "line 1: service_error"
     assert "AAAA" not in str(body)
     assert body["notification_statuses"]["builtin:push"]["status"] == "connected"
 

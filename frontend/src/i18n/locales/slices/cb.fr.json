@@ -1,0 +1,27 @@
+{
+  "errors": {
+    "invalid_config": "Les réglages du canal ne sont pas valides. Vérifiez les champs signalés.",
+    "config_required": "Des champs obligatoires sont vides.",
+    "auth_failed": "Le service a refusé les identifiants (jeton, mot de passe ou clé).",
+    "rate_limited": "Trop de requêtes : patientez quelques secondes puis réessayez.",
+    "quota_exceeded": "Le quota du service est épuisé. Réessayez plus tard.",
+    "channel_paused": "Ce canal est en pause.",
+    "channel_missing": "Ce canal n'existe pas. Créez-le d'abord.",
+    "builtin_channel": "Ce canal intégré ne peut pas être supprimé.",
+    "type_immutable": "Le type d'un canal ne peut pas être modifié. Créez un nouveau canal.",
+    "channel_exists": "Un canal portant cet identifiant existe déjà.",
+    "channel_id_reserved": "Cet identifiant de canal est réservé.",
+    "channel_type_unknown": "Type de canal inconnu.",
+    "legacy_managed": "Tant que les producteurs ne lisent pas les règles, cela se règle encore dans Réglages → Notifications (les préférences 4.18.x) : modifiez-le là."
+  },
+  "settings": {
+    "access": {
+      "audit": {
+        "actions": {
+          "notify.channel_changed": "Canal de notification modifié",
+          "notify.rules_changed": "Règles de notification modifiées"
+        }
+      }
+    }
+  }
+}

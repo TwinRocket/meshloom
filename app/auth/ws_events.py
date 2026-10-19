@@ -52,6 +52,9 @@ class WsEvent(StrEnum):
     # everyone but drops their `last_error` below admin
     # (`app/routers/health.py`, `HEALTH_DETAIL_PERMISSION`).
     PLUGIN_STATUS = "plugin_status", "admin"
+    # A notification channel was created, changed, enabled, disabled or deleted:
+    # the id, the type and the name, never a setting or a secret.
+    NOTIFICATION_CHANNEL_CHANGED = "notification_channel_changed", "admin"
     # Toasts: admin-only unless the caller names a lower ``audience``
     # (``app/websocket.py``, ``broadcast_error``/``broadcast_success``).
     ERROR = "error", "read"

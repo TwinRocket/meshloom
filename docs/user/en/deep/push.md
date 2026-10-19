@@ -147,11 +147,31 @@ Any change of a delivery destination (e-mail, webhook or Apprise) sends a push n
 | PATCH | `/api/push/subscriptions/{id}` | Change the label or the language |
 | DELETE | `/api/push/subscriptions/{id}` | Delete a subscription |
 | POST | `/api/push/subscriptions/{id}/test` | Send a test notification |
-| GET | `/api/push/preferences` | Defaults, exceptions and VAPID subject |
-| PATCH | `/api/push/preferences` | Change defaults and/or the VAPID subject |
-| PUT | `/api/push/preferences/conversations/{key}` | Set or clear an exception for a conversation |
+| GET | `/api/push/preferences` | **Deprecated.** Defaults, exceptions and VAPID subject |
+| PATCH | `/api/push/preferences` | **Deprecated.** Change defaults and/or the VAPID subject |
+| PUT | `/api/push/preferences/conversations/{key}` | **Deprecated.** Set or clear an exception for a conversation |
 
 A subscription is unique by its address, so registering again updates the existing one. The old `/api/push/conversations` routes no longer exist.
+
+The three `preferences` routes are **deprecated**: they answer a `Deprecation` header and will be removed in 5.2.0. They keep working as before and every change they make is copied into the notification rules (`GET /api/notifications/rules`), for the four media push, e-mail, webhook and Apprise only; other channels are not visible there. The `Deprecation` header carries the date as RFC 9745 asks (`@1792368000`). Until Meshloom delivers from the rules (a later 5.0 change), these routes and **Settings → Notifications** remain the only place that sets those four media: `PATCH /api/notifications/rules` and `PUT .../rules/conversations/{key}` answer `409 legacy_managed` when they would add or remove push, e-mail, webhook or Apprise on an event or a conversation, and so does a change of destination or a deletion of the `legacy:email`, `legacy:webhook` and `legacy:apprise` channels. Everything else (other channels, `always_deliver`, the pause, the name or the on/off switch of a channel) is free. Turning on e-mail, webhook or Apprise for a conversation when that destination is not configured answers `400` with the code `channel_missing`. The same goes for `notification_destinations` in `PATCH /api/settings` and `POST /api/settings/notification-destinations/test`, which now tests the destination like `POST /api/notifications/channels/{id}/test` (codes `invalid_config`, `auth_failed`, `timeout`, `rate_limited`, `service_error`, `egress_*`, at most one test per 5 seconds).
+
+### Notification channels API
+
+Administrators manage the channels under `/api/notifications`:
+
+| Method | Endpoint | Effect |
+|--------|----------|--------|
+| GET | `/api/notifications/types` | The channel types: JSON Schema (secret fields are `writeOnly`), default limits |
+| GET, POST | `/api/notifications/channels` | List and create channels (secrets read `********`) |
+| POST | `/api/notifications/channels/test` | Test a configuration before saving it (nothing is stored) |
+| GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Read, change (the type cannot change) and delete a channel; `builtin:push` cannot be deleted (`403 builtin_channel`) |
+| POST | `/api/notifications/channels/{id}/test` | Send a test; one per 5 seconds per channel, then `429 rate_limited` |
+| GET, PATCH | `/api/notifications/rules` | Channels per event, `always_deliver`, the global pause (`paused_until`), the radio offline delay |
+| PUT | `/api/notifications/rules/conversations/{key}` | Channels of one conversation (`{"channels": {"id": true}}`, or `null` to clear) |
+| GET | `/api/notifications/deliveries` | The delivery journal (failures and suppressions, never the text) and hourly counters |
+| GET | `/api/notifications/events` | The event catalogue |
+
+To keep a secret when changing a channel, leave it out, send `null` or send `********`; `""` clears it. Errors are `{"code": ..., "params": ...}` and never contain a host, an address or an exception text. Creating, deleting, enabling or disabling a channel, or changing where one sends, notifies Web Push (this cannot be switched off) and the other enabled channels, and is written to the audit log.
 
 ### Push services on a private network
 

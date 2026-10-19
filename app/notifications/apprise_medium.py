@@ -66,6 +66,13 @@ class AppriseSendFailed(Exception):
         self.url = url
         self.status = status
 
+    @property
+    def delivery_code(self) -> str:
+        """The code a delivery records and a test answers: a 401 or 403 is ``auth_failed``."""
+        if self.code == "service_rejected" and self.status in (401, 403):
+            return "auth_failed"
+        return self.code
+
     def detail(self) -> dict[str, Any]:
         """A coded HTTP detail: line, scheme and host only, never a token."""
         params: dict[str, Any] = {"line": self.line, "context": "apprise", "url": self.url}

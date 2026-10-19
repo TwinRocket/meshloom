@@ -25,8 +25,7 @@ This file is a hypothesis: check it against the code.
   config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`); secret
   fields are `SecretStr` with `writeOnly: true` in `json_schema_extra`, labels and help are
   i18n keys (`label_key`, `help_key`) in the schema, the texts live in the frontend.
-  `types_schema()` is what `GET /api/notifications/types` serves (the route comes with its
-  own ticket) and the shared schema-driven form renders. A registry entry also carries
+  `types_schema()` is what `GET /api/notifications/types` serves and the shared schema-driven form renders. A registry entry also carries
   `default_limits` (per minute, hour, day), `cloud` (default `include_message_text`
   `public_only`, else `always`), `quiet_hours_exempt_default` and `required` fields.
   `ntfy`, `discord` and the presets add entries later.
@@ -41,8 +40,8 @@ This file is a hypothesis: check it against the code.
   `web_push.py` (wraps `PushManager.dispatch_event`), `email.py`, `webhook.py`,
   `apprise.py` (the native transports of the `email`, `webhook` and `apprise` channel types,
   see "Native transports"), `legacy.py` (`legacy:email`, `legacy:webhook`,
-  `legacy:apprise` through the `app/notify.py` send functions, until MSHL-111/112 switch the
-  writers; `default_transport` gives a `legacy:*` id the legacy transport, any other channel its
+  `legacy:apprise` through the `app/notify.py` send functions, until MSHL-112 switches the
+  producers; `default_transport` gives a `legacy:*` id the legacy transport, any other channel its
   native one).
 
 ## Channels (data model)
@@ -77,14 +76,53 @@ This file is a hypothesis: check it against the code.
 - **Journal.** 200 `notification_deliveries` rows per channel (trimmed at insert, plus the
   daily `prune_deliveries()`); successes are counted per channel and hour
   (`notification_counters`); `notification_state` holds dedup timestamps with an expiry.
-- **The import runs once.** The legacy columns (`push_defaults`,
-  `push_conversation_overrides`, `notification_destinations`) stay the delivery source and
-  stay editable until the API and its shims (MSHL-111) and the producers (MSHL-112) switch
-  over: the producers still compute medium flags from them and the legacy transports read
-  the destinations at send time, so a change made there after migration 113 is delivered
-  even though it is not mirrored into the channels and rules. Whoever switches the writers
-  must re-run the import (`build_channels`, `build_rules`) or mirror the writes.
-  The legacy columns are no longer written by the new model.
+- **The import runs once, the shims keep the two in step.** The legacy columns
+  (`push_defaults`, `push_conversation_overrides`, `notification_destinations`) stay the
+  delivery source until the producers read the rules (MSHL-112): they still compute medium
+  flags from them and the legacy transports read the destinations at send time. The
+  deprecated routes (`/api/push/preferences*`, `PATCH /api/settings` with
+  `notification_destinations`) therefore keep writing the columns, and
+  `AppSettingsRepository` calls `legacy_sync.sync_rules()` / `sync_destinations()` after
+  each such write: `legacy:*` channels follow the destinations (one that is no longer
+  configured is deleted, with the cascade) and `builtin:push` / `legacy:*` ids follow the
+  flags in the rules, leaving the other channels, `message.channel` and every other rule key
+  alone. The mirror goes one way, so the new API refuses what would diverge: `PATCH /rules` and
+  `PUT /rules/conversations/{key}` answer 409 `legacy_managed` when they change the
+  `builtin:push` / `legacy:*` ids of an event in `legacy_sync.LEGACY_EVENTS` (or of a
+  conversation), and `PATCH` of `config` / `allow_private_network` / `verify_tls` and `DELETE` of a
+  `legacy:*` channel do too. MSHL-112 lifts these refusals when the producers read the rules. The shims are removed in 5.2.0 (T34).
+
+## API (`app/routers/notifications.py`, `api_support.py`)
+
+- All routes are `admin`. Responses show a channel with `config[secret] = "********"` (or `""`
+  when unset) and `secret_fields`; `Channel` itself never holds a value. Errors are
+  `{code, params}` (`ChannelError.detail()`, `fail()`): `invalid_config`, `config_required`,
+  `secret_required`, `type_immutable`, `builtin_channel` (403), `channel_missing` (404, 400 for
+  an id inside a body), `channel_exists` (409), `rate_limited`, the guard's `egress_*`, ...
+  Never a host, an IP or an exception text.
+- **Tests.** `POST /channels/test` runs `NotificationChannelRepository.prepare()` (the checks of
+  a creation) and sends through `Dispatcher.send_test()`: the channel's own transport, so the
+  egress guard, with no queue, retry, journal row or counter; for a saved channel the answer
+  also updates its status. `api_support.test_failure()` maps a `SendResult.error_code` to
+  `(status, code)` (401/403 `auth_failed` 502, timeout 504, 429 `rate_limited`, anything it does
+  not know `service_error` 502). Limits: `AsyncLimiter(1, 5)` per channel id, 1 per 2 s for
+  the unsaved test (taken before `prepare()`, so before any DNS lookup) and 10 a minute for all
+  tests together (`has_capacity()` then `acquire()`), 429 with `Retry-After`; tests reset them
+  (`reset_test_limiters`, autouse in `tests/conftest.py`).
+- **`notify.channel_changed`** (catalogue event, urgent so a pause never holds it): on create,
+  change of destination (public settings, a URL secret, `allow_private_network`; not a
+  credential or a rename), enable, disable and delete. `announce_channel_change()` writes the
+  audit row (`notify.channel_changed`, 366 days), broadcasts `notification_channel_changed`
+  (admin-only `WsEvent`, `realtime=False`) and emits the notification to `builtin:push` (it
+  cannot be taken off the rule: 403 `builtin_channel`) and to the rule's channels, every other
+  enabled one by default, never to the channel that changed. `notify.destination_changed` stays
+  as it was for the legacy settings route (push only).
+- **Rules** (`GET/PATCH /rules`): `events[id]` (`channels`, `always_deliver`, `contact_types`),
+  `paused_until` (epoch seconds, `null` resumes, a past value is a resume), `mention_whole_word`
+  in the rules; `radio_offline_grace_s` and `push_allow_private_endpoints` are the
+  `app_settings` columns (one source), `host_timezone` read-only. The summary of the events
+  suppressed during a pause (counts per channel on resume) is not implemented: the journal
+  keeps one `paused` row per suppressed job.
 
 ## Dispatcher
 

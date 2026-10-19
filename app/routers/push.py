@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from pywebpush import WebPushException
 
@@ -272,11 +272,52 @@ async def test_push(subscription_id: str) -> dict:
         raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
 
 
-# ── Preferences ──────────────────────────────────────────────────────────
+# ── Preferences (deprecated shims) ───────────────────────────────────────
+#
+# Removed in 5.2.0 (MSHL-111): the data is read and written through
+# /api/notifications/rules now. Until the producers read the rules (MSHL-112) these
+# routes keep writing the 4.18.x columns that still drive delivery, and the repository
+# mirrors every write into the rules and the ``legacy:*`` channels
+# (``app/notifications/legacy_sync.py``). Channels other than ``builtin:push`` and the
+# ``legacy:*`` ones are invisible here.
+
+
+DEPRECATED_SINCE = "@1792368000"
+
+
+def deprecated_route(response: Response) -> None:
+    """Mark a response of a 4.18.x route that is kept for one release."""
+    # RFC 9745: the date the route was deprecated (2026-10-19, 5.0.0); removal is in 5.2.0.
+    response.headers["Deprecation"] = DEPRECATED_SINCE
+    response.headers["Link"] = '</api/notifications/rules>; rel="successor-version"'
+
+
+async def _require_legacy_channels(raw: bool | dict[str, bool] | None) -> None:
+    """400 ``channel_missing`` when an override turns on a medium whose legacy channel
+    does not exist (no SMTP host, no URL: it could not deliver)."""
+    from app.migrations._113_notification_channels import MEDIUM_CHANNEL
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    if not isinstance(raw, dict):
+        return
+    for medium, on in raw.items():
+        channel_id = MEDIUM_CHANNEL.get(medium)
+        if (
+            on is True
+            and channel_id
+            and await NotificationChannelRepository.get(channel_id) is None
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "channel_missing", "params": {"medium": medium}},
+            )
 
 
 @router.get(
-    "/preferences", response_model=PushPreferencesResponse, dependencies=[Depends(require("admin"))]
+    "/preferences",
+    response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
 )
 async def get_push_preferences() -> PushPreferencesResponse:
     """Return global push defaults, per-conversation overrides, and VAPID subject."""
@@ -291,7 +332,10 @@ async def get_push_preferences() -> PushPreferencesResponse:
 
 
 @router.patch(
-    "/preferences", response_model=PushPreferencesResponse, dependencies=[Depends(require("admin"))]
+    "/preferences",
+    response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
 )
 async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesResponse:
     """Partially update push defaults and/or the stored VAPID subject."""
@@ -309,7 +353,8 @@ async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesR
 @router.put(
     "/preferences/conversations/{key}",
     response_model=PushPreferencesResponse,
-    dependencies=[Depends(require("admin"))],
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
 )
 async def put_push_conversation_override(
     key: str, body: PushConversationOverrideBody
@@ -323,6 +368,7 @@ async def put_push_conversation_override(
         raw = override.model_dump(exclude_none=True)
     else:
         raw = override
+    await _require_legacy_channels(raw if isinstance(raw, dict) else None)
     await AppSettingsRepository.set_push_conversation_override(key, raw)
     return await get_push_preferences()
 

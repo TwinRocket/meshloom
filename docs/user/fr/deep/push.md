@@ -147,11 +147,31 @@ Toute modification d’une destination (e-mail, webhook ou Apprise) envoie à ch
 | PATCH | `/api/push/subscriptions/{id}` | Change l’étiquette ou la langue |
 | DELETE | `/api/push/subscriptions/{id}` | Supprime un abonnement |
 | POST | `/api/push/subscriptions/{id}/test` | Envoie une notification de test |
-| GET | `/api/push/preferences` | Valeurs par défaut, exceptions et sujet VAPID |
-| PATCH | `/api/push/preferences` | Modifie les valeurs par défaut et/ou le sujet VAPID |
-| PUT | `/api/push/preferences/conversations/{key}` | Crée ou efface une exception pour une conversation |
+| GET | `/api/push/preferences` | **Déprécié.** Valeurs par défaut, exceptions et sujet VAPID |
+| PATCH | `/api/push/preferences` | **Déprécié.** Modifie les valeurs par défaut et/ou le sujet VAPID |
+| PUT | `/api/push/preferences/conversations/{key}` | **Déprécié.** Crée ou efface une exception pour une conversation |
 
 Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l’existant. Les anciennes routes `/api/push/conversations` n’existent plus.
+
+Les trois routes `preferences` sont **dépréciées** : elles répondent un en-tête `Deprecation` et seront retirées en 5.2.0. Elles fonctionnent comme avant et chaque changement qu’elles font est recopié dans les règles de notification (`GET /api/notifications/rules`), pour les quatre médias push, e-mail, webhook et Apprise seulement ; les autres canaux n’y sont pas visibles. L’en-tête `Deprecation` porte la date comme le demande la RFC 9745 (`@1792368000`). Tant que Meshloom ne livre pas depuis les règles (un changement ultérieur de 5.0), ces routes et **Réglages → Notifications** restent le seul endroit qui règle ces quatre médias : `PATCH /api/notifications/rules` et `PUT .../rules/conversations/{key}` répondent `409 legacy_managed` s’ils ajoutent ou retirent push, e-mail, webhook ou Apprise sur un évènement ou une conversation, de même qu’un changement de destination ou la suppression des canaux `legacy:email`, `legacy:webhook` et `legacy:apprise`. Tout le reste (autres canaux, `always_deliver`, la pause, le nom ou l’interrupteur d’un canal) est libre. Activer l’e-mail, le webhook ou Apprise pour une conversation alors que cette destination n’est pas configurée répond `400` avec le code `channel_missing`. Il en va de même pour `notification_destinations` dans `PATCH /api/settings` et pour `POST /api/settings/notification-destinations/test`, qui teste désormais la destination comme `POST /api/notifications/channels/{id}/test` (codes `invalid_config`, `auth_failed`, `timeout`, `rate_limited`, `service_error`, `egress_*`, un test par 5 secondes au plus).
+
+### API des canaux de notification
+
+Les administrateurs gèrent les canaux sous `/api/notifications` :
+
+| Méthode | Point d’accès | Effet |
+|---------|---------------|-------|
+| GET | `/api/notifications/types` | Les types de canal : schéma JSON (les champs secrets sont `writeOnly`), limites par défaut |
+| GET, POST | `/api/notifications/channels` | Liste et crée des canaux (les secrets s’affichent `********`) |
+| POST | `/api/notifications/channels/test` | Teste une configuration avant de l’enregistrer (rien n’est stocké) |
+| GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Lit, modifie (le type ne peut pas changer) et supprime un canal ; `builtin:push` ne peut pas être supprimé (`403 builtin_channel`) |
+| POST | `/api/notifications/channels/{id}/test` | Envoie un test ; un par 5 secondes et par canal, puis `429 rate_limited` |
+| GET, PATCH | `/api/notifications/rules` | Canaux par évènement, `always_deliver`, pause globale (`paused_until`), délai de radio hors ligne |
+| PUT | `/api/notifications/rules/conversations/{key}` | Canaux d’une conversation (`{"channels": {"id": true}}`, ou `null` pour effacer) |
+| GET | `/api/notifications/deliveries` | Le journal des envois (échecs et suppressions, jamais le texte) et les compteurs horaires |
+| GET | `/api/notifications/events` | Le catalogue des évènements |
+
+Pour conserver un secret en modifiant un canal, omettez-le, envoyez `null` ou envoyez `********` ; `""` l’efface. Les erreurs sont `{"code": ..., "params": ...}` et ne contiennent jamais un hôte, une adresse ou un texte d’exception. Créer, supprimer, activer ou désactiver un canal, ou changer sa destination, notifie le Web Push (cela ne peut pas se désactiver) et les autres canaux actifs, et s’inscrit dans le journal d’audit.
 
 ### Services push sur un réseau privé
 

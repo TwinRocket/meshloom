@@ -869,8 +869,8 @@ floor, never the percentage alone, and do not remove the floor.
 - **Account before accept.** `AuthMiddleware` closes an upgrade with no
   principal (1008, HTTP 403) before the route runs; `/api/ws` needs `read`.
 - **Events per principal.** `WsEvent` (`auth/ws_events.py`) is the only list
-  of event types; each member declares its permission (`radio_wifi` and
-  `plugin_status` `admin`, the rest `read`). Every emit call takes a member,
+  of event types; each member declares its permission (`radio_wifi`,
+  `plugin_status` and `notification_channel_changed` `admin`, the rest `read`). Every emit call takes a member,
   never a string (pyright, plus an AST scan in
   `tests/test_auth_route_coverage.py`); a new type needs a member, a payload
   model in `app/events.py` and `scripts/build/export_ws_events.py` run for
@@ -1064,7 +1064,7 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
   the ring buffer and `/api/debug` masked. Blocked senders and muted channels
   never reach it (`app/services/message_filters.py`, shared with the Apprise
-  fanout). Its status (a code with the line and `redact_apprise_url`) is in the
+  fanout). Its status (a code with the line, never the URL) is in the
   health payload as `notification_statuses["legacy:apprise"]`.
 - Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
   fixed-host callers (Store client, plugin `http` capability: host allowlist,
@@ -1130,11 +1130,12 @@ one-click re-enable, cleared by a PATCH of `push_allow_private_endpoints` or
 `push_private_endpoints_review: false`.
 
 The test routes (`POST /push/subscriptions/{id}/test`,
-`POST /settings/notification-destinations/test`) send to a destination the
-client chose: they answer coded details only (`push_delivery_failed`,
-`push_stale`, `push_timeout`, `notification_test_failed`,
-`notification_destination_invalid`, the guard's `egress_*`, and for the
-webhook `timeout`, `tls_error`, `service_error` with `params.status`), never
+`POST /notifications/channels/test` and `.../{id}/test`, and the deprecated
+`POST /settings/notification-destinations/test` over them) send to a destination
+the client chose: they answer coded details only (`push_delivery_failed`,
+`push_stale`, `push_timeout` for a subscription; for a channel the guard's
+`egress_*`, `invalid_config`, `auth_failed`, `timeout`, `tls_error`,
+`rate_limited`, `service_error`, no `params`), never
 the exception text, which would be a LAN-scanning oracle. The guard refuses a
 private destination before any connection, so neither the answer time nor the
 status says anything about the LAN: every push delivery failure, timeout

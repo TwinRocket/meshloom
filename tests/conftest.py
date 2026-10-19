@@ -134,6 +134,15 @@ def _settle_notifications(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_notification_test_limiters():
+    """The notification test routes allow one test per channel every few seconds."""
+    from app.notifications.api_support import reset_test_limiters
+
+    reset_test_limiters()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_host_guard():
     """The Host guard keeps its mode and the names it observed in memory."""
     from app.middleware import host_guard

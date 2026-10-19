@@ -64,6 +64,15 @@ class PluginStatusPayload(TypedDict):
     attention: NotRequired[dict[str, Any] | None]
 
 
+class NotificationChannelChangedPayload(TypedDict):
+    """What changed on a notification channel (``app/routers/notifications.py``)."""
+
+    id: str
+    action: str
+    type: str
+    name: str
+
+
 class ToastPayload(TypedDict):
     message: str
     details: NotRequired[str]
@@ -87,6 +96,7 @@ _PAYLOAD_ADAPTERS: dict[WsEvent, TypeAdapter[Any]] = {
     WsEvent.MESSAGE_DELETED: TypeAdapter(MessageDeletedPayload),
     WsEvent.RADIO_WIFI: TypeAdapter(RadioWifiState),
     WsEvent.PLUGIN_STATUS: TypeAdapter(PluginStatusPayload),
+    WsEvent.NOTIFICATION_CHANNEL_CHANGED: TypeAdapter(NotificationChannelChangedPayload),
     WsEvent.ERROR: TypeAdapter(ToastPayload),
     WsEvent.SUCCESS: TypeAdapter(ToastPayload),
 }

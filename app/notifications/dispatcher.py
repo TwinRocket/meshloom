@@ -622,6 +622,47 @@ class Dispatcher:
         except Exception:
             logger.debug("notification counters not written", exc_info=True)
 
+    # -- test -------------------------------------------------------------------
+
+    async def send_test(
+        self, channel: Channel, secrets: dict[str, str], *, record: bool = False
+    ) -> SendResult:
+        """One ``notify.test`` send through the channel's transport (so through the
+        egress guard), outside the queue: no retry, no journal row, no counter. With
+        ``record`` (a saved channel) the answer also updates its status. Never raises."""
+        from app.notifications.events import TestData, TestEvent, dedup_hash
+
+        transport = self._transport_for(channel)
+        if transport is None:
+            return SendResult("failed", error_code="no_transport")
+        event = TestEvent(
+            event="notify.test",
+            dedup_key=dedup_hash("notify.test", time.time_ns()),
+            data=TestData(),
+        )
+        delivery = Delivery(name=event.event, payload=event.to_payload(), event=event)
+        try:
+            result = await transport.send(channel, None, delivery, secrets)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("notification test on %s raised %s", channel.type, type(exc).__name__)
+            result = SendResult("failed", error_code="send_failed")
+        if record:
+            if result.ok:
+                live = self._live.setdefault(channel.id, _Live())
+                failing = (
+                    live.failure_count if live.failure_count is not None else channel.failure_count
+                ) > 0
+                live.last_ok_at = int(self._wall())
+                if failing:
+                    live.failure_count, live.last_error = 0, None
+                    await self._write_status(channel.id, ok=True)
+                self._report(channel)
+            else:
+                await self._record_failure(channel, result.error_code, secrets)
+        return result
+
     # -- status -----------------------------------------------------------------
 
     async def statuses(self) -> dict[str, dict[str, Any]]:

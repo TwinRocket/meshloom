@@ -238,6 +238,7 @@ def types_schema() -> list[dict[str, Any]]:
             "schema": entry.json_schema(),
             "cloud": entry.cloud,
             "singleton": entry.singleton_id is not None,
+            "preset": False,
             "default_limits": {
                 "per_min": entry.default_limits.per_min,
                 "per_hour": entry.default_limits.per_hour,

@@ -87,6 +87,7 @@ from app.routers import (
     health,
     locate,
     messages,
+    notifications,
     packets,
     plugins,
     push,
@@ -511,6 +512,7 @@ app.include_router(repeaters.router, prefix="/api")
 app.include_router(rooms.router, prefix="/api")
 app.include_router(channels.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 app.include_router(packets.router, prefix="/api")
 app.include_router(plugins.router, prefix="/api")
 app.include_router(read_state.router, prefix="/api")

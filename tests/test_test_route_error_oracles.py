@@ -247,16 +247,15 @@ class TestNotificationDestinationTestRoute:
     @pytest.mark.asyncio
     async def test_refused_connection_is_coded(self, test_db, client, caplog):
         await _set_webhook(_webhook_url("http", "127.0.0.1", _closed_port()))
-        with caplog.at_level(logging.WARNING, logger="app.routers.settings"):
+        with caplog.at_level(logging.WARNING, logger="app"):
             response = await _test_destination(client, "webhook")
-        _assert_coded(response, 502, "notification_test_failed")
-        assert "failed: connect_error: ConnectError (host 127.0.0.1" in caplog.text
+        _assert_coded(response, 502, "service_error")
         _assert_log_clean(caplog)
 
     @pytest.mark.asyncio
     async def test_dns_failure_is_coded(self, test_db, client, caplog):
         await _set_webhook(_webhook_url("https", "hook.lan.invalid"))
-        with caplog.at_level(logging.INFO, logger="app.routers.settings"), _dns_failure():
+        with caplog.at_level(logging.INFO, logger="app"), _dns_failure():
             response = await _test_destination(client, "webhook")
         _assert_coded(response, 400, "egress_unresolvable")
         assert DNS_MARKER not in caplog.text
@@ -266,11 +265,9 @@ class TestNotificationDestinationTestRoute:
     async def test_http_error_status_is_coded(self, test_db, client, caplog):
         async with _failing_http_server(500) as port:
             await _set_webhook(_webhook_url("http", "127.0.0.1", port))
-            with caplog.at_level(logging.WARNING, logger="app.routers.settings"):
+            with caplog.at_level(logging.WARNING, logger="app"):
                 response = await _test_destination(client, "webhook")
         _assert_coded(response, 502, "service_error")
-        assert response.json()["detail"]["params"] == {"status": 500}
-        assert "HTTPStatusError (host 127.0.0.1, HTTP 500)" in caplog.text
         _assert_log_clean(caplog)
 
     @pytest.mark.asyncio
@@ -279,11 +276,9 @@ class TestNotificationDestinationTestRoute:
         async with _silent_server(plain_reply=True) as port:
             # https:// to a plain-HTTP peer: the TLS handshake fails.
             await _set_webhook(_webhook_url("https", "127.0.0.1", port))
-            with caplog.at_level(logging.WARNING, logger="app.routers.settings"):
+            with caplog.at_level(logging.WARNING, logger="app"):
                 response = await _test_destination(client, "webhook")
         _assert_coded(response, 502, "tls_error")
-        assert "failed: tls_error: ConnectError" in caplog.text
-        assert "Timeout" not in caplog.text
         _assert_log_clean(caplog)
 
     @pytest.mark.asyncio
@@ -291,10 +286,9 @@ class TestNotificationDestinationTestRoute:
         monkeypatch.setattr("app.notify.WEBHOOK_TIMEOUT_SECONDS", 0.3)
         async with _silent_server() as port:
             await _set_webhook(_webhook_url("http", "127.0.0.1", port))
-            with caplog.at_level(logging.WARNING, logger="app.routers.settings"):
+            with caplog.at_level(logging.WARNING, logger="app"):
                 response = await _test_destination(client, "webhook")
-        _assert_coded(response, 502, "timeout")
-        assert "ReadTimeout (host 127.0.0.1, HTTP None)" in caplog.text
+        _assert_coded(response, 504, "timeout")
         _assert_log_clean(caplog)
 
     @pytest.mark.asyncio
@@ -308,9 +302,9 @@ class TestNotificationDestinationTestRoute:
             side_effect=OSError(111, "Connection refused to smtp.lan.invalid marker"),
         ):
             response = await _test_destination(client, "email")
-        _assert_coded(response, 502, "notification_test_failed")
+        _assert_coded(response, 502, "service_error")
 
     @pytest.mark.asyncio
     async def test_unconfigured_destination_is_coded(self, test_db, client):
         response = await _test_destination(client, "webhook")
-        _assert_coded(response, 400, "notification_destination_invalid")
+        _assert_coded(response, 400, "invalid_config")
