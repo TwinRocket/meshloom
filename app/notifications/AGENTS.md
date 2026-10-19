@@ -22,13 +22,13 @@ This file is a hypothesis: check it against the code.
   them under their old names (tests import `_build_payload` from `push.manager`).
 
 - `channels.py`: the channel models and the type registry. A type declares a Pydantic
-  config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`); secret
+  config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`, `DiscordConfig`); secret
   fields are `SecretStr` with `writeOnly: true` in `json_schema_extra`, labels and help are
   i18n keys (`label_key`, `help_key`) in the schema, the texts live in the frontend.
   `types_schema()` is what `GET /api/notifications/types` serves and the shared schema-driven form renders. A registry entry also carries
   `default_limits` (per minute, hour, day), `cloud` (default `include_message_text`
   `public_only`, else `always`), `quiet_hours_exempt_default` and `required` fields.
-  `ntfy`, `discord` and the presets add entries later.
+  `ntfy` and the presets add entries later.
 - `app/repository/notification_channels.py`: `NotificationChannelRepository` (CRUD, the
   in-memory cache of the public channels, status updates, `get_rules()`) and
   `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).
@@ -223,6 +223,21 @@ The payload dict is what the transports render, so the golden fixtures hold
   `dedup_key`, a body hash for a grouped summary) and `X-Webhook-Timestamp` (per attempt). The
   signature does not cover the timestamp (v2, MSHL-137); the id and timestamp are unsigned, so no replay protection. `verify_signature()` is constant-time.
   `app/notify.send_webhook_alert` (legacy) uses the same helpers.
+- **Markdown escaping** (`markdown.py`, the only copy; `render.py` and `push/manager.py` re-export
+  it). `neutralise_mentions()` breaks `@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@`, `<!`, `<#`
+  with a zero-width space, `escape_markdown()` backslash-escapes Markdown punctuation; both apply to
+  every title and body (`event_notification_text`, mentions always, Markdown on `markdown=True`: a
+  Markdown Apprise channel, Discord). HTML uses `html.escape`. The output is pinned by the golden
+  fixture (do not add characters without regenerating it) and `tests/test_render_markdown.py`.
+- **Discord** (`discord.py`). Type `discord`: `webhook_url` (secret, `parse_discord_webhook`: https,
+  `discord.com`/`discordapp.com`, no port or user info) and `username`; `cloud`, limits 30/min 600/h.
+  One POST `{content, username?, allowed_mentions: {"parse": []}, flags: 4}` through the pinned
+  client with a `HostAllowlist`; `content` is `**title**\ntext` escaped and cut at 2000. 429 is
+  `retry` with the longest of `Retry-After`, `X-RateLimit-Reset-After` and the body's `retry_after`;
+  `X-RateLimit-Remaining: 0` makes the next send of that webhook answer `retry` without a request
+  (in-process, per webhook id hash; the transport never sleeps). 401/403/404 `auth_failed`, 400
+  `invalid_config`. `verify_tls=false` is refused (public host). httpx logs the request path at INFO:
+  `discord.py` installs a filter that masks the token.
 - **Apprise** (`apprise.py`). `apprise_medium.send_to_urls` sends each URL on its own (retries per
   URL); any URL still failing makes the delivery `failed` with `line N (redacted url): code`,
   never `retry`. Discord URLs get `avatar=False`; `verify_tls` maps to `verify_certificate`.

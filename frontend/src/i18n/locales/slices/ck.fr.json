@@ -1,0 +1,23 @@
+{
+  "notifications": {
+    "channels": {
+      "fields": {
+        "webhook_url": "URL du webhook Discord",
+        "username": "Nom d’utilisateur (facultatif)"
+      },
+      "help": {
+        "discord_webhook": "Copiez-la depuis Discord : paramètres du salon, Intégrations, Webhooks. Seules les adresses discord.com sont acceptées. En écriture seule : elle n’est plus jamais affichée."
+      }
+    }
+  },
+  "settings": {
+    "notifications": {
+      "types": {
+        "discord": {
+          "name": "Discord",
+          "description": "Publie dans un salon Discord par un webhook. Personne n’est jamais mentionné."
+        }
+      }
+    }
+  }
+}

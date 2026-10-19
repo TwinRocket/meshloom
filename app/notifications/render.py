@@ -13,7 +13,6 @@ serve the producers that still pass the legacy payload dicts, which
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from html import escape
@@ -21,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from app.channel_constants import is_public_channel_key
 from app.data.meshcore_channels import is_public_hashtag_channel
+from app.notifications.markdown import escape_markdown, neutralise_mentions
 
 if TYPE_CHECKING:
     from app.notifications.events import NotificationEvent
@@ -435,30 +435,6 @@ def _title_only_body(data: Mapping[str, Any], lang: str) -> str:
     if lang == "en":
         return f"Message from {sender}" if sender else "New message"
     return f"Message de {sender}" if sender else "Nouveau message"
-
-
-# Discord, Slack, Mattermost, Rocket.Chat and Matrix room-wide pings, and the
-# <@user> / <!channel> tokens of Discord and Slack.
-_MENTION = re.compile(r"@(everyone|here|channel|all|room)\b|<[@!]", re.IGNORECASE)
-_MARKDOWN_SPECIAL = re.compile(r"([\\`*_{}\[\]()#+\-.!|>~<])")
-
-
-def neutralise_mentions(text: str) -> str:
-    """``@everyone``, ``@channel``, ``<@id>``, ``<!here>``... no longer ping: a
-    zero-width space goes after ``@`` (or after ``<!`` and ``<@``)."""
-    return _MENTION.sub(_break_mention, text)
-
-
-def _break_mention(match: re.Match[str]) -> str:
-    token = match.group(0)
-    if token.startswith("<"):
-        return f"{token}\u200b"
-    return f"@\u200b{token[1:]}"
-
-
-def escape_markdown(text: str) -> str:
-    """User text shown as text: no injected link, heading or emphasis."""
-    return _MARKDOWN_SPECIAL.sub(r"\\\1", text)
 
 
 def event_notification_text(
