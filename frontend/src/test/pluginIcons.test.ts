@@ -1,12 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { icons } from 'lucide-react';
+import * as lucide from 'lucide-react';
 
 /**
  * app/data/plugin_icons.json is the closed list of icon names a plugin manifest may
  * use (the manifest validator and its exported schema read it). Every name must be
  * a lucide icon this frontend ships, or the UI would have nothing to draw.
+ *
+ * The check is on the package's named exports, not on its `icons` map: since lucide 1.0
+ * `icons` holds canonical names only, and renamed icons (`music` is now `eighth-notes`,
+ * `smile` is `face-slightly-smiling`) stay exported under their old name as aliases.
  */
 const names: string[] = JSON.parse(
   readFileSync(resolve(__dirname, '../../../app/data/plugin_icons.json'), 'utf-8')
@@ -26,6 +30,6 @@ describe('plugin icon allowlist', () => {
   });
 
   it.each(names)('%s exists in lucide-react', (name) => {
-    expect(Object.keys(icons)).toContain(pascal(name));
+    expect(Object.keys(lucide)).toContain(pascal(name));
   });
 });
