@@ -60,11 +60,19 @@ COPY --from=deps-manifest /manifest/pyproject.toml /manifest/uv.lock ./
 # published wheel for several dependencies — httptools and cffi compile from
 # source there — and the slim image ships neither a compiler nor their headers. On amd64 and arm64 the wheels exist and
 # nothing is built, so this costs those images a little time and no size.
+#
+# cbor2 6.x (py_webauthn) is a Rust extension with no pure-Python fallback and no
+# armv7 wheel, so armv7 also needs cargo and rustc. They come from Debian (this
+# base is trixie: rustc 1.85, which satisfies the crate's edition 2024 and its
+# dependencies' MSRV, pyo3 0.29 needing 1.83) and only on armhf, where the build
+# otherwise fails: the other architectures take the wheel.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libffi-dev \
+    && rust_pkgs="" \
+    && if [ "$(dpkg --print-architecture)" = "armhf" ]; then rust_pkgs="cargo rustc"; fi \
+    && apt-get install -y --no-install-recommends build-essential libffi-dev $rust_pkgs \
     && uv sync --frozen --no-dev \
-    && apt-get purge -y --auto-remove build-essential libffi-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get purge -y --auto-remove build-essential libffi-dev $rust_pkgs \
+    && rm -rf /var/lib/apt/lists/* /root/.cargo
 
 # The real manifests, once nothing expensive depends on them. The running app
 # reads its version from pyproject.toml, and 0.0.0 is not the version it shipped.
