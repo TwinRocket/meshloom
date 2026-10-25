@@ -424,6 +424,41 @@ describe('added presets (MSHL-132)', () => {
 });
 
 describe('edit dialog', () => {
+  it('keeps the text policy of an existing SMS channel locked on never', async () => {
+    mockApi([
+      PUSH,
+      channel({
+        id: 'apprise-sms00001',
+        type: 'apprise',
+        preset: 'sms_free',
+        name: 'Phone SMS',
+        config: { user: '12345678' },
+        secret_fields: [],
+        include_message_text: 'never',
+      }),
+    ]);
+    const update = vi
+      .spyOn(api, 'updateNotificationChannel')
+      .mockResolvedValue(channel({ name: 'Phone SMS' }));
+    render(<Harness />);
+    const card = await screen.findByTestId('channel-card-apprise-sms00001');
+    fireEvent.click(
+      within(card).getByRole('button', { name: t('settings.notifications.channels.edit') })
+    );
+    const dialog = await screen.findByRole('dialog');
+    const select = within(dialog).getByLabelText(
+      t('settings.notifications.channels.includeText')
+    ) as HTMLSelectElement;
+    expect(select.value).toBe('never');
+    expect(select).toBeDisabled();
+    expect(within(dialog).getByTestId('text-policy-locked')).toBeInTheDocument();
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: t('settings.notifications.channels.save') })
+    );
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect((update.mock.calls[0] as unknown[])[1]).toMatchObject({ include_message_text: 'never' });
+  });
+
   it('shows secrets as set, keeps them unless replaced and never puts them in the DOM', async () => {
     mockApi();
     const update = vi

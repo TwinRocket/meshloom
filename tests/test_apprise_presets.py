@@ -821,3 +821,63 @@ async def test_a_matrix_credential_is_required_at_save_time_and_never_echoed(tes
         await Channels.update(created.id, ChannelUpdate(config={"credential": ""}))
     assert cleared.value.code == "config_required"
     assert "syt_dummy" not in repr(cleared.value.params)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preset_id", ["sms_free", "sms_sfr"])
+async def test_the_transport_clamps_a_locked_text_policy_at_send_time(
+    test_db, preset_id, monkeypatch
+):
+    seen: list[str] = []
+
+    def fake_text(payload, language, *, include_message_text, markdown):
+        seen.append(include_message_text)
+        return "title", "body"
+
+    async def fake_send(urls, **kwargs):
+        return []
+
+    monkeypatch.setattr("app.notifications.transports.apprise.event_notification_text", fake_text)
+    monkeypatch.setattr("app.notifications.transports.apprise.send_to_urls", fake_send)
+    monkeypatch.setattr("app.email_template.resolve_instance_language", _en)
+    created = await Channels.create(body(spec_of(preset_id)))
+    channel, secrets = await Channels.get_for_send(created.id)  # type: ignore[misc]
+    # A row written around the API (an old backup, a manual edit) says "always".
+    await AppriseTransport().send(
+        channel.model_copy(update={"include_message_text": "always"}), None, delivery(), secrets
+    )
+    assert seen == ["never"]
+    other = await Channels.create(body(spec_of("pushover")))
+    channel, secrets = await Channels.get_for_send(other.id)  # type: ignore[misc]
+    await AppriseTransport().send(
+        channel.model_copy(update={"include_message_text": "always"}), None, delivery(), secrets
+    )
+    assert seen == ["never", "always"]
+
+
+def test_scrub_error_also_hides_the_last_segment_of_a_webhook_url():
+    webhook = "https://hooks.slack.com/services/TDUMMY1/BDUMMY2/dummysecret"
+    text = scrub_error("failed slack://TDUMMY1/BDUMMY2/dummysecret", [webhook])
+    assert text is not None and "dummysecret" not in text
+
+
+@pytest.mark.asyncio
+async def test_a_failed_slack_send_stores_and_logs_no_url_part(test_db, monkeypatch, caplog):
+
+    created = await Channels.create(body(spec_of("slack")))
+    channel, secrets = await Channels.get_for_send(created.id)  # type: ignore[misc]
+
+    def refuse(server, title, body_text, markdown):
+        return False, _Response(status=500)
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(apprise_medium, "_send_sync", refuse)
+    monkeypatch.setattr(apprise_medium, "_sleep", no_sleep)
+    monkeypatch.setattr("app.email_template.resolve_instance_language", _en)
+    with caplog.at_level("DEBUG"):
+        result = await AppriseTransport().send(channel, None, delivery(), secrets)
+    assert not result.ok
+    assert "dummysecret" not in (result.error_code or "")
+    assert "dummysecret" not in caplog.text

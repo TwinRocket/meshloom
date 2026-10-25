@@ -7,7 +7,8 @@
         "notification_user_rules_dropped": "A notification choice of the backup named an account that does not exist here and was left out.",
         "notification_rules_dropped": "The notification rules of the backup are too large and were not restored.",
         "notification_destination_secrets_missing": "The e-mail, webhook or Apprise destination secrets were not in the backup: enter them again in Settings > Notifications.",
-        "notification_rules_sanitized": "Some notification rules of the backup were malformed and were left out."
+        "notification_rules_sanitized": "Some notification rules of the backup were malformed and were left out.",
+        "notification_text_policy_forced": "The message text policy of a notification channel ({{value}}) was set back to its fixed value (never): an SMS service cuts long texts."
       }
     }
   },

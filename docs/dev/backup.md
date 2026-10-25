@@ -329,7 +329,11 @@ imported by `services/backup.py`.
   (name excluded for `builtin:`); the `legacy:*` destination and secrets come from
   `notification_destinations` in the v1 settings, restored first. An unknown type, a
   config the type refuses or a `legacy:*` channel absent here is dropped with
-  `notification_channel_dropped:<id>`.
+  `notification_channel_dropped:<id>`. A channel of a preset with a locked text policy (the
+  SMS ones) is restored with its own policy (`never`) whatever the file says, with the warning
+  `notification_text_policy_forced:<id>`. A Slack channel of the pre-release shape
+  (`token_a`/`token_b` in its config) fails the config check and is dropped the same way
+  (secrets are never in a file, so the old three parts cannot be joined).
 - **Hook.** `on_restore("notifications")` empties the channel cache and runs
   `legacy_sync.sync_columns()`, so the deprecated `push_defaults` and
   `push_conversation_overrides` columns follow the restored rules.
