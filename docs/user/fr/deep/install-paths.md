@@ -166,7 +166,7 @@ Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une in
 
 `MESHCORE_DATABASE_PATH` la déplace. Une mise à jour ne remplace jamais votre base : sa structure est mise à niveau au démarrage, étape par étape.
 
-À côté de la base, le dossier `share-cache` garde les images partagées que Meshloom a déjà téléchargées (par exemple `/var/lib/meshloom/share-cache`) : un second affichage n’envoie aucune requête. Il contient au plus 200 Mio, retire d’abord les images vues le moins récemment et garde chacune 6 heures au plus. Le supprimer est sans danger.
+À côté de la base, le dossier `share-cache` garde les images partagées que Meshloom a déjà téléchargées (par exemple `/var/lib/meshloom/share-cache`) : un second affichage n’envoie aucune requête. Il contient au plus 200 Mio, retire d’abord les images vues le moins récemment et garde chacune 1 heure au plus. Le supprimer est sans danger, et les sauvegardes de Home Assistant l’excluent.
 
 La commande de récupération `meshloom-admin` lit le même fichier ; la façon de la lancer pour chaque installation est dans [Comptes et accès](/docs/deep/access/).
 

@@ -166,7 +166,7 @@ The server serves `frontend/dist` if it exists, otherwise `frontend/prebuilt` (a
 
 `MESHCORE_DATABASE_PATH` moves it. An update never replaces your database: the structure is upgraded at startup, step by step.
 
-Next to the database, the `share-cache` folder keeps the shared images Meshloom has already downloaded (for example `/var/lib/meshloom/share-cache`), so a second view sends no request. It holds at most 200 MiB, drops the least recently viewed images first and keeps each one for 6 hours at most. Deleting it is harmless.
+Next to the database, the `share-cache` folder keeps the shared images Meshloom has already downloaded (for example `/var/lib/meshloom/share-cache`), so a second view sends no request. It holds at most 200 MiB, drops the least recently viewed images first and keeps each one for 1 hour at most. Deleting it is harmless, and Home Assistant backups leave it out.
 
 The recovery command `meshloom-admin` reads the same file; how to run it for each installation is in [Accounts and access](/en/docs/deep/access/).
 

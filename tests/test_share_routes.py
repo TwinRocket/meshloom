@@ -303,6 +303,15 @@ def _objects(request: httpx.Request) -> httpx.Response:
     if path == "/BiGgone":
         body = b"\x89PNG\r\n\x1a\n" + b"\x00" * (share.MAX_OBJECT_RESPONSE_BYTES + 1)
         return httpx.Response(200, content=body, headers={"Content-Type": "image/png"})
+    if path == "/EnVeLop":
+        body = b"MLF1" + b"\x00" * (share.MAX_ENVELOPE_BYTES - 4)
+        return httpx.Response(200, content=body, headers={"Content-Type": share.OCTET_STREAM})
+    if path == "/EnVbigg":
+        body = b"MLF1" + b"\x00" * (share.MAX_ENVELOPE_BYTES - 3)
+        return httpx.Response(200, content=body, headers={"Content-Type": share.OCTET_STREAM})
+    if path == "/PnGhuge":
+        body = PNG_1X1 + b"\x00" * (share.MAX_IMAGE_BYTES + 1 - len(PNG_1X1))
+        return httpx.Response(200, content=body, headers={"Content-Type": "image/png"})
     if path in OBJECTS:
         content, content_type = OBJECTS[path]
         return httpx.Response(200, content=content, headers={"Content-Type": content_type})
@@ -428,6 +437,28 @@ class TestObjects:
         assert response.json()["detail"]["code"] == "share_too_large"
         assert (await client.get("/api/share/BiGgone")).status_code == 413
         assert len(objects_on.requests) == 1
+
+    async def test_envelope_cap_is_the_contract_maximum(self, objects_on, client):
+        assert share.MAX_ENVELOPE_BYTES == 10_489_891
+        exact = await client.get("/api/share/EnVeLop")
+        assert exact.status_code == 200
+        assert len(exact.content) == share.MAX_ENVELOPE_BYTES
+        over = await client.get("/api/share/EnVbigg")
+        assert over.status_code == 413
+        assert over.json()["detail"]["code"] == "share_too_large"
+        image = await client.get("/api/share/PnGhuge")
+        assert image.status_code == 413
+        assert image.json()["detail"]["code"] == "share_too_large"
+
+    async def test_trailing_newline_is_not_an_id(self, objects_on, client, sign_in_as):
+        private = await _message("PRIV", "look https://meshl.ink/PnGokAy")
+        sign_in_as("kiosk")
+        response = await client.get("/api/share/PnGokAy%0A")
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "share_invalid_id"
+        meta = await client.get(f"/api/share/PnGokAy%0A/meta?message_id={private}")
+        assert meta.status_code == 404
+        assert objects_on.requests == []
 
     async def test_kiosk_cannot_reach_a_private_message(self, objects_on, client, sign_in_as):
         private = await _message("PRIV", "look https://meshl.ink/PnGokAy")

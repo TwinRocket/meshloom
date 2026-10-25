@@ -42,12 +42,50 @@ async def test_size_cap_is_honoured(tmp_path):
     try:
         for i in range(40):
             await cache.set(f"Obj{i:04d}", CachedObject(bytes([i]) * 32 * 1024, "image/png"))
-            assert await cache.volume() <= limit + 64 * 1024  # SQLite index overhead
+            assert await cache.volume() <= limit
         # The oldest were evicted, the newest kept.
         assert await cache.get("Obj0000") is None
         assert await cache.get("Obj0039") is not None
     finally:
         cache.close()
+
+
+async def test_size_cap_holds_with_mixed_sizes(tmp_path):
+    """Many small objects then large ones: diskcache alone would overshoot."""
+    limit = 1_000_000
+    cache = ShareCache(tmp_path / "c", size_limit=limit)
+    try:
+        for i in range(500):
+            await cache.set(f"Sml{i:04d}", CachedObject(b"x" * 100, "image/png"))
+            assert await cache.volume() <= limit
+        for i in range(30):
+            await cache.set(f"Big{i:04d}", CachedObject(b"y" * 200_000, "image/png"))
+            assert await cache.volume() <= limit
+        # The newest large object stays; the oldest went first.
+        assert await cache.get("Big0029") is not None
+        assert await cache.get("Big0000") is None
+        assert await cache.get("Sml0000") is None
+    finally:
+        cache.close()
+
+
+async def test_eviction_follows_recent_use(tmp_path):
+    cache = ShareCache(tmp_path / "c", size_limit=500_000)
+    try:
+        # Two fit with the SQLite index (about 32 KiB), a third does not.
+        await cache.set("Old0001", CachedObject(b"a" * 200_000, "image/png"))
+        await cache.set("Old0002", CachedObject(b"b" * 200_000, "image/png"))
+        assert await cache.get("Old0001") is not None  # touched: now most recent
+        await cache.set("New0003", CachedObject(b"c" * 200_000, "image/png"))
+        assert await cache.get("Old0002") is None
+        assert await cache.get("Old0001") is not None
+        assert await cache.get("New0003") is not None
+    finally:
+        cache.close()
+
+
+def test_ttl_is_one_hour():
+    assert share_cache.TTL_S == 3600
 
 
 async def test_entry_cap_drops_the_oldest(tmp_path):

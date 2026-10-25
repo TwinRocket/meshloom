@@ -10,9 +10,12 @@ default executor. No hand-written LRU, index or atomic write.
   ``MESHCORE_DATABASE_PATH`` (``/var/lib/meshloom`` for the packages, inside the
   service's ``ReadWritePaths``; ``./data`` in Docker and a checkout). Created
   (mode 0700) on first use.
-- **Bounds.** ``SIZE_LIMIT`` (200 MiB, least-recently-used eviction by diskcache),
-  ``MAX_ENTRIES`` (oldest inserted entries dropped past it) and ``TTL_S`` per
-  entry.
+- **Bounds.** ``SIZE_LIMIT`` (200 MiB, ``volume()``: the files plus the SQLite
+  index), ``MAX_ENTRIES`` (oldest inserted entries dropped past it) and
+  ``TTL_S`` (1 h) per entry. diskcache's culling (``cull_limit`` entries per write, in one
+  batch) both overshoots and over-evicts, so it is off (``cull_limit=0``) and
+  ``_set`` drops expired entries, then evicts the least recently used ones
+  until the volume is back under the limit.
 - **Keys and values.** The key is the share id (from T28, the id and a
   fingerprint of the decryption key); the value is the raw bytes, the
   validated content type its ``tag``. Bytes and strings are stored raw by
@@ -36,9 +39,9 @@ import diskcache
 
 SIZE_LIMIT = 200 * 1024 * 1024
 MAX_ENTRIES = 5000
-# How long a stored object is served without asking the service again. Short
-# enough that a block or a deletion on the service reaches this cache within hours.
-TTL_S = 6 * 3600.0
+# How long a stored object is served without asking the service again: a
+# moderation takedown or a deletion on the service reaches this cache within it.
+TTL_S = 3600.0
 CACHE_DIRNAME = "share-cache"
 
 T = TypeVar("T")
@@ -95,6 +98,10 @@ class ShareCache:
                     # Every object is a file: the size accounting (and the
                     # bytes clear() frees) then covers all of them.
                     disk_min_file_size=0,
+                    # diskcache's own culling drops up to cull_limit entries in
+                    # one batch whenever the volume is over: off, _set evicts
+                    # exactly what is needed.
+                    cull_limit=0,
                 )
             return self._cache
 
@@ -114,6 +121,7 @@ class ShareCache:
 
     def _set(self, key: str, obj: CachedObject) -> None:
         cache: Any = self._open()
+        cache.expire()  # automatic culling is off: drop expired entries here
         cache.set(key, obj.content, expire=self.ttl_s, tag=obj.content_type)
         # diskcache bounds the size only: trim the entry count, oldest first.
         while len(cache) > self.max_entries:
@@ -122,6 +130,14 @@ class ShareCache:
             except KeyError:
                 break
             cache.delete(oldest)
+        # Evict least recently used entries until the volume fits. The Cache
+        # table (access_time is what the least-recently-used policy orders by)
+        # is stable in diskcache 5.x.
+        while cache.volume() > self.size_limit:
+            row = cache._sql("SELECT key FROM Cache ORDER BY access_time LIMIT 1").fetchone()
+            if row is None:
+                break
+            cache.delete(row[0])
 
     def _clear(self) -> int:
         cache = self._open()

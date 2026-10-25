@@ -93,14 +93,20 @@ SHARE_HOST = "meshl.ink"
 SHARE_HOSTS: tuple[str, ...] = ("meshl.ink",)
 
 # The id grammar of the contract: 7 characters of the Bitcoin base58 alphabet.
-SHARE_ID_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{7}$")
+# Always used with fullmatch: "$" alone would accept a trailing newline.
+SHARE_ID_RE = re.compile(r"[1-9A-HJ-NP-Za-km-z]{7}")
 
 SHARE_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=60.0, pool=5.0)
 # Bound on one whole call, so a server dripping bytes cannot hold it open.
 SHARE_TOTAL_TIMEOUT_S = 100.0
-# Response caps: JSON answers are small; files are at most 10 MiB (contract).
+# Response caps: JSON answers are small. Contract links-files.md ("Files API v1"
+# and the encrypted envelope): a stored image is at most 10 MiB (10 485 760
+# bytes), an encrypted envelope at most 10 489 891 bytes (35-byte header, 4096
+# bytes of padding room, 10 MiB of data); a bytes answer is capped at the latter.
 MAX_JSON_RESPONSE_BYTES = 64 * 1024
-MAX_OBJECT_RESPONSE_BYTES = 10 * 1024 * 1024
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+MAX_ENVELOPE_BYTES = 35 + 4096 + MAX_IMAGE_BYTES
+MAX_OBJECT_RESPONSE_BYTES = MAX_ENVELOPE_BYTES
 # Contract limits of a stored image: GIF at most 5 MiB, at most 40 megapixels.
 MAX_GIF_BYTES = 5 * 1024 * 1024
 MAX_IMAGE_PIXELS = 40_000_000
@@ -512,7 +518,7 @@ def is_share_id(share_id: str) -> bool:
 
 def _checked_id(share_id: str) -> str:
     """A grammar id, or a local 404 (the service would answer ``not_found``)."""
-    if not SHARE_ID_RE.match(share_id):
+    if not is_share_id(share_id):
         raise ShareError("share_not_found")
     return share_id
 
@@ -533,7 +539,7 @@ async def create_link(url: str) -> ShareLink:
     response = await share_request("POST", "/v1/links", binding=url, json_body={"url": url})
     link: ShareLink = _parse(ShareLink, response)
     host = httpx.URL(link.url).host
-    if not SHARE_ID_RE.match(link.id) or not is_share_host(host):
+    if not is_share_id(link.id) or not is_share_host(host):
         logger.warning("Share service answered a link outside the grammar")
         raise ShareError("share_unavailable")
     return link
@@ -623,6 +629,8 @@ def checked_object(obj: ShareObject) -> ShareObject:
         return ShareObject(content=obj.content, content_type=OCTET_STREAM)
     if obj.content_type not in IMAGE_CONTENT_TYPES:
         raise ShareError("share_type_refused")
+    if len(obj.content) > MAX_IMAGE_BYTES:
+        raise ShareError("share_too_large")
     if sniff_image_type(obj.content) != obj.content_type:
         raise ShareError("share_type_refused")
     if obj.content_type == "image/gif" and len(obj.content) > MAX_GIF_BYTES:

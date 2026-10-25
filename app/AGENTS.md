@@ -266,7 +266,8 @@ Community guard.
   404 `share_not_found` (400 `share_invalid_id` on `GET /{id}`). `fetch_object` accepts only `OBJECT_CONTENT_TYPES`
   (`image/jpeg`, `image/png`, `image/gif`, `image/webp`,
   `application/octet-stream`); a 2xx of any other type (`text/html`, SVG) is
-  `share_unavailable`; a bytes answer past `MAX_OBJECT_RESPONSE_BYTES` (10 MiB, the
+  `share_unavailable`; a bytes answer past `MAX_OBJECT_RESPONSE_BYTES` (the contract's maximum encrypted
+  envelope, 10 489 891 bytes; an image is also capped at `MAX_IMAGE_BYTES`, 10 MiB; the
   guard's `egress_response_too_large`) is 413 `share_too_large`, counts as a breaker
   success and is negatively cached. A service code is logged only when it matches
   `^[a-z_]{1,32}$` ("unknown" otherwise).
@@ -305,8 +306,9 @@ Community guard.
   `share_disabled` even for a cached object), then the disk cache
   (`services/share_cache.py`, a thin `diskcache` wrapper: `<data dir>/share-cache/`
   next to `MESHCORE_DATABASE_PATH`, mode 0700, created on first use; 200 MiB with
-  least-recently-used eviction, 5000 entries, 6 h per entry; blocking calls in the
-  default executor). A hit makes no request. A miss calls `fetch_object` then
+  least-recently-used eviction done by `_set` itself (diskcache's batch culling is
+  off, `cull_limit=0`: it overshot and over-evicted), 5000 entries, 1 h per entry; blocking calls in the default
+  executor; the HA add-on excludes it from backups, `backup_exclude`). A hit makes no request. A miss calls `fetch_object` then
   `checked_object`: an image type must match its magic bytes (`sniff_image_type`),
   GIF at most 5 MiB, `imagesize` must read the dimensions, at most 40 Mpx
   (`MAX_IMAGE_PIXELS`); anything else is 415 `share_type_refused`.
