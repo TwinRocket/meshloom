@@ -25,6 +25,9 @@ import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { SettingsGroupHeader } from './settingsPrimitives';
 
+// Same contact as the Community ban banner (SettingsCommunitySection).
+const SHARE_BAN_CONTACT_EMAIL = 'ban@meshloom.app';
+
 const SHORTEN_MODES: ShareShortenMode[] = ['auto', 'always', 'never'];
 const PREVIEW_POLICIES: SharePreviewPolicy[] = ['always', 'private', 'never'];
 
@@ -263,6 +266,28 @@ export function SettingsShareSection({
       </div>
 
       <StatusLine status={status} />
+
+      {status.banned && (
+        <div
+          data-testid="share-banned"
+          role="status"
+          className="space-y-1 rounded-md border border-border/60 bg-muted/30 p-3"
+        >
+          <p className="text-[0.8125rem] font-medium">{t('settings.share.banned.title')}</p>
+          <p className="text-[0.8125rem] text-muted-foreground">
+            <Trans
+              i18nKey="settings.share.banned.body"
+              components={{
+                email: (
+                  <a className="underline" href={`mailto:${SHARE_BAN_CONTACT_EMAIL}`}>
+                    {SHARE_BAN_CONTACT_EMAIL}
+                  </a>
+                ),
+              }}
+            />
+          </p>
+        </div>
+      )}
 
       <div className="flex items-start gap-2">
         <Checkbox

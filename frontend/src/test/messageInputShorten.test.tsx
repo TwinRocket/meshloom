@@ -212,6 +212,23 @@ describe('MessageInput link shortening', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it('a 403 share_banned shows the coded ban message and keeps the text', async () => {
+    shortenLink.mockRejectedValue(
+      new ApiError('HTTP 403', 403, { code: 'share_banned', params: {} })
+    );
+    const input = setup();
+    fireEvent.change(input, { target: { value: OVER } });
+    fireEvent.click(screen.getAllByTestId('composer-shorten')[0]);
+    await waitFor(() =>
+      expect(mockToast.error).toHaveBeenCalledWith(i18n.t('chat.shortenFailed'), {
+        description: i18n.t('errors.share_banned'),
+      })
+    );
+    expect(i18n.t('errors.share_banned')).toContain('ban@meshloom.app');
+    expect(input.value).toBe(OVER);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   const LAN = 'http://192.168.1.10:8123/dashboard/overview/with/a/long/path/segment/x';
 
   it('a LAN URL never shows the button nor blocks a send in always mode', async () => {
