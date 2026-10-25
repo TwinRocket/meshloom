@@ -366,15 +366,20 @@ async def run_on_restore_hooks(source: RestoreSource) -> None:
 SNAPSHOT_SCRUBBED_COLUMNS: tuple[str, ...] = ("radio_ble_pin", "radio_previous_transport")
 
 # Consent flags a database copy resets to 0 (the full backup excludes them too).
-SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = ("share_enabled", "store_online")
+SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = (
+    "share_enabled",
+    "share_terms_version",
+    "share_terms_accepted_at",
+    "store_online",
+)
 
 # Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets,
-# the setup code hash and the known-device cookie key are set to NULL, and the sessions, TOTP recovery codes
-# and device pairing codes are deleted. The plugin
-# config secrets (docs/dev/plugins.md) are deleted too: a restored instance asks
-# for them again. A restored
-# snapshot keeps the accounts but none can log in with a password: recovery
-# goes through the admin reset (Access tickets).
+# the setup code hash and the known-device cookie key are set to NULL, and the
+# sessions, TOTP recovery codes and device pairing codes are deleted. The
+# plugin config secrets (docs/dev/plugins.md) are deleted too: a restored
+# instance asks for them again. A restored snapshot keeps the accounts but none
+# can log in with a password: recovery goes through the admin reset (Access
+# tickets).
 SNAPSHOT_SCRUBBED_AUTH_COLUMNS: dict[str, tuple[str, ...]] = {
     "users": ("password_hash", "totp_secret"),
     "auth_settings": ("setup_code_hash", "device_cookie_key"),

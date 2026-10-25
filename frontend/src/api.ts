@@ -351,10 +351,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(pending_token ? { pending_token } : {}),
     }),
-  passkeyLoginVerify: (credential: object) =>
+  passkeyLoginVerify: (credential: object, remember = false) =>
     fetchJson<AuthSessionInfo>('/auth/webauthn/login/verify', {
       method: 'POST',
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify({ credential, remember }),
     }),
   passkeyRegisterOptions: (password: string, code?: string) =>
     fetchJson<object>('/auth/webauthn/register/options', {

@@ -10,6 +10,7 @@
       "enable": "Activer le partage de liens et de fichiers",
       "unreachable": "Le service de partage ne répond pas pour le moment : ses conditions ne peuvent pas être lues et le partage ne peut pas être activé. Réessayez plus tard.",
       "enableHelp": "L'activer vous demande de lire et d'accepter les conditions.",
+      "termsStale": "Les conditions du partage ont changé depuis que vous l'avez activé. Le partage est désactivé tant que vous n'avez pas lu et accepté les nouvelles conditions : réactivez-le.",
       "status": {
         "yes": "oui",
         "no": "non",

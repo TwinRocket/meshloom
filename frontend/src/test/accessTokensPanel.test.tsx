@@ -160,6 +160,46 @@ describe('AccessTokensPanel', () => {
     expect(api.listAuthTokens).toHaveBeenCalledTimes(2);
   });
 
+  it('never logs the secret, nor puts it in storage or the address', async () => {
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => undefined)
+    );
+    vi.spyOn(api, 'createAuthToken').mockResolvedValue({ ...row({}), token: SECRET });
+    await renderAs('member');
+    const ui = userEvent.setup();
+    await ui.click(await screen.findByRole('button', { name: t('settings.access.tokens.add') }));
+    await ui.type(screen.getByLabelText(t('settings.access.tokens.name')), 'x');
+    await ui.click(screen.getByRole('checkbox', { name: /^read\b(?!_)/ }));
+    await ui.click(screen.getByRole('button', { name: t('settings.access.tokens.create') }));
+    await screen.findByLabelText(t('settings.access.tokens.secretLabel'));
+    await ui.click(screen.getByRole('button', { name: t('settings.access.tokens.secretDone') }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    for (const spy of spies) {
+      expect(JSON.stringify(spy.mock.calls)).not.toContain(SECRET);
+    }
+    expect(JSON.stringify({ ...localStorage })).not.toContain(SECRET);
+    expect(JSON.stringify({ ...sessionStorage })).not.toContain(SECRET);
+    expect(window.location.href).not.toContain(SECRET);
+  });
+
+  it('lets the secret field shrink next to the Copy button (360 px)', async () => {
+    // jsdom has no layout: assert the classes that keep the row inside a 360 px dialog.
+    // `min-w-0` lets the flex item go below its content width; without it a long
+    // `mlt_...` value pushes the row wider than the dialog.
+    vi.spyOn(api, 'createAuthToken').mockResolvedValue({
+      ...row({}),
+      token: `mlt_${'x'.repeat(80)}`,
+    });
+    await renderAs('member');
+    const ui = userEvent.setup();
+    await ui.click(await screen.findByRole('button', { name: t('settings.access.tokens.add') }));
+    await ui.type(screen.getByLabelText(t('settings.access.tokens.name')), 'x');
+    await ui.click(screen.getByRole('checkbox', { name: /^read\b(?!_)/ }));
+    await ui.click(screen.getByRole('button', { name: t('settings.access.tokens.create') }));
+    const secret = await screen.findByLabelText(t('settings.access.tokens.secretLabel'));
+    expect(secret).toHaveClass('min-w-0', 'flex-1');
+  });
+
   it('keeps the secret on screen when the reader clicks outside', async () => {
     vi.spyOn(api, 'createAuthToken').mockResolvedValue({ ...row({}), token: SECRET });
     await renderAs('member');

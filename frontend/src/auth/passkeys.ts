@@ -31,15 +31,29 @@ export function passkeyLoginAvailable(
   return session?.methods.passkey === true && passkeysSupported();
 }
 
+/**
+ * A capable browser on a secure page, but the server does not offer passkeys at this address
+ * (a bare IP, an undeclared host; Home Assistant's ingress has no password form, so no note
+ * there). The login page then says why the button is missing. A plain-http page has its own
+ * explanation (`auth.passkey.insecureHint`).
+ */
+export function passkeyUnavailableHere(
+  session: Pick<AuthSessionInfo, 'methods'> | null | undefined
+) {
+  return (
+    session?.methods.password === true && session.methods.passkey === false && passkeysSupported()
+  );
+}
+
 /** Passwordless: the device picks a discoverable passkey and opens the session. */
-export async function signInWithPasskey(): Promise<AuthSessionInfo> {
+export async function signInWithPasskey(remember = false): Promise<AuthSessionInfo> {
   const optionsJSON = await api.passkeyLoginOptions();
   const { startAuthentication } = await loadWebAuthn();
   // Cast: the server's options are the library's own JSON type.
   const credential = await startAuthentication({
     optionsJSON: optionsJSON as Parameters<typeof startAuthentication>[0]['optionsJSON'],
   });
-  return api.passkeyLoginVerify(credential);
+  return api.passkeyLoginVerify(credential, remember);
 }
 
 /** The second factor of a pending login (its token) answered by one of the account's passkeys. */

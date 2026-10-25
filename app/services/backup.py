@@ -186,6 +186,14 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "sharing consent: a copy restored elsewhere would enable an egress nobody clicked",
     ),
+    "app_settings.share_terms_version": (
+        "excluded",
+        "sharing consent: a copy restored elsewhere would carry an acceptance nobody clicked",
+    ),
+    "app_settings.share_terms_accepted_at": (
+        "excluded",
+        "sharing consent: a copy restored elsewhere would carry an acceptance nobody clicked",
+    ),
     "app_settings.share_instance_seed": (
         "excluded",
         "instance identity seed: never exported, created on first use, rotated by every restore",

@@ -41,7 +41,7 @@ def _service(request: httpx.Request) -> httpx.Response:
 
 @pytest.fixture
 async def on(test_db, monkeypatch):
-    await AppSettingsRepository.update(share_enabled=True)
+    await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
     Dns(monkeypatch)
     return Recorder(monkeypatch, _service)
 
@@ -67,8 +67,40 @@ class TestStatus:
             "unreachable": False,
             "shorten_mode": "auto",
             "preview_policy": "private",
+            "terms_version": share.SHARE_TERMS_VERSION,
+            "terms_accepted_version": 0,
+            "terms_accepted_at": None,
+            "terms_stale": False,
         }
         assert off.requests == []
+
+    async def test_reports_the_recorded_acceptance(self, on, client):
+        body = (await client.get("/api/share/status")).json()
+        assert body["enabled"] is True
+        assert body["terms_accepted_version"] == share.SHARE_TERMS_VERSION
+        assert isinstance(body["terms_accepted_at"], int) and body["terms_accepted_at"] > 0
+        assert body["terms_stale"] is False
+
+    async def test_a_new_terms_version_turns_it_off_until_accepted_again(
+        self, on, client, monkeypatch
+    ):
+        monkeypatch.setattr(share, "SHARE_TERMS_VERSION", share.SHARE_TERMS_VERSION + 1)
+        body = (await client.get("/api/share/status")).json()
+        assert body["enabled"] is False
+        assert body["terms_stale"] is True
+        assert body["terms_version"] == share.SHARE_TERMS_VERSION
+        response = await client.post("/api/share/links", json={"url": URL})
+        assert response.status_code == 403
+        assert on.requests == []
+        refused = await client.patch("/api/settings", json={"share_enabled": True})
+        assert refused.status_code == 409
+        assert refused.json()["detail"] == "share_terms_required"
+        accepted = await client.patch(
+            "/api/settings", json={"share_enabled": True, "share_terms_accepted": True}
+        )
+        assert accepted.status_code == 200
+        body = (await client.get("/api/share/status")).json()
+        assert (body["enabled"], body["terms_stale"]) == (True, False)
 
     async def test_identity_ready_and_private_key_follow_the_instance(self, on, client):
         await ensure_instance_key("share")
@@ -144,7 +176,7 @@ class TestLinks:
             assert (await client.post("/api/share/links", json={"url": url})).status_code == 201
 
     async def test_service_error_is_coded(self, test_db, monkeypatch, client):
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch)
         Recorder(monkeypatch, lambda _r: json_response(422, {"code": "target_blocked"}))
         response = await client.post("/api/share/links", json={"url": URL})

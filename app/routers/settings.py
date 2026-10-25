@@ -172,6 +172,15 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         description="Consent to the link and file sharing service (off by default)",
     )
+    share_terms_accepted: bool | None = Field(
+        default=None,
+        description=(
+            "True with share_enabled=true: the owner accepted the current share terms in the "
+            "consent dialog; the server records its terms version and the time. Enabling "
+            "sharing without a recorded acceptance of the current version is refused (409 "
+            "share_terms_required)"
+        ),
+    )
     share_shorten_mode: Literal["auto", "always", "never"] | None = Field(
         default=None, description="When the composer shortens a link"
     )
@@ -550,6 +559,15 @@ async def update_settings(
     if update.share_enabled is not None:
         logger.info("Updating share_enabled to %s", update.share_enabled)
         kwargs["share_enabled"] = update.share_enabled
+    if update.share_terms_accepted is True:
+        if update.share_enabled is not True:
+            raise HTTPException(status_code=422, detail="share_terms_accepted needs share_enabled")
+        kwargs["share_terms_accepted"] = True
+    if update.share_enabled is True and update.share_terms_accepted is not True:
+        from app.services.share import SHARE_TERMS_VERSION
+
+        if (await AppSettingsRepository.get()).share_terms_version != SHARE_TERMS_VERSION:
+            raise HTTPException(status_code=409, detail="share_terms_required")
     if update.share_shorten_mode is not None:
         kwargs["share_shorten_mode"] = update.share_shorten_mode
     if update.notification_language is not None:

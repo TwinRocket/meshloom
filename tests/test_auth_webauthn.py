@@ -15,6 +15,7 @@ from app.auth import totp, webauthn
 from app.auth.models import User
 from app.repository.auth import (
     AuthAuditRepository,
+    AuthSessionRepository,
     AuthSettingsRepository,
     PasskeyRepository,
     StoredPasskey,
@@ -98,8 +99,11 @@ async def _passwordless(client, authenticator: SoftAuthenticator, **kwargs) -> h
     assert options.status_code == 200, options.text
     assert options.json()["userVerification"] == "required"
     assert options.json()["allowCredentials"] == []
+    extra = {"remember": kwargs.pop("remember")} if "remember" in kwargs else {}
     credential = authenticator.get(options.json(), kwargs.pop("origin", PUBLIC), **kwargs)
-    return await client.post("/api/auth/webauthn/login/verify", json={"credential": credential})
+    return await client.post(
+        "/api/auth/webauthn/login/verify", json={"credential": credential, **extra}
+    )
 
 
 async def _audit_text() -> str:
@@ -315,6 +319,29 @@ async def test_register_then_sign_in_without_a_password(public_address):
     text = await _audit_text()
     assert '"passkey.added"' in text and '"method": "passkey"' in text
     assert authenticator.credential_id.hex() not in text
+
+
+@pytest.mark.parametrize(
+    ("remember", "long_lived"),
+    [(True, True), (False, False), (None, False)],
+    ids=["true", "false", "absent"],
+)
+async def test_passkey_sign_in_honours_remember(public_address, remember, long_lived):
+    await create_user()
+    authenticator = SoftAuthenticator()
+    async with make_client(PUBLIC) as owner:
+        await login(owner)
+        await _register(owner, authenticator)
+    kwargs = {} if remember is None else {"remember": remember}
+    async with make_client(PUBLIC) as client:
+        response = await _passwordless(client, authenticator, **kwargs)
+        assert response.status_code == 200, response.text
+        [cookie] = [c for c in response.headers.get_list("set-cookie") if "meshloom_session=" in c]
+        assert ("Max-Age=" in cookie) is long_lived
+        assert "Expires" not in cookie
+    sessions = await AuthSessionRepository.list_for_user(1)
+    newest = sessions[0]
+    assert newest.remember is long_lived
 
 
 async def test_an_assertion_is_used_once_and_needs_user_verification(public_address):

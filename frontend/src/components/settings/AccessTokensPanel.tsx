@@ -276,7 +276,7 @@ function TokenSecretDialog({
               readOnly
               autoComplete="off"
               spellCheck={false}
-              className="font-mono"
+              className="min-w-0 flex-1 font-mono"
               value={token?.token ?? ''}
               onFocus={(event) => event.currentTarget.select()}
             />
@@ -314,8 +314,6 @@ export function AccessTokensPanel() {
   const [secret, setSecret] = useState<AuthTokenCreated | null>(null);
   const [revoking, setRevoking] = useState<AuthTokenRow | null>(null);
   const [version, setVersion] = useState(0);
-  // Read when the list loads: the "expired" badge needs a clock, and render must stay pure.
-  const [nowS, setNowS] = useState(0);
   const reload = () => setVersion((value) => value + 1);
 
   const isAdmin = role === 'admin';
@@ -330,7 +328,6 @@ export function AccessTokensPanel() {
       .then((list) => {
         if (cancelled) return;
         setRows(list);
-        setNowS(Math.floor(Date.now() / 1000));
         setError(null);
       })
       .catch((err) => {
@@ -384,18 +381,10 @@ export function AccessTokensPanel() {
       )}
       <ul className="divide-y divide-border">
         {rows?.map((row) => {
-          const expired = row.expires_at !== null && row.expires_at <= nowS;
           return (
             <li key={row.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2">
               <div className="min-w-48 flex-1">
-                <div className="text-sm font-medium break-words">
-                  {row.name}
-                  {expired && (
-                    <span className="ml-2 rounded-full bg-destructive/15 px-2 py-0.5 text-[0.6875rem] text-destructive">
-                      {t('settings.access.tokens.expired')}
-                    </span>
-                  )}
-                </div>
+                <div className="text-sm font-medium break-words">{row.name}</div>
                 <div className="mt-1 flex flex-wrap gap-1">
                   {row.scopes.map((scope) => (
                     <code

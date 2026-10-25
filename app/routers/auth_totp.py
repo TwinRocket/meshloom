@@ -392,7 +392,7 @@ async def login_second_factor(
     except BaseException as exc:
         totp.pending_logins.put_back(token, entry, failed=getattr(exc, "status_code", None) == 401)
         raise
-    principal = await _start_session(request, response, user)
+    principal = await _start_session(request, response, user, remember=entry.remember)
     await _remember_device(
         response, user, device or (presented.device_id if presented else None), secure
     )

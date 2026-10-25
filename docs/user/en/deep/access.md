@@ -67,7 +67,7 @@ If an administrator sets your password (or `meshloom-admin reset-password --must
 
 ## Sessions
 
-Signing in opens a **session**: Meshloom sets a cookie on that browser and keeps only a fingerprint of its secret. The cookie lasts 30 days and slides: each visit pushes the end back, so a browser you use is never signed out, and neither is a page that only keeps its live connection open, such as a wall screen. After 30 days without any visit, you sign in again. Over HTTPS the cookie is `__Host-meshloom_session` (secure, host-only); over plain `http://` it is `meshloom_session`, which a browser sends in clear: use [HTTPS](/en/docs/deep/https/) beyond a network you trust.
+Signing in opens a **session**: Meshloom sets a cookie on that browser and keeps only a fingerprint of its secret. The sign-in form has a **Keep me signed in on this device** box. Checked, the cookie lasts 30 days and slides: each visit pushes the end back, so a browser you use is never signed out, and neither is a page that only keeps its live connection open, such as a wall screen. After 30 days without any visit, you sign in again. Unchecked (the default), the cookie disappears when you close the browser, and the session also ends after 12 hours without a visit, even if the browser stays open. The API takes the same choice as `remember` in `POST /api/auth/login` (`false` by default). A browser that supports passkeys, on an address where Meshloom does not offer them, says so under the form. Over HTTPS the cookie is `__Host-meshloom_session` (secure, host-only); over plain `http://` it is `meshloom_session`, which a browser sends in clear: use [HTTPS](/en/docs/deep/https/) beyond a network you trust.
 
 - **My sessions** (**Settings → Users & Access**) lists the browsers signed in to your account, with system, address and last visit. **Revoke** signs one out, **Sign out everywhere else** all but this one. The live connection of a revoked session closes at once.
 - **Sign out** revokes the session and clears the cookie.
@@ -192,7 +192,7 @@ The same things through the API (accounts with a password, not the kiosk or Home
 | `GET /api/auth/webauthn/credentials` | Your passkeys: name, creation, last use. |
 | `DELETE /api/auth/webauthn/credentials/<id>` | `{"password"}`: removes one. Your password still signs you in. |
 | `POST /api/auth/webauthn/login/options` | `{}`: the options for `navigator.credentials.get()` to sign in without a password (the device must check it is you). |
-| `POST /api/auth/webauthn/login/verify` | `{"credential"}`: the browser's answer; opens the session. |
+| `POST /api/auth/webauthn/login/verify` | `{"credential", "remember"}`: the browser’s answer (and "Keep me signed in"); opens the session. |
 
 - **As a second factor.** With [two-factor authentication](#two-factor-authentication) on, a passkey can replace the code after the password: `POST /api/auth/login` lists `passkey` in `second_factor.methods`, `POST /api/auth/webauthn/login/options` with `{"pending_token"}` gives the options, and `POST /api/auth/login/2fa` takes `{"pending_token", "passkey"}`. Without two-factor authentication, a passkey changes nothing to signing in with the password.
 - **A passkey replaces both the password and the code.** Signing in with a passkey alone is enough, even with two-factor authentication on: the device checks it is you (fingerprint, face or PIN), which counts as both factors. That is why adding a passkey asks for your password **and** a code when two-factor authentication is on. If you think someone used your account, review your passkeys and remove the ones you do not recognise, then change your password.
@@ -275,7 +275,7 @@ Run it with `sudo`:
 sudo meshloom-admin reset-password alice
 ```
 
-The command refuses to run without root. As root it reads the database path from `/etc/meshloom/meshloom.env` (a file only root can read), then switches to the `meshloom` user, which owns the database, so SQLite never leaves files the service cannot write. The same command is `/opt/meshloom/.venv/bin/meshloom-admin`.
+The command refuses to run without root. As root it reads the database path from `/etc/meshloom/meshloom.env` (a file only root can change), then switches to the `meshloom` user, which owns the database, so SQLite never leaves files the service cannot write. The same command is `/opt/meshloom/.venv/bin/meshloom-admin`.
 
 ### Docker and Docker Compose
 
@@ -323,6 +323,7 @@ The database is `data/meshcore.db` in that folder.
 
 - **`database not found`**: the command looked at the wrong file. Give it the path with `--db /path/to/meshcore.db`, or set `MESHCORE_DATABASE_PATH`.
 - **`run it as root`** (package): put `sudo` in front.
-- **`cannot read /etc/meshloom/meshloom.env`**: pass the database with `--db /path/to/meshcore.db` or set `MESHCORE_DATABASE_PATH`.
+- **`cannot read /etc/meshloom/meshloom.env`**: pass the database before the command: `sudo meshloom-admin --db /path/to/meshcore.db reset-password alice`. The file is then not read.
+- **`refusing /etc/meshloom/meshloom.env`**: the file, or its folder, is not owned by root, can be changed by another user, or is a link, so the command does not trust the database path in it. Reinstalling the package restores the folder (`root:meshloom`, `0750`); fix the file with `sudo chown root:root /etc/meshloom/meshloom.env` and `sudo chmod 0640 /etc/meshloom/meshloom.env`. Meanwhile, `--db` works as above.
 - **`cannot read database` or `cannot open database for writing`**: you are not the user that owns the file. Use `sudo meshloom-admin` (package) or `docker compose exec` (Docker).
 - **`start Meshloom once`**: the database is older than the program. Start Meshloom so it upgrades the database, then run the command again.

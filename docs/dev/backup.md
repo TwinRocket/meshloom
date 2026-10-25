@@ -174,10 +174,11 @@ These hold for every section; a restore function must keep them:
      keeps them. `api_tokens` stays in the copy: it holds SHA-256 hashes of
      256-bit secrets, which give nothing without the token itself.
 
-   The sharing consent (`app_settings.share_enabled`) and the Store consent
+   The sharing consent (`app_settings.share_enabled`, with its recorded terms acceptance
+   `share_terms_version` and `share_terms_accepted_at`) and the Store consent
    (`app_settings.store_online`, not in `AppSettings` yet) are not seeds but follow the
    same rule: they are left out of the JSON export (`BackupExport` serializes
-   `settings` without `share_enabled`; `store_online` is not in `AppSettings`),
+   `settings` without those three columns; `store_online` is not in `AppSettings`),
    never restored, and set to 0 in the SQLite snapshot
    copy (`SNAPSHOT_RESET_COLUMNS`), so a copy put back elsewhere cannot enable the
    sharing or Store egress.

@@ -67,7 +67,7 @@ Si un administrateur définit votre mot de passe (ou `meshloom-admin reset-passw
 
 ## Les sessions
 
-Se connecter ouvre une **session** : Meshloom pose un cookie sur ce navigateur et ne garde qu’une empreinte de son secret. Le cookie dure 30 jours et glisse : chaque visite repousse la fin, donc un navigateur que vous utilisez n’est jamais déconnecté, ni une page qui garde seulement sa connexion en direct ouverte, comme un écran mural. Après 30 jours sans aucune visite, vous vous reconnectez. En HTTPS le cookie s’appelle `__Host-meshloom_session` (sécurisé, propre à l’hôte) ; en `http://` simple c’est `meshloom_session`, que le navigateur envoie en clair : utilisez [HTTPS](/docs/deep/https/) au-delà d’un réseau de confiance.
+Se connecter ouvre une **session** : Meshloom pose un cookie sur ce navigateur et ne garde qu’une empreinte de son secret. Le formulaire de connexion a une case **Rester connecté sur cet appareil**. Cochée, le cookie dure 30 jours et glisse : chaque visite repousse la fin, donc un navigateur que vous utilisez n’est jamais déconnecté, ni une page qui garde seulement sa connexion en direct ouverte, comme un écran mural. Après 30 jours sans aucune visite, vous vous reconnectez. Décochée (par défaut), le cookie disparaît à la fermeture du navigateur, et la session s’arrête aussi après 12 heures sans visite, même si le navigateur reste ouvert. L’API accepte le même choix sous le nom `remember` dans `POST /api/auth/login` (`false` par défaut). Un navigateur qui gère les passkeys, à une adresse où Meshloom ne les propose pas, le dit sous le formulaire. En HTTPS le cookie s’appelle `__Host-meshloom_session` (sécurisé, propre à l’hôte) ; en `http://` simple c’est `meshloom_session`, que le navigateur envoie en clair : utilisez [HTTPS](/docs/deep/https/) au-delà d’un réseau de confiance.
 
 - **Mes sessions** (**Réglages → Utilisateurs et accès**) liste les navigateurs connectés à votre compte, avec système, adresse et dernière visite. **Révoquer** en déconnecte un, **Déconnecter partout ailleurs** tous sauf celui-ci. La connexion en direct d’une session révoquée se ferme aussitôt.
 - **Se déconnecter** révoque la session et efface le cookie.
@@ -192,7 +192,7 @@ Les mêmes choses par l’API (comptes avec mot de passe, pas le kiosque ni les 
 | `GET /api/auth/webauthn/credentials` | Vos passkeys : nom, création, dernière utilisation. |
 | `DELETE /api/auth/webauthn/credentials/<id>` | `{"password"}` : en retire une. Votre mot de passe vous connecte toujours. |
 | `POST /api/auth/webauthn/login/options` | `{}` : les options de `navigator.credentials.get()` pour se connecter sans mot de passe (l’appareil doit vérifier que c’est vous). |
-| `POST /api/auth/webauthn/login/verify` | `{"credential"}` : la réponse du navigateur ; ouvre la session. |
+| `POST /api/auth/webauthn/login/verify` | `{"credential", "remember"}` : la réponse du navigateur (et « Rester connecté ») ; ouvre la session. |
 
 - **Comme second facteur.** Avec la [double authentification](#la-double-authentification) activée, une passkey peut remplacer le code après le mot de passe : `POST /api/auth/login` indique `passkey` dans `second_factor.methods`, `POST /api/auth/webauthn/login/options` avec `{"pending_token"}` donne les options, et `POST /api/auth/login/2fa` accepte `{"pending_token", "passkey"}`. Sans double authentification, une passkey ne change rien à la connexion par mot de passe.
 - **Une passkey remplace à la fois le mot de passe et le code.** Se connecter avec une passkey seule suffit, même avec la double authentification activée : l’appareil vérifie que c’est vous (empreinte, visage ou code), ce qui vaut pour les deux facteurs. C’est pourquoi ajouter une passkey demande votre mot de passe **et** un code quand la double authentification est activée. Si vous pensez que quelqu’un a utilisé votre compte, passez vos passkeys en revue, retirez celles que vous ne reconnaissez pas, puis changez votre mot de passe.
@@ -275,7 +275,7 @@ Lancez-la avec `sudo` :
 sudo meshloom-admin reset-password alice
 ```
 
-La commande refuse de s’exécuter sans les droits root. En root, elle lit le chemin de la base dans `/etc/meshloom/meshloom.env` (un fichier que seul root peut lire), puis passe à l’utilisateur `meshloom`, qui possède la base : SQLite ne laisse ainsi aucun fichier que le service ne peut pas écrire. La même commande existe sous le nom `/opt/meshloom/.venv/bin/meshloom-admin`.
+La commande refuse de s’exécuter sans les droits root. En root, elle lit le chemin de la base dans `/etc/meshloom/meshloom.env` (un fichier que seul root peut modifier), puis passe à l’utilisateur `meshloom`, qui possède la base : SQLite ne laisse ainsi aucun fichier que le service ne peut pas écrire. La même commande existe sous le nom `/opt/meshloom/.venv/bin/meshloom-admin`.
 
 ### Docker et Docker Compose
 
@@ -323,6 +323,7 @@ La base est `data/meshcore.db` dans ce dossier.
 
 - **`database not found`** : la commande a regardé le mauvais fichier. Donnez-lui le chemin avec `--db /chemin/vers/meshcore.db`, ou définissez `MESHCORE_DATABASE_PATH`.
 - **`run it as root`** (paquet) : ajoutez `sudo` devant.
-- **`cannot read /etc/meshloom/meshloom.env`** : donnez la base avec `--db /chemin/vers/meshcore.db` ou définissez `MESHCORE_DATABASE_PATH`.
+- **`cannot read /etc/meshloom/meshloom.env`** : donnez la base avant la commande : `sudo meshloom-admin --db /chemin/vers/meshcore.db reset-password alice`. Le fichier n’est alors pas lu.
+- **`refusing /etc/meshloom/meshloom.env`** : le fichier, ou son dossier, n’appartient pas à root, peut être modifié par un autre utilisateur, ou est un lien : la commande ne se fie donc pas au chemin de base qu’il contient. Réinstaller le paquet rétablit le dossier (`root:meshloom`, `0750`) ; corrigez le fichier avec `sudo chown root:root /etc/meshloom/meshloom.env` et `sudo chmod 0640 /etc/meshloom/meshloom.env`. En attendant, `--db` fonctionne comme ci-dessus.
 - **`cannot read database` ou `cannot open database for writing`** : vous n’êtes pas l’utilisateur propriétaire du fichier. Utilisez `sudo meshloom-admin` (paquet) ou `docker compose exec` (Docker).
 - **`start Meshloom once`** : la base est plus ancienne que le programme. Lancez Meshloom pour qu’il la mette à niveau, puis relancez la commande.

@@ -54,8 +54,14 @@ bootstrap_url() {
 
 # A fingerprint of the token file (CRC on stdin: nothing in argv), empty when
 # unreadable. A change means a rotation: the server signed the old sessions out.
+# Same sg fallback as read_token, or a session older than the group membership
+# would never see a rotation.
 token_stamp() {
-    cksum <"$TOKEN_FILE" 2>/dev/null || true
+    if [ -r "$TOKEN_FILE" ]; then
+        cksum <"$TOKEN_FILE" 2>/dev/null || true
+    elif command -v sg >/dev/null 2>&1; then
+        sg meshloom-kiosk -c "cksum <'$TOKEN_FILE'" </dev/null 2>/dev/null || true
+    fi
 }
 
 # --- main: everything above is functions (tests/test_kiosk_token.py sources them).

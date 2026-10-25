@@ -3,8 +3,10 @@
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -566,6 +568,94 @@ def test_launcher_bootstrap_sends_the_token_on_stdin_only(tmp_path):
 def test_launcher_bootstrap_fails_closed(tmp_path, answer, token):
     url, _ = _run_launcher_bootstrap(tmp_path, answer, token)
     assert url == ""
+
+
+def _wait_for_lines(path: Path, count: int, timeout: float = 15.0) -> list[str]:
+    deadline = time.monotonic() + timeout
+    lines: list[str] = []
+    while time.monotonic() < deadline:
+        if path.exists():
+            lines = path.read_text().splitlines()
+            if len(lines) >= count:
+                return lines
+        time.sleep(0.05)
+    return lines
+
+
+def _write_token(path: Path, token: str) -> None:
+    # The server replaces the file atomically; keep it unreadable to the session.
+    tmp = path.with_suffix(".new")
+    tmp.write_text(token + "\n")
+    tmp.chmod(0)
+    os.replace(tmp, path)
+
+
+@pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX shell")
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_launcher_restarts_chromium_on_rotation_through_sg(tmp_path):
+    """A session older than its meshloom-kiosk membership (MSHL-305) reads the
+    token file only through sg; a rotation must still restart Chromium."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "log"
+    token_file = tmp_path / "kiosk.token"
+    first, second = "mlt_" + "A" * 43, "mlt_" + "C" * 43
+    code = "B" * 43
+    answer = f'{{"path":"/api/auth/kiosk-session?code={code}","expires_in":60}}'
+    tools = {
+        # Probes succeed; the bootstrap logs the token it got on stdin.
+        "curl": (
+            "#!/bin/sh\n"
+            'case "$*" in *kiosk-bootstrap*) ;; *) exit 0 ;; esac\n'
+            f'cat >>"{log}.stdin"\n'
+            f"printf '%s' '{answer}'\n"
+        ),
+        "chromium": f'#!/bin/sh\nprintf "%s\\n" "$*" >>"{log}.browser"\nexec /bin/sleep 60\n',
+        # Joining the group after login: only sg can read the file.
+        "sg": (
+            "#!/bin/sh\n"
+            f'printf "%s\\n" "$1" >>"{log}.sg"\n'
+            f'chmod u+r "{token_file}"\n'
+            'sh -c "$3"; rc=$?\n'
+            f'chmod u-r "{token_file}"\n'
+            "exit $rc\n"
+        ),
+        "sleep": "#!/bin/sh\nexec /bin/sleep 0.1\n",
+    }
+    for name, body in tools.items():
+        (bin_dir / name).write_text(body)
+        (bin_dir / name).chmod(0o755)
+    _write_token(token_file, first)
+    assert not os.access(token_file, os.R_OK)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin",
+        "MESHLOOM_KIOSK_TOKEN_FILE": str(token_file),
+        "MESHLOOM_KIOSK_BROWSER": str(bin_dir / "chromium"),
+        "DISPLAY": ":0",
+        "XDG_RUNTIME_DIR": str(tmp_path),
+    }
+    proc = subprocess.Popen(
+        ["sh", str(REPO / "pkg/rpi/meshloom-kiosk")],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        assert len(_wait_for_lines(Path(f"{log}.browser"), 1)) == 1
+        time.sleep(0.5)  # a few unchanged polls: no restart
+        assert len(Path(f"{log}.browser").read_text().splitlines()) == 1
+        _write_token(token_file, second)
+        browsers = _wait_for_lines(Path(f"{log}.browser"), 2)
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait()
+    assert len(browsers) >= 2, "Chromium was not restarted after the rotation"
+    assert all(line.endswith(f"code={code}") for line in browsers)
+    sent = Path(f"{log}.stdin").read_text()
+    assert f"Bearer {first}" in sent and f"Bearer {second}" in sent
+    assert Path(f"{log}.sg").read_text().splitlines()[0] == "meshloom-kiosk"
 
 
 @pytest.mark.skipif(shutil.which("shellcheck") is None, reason="needs shellcheck")

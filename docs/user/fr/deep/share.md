@@ -13,7 +13,7 @@ Cette version raccourcit des **adresses web**. Le partage de fichiers et d’ima
 
 Ouvrez **Réglages > Partage : liens et fichiers** (administrateurs seulement). La section indique si le partage est activé, si l’identité de partage de ce Meshloom est prête et si les fichiers chiffrés pour les messages directs sont disponibles (ils ne servent pas encore).
 
-Cocher **Activer le partage de liens et de fichiers** ouvre toujours une fenêtre de consentement. Elle liste ce qui quitte ce Meshloom, qui exploite le service et combien de temps les données sont conservées, renvoie vers les conditions d’utilisation et la politique de confidentialité du service, et demande de cocher que vous acceptez les conditions. Annuler, fermer la fenêtre ou laisser la case décochée ne change rien. Désactiver le partage ne demande aucun consentement et prend effet aussitôt : les requêtes déjà en route sont interrompues.
+Cocher **Activer le partage de liens et de fichiers** ouvre toujours une fenêtre de consentement. Elle liste ce qui quitte ce Meshloom, qui exploite le service et combien de temps les données sont conservées, renvoie vers les conditions d’utilisation et la politique de confidentialité du service, et demande de cocher que vous acceptez les conditions. Annuler, fermer la fenêtre ou laisser la case décochée ne change rien. Votre acceptation est enregistrée sur ce Meshloom, avec la version des conditions et la date : si les conditions changent dans une version ultérieure, le partage reste désactivé et la section vous le signale, jusqu’à ce qu’un administrateur lise et accepte les nouvelles conditions en le réactivant. Désactiver le partage ne demande aucun consentement et prend effet aussitôt : les requêtes déjà en route sont interrompues.
 
 Si le service ne répond pas, ses conditions ne peuvent pas être lues : le partage ne peut alors pas être activé avant qu’il réponde de nouveau (le désactiver reste toujours possible).
 
@@ -26,7 +26,7 @@ Seul ce serveur contacte le service, jamais votre navigateur, et toujours en HTT
 
 Le service conserve les liens courts 365 jours. Ses conditions d’utilisation et sa politique de confidentialité, accessibles depuis la fenêtre de consentement et publiées sur le domaine du service, disent ce qu’il conserve et pour qui ; la fenêtre de consentement mentionne aussi 30 jours pour les fichiers, que cette version n’envoie pas.
 
-Meshloom n’utilise jamais la clé de la radio pour cela. Voir [La clé de partage](/docs/deep/security/#la-clé-de-partage) : une clé aléatoire qui lui est propre, créée la première fois que vous raccourcissez un lien, et que le service ne voit que comme un pseudonyme. Les sauvegardes ne contiennent jamais le consentement ni cette clé (voir [Sauvegarder la radio](/docs/backup/)).
+Meshloom n’utilise jamais la clé de la radio pour cela. Voir [La clé de partage](/docs/deep/security/#la-clé-de-partage) : une clé aléatoire qui lui est propre, créée la première fois que vous raccourcissez un lien, et que le service ne voit que comme un pseudonyme. Les sauvegardes ne contiennent jamais le consentement, l’acceptation des conditions enregistrée, ni cette clé (voir [Sauvegarder la radio](/docs/backup/)).
 
 ## Raccourcir depuis le champ de saisie
 

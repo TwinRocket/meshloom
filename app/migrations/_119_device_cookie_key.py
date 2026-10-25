@@ -1,4 +1,4 @@
-"""Migration 116: ``auth_settings.device_cookie_key``.
+"""Migration 119: ``auth_settings.device_cookie_key``.
 
 The HMAC key of the known-device cookies (``app/auth/device_cookie.py``), so
 they survive a restart. NULL until first use, when the repository fills it

@@ -10,6 +10,7 @@
       "enable": "Turn on link and file sharing",
       "unreachable": "The share service is not answering right now, so its terms cannot be read and sharing cannot be turned on. Try again later.",
       "enableHelp": "Turning it on asks you to read and accept the terms.",
+      "termsStale": "The sharing terms changed since you turned sharing on. Sharing is off until you read and accept the new terms: turn it on again.",
       "status": {
         "yes": "yes",
         "no": "no",

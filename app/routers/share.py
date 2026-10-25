@@ -77,8 +77,13 @@ def _checked_url(raw: str) -> str:
 @router.get("/status", response_model=ShareStatus, dependencies=[Depends(require("read"))])
 async def get_share_status() -> ShareStatus:
     settings = await AppSettingsRepository.get()
+    terms_current = settings.share_terms_version == share.SHARE_TERMS_VERSION
     return ShareStatus(
-        enabled=settings.share_enabled,
+        enabled=settings.share_enabled and terms_current,
+        terms_version=share.SHARE_TERMS_VERSION,
+        terms_accepted_version=settings.share_terms_version,
+        terms_accepted_at=settings.share_terms_accepted_at or None,
+        terms_stale=settings.share_enabled and not terms_current,
         host=share.SHARE_HOST,
         hosts=list(share.SHARE_HOSTS),
         identity_ready=await identity_ready("share"),

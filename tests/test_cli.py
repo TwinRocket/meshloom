@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import os
+import pty
 import sqlite3
 import subprocess
 import sys
@@ -251,7 +252,10 @@ def _fake_install(tmp_path: Path) -> tuple[Path, Path]:
     fake_python.write_text('#!/bin/sh\necho "py|$MESHCORE_DATABASE_PATH|$PYTHONPATH|$*"\n')
     fake_python.chmod(0o755)
     fake_runuser = tmp_path / "runuser"
-    fake_runuser.write_text('#!/bin/sh\necho "runuser $*" >&2\nshift 3\nexec "$@"\n')
+    fake_runuser.write_text(
+        f'#!/bin/sh\necho "runuser $*" >&2\necho "runuser $*" >>"{tmp_path}/runuser.log"\n'
+        'while [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n'
+    )
     fake_runuser.chmod(0o755)
     return app, fake_runuser
 
@@ -294,6 +298,7 @@ def test_shim_package_kind_reads_the_env_file_as_data_and_drops_privileges(tmp_p
         "MESHLOOM_EUID": "0",
         "MESHLOOM_ENV_FILE": str(env_file),
         "MESHLOOM_RUNUSER": str(runuser),
+        "MESHLOOM_ROOT_UID": str(os.getuid()),
     }
     result = _shim(["list-users"], env)
     assert result.returncode == 0, result.stderr
@@ -309,23 +314,119 @@ def test_shim_package_kind_reads_the_env_file_as_data_and_drops_privileges(tmp_p
     assert result.stdout.split("|")[1] == "/given.db"
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
-def test_shim_package_kind_warns_when_the_env_file_is_unreadable(tmp_path):
+def _package_env(tmp_path: Path, env_file: Path) -> dict[str, str]:
     app, runuser = _fake_install(tmp_path)
-    env_file = tmp_path / "meshloom.env"
-    env_file.write_text("MESHCORE_DATABASE_PATH=/x.db\n")
-    env_file.chmod(0)
-    env = {
+    return {
         "MESHLOOM_PACKAGE_ROOT": str(app),
         "MESHLOOM_EUID": "0",
         "MESHLOOM_ENV_FILE": str(env_file),
         "MESHLOOM_RUNUSER": str(runuser),
+        "MESHLOOM_ROOT_UID": str(os.getuid()),
     }
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
+def test_shim_package_kind_warns_when_the_env_file_is_unreadable(tmp_path):
+    env_file = tmp_path / "meshloom.env"
+    env_file.write_text("MESHCORE_DATABASE_PATH=/x.db\n")
+    env_file.chmod(0)
+    env = _package_env(tmp_path, env_file)
     try:
         result = _shim(["list-users"], env)
+        # --db makes the file irrelevant: no exit, the CLI gets the path.
+        with_db = _shim(["--db", "/given.db", "list-users"], env)
+        with_db_eq = _shim(["--db=/given.db", "list-users"], env)
     finally:
         env_file.chmod(0o600)
     assert result.returncode == 1 and "cannot read" in result.stderr and "--db" in result.stderr
+    assert "py|" not in result.stdout
+    for run in (with_db, with_db_eq):
+        assert run.returncode == 0, run.stderr
+        assert "--db" in run.stdout and "list-users" in run.stdout
+
+
+@pytest.mark.parametrize("problem", ["group-writable", "world-writable", "owner", "link", "dir"])
+def test_shim_package_kind_refuses_an_unsafe_env_file(tmp_path, problem):
+    etc = tmp_path / "etc"
+    etc.mkdir(mode=0o750)
+    env_file = etc / "meshloom.env"
+    env_file.write_text("MESHCORE_DATABASE_PATH=/attacker.db\n")
+    env_file.chmod(0o640)
+    env = _package_env(tmp_path, env_file)
+    if problem == "group-writable":
+        env_file.chmod(0o660)
+    elif problem == "world-writable":
+        env_file.chmod(0o646)
+    elif problem == "owner":
+        env["MESHLOOM_ROOT_UID"] = str(os.getuid() + 1)
+    elif problem == "link":
+        target = tmp_path / "elsewhere.env"
+        env_file.rename(target)
+        env_file.symlink_to(target)
+    elif problem == "dir":
+        etc.chmod(0o770)
+    result = _shim(["list-users"], env)
+    assert result.returncode == 1, result.stdout
+    assert "refusing" in result.stderr and "py|" not in result.stdout
+    # With --db the file is not read, so it is not refused either.
+    result = _shim(["--db", "/given.db", "list-users"], env)
+    assert result.returncode == 0, result.stderr
+    assert "/attacker.db" not in result.stdout
+
+
+def test_shim_package_kind_accepts_the_packaged_modes(tmp_path):
+    etc = tmp_path / "etc"
+    etc.mkdir(mode=0o750)
+    env_file = etc / "meshloom.env"
+    env_file.write_text("MESHCORE_DATABASE_PATH=/srv/ok.db\n")
+    env_file.chmod(0o640)
+    result = _shim(["list-users"], _package_env(tmp_path, env_file))
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split("|")[1] == "/srv/ok.db"
+
+
+def test_shim_package_kind_uses_a_fixed_path(tmp_path):
+    # A planted `id` or `sed` earlier in the caller's PATH is never run.
+    planted = tmp_path / "planted"
+    planted.mkdir()
+    marker = tmp_path / "planted-ran"
+    for tool in ("id", "sed", "find", "env", "tail", "tr", "dirname"):
+        (planted / tool).write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
+        (planted / tool).chmod(0o755)
+    env_file = tmp_path / "meshloom.env"
+    env_file.write_text("MESHCORE_DATABASE_PATH=/srv/ok.db\n")
+    env = {**_package_env(tmp_path, env_file), "PATH": f"{planted}:{os.environ['PATH']}"}
+    result = subprocess.run(
+        ["/bin/sh", str(SHIM), "list-users"], capture_output=True, text=True, env=env, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split("|")[1] == "/srv/ok.db"
+    assert not marker.exists()
+
+
+def test_shim_package_kind_gives_the_child_a_pty_only_when_interactive(tmp_path):
+    env_file = tmp_path / "meshloom.env"
+    env = {"PATH": os.environ["PATH"], **_package_env(tmp_path, env_file)}
+    piped = _shim(["list-users"], env)
+    assert piped.returncode == 0 and "--pty" not in piped.stderr
+
+    primary, secondary = pty.openpty()
+    try:
+        proc = subprocess.run(
+            ["sh", str(SHIM), "list-users"],
+            stdin=secondary,
+            stdout=secondary,
+            stderr=secondary,
+            env=env,
+            check=False,
+            timeout=30,
+        )
+    finally:
+        os.close(secondary)
+        os.close(primary)
+    assert proc.returncode == 0
+    last = (tmp_path / "runuser.log").read_text().splitlines()[-1]
+    assert last.startswith("runuser --pty -u meshloom -- env ")
 
 
 def test_current_directory_cannot_shadow_the_installed_code(tmp_path):

@@ -42,7 +42,6 @@
         "neverUsed": "never used",
         "expires": "expires {{when}}",
         "noExpiry": "no expiry",
-        "expired": "Expired",
         "revoke": "Revoke",
         "revokeNamed": "Revoke the token {{name}}",
         "revoked": "Token revoked.",

@@ -77,6 +77,7 @@ describe('login second step', () => {
     expect(api.authLogin).toHaveBeenCalledWith({
       username: 'root',
       password: 'correct horse battery',
+      remember: false,
     });
     await user.type(screen.getByLabelText(t('auth.secondFactor.codeLabel')), '123456');
     await user.click(screen.getByRole('button', { name: t('auth.secondFactor.submit') }));

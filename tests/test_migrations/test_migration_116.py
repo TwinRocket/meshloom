@@ -1,62 +1,37 @@
+"""Migration 116: the share terms acceptance columns."""
+
 import aiosqlite
-import pytest
 
-from app.database import Database
-from app.migrations import run_migrations, set_version
-
-_AUTH_SETTINGS = "CREATE TABLE auth_settings (id INTEGER PRIMARY KEY CHECK (id = 1))"
+from app.migrations import _116_share_terms_acceptance
 
 
-@pytest.mark.asyncio
-async def test_upgrade_adds_an_empty_key():
-    conn = await aiosqlite.connect(":memory:")
-    try:
-        await set_version(conn, 115)
-        await conn.execute(_AUTH_SETTINGS)
-        await conn.execute("INSERT INTO auth_settings (id) VALUES (1)")
-        await conn.commit()
-        await run_migrations(conn)
-        cursor = await conn.execute("SELECT device_cookie_key FROM auth_settings")
-        assert (await cursor.fetchone())[0] is None
-    finally:
-        await conn.close()
+async def _columns(conn: aiosqlite.Connection) -> dict[str, tuple]:
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    return {row[1]: row for row in await cursor.fetchall()}
 
 
-@pytest.mark.asyncio
-async def test_skips_without_auth_settings():
-    conn = await aiosqlite.connect(":memory:")
-    try:
-        await set_version(conn, 115)
-        await conn.commit()
-        await run_migrations(conn)
-    finally:
-        await conn.close()
+async def test_adds_both_columns_at_zero_for_an_existing_row():
+    async with aiosqlite.connect(":memory:") as conn:
+        await conn.execute(
+            "CREATE TABLE app_settings (id INTEGER PRIMARY KEY CHECK (id = 1), share_enabled INTEGER)"
+        )
+        await conn.execute("INSERT INTO app_settings (id, share_enabled) VALUES (1, 1)")
+        await _116_share_terms_acceptance.migrate(conn)
+        cursor = await conn.execute(
+            "SELECT share_enabled, share_terms_version, share_terms_accepted_at FROM app_settings"
+        )
+        # Sharing was on, but no acceptance was ever recorded: version 0 asks again.
+        assert tuple(await cursor.fetchone()) == (1, 0, 0)
 
 
-@pytest.mark.asyncio
-async def test_fresh_database_has_the_column(tmp_path):
-    database = Database(str(tmp_path / "fresh.db"))
-    await database.connect()
-    try:
-        async with database.readonly() as conn:
-            async with conn.execute("SELECT device_cookie_key FROM auth_settings") as cursor:
-                assert (await cursor.fetchone())[0] is None
-    finally:
-        await database.disconnect()
+async def test_is_idempotent():
+    async with aiosqlite.connect(":memory:") as conn:
+        await conn.execute("CREATE TABLE app_settings (id INTEGER PRIMARY KEY)")
+        await _116_share_terms_acceptance.migrate(conn)
+        await _116_share_terms_acceptance.migrate(conn)
+        assert {"share_terms_version", "share_terms_accepted_at"} <= set(await _columns(conn))
 
 
-@pytest.mark.asyncio
-async def test_is_idempotent_and_keeps_the_key():
-    from app.migrations import _116_device_cookie_key as migration
-
-    conn = await aiosqlite.connect(":memory:")
-    try:
-        await conn.execute(_AUTH_SETTINGS)
-        await conn.execute("INSERT INTO auth_settings (id) VALUES (1)")
-        await migration.migrate(conn)
-        await conn.execute("UPDATE auth_settings SET device_cookie_key = 'ab'")
-        await migration.migrate(conn)
-        cursor = await conn.execute("SELECT device_cookie_key FROM auth_settings")
-        assert (await cursor.fetchone())[0] == "ab"
-    finally:
-        await conn.close()
+async def test_tolerates_a_database_without_app_settings():
+    async with aiosqlite.connect(":memory:") as conn:
+        await _116_share_terms_acceptance.migrate(conn)

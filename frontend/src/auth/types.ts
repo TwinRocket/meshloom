@@ -96,6 +96,8 @@ export interface AuthSetupRequest {
 export interface AuthLoginRequest {
   username: string;
   password: string;
+  /** "Remember me": the long session of the access settings, else a browser-session cookie. */
+  remember: boolean;
 }
 
 /** Error code under `errors.` explaining a login or setup that opened no session. */

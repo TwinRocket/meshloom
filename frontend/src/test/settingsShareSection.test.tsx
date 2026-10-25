@@ -147,13 +147,39 @@ describe('SettingsShareSection', () => {
     expect(current.enabled).toBe(false);
   });
 
+  it('shows a notice and asks again when the terms changed since the acceptance', async () => {
+    current = {
+      ...offStatus,
+      terms_version: 2,
+      terms_accepted_version: 1,
+      terms_accepted_at: 1_790_000_000,
+      terms_stale: true,
+    } as ShareStatus;
+    renderSection();
+    expect(await screen.findByTestId('share-terms-stale')).toHaveTextContent(
+      i18n.t('settings.share.termsStale')
+    );
+    const box = await enableBox();
+    expect(box).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(box);
+    expect(await screen.findByTestId('share-consent-dialog')).toBeInTheDocument();
+  });
+
+  it('shows no stale notice when the acceptance is current', async () => {
+    renderSection();
+    await enableBox();
+    expect(screen.queryByTestId('share-terms-stale')).toBeNull();
+  });
+
   it('accepting the terms turns sharing on', async () => {
     renderSection();
     fireEvent.click(await enableBox());
     const dialog = await screen.findByTestId('share-consent-dialog');
     fireEvent.click(dialog.querySelector('#share-accept-terms') as HTMLElement);
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.share.consent.confirm') }));
-    await waitFor(() => expect(save).toHaveBeenCalledWith({ share_enabled: true }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith({ share_enabled: true, share_terms_accepted: true })
+    );
     await waitFor(() => expect(screen.queryByTestId('share-consent-dialog')).toBeNull());
     expect(await enableBox()).toHaveAttribute('aria-checked', 'true');
   });
