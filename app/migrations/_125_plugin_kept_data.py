@@ -4,8 +4,8 @@ An uninstall with ``keep_data`` keeps the instance's ``plugin_kv`` and ``plugin_
 rows, keyed by an ``instance_id`` that no longer exists. One row here records who owned
 them (``plugin_id``, ``kind``, ``repository``) and when the uninstall happened, so a new
 install of the same plugin from the same source takes them back
-(``app/plugins/kept_data.py``) and ``prune_kept_data`` deletes them after
-``KEPT_DATA_RETENTION_S``.
+(``PluginKeptDataRepository.find`` in ``app/repository/plugins.py``) and
+``PluginKeptDataRepository.prune`` deletes them after ``KEPT_DATA_RETENTION_S``.
 
 Rows that 5.0.0 pre-releases already left orphaned (KV or secrets with no ``plugins`` row)
 are recorded with an empty ``plugin_id`` and ``kind``: nothing can take them back, they are

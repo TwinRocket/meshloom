@@ -548,7 +548,8 @@ class PluginKeptDataRepository:
     ) -> bool:
         """Whether a backup restore may create ``instance_id`` (inside its transaction).
         Kept data under that id goes to the new row only when it was kept from the same
-        plugin and source; any other data under it (another owner, or none recorded)
+        plugin and source, never for a ``local`` one; any other data under it (another
+        owner, or none recorded)
         means the restore must pick a new id. On ``True`` the record is dropped: the
         data is the restored instance's again."""
         async with conn.execute(
@@ -558,6 +559,9 @@ class PluginKeptDataRepository:
             row = await cursor.fetchone()
         if row is None:
             return not await _has_data(conn, instance_id)
+        if kind not in _REATTACHABLE_KINDS:
+            # A local plugin never takes kept data back, not even through a restore.
+            return False
         if (row["plugin_id"], row["kind"], row["repository"]) != (plugin_id, kind, repository):
             return False
         await conn.execute("DELETE FROM plugin_kept_data WHERE instance_id = ?", (instance_id,))

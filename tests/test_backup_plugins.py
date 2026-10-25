@@ -367,3 +367,25 @@ async def test_restore_names_the_supervisor_network_in_the_addon(
     monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
     warnings = await restore_sections({PLUGINS_SECTION: BackupSection(data={"instances": [entry]})})
     assert "plugins_restored:1" in warnings
+
+
+async def test_kept_data_never_goes_back_to_a_restored_local_plugin(backup_db, api, manager):
+    """MSHL-366 review: like an install, a restore never gives kept data back to a
+    local plugin, even under its own instance id, plugin id and kind."""
+    rows = await _populate(api, manager)
+    section = await export_plugins()
+    assert section is not None
+    local_id = rows["local"]["instance_id"]
+    local_pid = rows["local"]["plugin_id"]
+    assert await PluginKvRepository.get(local_id, "state") is not None
+    assert (await api.delete(f"/api/plugins/{local_id}?keep_data=true")).status_code == 204
+
+    entry = _entries(section)[local_pid]
+    await restore_sections({PLUGINS_SECTION: BackupSection(data={"instances": [entry]})})
+    restored = {row["plugin_id"]: row for row in await PluginRepository.get_all()}
+    new_id = restored[local_pid]["instance_id"]
+    assert new_id != local_id
+    assert await PluginKvRepository.get(new_id, "state") is None
+    async with backup_db.readonly() as conn:
+        async with conn.execute("SELECT instance_id FROM plugin_kept_data") as cursor:
+            assert [r[0] for r in await cursor.fetchall()] == [local_id]

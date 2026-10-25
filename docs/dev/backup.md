@@ -390,8 +390,9 @@ by `services/backup.py`.
   another plugin, or one that is not a uuid, gets a new uuid, and so does an id
   that owns kept data (`plugin_kv` or secrets left by an uninstall) unless its
   `plugin_kept_data` record names the same `plugin_id`, `kind` and `repository`
-  (`PluginKeptDataRepository.restorable_id`): then the restored row takes that data
-  back and the record goes, otherwise another plugin never reads it; a local
+  (`PluginKeptDataRepository.restorable_id`, never for a `local` entry): then the
+  restored row takes that data back and the record goes, otherwise another plugin never
+  reads it; a local
   `plugin_id` already used gets a new `-xxxxxx` suffix. A bad entry (invalid
   shape, manifest, schema, missing source, source that is not valid Python, oversized JSON, duplicate) is dropped
   on its own: `plugin_dropped:<id or "invalid">`; in the Home Assistant add-on, an entry

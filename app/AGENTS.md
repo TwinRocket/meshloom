@@ -380,7 +380,8 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   JSON restores and by `run_sqlite_restore_hooks`) calls `note_store_online_changed()`.
 - **Refresh loop.** Started at boot only when the consent is on; every
   `REFRESH_INTERVAL_S` (6 h), and once when turned on, but never twice within
-  `MIN_REFRESH_GAP_S` (10 min), it runs the steps registered with
+  `MIN_REFRESH_GAP_S` (10 min; a tick skipped by that gap waits only the rest of it),
+  it runs the steps registered with
   `register_store_refresher()`, and only when at least one `custom` or `store` instance
   is installed. M2a registers none yet (skeleton).
 - **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the

@@ -23,7 +23,8 @@ default, never restored from a backup and reset to 0 in a database copy.
   starts at boot when the consent is on, and when the setting goes from off to on
   (one tick at once); writing ``store_online=true`` again while it runs does not wake
   it, and two ticks are never closer than ``MIN_REFRESH_GAP_S`` (10 min), however
-  often the setting is toggled. Turning it off stops it before its next tick. A
+  often the setting is toggled (a skipped tick waits only the rest of that gap, not
+  6 h). Turning it off stops it before its next tick. A
   restore (JSON or SQLite snapshot) re-reads the consent (``on_restore`` hook). The
   refresh work itself (update checks, revocations) registers with
   ``register_store_refresher`` (later tickets); each refresher sends through
@@ -221,13 +222,26 @@ async def _refresh_loop() -> None:
     while True:
         if not await store_egress_allowed():
             return
+        ran = False
         try:
-            await run_store_refresh()
+            ran = await run_store_refresh()
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Store refresh failed")
-        await asyncio.sleep(REFRESH_INTERVAL_S)
+        await asyncio.sleep(_next_delay(ran))
+
+
+def _next_delay(ran: bool) -> float:
+    """``REFRESH_INTERVAL_S`` after a tick; when a tick was skipped only because the last
+    one is less than ``MIN_REFRESH_GAP_S`` old (off then on again quickly), just the rest
+    of that gap, so turning the Store back on never postpones the refresh by 6 h."""
+    last = _state.last_refresh_at
+    if not ran and last is not None:
+        remaining = MIN_REFRESH_GAP_S - (_state.clock() - last)
+        if remaining > 0:
+            return remaining
+    return REFRESH_INTERVAL_S
 
 
 def store_refresh_running() -> bool:
