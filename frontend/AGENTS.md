@@ -806,7 +806,7 @@ from `label_key`/`help_key`, then `settings.notifications.types.<type>.<field>.l
 renders no field itself. `AddChannelDialog` is pick, settings (the **Test** calls
 `POST /channels/test` before any save) and "What to receive here?" (`receivePatch` in
 `notificationsShared.ts` adds the new id to the events of the preset through `PATCH /rules`).
-A preset entry (`preset: true`, MSHL-116: Telegram, Gotify, Home Assistant; data in `app/notifications/presets.py`) is created as `{type: base_type ?? 'apprise', preset: <id>}`; its texts are in slice `cl` (`settings.notifications.types.<id>.name|description|<field>.options`, `notifications.presets.<id>.about|fields|help`, referenced by the schema's `label_key`/`help_key`), `ChannelForm` shows the entry's `help_key` paragraph and `wiki_url` link above the form, and `TYPE_ICONS` gives the icon.
+A preset entry (`preset: true`, MSHL-116 and MSHL-132: Telegram, Gotify, Home Assistant, Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat, SMS Free Mobile, SMS SFR; data in `app/notifications/presets.py`) is created as `{type: base_type ?? 'apprise', preset: <id>}`; its texts are in slice `cl` (`settings.notifications.types.<id>.name|description|<field>.options`, `notifications.presets.<id>.about|fields|help`, referenced by the schema's `label_key`/`help_key`), `ChannelForm` shows the entry's `help_key` paragraph and `wiki_url` link above the form, and `TYPE_ICONS` gives the icon.
 The server answers `409 legacy_managed` for the `legacy:*` channels' config/deletion and legacy event rows
 (kept by MSHL-112): a `legacy:*` card's Edit opens `LegacyDestinationForm` (the 4.18.x forms, saving
 `notification_destinations` through `PATCH /api/settings`, remove = empty it), never the generic edit

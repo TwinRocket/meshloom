@@ -38,6 +38,115 @@
           "token": "Profile, Security, Long-lived access tokens. Write-only: it is never shown again.",
           "service": "The service name without “notify.”: mobile_app_your_phone (see Developer tools, Actions). A full name such as notify.alerts works too."
         }
+      },
+      "pushover": {
+        "about": "Pushover delivers notifications to its Android and iOS app. Create an application on pushover.net (Create an Application/API Token) and copy its API token, and your user key from the dashboard. A free application may send 10,000 messages a month: Meshloom's default limits (10 a minute, 100 an hour) keep a busy mesh well below it, but the monthly quota is yours to watch.",
+        "fields": {
+          "user_key": "User key",
+          "app_token": "Application API token",
+          "devices": "Devices (optional)",
+          "priority": "Priority",
+          "sound": "Sound"
+        },
+        "help": {
+          "user_key": "Shown on your Pushover dashboard (30 characters). Write-only: it is never shown again.",
+          "app_token": "The API token of the application you created (30 characters). Write-only: it is never shown again.",
+          "devices": "Device names separated by commas (up to 10). Empty: every device of your account."
+        }
+      },
+      "matrix": {
+        "about": "Posts to a Matrix room. Use a dedicated account (or a bot) that has joined the room; the messages are sent as Markdown.",
+        "fields": {
+          "server": "Homeserver",
+          "username": "User name (optional)",
+          "credential": "Access token or password",
+          "room": "Room"
+        },
+        "help": {
+          "server": "The address of your homeserver, for example https://matrix.example.org. Only the address, no path. A server on your home network needs “Allow a private-network destination” ticked below.",
+          "username": "Leave empty when you use an access token. With a user name, the next field is that account's password.",
+          "credential": "An access token (leave the user name empty) or the account's password. Write-only: it is never shown again.",
+          "room": "The room id (!abcdef:example.org, in the room settings, Advanced) or its alias (#room:example.org). The account must already be in the room."
+        }
+      },
+      "signal": {
+        "about": "Sends Signal messages through a signal-cli REST API server (bbernhard/signal-cli-rest-api) that you run, usually on your home network, with a registered number.",
+        "fields": {
+          "server": "REST API server",
+          "from_number": "Sending number",
+          "to": "Recipients",
+          "username": "Proxy user name (optional)",
+          "password": "Proxy password (optional)"
+        },
+        "help": {
+          "server": "The address of the REST server, for example http://signal-api.lan:8080. On your home network tick “Allow a private-network destination” below. Only the address, no path.",
+          "from_number": "The number registered in signal-cli, with its country code: +33600000000.",
+          "to": "One or more numbers with their country code, separated by commas (up to 10): +33611111111,+33622222222.",
+          "password": "Only if a reverse proxy in front of the REST server asks for a user name and password. Write-only: it is never shown again."
+        }
+      },
+      "slack": {
+        "about": "Posts to the Slack channel an incoming webhook is attached to. Create the webhook in your Slack app (Incoming Webhooks), then paste the three parts of its address https://hooks.slack.com/services/AAA/BBB/CCC.",
+        "fields": {
+          "token_a": "Webhook part 1 (T…)",
+          "token_b": "Webhook part 2 (B…)",
+          "token_c": "Webhook part 3"
+        },
+        "help": {
+          "token_a": "The first part after /services/ in the webhook address.",
+          "token_c": "The third part is the secret: write-only, never shown again."
+        }
+      },
+      "mattermost": {
+        "about": "Posts to the Mattermost channel an incoming webhook is attached to (Integrations, Incoming Webhooks). The messages are sent as Markdown.",
+        "fields": {
+          "server": "Mattermost server",
+          "token": "Webhook key"
+        },
+        "help": {
+          "server": "The address of your server, for example https://mattermost.example.org (a path prefix is kept). On your home network tick “Allow a private-network destination” below.",
+          "token": "The last part of the webhook address (…/hooks/<key>). Write-only: it is never shown again."
+        }
+      },
+      "rocketchat": {
+        "about": "Posts to a Rocket.Chat room as a dedicated account that has joined it.",
+        "fields": {
+          "server": "Rocket.Chat server",
+          "username": "User name",
+          "password": "Password or access token",
+          "room": "Room",
+          "auth": "Credential type"
+        },
+        "help": {
+          "server": "The address of your server, for example https://chat.example.org. Only the address, no path. On your home network tick “Allow a private-network destination” below.",
+          "password": "The account's password, or a personal access token (then set the credential type to token). Write-only: it is never shown again.",
+          "room": "A channel (#general), a user (@name) or a room id."
+        }
+      },
+      "sms_free": {
+        "about": "Free Mobile sends an SMS to the line of the account that enabled the option, and to nobody else. Enable “Notifications par SMS” in your Free Mobile account to get the key. An SMS holds about 160 characters, so the text policy starts on “never”: only a short title is sent.",
+        "fields": {
+          "user": "Free Mobile login",
+          "api_key": "SMS API key"
+        },
+        "help": {
+          "user": "Your 8-digit Free Mobile subscriber login.",
+          "api_key": "The key shown when you enable the option. Write-only: it is never shown again."
+        }
+      },
+      "sms_sfr": {
+        "about": "Sends SMS through the SFR messaging service (an SFR account with the SMS API enabled). An SMS holds about 160 characters, so the text policy starts on “never”: only a short title is sent.",
+        "fields": {
+          "username": "Account name",
+          "password": "Password",
+          "space_id": "Space id",
+          "to": "Recipients"
+        },
+        "help": {
+          "username": "The login of your SFR messaging account.",
+          "space_id": "The space (service) identifier given by SFR for your account.",
+          "to": "One or more numbers with their country code, separated by commas (up to 10): +33600000000."
+        }
       }
     }
   },
@@ -64,6 +173,53 @@
         "home_assistant": {
           "name": "Home Assistant",
           "description": "A Home Assistant notify service, such as the Companion app on a phone."
+        },
+        "pushover": {
+          "name": "Pushover",
+          "description": "Push to the Pushover app on your phone.",
+          "priority": {
+            "options": {
+              "low": "Low",
+              "moderate": "Moderate",
+              "normal": "Normal",
+              "high": "High",
+              "emergency": "Emergency"
+            }
+          }
+        },
+        "matrix": {
+          "name": "Matrix",
+          "description": "A message to a Matrix room, as a bot or an account."
+        },
+        "signal": {
+          "name": "Signal",
+          "description": "Signal messages through your own signal-cli REST API server."
+        },
+        "slack": {
+          "name": "Slack",
+          "description": "A message to a Slack channel through an incoming webhook."
+        },
+        "mattermost": {
+          "name": "Mattermost",
+          "description": "A message to a Mattermost channel through an incoming webhook."
+        },
+        "rocketchat": {
+          "name": "Rocket.Chat",
+          "description": "A message to a Rocket.Chat room, as an account.",
+          "auth": {
+            "options": {
+              "basic": "Password",
+              "token": "Personal access token"
+            }
+          }
+        },
+        "sms_free": {
+          "name": "SMS Free Mobile",
+          "description": "An SMS to your own Free Mobile line."
+        },
+        "sms_sfr": {
+          "name": "SMS SFR",
+          "description": "SMS to numbers through the SFR messaging service."
         }
       },
       "channels": {

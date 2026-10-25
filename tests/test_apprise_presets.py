@@ -1,8 +1,8 @@
 """Apprise presets (``app/notifications/presets.py``): services described as data.
 
 The first half is generic and runs on every preset of ``PRESETS`` (and on a preset added
-here as pure data); the second half pins what is specific to Telegram, Gotify and
-Home Assistant.
+here as pure data); the second half pins what is specific to Telegram, Gotify,
+Home Assistant and the presets added by MSHL-132 (Pushover, Matrix, Signal, Slack, ...).
 """
 
 from __future__ import annotations
@@ -596,3 +596,155 @@ def test_the_help_texts_of_the_url_fields_mention_the_path_rule():
         data = json.loads((root / f"cl.{lang}.json").read_text(encoding="utf-8"))
         help_ = data["notifications"]["presets"]["home_assistant"]["help"]["url"]
         assert "/ha" in help_
+
+
+# ── Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat, SMS (MSHL-132) ──
+
+
+def spec_of(preset_id: str) -> Preset:
+    (spec,) = (p for p in PRESETS if p.id == preset_id)
+    return spec
+
+
+def test_the_added_presets_compile_to_the_urls_apprise_documents():
+    pover = {"user_key": "u" * 30, "app_token": "a" * 30}
+    assert compile_url(spec_of("pushover"), pover) == (
+        f"pover://{'u' * 30}@{'a' * 30}?priority=normal&sound=pushover"
+    )
+    with_devices = {**pover, "devices": "phone,tablet", "priority": "emergency", "sound": "bike"}
+    assert compile_url(spec_of("pushover"), with_devices) == (
+        f"pover://{'u' * 30}@{'a' * 30}/phone%2Ctablet?priority=emergency&sound=bike"
+    )
+    matrix = {"server": "https://m.example.org:8448", "credential": "tok", "room": "!ab:m.org"}
+    assert compile_url(spec_of("matrix"), matrix) == "matrixs://tok@m.example.org:8448/%21ab:m.org"
+    assert compile_url(spec_of("matrix"), {**matrix, "username": "bot"}) == (
+        "matrixs://bot:tok@m.example.org:8448/%21ab:m.org"
+    )
+    signal = {"server": "http://sig.lan:8080", "from_number": "+33600000000", "to": "+33611111111"}
+    assert compile_url(spec_of("signal"), signal) == (
+        "signal://sig.lan:8080/%2B33600000000/%2B33611111111"
+    )
+    assert compile_url(
+        spec_of("slack"), {"token_a": "T0AAAA", "token_b": "B0BBBB", "token_c": "xYz123"}
+    ) == ("slack://T0AAAA/B0BBBB/xYz123")
+    mattermost = {"server": "https://mm.example.org/chat/", "token": "abc123"}
+    assert compile_url(spec_of("mattermost"), mattermost) == "mmosts://mm.example.org/chat/abc123"
+    rocket = {"server": "http://rc.lan", "username": "bot", "password": "p w", "room": "#general"}
+    assert compile_url(spec_of("rocketchat"), rocket) == (
+        "rocket://bot:p%20w@rc.lan/%23general?mode=basic"
+    )
+    assert compile_url(spec_of("sms_free"), {"user": "12345678", "api_key": "Key12345"}) == (
+        "freemobile://12345678@Key12345"
+    )
+    sfr = {"username": "u", "password": "p", "space_id": "s1", "to": "+33600000000,+33611111111"}
+    assert compile_url(spec_of("sms_sfr"), sfr) == ("sfr://u:p@s1/%2B33600000000%2C%2B33611111111")
+
+
+def test_each_added_preset_reaches_the_plugin_apprise_names():
+    plugins = {
+        "pushover": "NotifyPushover",
+        "matrix": "NotifyMatrix",
+        "signal": "NotifySignalAPI",
+        "slack": "NotifySlack",
+        "mattermost": "NotifyMattermost",
+        "rocketchat": "NotifyRocketChat",
+        "sms_free": "NotifyFreeMobile",
+        "sms_sfr": "NotifySFR",
+    }
+    for preset_id, plugin in plugins.items():
+        spec = spec_of(preset_id)
+        (validated,) = parse_apprise_urls([compile_url(spec, examples(spec))])
+        assert type(validated.server).__name__ == plugin  # type: ignore[attr-defined]
+
+
+def test_the_matrix_and_signal_rooms_and_numbers_reach_the_plugin():
+    matrix = spec_of("matrix")
+    (validated,) = parse_apprise_urls([compile_url(matrix, examples(matrix))])
+    assert validated.server.password == "syt_dummy_access_token"  # type: ignore[attr-defined]
+    signal = spec_of("signal")
+    values = {**examples(signal), "to": "+33611111111,+33622222222"}
+    (validated,) = parse_apprise_urls([compile_url(signal, values)])
+    assert validated.server.targets == ["+33611111111", "+33622222222"]  # type: ignore[attr-defined]
+    sfr = spec_of("sms_sfr")
+    (validated,) = parse_apprise_urls([compile_url(sfr, {**examples(sfr), "to": "+33611111111"})])
+    assert validated.server.targets == ["33611111111"]  # type: ignore[attr-defined]
+
+
+def test_markdown_targets_and_cloud_flags():
+    assert {p.id for p in PRESETS if p.format == "markdown"} == {"matrix", "mattermost"}
+    assert {p.id for p in PRESETS if p.cloud} == {
+        "telegram",
+        "pushover",
+        "matrix",
+        "slack",
+        "sms_free",
+        "sms_sfr",
+    }
+    assert spec_of("pushover").default_limits == Limits(10, 100, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preset_id", ["sms_free", "sms_sfr"])
+async def test_an_sms_channel_starts_on_a_title_only_text_policy(test_db, preset_id):
+    spec = spec_of(preset_id)
+    assert get_type("apprise", preset_id).include_message_text_default == "never"
+    entry = next(e for e in types_schema() if e["type"] == preset_id)
+    assert entry["include_message_text_default"] == "never"
+    created = await Channels.create(body(spec))
+    assert created.include_message_text == "never"
+    # A preset without a forced policy keeps the cloud rule.
+    assert get_type("apprise", "pushover").include_message_text_default == "public_only"
+    assert get_type("apprise", "mattermost").include_message_text_default == "always"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("preset_id", "config"),
+    [
+        ("matrix", {"server": "http://192.168.1.5:8008"}),
+        ("signal", {"server": "http://192.168.1.6:8080"}),
+        ("mattermost", {"server": "http://192.168.1.7:8065"}),
+        ("rocketchat", {"server": "http://192.168.1.8:3000"}),
+    ],
+)
+async def test_a_self_hosted_server_on_a_lan_needs_the_private_network_box(
+    test_db, preset_id, config
+):
+    request = body(spec_of(preset_id), **config)
+    with pytest.raises(ChannelError) as refused:
+        await Channels.prepare(request)
+    assert refused.value.code == "egress_private_address"
+    await Channels.prepare(request.model_copy(update={"allow_private_network": True}))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("preset_id", "config", "field"),
+    [
+        ("pushover", {"user_key": "short"}, "user_key"),
+        ("pushover", {"devices": "a b"}, "devices"),
+        ("matrix", {"room": "general"}, "room"),
+        ("matrix", {"server": "https://m.example.org/sub"}, "server"),
+        ("signal", {"to": "0600000000"}, "to"),
+        ("slack", {"token_a": "T0/x"}, "token_a"),
+        ("sms_free", {"user": "12ab"}, "user"),
+        ("sms_sfr", {"to": "+33600000000,"}, "to"),
+    ],
+)
+async def test_the_added_presets_refuse_malformed_values(test_db, preset_id, config, field):
+    with pytest.raises(ChannelError) as refused:
+        await Channels.prepare(body(spec_of(preset_id), **config))
+    assert (refused.value.code, refused.value.params["fields"]) == ("invalid_config", [field])
+
+
+@pytest.mark.asyncio
+async def test_a_kept_matrix_credential_does_not_follow_a_new_server(test_db):
+    from app.notifications.channels import ChannelUpdate
+
+    created = await Channels.create(body(spec_of("matrix")))
+    with pytest.raises(ChannelError) as refused:
+        await Channels.update(
+            created.id, ChannelUpdate(config={"server": "https://evil.example.net"})
+        )
+    assert refused.value.code == "secret_required"
+    assert refused.value.params["fields"] == ["credential"]
