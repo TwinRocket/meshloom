@@ -373,6 +373,11 @@
     padding-bottom: 0;
   }
 
+  /* No bar in display mode: nothing for a floated button to clear. */
+  [data-feed-display] .with-bottom-nav [data-above-bottom-nav] {
+    bottom: 0.75rem;
+  }
+
   [data-feed-display] *,
   [data-feed-display] *::before,
   [data-feed-display] *::after {

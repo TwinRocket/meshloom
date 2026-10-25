@@ -30,7 +30,7 @@ function Chip({ label, pressed, onToggle, disabled, title, hint }: ChipProps) {
       title={title}
       onClick={onToggle}
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs transition-colors md:px-2.5 md:py-1',
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border min-h-9 px-3 py-1.5 text-xs transition-colors md:min-h-0 md:px-2.5 md:py-1',
         'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
         pressed
           ? 'border-primary bg-primary/10 text-foreground'
