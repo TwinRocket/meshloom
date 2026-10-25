@@ -1,15 +1,25 @@
-"""Web Push subscription management endpoints."""
+"""Web Push subscription management endpoints.
+
+A subscription belongs to the account that subscribed it (MSHL-290, migration 116). Every
+account holding ``send`` lists, renames, tests and deletes its own devices only; another
+account's device answers 404, as if it did not exist. An administrator also lists every
+device (``GET /push/subscriptions?scope=all``, with the owner's username and the endpoint
+reduced to its origin) and may delete any of them, but neither renames nor tests another
+account's device. A token acts for its account; ``kiosk`` holds no ``send`` and owns none.
+"""
 
 import asyncio
 import json
 import logging
 from typing import Literal
+from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from pywebpush import WebPushException
 
-from app.auth.permissions import require
+from app.auth.permissions import forbidden, has_permission, require
+from app.auth.principal import Principal, get_principal
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.push.send import send_push
 from app.push.vapid import (
@@ -119,6 +129,57 @@ def _validate_vapid_subject(subject: str) -> str:
     return stored
 
 
+def _caller(request: Request) -> Principal:
+    principal = get_principal(request)
+    if principal is None:  # the ``send`` declaration already refused it
+        raise forbidden("send")
+    return principal
+
+
+def _public_view(sub: dict, caller_id: int) -> dict:
+    """A subscription as the API returns it: ``mine`` tells the caller's devices apart.
+
+    Another account's device (the administrator's listing) keeps only the endpoint's
+    origin: its path is the push service's secret for that browser, and the keys too.
+    """
+    out = {
+        key: sub[key]
+        for key in (
+            "id",
+            "endpoint",
+            "p256dh",
+            "auth",
+            "label",
+            "language",
+            "created_at",
+            "last_success_at",
+            "failure_count",
+        )
+    }
+    mine = sub.get("user_id") == caller_id
+    out["mine"] = mine
+    out["owner_username"] = sub.get("owner_username")
+    if not mine:
+        parts = urlsplit(sub["endpoint"])
+        out["endpoint"] = f"{parts.scheme}://{parts.netloc}" if parts.netloc else ""
+        out["p256dh"] = ""
+        out["auth"] = ""
+    return out
+
+
+async def _owned(subscription_id: str, principal: Principal, *, admin_ok: bool) -> dict:
+    """The caller's subscription, or any one for an administrator when ``admin_ok``; 404
+    otherwise (another account's device is not revealed)."""
+    sub = await PushSubscriptionRepository.get(subscription_id)
+    if sub is None:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    if sub.get("user_id") == principal.user_id:
+        return sub
+    if admin_ok and has_permission(principal, "admin"):
+        return sub
+    raise HTTPException(status_code=404, detail="Subscription not found")
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
@@ -136,12 +197,15 @@ async def vapid_public_key() -> VapidPublicKeyResponse:
 
 
 @router.post("/subscribe", dependencies=[Depends(require("send"))])
-async def subscribe(body: PushSubscribeRequest) -> dict:
-    """Register or update a push subscription (device). Upserts by endpoint.
+async def subscribe(body: PushSubscribeRequest, request: Request) -> dict:
+    """Register or update this browser's push subscription. Upserts by endpoint.
 
-    The endpoint must pass the egress guard: a private-network endpoint (a
-    self-hosted UnifiedPush distributor) needs ``push_allow_private_endpoints``.
+    The caller's account owns it, even when the endpoint was another account's (a shared
+    browser follows whoever subscribes it last). The endpoint must pass the egress
+    guard: a private-network endpoint (a self-hosted UnifiedPush distributor) needs
+    ``push_allow_private_endpoints``.
     """
+    principal = _caller(request)
     allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
     try:
         await validate_destination(body.endpoint, allow_private_network=allow_private)
@@ -154,22 +218,33 @@ async def subscribe(body: PushSubscribeRequest) -> dict:
         auth=body.auth,
         label=body.label,
         language=body.language,
+        user_id=principal.user_id,
     )
-    return sub
+    return _public_view(sub, principal.user_id)
 
 
 @router.get("/subscriptions", dependencies=[Depends(require("send"))])
-async def list_subscriptions() -> list[dict]:
-    """List all push subscriptions (devices)."""
-    return await PushSubscriptionRepository.get_all()
+async def list_subscriptions(
+    request: Request, scope: Literal["mine", "all"] = "mine"
+) -> list[dict]:
+    """The caller's devices; ``scope=all`` (administrator only) lists every account's."""
+    principal = _caller(request)
+    if scope == "all":
+        if not has_permission(principal, "admin"):
+            raise forbidden("admin")
+        subs = await PushSubscriptionRepository.list_with_owner()
+    else:
+        subs = await PushSubscriptionRepository.list_for_user(principal.user_id)
+    return [_public_view(sub, principal.user_id) for sub in subs]
 
 
 @router.patch("/subscriptions/{subscription_id}", dependencies=[Depends(require("send"))])
-async def update_subscription(subscription_id: str, body: PushSubscriptionUpdate) -> dict:
-    """Update a subscription's label."""
-    existing = await PushSubscriptionRepository.get(subscription_id)
-    if not existing:
-        raise HTTPException(status_code=404, detail="Subscription not found")
+async def update_subscription(
+    subscription_id: str, body: PushSubscriptionUpdate, request: Request
+) -> dict:
+    """Update the label or language of one of the caller's devices."""
+    principal = _caller(request)
+    existing = await _owned(subscription_id, principal, admin_ok=False)
 
     updates = {}
     if body.label is not None:
@@ -178,12 +253,13 @@ async def update_subscription(subscription_id: str, body: PushSubscriptionUpdate
         updates["language"] = body.language
 
     result = await PushSubscriptionRepository.update(subscription_id, **updates)
-    return result or existing
+    return _public_view(result or existing, principal.user_id)
 
 
 @router.delete("/subscriptions/{subscription_id}", dependencies=[Depends(require("send"))])
-async def unsubscribe(subscription_id: str) -> dict:
-    """Delete a push subscription (device)."""
+async def unsubscribe(subscription_id: str, request: Request) -> dict:
+    """Delete one of the caller's devices; an administrator may delete any device."""
+    await _owned(subscription_id, _caller(request), admin_ok=True)
     deleted = await PushSubscriptionRepository.delete(subscription_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Subscription not found")
@@ -210,11 +286,9 @@ def _coded(code: str) -> dict:
 
 
 @router.post("/subscriptions/{subscription_id}/test", dependencies=[Depends(require("send"))])
-async def test_push(subscription_id: str) -> dict:
-    """Send a test notification to a subscription."""
-    sub = await PushSubscriptionRepository.get(subscription_id)
-    if not sub:
-        raise HTTPException(status_code=404, detail="Subscription not found")
+async def test_push(subscription_id: str, request: Request) -> dict:
+    """Send a test notification to one of the caller's devices."""
+    sub = await _owned(subscription_id, _caller(request), admin_ok=False)
 
     vapid_key = get_vapid_private_key()
     if not vapid_key:

@@ -559,8 +559,8 @@ prompt inside the Home Assistant panel).
 |---|---|---|
 | `kiosk` | `read` | Channel messages (muted and pending channels included), contacts, channels, packets (control packets included), stats, map, health. Never a direct message; no settings, no profile, no sessions |
 | `viewer` | `read`, `read_private` | `kiosk` plus direct messages and marking read; its own profile and sessions |
-| `member` | `viewer` + `send` | Send, create and edit contacts, channels and contact groups, favourites, pins, mutes, the browser's push subscription, trace and path discovery |
-| `admin` | all, `repeater_admin` included | Settings, radio, repeaters and rooms, fanout and bots, backup and restore, private key, updates, Community, push preferences, debug |
+| `member` | `viewer` + `send` | Send, create and edit contacts, channels and contact groups, favourites, pins, mutes, its own push subscriptions (owner `user_id`, MSHL-290), trace and path discovery |
+| `admin` | all, `repeater_admin` included | Settings, radio, repeaters and rooms, fanout and bots, backup and restore, private key, updates, Community, push preferences, every account's push devices (`GET /api/push/subscriptions?scope=all` redacted to the origin, DELETE; never PATCH or test), debug |
 
 `GET /settings/view` (`read`, so every role including `kiosk`) is the one readable
 settings route: `AppSettingsView` in `app/models.py` is an allowlist of display

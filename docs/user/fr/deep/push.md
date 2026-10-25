@@ -7,7 +7,7 @@ order: 18
 
 Web Push peut prévenir votre navigateur d’un message entrant alors que l’onglet de Meshloom est fermé. Cette page couvre ce qui est propre aux navigateurs : HTTPS, l’adresse de contact (VAPID), l’abonnement et la liste des appareils. Tout le reste, c’est-à-dire les canaux, les événements, le tableau des règles, Ne pas déranger, les mentions, la cloche, les sauvegardes et les autres façons d’être prévenu (e-mail, webhook, ntfy, Discord, Telegram, Gotify, Home Assistant, Apprise), est sur [Notifications](/docs/deep/notifications/).
 
-Web Push est un canal parmi d’autres (le canal intégré **Web Push**). Chaque navigateur a son propre abonnement, alors que les règles (quoi notifier, et pour quelles conversations) sont communes à toute l’installation et à tous les canaux. C’est distinct du [fanout](/docs/deep/fanout/). Il n’y a pas de fenêtre contextuelle depuis l’onglet ouvert : Web Push est la seule façon dont Meshloom notifie un navigateur. En HTTP simple, ntfy, Gotify ou Home Assistant sur votre réseau sont la réponse.
+Web Push est un canal parmi d’autres (le canal intégré **Web Push**). Chaque navigateur a son propre abonnement, qui appartient au compte qui l’a abonné, alors que les règles (quoi notifier, et pour quelles conversations) sont communes à toute l’installation et à tous les canaux. C’est distinct du [fanout](/docs/deep/fanout/). Il n’y a pas de fenêtre contextuelle depuis l’onglet ouvert : Web Push est la seule façon dont Meshloom notifie un navigateur. En HTTP simple, ntfy, Gotify ou Home Assistant sur votre réseau sont la réponse.
 
 ## Ce qu’il vous faut
 
@@ -33,6 +33,14 @@ Dans **Réglages → Notifications → Canaux**, ouvrez **Appareils et réglages
 
 L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les règles sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés. Ce qu’il faut notifier se choisit dans [Notifications](/docs/deep/notifications/#le-tableau-des-règles), cloche et Ne pas déranger compris.
 
+### À qui sont les appareils
+
+Chaque compte ne voit et ne gère que ses propres appareils : **Vos appareils** liste les navigateurs que vous avez abonnés, et aucun autre compte ne peut les renommer, les tester ni les retirer. Un navigateur partagé par deux comptes appartient au dernier qui l’a abonné.
+
+Un administrateur voit aussi **Appareils des autres comptes** : l’étiquette de chaque appareil, son compte et le service push par lequel il passe (jamais son adresse complète, qui sert de mot de passe pour ce navigateur), avec un bouton pour le retirer, pour un téléphone perdu ou un ancien membre. Renommer ou tester un appareil reste l’affaire de son propriétaire.
+
+Un appareil ne reçoit des notifications que tant que son compte est actif et peut envoyer des messages (membre ou administrateur). Un lecteur ou un kiosque ne peut pas s’abonner ; les appareils d’un compte désactivé restent muets jusqu’à sa réactivation, et supprimer un compte supprime ses appareils. Les appareils enregistrés avant que les comptes les possèdent (avant Meshloom 5.0, ou restaurés depuis une sauvegarde) appartiennent au premier administrateur.
+
 ## Service worker et nettoyage
 
 `sw.js` affiche les notifications reçues et, au clic, met au premier plan ou ouvre la bonne conversation. Si un service de push répond `403`, `404` ou `410` pour un abonnement, Meshloom le supprime. Il faut alors réabonner le navigateur.
@@ -43,15 +51,15 @@ L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les 
 |---------|---------------|-------|
 | GET | `/api/push/vapid-public-key` | Clé publique utilisée pour s’abonner |
 | POST | `/api/push/subscribe` | Enregistre ou met à jour un abonnement |
-| GET | `/api/push/subscriptions` | Liste les abonnements |
-| PATCH | `/api/push/subscriptions/{id}` | Change l’étiquette ou la langue |
-| DELETE | `/api/push/subscriptions/{id}` | Supprime un abonnement |
-| POST | `/api/push/subscriptions/{id}/test` | Envoie une notification de test |
+| GET | `/api/push/subscriptions` | Liste vos abonnements ; `?scope=all` liste ceux de tous les comptes (administrateurs seulement, l’adresse réduite au service push) |
+| PATCH | `/api/push/subscriptions/{id}` | Change l’étiquette ou la langue d’un de vos abonnements |
+| DELETE | `/api/push/subscriptions/{id}` | Supprime un de vos abonnements (un administrateur : n’importe lequel) |
+| POST | `/api/push/subscriptions/{id}/test` | Envoie une notification de test à un de vos abonnements |
 | GET | `/api/push/preferences` | **Déprécié.** Valeurs par défaut, exceptions et sujet VAPID |
 | PATCH | `/api/push/preferences` | **Déprécié.** Modifie les valeurs par défaut et/ou le sujet VAPID |
 | PUT | `/api/push/preferences/conversations/{key}` | **Déprécié.** Crée ou efface une exception pour une conversation |
 
-Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l’existant. Les anciennes routes `/api/push/conversations` n’existent plus.
+Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l’existant et le donne au compte qui l’enregistre. L’abonnement d’un autre compte répond `404`, comme s’il n’existait pas. Les anciennes routes `/api/push/conversations` n’existent plus.
 
 Les trois routes `preferences` sont **dépréciées** : elles répondent un en-tête `Deprecation` et seront retirées en 5.2.0. Utilisez plutôt `/api/notifications` ; le détail, et ce que veut dire la réponse `409 legacy_managed`, sont dans [Mise à jour et retour en arrière](/docs/deep/notifications/#mise-à-jour-et-retour-en-arrière) et [Points d’accès](/docs/deep/notifications/#points-daccès).
 

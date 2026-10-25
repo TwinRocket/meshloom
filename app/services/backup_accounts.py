@@ -397,6 +397,10 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
     await conn.execute("DELETE FROM sessions")
     await conn.execute("DELETE FROM recovery_codes")
     await conn.execute("DELETE FROM webauthn_credentials")
+    # Push devices outlive the accounts they belonged to (ON DELETE CASCADE would drop
+    # them, those the restore just wrote included): unowned, they go to the first
+    # administrator (``PushSubscriptionRepository``).
+    await conn.execute("UPDATE push_subscriptions SET user_id = NULL")
     await conn.execute("DELETE FROM users")
     seen_credentials: set[bytes] = set()
     for user in data.users:

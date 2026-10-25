@@ -103,6 +103,22 @@ async def test_db():
         yield db
 
 
+@pytest.fixture
+async def push_owner(test_db):
+    """The account row of the default test admin (id 1), which owns push subscriptions.
+
+    A subscription belongs to an account (migration 116) and a push reaches it only while
+    that account exists; ``PushSubscriptionRepository.create`` without ``user_id`` gives it
+    to the first administrator, this one.
+    """
+    from app.auth.models import User
+    from app.repository.auth import UserRepository
+
+    user = await UserRepository.create("test-admin", "admin")
+    assert user.id == 1
+    return User(id=1, username="test-admin", role="admin", created_at=0, updated_at=0)
+
+
 @pytest.fixture(autouse=True)
 async def _reset_hashtag_catalogue():
     """Cancel ingest-triggered catalogue work so tasks do not leak between tests."""

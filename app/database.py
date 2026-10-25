@@ -244,6 +244,8 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     created_at INTEGER NOT NULL,
     last_success_at INTEGER,
     failure_count INTEGER DEFAULT 0,
+    -- The account that owns the device (migration 116). Keep identical to the migration.
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE(endpoint)
 );
 
@@ -441,6 +443,7 @@ SCHEMA_INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel
     ON notification_deliveries(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_received ON messages(received_at);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_dedup_null_safe
     ON messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))
     WHERE type = 'CHAN';

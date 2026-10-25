@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 115 (the value of
+- Numbering is contiguous from 001. The current head is 116 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -229,7 +229,11 @@ pruned hourly by the dispatcher.
 ### `push_subscriptions`
 
 Web Push subscriptions: PK `id`, `endpoint` (unique), `p256dh`, `auth`, `label`,
-`language`, `created_at`, `last_success_at`, `failure_count`.
+`language`, `created_at`, `last_success_at`, `failure_count`, `user_id` (migration 116,
+FK `users(id)` `ON DELETE CASCADE`: the owning account; deleting it deletes its devices,
+while an accounts restore unowns them first, `restore_users`). Migration 116 gave the existing rows to the first administrator
+(lowest id, an enabled one first); a row left unowned (no account yet, or written by a
+backup restore, which carries no owner) goes to that administrator as soon as one exists.
 `PushSubscriptionRepository` (`push_subscriptions.py`), used by `app/push/`.
 A subscription is deleted once `failure_count` reaches 15 consecutive failures.
 
@@ -418,6 +422,7 @@ databases). The current set:
 | `idx_messages_unread_covering` | `messages(type, conversation_key, outgoing, received_at)` |
 | `idx_notification_deliveries_channel` | `notification_deliveries(channel_id, created_at)` |
 | `idx_plugins_plugin_id` | `plugins(plugin_id)` |
+| `idx_push_subscriptions_user` | `push_subscriptions(user_id)` |
 | `idx_raw_packets_message_id` | `raw_packets(message_id)` |
 | `idx_raw_packets_payload_hash` | unique, `raw_packets(payload_hash)` |
 | `idx_raw_packets_timestamp` | `raw_packets(timestamp)` |

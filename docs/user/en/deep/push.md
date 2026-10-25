@@ -7,7 +7,7 @@ order: 18
 
 Web Push can tell your browser about an incoming message while Meshloom's tab is closed. This page covers what is specific to browsers: HTTPS, the contact address (VAPID), subscribing and the list of devices. Everything else, meaning channels, events, the rules table, Do not disturb, mentions, the bell, backups and the other ways to be notified (e-mail, webhook, ntfy, Discord, Telegram, Gotify, Home Assistant, Apprise), is on [Notifications](/en/docs/deep/notifications/).
 
-Web Push is one channel among the others (the built-in **Web Push** channel). Each browser has its own subscription, while the rules (what to notify, and for which conversations) are shared by the whole installation and by every channel. It is separate from [fanout](/en/docs/deep/fanout/). There are no pop-ups from the open tab itself: Web Push is the only way Meshloom notifies a browser. Over plain HTTP, ntfy, Gotify or Home Assistant on your network are the answer.
+Web Push is one channel among the others (the built-in **Web Push** channel). Each browser has its own subscription, which belongs to the account that subscribed it, while the rules (what to notify, and for which conversations) are shared by the whole installation and by every channel. It is separate from [fanout](/en/docs/deep/fanout/). There are no pop-ups from the open tab itself: Web Push is the only way Meshloom notifies a browser. Over plain HTTP, ntfy, Gotify or Home Assistant on your network are the answer.
 
 ## What you need
 
@@ -33,6 +33,14 @@ In **Settings → Notifications → Channels**, open **Devices and Web Push sett
 
 A browser's subscription only decides whether that browser receives notifications. The rules are shared: if you switch on a conversation from your phone, it is on for every subscribed browser. What to notify is chosen in [Notifications](/en/docs/deep/notifications/#the-rules-table), the bell and Do not disturb included.
 
+### Whose devices
+
+Each account sees and manages only its own devices: **Your devices** lists the browsers you subscribed, and no other account can rename, test or remove them. A browser shared by two accounts belongs to the last one that subscribed it.
+
+An administrator also sees **Other accounts' devices**: each device's label, its account and the push service it goes through (never its full address, which works as a password for that browser), with a button to remove it, for a lost phone or a former member. Renaming or testing a device is left to its owner.
+
+A device receives notifications only while its account is enabled and may send messages (member or administrator). A viewer or a kiosk cannot subscribe; the devices of a disabled account stay silent until it is enabled again, and deleting an account deletes its devices. Devices registered before accounts owned them (before Meshloom 5.0, or restored from a backup) belong to the first administrator.
+
 ## Service worker and cleanup
 
 `sw.js` shows incoming notifications and, when you click one, focuses or opens the right conversation. If a push service answers `403`, `404` or `410` for a subscription, Meshloom deletes it. After that, subscribe the browser again.
@@ -43,15 +51,15 @@ A browser's subscription only decides whether that browser receives notification
 |--------|----------|--------|
 | GET | `/api/push/vapid-public-key` | Public key used to subscribe |
 | POST | `/api/push/subscribe` | Register or update a subscription |
-| GET | `/api/push/subscriptions` | List subscriptions |
-| PATCH | `/api/push/subscriptions/{id}` | Change the label or the language |
-| DELETE | `/api/push/subscriptions/{id}` | Delete a subscription |
-| POST | `/api/push/subscriptions/{id}/test` | Send a test notification |
+| GET | `/api/push/subscriptions` | List your subscriptions; `?scope=all` lists every account's (administrators only, the address reduced to the push service) |
+| PATCH | `/api/push/subscriptions/{id}` | Change the label or the language of one of your subscriptions |
+| DELETE | `/api/push/subscriptions/{id}` | Delete one of your subscriptions (an administrator: any) |
+| POST | `/api/push/subscriptions/{id}/test` | Send a test notification to one of your subscriptions |
 | GET | `/api/push/preferences` | **Deprecated.** Defaults, exceptions and VAPID subject |
 | PATCH | `/api/push/preferences` | **Deprecated.** Change defaults and/or the VAPID subject |
 | PUT | `/api/push/preferences/conversations/{key}` | **Deprecated.** Set or clear an exception for a conversation |
 
-A subscription is unique by its address, so registering again updates the existing one. The old `/api/push/conversations` routes no longer exist.
+A subscription is unique by its address, so registering again updates the existing one and gives it to the account that registers it. Another account's subscription answers `404`, as if it did not exist. The old `/api/push/conversations` routes no longer exist.
 
 The three `preferences` routes are **deprecated**: they answer a `Deprecation` header and will be removed in 5.2.0. Use `/api/notifications` instead; the details, and what the `409 legacy_managed` answer means, are in [Upgrading and downgrading](/en/docs/deep/notifications/#upgrading-and-downgrading) and [Endpoints](/en/docs/deep/notifications/#endpoints).
 

@@ -2183,6 +2183,9 @@ export interface PushSubscriptionInfo {
   created_at: number;
   last_success_at: number | null;
   failure_count: number;
+  /** The caller's own device (MSHL-290); another account's only in the admin listing. */
+  mine?: boolean;
+  owner_username?: string | null;
 }
 
 export interface NotificationMediaFlags {

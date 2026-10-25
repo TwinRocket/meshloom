@@ -367,7 +367,7 @@ NOT_DELIVERED = {
 
 
 @pytest.mark.asyncio
-async def test_push_payloads_through_the_rules_match_the_golden_fixtures(test_db, monkeypatch):
+async def test_push_payloads_through_the_rules_match_the_golden_fixtures(push_owner, monkeypatch):
     from app.notifications.producers import emit_message, emit_payload
 
     for lang in ("fr", "en"):

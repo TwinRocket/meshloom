@@ -142,7 +142,7 @@ async def _subscription(endpoint: str) -> str:
 
 class TestPushTestRoute:
     @pytest.mark.asyncio
-    async def test_private_endpoint_is_refused_before_any_connection(self, test_db, client):
+    async def test_private_endpoint_is_refused_before_any_connection(self, push_owner, client):
         await ensure_vapid_keys()
         async with _silent_server() as port:
             sub_id = await _subscription(f"http://127.0.0.1:{port}/push")
@@ -156,7 +156,7 @@ class TestPushTestRoute:
         assert await PushSubscriptionRepository.get(sub_id) is not None
 
     @pytest.mark.asyncio
-    async def test_refused_connection_is_coded(self, test_db, client, caplog):
+    async def test_refused_connection_is_coded(self, push_owner, client, caplog):
         await ensure_vapid_keys()
         await _allow_private_push()
         sub_id = await _subscription(f"http://127.0.0.1:{_closed_port()}/push")
@@ -166,7 +166,7 @@ class TestPushTestRoute:
         assert "Test push failed" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_dns_failure_is_coded(self, test_db, client, caplog):
+    async def test_dns_failure_is_coded(self, push_owner, client, caplog):
         await ensure_vapid_keys()
         sub_id = await _subscription("https://push.lan.invalid/push")
         with caplog.at_level(logging.INFO, logger="app.routers.push"), _dns_failure():
@@ -176,7 +176,7 @@ class TestPushTestRoute:
         assert DNS_MARKER not in caplog.text
 
     @pytest.mark.asyncio
-    async def test_push_server_error_is_coded(self, test_db, client, caplog):
+    async def test_push_server_error_is_coded(self, push_owner, client, caplog):
         await ensure_vapid_keys()
         await _allow_private_push()
         async with _failing_http_server(500) as port:
@@ -189,7 +189,7 @@ class TestPushTestRoute:
         assert await PushSubscriptionRepository.get(sub_id) is not None
 
     @pytest.mark.asyncio
-    async def test_tls_error_is_coded(self, test_db, client, caplog):
+    async def test_tls_error_is_coded(self, push_owner, client, caplog):
         await ensure_vapid_keys()
         await _allow_private_push()
         async with _silent_server(plain_reply=True) as port:
@@ -201,7 +201,7 @@ class TestPushTestRoute:
         assert "Test push failed: SSLError" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_stale_subscription_is_coded_and_removed(self, test_db, client):
+    async def test_stale_subscription_is_coded_and_removed(self, push_owner, client):
         await ensure_vapid_keys()
         sub_id = await _subscription("https://93.184.215.14/push")
         exc = WebPushException("Push failed: 410 Gone marker", response=MagicMock(status_code=410))
@@ -211,7 +211,7 @@ class TestPushTestRoute:
         assert await PushSubscriptionRepository.get(sub_id) is None
 
     @pytest.mark.asyncio
-    async def test_timeout_is_a_422_like_every_delivery_failure(self, test_db, client):
+    async def test_timeout_is_a_422_like_every_delivery_failure(self, push_owner, client):
         await ensure_vapid_keys()
         sub_id = await _subscription("https://93.184.215.14/push")
         with patch("app.routers.push.send_push", new=AsyncMock(side_effect=TimeoutError)):
