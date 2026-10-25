@@ -8,7 +8,13 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { toast } from '../../ui/sonner';
 import { HooksPicker } from './CreateLocalDialog';
-import { declaredPermissions, httpHosts, permissionKey } from './pluginsShared';
+import {
+  declaredPermissions,
+  httpHosts,
+  httpLanHosts,
+  httpParams,
+  permissionKey,
+} from './pluginsShared';
 import type {
   CheckFinding,
   LocalHook,
@@ -41,6 +47,14 @@ const DEFAULT_PARAMS: Record<string, Record<string, unknown>> = {
   'messages.send': { targets: 'reply' },
   http: { hosts: [] },
 };
+
+/** One entry per non-empty line. */
+function lines(text: string): string[] {
+  return text
+    .split('\n')
+    .map((h) => h.trim())
+    .filter(Boolean);
+}
 
 /** Test channel (the API default), a known channel, or a contact's public key. */
 type TestTarget = 'default' | 'channel' | 'contact';
@@ -192,12 +206,15 @@ export function LocalPluginEditor({
   // Only the host is saved: other unsaved edits in the section stay pending.
   const acceptHost = async (host: string) => {
     const saved = declaredPermissions(instance) as Permissions;
-    const next = { ...saved, http: { hosts: [...new Set([...httpHosts(saved), host])] } };
+    const next = {
+      ...saved,
+      http: httpParams([...new Set([...httpHosts(saved), host])], httpLanHosts(saved)),
+    };
     const updated = await savePermissions({ permissions: next });
     if (updated) {
       setGranted((prev) => ({
         ...prev,
-        http: { hosts: [...new Set([...httpHosts(prev), host])] },
+        http: httpParams([...new Set([...httpHosts(prev), host])], httpLanHosts(prev)),
       }));
     }
   };
@@ -392,22 +409,28 @@ function PermissionsEditor({
               </select>
             )}
             {on && name === 'http' && (
-              <textarea
-                aria-label={t('settings.extensions.local.hostsLabel')}
-                rows={3}
-                className="ml-6 w-[calc(100%-1.5rem)] rounded-md border border-input bg-background px-2 py-1 font-mono text-sm"
-                disabled={disabled}
-                placeholder={t('settings.extensions.local.hostsPlaceholder')}
-                value={httpHosts(value).join('\n')}
-                onChange={(e) =>
-                  set(name, {
-                    hosts: e.target.value
-                      .split('\n')
-                      .map((h) => h.trim())
-                      .filter(Boolean),
-                  })
-                }
-              />
+              <div className="ml-6 space-y-1">
+                <textarea
+                  aria-label={t('settings.extensions.local.hostsLabel')}
+                  rows={3}
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-sm"
+                  disabled={disabled}
+                  placeholder={t('settings.extensions.local.hostsPlaceholder')}
+                  value={httpHosts(value).join('\n')}
+                  onChange={(e) =>
+                    set(name, httpParams(lines(e.target.value), httpLanHosts(value)))
+                  }
+                />
+                <textarea
+                  aria-label={t('settings.extensions.local.lanHostsLabel')}
+                  rows={2}
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 font-mono text-sm"
+                  disabled={disabled}
+                  placeholder={t('settings.extensions.local.lanHostsPlaceholder')}
+                  value={httpLanHosts(value).join('\n')}
+                  onChange={(e) => set(name, httpParams(httpHosts(value), lines(e.target.value)))}
+                />
+              </div>
             )}
           </div>
         );

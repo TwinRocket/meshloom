@@ -85,9 +85,26 @@ export function permissionKey(name: string): string {
   return `plugins.permissions.${name.replace('.', '_')}`;
 }
 
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((h): h is string => typeof h === 'string') : [];
+}
+
+/** The public hosts of the `http` permission (HTTPS only). */
 export function httpHosts(permissions: Record<string, Record<string, unknown>>): string[] {
-  const hosts = permissions.http?.hosts;
-  return Array.isArray(hosts) ? hosts.filter((h): h is string => typeof h === 'string') : [];
+  return stringList(permissions.http?.hosts);
+}
+
+/** The devices of the user's local network the `http` permission names (`lan_hosts`). */
+export function httpLanHosts(permissions: Record<string, Record<string, unknown>>): string[] {
+  return stringList(permissions.http?.lan_hosts);
+}
+
+/** `http` params from both lists, an empty list left out like the server does. */
+export function httpParams(hosts: string[], lanHosts: string[]): Record<string, unknown> {
+  const params: Record<string, unknown> = {};
+  if (hosts.length > 0 || lanHosts.length === 0) params.hosts = hosts;
+  if (lanHosts.length > 0) params.lan_hosts = lanHosts;
+  return params;
 }
 
 /**
@@ -98,7 +115,9 @@ export function readsPrivateAndConnects(
   permissions: Record<string, Record<string, unknown>>
 ): boolean {
   const read = permissions['messages.read'];
-  if (!read || httpHosts(permissions).length === 0) return false;
+  if (!read || httpHosts(permissions).length + httpLanHosts(permissions).length === 0) {
+    return false;
+  }
   return read.direct === true || read.channels === 'all';
 }
 
