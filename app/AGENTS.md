@@ -159,6 +159,12 @@ and the OpenAPI page (`/docs`), not a table here.
   `plugin_send_limits` (`send_guard`), and `send_spacer`, the 2 s spacing of every automatic
   send, which `fanout/bot_exec.py` shares); `docs/dev/plugins.md`, "Capabilities". Host lock:
   `MESHCORE_DISABLE_PLUGINS`, a user variable (`docs/user/*/deep/environment.md`).
+  The global pause (`plugins/pause.py`, `GET`/`PUT /api/plugins/pause`) is the admin's
+  incident switch: it stops every instance and the legacy bots, starts none and keeps the
+  `enabled` flags; the host lock, the platform and an isolation failure win over it in
+  health (`docs/dev/plugins.md`, "Gates"). Roles in `routers/plugins.py`: reads `send`,
+  every write and the logs/diagnostic `admin`, each write audited (`plugin.*`,
+  `plugins.paused`/`plugins.resumed`) with field names only, never a value or the source.
   Every artefact that copies `app/` copies
   `meshloom_plugin/` too (`Dockerfile`, `copy_project_files` in
   `scripts/build/build_nfpm_packages.sh`, `Dockerfile.nfpm-armhf` and the armhf
@@ -434,6 +440,8 @@ run as root).
 - Migration 119 adds `auth_settings.device_cookie_key` (the HMAC key of the known-device
   cookies, NULL until first use; cleared in the database download; `docs/dev/auth.md`,
   "Known devices").
+- Migration 120 adds `app_settings.plugins_paused`, `plugins_paused_at` and
+  `plugins_paused_by` (the global plugin pause, `plugins/pause.py`; excluded from backups).
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or

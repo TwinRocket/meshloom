@@ -74,6 +74,8 @@ PluginStatus = Literal[
     "needs_attention",
     "incompatible",
     "revoked",
+    # Display only, never stored: an enabled instance held by the global pause.
+    "paused",
 ]
 DisabledSource = Literal["env", "platform", "isolation"]
 
@@ -1209,6 +1211,10 @@ class PluginManager:
         self._instances: dict[str, PluginInstance] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._load_task: asyncio.Task[None] | None = None
+        # The global pause (MSHL-216, `app/plugins/pause.py` owns the persisted
+        # state): nothing starts and no event is dispatched while it is set; the
+        # per-instance `enabled` flags are never touched.
+        self.paused = False
         # Overrides of the capability layer (`app/plugins/capabilities/`), name to
         # coroutine: tests register extra methods here. Checked first.
         self.host_methods: dict[str, HostMethod] = {}
@@ -1269,7 +1275,7 @@ class PluginManager:
         """
         from app.repository.plugins import PluginRepository
 
-        if self.disabled_source() is not None:
+        if self.disabled_source() is not None or self.paused:
             return
         rows = await PluginRepository.get_enabled()
         ids = [r["instance_id"] for r in rows if r.get("status") not in STICKY_STATUSES]
@@ -1288,13 +1294,17 @@ class PluginManager:
                 logger.exception("Plugin instance %s failed to start", instance_id)
 
     async def start(self, instance_id: str) -> None:
-        """Start one instance (no-op when it runs). Raises `PluginHostError`."""
+        """Start one instance (no-op when it runs, or while the global pause holds).
+
+        Raises `PluginHostError`."""
         from app.repository.plugins import PluginRepository
 
         source = self.disabled_source()
         if source is not None:
             raise PluginHostError("plugins_disabled", f"plugins are disabled ({source})")
         async with self._lock(instance_id):
+            if self.paused:
+                return
             current = self._instances.get(instance_id)
             if current is not None and current.active:
                 return
@@ -1318,8 +1328,10 @@ class PluginManager:
             await instance._set_status(status, None)
 
     async def restart(self, instance_id: str) -> None:
-        """Manual restart: a new supervisor, so the failure count starts again."""
-        await self.stop(instance_id, status="starting")
+        """Manual restart: a new supervisor, so the failure count starts again.
+
+        While paused it only stops: the instance starts again on resume."""
+        await self.stop(instance_id, status="installed" if self.paused else "starting")
         await self.start(instance_id)
 
     async def reload(self, instance_id: str) -> None:
@@ -1342,8 +1354,41 @@ class PluginManager:
         self._locks.pop(instance_id, None)
 
     async def start_all(self) -> None:
-        """Start every enabled instance (the seam of the global pause, MSHL T43)."""
+        """Start every enabled instance not held by a sticky status, staggered."""
         await self.load_from_db()
+
+    async def pause_all(self) -> None:
+        """The global pause: stop every running instance cleanly (`plugin.shutdown`,
+        a bounded wait, then SIGKILL), concurrently, and start none until
+        `resume_all()`. The `enabled` flags stay as they are; an instance held by
+        a sticky status (`crash_loop`...) is left alone. Idempotent."""
+        self.paused = True
+        if self._load_task is not None:
+            self._load_task.cancel()
+            await asyncio.gather(self._load_task, return_exceptions=True)
+            self._load_task = None
+        running = [i for i, instance in self._instances.items() if instance.active]
+        results = await asyncio.gather(
+            *(self.stop(i, status="installed") for i in running), return_exceptions=True
+        )
+        for instance_id, result in zip(running, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.error("Pausing plugin instance %s failed", instance_id, exc_info=result)
+        self._announce_all()
+
+    async def resume_all(self) -> None:
+        """Lift the global pause: start exactly the enabled instances, 500 ms apart."""
+        if not self.paused:
+            return
+        self.paused = False
+        self._announce_all()
+        await self.load_from_db()
+
+    def _announce_all(self) -> None:
+        """`plugin_status` for every stopped instance (paused or back to its stored status)."""
+        for instance_id, entry in self.statuses().items():
+            if instance_id not in self._instances:
+                _broadcast_status(entry)
 
     async def stop_all(self, timeout: float = 10.0) -> None:
         """Stop every instance: `plugin.shutdown`, a bounded wait, then SIGKILL; never over `timeout`."""
@@ -1386,13 +1431,18 @@ class PluginManager:
 
         result: dict[str, dict[str, Any]] = {}
         for instance_id, row in list(_instances_cache.items()):
+            status = (
+                row.get("status")
+                if row.get("enabled") or row.get("status") in ATTENTION_STATUSES
+                else "disabled"
+            )
+            if self.paused and row.get("enabled") and status not in STICKY_STATUSES:
+                status = "paused"
             result[instance_id] = {
                 "instance_id": instance_id,
                 "plugin_id": row.get("plugin_id"),
                 "label": row.get("label"),
-                "status": row.get("status")
-                if row.get("enabled") or row.get("status") in ATTENTION_STATUSES
-                else "disabled",
+                "status": status,
                 "last_error": row.get("last_error"),
                 "dropped_events": 0,
                 "restarts": 0,
@@ -1419,7 +1469,10 @@ class PluginManager:
         instance (`messages.read`, then the user's scope); a message sent by a
         plugin instance is marked so that instance sees `own_send`. A raw packet
         keeps its decryption only for an instance that may read that message.
+        Dropped, never queued, while the global pause holds.
         """
+        if self.paused:
+            return
         targets = [
             i
             for i in self._instances.values()
@@ -1451,6 +1504,8 @@ class PluginManager:
 
         if self.budgets.message_settle > 0:
             await asyncio.sleep(self.budgets.message_settle)
+        if self.paused:
+            return
         params = await message_event_params(data)
         for instance in targets:
             if not message_visible(instance.permissions, instance.scope, params):
@@ -1469,6 +1524,8 @@ class PluginManager:
         self, instance_id: str, hook: str, data: dict[str, Any], timeout: float | None = None
     ) -> dict[str, Any]:
         """Send one `test: true` event; returns `{"result", "sends"}` (sends captured, never sent)."""
+        if self.paused:
+            raise PluginHostError("plugins_paused", "all plugins are paused")
         instance = self._instances.get(instance_id)
         if instance is None or instance.status != "running":
             raise PluginHostError("instance_not_running", "the instance is not running")

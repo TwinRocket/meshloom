@@ -691,6 +691,18 @@ ones.
   `MESHCORE_DISABLE_BOTS`, which keeps driving the legacy bots until the switch.
 - **Platform.** No `resource` module (Windows): the system is off,
   `plugins_disabled_source: "platform"`.
+- **Global pause.** `app/plugins/pause.py` (MSHL-216, migration 120:
+  `app_settings.plugins_paused`, `plugins_paused_at`, `plugins_paused_by`),
+  loaded at boot before `start()`, sets `plugin_manager.paused`. `pause_all()`
+  stops every running instance cleanly and keeps the `enabled` flags; while
+  paused nothing starts (boot, install, enable, config change; a manual restart
+  is 409 `plugins_paused`), `dispatch()` drops events instead of queueing them
+  and `dispatch_test()` raises `plugins_paused`. `resume_all()` starts exactly the
+  enabled instances again, staggered like the start-up. The legacy bots are held
+  too (`fanout_manager.set_bots_paused`, `bots_disabled_source: "paused"`). The
+  pause survives a restart. Health says `plugins_disabled_source: "paused"` and
+  `plugins_paused_since` only when no other gate applies: the host lock, the
+  platform and the isolation failure take precedence.
 - **Isolation setup.** When `isolation.startup()` fails at start (detection, or
   the dedicated uid's file model: a database left `0644` would be readable by the
   plugin uid), the system fails closed: `fail_closed()`, nothing starts until a
@@ -806,7 +818,8 @@ that is a short identifier; it is scrubbed of the instance's secret values, then
 ### Statuses
 
 `installed`, `disabled`, `starting`, `running`, `error`, `crash_loop`,
-`needs_attention`, `incompatible`, `revoked`. Each change of status or
+`needs_attention`, `incompatible`, `revoked`, and `paused`, an overlay of
+`statuses()` while the global pause holds (never stored) on every enabled instance. Each change of status or
 `last_error` is stored in `plugins.status`/`last_error`, sent to the WebSocket
 clients as `plugin_status` (`instance_id`, `plugin_id`, `label`, `status`,
 `last_error`, `dropped_events`, `restarts`, `summary`: the plugin's `status.set`
@@ -816,7 +829,8 @@ principal without the `send` permission; `realtime=False`, so not to the
 proxy or fanout) and triggers a `health` broadcast. `statuses()` covers every
 instance of the repository cache (stored status, `disabled` when not enabled),
 with live values for the running ones. Health carries `plugins_isolation`,
-`plugins_disabled_source` and `plugin_statuses`.
+`plugins_disabled`, `plugins_disabled_source`, `plugins_paused_since` and
+`plugin_statuses`; an anonymous caller gets none of them.
 
 Who sees errors: `plugin_status` is admin-only. `health` (REST and WebSocket)
 keeps the statuses for every signed-in principal, but a principal below `admin`
@@ -847,26 +861,36 @@ Prefix `/api/plugins`, tag `plugins`. Errors are `{detail: {code, message, param
 holds a config value or a secret. Reads need `send` (member and up: `config`, `source`, `scope`,
 `quotas`, `secret_fields`, `last_error` and `attention` are emptied below admin); everything that installs,
 changes, runs or reads the logs of an instance is `admin`. `kiosk` and `viewer` are refused
-everywhere. While the host lock or the platform turns the system off, every write but `DELETE` is
-403 `plugins_disabled` (`params.source`).
+everywhere. While the host lock or the platform turns the system off, every write but `DELETE` and
+`PUT /pause` is 403 `plugins_disabled` (`params.source`).
+
+Audit (MSHL-215, `app/auth/audit.py`, `docs/dev/auth.md`): every successful or failed admin write
+records the actor, the target `plugin:<instance_id>` and `{plugin_id, kind, fields?}`, where
+`fields` lists the names of the changed fields only: never a config value, a secret or the source.
+`POST /install` is `plugin.installed`, `POST /plugins` `plugin.created`, `PATCH` `plugin.enabled`,
+`plugin.disabled`, `plugin.config_changed` (`config`, `scope`, `granted_permissions`, `quotas`,
+`hooks`) and `plugin.changed` (the other fields: `label`), one row per kind, `PUT source` `plugin.updated`, `DELETE` `plugin.removed`. A
+non-admin refused by the permission gate writes no row and changes nothing.
 
 | Route | Role | Behaviour |
 |---|---|---|
 | `GET /plugins` | member | Instances with the live status (`summary`, `restarts`, `dropped_events`); secrets read `********`. |
+| `GET /plugins/pause` | member | `{paused, since, by}`: the global pause, since when (Unix time) and the user name of who set it. |
+| `PUT /plugins/pause` | admin | `{paused}`, idempotent: pauses or resumes every instance (see "Gates", global pause) and broadcasts `health`. A change of state is audited `plugins.paused` or `plugins.resumed` with the actor only (no target, no details); a repeat writes nothing. Allowed under the host lock. |
 | `GET /plugins/bundled` | member | The valid packages of `meshloom_plugin/official/*` (`app/plugins/installer.py`, `BUNDLED_ROOT`): manifest texts, declared permissions, `privacy` declaration (shown on the consent screen), config schema, instance count: `meshloom.echo` and `meshloom.auto-responder` ("Bundled plugins"). |
 | `POST /plugins/install` | admin | `{kind: "bundled", plugin_id, label?, granted_permissions, config?}`. 404 `plugin_not_bundled`; 400 `consent_required` (`params.missing`: the declared permissions the grant does not cover in full); 400 `config_invalid` (`params.issues`: code and field); a required field missing creates the instance **disabled**, `status: needs_attention`, `attention: {type: "config_required", fields}`, no process. Otherwise it is enabled and started; 409 `instance_cap_reached` deletes it again. The code is copied (validated like an archive, origin `bundled`) to `<data>/plugins/<plugin_id>/` once per version, shared by the instances. Other kinds (`custom`, `store`) are M2. |
 | `POST /plugins` | admin | A local plugin: `{label, hooks?, permissions?, template: "echo"\|"blank"}`; the manifest is built and validated (`origin=local`, id `local.<slug>-<hex>`), the permissions are declared and granted together, created disabled. 400 `manifest_invalid`. |
 | `PATCH /plugins/{id}` | admin | `enabled` starts or stops the process (409 `config_required`, 409 `instance_cap_reached`: `enabled` is put back to false); a change of `config`, `scope`, `granted_permissions`, `quotas` or `label` restarts a running instance. `config` **replaces** the plain fields and merges the secrets (omitted, null or `********` keep, `""` clears; 400 `secret_required` for a mask with no stored value), validated against the stored schema (400 `config_invalid`; unknown fields refused; `language` is always allowed). `granted_permissions` must be a subset of the manifest (400 `permission_exceeds_manifest`); `quotas` only `messages.send.per_hour|per_day`, 1 to the caps 60 and 500 (400 `quota_invalid`); `scope` is `{messages: all\|none\|{channels, contacts}}` (400 `scope_invalid`). Completing a `config_required` config clears the attention. The required fields are re-checked from the stored config on every enable and restart (409 `config_required`); clearing one on a stopped instance sets `needs_attention`/`config_required`. A `revoked` or `incompatible` instance never starts (409 `plugin_revoked`/`plugin_incompatible`); `needs_attention` for another reason (`review_permissions`, `consent_required`...) is 409 `attention_required` until the request resends `granted_permissions` (the acknowledgement). For a `local` plugin `granted_permissions` rewrites the manifest's `permissions` and `hooks` its `hooks` (both revalidated, 400 `manifest_invalid`; `hooks` on another kind is 409 `not_local`), and the instance restarts when enabled. |
 | `PUT /plugins/{id}/source` | admin | Local plugins only (409 `not_local`); 400 `source_too_large` (1 MiB), `source_syntax_error` (`params.line`); restarts when enabled. Answers the instance, the `scan_source` reasons (a review aid) and `http_hosts`, the `https://` hosts found in the code (the UI offers them as the `http` permission to accept). |
-| `POST /plugins/{id}/restart` | admin | New supervisor, failure count at zero (clears `crash_loop`). 409 when disabled or awaiting config. |
+| `POST /plugins/{id}/restart` | admin | New supervisor, failure count at zero (clears `crash_loop`). 409 when disabled or awaiting config, 409 `plugins_paused` while the global pause holds. |
 | `POST /plugins/{id}/check` | admin | `dev check` stages 1 and 2 (package validation and static scan, `check_directory(dry_run=False)`; a local plugin: manifest and scan). **Nothing is executed**: the dry run uses `isolation: none`, so it stays a developer tool; `test` is the live check. A local plugin's answer also carries `http_hosts`. |
-| `POST /plugins/{id}/test` | admin | `{text, channel?\|contact?}`: one `test: true` `event.message` through `dispatch_test` (no scope or `messages.read` filtering). The sends are captured by the host and never reach the radio send path; the answer is `{result, sends, truncated, logs}` with every string scrubbed of the instance's secrets (`last_error` and `summary` too). 409 `instance_not_running`, 404 `channel_not_found`/`contact_not_found`, 504 `test_timeout`. |
+| `POST /plugins/{id}/test` | admin | `{text, channel?\|contact?}`: one `test: true` `event.message` through `dispatch_test` (no scope or `messages.read` filtering). The sends are captured by the host and never reach the radio send path; the answer is `{result, sends, truncated, logs}` with every string scrubbed of the instance's secrets (`last_error` and `summary` too). 409 `plugins_paused`, 409 `instance_not_running`, 404 `channel_not_found`/`contact_not_found`, 504 `test_timeout`. |
 | `GET /plugins/{id}/logs?limit=` | admin | Tail of the stderr ring (default 200, 1 to 500), lines cut at 1000 characters, scrubbed of the instance's secrets and passed through `redact_text`. Not part of `/api/debug` (asserted). |
 | `GET /plugins/{id}/diagnostic` | admin | Plugin id and version, kind, Meshloom and Python versions, isolation level, status, last error, restarts, effective permission names, the last 50 log lines. No config value. |
 | `DELETE /plugins/{id}?keep_data=` | admin | Stops the process, deletes the row and secrets (and the KV unless `keep_data`), and a local plugin's directory; 204. |
 
-There is no "disable until restart" route (Store T9 removes the bots' one) and the global pause is
-Store T43. Typed codes are shown by the UI as `errors.<code>` (texts: Store T11a).
+There is no "disable until restart" route (Store T9 removes the bots' one); the global pause
+(`/plugins/pause`) replaces it. Typed codes are shown by the UI as `errors.<code>` (texts: Store T11a).
 
 Every change of status the API makes is announced as `plugin_status` (admin-only,
 `PluginManager.announce`); the payload is the supervisor's snapshot plus `attention`.

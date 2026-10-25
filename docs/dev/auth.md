@@ -216,6 +216,8 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password; `delayed`/`refused` while a login delay runs; `refused` with `details.reason = password_policy` and `policy`; `refused` with `details.reason = forbidden` when a `kiosk` session or a scoped token sends a `new_password`), `POST /auth/users/{id}/password` (`details.reset`, `must_change`, `sessions_revoked`), `meshloom-admin reset-password` |
   | `settings.changed` | `PATCH /auth/settings`, one row per field changed; `meshloom-admin host-guard-observe` and `rotate-device-key` (target `auth_settings.device_cookie_key`, never the key) |
   | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only, refusals included (403 while bots are disabled: `refused`; name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
+  | `plugin.installed`, `plugin.created`, `plugin.enabled`, `plugin.disabled`, `plugin.config_changed`, `plugin.changed`, `plugin.updated`, `plugin.removed` | `/api/plugins` (`app/routers/plugins.py`): install of a bundled plugin, a local plugin created, a PATCH (one row per kind of change: the toggle, `config_changed` for `config`, `scope`, `granted_permissions`, `quotas`, `hooks`, `changed` for the other fields), `PUT /{id}/source` (`updated`), `DELETE /{id}` (`details.keep_data`); target `plugin:<instance_id>`, `details = {plugin_id, kind, fields?}`: field names only, never a value, a secret or the source; outcome `failure` (`refused` for a 403 raised in the route) when the write is refused. A non-admin caller is refused by the permission gate before the route and writes no row |
+  | `plugins.paused`, `plugins.resumed` | `PUT /plugins/pause` when the state changes (an idempotent repeat writes nothing): the actor only, no target, no details |
   | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
   | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
   | `notify.channel_changed` | `/api/notifications/channels` (`app/notifications/api_support.py`, `announce_channel_change`): a creation, a change of destination (public settings, a URL secret, `allow_private_network`; not a credential or a rename), an enable or disable, a deletion; target `notification_channel:<id>`, `details = {action, type, name}`, never a setting or a secret |
@@ -236,9 +238,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   `pairing.created`, `pairing.revoked` and `pairing.used` are the device
   pairing rows (`docs/dev/device-pairing.md`, "Security rules").
   Reserved for the tickets that add their feature:
-  `passkey.added`, `passkey.removed`,
-  `plugin.created`, `plugin.changed`, `plugin.disabled`, `plugin.installed`,
-  `plugin.updated`, `plugin.removed` (Store), `remote.linked`,
+  `passkey.added`, `passkey.removed`, `remote.linked`,
   `remote.enabled`, `remote.disabled` (Remote). A new sensitive action adds its
   name there and writes its row through this module.
 - **Reads** of the log (`GET /auth/audit`) are not audited (cadrage §4.5 asks only for an

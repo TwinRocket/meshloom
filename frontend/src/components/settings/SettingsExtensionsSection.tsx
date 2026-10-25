@@ -2,18 +2,33 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { api, formatApiError } from '../../api';
+import { useCapabilities } from '../../auth/SessionProvider';
 import type { HealthStatus } from '../../types';
+import { Button } from '../ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { toast } from '../ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { AddBundledDialog } from './extensions/AddBundledDialog';
 import { CreateLocalDialog } from './extensions/CreateLocalDialog';
 import { InstalledTab } from './extensions/InstalledTab';
 import { InstanceDrawer } from './extensions/InstanceDrawer';
-import type { PluginInstance } from './extensions/pluginsTypes';
+import type { PluginInstance, PluginPauseState } from './extensions/pluginsTypes';
 import { SettingsGroupHeader } from './settingsPrimitives';
 
 const ISOLATION_LEVELS = ['bwrap', 'setuid', 'none'] as const;
 
-/** Settings > Extensions: the isolation level, then Installed / Store / Updates. */
+/**
+ * Settings > Extensions: the isolation level, the global pause, then Installed / Store /
+ * Updates. Members (`send`) see the list and statuses read-only; every write, the pause
+ * included, is admin-only (the server refuses it too) and hidden with an explanation.
+ */
 export function SettingsExtensionsSection({
   className,
   health,
@@ -21,7 +36,8 @@ export function SettingsExtensionsSection({
   className?: string;
   health: HealthStatus | null;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { isAdmin } = useCapabilities();
   const [instances, setInstances] = useState<PluginInstance[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -74,7 +90,44 @@ export function SettingsExtensionsSection({
   const opened = instances?.find((i) => i.instance_id === openId) ?? null;
   const isolation = health?.plugins_isolation ?? null;
   const disabledSource = health?.plugins_disabled_source ?? null;
-  const locked = disabledSource !== null;
+  // The host lock, the platform or a failed isolation forbid every write; the global
+  // pause does not (changes are saved and apply on resume).
+  const locked = disabledSource !== null && disabledSource !== 'paused';
+  const pausedSince = health?.plugins_paused_since ?? null;
+
+  // Who paused and since when (`GET /plugins/pause`), read again whenever health moves.
+  const [pause, setPause] = useState<PluginPauseState | null>(null);
+  const [confirmPause, setConfirmPause] = useState(false);
+  const [pauseBusy, setPauseBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api
+      .getPluginsPause()
+      .then((state) => alive && setPause(state))
+      .catch(() => alive && setPause(null));
+    return () => {
+      alive = false;
+    };
+  }, [reloadTick, pausedSince, disabledSource]);
+  const paused = pause?.paused ?? disabledSource === 'paused';
+  const since = pause?.since ?? pausedSince;
+
+  const applyPause = async (next: boolean) => {
+    setPauseBusy(true);
+    try {
+      setPause(await api.setPluginsPause(next));
+      setConfirmPause(false);
+      toast.success(
+        t(next ? 'settings.extensions.pause.paused' : 'settings.extensions.pause.resumed')
+      );
+      reload();
+    } catch (err) {
+      toast.error(formatApiError(err, t));
+    } finally {
+      setPauseBusy(false);
+    }
+  };
+  const sinceText = since ? new Date(since * 1000).toLocaleString(i18n.language) : '';
 
   return (
     <div className={className}>
@@ -111,6 +164,49 @@ export function SettingsExtensionsSection({
         </p>
       )}
 
+      {paused && (
+        <div
+          role="status"
+          data-testid="plugins-paused-banner"
+          className="mb-3 space-y-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm"
+        >
+          <p className="font-medium">
+            {pause?.by
+              ? t('settings.extensions.pause.banner', { time: sinceText, user: pause.by })
+              : t('settings.extensions.pause.bannerNoUser', { time: sinceText })}
+          </p>
+          <p className="text-muted-foreground">{t('settings.extensions.pause.bannerExplain')}</p>
+          {isAdmin && (
+            <Button size="sm" onClick={() => void applyPause(false)} disabled={pauseBusy}>
+              {t('settings.extensions.pause.resume')}
+            </Button>
+          )}
+        </div>
+      )}
+      {!paused && isAdmin && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border p-3 text-sm">
+          <p className="min-w-0 flex-1 text-muted-foreground">
+            {t('settings.extensions.pause.hint')}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmPause(true)}
+            disabled={pauseBusy}
+          >
+            {t('settings.extensions.pause.button')}
+          </Button>
+        </div>
+      )}
+      {!isAdmin && (
+        <p
+          data-testid="plugins-member-readonly"
+          className="mb-3 rounded-md border border-border p-3 text-sm text-muted-foreground"
+        >
+          {t('settings.extensions.memberReadOnly')}
+        </p>
+      )}
+
       <Tabs defaultValue="installed">
         <TabsList className="h-auto w-full flex-wrap justify-start">
           <TabsTrigger value="installed">{t('settings.extensions.tabs.installed')}</TabsTrigger>
@@ -130,6 +226,7 @@ export function SettingsExtensionsSection({
             <InstalledTab
               instances={instances}
               locked={locked}
+              canManage={isAdmin}
               onOpen={(i) => setOpenId(i.instance_id)}
               onAdd={() => setAdding(true)}
               onCreateLocal={() => setCreating(true)}
@@ -146,25 +243,54 @@ export function SettingsExtensionsSection({
         </TabsContent>
       </Tabs>
 
-      <AddBundledDialog
-        open={adding}
-        onOpenChange={setAdding}
-        onInstalled={(instance) => {
-          replace(instance);
-          setOpenId(instance.instance_id);
-        }}
-      />
-      <CreateLocalDialog
-        open={creating}
-        onOpenChange={setCreating}
-        onCreated={(instance) => {
-          replace(instance);
-          setOpenId(instance.instance_id);
-        }}
-      />
+      {isAdmin && (
+        <>
+          <AddBundledDialog
+            open={adding}
+            onOpenChange={setAdding}
+            onInstalled={(instance) => {
+              replace(instance);
+              setOpenId(instance.instance_id);
+            }}
+          />
+          <CreateLocalDialog
+            open={creating}
+            onOpenChange={setCreating}
+            onCreated={(instance) => {
+              replace(instance);
+              setOpenId(instance.instance_id);
+            }}
+          />
+          <Dialog open={confirmPause} onOpenChange={setConfirmPause}>
+            <DialogContent className="w-[calc(100%-2rem)] max-w-md">
+              <DialogHeader>
+                <DialogTitle>{t('settings.extensions.pause.confirmTitle')}</DialogTitle>
+                <DialogDescription>{t('settings.extensions.pause.confirmText')}</DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmPause(false)}
+                  disabled={pauseBusy}
+                >
+                  {t('settings.extensions.cancel')}
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => void applyPause(true)}
+                  disabled={pauseBusy}
+                >
+                  {t('settings.extensions.pause.confirm')}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
       <InstanceDrawer
         instance={opened}
         locked={locked}
+        canManage={isAdmin}
         onClose={() => setOpenId(null)}
         onChanged={replace}
         onRemoved={(id) => {

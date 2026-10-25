@@ -109,6 +109,7 @@
         "experimentalBanner": "Integrations are an experimental feature in open beta, and allow you to fanout raw and decrypted messages across multiple services for automation, analysis, or archiving.",
         "botsDisabled": "Bot system is disabled by server configuration (MESHCORE_DISABLE_BOTS). Bot integrations cannot run, be created, or be modified.",
         "botsDisabledUntilRestart": "Bot system is disabled until the server restarts. Bot integrations cannot run, be created, or be modified right now.",
+        "botsPaused": "Bots are paused with every extension (Settings > Extensions, “Pause all extensions”). They do not run until an administrator resumes them; changes are still saved.",
         "addIntegration": "Add Integration",
         "backToList": "← Back to list",
         "name": "Name",

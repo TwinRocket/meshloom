@@ -37,7 +37,8 @@
         "crash_loop": "Plante en boucle",
         "needs_attention": "À examiner",
         "incompatible": "Incompatible",
-        "revoked": "Révoquée"
+        "revoked": "Révoquée",
+        "paused": "En pause"
       },
       "attention": {
         "config_required": {
@@ -173,6 +174,21 @@
         "title": "Vos bots ont été convertis en extensions",
         "text": "Examinez chaque extension convertie avant de la démarrer : elle ne tourne qu'une fois que vous avez accepté ce qu'elle peut faire.",
         "acknowledge": "Compris"
+      },
+      "memberReadOnly": "Seul un administrateur peut ajouter, modifier, démarrer, supprimer ou mettre en pause des extensions. Vous voyez ce qui est installé et son état.",
+      "drawerMemberReadOnly": "Seul un administrateur peut modifier, redémarrer ou désinstaller cette extension, ou lire son journal.",
+      "pause": {
+        "button": "Mettre en pause toutes les extensions",
+        "hint": "L'interrupteur d'incident : arrête toutes les extensions d'un coup et n'en démarre aucune jusqu'à la reprise. Chaque extension garde son propre réglage activée ou non.",
+        "confirmTitle": "Mettre en pause toutes les extensions ?",
+        "confirmText": "Toutes les extensions en marche s'arrêtent maintenant et aucune ne démarre, même après un redémarrage de Meshloom, jusqu'à ce qu'un administrateur les relance. Les messages reçus entre-temps ne leur sont pas transmis ensuite. Chaque extension garde son propre réglage activée ou non.",
+        "confirm": "Tout mettre en pause",
+        "banner": "Toutes les extensions sont en pause depuis {{time}}, par {{user}}.",
+        "bannerNoUser": "Toutes les extensions sont en pause depuis {{time}}.",
+        "bannerExplain": "Aucune ne tourne ni ne reçoit de messages. Les modifications sont enregistrées et s'appliquent à la reprise.",
+        "resume": "Reprendre",
+        "paused": "Toutes les extensions sont en pause.",
+        "resumed": "Extensions relancées."
       }
     },
     "fullRestore": {

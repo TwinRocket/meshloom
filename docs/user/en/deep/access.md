@@ -32,7 +32,7 @@ What each role sees in the interface follows the table: the screens a role canno
 | Direct messages | yes | yes | yes | no |
 | Composer, new conversation, pin, favourite, mute, delete | yes | yes | no | no |
 | Repeater and room panes, mesh test | yes | no | no | no |
-| Settings | all sections | Local configuration, Users & Access (own account) | Local configuration, Users & Access (own account) | none |
+| Settings | all sections | Local configuration, Users & Access (own account), Extensions (read only) | Local configuration, Users & Access (own account) | none |
 | Language and theme of this browser | yes | yes | yes | yes, from the account button |
 
 Every role receives the instance's theme, its blocked contacts and names and the region names, whatever it can change: a blocked contact stays hidden for a viewer or a kiosk too. Only administrators read or change the other settings.

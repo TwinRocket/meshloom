@@ -14,6 +14,7 @@ import type {
   PluginInstallRequest,
   PluginLogs,
   PluginPatch,
+  PluginPauseState,
   PluginSourceResult,
   PluginTestRequest,
   PluginTestResult,
@@ -1242,6 +1243,12 @@ export const api = {
   getPluginDiagnostic: (id: string) =>
     fetchJson<PluginDiagnostic>(`/plugins/${encodeURIComponent(id)}/diagnostic`, {
       cache: 'no-store',
+    }),
+  getPluginsPause: () => fetchJson<PluginPauseState>('/plugins/pause', { cache: 'no-store' }),
+  setPluginsPause: (paused: boolean) =>
+    fetchJson<PluginPauseState>('/plugins/pause', {
+      method: 'PUT',
+      body: JSON.stringify({ paused }),
     }),
   deletePlugin: (id: string, keepData: boolean) =>
     fetchJson<void>(`/plugins/${encodeURIComponent(id)}?keep_data=${keepData}`, {

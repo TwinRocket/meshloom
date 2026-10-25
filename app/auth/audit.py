@@ -62,17 +62,22 @@ AuditAction = Literal[
     "totp.recovery_regenerated",
     "passkey.added",
     "passkey.removed",
-    # Code that runs on the instance: bots today, plugins with the Store
+    # Code that runs on the instance: the legacy bots and the plugins
+    # (`app/routers/plugins.py`, target `plugin:<instance_id>`)
     "bot.created",
     "bot.changed",
     "bot.deleted",
     "bots.disabled",
     "plugin.created",
     "plugin.changed",
+    "plugin.config_changed",
+    "plugin.enabled",
     "plugin.disabled",
     "plugin.installed",
     "plugin.updated",
     "plugin.removed",
+    "plugins.paused",
+    "plugins.resumed",
     # Instance-wide actions
     "backup.restored",
     "private_key.imported",

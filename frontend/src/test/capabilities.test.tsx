@@ -143,11 +143,11 @@ describe('role capabilities', () => {
     expect(UNRESTRICTED.role).toBeNull();
   });
 
-  it('opens settings sections by role: all for admin, Local and Users & Access for member and viewer, none for kiosk', () => {
+  it('opens settings sections by role: all for admin, Local, Users & Access (and Extensions, read-only, for member) for member and viewer, none for kiosk', () => {
     const sections = (role: AuthRole) =>
       visibleSettingsSections(capabilitiesFor(role), SETTINGS_SECTION_ORDER);
     expect(sections('admin')).toEqual(SETTINGS_SECTION_ORDER);
-    expect(sections('member')).toEqual(['local', 'access']);
+    expect(sections('member')).toEqual(['local', 'access', 'extensions']);
     expect(sections('viewer')).toEqual(['local', 'access']);
     expect(sections('kiosk')).toEqual([]);
   });
@@ -198,7 +198,7 @@ describe('settings entry points', () => {
   });
 
   it.each(['member', 'viewer'] as const)(
-    'offers the %s role Local configuration and nothing else',
+    'offers the %s role Local configuration and no administration section',
     async (role) => {
       await renderAs(role, <SettingsIndexView onSelectSection={vi.fn()} />);
       expect(screen.getByText(i18n.t('settingsNav.local'))).toBeInTheDocument();

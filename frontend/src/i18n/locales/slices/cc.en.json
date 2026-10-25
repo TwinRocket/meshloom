@@ -37,7 +37,8 @@
         "crash_loop": "Keeps crashing",
         "needs_attention": "Needs attention",
         "incompatible": "Incompatible",
-        "revoked": "Revoked"
+        "revoked": "Revoked",
+        "paused": "Paused"
       },
       "attention": {
         "config_required": {
@@ -173,6 +174,21 @@
         "title": "Your bots were converted to extensions",
         "text": "Review each converted extension before starting it: it only runs once you have accepted what it may do.",
         "acknowledge": "Got it"
+      },
+      "memberReadOnly": "Only an administrator can add, change, start, remove or pause extensions. You can see what is installed and how it is doing.",
+      "drawerMemberReadOnly": "Only an administrator can change, restart or uninstall this extension, or read its log.",
+      "pause": {
+        "button": "Pause all extensions",
+        "hint": "The incident switch: stops every extension at once and starts none until you resume. Each extension keeps its own on/off setting.",
+        "confirmTitle": "Pause all extensions?",
+        "confirmText": "Every running extension stops now and none starts, even after a restart of Meshloom, until an administrator resumes them. Messages received meanwhile are not handed to them later. Each extension keeps its own on/off setting.",
+        "confirm": "Pause all",
+        "banner": "All extensions are paused since {{time}} by {{user}}.",
+        "bannerNoUser": "All extensions are paused since {{time}}.",
+        "bannerExplain": "None runs and none receives messages. Changes are saved and apply on resume.",
+        "resume": "Resume",
+        "paused": "All extensions are paused.",
+        "resumed": "Extensions resumed."
       }
     },
     "fullRestore": {

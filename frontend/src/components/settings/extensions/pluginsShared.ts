@@ -10,6 +10,7 @@ export const KNOWN_STATUSES = [
   'disabled',
   'starting',
   'running',
+  'paused',
   'error',
   'crash_loop',
   'needs_attention',
@@ -24,6 +25,7 @@ export function statusTone(status: string): StatusTone {
     case 'starting':
     case 'installed':
     case 'needs_attention':
+    case 'paused':
       return 'warn';
     case 'error':
     case 'crash_loop':

@@ -288,6 +288,11 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to resume the pending Community status clear")
 
+    # The global plugin pause (MSHL-216) holds plugins and bots: read it first.
+    from app.plugins import pause as plugin_pause
+
+    await plugin_pause.load()
+
     # Start fanout modules (MQTT, etc.) from database configs
     from app.fanout.manager import fanout_manager
 

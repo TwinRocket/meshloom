@@ -103,6 +103,33 @@ Two extensions ship with Meshloom and install without any network:
 - **Echo** answers `!pling` with `Plong!`. It reads public channels and your direct messages and only replies. Its code is the reference for writing your own.
 - **Auto-responder** answers messages from rules you write, with no code. One rule per line, in its **Rules** setting: `trigger: text => reply`. The trigger is `keyword` (the word appears in the message), `prefix` (the message starts with it) or `regex` (a pattern of at most 100 characters, in a restricted dialect: at most two repeats of more than 5 times, no repeated group holding a repeat or a choice, no back-reference or lookaround; it only reads the first 200 characters of the message). Add options after the trigger, separated by commas: `channel=#name` (or `channel=dm`) to limit a rule to one channel, `cooldown=300` for a pause in seconds before answering the same person again. The reply may contain `{sender}`, `{channel}` and `{text}`. For example `prefix,channel=#test: !ping => Pong, {sender}!`. The first rule that matches decides; a rule that cannot be read is skipped and written to the log. Other settings: respect upper and lower case, answer direct messages or not, the default pause (120 seconds) and the most answers per hour (20). Beyond them, the limits above always apply, including one answer every 30 seconds to the same person.
 
+### Who can do what
+
+- **Administrators** install, configure, enable, disable, reorder, restart, test and uninstall extensions, write local extensions, read their logs and diagnostics, and pause or resume them all.
+- **Members** open **Settings → Extensions** read-only: they see the list, the statuses, the permissions each copy has, and who paused the extensions and since when. The page tells them that only an administrator can change it. Logs and diagnostics stay with administrators, because they can contain message text.
+- **Viewer** and **kiosk** accounts have no Extensions section.
+
+Every change an administrator makes is written to the audit log (**Settings → Users & Access → Audit log**) with who made it and which copy it touched: install, enable, disable, settings changed, uninstall, local code saved, pause and resume. The audit log keeps the names of the changed fields, never their values: no secret and no code. Being on the same network gives no right to install anything. Only an administrator account can, and the audit log shows who did.
+
+### Pause all extensions
+
+**Pause all extensions** (top of the page, administrators only, after a confirmation) is the switch for an incident: an extension misbehaves and you want everything quiet now, before finding which one.
+
+- Every running copy stops and none starts while the pause lasts. Messages and events arriving meanwhile are not delivered to extensions, and **Test with a message** is refused.
+- Nothing is lost: each copy keeps its on/off switch, its settings and its data. You can still install, configure or turn copies on; they start when you resume.
+- A banner says since when and by whom the extensions are paused, and copies show the **Paused** status. **Resume** starts again exactly the copies that are switched on.
+- The pause survives a restart of Meshloom. Python bots are paused at the same time.
+
+It differs from the other two ways to stop extensions:
+
+| | Who | What stops | How to undo it |
+|---|---|---|---|
+| The switch of one copy | An administrator, in the interface | That copy only | Turn it back on |
+| **Pause all extensions** | An administrator, in the interface | Every copy; switches and settings are kept | **Resume** |
+| Host lock (`MESHCORE_DISABLE_PLUGINS=true`, see [Environment](/en/docs/deep/environment/)) | Whoever runs the server | The whole plugin system; nothing can start | Remove the variable and restart |
+
+When the host lock is set, it wins: the page shows the extensions as turned off by the server, whatever the pause says.
+
 ### Local extensions
 
 **New local extension** (in the Installed tab) creates a small Python program kept in Meshloom, from a starting code (an echo that answers `!pling` with `Plong!`, or an empty one). It starts off, with only the permissions you give it. In its drawer:

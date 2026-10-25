@@ -30,6 +30,8 @@ Deux protections existent :
 
 Si des personnes que vous ne connaissez pas toutes peuvent atteindre l’instance, gardez les bots désactivés.
 
+Depuis la 5.0, les extensions (**Réglages → Extensions**) suivent la même règle. Qui peut en installer, en configurer ou en lancer une dépend du rôle du compte, pas du fait d’être sur votre réseau : seul un administrateur le peut, un membre voit la liste en lecture seule, et les comptes lecteur et kiosque ne voient rien. Chaque modification est inscrite au journal d’audit avec son auteur : vous savez après coup qui a installé quoi. Quand l’une d’elles se comporte mal, **Mettre en pause toutes les extensions** les arrête toutes d’un coup sans perdre leurs réglages (voir [Extensions](/docs/deep/plugins/#mettre-en-pause-toutes-les-extensions)).
+
 ## Le mot de passe et HTTPS
 
 Votre mot de passe ne protège l’interface que dans la mesure où le réseau entre vous et Meshloom le fait. En HTTP simple, le nom d’utilisateur et le mot de passe circulent en clair à chaque connexion. [HTTPS](/docs/deep/https/) explique comment mettre en place un certificat, même auto-signé.

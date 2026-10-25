@@ -32,7 +32,7 @@ Ce que chaque rôle voit dans l’interface suit ce tableau : les écrans qu’u
 | Messages directs | oui | oui | oui | non |
 | Zone de saisie, nouvelle conversation, épingle, favori, sourdine, suppression | oui | oui | non | non |
 | Volets répéteurs et salons, test du maillage | oui | non | non | non |
-| Réglages | toutes les sections | Configuration locale, Utilisateurs et accès (son propre compte) | Configuration locale, Utilisateurs et accès (son propre compte) | aucun |
+| Réglages | toutes les sections | Configuration locale, Utilisateurs et accès (son propre compte), Extensions (lecture seule) | Configuration locale, Utilisateurs et accès (son propre compte) | aucun |
 | Langue et thème de ce navigateur | oui | oui | oui | oui, depuis le bouton de compte |
 
 Chaque rôle reçoit le thème de l’instance, ses contacts et noms bloqués et les noms de régions, quoi qu’il puisse modifier : un contact bloqué reste masqué aussi pour un lecteur ou un kiosque. Seuls les administrateurs lisent ou modifient les autres réglages.

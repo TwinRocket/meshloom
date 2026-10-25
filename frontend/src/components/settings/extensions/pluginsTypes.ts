@@ -17,6 +17,13 @@ export interface BundledPlugin {
   instances: number;
 }
 
+/** `GET /plugins/pause`: the global incident switch (`by` is a username). */
+export interface PluginPauseState {
+  paused: boolean;
+  since: number | null;
+  by: string | null;
+}
+
 export interface PluginLogs {
   lines: string[];
   truncated: boolean;

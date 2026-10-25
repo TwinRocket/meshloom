@@ -109,6 +109,7 @@
         "experimentalBanner": "Les intégrations sont une fonctionnalité expérimentale en bêta ouverte : elles permettent de diffuser les messages bruts et déchiffrés vers plusieurs services pour l’automatisation, l’analyse ou l’archivage.",
         "botsDisabled": "Le système de bots est désactivé par la configuration du serveur (MESHCORE_DISABLE_BOTS). Les intégrations bot ne peuvent ni s’exécuter, ni être créées, ni être modifiées.",
         "botsDisabledUntilRestart": "Le système de bots est désactivé jusqu’au redémarrage du serveur. Les intégrations bot ne peuvent ni s’exécuter, ni être créées, ni être modifiées pour le moment.",
+        "botsPaused": "Les bots sont en pause avec toutes les extensions (Réglages > Extensions, « Mettre en pause toutes les extensions »). Ils ne tournent pas jusqu’à ce qu’un administrateur les relance ; les modifications restent enregistrées.",
         "addIntegration": "Ajouter une intégration",
         "backToList": "← Retour à la liste",
         "name": "Nom",

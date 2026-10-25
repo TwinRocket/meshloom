@@ -142,11 +142,17 @@ class HealthResponse(BaseModel):
     notification_statuses: dict[str, NotificationStatusResponse] = Field(default_factory=dict)
     # The global notification cap (rules ``limits.global_per_hour``) is reached.
     notifications_capped: bool = False
+    # Deprecated (the legacy bots): mirrors the global plugin pause as "paused".
     bots_disabled: bool = False
-    bots_disabled_source: Literal["env", "until_restart"] | None = None
+    bots_disabled_source: Literal["env", "until_restart", "paused"] | None = None
     # The plugin host (app/plugins/lifecycle.py): None when the system is off.
     plugins_isolation: Literal["none", "setuid", "bwrap"] | None = None
-    plugins_disabled_source: Literal["env", "platform", "isolation"] | None = None
+    # Off or held: the host lock, the platform and the isolation take precedence
+    # over the global pause ("paused", app/plugins/pause.py).
+    plugins_disabled: bool = False
+    plugins_disabled_source: Literal["env", "platform", "isolation", "paused"] | None = None
+    # When the global pause started (unix seconds); None when not paused.
+    plugins_paused_since: int | None = None
     plugin_statuses: dict[str, PluginStatusResponse] = Field(default_factory=dict)
     radio_proxy: RadioProxyStatus | None = None
 
