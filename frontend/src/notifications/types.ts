@@ -107,12 +107,23 @@ export interface NotificationRules {
   watched_nodes: unknown[];
   radio_offline_grace_s: number;
   mention_whole_word: boolean;
+  /** Quiet hours: HH:MM window in the host time zone, ISO weekdays (Monday = 0). */
+  quiet_hours?: NotificationQuietHours;
   push_allow_private_endpoints: boolean;
   /** Read-only. */
   host_timezone: string;
 }
 
+export interface NotificationQuietHours {
+  enabled: boolean;
+  start: string;
+  end: string;
+  weekdays: number[];
+  digest_at_end: boolean;
+}
+
 export interface NotificationRulesPatch {
+  quiet_hours?: Partial<NotificationQuietHours>;
   events?: Record<string, Partial<NotificationEventRule>>;
   /** Epoch seconds; `null` resumes. */
   paused_until?: number | null;
