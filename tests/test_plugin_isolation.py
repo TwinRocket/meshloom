@@ -12,6 +12,7 @@ pytest: `pytest --noconftest tests/test_plugin_isolation.py`.
 import logging
 import os
 import pwd
+import shutil
 import signal
 import stat
 import subprocess
@@ -614,6 +615,26 @@ def test_purge_asks_the_helper_for_every_depth_and_sysv_ipc(monkeypatch) -> None
     ]
 
 
+def test_purge_fails_when_the_server_still_sees_something(monkeypatch) -> None:
+    """MSHL-347: the helper's word is not enough; the server checks again."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    backend = SetuidBackend(40010, 40010)
+    monkeypatch.setattr(backend, "_helper", lambda *_args: None)
+    seen: list[tuple[int, object]] = []
+
+    def owns(uid, dirs=None):
+        seen.append((uid, dirs))
+        return True
+
+    monkeypatch.setattr(setuid_module, "owns_something", owns)
+    with pytest.raises(ValueError, match="still owns"):
+        backend.purge([Path("/nowhere")])
+    with pytest.raises(ValueError, match="still owns"):
+        backend.purge()  # every temp dir and System V IPC
+    assert seen == [(40010, [Path("/nowhere")]), (40010, None)]
+
+
 def _free_instance_uids(count: int) -> list[int]:
     from app.plugins.isolation.setuid import INSTANCE_UIDS, uid_is_free
 
@@ -750,4 +771,76 @@ def test_purge_reaches_deep_leftovers_and_sysv_ipc() -> None:
     finally:
         import shutil
 
+        shutil.rmtree(shared, ignore_errors=True)
+
+
+def _run_as(backend, plugin_dir: Path, code: str, *args: str) -> None:
+    proc = backend.spawn(
+        [sys.executable, "-I", "-S", "-c", "import os, sys\n" + code, *args],
+        plugin_dir,
+        plugin_dir,
+        stdin=subprocess.DEVNULL,
+    )
+    assert proc.wait(timeout=30) == 0
+
+
+@pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
+def test_purge_fails_closed_on_a_directory_it_may_write_but_not_list() -> None:
+    """MSHL-347: a 0733 directory of another uid hides what the instance uid put
+    there from its own purge: the purge fails and the uid stays taken."""
+    from app.plugins.isolation.setuid import owns_something
+
+    base = _backend("setuid")
+    mine, theirs = (base.for_uid(uid) for uid in _free_instance_uids(2))
+    shared = shared_tmp_dir("meshloom-purge-unlistable-")
+    os.chmod(shared, 0o1777)
+    trap = shared / "trap"
+    plugin_dir = shared_tmp_dir("meshloom-purge-unlistable-plugin-")
+    try:
+        _run_as(
+            theirs, plugin_dir, "os.mkdir(sys.argv[1]); os.chmod(sys.argv[1], 0o733)", str(trap)
+        )
+        _run_as(
+            mine, plugin_dir, "open(os.path.join(sys.argv[1], 'hidden'), 'w').close()", str(trap)
+        )
+        with pytest.raises(ValueError, match="not listable"):
+            mine.purge([shared])
+        if os.geteuid() == 0:
+            # Root lists it: even without the helper's word the server sees the file.
+            assert (trap / "hidden").stat().st_uid == mine.uid
+            assert owns_something(mine.uid, [shared])
+        # Once listable, the purge removes it and succeeds.
+        _run_as(theirs, plugin_dir, "os.chmod(sys.argv[1], 0o777)", str(trap))
+        mine.purge([shared])
+        assert list(trap.iterdir()) == []
+    finally:
+        theirs.purge([shared])
+        mine.purge([shared])
+        shutil.rmtree(shared, ignore_errors=True)
+
+
+@pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
+def test_purge_skips_other_work_dirs_and_dirs_it_cannot_enter() -> None:
+    """Another instance's work directory (0711 without root) and a 0700 directory of
+    another uid do not fail the purge: the uid could not write in them."""
+    base = _backend("setuid")
+    mine, theirs = (base.for_uid(uid) for uid in _free_instance_uids(2))
+    shared = shared_tmp_dir("meshloom-purge-skip-")
+    os.chmod(shared, 0o1777)
+    plugin_dir = shared_tmp_dir("meshloom-purge-skip-plugin-")
+    work = shared / "meshloom-plugin-abc123"
+    closed = shared / "closed"
+    make = "for path, mode in zip(sys.argv[1::2], sys.argv[2::2]):\n    os.mkdir(path); os.chmod(path, int(mode, 8))"
+    try:
+        _run_as(theirs, plugin_dir, make, str(work), "711", str(closed), "700")
+        mine.purge([shared])
+        assert work.is_dir() and closed.is_dir()
+        # The same 0711 directory under another name is not a work directory.
+        _run_as(
+            theirs, plugin_dir, "os.rename(sys.argv[1], sys.argv[2])", str(work), str(shared / "x")
+        )
+        with pytest.raises(ValueError, match="not listable"):
+            mine.purge([shared])
+    finally:
+        theirs.purge([shared])
         shutil.rmtree(shared, ignore_errors=True)

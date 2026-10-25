@@ -610,19 +610,29 @@ along with the rest of `meshloom_plugin/` by the Dockerfile and the packages. A 
 `version` changes only with its files; `install_bundled` is a no-op for the same
 version and replaces `<data>/plugins/<id>/` for another (the old tree is moved aside
 until the swap succeeds, so a failure keeps it; if putting it back fails too, it stays in
-`_staging/previous-<hex>`, which no later install deletes). `app/plugins/bundled_update.py`
+`_staging/previous-<hex>`). At start, before the bundled update, `installer.sweep_staging()`
+(MSHL-347) clears `<data>/plugins/_staging/`: it never follows a symlink (a symlinked
+`_staging` is left alone, a symlinked entry is unlinked), deletes the leftovers of a crashed
+install, and deletes a `previous-*` tree only when its manifest names a valid plugin id
+whose tree is in place; otherwise it keeps it and logs a warning. `app/plugins/bundled_update.py`
 (MSHL-337) re-installs the instances after a Meshloom upgrade: `lifecycle.start()` calls
 `update_bundled()` before `load_from_db()`, so no child runs during the swap. For each
 `kind = bundled` row whose packaged version is newer (PEP 440) it installs the code once
 per plugin (`swap_bundled`, old tree kept aside), then rewrites `version`, `manifest` and
 `config_schema` of all its rows in one transaction (`PluginRepository.update_many`); if
-that write fails the old tree goes back (`restore_previous`). Config, secrets, scope,
+that write fails the old tree goes back (`restore_previous`). If putting it back fails too,
+the new code runs under the old rows: the host refuses to start such an instance
+(`PluginManager.code_matches`: the installed `manifest.json`, read without following a
+symlink, must carry the row's id and version; status `error`, `last_error =
+plugin_code_mismatch` in health and the API, 409 on start) until the next start, where
+`swap_bundled` finds the tree already new and the row write is retried. Config, secrets, scope,
 quotas, label and KV are kept. Permissions the new manifest adds or changes (`added`;
 any different normalised parameters, narrower included; a removed one only loses its
 grant), or a widened privacy declaration (a new `sends_to_third_parties` host, or
 `stores_message_content` turning true: `privacy_widened`), set `needs_attention` /
 `attention.type = review_permissions` (`added`, `privacy_widened`, `from_version`,
-`to_version`); the changed names drop their grant while `enabled` stays, so the
+`to_version`; the UI says "privacy changed" when `privacy_widened` is the only reason, and
+names both when `added` is not empty); the changed names drop their grant while `enabled` stays, so the
 admin's usual acceptance (`PATCH` with `granted_permissions`, see "Instances") starts it;
 otherwise grants and status are untouched (a newly required, unset config field switches
 the instance off with `config_required`, like an install). Same or older version: no-op;

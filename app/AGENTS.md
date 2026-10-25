@@ -129,8 +129,11 @@ and the OpenAPI page (`/docs`), not a table here.
   at start, from `lifecycle.start()` before any child: newer packaged version only, config
   and data kept, added or changed permissions and a widened privacy declaration hold the
   instance (`review_permissions`), the rows of a plugin are written in one transaction
-  (the old tree goes back if that fails), a failure is logged and keeps the old version,
-  nothing under the host lock.
+  (the old tree goes back if that fails; if that fails too, `PluginManager.code_matches`
+  refuses to start the instance with `plugin_code_mismatch` until a later start writes
+  the rows), a failure is logged and keeps the old version, nothing under the host lock.
+  `installer.sweep_staging()` clears `<data>/plugins/_staging` leftovers at start, before
+  the update, without following symlinks.
   `plugins/launch.py` builds the launch contract of the plugin child, which runs
   the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
   `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
@@ -146,7 +149,8 @@ and the OpenAPI page (`/docs`), not a table here.
   `plugins_disabled_source: "isolation"`). The account (uid/gid 10002) only opts into `setuid`: each instance runs under
   its own uid from 40000-49999 (`setuid.INSTANCE_UIDS`, table `plugin_uids`,
   `PluginUidRepository`; `PluginManager` allocates at start, purges and frees it
-  on delete, `reap_uids()` at startup; MSHL-339). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  on delete, `reap_uids()` at startup; MSHL-339; the purge fails closed on a directory
+  the uid may enter but not list, then `owns_something` re-checks; MSHL-347). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). The child's own kernel guards
   (dropped capabilities, a seccomp filter refusing clone/fork/exec, required for
   a root child) are `meshloom_plugin/seccomp.py`. Stdlib only, so

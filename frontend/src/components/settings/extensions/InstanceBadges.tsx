@@ -1,13 +1,13 @@
 import { useTranslation } from 'react-i18next';
 
 import { Badge, StatusBadge } from './StatusBadge';
-import { attentionType } from './pluginsShared';
+import { attentionTextKey } from './pluginsShared';
 import type { PluginInstance } from './pluginsTypes';
 
 /** Status, typed attention reason, kind (tier) and the revoked/incompatible flags. */
 export function InstanceBadges({ instance }: { instance: PluginInstance }) {
   const { t } = useTranslation();
-  const reason = attentionType(instance);
+  const reason = attentionTextKey(instance);
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <StatusBadge status={instance.status} />
