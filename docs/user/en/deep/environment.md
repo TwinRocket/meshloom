@@ -116,6 +116,7 @@ Meshloom writes the same warning at each start while one of them is still set.
 | Retired variable | What happens to it |
 |----------|---------|
 | `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Read only at the first start with no account, to create the administrator; compatibility until 5.2: `Authorization: Basic` is still accepted, then removed. Accounts are managed in **Settings → Users & Access**. Same warning at each start |
+| `MESHCORE_DISABLE_BOTS` | The Python bots are extensions since 5.0.0. Read one last time by the migration of the bots (`true` stores every converted extension switched off), then ignored, with a start-up warning that names `MESHCORE_DISABLE_PLUGINS`. To lock every extension, set that variable (see [Plugins](/en/docs/deep/plugins/#bots-from-418-and-earlier)) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignored, with the same warning. The radio's private key can always be read back: through `GET /api/radio/private-key` and in the full backup (**Settings → Database**, see [Back up your radio](/en/docs/backup/)). See [Security](/en/docs/deep/security/#the-nodes-private-key) |
 
 ## Settings stored in the database
