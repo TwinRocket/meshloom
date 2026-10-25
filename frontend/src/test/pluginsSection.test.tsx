@@ -592,6 +592,29 @@ describe('global pause and member view', () => {
     expect(screen.getByRole('switch')).toBeEnabled();
   });
 
+  it('explains an unreadable pause state instead of showing an empty date', async () => {
+    vi.spyOn(api, 'getPluginsPause').mockResolvedValue({ paused: true, since: null, by: null });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([instance({ status: 'paused' })]);
+    render(
+      <SettingsExtensionsSection
+        health={health({ plugins_disabled_source: 'paused', plugins_pause_unreadable: true })}
+      />
+    );
+    const banner = await screen.findByTestId('plugins-paused-banner');
+    expect(banner).toHaveTextContent(t('settings.extensions.pause.bannerUnreadable'));
+    expect(banner).not.toHaveTextContent(/since\s*\.|depuis\s*\./);
+    expect(within(banner).getByRole('button')).toBeEnabled();
+  });
+
+  it('never prints an empty date when the pause has none', async () => {
+    vi.spyOn(api, 'getPluginsPause').mockResolvedValue({ paused: true, since: null, by: null });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([instance({ status: 'paused' })]);
+    render(<SettingsExtensionsSection health={health({ plugins_disabled_source: 'paused' })} />);
+    expect(await screen.findByTestId('plugins-paused-banner')).toHaveTextContent(
+      t('settings.extensions.pause.bannerNoTime')
+    );
+  });
+
   it('gives a member the list read-only, with the reason and no write control', async () => {
     roleRef.current = 'member';
     vi.spyOn(api, 'getPluginsPause').mockResolvedValue({
