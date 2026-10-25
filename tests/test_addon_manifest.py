@@ -179,3 +179,8 @@ def test_the_image_reference_cannot_carry_capitals() -> None:
     workflow = (ADDON.parent / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
     assert "ghcr.io/${{ github.repository }}" not in workflow
     assert "${GITHUB_REPOSITORY,,}" in workflow
+
+
+def test_share_cache_is_left_out_of_backups() -> None:
+    """The shared images cache (<addon_config>/share-cache) is rebuilt on demand."""
+    assert "share-cache" in _config().get("backup_exclude", [])

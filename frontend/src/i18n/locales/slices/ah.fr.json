@@ -14,6 +14,8 @@
     "share_gone": "Ce lien ou ce fichier a expiré ou a été retiré.",
     "share_target_blocked": "Le service de partage refuse les liens vers cette adresse.",
     "share_invalid_url": "Cette adresse ne peut pas être raccourcie.",
-    "share_cross_site": "Les demandes de partage venant d’un autre site web sont refusées."
+    "share_cross_site": "Les demandes de partage venant d’un autre site web sont refusées.",
+    "share_invalid_id": "Cet identifiant d’objet partagé n’est pas valide.",
+    "share_invalid_request": "Paramètre inattendu dans une demande de partage."
   }
 }

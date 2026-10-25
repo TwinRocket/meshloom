@@ -540,3 +540,10 @@ def test_every_code_is_translated(lang):
     slice_path = Path(__file__).parents[1] / f"frontend/src/i18n/locales/slices/ah.{lang}.json"
     errors = json.loads(slice_path.read_text(encoding="utf-8"))["errors"]
     assert set(SHARE_ERRORS) <= set(errors)
+
+
+def test_checked_id_refuses_a_trailing_newline():
+    with pytest.raises(share.ShareError):
+        share._checked_id("AbCdEfG\n")
+    assert share.is_share_id("AbCdEfG\n") is False
+    assert share._checked_id("AbCdEfG") == "AbCdEfG"
