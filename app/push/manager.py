@@ -1,4 +1,7 @@
-"""Web Push transport: sends one payload to every subscription.
+"""Web Push transport: sends one payload to every deliverable subscription.
+
+A subscription is deliverable while its owner is enabled and holds ``send``
+(``PushSubscriptionRepository.deliverable``, MSHL-290).
 
 Which events reach Web Push is decided by the notification rules and the dispatcher
 (``app/notifications``); this manager only sends (``dispatch_event``) and keeps the
@@ -115,7 +118,7 @@ class PushManager:
         return now - first >= FORBIDDEN_ANSWER_CONFIRM_SECONDS
 
     async def dispatch_event(self, data: dict) -> PushOutcome:
-        """Send a push payload to all subscriptions. Not a WebSocket event."""
+        """Send a push payload to every deliverable subscription. Not a WebSocket event."""
         return await self._send_to_all_subscriptions(
             lambda sub: build_push_payload(data, sub.get("language") or "fr")
         )
@@ -124,7 +127,7 @@ class PushManager:
         self, payload_for_sub: Callable[[dict], str]
     ) -> PushOutcome:
         try:
-            subs = await PushSubscriptionRepository.get_all()
+            subs = await PushSubscriptionRepository.deliverable()
         except Exception:
             logger.debug("Push dispatch: failed to load subscriptions", exc_info=True)
             return PushOutcome()

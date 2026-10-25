@@ -158,7 +158,7 @@ async def test_subscribe_private_endpoint_is_400_by_default(test_db, client, end
 
 
 @pytest.mark.asyncio
-async def test_subscribe_private_endpoint_allowed_by_the_instance_setting(test_db, client):
+async def test_subscribe_private_endpoint_allowed_by_the_instance_setting(push_owner, client):
     patch = await client.patch("/api/settings", json={"push_allow_private_endpoints": True})
     assert patch.status_code == 200
     assert patch.json()["push_allow_private_endpoints"] is True
@@ -174,7 +174,7 @@ async def test_subscribe_private_endpoint_allowed_by_the_instance_setting(test_d
 
 
 @pytest.mark.asyncio
-async def test_subscribe_public_endpoint_and_bad_scheme(test_db, client):
+async def test_subscribe_public_endpoint_and_bad_scheme(push_owner, client):
     ok = await client.post(
         "/api/push/subscribe", json={"endpoint": "https://93.184.215.14/push/abc", **_KEYS}
     )

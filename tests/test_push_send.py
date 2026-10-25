@@ -407,7 +407,7 @@ def _patch_push_send(monkeypatch) -> list[dict]:
 
 
 @pytest.mark.asyncio
-async def test_dispatch_message_sends_for_default_dm(test_db, monkeypatch):
+async def test_dispatch_message_sends_for_default_dm(push_owner, monkeypatch):
     from app.notifications.producers import emit_message
 
     await _add_push_sub()
@@ -474,7 +474,7 @@ async def test_dispatch_message_muted_channel_skips_even_with_override(test_db, 
 
 
 @pytest.mark.asyncio
-async def test_dispatch_message_public_without_override_sends(test_db, monkeypatch):
+async def test_dispatch_message_public_without_override_sends(push_owner, monkeypatch):
     from app.channel_constants import PUBLIC_CHANNEL_KEY
     from app.notifications.producers import emit_message
 
@@ -493,7 +493,7 @@ async def test_dispatch_message_public_without_override_sends(test_db, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_dispatch_message_hashtag_without_override_sends(test_db, monkeypatch):
+async def test_dispatch_message_hashtag_without_override_sends(push_owner, monkeypatch):
     from app.notifications.producers import emit_message
     from app.repository import ChannelRepository
 
@@ -535,7 +535,7 @@ async def test_dispatch_message_private_channel_without_override_skips(test_db, 
 
 
 @pytest.mark.asyncio
-async def test_dispatch_message_override_does_not_email_when_matrix_off(test_db, monkeypatch):
+async def test_dispatch_message_override_does_not_email_when_matrix_off(push_owner, monkeypatch):
     from unittest.mock import AsyncMock
 
     from app.models import NotificationDestinations, NotificationEmailDest
@@ -598,7 +598,7 @@ async def test_dispatch_message_emails_dm_only_when_matrix_enables_email(test_db
 
 
 @pytest.mark.asyncio
-async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
+async def test_first_seen_type1_notifies_if_either_toggle(push_owner, monkeypatch):
     from app.models import Contact
     from app.notifications.dispatcher import notification_dispatcher
     from app.push.first_seen import maybe_notify_contact_first_seen
@@ -649,7 +649,7 @@ async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_first_seen_type4_notifies_if_advert_sensor(test_db, monkeypatch):
+async def test_first_seen_type4_notifies_if_advert_sensor(push_owner, monkeypatch):
     from app.models import Contact
     from app.push.first_seen import maybe_notify_contact_first_seen
     from app.radio import radio_manager
@@ -906,7 +906,7 @@ def test_build_payload_oss_update_french_and_english():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_oss_update_sends_once_per_latest(test_db, monkeypatch):
+async def test_dispatch_oss_update_sends_once_per_latest(push_owner, monkeypatch):
     from app.repository.settings import AppSettingsRepository
     from app.services.oss_updates import _maybe_notify_oss_update, reset_oss_update_cache
     from app.version_info import AppBuildInfo
@@ -969,7 +969,7 @@ async def test_dispatch_oss_update_skips_when_default_off(test_db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_dispatch_keeps_a_subscription_the_guard_refuses(test_db, monkeypatch):
+async def test_dispatch_keeps_a_subscription_the_guard_refuses(push_owner, monkeypatch):
     from app.push.manager import push_manager
     from app.repository.push_subscriptions import PushSubscriptionRepository
     from app.repository.settings import AppSettingsRepository

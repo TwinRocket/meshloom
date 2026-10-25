@@ -320,7 +320,7 @@ class TestStoredEndpointRevalidated:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("answers", [["169.254.169.254"], ["198.51.100.4"]])
     async def test_a_name_resolving_to_a_forbidden_address_is_deleted_once_confirmed(
-        self, test_db, monkeypatch, caplog, answers
+        self, push_owner, monkeypatch, caplog, answers
     ):
         # Valid when it was stored; the name now resolves to an address no setting allows.
         FakeResolver(monkeypatch, answers)
@@ -347,7 +347,9 @@ class TestStoredEndpointRevalidated:
         assert "wpush" not in caplog.text
 
     @pytest.mark.asyncio
-    async def test_a_good_answer_in_between_restarts_the_confirmation(self, test_db, monkeypatch):
+    async def test_a_good_answer_in_between_restarts_the_confirmation(
+        self, push_owner, monkeypatch
+    ):
         dns = FakeResolver(monkeypatch, ["169.254.169.254"])
         clock = [1000.0]
         monkeypatch.setattr(push_manager_module, "_monotonic", lambda: clock[0])
@@ -366,7 +368,7 @@ class TestStoredEndpointRevalidated:
         assert await PushSubscriptionRepository.get(sub["id"]) is not None
 
     @pytest.mark.asyncio
-    async def test_a_forbidden_ip_literal_is_deleted_at_once(self, test_db, monkeypatch):
+    async def test_a_forbidden_ip_literal_is_deleted_at_once(self, push_owner, monkeypatch):
         sub = await PushSubscriptionRepository.create(
             endpoint=f"https://169.254.169.254/{SECRET_PATH}", p256dh="p", auth="a"
         )
@@ -374,7 +376,7 @@ class TestStoredEndpointRevalidated:
         assert await PushSubscriptionRepository.get(sub["id"]) is None
 
     @pytest.mark.asyncio
-    async def test_a_bad_stored_url_is_deleted(self, test_db, monkeypatch):
+    async def test_a_bad_stored_url_is_deleted(self, push_owner, monkeypatch):
         sub = await PushSubscriptionRepository.create(
             endpoint="file:///etc/passwd", p256dh="p", auth="a"
         )
@@ -387,7 +389,7 @@ class TestStoredEndpointRevalidated:
         [(["192.168.1.20"], "egress_private_address"), ([], "egress_unresolvable")],
     )
     async def test_a_liftable_refusal_keeps_the_subscription_and_logs_once(
-        self, test_db, monkeypatch, caplog, answers, code
+        self, push_owner, monkeypatch, caplog, answers, code
     ):
         FakeResolver(monkeypatch, answers)
         sub = await PushSubscriptionRepository.create(
@@ -409,7 +411,7 @@ class TestStoredEndpointRevalidated:
         assert "secret-token" not in caplog.text
 
     @pytest.mark.asyncio
-    async def test_a_send_error_logs_the_type_only(self, test_db, monkeypatch, caplog):
+    async def test_a_send_error_logs_the_type_only(self, push_owner, monkeypatch, caplog):
         FakeResolver(monkeypatch, ["93.184.215.14"])
         sub = await PushSubscriptionRepository.create(
             endpoint=f"https://{PUSH_HOST}/{SECRET_PATH}", p256dh="p", auth="a"

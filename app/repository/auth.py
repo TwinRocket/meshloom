@@ -468,12 +468,13 @@ class UserRepository:
 
     @staticmethod
     async def delete(user_id: int, *, keep_an_admin: bool = False) -> bool:
-        """Delete a user; its sessions go with it (foreign key cascade).
+        """Delete a user; its sessions and push devices go with it (foreign key cascade).
         ``keep_an_admin``: as for ``update()``."""
         async with db.tx() as conn:
-            # Explicit, so the sessions go even on a connection without
-            # PRAGMA foreign_keys (migration tests, scripts).
+            # Explicit, so the sessions and push devices go even on a connection
+            # without PRAGMA foreign_keys (migration tests, scripts).
             await conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            await conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
             await conn.execute("DELETE FROM recovery_codes WHERE user_id = ?", (user_id,))
             async with conn.execute("DELETE FROM users WHERE id = ?", (user_id,)) as cursor:
                 deleted = cursor.rowcount > 0

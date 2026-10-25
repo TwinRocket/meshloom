@@ -1,4 +1,4 @@
-"""Web Push as a transport: every subscription, each in its own language.
+"""Web Push as a transport: every deliverable subscription, each in its own language.
 
 Wraps ``PushManager.dispatch_event`` (``_send_to_all_subscriptions``), which keeps
 its per-subscription work: the payload is built in the subscription's language,

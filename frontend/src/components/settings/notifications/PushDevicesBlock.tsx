@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { formatApiError } from '../../../api';
+import { api, formatApiError } from '../../../api';
+import { useCapabilities } from '../../../auth/SessionProvider';
 import { usePush } from '../../../contexts/PushSubscriptionContext';
-import type { AppSettings, AppSettingsUpdate } from '../../../types';
+import type { AppSettings, AppSettingsUpdate, PushSubscriptionInfo } from '../../../types';
 import { Button } from '../../ui/button';
 import { Checkbox } from '../../ui/checkbox';
 import { Input } from '../../ui/input';
@@ -48,6 +49,78 @@ function isValidVapidSubject(value: string): boolean {
 }
 
 /**
+ * The administrator's view of the other accounts' devices (MSHL-290): the owner's name and a
+ * remove button. The server answers with the endpoint reduced to its origin; renaming and
+ * testing stay with the owner.
+ */
+function OtherAccountsDevices() {
+  const { t } = useTranslation();
+  const [devices, setDevices] = useState<PushSubscriptionInfo[]>([]);
+  const [generation, setGeneration] = useState(0);
+  const reload = useCallback(() => setGeneration((n) => n + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getPushSubscriptions('all')
+      .then((all) => {
+        if (!cancelled) setDevices(all.filter((sub) => sub.mine === false));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [generation]);
+
+  if (devices.length === 0) return null;
+  return (
+    <div className="space-y-2" data-testid="push-other-devices">
+      <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground font-medium">
+        {t('settings.notifications.otherDevices')}
+      </span>
+      <p className="text-[0.8125rem] text-muted-foreground">
+        {t('settings.notifications.otherDevicesHelp')}
+      </p>
+      <div className="mt-2 space-y-2">
+        {devices.map((sub) => (
+          <div
+            key={sub.id}
+            className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+          >
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">
+                {sub.label || t('settings.notifications.unknownDevice')}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {t('settings.notifications.deviceOwner', { name: sub.owner_username ?? '?' })}
+              </span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 text-sm text-destructive hover:text-destructive"
+              onClick={() => {
+                void (async () => {
+                  try {
+                    await api.deletePushSubscription(sub.id);
+                    toast.success(t('settings.notifications.deviceRemoved'));
+                  } catch (err) {
+                    toast.error(formatApiError(err, t));
+                  }
+                  reload();
+                })();
+              }}
+            >
+              {t('settings.notifications.unsubscribeDevice')}
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * The browser side of `builtin:push`: this device's subscription, the other devices, the
  * VAPID subject and the private-endpoint switch. It lives inside the push channel card.
  */
@@ -59,6 +132,7 @@ export function PushDevicesBlock({
   onSaveAppSettings?: (update: AppSettingsUpdate) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const { isAdmin } = useCapabilities();
   const {
     isSupported,
     allSubscriptions,
@@ -177,6 +251,9 @@ export function PushDevicesBlock({
                 <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground font-medium">
                   {t('settings.notifications.devices')}
                 </span>
+                <p className="text-[0.8125rem] text-muted-foreground">
+                  {t('settings.notifications.devicesHelp')}
+                </p>
                 <div className="mt-2 space-y-2">
                   {allSubscriptions.map((sub) => (
                     <div
@@ -238,6 +315,7 @@ export function PushDevicesBlock({
             )}
           </>
         )}
+        {isAdmin && <OtherAccountsDevices />}
         {appSettings?.push_private_endpoints_grandfathered === true && (
           <div
             className="flex flex-wrap items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.8125rem]"
