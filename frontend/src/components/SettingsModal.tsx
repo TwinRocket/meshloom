@@ -400,7 +400,11 @@ export function SettingsModal(props: SettingsModalProps) {
         <section className={sectionWrapperClass}>
           {renderSectionHeader('extensions')}
           {isSectionVisible('extensions') && (
-            <SettingsExtensionsSection className={sectionContentClass} health={health} />
+            <SettingsExtensionsSection
+              className={sectionContentClass}
+              health={health}
+              onHealthRefresh={onHealthRefresh}
+            />
           )}
         </section>
       )}

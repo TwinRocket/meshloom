@@ -687,4 +687,46 @@ describe('MigrationBanner', () => {
     );
     expect(onAcknowledge).toHaveBeenCalledOnce();
   });
+
+  it('shows the converted and attention counts', () => {
+    render(<MigrationBanner converted={3} attention={2} onAcknowledge={vi.fn()} />);
+    expect(screen.getByTestId('migration-counts')).toHaveTextContent(
+      t('settings.extensions.migration.counts', { count: 3, attention: 2 })
+    );
+  });
+});
+
+describe('converted bots notice in the Extensions section', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([]);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('is absent when health carries no converted_bots', async () => {
+    render(<SettingsExtensionsSection health={health({ converted_bots: null })} />);
+    await screen.findByText(t('settings.extensions.empty'));
+    expect(screen.queryByText(t('settings.extensions.migration.title'))).toBeNull();
+  });
+
+  it('shows the banner, acknowledges it, then refreshes health', async () => {
+    const ack = vi.spyOn(api, 'acknowledgeConvertedBots').mockResolvedValue({ acknowledged: true });
+    const onHealthRefresh = vi.fn(async () => {});
+    render(
+      <SettingsExtensionsSection
+        health={health({ converted_bots: { converted: 2, attention: 1 } })}
+        onHealthRefresh={onHealthRefresh}
+      />
+    );
+    expect(await screen.findByText(t('settings.extensions.migration.title'))).toBeInTheDocument();
+    expect(screen.getByTestId('migration-counts')).toHaveTextContent(
+      t('settings.extensions.migration.counts', { count: 2, attention: 1 })
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: t('settings.extensions.migration.acknowledge') })
+    );
+    await waitFor(() => expect(ack).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onHealthRefresh).toHaveBeenCalledOnce());
+  });
 });

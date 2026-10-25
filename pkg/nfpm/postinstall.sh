@@ -55,7 +55,7 @@ done
 if [ ! -f /etc/meshloom/meshloom.env ]; then
     # meshloom.service needs its EnvironmentFile; recreate the packaged defaults.
     printf '%s\n' "MESHCORE_DATABASE_PATH=/var/lib/meshloom/meshcore.db" \
-        "MESHLOOM_INSTALL_KIND=package" "MESHCORE_DISABLE_BOTS=true" >/etc/meshloom/meshloom.env
+        "MESHLOOM_INSTALL_KIND=package" >/etc/meshloom/meshloom.env
     chmod 0640 /etc/meshloom/meshloom.env
 fi
 

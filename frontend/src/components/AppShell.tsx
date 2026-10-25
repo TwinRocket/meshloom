@@ -25,7 +25,6 @@ import { isPendingChannel, pendingChannels } from '../utils/channelMembership';
 import { NewMessageModal } from './NewMessageModal';
 import { BulkAddChannelResultModal } from './BulkAddChannelResultModal';
 import { CommandPalette } from './CommandPalette';
-import { SecurityWarningModal } from './SecurityWarningModal';
 import { RadioIdentityModal } from './RadioIdentityModal';
 import { RadioWifiPrompt } from './RadioWifiPrompt';
 import { Toaster } from './ui/sonner';
@@ -691,7 +690,6 @@ export function AppShell({
         directoryEnabled={directoryEnabled}
       />
       <EdgeSessionExpiredDialog />
-      <SecurityWarningModal health={statusProps.health} />
       <RadioIdentityModal
         health={statusProps.health}
         forceOpen={identityModalForced}

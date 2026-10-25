@@ -7,7 +7,7 @@ order: 14
 
 Meshloom se configure à deux endroits, et ils ne se recouvrent pas.
 
-L’**environnement** contient ce qui doit être connu avant que quoi que ce soit démarre : où écrire la base de données, si les bots sont autorisés, si un mot de passe protège la page, et quels interrupteurs de diagnostic sont actifs. Le modifier impose un redémarrage.
+L’**environnement** contient ce qui doit être connu avant que quoi que ce soit démarre : où écrire la base de données, si les extensions sont autorisées, si un mot de passe protège la page, et quels interrupteurs de diagnostic sont actifs. Le modifier impose un redémarrage.
 
 Les **réglages** vivent dans la base de données. On les change dans l’interface web et ils s’appliquent tout de suite. La connexion à la radio en fait partie : c’est un réglage, pas une variable d’environnement. Voir [Transports radio](/docs/deep/transports/).
 
@@ -19,7 +19,7 @@ Les **réglages** vivent dans la base de données. On les change dans l’interf
 | Service installé depuis un dépôt cloné | Pas de fichier. Ajoutez des lignes `Environment=NOM=valeur` sous `[Service]` avec `sudo systemctl edit meshloom` | `sudo systemctl restart meshloom` |
 | Docker | bloc `environment:` du fichier Compose, ou un `.env` à côté | `docker compose up -d` |
 | Dépôt cloné lancé à la main | L’environnement du shell qui lance `uv run uvicorn` | Relancer la commande |
-| Add-on Home Assistant | Aucune variable à modifier : les options de l’add-on (niveau de journal, mot de passe, bots) deviennent des variables, et l’add-on définit lui-même les autres. Voir [Sur Home Assistant](/docs/install/#sur-home-assistant) | Redémarrer l’add-on |
+| Add-on Home Assistant | Aucune variable à modifier : les options de l’add-on (niveau de journal, verrou des extensions) deviennent des variables, et l’add-on définit lui-même les autres. Voir [Sur Home Assistant](/docs/install/#sur-home-assistant) | Redémarrer l’add-on |
 
 Rejouer `install_service.sh` réécrit l’unité systemd principale d’une installation depuis les sources. Un fichier complémentaire créé avec `systemctl edit` est conservé, et `meshloom.env` n’est pas concerné.
 
@@ -63,8 +63,7 @@ Voir [Meshloom Community](/docs/deep/community/).
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Les bots exécutent du code Python avec un accès complet à la machine. Le paquet Linux la met à `true` dans `meshloom.env` |
-| `MESHCORE_DISABLE_PLUGINS` | `false` | Verrou d'hôte du système d'extensions : à `true`, aucune extension ne peut être installée, modifiée ni démarrée, quels que soient les réglages ; consulter, supprimer et tout mettre en pause restent possibles, et les extensions restaurées depuis une sauvegarde reviennent coupées et le restent. Indépendant de `MESHCORE_DISABLE_BOTS`. Dans l'add-on Home Assistant, c'est l'option `disable_plugins` |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Verrou d'hôte du système d'extensions : à `true`, aucune extension ne peut être installée, modifiée ni démarrée, quels que soient les réglages ; consulter, supprimer et tout mettre en pause restent possibles, et les extensions restaurées depuis une sauvegarde reviennent coupées et le restent. Le paquet Linux la livre commentée dans `meshloom.env`. La variable de verrou des bots de la 4.18 et avant ne fait plus rien : Meshloom journalise un avertissement qui nomme cette variable si elle est encore posée (voir [Extensions](/docs/deep/plugins/#les-bots-de-la-418-et-avant)). Dans l'add-on Home Assistant, c'est l'option `disable_plugins` |
 
 À partir de la 5.0 `MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD` sont retirées (voir aussi **Variables retirées**) : quand les deux sont définies et que Meshloom n’a encore aucun compte, le premier démarrage en crée le compte administrateur, puis elles ne sont plus lues et un avertissement est journalisé à chaque démarrage tant qu’elles sont définies (retirez-les ; les comptes se gèrent dans **Réglages → Utilisateurs et accès**). En définir une seule n’importe rien et n’empêche plus Meshloom de démarrer. `Authorization: Basic` avec le nom et le mot de passe d’un compte reste accepté jusqu’à la 5.2, puis sera retiré. Un nom d’utilisateur de plus de 64 caractères ne peut pas devenir un compte : l’import est ignoré avec une erreur dans le journal, et vous créez l’administrateur avec le code d’installation imprimé dans le journal. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
 
@@ -138,4 +137,4 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 
 La paire de clés VAPID (`vapid_private_key` et `vapid_public_key`) est créée au premier démarrage. L’interface est la façon prévue de modifier les réglages ; certains peuvent aussi être lus et modifiés avec `GET` et `PATCH /api/settings`.
 
-Les intégrations (MQTT, bots, webhooks, Apprise, SQS) sont stockées à part, dans `fanout_configs`. Meshloom Community a son propre point d’accès, `/api/community`. Voir [Fanout](/docs/deep/fanout/), [Meshloom Community](/docs/deep/community/) et [Radio, contacts et salons](/docs/deep/radio/).
+Les intégrations (MQTT, webhooks, Apprise, SQS) sont stockées à part, dans `fanout_configs`. Meshloom Community a son propre point d’accès, `/api/community`. Voir [Fanout](/docs/deep/fanout/), [Meshloom Community](/docs/deep/community/) et [Radio, contacts et salons](/docs/deep/radio/).

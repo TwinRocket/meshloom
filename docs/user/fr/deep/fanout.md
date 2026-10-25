@@ -1,11 +1,11 @@
 ---
 title: Fanout
-description: MQTT, bots, webhooks, Apprise, SQS — ce que Meshloom entend peut repartir ailleurs.
+description: MQTT, webhooks, Apprise, SQS — ce que Meshloom entend peut repartir ailleurs.
 level: deep
 order: 16
 ---
 
-Le fanout envoie ce que Meshloom entend vers d’autres systèmes (pour être prévenu vous-même d’événements, sur votre téléphone ou dans une discussion, utilisez plutôt les [Notifications](/docs/deep/notifications/)) : votre propre broker MQTT, Home Assistant, des bots Python, des webhooks, des services de messagerie et d’e-mail via Apprise, Amazon SQS, des collecteurs communautaires de paquets, et la carte publique MeshCore. Dans l’interface, il s’appelle **MQTT et automatisation**.
+Le fanout envoie ce que Meshloom entend vers d’autres systèmes (pour être prévenu vous-même d’événements, sur votre téléphone ou dans une discussion, utilisez plutôt les [Notifications](/docs/deep/notifications/)) : votre propre broker MQTT, Home Assistant, des webhooks, des services de messagerie et d’e-mail via Apprise, Amazon SQS, des collecteurs communautaires de paquets, et la carte publique MeshCore. Dans l’interface, il s’appelle **MQTT et automatisation**.
 
 Chaque destination est une **intégration**. Pour en ajouter une :
 
@@ -24,7 +24,6 @@ La page affiche un avertissement : les intégrations sont une fonctionnalité ex
 | MQTT privé | Publie les messages et les paquets bruts vers votre propre broker MQTT |
 | MQTT Discovery Home Assistant | Fait apparaître votre radio, vos répéteurs et vos contacts comme des appareils dans Home Assistant. Voir [Home Assistant](/docs/deep/home-assistant/) |
 | MQTT communautaire / meshcoretomqtt | Envoie les paquets bruts à un collecteur communautaire. Des préréglages existent pour **MeshRank** et **LetsMesh** (US et EU) |
-| Bot Python | Exécute du code Python que vous écrivez en réponse aux messages |
 | Webhook | Envoie chaque message en JSON par HTTP, avec une signature facultative. Pas le webhook de notification, voir [Webhooks](#webhooks) |
 | Apprise | Transmet chaque message vers Discord, Telegram, Slack, e-mail, SMS et une centaine d’autres services. Les notifications ont déménagé vers les [canaux](/docs/deep/notifications/), voir [Apprise](#apprise) |
 | Amazon SQS | Dépose chaque événement dans une file Amazon SQS |
@@ -64,7 +63,6 @@ Certains types ont une portée imposée :
 | Type | Portée |
 |------|--------|
 | MQTT communautaire, Envoi vers la carte | Paquets bruts uniquement, jamais les messages |
-| Bot Python | Tous les messages, pas de paquets bruts |
 | Webhook, Apprise, Home Assistant | Messages selon votre choix, jamais de paquets bruts |
 
 La portée ne filtre que les messages et les paquets bruts. Les contacts, la télémétrie des répéteurs et les instantanés de santé de la radio (toutes les 60 secondes) vont à toutes les intégrations, et chacune garde ce dont elle a besoin.
@@ -75,25 +73,7 @@ Ce que contient un message : son type (direct ou salon), la clé de la conversat
 
 ## Bots
 
-Un bot est du code Python que vous écrivez dans l’interface. Le serveur l’exécute à chaque message reçu.
-
-**C’est de l’exécution de code arbitraire, par conception.** Le code tourne sur le serveur avec un accès complet à la machine. Toute personne qui peut ouvrir la page de Meshloom peut écrire et lancer du code. N’activez les bots que sur un réseau de confiance. Voir [Sécurité](/docs/deep/security/) et [Un réseau de confiance](/docs/trust/). Les bots sont désactivés au départ sur les installations faites avec le paquet Linux.
-
-```python
-def bot(sender_name, sender_key, message_text, is_dm,
-        channel_key, channel_name, sender_timestamp, path):
-    if "!echo" in message_text.lower():
-        return f"[ECHO] {message_text}"
-    return None
-```
-
-La fonction peut aussi accepter `is_outgoing`, `path_bytes_per_hop`, `packet_hash` et, si vous les nommez ou utilisez `**kwargs`, `region` et `scoped`. Les bots voient tous les messages, y compris ceux que vous envoyez : évitez donc les réponses qui relancent le bot. Pour les messages de salon, `sender_key` vaut `None` et le préfixe « nom de l’expéditeur : » est retiré du texte.
-
-Un bot renvoie `None` (pas de réponse), un texte, une liste de textes envoyés dans l’ordre, ou `{"region": ..., "message": ...}` pour envoyer une réponse de salon dans une région donnée. Les régions ne s’appliquent qu’aux réponses de salon.
-
-Limites : un bot attend deux secondes avant de s’exécuter (pour reconnaître les échos), chaque exécution est interrompue au bout de 10 secondes, 100 au plus tournent en même temps, et les réponses d’un bot sont espacées d’au moins deux secondes pour que les répéteurs n’entrent pas en collision.
-
-`MESHCORE_DISABLE_BOTS=true` désactive le système au démarrage : aucun bot ne tourne, en créer ou en modifier un est refusé, et la page le dit. `POST /api/fanout/bots/disable-until-restart` arrête tous les bots jusqu’au prochain redémarrage, sans toucher à l’environnement.
+Les bots Python n’existent plus en 5.0.0 : ce sont des **extensions**. Ajoutez, écrivez et gérez-les dans **Réglages → Extensions** (l’extension fournie **Echo**, qui répond `Plong!` à `!pling`, est l’exemple pour commencer). Les bots que vous aviez ont été convertis en extensions locales qui attendent votre relecture avant de démarrer. Voir [Extensions](/docs/deep/plugins/) pour les permissions et les limites, et [Les bots de la 4.18](/docs/deep/plugins/#les-bots-de-la-418-et-avant).
 
 ## Webhooks
 

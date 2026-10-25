@@ -2649,10 +2649,9 @@ class BackupInspectResult(BaseModel):
         default=False, description="Those credentials are an open network (no password)"
     )
     counts: BackupCounts = Field(default_factory=BackupCounts)
-    bot_names: list[str] = Field(default_factory=list)
-    bots_will_be_skipped: bool = Field(
-        default=False,
-        description="Bots are turned off on this server: the file's bots are not restored",
+    bot_names: list[str] = Field(
+        default_factory=list,
+        description="4.18 bots in the file: restored as disabled extensions awaiting review",
     )
     integrations: list[BackupIntegrationSummary] = Field(
         default_factory=list,

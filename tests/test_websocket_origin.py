@@ -50,7 +50,6 @@ def _health_patched():
         mock_health_rm.device_info_loaded = False
         mock_repo.get_oldest_undecrypted = AsyncMock(return_value=None)
         mock_settings.database_path = "/tmp/test.db"
-        mock_settings.disable_bots = False
         yield
 
 

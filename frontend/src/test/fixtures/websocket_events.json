@@ -83,8 +83,7 @@
         "transport_configured": true,
         "database_size_mb": 1.5,
         "oldest_undecrypted_timestamp": null,
-        "fanout_statuses": {},
-        "bots_disabled": false
+        "fanout_statuses": {}
       }
     }
   },

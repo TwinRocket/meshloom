@@ -65,7 +65,7 @@ function inspectResult(overrides: Partial<BackupInspectResult> = {}): BackupInsp
     has_wifi: true,
     counts: { contacts: 3, channels: 2, groups: 1, fanout_configs: 0, push_subscriptions: 0 },
     bot_names: [],
-    bots_will_be_skipped: false,
+
     integrations: [],
     radio_proxy_enabled: null,
     identity_relation: 'same',
@@ -383,13 +383,13 @@ describe('BackupRestoreFlow', () => {
     expect(screen.getByText(i18n.t('settings.fullRestore.meshloomStepRequired'))).toBeVisible();
   });
 
-  it('lists the bots that come back disabled', async () => {
+  it('lists the bots that come back as disabled extensions', async () => {
     mocks.inspectBackup.mockResolvedValue(inspectResult({ bot_names: ['Greeter', 'Echo'] }));
     render(<BackupRestoreFlow />);
     pickFile(V2);
     expect(
       await screen.findByText(
-        i18n.t('settings.fullRestore.botsRestoredDisabled', { names: 'Greeter, Echo' })
+        i18n.t('settings.fullRestore.botsConverted', { names: 'Greeter, Echo' })
       )
     ).toBeVisible();
   });
@@ -604,10 +604,10 @@ describe('BackupRestoreFlow', () => {
 
   it('shows the finished job warnings, translated, and unknown ones as is', async () => {
     const finished = job();
-    finished.result!.warnings = ['bots_disabled:Greeter', 'push_kept_existing', 'brand_new:x'];
+    finished.result!.warnings = ['bots_converted:Greeter', 'push_kept_existing', 'brand_new:x'];
     await runJob(finished);
     expect(
-      screen.getByText(i18n.t('settings.fullRestore.warnings.bots_disabled', { value: 'Greeter' }))
+      screen.getByText(i18n.t('settings.fullRestore.warnings.bots_converted', { value: 'Greeter' }))
     ).toBeVisible();
     expect(
       screen.getByText(i18n.t('settings.fullRestore.warnings.push_kept_existing'))
@@ -729,9 +729,8 @@ describe('BackupRestoreFlow', () => {
     ];
     const warnings = [
       'fanout_reserved:system:x',
-      'bots_disabled:B',
       'fanout_invalid:id:webhook',
-      'bots_restored_disabled:B',
+      'bots_converted:B',
       'apprise_restored_disabled:A',
       'private_network_restored_disabled:L',
       'secret_dropped_destination_changed:L',
@@ -788,22 +787,6 @@ describe('BackupRestoreFlow', () => {
     expect(mocks.getRestoreJob.mock.calls.length).toBe(calls);
     fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fullRestore.another') }));
     expect(screen.getByLabelText(i18n.t('settings.fullRestore.choose'))).toBeInTheDocument();
-  });
-
-  it('says bots are skipped when they are turned off on this server', async () => {
-    mocks.inspectBackup.mockResolvedValue(
-      inspectResult({ bot_names: ['Greeter'], bots_will_be_skipped: true })
-    );
-    render(<BackupRestoreFlow />);
-    pickFile(V2);
-    expect(
-      await screen.findByText(
-        i18n.t('settings.fullRestore.botsWillBeSkipped', { names: 'Greeter' })
-      )
-    ).toBeVisible();
-    expect(
-      screen.queryByText(i18n.t('settings.fullRestore.botsRestoredDisabled', { names: 'Greeter' }))
-    ).toBeNull();
   });
 
   it('names the integrations, the proxy and the file warnings before restoring', async () => {

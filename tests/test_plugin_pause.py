@@ -33,11 +33,8 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no plugins on W
 
 @pytest.fixture(autouse=True)
 def _fresh_pause(monkeypatch):
-    from app.fanout.manager import fanout_manager
-
     monkeypatch.setattr(pause_module, "_state", pause_module.PauseState())
     monkeypatch.setattr(pause_module, "_lock", asyncio.Lock())
-    monkeypatch.setattr(fanout_manager, "_bots_paused", False)
 
 
 async def _audit_rows(*actions: str):
@@ -205,7 +202,6 @@ async def test_the_pause_survives_a_restart(api, manager, monkeypatch):
 
 
 async def test_an_unreadable_pause_fails_closed_until_an_admin_resumes(api, manager, monkeypatch):
-    from app.fanout.manager import fanout_manager
     from app.routers.health import HealthResponse, build_health_data
 
     created = await install(api, manager)
@@ -223,7 +219,7 @@ async def test_an_unreadable_pause_fails_closed_until_an_admin_resumes(api, mana
     monkeypatch.setattr(AppSettingsRepository, "get_plugins_pause", real)
     state = pause_module.state()
     assert state.paused and state.unreadable and state.since is None and state.by is None
-    assert manager.paused and fanout_manager._bots_paused
+    assert manager.paused
     await manager.load_from_db()
     assert manager.get(iid) is None
     health = HealthResponse(**await build_health_data(False, None))
@@ -262,7 +258,6 @@ async def test_pausing_over_an_unreadable_hold_records_the_pause(api, manager, m
 
 
 async def test_health_reports_the_pause_after_the_host_lock(api, manager, monkeypatch):
-    from app.fanout.manager import fanout_manager
     from app.routers.health import HealthResponse, build_health_data
 
     health = HealthResponse(**await build_health_data(False, None))
@@ -274,13 +269,13 @@ async def test_health_reports_the_pause_after_the_host_lock(api, manager, monkey
     assert health.plugins_disabled is True
     assert health.plugins_disabled_source == "paused"
     assert health.plugins_paused_since == state["since"]
-    # The deprecated bot fields mirror the pause; bots stay creatable and restorable.
+    # The deprecated bot fields (bots are plugins since 5.0.0) mirror the pause.
     assert health.bots_disabled is True and health.bots_disabled_source == "paused"
-    assert fanout_manager.bots_disabled_effective() is False
 
     monkeypatch.setattr(settings, "disable_plugins", True)
     health = HealthResponse(**await build_health_data(False, None))
     assert health.plugins_disabled_source == "env"
+    assert health.bots_disabled_source == "env"
 
 
 # --- access and audit ------------------------------------------------------------

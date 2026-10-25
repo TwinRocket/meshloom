@@ -758,12 +758,7 @@ function RestoreSummary({
         )}
         {inspect.bot_names.length > 0 && (
           <p className="text-warning">
-            {t(
-              inspect.bots_will_be_skipped
-                ? 'settings.fullRestore.botsWillBeSkipped'
-                : 'settings.fullRestore.botsRestoredDisabled',
-              { names: inspect.bot_names.join(', ') }
-            )}
+            {t('settings.fullRestore.botsConverted', { names: inspect.bot_names.join(', ') })}
           </p>
         )}
         {(inspect.integrations?.length ?? 0) > 0 && (

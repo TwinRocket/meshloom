@@ -43,7 +43,7 @@
       "hasWifiFlagOnly": "Contient l’état activé ou non du Wi-Fi de la radio, sans identifiants (la radio n’en stockait pas).",
       "v1Only": "Données de Meshloom uniquement (ancien format) : la radio n’est pas modifiée.",
       "counts": "{{contacts}} contacts, {{channels}} canaux, {{groups}} groupes",
-      "botsRestoredDisabled": "Les bots ({{names}}) reviennent désactivés : un bot exécute du code sur ce serveur ; activez chacun après l’avoir relu.",
+      "botsConverted": "Les bots ({{names}}) reviennent sous forme d’extensions désactivées : relisez les permissions de chacune dans Réglages > Extensions avant de la démarrer.",
       "identity": {
         "no_identity": "La radio garde sa propre identité.",
         "same": "La radio connectée a déjà cette identité.",
@@ -140,7 +140,6 @@
       "failed": "Échec de la restauration",
       "another": "Restaurer un autre fichier",
       "close": "Fermer",
-      "botsWillBeSkipped": "Les bots ({{names}}) ne sont pas restaurés : les bots sont désactivés sur ce serveur. Activez-les d’abord si vous voulez les retrouver.",
       "integrations": "Intégrations de cette sauvegarde : {{list}}. Celles qui sont activées commencent à envoyer dès la fin de la restauration.",
       "integrationOn": "{{name}} ({{type}}, activée)",
       "integrationOff": "{{name}} ({{type}}, désactivée)",
@@ -162,9 +161,8 @@
       "warningsTitle": "Remarques",
       "warnings": {
         "fanout_reserved": "{{value}} est un module propre à Meshloom : il n’est pas repris du fichier.",
-        "bots_disabled": "Le bot {{value}} n’a pas été restauré : les bots sont désactivés sur ce serveur.",
+        "bots_converted": "Les bots ({{value}}) ont été convertis en extensions désactivées : relisez les permissions de chacune dans Réglages > Extensions avant de la démarrer.",
         "fanout_invalid": "L’intégration {{value}} n’a pas été restaurée : ses réglages ne sont pas valides ici.",
-        "bots_restored_disabled": "Les bots ({{value}}) reviennent désactivés : activez chacun après l’avoir relu.",
         "push_kept_existing": "Ce Meshloom a déjà des abonnements push : ses propres clés push ont été gardées. Réactivez les notifications push dans chaque navigateur qui utilisait celles de la sauvegarde.",
         "proxy_port_managed": "Le port du proxy radio est fixé par l’hôte : celui de la sauvegarde n’a pas été appliqué.",
         "proxy_targets_transport": "Le proxy radio pointerait vers la propre liaison radio de Meshloom : il reste désactivé.",

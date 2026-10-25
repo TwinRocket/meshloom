@@ -7,15 +7,14 @@ in-memory copy the supervisor reads (`plugin_manager.paused`). While paused:
   install, enable, config change, manual restart), the `enabled` flags kept;
 - events are dropped, never queued, and `POST /api/plugins/{id}/test` answers
   409 `plugins_paused`;
-- the legacy bot modules are held the same way (`fanout_manager.set_bots_paused`).
+- the bots converted by the 5.0.0 switch are local plugins, held like any other.
 
 Resume starts exactly the enabled instances again, staggered. If the persisted
-state cannot be read at boot, the pause fails closed (MSHL-341): plugins and bots
+state cannot be read at boot, the pause fails closed (MSHL-341): plugins
 are held as if paused, `unreadable` is set (health `plugins_pause_unreadable`)
 and an admin's resume, or pause, writes the state again. The host lock
 (`MESHCORE_DISABLE_PLUGINS`) is separate and takes precedence in health; this
-switch is not the old bots "disable until restart" toggle: it survives a
-restart until an admin resumes.
+switch survives a restart until an admin resumes.
 """
 
 from __future__ import annotations
@@ -59,7 +58,7 @@ async def load(manager: host.PluginManager | None = None) -> None:
         # Fail closed: an admin may have paused because of an incident, and nothing
         # tells otherwise. Resume in Settings > Extensions lifts it (and persists).
         logger.exception(
-            "Could not read the plugin pause; plugins and bots are held as paused "
+            "Could not read the plugin pause; plugins are held as paused "
             "until an administrator resumes them"
         )
         _state = PauseState(True, unreadable=True)
@@ -72,10 +71,7 @@ async def load(manager: host.PluginManager | None = None) -> None:
 
 
 def _apply_flags(manager: host.PluginManager, paused: bool) -> None:
-    from app.fanout.manager import fanout_manager
-
     manager.paused = paused
-    fanout_manager._bots_paused = paused
 
 
 async def set_paused(
@@ -84,7 +80,6 @@ async def set_paused(
     """Pause or resume; returns the new state and whether it changed (idempotent)."""
     global _state
     plugin_manager = manager or host.plugin_manager
-    from app.fanout.manager import fanout_manager
     from app.repository.settings import AppSettingsRepository
 
     async with _lock:
@@ -97,8 +92,6 @@ async def set_paused(
         _state = new
         if paused:  # idempotent when already held (fail closed)
             await plugin_manager.pause_all()
-            await fanout_manager.set_bots_paused(True)
         else:
-            await fanout_manager.set_bots_paused(False)
             await plugin_manager.resume_all()
         return _state, True

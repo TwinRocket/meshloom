@@ -219,7 +219,7 @@ install -D -m 0644 "$RPI_DIR/meshloom-console.service" \
 # Apt source for later UI upgrades. Do not probe Pages here.
 write_meshloom_apt_source "$ROOTMNT"
 
-# Bots stay off via the packaged meshloom.env.
+# Extensions are managed in the UI; the packaged meshloom.env keeps MESHCORE_DISABLE_PLUGINS commented out.
 
 for fs in proc sys dev dev/pts; do
     mkdir -p "$ROOTMNT/$fs"

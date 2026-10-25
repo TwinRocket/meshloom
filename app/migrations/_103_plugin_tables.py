@@ -54,7 +54,7 @@ async def migrate(conn: aiosqlite.Connection) -> None:
     ``app_settings.store_online`` (the Store egress consent, off).
 
     Additive only: the bots in ``fanout_configs`` are not touched (the switch,
-    Store T9, converts them). Model and rules: ``docs/dev/plugins.md``, "Data
+    migration 122, converts them). Model and rules: ``docs/dev/plugins.md``, "Data
     model". The tables are ``IF NOT EXISTS`` because ``SCHEMA_TABLES`` already
     creates them on a fresh database.
     """

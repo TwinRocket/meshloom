@@ -178,6 +178,21 @@ CREATE TABLE IF NOT EXISTS fanout_configs (
     created_at INTEGER NOT NULL
 );
 
+-- Bots converted to local plugins by migration 122 (app/plugins/bot_conversion.py):
+-- the original rows, never exported nor shown in /api/debug; purged one release later.
+CREATE TABLE IF NOT EXISTS fanout_configs_bots_archive (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    enabled INTEGER DEFAULT 0,
+    config TEXT NOT NULL DEFAULT '{}',
+    scope TEXT NOT NULL DEFAULT '{}',
+    sort_order INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    plugin_instance_id TEXT NOT NULL,
+    archived_at INTEGER NOT NULL,
+    notice_acknowledged INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS notification_channels (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL,

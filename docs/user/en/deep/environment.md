@@ -7,7 +7,7 @@ order: 14
 
 Meshloom has two places where it is configured, and they do not overlap.
 
-The **environment** holds what must be known before anything starts: where to write the database, whether bots are allowed, whether a password protects the page, and which diagnostic switches are on. Changing it requires a restart.
+The **environment** holds what must be known before anything starts: where to write the database, whether extensions are allowed, whether a password protects the page, and which diagnostic switches are on. Changing it requires a restart.
 
 **Settings** live in the database. You change them in the web interface, and they apply immediately. The radio connection is one of them: it is a setting, not an environment variable. See [Radio transports](/en/docs/deep/transports/).
 
@@ -19,7 +19,7 @@ The **environment** holds what must be known before anything starts: where to wr
 | Service installed from a source checkout | No file. Add `Environment=NAME=value` lines under `[Service]` with `sudo systemctl edit meshloom` | `sudo systemctl restart meshloom` |
 | Docker | `environment:` block of the Compose file, or a `.env` next to it | `docker compose up -d` |
 | Checkout run by hand | The environment of the shell that runs `uv run uvicorn` | Restart the command |
-| Home Assistant add-on | No variable to edit: the add-on's options (log level, password, bots) become variables, and the add-on sets the others itself. See [On Home Assistant](/en/docs/install/#on-home-assistant) | Restart the add-on |
+| Home Assistant add-on | No variable to edit: the add-on's options (log level, lock of extensions) become variables, and the add-on sets the others itself. See [On Home Assistant](/en/docs/install/#on-home-assistant) | Restart the add-on |
 
 Re-running `install_service.sh` rewrites the main systemd unit of a source install. A drop-in created with `systemctl edit` is kept, and `meshloom.env` is not involved.
 
@@ -63,8 +63,7 @@ See [Meshloom Community](/en/docs/deep/community/).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MESHCORE_DISABLE_BOTS` | `false` | Turns the bot system off at startup. Bots run Python code with full access to the machine. The Linux package sets it to `true` in `meshloom.env` |
-| `MESHCORE_DISABLE_PLUGINS` | `false` | Host lock of the plugin system: when `true`, no plugin can be installed, changed or started, whatever the settings say; viewing, deleting and pausing all plugins still work, and plugins restored from a backup come back turned off and stay so. It is separate from `MESHCORE_DISABLE_BOTS`. In the Home Assistant add-on, it is the `disable_plugins` option |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Host lock of the plugin system: when `true`, no plugin can be installed, changed or started, whatever the settings say; viewing, deleting and pausing all plugins still work, and plugins restored from a backup come back turned off and stay so. The Linux package ships it commented out in `meshloom.env`. The bot lock variable of 4.18 and earlier no longer does anything: Meshloom logs a warning naming this variable if it is still set (see [Plugins](/en/docs/deep/plugins/#bots-from-418-and-earlier)). In the Home Assistant add-on, it is the `disable_plugins` option |
 
 From 5.0 `MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` are retired (also listed under **Retired variables**): when both are set and Meshloom has no account yet, the first start creates the administrator account from them, then they are no longer read and a warning is logged at every start while they are set (remove them; accounts are managed in **Settings → Users & Access**). Setting only one imports nothing and no longer stops Meshloom. `Authorization: Basic` with an account's user name and password is still accepted until 5.2, then removed. A user name longer than 64 characters cannot become an account: the import is skipped with an error in the log, and you create the administrator with the installation code printed in the log. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
 
@@ -138,4 +137,4 @@ You change these in the web interface. Nothing here is set through the environme
 
 The VAPID key pair (`vapid_private_key` and `vapid_public_key`) is created on first start. The interface is the supported way to change settings; some of them can also be read and changed with `GET` and `PATCH /api/settings`.
 
-Integrations (MQTT, bots, webhooks, Apprise, SQS) are stored apart, in `fanout_configs`. Meshloom Community has its own endpoint, `/api/community`. See [Fanout](/en/docs/deep/fanout/), [Meshloom Community](/en/docs/deep/community/) and [Radio, contacts and channels](/en/docs/deep/radio/).
+Integrations (MQTT, webhooks, Apprise, SQS) are stored apart, in `fanout_configs`. Meshloom Community has its own endpoint, `/api/community`. See [Fanout](/en/docs/deep/fanout/), [Meshloom Community](/en/docs/deep/community/) and [Radio, contacts and channels](/en/docs/deep/radio/).

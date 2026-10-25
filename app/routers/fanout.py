@@ -1,18 +1,13 @@
 """REST API for fanout config CRUD."""
 
-import ast
-import inspect
 import logging
 import re
 import string
-from contextlib import AbstractAsyncContextManager, nullcontext
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.auth import audit
 from app.auth.permissions import require
-from app.fanout.bot_exec import _analyze_bot_signature
 from app.fanout.manager import fanout_manager, is_reserved_fanout_id
 from app.net.apprise_urls import (
     AppriseUrlRefused,
@@ -21,6 +16,7 @@ from app.net.apprise_urls import (
     validate_apprise_urls,
 )
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
+from app.plugins import bot_conversion
 from app.repository.fanout import FanoutConfigRepository
 from app.secret_fields import SecretRequiredError, merge_secrets, redact_config
 
@@ -31,7 +27,6 @@ _VALID_TYPES = {
     "mqtt_private",
     "mqtt_community",
     "mqtt_ha",
-    "bot",
     "webhook",
     "apprise",
     "sqs",
@@ -120,8 +115,6 @@ def _validate_and_normalize_config(config_type: str, config: dict) -> dict:
         _validate_mqtt_private_config(normalized)
     elif config_type == "mqtt_community":
         _validate_mqtt_community_config(normalized)
-    elif config_type == "bot":
-        _validate_bot_config(normalized)
     elif config_type == "webhook":
         _validate_webhook_config(normalized)
     elif config_type == "apprise":
@@ -224,80 +217,6 @@ def _is_plausible_email(email: str) -> bool:
         return False
     local, _, domain = email.partition("@")
     return bool(local) and "." in domain[1:-1]
-
-
-def _validate_bot_config(config: dict) -> None:
-    """Validate bot config blob (syntax-check the code and supported signature)."""
-    code = config.get("code", "")
-    if not code or not code.strip():
-        raise HTTPException(status_code=400, detail="Bot code cannot be empty")
-    try:
-        tree = ast.parse(code, filename="<bot_code>", mode="exec")
-    except SyntaxError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Bot code has syntax error at line {e.lineno}: {e.msg}",
-        ) from None
-
-    bot_def = next(
-        (
-            node
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "bot"
-        ),
-        None,
-    )
-    if bot_def is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Bot code must define a callable bot() function. "
-                "Use the default bot template as a reference."
-            ),
-        )
-
-    try:
-        parameters: list[inspect.Parameter] = []
-        positional_args = [
-            *((arg, inspect.Parameter.POSITIONAL_ONLY) for arg in bot_def.args.posonlyargs),
-            *((arg, inspect.Parameter.POSITIONAL_OR_KEYWORD) for arg in bot_def.args.args),
-        ]
-        positional_defaults_start = len(positional_args) - len(bot_def.args.defaults)
-        sentinel_default = object()
-
-        for index, (arg, kind) in enumerate(positional_args):
-            has_default = index >= positional_defaults_start
-            parameters.append(
-                inspect.Parameter(
-                    arg.arg,
-                    kind=kind,
-                    default=sentinel_default if has_default else inspect.Parameter.empty,
-                )
-            )
-        if bot_def.args.vararg is not None:
-            parameters.append(
-                inspect.Parameter(bot_def.args.vararg.arg, kind=inspect.Parameter.VAR_POSITIONAL)
-            )
-        for kwonly_arg, kw_default in zip(
-            bot_def.args.kwonlyargs, bot_def.args.kw_defaults, strict=True
-        ):
-            parameters.append(
-                inspect.Parameter(
-                    kwonly_arg.arg,
-                    kind=inspect.Parameter.KEYWORD_ONLY,
-                    default=(
-                        sentinel_default if kw_default is not None else inspect.Parameter.empty
-                    ),
-                )
-            )
-        if bot_def.args.kwarg is not None:
-            parameters.append(
-                inspect.Parameter(bot_def.args.kwarg.arg, kind=inspect.Parameter.VAR_KEYWORD)
-            )
-
-        _analyze_bot_signature(inspect.Signature(parameters))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 def _validate_apprise_config(config: dict) -> None:
@@ -487,8 +406,6 @@ def _enforce_scope(config_type: str, scope: dict) -> dict:
         return {"messages": "none", "raw_packets": "all"}
     if config_type == "map_upload":
         return {"messages": "none", "raw_packets": "all"}
-    if config_type == "bot":
-        return {"messages": "all", "raw_packets": "none"}
     if config_type in ("webhook", "apprise", "mqtt_ha"):
         messages = scope.get("messages", "all")
         if messages not in ("all", "none") and not isinstance(messages, dict):
@@ -511,15 +428,6 @@ def _enforce_scope(config_type: str, scope: dict) -> dict:
             detail="scope.raw_packets must be 'all' or 'none'",
         )
     return {"messages": messages, "raw_packets": raw_packets}
-
-
-def _bot_system_disabled_detail() -> str | None:
-    source = fanout_manager.get_bots_disabled_source()
-    if source == "env":
-        return "Bot system disabled by server configuration (MESHCORE_DISABLE_BOTS)"
-    if source == "until_restart":
-        return "Bot system disabled until the server restarts"
-    return None
 
 
 def present_fanout_config(cfg: dict) -> dict:
@@ -551,8 +459,7 @@ def prepare_fanout_config(
     """Type check, config validation/normalisation and scope enforcement.
 
     Shared by the create route and the backup restore (``services/backup.py``).
-    Raises ``HTTPException(400)``. The bot gate (403 while bots are disabled)
-    stays with each caller. No DNS lookup: the create route adds
+    Raises ``HTTPException(400)``. No DNS lookup: the create route adds
     ``_check_destinations``; a restored row is checked by its module before
     each send. ``restored``: a row from a backup made before the egress guard
     (no ``allow_private_network`` key) keeps working, grandfathered like
@@ -595,42 +502,30 @@ def prepare_refused_apprise_config(config: dict, scope: dict) -> tuple[dict, dic
     return normalized, _enforce_scope("apprise", scope)
 
 
+# Bots became local plugins in 5.0.0 (migration 122, app/plugins/bot_conversion.py).
+_BOT_RETIRED_DETAIL = {
+    "code": "bot_type_retired",
+    "message": (
+        "Bots are extensions since Meshloom 5.0: manage them in Settings > Extensions "
+        "(your bots were converted there)."
+    ),
+}
+
+
+def _bot_retired() -> HTTPException:
+    return HTTPException(status_code=410, detail=_BOT_RETIRED_DETAIL)
+
+
 @router.post("", dependencies=[Depends(require("admin"))])
-async def create_fanout_config(
-    body: FanoutConfigCreate, actor: audit.RequestActor = audit.SYSTEM_ACTOR
-) -> dict:
-    """Create a new fanout config."""
-    async with _bot_audited(
-        body.type == "bot", actor, "bot.created", details={"name": body.name}
-    ) as audit_scope:
-        return await _create_fanout_config(body, audit_scope)
-
-
-def _bot_audited(
-    is_bot: bool,
-    actor: audit.AuditActor,
-    action: audit.AuditAction,
-    *,
-    target: str | None = None,
-    details: dict | None = None,
-) -> AbstractAsyncContextManager[audit.AuditScope]:
-    """One audit row for a bot edit, refusals included; nothing for other types."""
-    if is_bot:
-        return audit.audited(actor, action, target=target, details=details)
-    return nullcontext(audit.AuditScope(target=target, details={}))
-
-
-async def _create_fanout_config(body: FanoutConfigCreate, audit_scope: audit.AuditScope) -> dict:
+async def create_fanout_config(body: FanoutConfigCreate) -> dict:
+    """Create a new fanout config. ``type: "bot"`` answers 410 ``bot_type_retired``."""
+    if body.type == "bot":
+        raise _bot_retired()
     if body.type not in _VALID_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid type '{body.type}'. Must be one of: {', '.join(sorted(_VALID_TYPES))}",
         )
-
-    if body.type == "bot":
-        disabled_detail = _bot_system_disabled_detail()
-        if disabled_detail:
-            raise HTTPException(status_code=403, detail=disabled_detail)
 
     # A new row has no stored secret: a sentinel sent back reads as unset.
     config = merge_secrets(body.type, None, body.config)
@@ -651,8 +546,6 @@ async def _create_fanout_config(body: FanoutConfigCreate, audit_scope: audit.Aud
         await fanout_manager.reload_config(cfg["id"])
 
     logger.info("Created fanout config %s (type=%s, name=%s)", cfg["id"], body.type, body.name)
-    audit_scope.target = f"bot:{cfg['id']}"
-    audit_scope.details["enabled"] = bool(cfg["enabled"])
     return present_fanout_config(cfg)
 
 
@@ -660,31 +553,18 @@ async def _create_fanout_config(body: FanoutConfigCreate, audit_scope: audit.Aud
 async def update_fanout_config(
     config_id: str,
     body: FanoutConfigUpdate,
-    actor: audit.RequestActor = audit.SYSTEM_ACTOR,
 ) -> dict:
-    """Update a fanout config. Triggers module reload."""
+    """Update a fanout config. Triggers module reload. A bot converted by the 5.0.0
+    switch answers 410 ``bot_type_retired``."""
     if is_reserved_fanout_id(config_id):
         raise HTTPException(status_code=403, detail="Reserved system module")
     existing = await FanoutConfigRepository.get(config_id)
     if existing is None:
+        if await bot_conversion.is_archived_bot(config_id):
+            raise _bot_retired()
         raise HTTPException(status_code=404, detail="Fanout config not found")
-    async with _bot_audited(
-        existing["type"] == "bot",
-        actor,
-        "bot.changed",
-        target=f"bot:{config_id}",
-        details={"name": existing["name"], "fields": sorted(body.model_dump(exclude_none=True))},
-    ) as audit_scope:
-        return await _update_fanout_config(config_id, existing, body, audit_scope)
-
-
-async def _update_fanout_config(
-    config_id: str, existing: dict, body: FanoutConfigUpdate, audit_scope: audit.AuditScope
-) -> dict:
     if existing["type"] == "bot":
-        disabled_detail = _bot_system_disabled_detail()
-        if disabled_detail:
-            raise HTTPException(status_code=403, detail=disabled_detail)
+        raise _bot_retired()
 
     kwargs = {}
     if body.name is not None:
@@ -723,15 +603,11 @@ async def _update_fanout_config(
     await fanout_manager.reload_config(config_id)
 
     logger.info("Updated fanout config %s", config_id)
-    audit_scope.details["name"] = updated["name"]
-    audit_scope.details["enabled"] = bool(updated["enabled"])
     return present_fanout_config(updated)
 
 
 @router.delete("/{config_id}", dependencies=[Depends(require("admin"))])
-async def delete_fanout_config(
-    config_id: str, actor: audit.RequestActor = audit.SYSTEM_ACTOR
-) -> dict:
+async def delete_fanout_config(config_id: str) -> dict:
     """Delete a fanout config."""
     if is_reserved_fanout_id(config_id):
         raise HTTPException(status_code=403, detail="Reserved system module")
@@ -739,35 +615,9 @@ async def delete_fanout_config(
     if existing is None:
         raise HTTPException(status_code=404, detail="Fanout config not found")
 
-    async with _bot_audited(
-        existing["type"] == "bot",
-        actor,
-        "bot.deleted",
-        target=f"bot:{config_id}",
-        details={"name": existing["name"]},
-    ):
-        # Stop the module first
-        await fanout_manager.remove_config(config_id)
-        await FanoutConfigRepository.delete(config_id)
+    # Stop the module first
+    await fanout_manager.remove_config(config_id)
+    await FanoutConfigRepository.delete(config_id)
 
     logger.info("Deleted fanout config %s", config_id)
     return {"deleted": True}
-
-
-@router.post("/bots/disable-until-restart", dependencies=[Depends(require("admin"))])
-async def disable_bots_until_restart(actor: audit.RequestActor = audit.SYSTEM_ACTOR) -> dict:
-    """Stop active bot modules and prevent them from running again until restart."""
-    source = await fanout_manager.disable_bots_until_restart()
-    await audit.record(
-        "bots.disabled", "success", actor=actor, details={"until": "restart", "source": source}
-    )
-
-    from app.services.radio_runtime import radio_runtime as radio_manager
-    from app.websocket import broadcast_health
-
-    broadcast_health(radio_manager.is_connected, radio_manager.connection_info)
-    return {
-        "status": "ok",
-        "bots_disabled": True,
-        "bots_disabled_source": source,
-    }

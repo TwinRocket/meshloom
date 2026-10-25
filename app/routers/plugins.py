@@ -30,7 +30,7 @@ from app.auth import audit
 from app.auth.permissions import has_permission, require
 from app.auth.principal import get_principal
 from app.log_redaction import redact_text
-from app.plugins import installer
+from app.plugins import bot_conversion, installer
 from app.plugins import pause as plugin_pause
 from app.plugins.attention import scan_source
 from app.plugins.capabilities.grants import effective_permissions
@@ -595,6 +595,28 @@ async def put_pause(
 
         broadcast_health(radio_runtime.is_connected, radio_runtime.connection_info)
     return _pause_view()
+
+
+# --- converted bots (MSHL-192) ----------------------------------------------------
+
+
+class ConvertedBotsAck(BaseModel):
+    acknowledged: bool
+
+
+@router.post(
+    "/converted-bots/acknowledge", response_model=ConvertedBotsAck, dependencies=[Admin, Writable]
+)
+async def acknowledge_converted_bots() -> ConvertedBotsAck:
+    """Dismiss the "N bots converted" notice of ``/api/health`` (``converted_bots``).
+    Idempotent. Each converted instance keeps its own ``review_permissions`` attention
+    until its grant is accepted (``PATCH`` with ``granted_permissions``)."""
+    if await bot_conversion.acknowledge():
+        from app.services.radio_runtime import radio_runtime
+        from app.websocket import broadcast_health
+
+        broadcast_health(radio_runtime.is_connected, radio_runtime.connection_info)
+    return ConvertedBotsAck(acknowledged=True)
 
 
 # --- install and create ----------------------------------------------------------

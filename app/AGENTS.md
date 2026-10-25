@@ -163,10 +163,10 @@ and the OpenAPI page (`/docs`), not a table here.
   effect, typed refusals) and `plugins/quotas.py` (per-instance send quotas in
   `plugin_send_quota`, the host-side send guards in `plugin_send_guard` and
   `plugin_send_limits` (`send_guard`), and `send_spacer`, the 2 s spacing of every automatic
-  send, which `fanout/bot_exec.py` shares); `docs/dev/plugins.md`, "Capabilities". Host lock:
+  send); `docs/dev/plugins.md`, "Capabilities". Host lock:
   `MESHCORE_DISABLE_PLUGINS`, a user variable (`docs/user/*/deep/environment.md`).
   The global pause (`plugins/pause.py`, `GET`/`PUT /api/plugins/pause`) is the admin's
-  incident switch: it stops every instance and the legacy bots, starts none and keeps the
+  incident switch: it stops every instance (converted bots included), starts none and keeps the
   `enabled` flags; the host lock, the platform and an isolation failure win over it in
   health (`docs/dev/plugins.md`, "Gates"). Roles in `routers/plugins.py`: reads `send`,
   every write and the logs/diagnostic `admin`, each write audited (`plugin.*`,
@@ -350,8 +350,7 @@ need root (`sudo`); a same-uid debugger gets "permission denied". There is no
 switch to turn it off (no environment variable on purpose): to debug, start the
 server under the debugger (`py-spy record -- uv run uvicorn ...`) or run the
 tool as root. It is inherited by child processes (`fork`) but reset by `execve`
-of any normal program, so the bots' `exec` and the other helpers the server
-launches are not hardened. The flag protects against other non-root programs
+of any normal program, so the helpers the server launches are not hardened. The flag protects against other non-root programs
 only: it does nothing against root (the default Docker image and the HA add-on
 run as root).
 
@@ -393,7 +392,7 @@ run as root).
   also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
   and `app_settings.store_online` (Store consent, off, outside `AppSettings`, excluded
   from backups and reset to 0 in a database copy). Additive: bots in `fanout_configs`
-  are untouched until the switch. One `plugin_id` can have several instances, each
+  were untouched until migration 122 converted them. One `plugin_id` can have several instances, each
   with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
   never exported (`plugin_secrets` emptied in the database download, `secret_omitted`
   names only in the JSON `plugins` section, `services/backup_plugins.py`); `plugin_kv`
@@ -638,7 +637,7 @@ run as root).
   channel `max(1, 156 - len(sender name) - 2)`, 10-byte name fallback when the radio
   name is unknown; UTF-8 bytes). The three services in `message_send.py`
   (`send_direct_message_to_contact`, `send_channel_message_to_channel`,
-  `resend_channel_message_record`) call it, so REST, bots, the radio proxy and both
+  `resend_channel_message_record`) call it, so REST, plugins, the radio proxy and both
   resends are covered; a new send path must call it too. Refusal: coded 400
   `message_too_long` with `params.limit` and `params.bytes` (`errors.message_too_long`
   in the UI). The constants are "empirically determined" from the firmware's packet
@@ -658,7 +657,7 @@ run as root).
   limit and creates a new row. The web UI sends `?client_age_seconds=` (its
   browser-clock age, authoritative for the window): the 30 s check then uses it,
   and the server clock only refuses messages older than 300 s
-  (`RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS`). Without it (bots, older
+  (`RESEND_CLIENT_AGE_MAX_SERVER_ELAPSED_SECONDS`). Without it (plugins, older
   clients, or the UI when it has not measured the clock skew) the 30 s window is
   measured on the server clock, as before. Expiry is a coded 400
   (`resend_window_expired` / `resend_window_expired_server`, `params.seconds`).
@@ -846,8 +845,8 @@ be wrong, because historical decryption inserts old messages with new ids.
   pauses the link when the gate was open.
 - **Restore order** (owner decision): identity, Meshloom data (only the settings
   present in the file; `meshloom_extra` through the route code paths: fanout
-  validation shared with the create route, `system:*` ids refused, bots
-  restored disabled and skipped while bots are disabled, an Apprise row whose
+  validation shared with the create route, `system:*` ids refused, bot entries
+  of an old file restored as disabled local plugins needing review (`bots_converted:<names>`), an Apprise row whose
   URLs the allowlist refuses restored disabled (`apprise_restored_disabled`), a
   row with a private-network opt-in (`allow_private_network`, a legacy row the
   restore grandfathers included) restored disabled
@@ -903,8 +902,8 @@ be wrong, because historical decryption inserts old messages with new ids.
   (handled job ids in sessionStorage); until then the client keeps its old
   contacts and conversations. That section shows the latest job while it runs,
   or finished until a view handled it; a handled job is not shown again.
-- **Inspect** also lists the non-bot integrations with their `enabled` flag,
-  the file's proxy setting, `bots_will_be_skipped` and `push_targets` (label,
+- **Inspect** also lists the integrations with their `enabled` flag,
+  the file's proxy setting, `bot_names` (they become extensions) and `push_targets` (label,
   endpoint host and `owner` of each push subscription the restore would write, per
   `push_restore_applies`; `owner` is the username it goes to, or null for the first
   administrator, `preview_push_owners`, MSHL-328): integrations, the proxy and push subscriptions come
@@ -1271,7 +1270,7 @@ service's body (`tests/test_test_route_error_oracles.py`).
 - `PATCH /radio/proxy` answers 409 to a port change under `MESHCORE_MANAGED_PORTS`.
 - `DELETE /channels/{key}`: the canonical Public channel cannot be deleted (400).
 - `DELETE /messages/{id}` is local only.
-- Bots: create/patch answer 403 while bots are disabled (`MESHCORE_DISABLE_BOTS`).
+- Bots: create (`type: "bot"`) and patch of an archived bot answer 410 `bot_type_retired`.
 - `/api/plugins` (`routers/plugins.py`, `docs/dev/plugins.md`, "API"): reads `send`, everything
   else `admin`; a write is 403 `plugins_disabled` under the host lock. **Plugin secrets are
   write-only**: never return `config_for_init()`; logs, diagnostic and `test` output go through

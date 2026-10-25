@@ -51,21 +51,6 @@
     "adoptFailed": "Failed to adopt radio identity",
     "rejectFailed": "Failed to reject radio identity"
   },
-  "security": {
-    "title": "Unprotected bot execution is enabled",
-    "intro": "Bots are not disabled, and no account protects this instance.",
-    "networkRisk": "Without a signed-in account, or another access-control layer in front of Meshloom, anyone on your local network who can reach this app can run Python code on the computer hosting this instance via the bot system.",
-    "onlySafe": "This is only safe on protected or isolated networks with appropriate access control. If your network is untrusted or later compromised, this setup may expose the host system to arbitrary code execution.",
-    "envHint": "To reduce that risk, create an administrator account (Meshloom asks for one at the first sign-in), or disable bots with <bots>MESHCORE_DISABLE_BOTS=true</bots>. Another external auth or access-control system is also acceptable.",
-    "temporary": "If you just want a temporary safety measure while you learn the system, you can use the button below to disable bots until the server restarts. That is only a temporary guard; permanent protection through accounts or env-based bot disablement is still encouraged.",
-    "disableBots": "Disable Bots Until Server Restart",
-    "disablingBots": "Disabling Bots...",
-    "botsDisabledToast": "Bots disabled until restart",
-    "disableBotsFailed": "Failed to disable bots",
-    "acknowledgeAria": "Acknowledge bot security risk",
-    "acknowledge": "I understand that continuing with my existing security setup may put me at risk on untrusted networks or if my home network is compromised.",
-    "dismiss": "Do Not Warn Me On This Device Again"
-  },
   "commandPalette": {
     "title": "Command palette",
     "description": "Search for conversations, settings, and tools",

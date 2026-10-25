@@ -345,7 +345,7 @@ by `services/backup.py`.
   `writeOnly` field, stored secret and `********` value; `config_for_init` is
   never called. `plugin_kv`, the send counters, `status`, `last_error`,
   `attention` and `archive_sha256` stay out (`BACKUP_COVERAGE`). The archive of
-  converted bots (Store T9) will stay out too.
+  converted bots (`fanout_configs_bots_archive`, migration 122) stays out too.
 - **Restore.** A local plugin comes back whole (manifest, source, config,
   grants = its declared permissions). Any other kind comes back as a
   **to reinstall** row (`attention.type = "reinstall"`): its code is not in the
@@ -359,6 +359,13 @@ by `services/backup.py`.
   `secrets_missing` (the omitted write-only names) in `attention`. Grants are
   kept only when the manifest covers them; config values the schema refuses,
   invalid scope or quotas are reset.
+- **Bot entries of an old file.** Exports no longer hold bots (none are left in
+  `fanout_configs`). A `type: "bot"` entry of a 4.18.x or older 5.0 file restores as a
+  local plugin, disabled and `needs_attention` with the attention
+  `{"type": "restored", "converted_bot": true, "review_permissions": true}`. Warning
+  `bots_converted:<names>` replaces `bots_restored_disabled:<names>`; the old
+  `bots_disabled:*` warning and the preview field `bots_will_be_skipped` are gone, and the
+  preview keeps `bot_names` (they become extensions).
 - **Never overwrites.** The same instance (same `instance_id` and `plugin_id`)
   is kept as it is (`plugin_kept:<id>`); an `instance_id` already used by
   another plugin, or one that is not a uuid, gets a new uuid; a local

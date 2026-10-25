@@ -75,15 +75,15 @@ def test_a_bluetooth_radio_can_be_reached() -> None:
 def test_the_host_bus_is_documented_as_a_root_grant() -> None:
     """The host's D-Bus is not a narrow grant: the add-on runs as root on it.
 
-    Bots run arbitrary Python inside the add-on, so with the bus mounted they can
-    ask systemd or logind to act as root on the host. The add-on documentation has
-    to say so where bots are described, or the option reads as harmless.
+    Extensions run Python inside the add-on's container (each copy unprivileged, but
+    the bus is shared), so the add-on documentation has to say so where the lock is
+    described, or the option reads as harmless.
     """
     assert _config()["host_dbus"] is True
     docs = (ADDON / "DOCS.md").read_text(encoding="utf-8")
-    bots_row = next(line for line in docs.splitlines() if line.startswith("| `disable_bots`"))
-    assert "D-Bus" in bots_row
-    assert "root" in bots_row
+    plugins_row = next(line for line in docs.splitlines() if line.startswith("| `disable_plugins`"))
+    assert "D-Bus" in plugins_row
+    assert "root" in plugins_row
 
 
 def test_every_option_is_described_by_the_schema() -> None:

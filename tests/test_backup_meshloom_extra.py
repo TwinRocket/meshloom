@@ -128,29 +128,65 @@ async def test_apprise_row_with_a_refused_scheme_comes_back_disabled(
     assert stored["config"]["private_network_grandfathered"] is True
 
 
-@pytest.mark.asyncio
-async def test_bots_skipped_while_disabled(backup_db, reload_spy, proxy_spy, monkeypatch):
-    monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", True)
-    warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot()]))
-    assert warnings == ["bots_disabled:Greeter"]
-    assert await FanoutConfigRepository.get_all() == []
+async def _converted_plugins() -> list[dict]:
+    import json
+
+    from app.database import db
+
+    async with db.readonly() as conn:
+        async with conn.execute(
+            "SELECT label, kind, enabled, source, status, attention, manifest FROM plugins"
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [
+        {
+            "label": r[0],
+            "kind": r[1],
+            "enabled": bool(r[2]),
+            "source": r[3],
+            "status": r[4],
+            "attention": json.loads(r[5]) if r[5] else None,
+            "entry": json.loads(r[6])["entry"],
+        }
+        for r in rows
+    ]
 
 
 @pytest.mark.asyncio
-async def test_bots_come_back_disabled(backup_db, proxy_spy, monkeypatch):
-    monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", False)
+async def test_bots_come_back_as_disabled_extensions(backup_db, proxy_spy, monkeypatch):
+    """A 4.18 bot entry is restored as a local plugin waiting for review (MSHL-192)."""
     started = AsyncMock()
     monkeypatch.setattr(fanout_manager, "_start_module", started)
     public_hook = webhook(
         enabled=True, config={"url": "https://example.org/hook", "allow_private_network": False}
     )
     warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot(), public_hook]))
-    assert "bots_restored_disabled:Greeter" in warnings
+    assert "bots_converted:Greeter" in warnings
     stored = {cfg["id"]: cfg for cfg in await FanoutConfigRepository.get_all()}
-    assert stored["bot-1"]["enabled"] is False
+    assert "bot-1" not in stored
     assert stored["hook-1"]["enabled"] is True
-    # reload_config ran for both; only the enabled webhook was started.
     assert [call.args[0]["id"] for call in started.await_args_list] == ["hook-1"]
+    [plugin] = await _converted_plugins()
+    assert plugin["label"] == "Greeter" and plugin["kind"] == "local"
+    assert plugin["enabled"] is False and plugin["status"] == "needs_attention"
+    assert plugin["source"] == BOT_CODE and plugin["entry"] == "compat.py:Bot"
+    assert plugin["attention"]["type"] == "restored"
+    assert plugin["attention"]["converted_bot"] is True
+    assert plugin["attention"]["review_permissions"] is True
+    assert plugin["attention"]["was_enabled"] is True
+
+    # Restoring the same file again does not duplicate the extension.
+    await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot()]))
+    assert len(await _converted_plugins()) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_bot_entry_with_broken_code_is_dropped(backup_db, reload_spy, proxy_spy):
+    broken = bot()
+    broken.config = {"code": "def bot(:\n"}
+    warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[broken]))
+    assert warnings == ["fanout_invalid:bot-1:bot"]
+    assert await _converted_plugins() == []
 
 
 @pytest.mark.asyncio
@@ -311,7 +347,7 @@ async def test_integrations_keep_the_file_order(backup_db, reload_spy, proxy_spy
 
 
 @pytest.mark.asyncio
-async def test_inspect_lists_integrations_proxy_and_skipped_bots(backup_db, monkeypatch):
+async def test_inspect_lists_integrations_proxy_and_bots(backup_db):
     from app.models import BackupExportV2
     from app.services.backup_restore import inspect_backup
 
@@ -325,15 +361,10 @@ async def test_inspect_lists_integrations_proxy_and_skipped_bots(backup_db, monk
             radio_proxy=BackupRadioProxy(enabled=True, port=5000, max_clients=2),
         )
     )
-    monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", True)
     result = await inspect_backup(doc, None)
     assert [(i.name, i.type, i.enabled) for i in result.integrations] == [("Hook", "webhook", True)]
     assert result.radio_proxy_enabled is True
     assert result.bot_names == ["Greeter"]
-    assert result.bots_will_be_skipped is True
-
-    monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", False)
-    assert (await inspect_backup(doc, None)).bots_will_be_skipped is False
 
 
 @pytest.mark.asyncio

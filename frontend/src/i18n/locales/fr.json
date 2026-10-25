@@ -1133,7 +1133,6 @@
         "mqtt_private": "MQTT privé",
         "mqtt_community": "Partage communautaire",
         "mqtt_ha": "Home Assistant",
-        "bot": "Bot Python",
         "webhook": "Webhook",
         "apprise": "Apprise",
         "sqs": "Amazon SQS",
@@ -1195,11 +1194,6 @@
           "description": "Envoyer des paquets bruts ou déchiffrés, complets ou filtrés par portée, vers une file SQS",
           "defaultName": "Amazon SQS"
         },
-        "bot": {
-          "label": "Bot Python",
-          "description": "Une interface Python simple pour des bots basiques capables de répondre aux DM et aux messages de canal.",
-          "defaultName": "Bot"
-        },
         "map_upload": {
           "label": "Envoi vers la carte",
           "description": "Envoyer les répéteurs et serveurs de salon vers map.meshcore.io ou un endpoint d’API carte compatible.",
@@ -1235,8 +1229,6 @@
       },
       "list": {
         "experimentalBanner": "Les intégrations sont une fonctionnalité expérimentale en bêta ouverte : elles permettent de diffuser les messages bruts et déchiffrés vers plusieurs services pour l’automatisation, l’analyse ou l’archivage.",
-        "botsDisabled": "Le système de bots est désactivé par la configuration du serveur (MESHCORE_DISABLE_BOTS). Les intégrations bot ne peuvent ni s’exécuter, ni être créées, ni être modifiées.",
-        "botsDisabledUntilRestart": "Le système de bots est désactivé jusqu’au redémarrage du serveur. Les intégrations bot ne peuvent ni s’exécuter, ni être créées, ni être modifiées pour le moment.",
         "addIntegration": "Ajouter une intégration",
         "backToList": "← Retour à la liste",
         "name": "Nom",
@@ -1363,15 +1355,6 @@
         "email": "E-mail"
       },
       "bot": {
-        "experimental": "<strong>Expérimental :</strong> Il s’agit d’une fonctionnalité alpha qui introduit l’envoi automatique de messages depuis votre radio ; un comportement inattendu est possible. À utiliser avec prudence, et signalez les bugs !",
-        "security": "<strong>Avertissement de sécurité :</strong> Cette fonctionnalité exécute du code Python arbitraire sur le serveur. N’exécutez que du code de confiance, et méfiez-vous de l’usage arbitraire des paramètres de message.",
-        "dontWreck": "<strong>N’abîmez pas le mesh !</strong> Les bots traitent TOUS les messages, y compris les leurs. Attention aux boucles infinies !",
-        "defineFunction": "Définissez une fonction <code>bot()</code> qui reçoit les données du message et peut renvoyer une réponse.",
-        "resetExample": "Réinitialiser l’exemple",
-        "loadingEditor": "Chargement de l’éditeur…",
-        "available": "<strong>Disponible :</strong> bibliothèques Python standard et tout module installé dans l’environnement serveur.",
-        "limits": "<strong>Limites :</strong> délai d’attente de 10 secondes par bot.",
-        "note": "<strong>Note :</strong> Les bots répondent à tous les messages, y compris les vôtres. Pour les messages de canal, <code>sender_key</code> vaut <code>None</code>. Plusieurs bots activés s’exécutent en parallèle. Les messages sortants sont sérialisés avec un délai de deux secondes entre les envois pour éviter les collisions de répéteurs.",
         "editorAria": "Éditeur de code du bot"
       },
       "map": {
@@ -1876,21 +1859,6 @@
     "themeClassic": "Passer au thème classique",
     "themeLight": "Passer au thème clair",
     "radioStatusOpensSettings": "{{status}} — ouvrir les réglages radio"
-  },
-  "security": {
-    "title": "L’exécution non protégée de bots est activée",
-    "intro": "Les bots ne sont pas désactivés, et aucun compte ne protège cette instance.",
-    "networkRisk": "Sans compte connecté, ou une autre couche de contrôle d’accès devant Meshloom, quiconque sur votre réseau local pouvant atteindre cette application peut exécuter du code Python sur l’ordinateur qui héberge cette instance via le système de bots.",
-    "onlySafe": "Ceci n’est sûr que sur des réseaux protégés ou isolés, avec un contrôle d’accès approprié. Si votre réseau n’est pas de confiance ou est compromis plus tard, cette configuration peut exposer le système hôte à l’exécution de code arbitraire.",
-    "envHint": "Pour réduire ce risque, créez un compte administrateur (Meshloom en demande un à la première connexion), ou désactivez les bots avec <bots>MESHCORE_DISABLE_BOTS=true</bots>. Un autre système d’authentification ou de contrôle d’accès externe est également acceptable.",
-    "temporary": "Si vous voulez seulement une mesure temporaire le temps de découvrir le système, vous pouvez utiliser le bouton ci-dessous pour désactiver les bots jusqu’au redémarrage du serveur. Ce n’est qu’une protection temporaire ; une protection permanente via les comptes ou la désactivation des bots par variable d’environnement reste recommandée.",
-    "disableBots": "Désactiver les bots jusqu’au redémarrage du serveur",
-    "disablingBots": "Désactivation des bots…",
-    "botsDisabledToast": "Bots désactivés jusqu’au redémarrage",
-    "disableBotsFailed": "Impossible de désactiver les bots",
-    "acknowledgeAria": "Reconnaître le risque de sécurité des bots",
-    "acknowledge": "Je comprends que continuer avec ma configuration de sécurité actuelle peut me mettre en danger sur des réseaux non fiables, ou si mon réseau domestique est compromis.",
-    "dismiss": "Ne plus m’avertir sur cet appareil"
   },
   "commandPalette": {
     "title": "Palette de commandes",

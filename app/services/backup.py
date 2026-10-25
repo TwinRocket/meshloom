@@ -236,7 +236,11 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "contact_groups": ("included", "v1 groups"),
     "contact_group_members": ("included", "v1 groups"),
     "app_settings": ("included", "per column, above"),
-    "fanout_configs": ("included", "meshloom_extra.fanout_configs (bots restored disabled)"),
+    "fanout_configs": (
+        "included",
+        "meshloom_extra.fanout_configs (4.18 bots restored as extensions, disabled)",
+    ),
+    "fanout_configs_bots_archive": ("excluded", "the 4.18 bots converted by migration 122"),
     "push_subscriptions": ("included", "meshloom_extra.push_subscriptions (host without push)"),
     **dict.fromkeys(
         (
@@ -972,7 +976,8 @@ async def export_backup_v2(
 
 
 async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: list[str]) -> int:
-    """Upsert by id through the fanout route checks. Bots come back disabled."""
+    """Upsert by id through the fanout route checks. A 4.18 bot entry becomes a local
+    plugin (``app/plugins/bot_conversion.py``), disabled and waiting for review."""
     from fastapi import HTTPException
 
     from app.fanout.manager import fanout_manager, is_reserved_fanout_id
@@ -985,15 +990,18 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
     from app.secret_fields import SecretRequiredError, merge_secrets
 
     written: list[str] = []
-    restored_bots: list[str] = []
+    converted_bots: list[str] = []
     for entry in entries:
         label = entry.name or entry.id
         if is_reserved_fanout_id(entry.id):
             # system:* modules are Meshloom's own: never taken from a file.
             warnings.append(f"fanout_reserved:{entry.id}")
             continue
-        if entry.type == "bot" and fanout_manager.bots_disabled_effective():
-            warnings.append(f"bots_disabled:{label}")
+        if entry.type == "bot":
+            if await _restore_bot_as_plugin(entry, label):
+                converted_bots.append(label)
+            else:
+                warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
             continue
         existing = await FanoutConfigRepository.get(entry.id)
         if existing is not None and existing["type"] != entry.type:
@@ -1025,9 +1033,7 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
             config, scope = prepare_refused_apprise_config(file_config, entry.scope)
             refused_apprise = True
             warnings.append(f"apprise_restored_disabled:{label}")
-        # A bot runs code through exec() once enabled, and a backup file may
-        # come from someone else: restored disabled, the user enables it.
-        enabled = entry.enabled and entry.type != "bot" and not refused_apprise
+        enabled = entry.enabled and not refused_apprise
         # A LAN opt-in granted on another host would let this file reach this
         # host's network at once: restored disabled, the user re-enables it.
         if enabled and allows_private_network(entry.type, config):
@@ -1054,13 +1060,39 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
             # create() appends; the user's order is the file's.
             await FanoutConfigRepository.update(entry.id, sort_order=entry.sort_order)
         written.append(entry.id)
-        if entry.type == "bot":
-            restored_bots.append(label)
     for config_id in written:
         await fanout_manager.reload_config(config_id)
-    if restored_bots:
-        warnings.append("bots_restored_disabled:" + ", ".join(restored_bots))
+    if converted_bots:
+        warnings.append("bots_converted:" + ", ".join(converted_bots))
     return len(written)
+
+
+async def _restore_bot_as_plugin(entry: BackupFanoutConfig, label: str) -> bool:
+    """Write a 4.18 bot entry as a local plugin: disabled, attention ``restored`` with
+    ``review_permissions`` (a backup file may come from someone else). False when its
+    code is empty or does not parse. A bot already restored with the same code is not
+    duplicated."""
+    from app.database import db
+    from app.plugins import bot_conversion
+
+    source = entry.config.get("code")
+    if not isinstance(source, str) or not bot_conversion.valid_source(source):
+        return False
+    async with db.tx() as conn:
+        async with conn.execute(
+            "SELECT 1 FROM plugins WHERE kind = 'local' AND source = ? LIMIT 1", (source,)
+        ) as cursor:
+            if await cursor.fetchone() is not None:
+                return True
+        row = bot_conversion.converted_row(
+            label=entry.name or "Bot",
+            source=source,
+            enabled=entry.enabled,
+            fanout_scope=entry.scope,
+            restored=True,
+        )
+        await bot_conversion.insert_converted(conn, row)
+    return True
 
 
 async def push_restore_applies(extra: MeshloomExtra) -> bool | None:

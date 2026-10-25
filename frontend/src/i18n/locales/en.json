@@ -1133,7 +1133,6 @@
         "mqtt_private": "Private MQTT",
         "mqtt_community": "Community Sharing",
         "mqtt_ha": "Home Assistant",
-        "bot": "Python Bot",
         "webhook": "Webhook",
         "apprise": "Apprise",
         "sqs": "Amazon SQS",
@@ -1195,11 +1194,6 @@
           "description": "Send full or scope-customized raw or decrypted packets to an SQS",
           "defaultName": "Amazon SQS"
         },
-        "bot": {
-          "label": "Python Bot",
-          "description": "A simple, Python-based interface for basic bots that can respond to DM and channel messages.",
-          "defaultName": "Bot"
-        },
         "map_upload": {
           "label": "Map Upload",
           "description": "Upload repeaters and room servers to map.meshcore.io or a compatible map API endpoint.",
@@ -1235,8 +1229,6 @@
       },
       "list": {
         "experimentalBanner": "Integrations are an experimental feature in open beta, and allow you to fanout raw and decrypted messages across multiple services for automation, analysis, or archiving.",
-        "botsDisabled": "Bot system is disabled by server configuration (MESHCORE_DISABLE_BOTS). Bot integrations cannot run, be created, or be modified.",
-        "botsDisabledUntilRestart": "Bot system is disabled until the server restarts. Bot integrations cannot run, be created, or be modified right now.",
         "addIntegration": "Add Integration",
         "backToList": "← Back to list",
         "name": "Name",
@@ -1363,15 +1355,6 @@
         "email": "Email"
       },
       "bot": {
-        "experimental": "<strong>Experimental:</strong> This is an alpha feature and introduces automated message sending to your radio; unexpected behavior may occur. Use with caution, and please report any bugs!",
-        "security": "<strong>Security Warning:</strong> This feature executes arbitrary Python code on the server. Only run trusted code, and be cautious of arbitrary usage of message parameters.",
-        "dontWreck": "<strong>Don't wreck the mesh!</strong> Bots process ALL messages, including their own. Be careful of creating infinite loops!",
-        "defineFunction": "Define a <code>bot()</code> function that receives message data and optionally returns a reply.",
-        "resetExample": "Reset to Example",
-        "loadingEditor": "Loading editor...",
-        "available": "<strong>Available:</strong> Standard Python libraries and any modules installed in the server environment.",
-        "limits": "<strong>Limits:</strong> 10 second timeout per bot.",
-        "note": "<strong>Note:</strong> Bots respond to all messages, including your own. For channel messages, <code>sender_key</code> is <code>None</code>. Multiple enabled bots run concurrently. Outgoing messages are serialized with a two-second delay between sends to prevent repeater collision.",
         "editorAria": "Bot code editor"
       },
       "map": {
@@ -1876,21 +1859,6 @@
     "themeClassic": "Switch to classic theme",
     "themeLight": "Switch to light theme",
     "radioStatusOpensSettings": "{{status}} — open radio settings"
-  },
-  "security": {
-    "title": "Unprotected bot execution is enabled",
-    "intro": "Bots are not disabled, and no account protects this instance.",
-    "networkRisk": "Without a signed-in account, or another access-control layer in front of Meshloom, anyone on your local network who can reach this app can run Python code on the computer hosting this instance via the bot system.",
-    "onlySafe": "This is only safe on protected or isolated networks with appropriate access control. If your network is untrusted or later compromised, this setup may expose the host system to arbitrary code execution.",
-    "envHint": "To reduce that risk, create an administrator account (Meshloom asks for one at the first sign-in), or disable bots with <bots>MESHCORE_DISABLE_BOTS=true</bots>. Another external auth or access-control system is also acceptable.",
-    "temporary": "If you just want a temporary safety measure while you learn the system, you can use the button below to disable bots until the server restarts. That is only a temporary guard; permanent protection through accounts or env-based bot disablement is still encouraged.",
-    "disableBots": "Disable Bots Until Server Restart",
-    "disablingBots": "Disabling Bots...",
-    "botsDisabledToast": "Bots disabled until restart",
-    "disableBotsFailed": "Failed to disable bots",
-    "acknowledgeAria": "Acknowledge bot security risk",
-    "acknowledge": "I understand that continuing with my existing security setup may put me at risk on untrusted networks or if my home network is compromised.",
-    "dismiss": "Do Not Warn Me On This Device Again"
   },
   "commandPalette": {
     "title": "Command palette",

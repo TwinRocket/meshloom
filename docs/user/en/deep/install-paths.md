@@ -33,7 +33,7 @@ A package installation creates:
 
 - a systemd service called `meshloom`, running as a dedicated `meshloom` user that can use serial and Bluetooth devices;
 - the program in `/opt/meshloom`, which the service can read but not change;
-- the settings file `/etc/meshloom/meshloom.env`, where bots are **disabled** by default;
+- the settings file `/etc/meshloom/meshloom.env`, where `MESHCORE_DISABLE_PLUGINS=true` (commented out by default) locks every extension;
 - the database and your data in `/var/lib/meshloom`.
 
 The package also recommends bubblewrap, which keeps plugins in a sandbox (see [Plugins](/en/docs/deep/plugins/)), and the service may run at most 512 processes and threads in total, plugins included.
@@ -69,7 +69,7 @@ bash scripts/setup/install_service.sh
 
 It needs `uv` and Python 3.11 or newer. It asks whether to build the interface with Node.js 22.12 and npm 10 or newer, or to download a ready-made one. It then writes `/etc/systemd/system/meshloom.service`, starts it as your user, and gives the user access to serial and Bluetooth devices.
 
-You can run it again after updating the code: it stops the service, rewrites the unit, reloads systemd and starts it again. It does not set up bots or a password. To set variables, see [Variables and settings](/en/docs/deep/environment/).
+You can run it again after updating the code: it stops the service, rewrites the unit, reloads systemd and starts it again. It does not set up extensions or a password. To set variables, see [Variables and settings](/en/docs/deep/environment/).
 
 To update such an installation, fetch the new code, then run the script again. It installs the dependencies, rebuilds or downloads the interface, and restarts the service. A copy made by the installer is pinned to a release: replace `X.Y.Z` with the number of the latest version, shown on the [release page](https://github.com/TwinRocket/meshloom/releases).
 
@@ -104,7 +104,7 @@ The repository's [`docker-compose.dev.yaml`](https://github.com/TwinRocket/meshl
 MESHLOOM_HTTP_PORT=8123
 MESHLOOM_DATA_PATH=/opt/docker/meshloom/data
 MESHCORE_DATABASE_PATH=data/meshcore.db
-MESHCORE_DISABLE_BOTS=false
+MESHCORE_DISABLE_PLUGINS=false
 ```
 
 The file also publishes port 5001 (`MESHLOOM_PROXY_PORT`), used by the radio proxy once you enable it. To stay on released versions, use `docker-compose.example.yml` instead.

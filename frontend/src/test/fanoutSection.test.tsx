@@ -39,11 +39,6 @@ vi.mock('../api', () => ({
   formatApiError: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
-// Suppress BotCodeEditor lazy load in tests
-vi.mock('../components/BotCodeEditor', () => ({
-  BotCodeEditor: () => <textarea data-testid="bot-code-editor" />,
-}));
-
 import { api } from '../api';
 
 const mockedApi = vi.mocked(api);
@@ -56,7 +51,6 @@ const baseHealth: HealthStatus = {
   database_size_mb: 1.2,
   oldest_undecrypted_timestamp: null,
   fanout_statuses: {},
-  bots_disabled: false,
 };
 
 const webhookConfig: FanoutConfig = {
@@ -159,7 +153,7 @@ describe('SettingsFanoutSection', () => {
     const optionButtons = within(dialog)
       .getAllByRole('button')
       .filter((button) => button.hasAttribute('aria-pressed'));
-    expect(optionButtons).toHaveLength(11);
+    expect(optionButtons).toHaveLength(10);
     expect(within(dialog).getByRole('button', { name: tf('create.close') })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: tf('create.create') })).toBeInTheDocument();
     expect(
@@ -201,9 +195,6 @@ describe('SettingsFanoutSection', () => {
       within(dialog).getByRole('button', { name: startsWithAccessibleName(tf('create.sqs.label')) })
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByRole('button', { name: startsWithAccessibleName(tf('create.bot.label')) })
-    ).toBeInTheDocument();
-    expect(
       within(dialog).getByRole('button', {
         name: startsWithAccessibleName(tf('create.map_upload.label')),
       })
@@ -221,36 +212,15 @@ describe('SettingsFanoutSection', () => {
     expect(genericCommunityIndex).toBeLessThan(meshRankIndex);
   });
 
-  it('shows bot option in add integration dialog when bots are enabled', async () => {
+  it('has no bot option in the add integration dialog and points to Extensions', async () => {
     renderSection();
-    const dialog = await openCreateIntegrationDialog();
-    expect(
-      within(dialog).getByRole('button', { name: startsWithAccessibleName(tf('create.bot.label')) })
-    ).toBeInTheDocument();
-  });
-
-  it('shows bots disabled banner when bots_disabled', async () => {
-    renderSection({ health: { ...baseHealth, bots_disabled: true } });
-    await waitFor(() => {
-      expect(screen.getByText(tf('list.botsDisabled'))).toBeInTheDocument();
-    });
-  });
-
-  it('shows restart-scoped bots disabled messaging when disabled until restart', async () => {
-    renderSection({
-      health: { ...baseHealth, bots_disabled: true, bots_disabled_source: 'until_restart' },
-    });
-    await waitFor(() => {
-      expect(screen.getByText(tf('list.botsDisabledUntilRestart'))).toBeInTheDocument();
-    });
-  });
-
-  it('hides bot option from add integration dialog when bots_disabled', async () => {
-    renderSection({ health: { ...baseHealth, bots_disabled: true } });
+    expect(await screen.findByTestId('fanout-bots-moved')).toHaveTextContent(tf('list.botsMoved'));
     const dialog = await openCreateIntegrationDialog();
     expect(
       within(dialog).queryByRole('button', {
-        name: startsWithAccessibleName(tf('create.bot.label')),
+        name: startsWithAccessibleName(
+          i18n.t('settings.fanout.types.bot', { defaultValue: 'Bot' })
+        ),
       })
     ).not.toBeInTheDocument();
   });

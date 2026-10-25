@@ -5,7 +5,7 @@ level: deep
 order: 22
 ---
 
-> Draft. Plugins arrive with Meshloom 5.0.0 and replace the Python bots. This page describes their permissions and limits; installing and configuring them will be described when the interface lands.
+> Draft. Plugins arrive with Meshloom 5.0.0 and replaced the Python bots, which were retired in 5.0.0 (see [Bots from 4.18](#bots-from-418-and-earlier)). This page describes their permissions and limits; installing and configuring them will be described when the interface lands.
 
 A plugin runs in its own process, apart from Meshloom. It cannot open your database, your files or the network by itself: it can only ask Meshloom, and Meshloom checks every request against the permissions you granted to that plugin. A request it was not granted is refused before anything happens.
 
@@ -51,9 +51,9 @@ Combined with reading private channels or direct messages, this permission lets 
 ## Limits
 
 - **Messages sent.** By default 30 per hour and 200 per day for each copy of a plugin. A plugin may ask for more, up to 60 per hour and 500 per day, and you can always lower it. The counters survive a restart of Meshloom.
-- **All plugins together.** Whatever the copies are allowed individually, together they send at most 120 messages per hour from your Meshloom. Each channel receives at most 20 messages per hour from plugins and each contact 10 per hour, counted across all plugins. These three limits can be lowered, never raised; the control for it comes with the plugin settings screen (a later release). Plugins only: the bots keep their own 2-second spacing and are not counted. The counters survive a restart of Meshloom.
+- **All plugins together.** Whatever the copies are allowed individually, together they send at most 120 messages per hour from your Meshloom. Each channel receives at most 20 messages per hour from plugins and each contact 10 per hour, counted across all plugins. These three limits can be lowered, never raised; the control for it comes with the plugin settings screen (a later release). The counters survive a restart of Meshloom.
 - **Loops.** A plugin copy answers the same sender at most once every 30 seconds, and does not answer a message that arrived less than 5 seconds after it sent one to the same channel or contact. This stops two auto-responders, even on two different Meshloom, from answering each other forever.
-- **Spacing.** Meshloom waits at least 2 seconds between two automatic messages, whichever plugin or bot sends them, so repeaters have time to listen again.
+- **Spacing.** Meshloom waits at least 2 seconds between two automatic messages, whichever plugin sends them, so repeaters have time to listen again.
 - **Size.** A message is limited to what the radio can carry: 156 bytes for a direct message, less on a channel, where your node's name comes first.
 - **Regions.** A plugin can scope a channel message only to a region Meshloom already knows.
 - **Storage.** 5 MB per copy of a plugin.
@@ -122,8 +122,8 @@ Every change an administrator makes is written to the audit log (**Settings → 
 - Every running copy stops and none starts while the pause lasts. Messages and events arriving meanwhile are not delivered to extensions, and **Test with a message** is refused.
 - Nothing is lost: each copy keeps its on/off switch, its settings and its data. You can still install, configure or turn copies on; they start when you resume.
 - A banner says since when and by whom the extensions are paused, and copies show the **Paused** status. **Resume** starts again exactly the copies that are switched on.
-- The pause survives a restart of Meshloom. Python bots are paused at the same time.
-- If Meshloom cannot read the pause switch when it starts, it plays safe: extensions and bots stay paused, without a date or a name in the banner, until an administrator chooses **Resume**.
+- The pause survives a restart of Meshloom.
+- If Meshloom cannot read the pause switch when it starts, it plays safe: extensions stay paused, without a date or a name in the banner, until an administrator chooses **Resume**.
 
 It differs from the other two ways to stop extensions:
 
@@ -144,3 +144,14 @@ When the host lock is set, it wins: the page shows the extensions as turned off 
 - **Check** reads the manifest and scans the code without running anything; errors and warnings come with their line.
 - **Test with a message** sends a made-up message to the running extension (from a test channel, one of your channels or a contact) and shows what it answered and its log. **Nothing is sent to the radio**: the answers are captured. Save the code first, and turn the extension on to test it.
 - The log under the drawer shows what the extension printed, so you can see errors without a command line.
+
+## Bots from 4.18 and earlier
+
+Meshloom 5.0.0 removes the Python bots of **MQTT & Automation**. At its first start, it turns each bot into a **local extension** named after the bot. Your code is kept as it was (you can read and edit it in the extension's **Code** tab), and so are the conversations the bot was limited to and its on/off setting. A small compatibility layer calls your bot function, so it now runs in the same walls as any extension: its own process, permissions, limits, and the pause and the lock above.
+
+- **Review before it starts.** A converted extension never starts by itself, even if the bot was on. It reads *Needs attention* with *Review permissions*, and stays off until an administrator opens it, reads what it may do and chooses **Accept and enable**. The permissions given are those a bot used to have in practice: read every channel, your direct messages and the messages you send, and send replies in the conversation of the message it answers. Untick what the code does not need. The code is also scanned once, and the lines worth a look are listed.
+- **Notice.** **Settings → Extensions** says how many bots were converted and how many still wait for review, until an administrator dismisses the notice.
+- **Archive.** The original bots are copied to the `fanout_configs_bots_archive` table of the database, then removed from the integrations list. The archive is not part of any backup nor of the support snapshot, and is deleted in a later release (planned for 5.2.0). Creating or changing a bot through the API is refused with `410` and the code `bot_type_retired`.
+- **The old lock.** If `MESHCORE_DISABLE_BOTS=true` was set when you upgraded, it is honoured one last time: every converted extension is stored switched off. After that the variable does nothing (Meshloom logs a warning at start if it is still set). To keep all extensions from running, use `MESHCORE_DISABLE_PLUGINS=true` (the `disable_plugins` option of the Home Assistant add-on; its `disable_bots` option is gone). The Linux package no longer sets any lock in `meshloom.env`: a bot-free install has nothing running until you add an extension and accept its permissions.
+- **Backups.** A backup made before 5.0.0 that holds bots restores them as local extensions, switched off and waiting for review. New backups hold no bot.
+- **Stopping them all.** There is no "disable bots until restart" any more: use **Pause all extensions** (above) or the host lock.
