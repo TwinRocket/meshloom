@@ -21,11 +21,11 @@ export const DISPLAY_ATTRIBUTE = 'data-feed-display';
 
 /**
  * The filters the screen applies in display mode: channels only (so `type=CHAN` is what the
- * server is asked for, whatever the URL or the stored filters say) and no node pick, since the
- * facet that shows and clears it is hidden. Nothing in display mode turns direct messages back on.
+ * server is asked for, whatever the URL or the stored filters say) and no node or conversation pick, since the
+ * facets that show and clear them are hidden. Nothing in display mode turns direct messages back on.
  */
 export function displayFilters(filters: FeedFilters): FeedFilters {
-  return { ...filters, chan: true, priv: false, node: null };
+  return { ...filters, chan: true, priv: false, node: null, conversations: [] };
 }
 
 /**

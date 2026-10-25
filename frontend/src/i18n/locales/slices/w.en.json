@@ -5,6 +5,19 @@
       "description": "Filter the control rows by repeater, room, channel or the packets addressed to us.",
       "all": "All nodes",
       "clear": "Show all nodes again (now: {{name}})"
+    },
+    "facets": {
+      "title": "Conversations",
+      "description": "Narrow the timeline to chosen channels and contacts.",
+      "scope": "Counts are for the loaded rows",
+      "channels": "Channels",
+      "contacts": "Contacts",
+      "reset": "Reset",
+      "filters": "Filters",
+      "filtersActive_one": "Filters ({{formatted}})",
+      "filtersActive_other": "Filters ({{formatted}})",
+      "messageCount_one": "{{formatted}} message",
+      "messageCount_other": "{{formatted}} messages"
     }
   }
 }

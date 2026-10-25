@@ -123,6 +123,15 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   `fillHiddenPages` fetches the next page while fewer than `FEED_MIN_VISIBLE` (20) rows
   show, at most `FEED_MAX_PAGES_PER_GESTURE` (5) pages per gesture (mount, filter
   change, scroll to the top, ticking Muted/Pending).
+- **Conversation facets.** `FeedFilters.conversations` (ids `chan:<key>` / `priv:<key>`, lowercase,
+  `conversationFacetId`) is evaluated in `rowPassesFilters` like the other client-side filters, so
+  hollow-page auto-fetch covers it (it is part of `clientFilterKey`). `components/feed/FeedFacets.tsx`
+  shows the Channels and Contacts sections (right column from `md`, "Filters (n)" sheet on a phone;
+  native checkboxes) from `countConversations`, which counts the loaded rows the other filters keep
+  and ignores the pick itself. A picked conversation absent from the window stays listed with 0. Names
+  come from `createFeedNameResolver`. Not in the URL grammar (`encodeFeedQuery` ignores it), cleared by
+  `displayFilters`, not written for a preset. Control and event rows ignore it. Numbers go through
+  `formatNumber`, never `toLocaleString()`.
 - **Storage.** `localStorage` `meshloom-feed-filters` (the prefix matters under HA ingress,
   where `localStorage` is on HA's origin). Read and written in `try/catch`; absent,
   corrupted or blocked storage means the defaults, silently. Two tabs have two stores and

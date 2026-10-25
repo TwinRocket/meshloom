@@ -25,6 +25,12 @@ export interface FeedFilters {
    * are hidden; messages are kept only for a channel node, and only that channel's.
    */
   node: string | null;
+  /**
+   * The conversations picked in the Channels / Contacts facets (`conversationFacetId`), or
+   * empty for all. Messages of other conversations are hidden; control and event rows are not
+   * conversations and stay. Per browser: the URL grammar does not carry them.
+   */
+  conversations: string[];
 }
 
 export const FEED_FILTERS_STORAGE_KEY = 'meshloom-feed-filters';
@@ -38,6 +44,7 @@ export const defaultFeedFilters: FeedFilters = {
   includeMuted: false,
   includePending: false,
   node: null,
+  conversations: [],
 };
 
 /**
@@ -77,6 +84,13 @@ export function normalizeFeedFilters(raw: unknown): FeedFilters {
     includeMuted: flag(input.includeMuted, d.includeMuted),
     includePending: flag(input.includePending, d.includePending),
     node: typeof input.node === 'string' && input.node ? input.node : null,
+    conversations: Array.isArray(input.conversations)
+      ? [
+          ...new Set(
+            input.conversations.filter((id): id is string => typeof id === 'string' && id !== '')
+          ),
+        ]
+      : [],
   };
 }
 
@@ -163,6 +177,11 @@ function hiddenReasons(
   return reasons;
 }
 
+/** Identity of a message's conversation in the facets and in `FeedFilters.conversations`. */
+export function conversationFacetId(row: Pick<Message, 'type' | 'conversation_key'>): string {
+  return `${row.type === 'CHAN' ? 'chan' : 'priv'}:${row.conversation_key.toLowerCase()}`;
+}
+
 /** A node filters messages only when it is a channel, to that channel's rows. */
 function rowMatchesNode(row: FeedFilterRow, node: string): boolean {
   return (
@@ -174,6 +193,8 @@ function rowMatchesNode(row: FeedFilterRow, node: string): boolean {
 function passesBasicFilters(row: FeedFilterRow, filters: FeedFilters): boolean {
   if (hasNoMessages(filters)) return false;
   if (filters.node && !rowMatchesNode(row, filters.node)) return false;
+  if (filters.conversations.length > 0 && !filters.conversations.includes(conversationFacetId(row)))
+    return false;
   if (row.type === 'CHAN' ? !filters.chan : !filters.priv) return false;
   return row.outgoing ? filters.outgoing : filters.incoming;
 }
@@ -189,6 +210,27 @@ export function rowPassesFilters(
   if (reasons.includes('muted') && !filters.includeMuted) return false;
   if (reasons.includes('pending') && !filters.includePending) return false;
   return true;
+}
+
+/**
+ * Messages per conversation in `rows`, for the facets: what the current filters keep, except the
+ * conversation pick itself (so ticking one conversation does not zero the others). Keyed by
+ * `conversationFacetId`; the caller resolves names.
+ */
+export function countConversations(
+  rows: readonly Message[],
+  filters: FeedFilters,
+  channels: readonly Channel[],
+  nowSec: number
+): Map<string, number> {
+  const open = { ...filters, conversations: [] };
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!rowPassesFilters(row, open, channels, nowSec)) continue;
+    const id = conversationFacetId(row);
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /**
