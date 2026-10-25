@@ -103,7 +103,8 @@
           "syntax_error": "Le code n’est pas du Python valide.",
           "source_too_large": "Le code dépasse 1 Mio.",
           "too_complex": "Le code est trop complexe à analyser.",
-          "manifest_invalid": "Le manifeste est invalide."
+          "manifest_invalid": "Le manifeste est invalide.",
+          "lan_host_supervisor": "Une adresse d’appareil local est sur le réseau interne du Superviseur Home Assistant, qu’une extension ne peut pas joindre."
         },
         "test": "Lancer le test"
       }

@@ -1021,3 +1021,52 @@ async def test_frozen_status_survives_the_config_required_detour(api, manager, s
     assert restart.status_code == 409 and code_of(restart) == f"plugin_{status}"
     assert (await PluginRepository.get(iid))["status"] == status  # type: ignore[index]
     assert manager.get(iid) is None
+
+
+SUPERVISOR_HTTP = {"http": {"hosts": ["api.example.org"], "lan_hosts": ["172.30.32.2"]}}
+
+
+async def test_create_local_names_the_supervisor_network_in_the_addon(api, manager, monkeypatch):
+    """MSHL-354: the install error says why, in the add-on only; elsewhere it is accepted."""
+    body = {"label": "Sup", "hooks": ["message"], "permissions": SUPERVISOR_HTTP}
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    refused = await api.post("/api/plugins", json=body)
+    assert refused.status_code == 400 and code_of(refused) == "lan_host_supervisor"
+    issues = refused.json()["detail"]["params"]["issues"]
+    assert {"code": "lan_host_supervisor", "path": "permissions.http.lan_hosts.0"} in issues
+    assert "172.30.32.2" not in refused.text
+    other = await api.post(
+        "/api/plugins", json={**body, "permissions": {"http": {"lan_hosts": ["10.0.0.1x"]}}}
+    )
+    assert code_of(other) == "manifest_invalid"
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    assert (await api.post("/api/plugins", json=body)).status_code == 201
+
+
+async def test_view_flags_a_dropped_supervisor_permission_to_admins(
+    api, manager, monkeypatch, caplog
+):
+    """MSHL-354: a stored manifest that lists a supervisor address loses the whole http
+    permission (public hosts too) in the add-on; the admin sees a notice and the log a
+    warning without the host."""
+    import logging
+
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    created = await api.post(
+        "/api/plugins",
+        json={"label": "Sup", "hooks": ["message"], "permissions": SUPERVISOR_HTTP},
+    )
+    assert created.status_code == 201
+    iid = created.json()["instance_id"]
+    assert created.json()["notices"] == []
+    caplog.set_level(logging.WARNING, logger="app.plugins.host")
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    [view] = (await api.get("/api/plugins")).json()
+    assert view["notices"] == ["permission_dropped_supervisor"]
+    enabled = await api.patch(f"/api/plugins/{iid}", json={"enabled": True})
+    assert enabled.status_code == 200, enabled.text
+    instance = manager.get(iid)
+    assert instance is not None and "http" not in instance.permissions  # still dropped
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("permission http dropped" in m and "supervisor" in m for m in messages)
+    assert not any("172.30.32.2" in m for m in messages)

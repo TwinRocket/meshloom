@@ -763,11 +763,20 @@ class PluginInstance:
         # What the instance may do: declared by the manifest and granted by the
         # user, narrowed (`capabilities/grants.py`); the scope restricts reads.
         # (The capability package imports this module: imported here, not at the top.)
-        from app.plugins.capabilities.grants import effective_permissions
+        from app.plugins.capabilities.grants import dropped_for_supervisor, effective_permissions
 
         self.permissions: dict[str, dict[str, Any]] = effective_permissions(
             manifest, row.get("granted_permissions")
         )
+        if dropped := dropped_for_supervisor(manifest):
+            # The whole permission is dropped (fail closed), public hosts included.
+            logger.warning(
+                "Plugin %s (%s): permission %s dropped, its manifest lists an address of "
+                "the Home Assistant supervisor network",
+                self.plugin_id,
+                self.instance_id,
+                ", ".join(dropped),
+            )
         self.scope: dict[str, Any] = row.get("scope") or {}
         self.quotas: dict[str, Any] = row.get("quotas") or {}
         self.summary: str | None = None

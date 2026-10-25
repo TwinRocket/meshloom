@@ -355,7 +355,12 @@ covered by `tests/test_egress_guard_lan_hosts.py` and `tests/test_plugin_http_la
   reaching its devices there. A plugin cannot set that variable (it is read in
   the server process). Consequence: in the add-on, a plugin whose manifest
   lists such a literal is invalid, and a grant listing one drops its `http`
-  permission until the plugin is updated.
+  permission until the plugin is updated (MSHL-354). The drop stays; it is made
+  visible: the host logs a warning at start (permission name and ids, never the
+  host), the admin's `PluginInstanceView.notices` carries
+  `permission_dropped_supervisor` (shown in the instance drawer, FR/EN), and a
+  create or edit request that hits it answers 400 `lan_host_supervisor` instead of
+  `manifest_invalid` (the issue code is the same).
 - Redirects: every hop is checked again against `hosts` and `lan_hosts`; a hop
   to an undeclared LAN device, or to plain HTTP outside `lan_hosts`, is
   refused before any lookup.
@@ -377,8 +382,9 @@ Residual risks, accepted:
 - In the Home Assistant add-on, `homeassistant` resolves to the supervisor
   gateway (`172.30.32.1`), which is the host (HA core API, radio proxy), and is
   refused on purpose (`egress_self_address`); the rest of the supervisor
-  network is refused too (`egress_supervisor_address`, MSHL-350). With host
-  networking, which the add-on does not use, only the gateway is refused.
+  network is refused too (`egress_supervisor_address`, MSHL-350). Outside the
+  add-on, only with host networking is the gateway refused (`egress_self_address`),
+  and nothing else of that range.
 - With Linux's `ip_nonlocal_bind` sysctl on, every bind probe succeeds and every
   LAN host is refused (fails closed).
 - Link-local addresses are not accepted.

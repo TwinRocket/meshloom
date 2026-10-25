@@ -103,7 +103,8 @@
           "syntax_error": "The code is not valid Python.",
           "source_too_large": "The code is over 1 MiB.",
           "too_complex": "The code is too complex to analyse.",
-          "manifest_invalid": "The manifest is invalid."
+          "manifest_invalid": "The manifest is invalid.",
+          "lan_host_supervisor": "A local device address is on the Home Assistant Supervisor’s internal network, which an extension may not reach."
         },
         "test": "Run the test"
       }

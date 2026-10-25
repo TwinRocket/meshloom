@@ -33,7 +33,7 @@ from app.log_redaction import redact_text
 from app.plugins import bot_conversion, installer
 from app.plugins import pause as plugin_pause
 from app.plugins.attention import scan_source
-from app.plugins.capabilities.grants import effective_permissions
+from app.plugins.capabilities.grants import dropped_for_supervisor, effective_permissions
 from app.plugins.config_schema import secret_fields, validate_config_values
 from app.plugins.errors import PluginIssue, PluginValidationError
 from app.plugins.host import (
@@ -78,6 +78,18 @@ def _error(status: int, code: str, message: str, **params: Any) -> HTTPException
 def _issues(issues: list[PluginIssue]) -> list[dict[str, str]]:
     """Issues for a response: code and path (a field name), never a value."""
     return [{"code": i.code, "path": i.path} for i in issues][:50]
+
+
+def _manifest_error(exc: PluginValidationError, message: str) -> HTTPException:
+    """400 ``manifest_invalid``; ``lan_host_supervisor`` when a ``lan_hosts`` entry is on the
+    Home Assistant supervisor network (add-on only, MSHL-350), so the UI can say why."""
+    issues = _issues(exc.issues)
+    code = (
+        "lan_host_supervisor"
+        if any(i["code"] == "lan_host_supervisor" for i in issues)
+        else "manifest_invalid"
+    )
+    return _error(400, code, message, issues=issues)
 
 
 def _unlocked() -> None:
@@ -157,6 +169,11 @@ class PluginInstanceView(BaseModel):
     attention: dict[str, Any] | None
     sort_order: int
     summary: str | None = None
+    notices: list[str] = Field(
+        default_factory=list,
+        description="Admin only. ``permission_dropped_supervisor``: a permission the manifest "
+        "declares is dropped because it lists a Home Assistant supervisor network address.",
+    )
     restarts: int = 0
     dropped_events: int = 0
 
@@ -322,6 +339,9 @@ async def _view(row: dict[str, Any], admin: bool) -> PluginInstanceView:
         attention=row["attention"] if admin else None,
         sort_order=row["sort_order"],
         summary=_clean_line(summary, secrets) if summary else None,
+        notices=["permission_dropped_supervisor"]
+        if admin and dropped_for_supervisor(row["manifest"])
+        else [],
         restarts=live.get("restarts", 0),
         dropped_events=live.get("dropped_events", 0),
     )
@@ -717,9 +737,7 @@ async def _create_local(body: CreateLocalRequest) -> PluginInstanceView:
     try:
         manifest = parse_manifest(data, origin="local")
     except PluginValidationError as exc:
-        raise _error(
-            400, "manifest_invalid", "The manifest is invalid", issues=_issues(exc.issues)
-        ) from None
+        raise _manifest_error(exc, "The manifest is invalid") from None
     stored = manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
     stored["permissions"] = manifest.permissions.declared()
     row = await PluginRepository.create(
@@ -800,12 +818,7 @@ async def _patch(instance_id: str, row: dict[str, Any], body: PatchRequest) -> P
             try:
                 parsed = parse_manifest(draft, origin="local")
             except PluginValidationError as exc:
-                raise _error(
-                    400,
-                    "manifest_invalid",
-                    "The permissions are invalid",
-                    issues=_issues(exc.issues),
-                ) from None
+                raise _manifest_error(exc, "The permissions are invalid") from None
             declared = parsed.permissions.declared()
             changes["manifest"] = {**row["manifest"], "permissions": declared}
             changes["granted_permissions"] = declared
@@ -828,9 +841,7 @@ async def _patch(instance_id: str, row: dict[str, Any], body: PatchRequest) -> P
         try:
             parse_manifest(draft, origin="local")
         except PluginValidationError as exc:
-            raise _error(
-                400, "manifest_invalid", "The hooks are invalid", issues=_issues(exc.issues)
-            ) from None
+            raise _manifest_error(exc, "The hooks are invalid") from None
         changes["manifest"] = draft
     if "scope" in fields and body.scope is not None:
         if not _check_scope(body.scope):

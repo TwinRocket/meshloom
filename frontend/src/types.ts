@@ -360,6 +360,8 @@ export interface PluginInstance {
   summary: string | null;
   restarts: number;
   dropped_events: number;
+  /** Admin only: `permission_dropped_supervisor` when a permission is off (Home Assistant add-on). */
+  notices?: string[];
 }
 
 export interface FanoutStatusEntry {
