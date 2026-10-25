@@ -7,11 +7,17 @@
 # groups of every mapped serial device are added. If a mapped serial device is
 # still not usable by that uid, Meshloom keeps running as root with a warning:
 # a radio that works beats a stricter sandbox that cannot reach it.
-# CAP_SETUID and CAP_SETGID stay as inheritable and ambient capabilities, and
-# nothing else: the server needs them to start each plugin as the dedicated
-# meshloom-plugin uid (app/plugins/isolation/setuid.py), and the plugin runner
-# drops them in the child. An image rebuilt without them runs plugins at a
-# reduced level (bwrap or hooks only, docs/user/en/deep/plugins.md).
+# CAP_SETUID, CAP_SETGID and CAP_KILL stay as inheritable and ambient
+# capabilities, and nothing else: the server needs the first two to start each
+# plugin as the dedicated meshloom-plugin uid (app/plugins/isolation/setuid.py),
+# and CAP_KILL to signal those children (killpg of another uid is EPERM
+# without it, so a stuck or stopped plugin would leak). CAP_KILL only reaches
+# processes in the container's PID namespace and adds little over CAP_SETUID,
+# which can already switch to any uid. The plugin runner drops all three in the
+# child. An image rebuilt without them runs plugins at a reduced level (bwrap
+# or hooks only, docs/user/en/deep/plugins.md). Trade-off (accepted): code that
+# takes over the server process can use CAP_SETUID to become root again inside
+# the container.
 #
 # The Home Assistant add-on replaces CMD; with the variable unset this script
 # only execs it.
