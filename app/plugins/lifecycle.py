@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import Any, Final
 
-from app.plugins import isolation
+from app.plugins import bundled_update, isolation
 from app.plugins.host import isolation_level, plugin_manager
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,11 @@ async def start() -> None:
         await plugin_manager.reap_uids()
     except Exception:
         logger.exception("Plugin uid cleanup failed")
+    try:
+        # Bundled plugins newer in this release: code and rows, before any start.
+        await bundled_update.update_bundled()
+    except Exception:
+        logger.exception("Bundled plugin update failed")
     try:
         await plugin_manager.load_from_db()
     except Exception:

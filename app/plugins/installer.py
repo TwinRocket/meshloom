@@ -106,12 +106,21 @@ def install_bundled(plugin: BundledPlugin, plugins_root: Path) -> None:
         except (OSError, ValueError):
             pass
     staging = plugins_root / _STAGING / uuid.uuid4().hex
+    aside = staging.parent / f"previous-{uuid.uuid4().hex}"
     try:
         extract_package(_zip(plugin.directory), staging, origin="bundled")
-        if target.exists():
-            shutil.rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
-        staging.rename(target)
+        # The old tree is moved aside, not deleted, until the new one is in place:
+        # a failed swap puts it back (the in-place update keeps the old version).
+        moved = target.exists()
+        if moved:
+            target.rename(aside)
+        try:
+            staging.rename(target)
+        except OSError:
+            if moved:
+                aside.rename(target)
+            raise
     finally:
         shutil.rmtree(staging.parent, ignore_errors=True)
 

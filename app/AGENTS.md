@@ -125,6 +125,10 @@ and the OpenAPI page (`/docs`), not a table here.
   lists are `meshloom_plugin/policy.py`'s). The data model is `repository/plugins.py`
   (instances, KV, write-only secrets: only `config_for_init()` returns a secret in
   clear). Change the contract only through `scripts/build/export_plugin_contract.py`.
+  `plugins/bundled_update.py` (MSHL-337) updates the installed bundled instances in place
+  at start, from `lifecycle.start()` before any child: newer packaged version only, config
+  and data kept, added permissions hold the instance (`review_permissions`), a failure is
+  logged and keeps the old version, nothing under the host lock.
   `plugins/launch.py` builds the launch contract of the plugin child, which runs
   the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
   `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
