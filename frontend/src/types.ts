@@ -438,6 +438,8 @@ export interface HealthStatus {
   plugins_paused_since?: number | null;
   /** The pause state could not be read at boot: plugins are held as paused (fail closed), no date. */
   plugins_pause_unreadable?: boolean;
+  /** Under `setuid`: temp directories a uid purge could not list (uids stay taken). Empty below admin. */
+  plugins_purge_blocked?: string[];
   plugin_statuses?: Record<string, PluginStatusEntry>;
   radio_proxy?: RadioProxyStatus | null;
 }

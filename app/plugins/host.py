@@ -50,7 +50,7 @@ import sys
 import tempfile
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -1244,6 +1244,9 @@ class PluginManager:
         # not the version their row records (`code_matches`): status `error`,
         # `last_error = plugin_code_mismatch` until a start finds them matching.
         self._code_mismatch: set[str] = set()
+        # Under `setuid`: the directories that made the last purge of each uid fail
+        # (`setuid.PurgeBlockedError`), shown in health as `plugins_purge_blocked`.
+        self._purge_blocked: dict[int, tuple[str, ...]] = {}
 
     # Gates.
 
@@ -1466,13 +1469,41 @@ class PluginManager:
             uid = await PluginUidRepository.get(instance_id)
         if uid is None:
             return True
-        try:
-            await asyncio.to_thread(backend.for_uid(uid).purge)
-        except (OSError, ValueError) as exc:
-            logger.warning("Plugin uid %s of %s kept: purge failed: %s", uid, instance_id, exc)
+        error = await self._purge(backend, uid)
+        if error is not None:
+            logger.warning("Plugin uid %s of %s kept: purge failed: %s", uid, instance_id, error)
             return False
         await PluginUidRepository.release(instance_id)
         return True
+
+    async def _purge(self, backend: isolation.IsolationBackend, uid: int) -> Exception | None:
+        """`purge()` as `uid`, recording the directories that blocked it (or clearing
+        them on success); the error, or None when the uid is clean."""
+        try:
+            await asyncio.to_thread(backend.for_uid(uid).purge)
+        except (OSError, ValueError) as exc:
+            self._set_purge_blocked(uid, getattr(exc, "paths", ()))
+            return exc
+        self._set_purge_blocked(uid, ())
+        return None
+
+    def _set_purge_blocked(self, uid: int, paths: Iterable[str]) -> None:
+        before = self.purge_blocked()
+        if paths := tuple(paths):
+            self._purge_blocked[uid] = paths
+        else:
+            self._purge_blocked.pop(uid, None)
+        if self.purge_blocked() != before:
+            _broadcast_health()
+
+    def purge_blocked(self) -> list[str]:
+        """The directories (in the shared temp dirs) a uid purge could not list: the
+        uids stay taken until an administrator removes or opens them, then restarts."""
+        from app.plugins.isolation.setuid import PURGE_BLOCKED_MAX
+
+        return sorted({p for paths in self._purge_blocked.values() for p in paths})[
+            :PURGE_BLOCKED_MAX
+        ]
 
     async def reap_uids(self) -> None:
         """Before the first start under `setuid`: purge and free the uids of deleted
@@ -1498,11 +1529,11 @@ class PluginManager:
         legacy = getattr(backend, "uid", None)
         for uid in sorted(kept | ({legacy} if legacy else set())):
             if not await asyncio.to_thread(setuid.owns_something, uid):
+                self._set_purge_blocked(uid, ())
                 continue
-            try:
-                await asyncio.to_thread(backend.for_uid(uid).purge)
-            except (OSError, ValueError) as exc:
-                logger.warning("Plugin uid %s: leftover files not removed: %s", uid, exc)
+            error = await self._purge(backend, uid)
+            if error is not None:
+                logger.warning("Plugin uid %s: leftover files not removed: %s", uid, error)
 
     async def start_all(self) -> None:
         """Start every enabled instance not held by a sticky status, staggered."""
@@ -1745,13 +1776,22 @@ class PluginManager:
 def _broadcast_status(payload: dict[str, Any]) -> None:
     """`plugin_status` to the WebSocket clients, plus a health refresh (the fanout path)."""
     try:
-        from app.services.radio_runtime import radio_runtime
-        from app.websocket import broadcast_event, broadcast_health
+        from app.websocket import broadcast_event
 
         broadcast_event(WsEvent.PLUGIN_STATUS, payload, realtime=False)
-        broadcast_health(radio_runtime.is_connected, radio_runtime.connection_info)
     except Exception:
         logger.debug("plugin_status broadcast failed", exc_info=True)
+    _broadcast_health()
+
+
+def _broadcast_health() -> None:
+    try:
+        from app.services.radio_runtime import radio_runtime
+        from app.websocket import broadcast_health
+
+        broadcast_health(radio_runtime.is_connected, radio_runtime.connection_info)
+    except Exception:
+        logger.debug("health broadcast failed", exc_info=True)
 
 
 plugin_manager = PluginManager()

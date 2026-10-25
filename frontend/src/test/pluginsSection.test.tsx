@@ -673,6 +673,23 @@ describe('global pause and member view', () => {
     expect(within(banner).getByRole('button')).toBeEnabled();
   });
 
+  it('names the temp directories that keep plugin uids taken, for admins only', async () => {
+    vi.spyOn(api, 'getPluginsPause').mockResolvedValue({ paused: false, since: null, by: null });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([instance()]);
+    const blocked = health({ plugins_purge_blocked: ['/tmp/locked', '/var/tmp/other'] });
+    const { unmount } = render(<SettingsExtensionsSection health={blocked} />);
+    const banner = await screen.findByTestId('plugins-purge-blocked');
+    expect(banner).toHaveTextContent(t('settings.extensions.isolation.purgeBlocked.title'));
+    expect(banner).toHaveTextContent('/tmp/locked');
+    expect(banner).toHaveTextContent('/var/tmp/other');
+    expect(banner).toHaveTextContent(t('settings.extensions.isolation.purgeBlocked.fix'));
+    unmount();
+
+    render(<SettingsExtensionsSection health={health({ plugins_purge_blocked: [] })} />);
+    await screen.findByTestId('plugin-isolation');
+    expect(screen.queryByTestId('plugins-purge-blocked')).toBeNull();
+  });
+
   it('never prints an empty date when the pause has none', async () => {
     vi.spyOn(api, 'getPluginsPause').mockResolvedValue({ paused: true, since: null, by: null });
     vi.spyOn(api, 'getPlugins').mockResolvedValue([instance({ status: 'paused' })]);

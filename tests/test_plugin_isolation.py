@@ -9,6 +9,7 @@ the `meshloom-plugin` account (the root container job of all-quality.yml). Like
 pytest: `pytest --noconftest tests/test_plugin_isolation.py`.
 """
 
+import contextlib
 import logging
 import os
 import pwd
@@ -28,7 +29,7 @@ from app.plugins.isolation import permissions, selection
 from app.plugins.isolation.base import LEVEL_LABELS
 from app.plugins.isolation.bwrap import BwrapBackend
 from app.plugins.isolation.none import NoneBackend
-from app.plugins.isolation.setuid import ACCOUNT, SetuidBackend
+from app.plugins.isolation.setuid import ACCOUNT, PurgeBlockedError, SetuidBackend
 from tests.plugin_isolation_support import LINUX, available_backends, run_probe, shared_tmp_dir
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="plugins need POSIX")
@@ -609,15 +610,74 @@ def test_purge_asks_the_helper_for_every_depth_and_sysv_ipc(monkeypatch) -> None
     calls: list[tuple[str, ...]] = []
     backend = SetuidBackend(40010, 40010)
     monkeypatch.setattr(backend, "_helper", lambda op, *args: calls.append((op, *args)))
+    # The account's uid as this machine has it, not the image's default (MSHL-349).
+    monkeypatch.setattr(setuid_module, "account_uid", lambda *_a: 12345)
     backend.purge([])
     assert calls == [
         (
             "purge",
             str(setuid_module.PURGE_MAX_ENTRIES),
             "shm:shmid,msg:msqid,sem:semid",
-            "40000-50000,10002",  # the plugin uids whose 0711 work dirs it may skip
+            "40000-50000,12345",  # the plugin uids whose 0711 work dirs it may skip
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("entry", "uid", "spec"),
+    [
+        (_pw(10002, 10002), 10002, "40000-50000,10002"),
+        (_pw(23456, 23456), 23456, "40000-50000,23456"),  # another PLUGIN_UID
+        # No account (removed after startup): only the instance uids; a work dir the
+        # account left then blocks the purge (fail closed).
+        (None, None, "40000-50000"),
+        (_pw(0, 0), None, "40000-50000"),  # never root
+    ],
+)
+def test_the_account_uid_is_read_at_runtime(entry, uid, spec) -> None:
+    from app.plugins.isolation import setuid as setuid_module
+
+    assert setuid_module.account_uid(_getpwnam(entry)) == uid
+    assert setuid_module.plugin_uid_spec(_getpwnam(entry)) == spec
+
+
+def _completed(returncode: int, stderr: str) -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess([], returncode, "", stderr)
+
+
+def test_a_purge_blocked_by_unlistable_dirs_names_them(monkeypatch) -> None:
+    """MSHL-349: the directories that blocked the purge reach health."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    stderr = "/tmp/a: not listable\n/tmp/b: [Errno 13] denied\n/tmp/c\\nx: not listable\n"
+    monkeypatch.setattr(setuid_module.subprocess, "run", lambda *a, **k: _completed(0, stderr))
+    with pytest.raises(setuid_module.PurgeBlockedError, match="not listable") as exc:
+        SetuidBackend(40010, 40010).purge([Path("/tmp")])
+    assert exc.value.paths == ("/tmp/a", "/tmp/c\\nx")
+
+    # Any other failure stays a plain ValueError; other ops never report paths.
+    monkeypatch.setattr(
+        setuid_module.subprocess, "run", lambda *a, **k: _completed(0, "/tmp/b: boom\n")
+    )
+    with pytest.raises(ValueError, match="boom") as plain:
+        SetuidBackend(40010, 40010).purge([Path("/tmp")])
+    assert not isinstance(plain.value, setuid_module.PurgeBlockedError)
+    monkeypatch.setattr(
+        setuid_module.subprocess, "run", lambda *a, **k: _completed(1, "/x: not listable\n")
+    )
+    with pytest.raises(ValueError) as other_op:
+        SetuidBackend(40010, 40010)._helper("rmtree", "/x")
+    assert not isinstance(other_op.value, setuid_module.PurgeBlockedError)
+
+
+def test_purge_blocked_paths_are_capped(monkeypatch) -> None:
+    from app.plugins.isolation import setuid as setuid_module
+
+    stderr = "".join(f"/tmp/d{n}: not listable\n" for n in range(50))
+    monkeypatch.setattr(setuid_module.subprocess, "run", lambda *a, **k: _completed(0, stderr))
+    with pytest.raises(setuid_module.PurgeBlockedError) as exc:
+        SetuidBackend(40010, 40010).purge([Path("/tmp")])
+    assert len(exc.value.paths) == setuid_module.PURGE_BLOCKED_MAX
 
 
 def test_purge_fails_when_the_server_still_sees_something(monkeypatch) -> None:
@@ -808,8 +868,9 @@ def test_purge_fails_closed_on_a_directory_it_may_write_but_not_list() -> None:
         _run_as(
             mine, plugin_dir, "open(os.path.join(sys.argv[1], 'hidden'), 'w').close()", str(trap)
         )
-        with pytest.raises(ValueError, match="not listable"):
+        with pytest.raises(PurgeBlockedError, match="not listable") as blocked:
             mine.purge([shared])
+        assert blocked.value.paths == (str(trap),)
         if os.geteuid() == 0:
             # Root lists it: even without the helper's word the server sees the file.
             assert (trap / "hidden").stat().st_uid == mine.uid
@@ -903,12 +964,13 @@ def test_purge_skips_a_work_dir_only_when_a_plugin_uid_owns_it() -> None:
     """MSHL-348: a 0711 `meshloom-plugin-*` directory of a uid outside the plugin
     uids (one that could hide files for the instance) fails the purge, as does one
     whose name mkdtemp would not make."""
-    from app.plugins.isolation.setuid import ACCOUNT_UID, INSTANCE_UIDS, uid_is_free
+    from app.plugins.isolation.setuid import INSTANCE_UIDS, account_uid, uid_is_free
 
     base = _backend("setuid")
     (mine,) = (base.for_uid(uid) for uid in _free_instance_uids(1))
+    account = account_uid()
     stranger = next(u for u in range(30000, 39999) if uid_is_free(u))
-    assert stranger not in INSTANCE_UIDS and stranger != ACCOUNT_UID
+    assert stranger not in INSTANCE_UIDS and stranger != account
     other = next(u for u in reversed(INSTANCE_UIDS) if u != mine.uid and uid_is_free(u))
     shared = shared_tmp_dir("meshloom-purge-stranger-")
     os.chmod(shared, 0o1777)
@@ -918,7 +980,7 @@ def test_purge_skips_a_work_dir_only_when_a_plugin_uid_owns_it() -> None:
         # Made by each owner (no chown: also runs as a non-root server).
         for name, owner, fails in (
             ("meshloom-plugin-abcd1234", other, False),
-            ("meshloom-plugin-abcd1235", ACCOUNT_UID, False),
+            ("meshloom-plugin-abcd1235", account, False),
             ("meshloom-plugin-abcd1236", stranger, True),
             ("meshloom-plugin-abc", other, True),
         ):
@@ -933,4 +995,85 @@ def test_purge_skips_a_work_dir_only_when_a_plugin_uid_owns_it() -> None:
                 mine.purge([shared])
             _run_as(owner_backend, plugin_dir, "os.rmdir(sys.argv[1])", str(work))
     finally:
+        shutil.rmtree(shared, ignore_errors=True)
+
+
+@pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
+def test_the_account_uid_comes_from_the_passwd_entry(monkeypatch) -> None:
+    """MSHL-349: an image built with another PLUGIN_UID. The skipped work dirs are
+    those of the account's real uid, not of the image's default 10002."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    base = _backend("setuid")
+    mine, rebuilt = (base.for_uid(uid) for uid in _free_instance_uids(2))
+    shared = shared_tmp_dir("meshloom-purge-account-")
+    os.chmod(shared, 0o1777)
+    plugin_dir = shared_tmp_dir("meshloom-purge-account-plugin-")
+    # The account as if it had `rebuilt`'s uid; the real account's uid is then a stranger.
+    real = setuid_module.account_uid()
+    monkeypatch.setattr(setuid_module, "account_uid", lambda *_a: rebuilt.uid)
+    monkeypatch.setattr(setuid_module, "INSTANCE_UIDS", range(mine.uid, mine.uid + 1))
+    work = shared / "meshloom-plugin-abcd1234"
+    make = "os.mkdir(sys.argv[1]); os.chmod(sys.argv[1], 0o711)"
+    try:
+        _run_as(rebuilt, plugin_dir, make, str(work))
+        mine.purge([shared])
+        _run_as(rebuilt, plugin_dir, "os.rmdir(sys.argv[1])", str(work))
+        if real is not None:
+            legacy = base.for_uid(real)
+            _run_as(legacy, plugin_dir, make, str(work))
+            with pytest.raises(PurgeBlockedError):
+                mine.purge([shared])
+            _run_as(legacy, plugin_dir, "os.rmdir(sys.argv[1])", str(work))
+    finally:
+        shutil.rmtree(shared, ignore_errors=True)
+
+
+@pytest.mark.skipif(not LINUX, reason="the helper is Linux only")
+def test_without_proc_a_locked_dir_fails_the_removal_clearly(monkeypatch) -> None:
+    """MSHL-349: with no /proc the helper cannot chmod through an O_PATH descriptor;
+    the removal fails (fail closed) and says why, instead of NotImplementedError."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    no_proc = setuid_module._HELPER_SOURCE.replace("/proc/self/fd/", "/nonexistent/proc/fd/")
+    assert no_proc != setuid_module._HELPER_SOURCE
+    backends = available_backends()
+    if "setuid" in backends:
+        (runner,) = (backends["setuid"].for_uid(uid) for uid in _free_instance_uids(1))
+    elif os.geteuid() != 0:
+        runner = None  # the helper as this unprivileged uid
+    else:
+        pytest.skip("root without the meshloom-plugin account")
+    shared = shared_tmp_dir("meshloom-noproc-")
+    os.chmod(shared, 0o1777)
+    plugin_dir = shared_tmp_dir("meshloom-noproc-plugin-")
+    top = shared / "locked"
+    lock = "os.makedirs(os.path.join(sys.argv[1], 'sub')); os.chmod(sys.argv[1], 0o300)"
+    try:
+        if runner is not None:
+            _run_as(runner, plugin_dir, lock, str(top))
+            monkeypatch.setattr(setuid_module, "_HELPER_SOURCE", no_proc)
+            with pytest.raises(ValueError, match="/proc is not mounted"):
+                runner._helper("rmtree", str(top))
+            with pytest.raises(ValueError, match="/proc is not mounted"):
+                runner.purge([shared])
+            monkeypatch.undo()
+            runner.purge([shared])
+        else:
+            os.makedirs(top / "sub")
+            os.chmod(top, 0o300)
+            proc = subprocess.run(
+                [sys.executable, "-I", "-S", "-B", "-c", no_proc, str(launch.APP_ROOT)]
+                + ["rmtree", str(top)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            assert proc.returncode != 0
+            assert "/proc is not mounted" in proc.stderr.strip().splitlines()[-1]
+            assert top.exists()
+    finally:
+        with contextlib.suppress(OSError):
+            os.chmod(top, 0o700)
         shutil.rmtree(shared, ignore_errors=True)

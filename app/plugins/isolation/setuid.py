@@ -37,8 +37,11 @@ on each of its directories before removal (no symlink followed), so a plugin can
 lock its own leftovers with `0300` or `0000`. A directory the uid may enter
 but not list fails the walk too (such as `0733` owned by someone else: the uid could
 have left entries there that it cannot see; the one exception is another instance's
-`0711` work directory, named as `mkdtemp` makes it and owned by another plugin uid), and so does anything `owns_something` still finds when the
-server checks again after the helper (as root it lists every directory). The
+`0711` work directory, named as `mkdtemp` makes it and owned by another plugin uid:
+`INSTANCE_UIDS` or the account's uid, read at runtime), and so does anything
+`owns_something` still finds when the server checks again after the helper (as root
+it lists every directory). The directories that blocked a purge are raised as
+`PurgeBlockedError` and shown in health (`plugins_purge_blocked`). The
 walk never crosses into another file system: a temp dir mounted below another
 is purged only when it is itself one of the walked roots
 (docs/dev/plugins-security.md, "OS isolation").
@@ -63,9 +66,11 @@ from app.plugins.isolation import permissions
 from app.plugins.isolation.base import IsolationBackend
 
 ACCOUNT = "meshloom-plugin"
-# The uid and gid the Docker image gives the opt-in account (Dockerfile,
+# The uid and gid the Docker image gives the opt-in account by default (Dockerfile,
 # `PLUGIN_UID`). No child runs under it since per-instance uids (MSHL-339); the
-# releases before ran every instance under it, so startup still purges it.
+# releases before ran every instance under it, so startup still purges it. An image
+# may be built with another `PLUGIN_UID`: what the account really has is read at
+# runtime (`account_uid()`); this default is only kept out of `INSTANCE_UIDS`.
 ACCOUNT_UID = 10002
 # The per-instance uids: below 65536 (a user namespace commonly maps that much),
 # above the regular accounts useradd hands out first. A uid with a passwd or group
@@ -78,6 +83,10 @@ HELPER_TIMEOUT = 30.0
 PURGE_MAX_ENTRIES = 100_000
 # System V IPC tables (`/proc/sysvipc/<kind>`) and the id column of each.
 SYSV_IPC_KINDS = (("shm", "shmid"), ("msg", "msqid"), ("sem", "semid"))
+# What the helper prints after a directory the uid may enter but not list.
+NOT_LISTABLE = ": not listable"
+# Blocking directories one failed purge reports (health `plugins_purge_blocked`).
+PURGE_BLOCKED_MAX = 20
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +101,7 @@ logger = logging.getLogger(__name__)
 # descriptor, so no symlink is followed, and only a directory the uid owns (which
 # it could chmod anyway) is touched.
 _HELPER_SOURCE = """
-import os, re, shutil, stat, sys
+import errno, os, re, shutil, stat, sys
 sys.path.insert(0, sys.argv[1])
 from meshloom_plugin import seccomp
 seccomp.drop_capabilities(seccomp.libc_prctl())
@@ -120,7 +129,12 @@ def unlock_one(parent_fd, name):
             try:
                 os.chmod(f"/proc/self/fd/{fd}", mode | 0o700)
             except FileNotFoundError:
-                os.chmod(name, mode | 0o700, dir_fd=parent_fd, follow_symlinks=False)
+                # No /proc: an O_PATH descriptor cannot be chmod-ed any other way,
+                # and chmod(follow_symlinks=False) is not implemented on Linux.
+                # The removal (and so the purge) fails, with this reason.
+                raise OSError(
+                    errno.ENOSYS, f"cannot give owner rwx back to {name}: /proc is not mounted"
+                ) from None
         return True
     finally:
         os.close(fd)
@@ -214,7 +228,8 @@ elif op == "purge":
                 # (or below) that this walk cannot see. Fail closed, except for
                 # another instance's work directory (0711 without root).
                 if os.access(path, os.X_OK) and not other_work_dir(path, base):
-                    print(f"{path}: not listable", file=sys.stderr)
+                    # ascii(): one line per path, whatever its name holds.
+                    print(f"{ascii(path)[1:-1]}: not listable", file=sys.stderr)
                 continue
             except OSError as exc:
                 print(f"{path}: {exc}", file=sys.stderr)
@@ -267,9 +282,35 @@ else:
 """
 
 
-def plugin_uid_spec() -> str:
-    """The plugin uids for the purge helper: whose `0711` work dirs it may skip."""
-    return f"{INSTANCE_UIDS.start}-{INSTANCE_UIDS.stop},{ACCOUNT_UID}"
+class PurgeBlockedError(ValueError):
+    """The purge met directories the uid may enter but not list (`paths`, at most
+    `PURGE_BLOCKED_MAX`): it could have hidden files there, so the uid is kept until
+    an administrator removes or opens them."""
+
+    def __init__(self, message: str, paths: Iterable[str]) -> None:
+        super().__init__(message)
+        self.paths = tuple(paths)[:PURGE_BLOCKED_MAX]
+
+
+def account_uid(getpwnam: Any = pwd.getpwnam) -> int | None:
+    """The uid the `meshloom-plugin` account has on this machine (the image may be
+    built with another `PLUGIN_UID` than `ACCOUNT_UID`); None when the account is
+    missing or is root."""
+    try:
+        uid = getpwnam(ACCOUNT).pw_uid
+    except KeyError:
+        return None
+    return uid or None
+
+
+def plugin_uid_spec(getpwnam: Any = pwd.getpwnam) -> str:
+    """The plugin uids for the purge helper: whose `0711` work dirs it may skip.
+    The account's uid is looked up at each purge. Without the account (removed after
+    startup: the level is only selected while it exists) only `INSTANCE_UIDS` are
+    listed, so a work dir the account left still blocks the purge (fail closed)."""
+    spec = f"{INSTANCE_UIDS.start}-{INSTANCE_UIDS.stop}"
+    uid = account_uid(getpwnam)
+    return spec if uid is None else f"{spec},{uid}"
 
 
 def shared_temp_dirs() -> list[Path]:
@@ -417,7 +458,8 @@ class SetuidBackend(IsolationBackend):
         System V IPC objects. Raises `ValueError` (or `OSError`) when the helper
         fails, meets a directory it may enter but not list, or leaves something the
         server still sees (`owns_something`, run as the server afterwards: as root it
-        lists every directory): the uid is then kept."""
+        lists every directory): the uid is then kept. `PurgeBlockedError` (a
+        `ValueError`) names the directories it could not list."""
         paths = list(shared_temp_dirs() if dirs is None else dirs)
         kinds = ",".join(f"{kind}:{column}" for kind, column in SYSV_IPC_KINDS)
         self._helper(
@@ -455,8 +497,15 @@ class SetuidBackend(IsolationBackend):
             check=False,
         )
         if proc.returncode != 0 or (op == "purge" and proc.stderr.strip()):
-            tail = proc.stderr.strip().splitlines()[-1:] or [f"exit {proc.returncode}"]
-            raise ValueError(f"plugin helper ({op}) failed: {tail[0]}")
+            lines = proc.stderr.strip().splitlines()
+            tail = lines[-1] if lines else f"exit {proc.returncode}"
+            message = f"plugin helper ({op}) failed: {tail}"
+            blocked = [
+                line.removesuffix(NOT_LISTABLE) for line in lines if line.endswith(NOT_LISTABLE)
+            ]
+            if op == "purge" and blocked:
+                raise PurgeBlockedError(message, blocked)
+            raise ValueError(message)
 
     def prepare_plugin_dir(self, plugin_dir: Path) -> None:
         # `plugins/` and `plugins/local/` may be created after startup, under the

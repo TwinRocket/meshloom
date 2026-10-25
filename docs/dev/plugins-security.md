@@ -73,7 +73,9 @@ gid pinned to 10002, `PLUGIN_UID` in the `Dockerfile`, next to
 on the host too, and the first system uid, 999, is often a real host account;
 no shell, no home; an account that already exists is kept; the add-on is `FROM`
 that image) only opts the server into this level; no child runs under it any
-more. Each instance gets the lowest free uid in 40000-49999 (gid = uid, no
+more; an image built with another `PLUGIN_UID` works too: the purge reads the
+account's uid from passwd each time (`setuid.account_uid()`, MSHL-349), and 10002
+(`ACCOUNT_UID`) is only the image's default. Each instance gets the lowest free uid in 40000-49999 (gid = uid, no
 passwd entry needed), stored in the `plugin_uids` table (migration 121) so it
 keeps it across restarts: a uid with a passwd or group entry, the server's own
 uid, 10002, or one already held is skipped (the passwd and group lookups run in a
@@ -94,19 +96,28 @@ a directory the uid owns is touched. The walk fails closed (MSHL-347): a directo
 uid may enter but not list (`0733` owned by another uid, where it could have hidden
 files) fails the purge; only a work dir of another instance (named as `mkdtemp` makes
 it, `meshloom-plugin-` and 8 characters of `[a-z0-9_]`, `0711`, owned by another plugin
-uid: 40000-49999 or 10002, directly under a scanned dir; MSHL-348) and a directory the
+uid: 40000-49999 or the account's uid read at runtime, directly under a scanned dir;
+MSHL-348, MSHL-349; with the account gone, only 40000-49999, so a work dir the account
+left fails the purge) and a directory the
 uid cannot enter are skipped, since it could not have written there unless another
 plugin uid opened a subdirectory to it (collusion between two plugins, out of scope).
 A `0711` directory that is none of these, even a harmless one another program left in
 `/tmp`, blocks every purge that walks past it: the uids then stay taken (fail closed)
-and the server logs the path ("not listable") at each attempt, until an administrator
-removes the directory or opens it (`chmod o+r`); startup retries the purge. After the helper, the server re-walks the same dirs
+and the server logs the path ("not listable") at each attempt and shows it in health
+(`plugins_purge_blocked`, at most 20 paths, admins only, and a banner in Settings >
+Extensions; `setuid.PurgeBlockedError`, `PluginManager.purge_blocked()`; MSHL-349),
+until an administrator removes the directory or opens it (`chmod o+r`); startup
+retries the purge and clears the entry once the uid is clean. Without `/proc` the
+helper cannot change a mode through an `O_PATH` descriptor (and
+`chmod(follow_symlinks=False)` is not implemented on Linux): removing a directory the
+uid locked then fails with "/proc is not mounted", and the uid is kept. After the helper, the server re-walks the same dirs
 (`owns_something`, which a root server can list fully) and fails if anything is left.
 The walk does not cross file systems: what the uid left on another mount under `/tmp`
 (a bind mount, a tmpfs mounted inside `/tmp`) is not purged; the uid is still freed only
 after a clean walk of each listed dir's own file system. A failed purge keeps the row, and the
 startup (`PluginManager.reap_uids`) retries orphans, purges the uids of stopped
-instances, and once purges what the shared 10002 uid of earlier releases left.
+instances, and once purges what the account's uid (shared by every instance in earlier
+releases) left.
 A root server creates the work dir and hands it to the uid (`chown`, `0700`).
 A non-root server holding only `CAP_SETUID` and `CAP_SETGID`
 (docker-entrypoint.sh under `MESHLOOM_RUN_AS_USER` keeps exactly those two,

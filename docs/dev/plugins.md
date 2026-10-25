@@ -906,7 +906,9 @@ proxy or fanout) and triggers a `health` broadcast. `statuses()` covers every
 instance of the repository cache (stored status, `disabled` when not enabled),
 with live values for the running ones. Health carries `plugins_isolation`,
 `plugins_disabled`, `plugins_disabled_source`, `plugins_paused_since`,
-`plugins_pause_unreadable` and `plugin_statuses`; an anonymous caller gets none of them.
+`plugins_pause_unreadable`, `plugins_purge_blocked` (under `setuid`: temp dirs a uid
+purge could not list, the uid kept; empty below admin) and `plugin_statuses`; an
+anonymous caller gets none of them.
 
 Who sees errors: `plugin_status` is admin-only. `health` (REST and WebSocket)
 keeps the statuses for every signed-in principal, but a principal below `admin`

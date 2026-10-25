@@ -146,13 +146,14 @@ and the OpenAPI page (`/docs`), not a table here.
   `none`, "hooks only", with a warning); `startup()` applies the file model of
   `permissions.py` under `setuid` (data dir `0711`, files `0600`, server umask
   `077`); if it fails, `lifecycle.start()` fails closed (`fail_closed()`, health
-  `plugins_disabled_source: "isolation"`). The account (uid/gid 10002) only opts into `setuid`: each instance runs under
+  `plugins_disabled_source: "isolation"`). The account (uid/gid 10002 in the image) only opts into `setuid`: each instance runs under
   its own uid from 40000-49999 (`setuid.INSTANCE_UIDS`, table `plugin_uids`,
   `PluginUidRepository`; `PluginManager` allocates at start, purges and frees it
   on delete, `reap_uids()` at startup; MSHL-339; the purge fails closed on a directory
   the uid may enter but not list, then `owns_something` re-checks; MSHL-347; it restores owner
   rwx on the uid's own dirs before removing them and skips only `0711` work dirs of other plugin
-  uids; MSHL-348). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  uids, the account's uid read from passwd at runtime; MSHL-348/349; the dirs that block a
+purge go to health `plugins_purge_blocked`, admins only). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). The child's own kernel guards
   (dropped capabilities, a seccomp filter refusing clone/fork/exec, required for
   a root child) are `meshloom_plugin/seccomp.py`. Stdlib only, so
