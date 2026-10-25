@@ -585,6 +585,38 @@ async def test_put_source_and_check_return_the_https_hosts_to_accept(api, manage
     assert checked.json()["http_hosts"] == ["api.example.com"]
 
 
+async def test_put_source_and_check_suggest_lan_devices_without_the_machine_itself(
+    api, manager, monkeypatch
+):
+    from app.routers import plugins as plugins_router
+
+    monkeypatch.setattr(
+        plugins_router, "is_self_address", lambda ip: str(ip) == "192.168.1.9", raising=True
+    )
+    created = (await api.post("/api/plugins", json={"label": "Lan"})).json()
+    iid = created["instance_id"]
+    source = (
+        "A = 'http://admin:pw@shelly.local/rpc'\n"
+        "B = 'http://192.168.1.9:5051/'\n"
+        "C = 'http://192.168.1.20:8123/api'\n"
+    )
+    expected = [
+        {"host": "shelly.local", "line": 1, "service_port": False},
+        {"host": "192.168.1.20:8123", "line": 3, "service_port": True},
+    ]
+    saved = (await api.put(f"/api/plugins/{iid}/source", json={"source": source})).json()
+    assert saved["lan_hosts"] == expected and saved["lan_hosts_truncated"] is False
+    assert "pw" not in str(saved["lan_hosts"])
+    checked = (await api.post(f"/api/plugins/{iid}/check")).json()
+    assert checked["lan_hosts"] == expected and checked["lan_hosts_truncated"] is False
+
+
+async def test_check_suggests_no_lan_device_for_a_bundled_plugin(api, manager):
+    created = await install(api, manager)
+    checked = (await api.post(f"/api/plugins/{created['instance_id']}/check")).json()
+    assert checked["lan_hosts"] == [] and checked["lan_hosts_truncated"] is False
+
+
 async def test_patch_hooks_rewrites_a_local_manifest_only(api, manager):
     local = (await api.post("/api/plugins", json={"label": "Hooks"})).json()
     url = f"/api/plugins/{local['instance_id']}"

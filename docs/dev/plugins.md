@@ -236,7 +236,8 @@ and never sits in `plugins.config`. They follow the write-only pattern of
 
 `app/plugins/attention.py` `scan_source(source)` parses a local source with `ast`
 (nothing is imported or run) and returns an `AttentionReport`: `reasons`
-(`code`, `line`, `detail`, `informative`), `http_hosts` and `truncated`. Reused by
+(`code`, `line`, `detail`, `informative`), `http_hosts` and `truncated`, plus
+`lan_hosts` and `lan_truncated` (LAN suggestions, below). Reused by
 the switch (T9) and `dev check` (T4d, "Checking a plugin"). The reasons are a review aid, not an
 exhaustive list of what the sandbox refuses.
 
@@ -270,6 +271,28 @@ are dropped). They **prefill** the `http` permission: the user still consents.
 Extraction is bounded and linear: at most `MAX_URL_SCAN_BYTES` (256 KiB) of literal
 text searched and `MAX_URL_MATCHES` (1000) URLs examined, stopping at 20 hosts;
 `truncated` is true when a bound cut the search, so more hosts may exist.
+
+`lan_hosts` (MSHL-342) are `LanHostSuggestion`s (`host`, `line`, `service_port`) from
+the `http://` and `https://` literals whose authority `check_lan_host` accepts: the
+entry as `lan_hosts` stores it (`name`, `name:port`, an IP, `[v6]:port`), lowercased,
+userinfo (`user:pass@`) dropped, the scheme's default port dropped (an entry without
+port allows only that port), deduplicated with the first line that names it. Names
+of the Meshloom machine are dropped without any lookup: `socket.gethostname()` (full
+and short, each also with `.local`), `meshloom`, `meshloom.local`, `localhost*`,
+`ip6-localhost`, `ip6-loopback`, `host.docker.internal`, `gateway.docker.internal`,
+`host.containers.internal`, `supervisor`, and `meshloom.app` names. A URL that runs to
+the end of an f-string (or t-string) part followed by a placeholder (`f"http://nas{n}"`)
+or to a byte-budget cut is skipped. `service_port` is true for 8123 (Home Assistant),
+5051 (a radio proxy) and 8000 (a Meshloom app). Own cap: `MAX_LAN_SUGGESTIONS`
+(`HTTP_MAX_LAN_HOSTS`, 10) with its own `lan_truncated`, so LAN and public literals
+never crowd each other out; the byte and URL budgets are shared, and a budget cut sets
+both flags. They are **suggestions only**: not in `to_json()` (nothing prefilled from
+a conversion), and the local editor adds one per click through `PATCH
+granted_permissions` (audited `plugin.config_changed`). The routes
+(`_lan_suggestions` in `app/routers/plugins.py`) also drop an IP literal that
+`is_self_address` reports (a bind probe; nothing is resolved or sent). The
+fetch-time egress guard stays the boundary. Store and bundled plugins get none: their
+`lan_hosts` come from the manifest and the grant only narrows them.
 
 ## Checking a plugin
 
@@ -961,9 +984,9 @@ non-admin refused by the permission gate writes no row and changes nothing.
 | `POST /plugins/install` | admin | `{kind: "bundled", plugin_id, label?, granted_permissions, config?}`. 404 `plugin_not_bundled`; 400 `consent_required` (`params.missing`: the declared permissions the grant does not cover in full); 400 `package_invalid` (the bundled package fails validation), or 400 `lan_host_supervisor` when a `lan_hosts` entry is on the Home Assistant supervisor network (add-on only; MSHL-355); 400 `config_invalid` (`params.issues`: code and field); a required field missing creates the instance **disabled**, `status: needs_attention`, `attention: {type: "config_required", fields}`, no process. Otherwise it is enabled and started; 409 `instance_cap_reached` deletes it again. The code is copied (validated like an archive, origin `bundled`) to `<data>/plugins/<plugin_id>/` once per version, shared by the instances. Other kinds (`custom`, `store`) are M2. |
 | `POST /plugins` | admin | A local plugin: `{label, hooks?, permissions?, template: "echo"\|"blank"}`; the manifest is built and validated (`origin=local`, id `local.<slug>-<hex>`), the permissions are declared and granted together, created disabled. 400 `manifest_invalid`, or 400 `lan_host_supervisor` when a `lan_hosts` entry is on the Home Assistant supervisor network (add-on only; MSHL-354). |
 | `PATCH /plugins/{id}` | admin | `enabled` starts or stops the process (409 `config_required`, 409 `instance_cap_reached`: `enabled` is put back to false); a change of `config`, `scope`, `granted_permissions`, `quotas` or `label` restarts a running instance. `config` **replaces** the plain fields and merges the secrets (omitted, null or `********` keep, `""` clears; 400 `secret_required` for a mask with no stored value), validated against the stored schema (400 `config_invalid`; unknown fields refused; `language` is always allowed). `granted_permissions` must be a subset of the manifest (400 `permission_exceeds_manifest`); `quotas` only `messages.send.per_hour|per_day`, 1 to the caps 60 and 500 (400 `quota_invalid`); `scope` is `{messages: all\|none\|{channels, contacts}}` (400 `scope_invalid`). Completing a `config_required` config clears the attention. The required fields are re-checked from the stored config on every enable and restart (409 `config_required`); clearing one on a stopped instance sets `needs_attention`/`config_required`. A `revoked` or `incompatible` instance never starts (409 `plugin_revoked`/`plugin_incompatible`); `needs_attention` for another reason (`review_permissions`, `consent_required`...) is 409 `attention_required` until the request resends `granted_permissions` (the acknowledgement). For a `local` plugin `granted_permissions` rewrites the manifest's `permissions` and `hooks` its `hooks` (both revalidated, 400 `manifest_invalid`; `hooks` on another kind is 409 `not_local`), and the instance restarts when enabled. |
-| `PUT /plugins/{id}/source` | admin | Local plugins only (409 `not_local`); 400 `source_too_large` (1 MiB), `source_syntax_error` (`params.line`); restarts when enabled. Answers the instance, the `scan_source` reasons (a review aid) and `http_hosts`, the `https://` hosts found in the code (the UI offers them as the `http` permission to accept). |
+| `PUT /plugins/{id}/source` | admin | Local plugins only (409 `not_local`); 400 `source_too_large` (1 MiB), `source_syntax_error` (`params.line`); restarts when enabled. Answers the instance, the `scan_source` reasons (a review aid) and `http_hosts`, the `https://` hosts found in the code (the UI offers them as the `http` permission to accept), plus `lan_hosts` (`{host, line, service_port}`, at most 10) and `lan_hosts_truncated`, the local-network devices found in the code that the editor suggests one by one ("Attention scan"). Nothing is resolved or sent. |
 | `POST /plugins/{id}/restart` | admin | New supervisor, failure count at zero (clears `crash_loop`). 409 when disabled or awaiting config, 409 `plugins_paused` while the global pause holds. |
-| `POST /plugins/{id}/check` | admin | `dev check` stages 1 and 2 (package validation and static scan, `check_directory(dry_run=False)`; a local plugin: manifest and scan). **Nothing is executed**: the dry run uses `isolation: none`, so it stays a developer tool; `test` is the live check. A local plugin's answer also carries `http_hosts`. |
+| `POST /plugins/{id}/check` | admin | `dev check` stages 1 and 2 (package validation and static scan, `check_directory(dry_run=False)`; a local plugin: manifest and scan). **Nothing is executed**: the dry run uses `isolation: none`, so it stays a developer tool; `test` is the live check. A local plugin's answer also carries `http_hosts`, `lan_hosts` and `lan_hosts_truncated` (empty for other kinds). |
 | `POST /plugins/{id}/test` | admin | `{text, channel?\|contact?}`: one `test: true` `event.message` through `dispatch_test` (no scope or `messages.read` filtering). The sends are captured by the host and never reach the radio send path; the answer is `{result, sends, truncated, logs}` with every string scrubbed of the instance's secrets (`last_error` and `summary` too). 409 `plugins_paused`, 409 `instance_not_running`, 404 `channel_not_found`/`contact_not_found`, 504 `test_timeout`. |
 | `GET /plugins/{id}/logs?limit=` | admin | Tail of the stderr ring (default 200, 1 to 500), lines cut at 1000 characters, scrubbed of the instance's secrets and passed through `redact_text`. Not part of `/api/debug` (asserted). |
 | `GET /plugins/{id}/diagnostic` | admin | Plugin id and version, kind, Meshloom and Python versions, isolation level, status, last error, restarts, effective permission names, the last 50 log lines. No config value. |

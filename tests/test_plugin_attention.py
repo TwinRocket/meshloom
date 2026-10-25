@@ -223,3 +223,86 @@ def test_host_extraction_is_bounded_and_fast():
     assert report.http_hosts == ["h.example.com"]
     assert report.truncated
     assert report.to_json()["truncated"] is True
+
+
+# --- LAN device suggestions (MSHL-342) --------------------------------------------
+
+
+def _lan(report) -> list[tuple[str, int, bool]]:
+    return [(s.host, s.line, s.service_port) for s in report.lan_hosts]
+
+
+def test_lan_suggestions_are_the_entries_check_lan_host_accepts(monkeypatch):
+    monkeypatch.setattr(attention.socket, "gethostname", lambda: "pi4.example.net")
+    source = textwrap.dedent(
+        """\
+        A = "http://Shelly.local:80/rpc and https://user:secret@192.168.1.20:8443/x"
+        B = "http://[fd00::1]:8080/ https://[fd00::2]:443/ http://nas http://nas:8123/"
+        C = "http://192.168.1.30:5051 http://10.0.0.5:8000/ http://printer.lan."
+        D = "http://localhost:1 http://169.254.169.254/ http://8.8.8.8 http://nas.example.com"
+        E = "http://*.local http://nas*.lan http://meshloom.local http://meshloom:8000"
+        F = "http://pi4 http://pi4.local http://pi4.example.net http://host.docker.internal"
+        G = "http://x.meshloom.app http://10.0.0.1:0800 http://ip6-localhost http://fe80::1"
+        H = "https://api.example.com http://Shelly.local/again"
+        """
+    )
+    report = scan_source(source)
+    assert _lan(report) == [
+        ("shelly.local", 1, False),
+        ("192.168.1.20:8443", 1, False),
+        ("[fd00::1]:8080", 2, False),
+        ("fd00::2", 2, False),
+        ("nas", 2, False),
+        ("nas:8123", 2, True),
+        ("192.168.1.30:5051", 3, True),
+        ("10.0.0.5:8000", 3, True),
+        ("printer.lan", 3, False),
+    ]
+    assert report.http_hosts == ["api.example.com"]
+    assert not report.lan_truncated
+    # Suggestions are never stored with the attention (nothing is prefilled from them).
+    assert "lan_hosts" not in report.to_json()
+
+
+def test_lan_suggestions_never_echo_credentials():
+    report = scan_source('U = "http://admin:hunter2@192.168.1.1/cgi"\n')
+    assert _lan(report) == [("192.168.1.1", 1, False)]
+    assert "hunter2" not in repr(report.lan_hosts) and "admin" not in repr(report.lan_hosts)
+
+
+def test_a_url_cut_by_a_placeholder_is_not_suggested():
+    source = textwrap.dedent(
+        """\
+        A = f"http://nas{n}/x"
+        B = f"http://192.168.1.4:8080/api/{path}"
+        C = "http://" + host
+        D = "http://%s:8080" % host
+        E = "http://{}/".format(host)
+        """
+    )
+    assert _lan(scan_source(source)) == [("192.168.1.4:8080", 2, False)]
+
+
+def test_lan_suggestions_have_their_own_cap_and_flag():
+    lan = " ".join(f"http://192.168.1.{i}/" for i in range(1, 15))
+    public = " ".join(f"https://h{i}.example.com/" for i in range(5))
+    report = scan_source(f"A = {lan!r}\nB = {public!r}\n")
+    assert len(report.lan_hosts) == attention.MAX_LAN_SUGGESTIONS == 10
+    assert report.lan_truncated
+    assert len(report.http_hosts) == 5 and not report.truncated
+
+    many = " ".join(f"https://h{i}.example.com/" for i in range(30))
+    report = scan_source(f"A = {many!r}\nB = 'http://nas.local'\n")
+    assert report.truncated and not report.lan_truncated
+    assert _lan(report) == [("nas.local", 2, False)]
+
+
+def test_lan_suggestions_do_no_network_io(monkeypatch):
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("no network during a scan")
+
+    monkeypatch.setattr(attention.socket, "getaddrinfo", refuse, raising=False)
+    monkeypatch.setattr(attention.socket, "gethostbyname", refuse, raising=False)
+    monkeypatch.setattr(attention.socket.socket, "connect", refuse)
+    report = scan_source('A = "http://nas.local:8080 http://192.168.1.2"\n')
+    assert [s.host for s in report.lan_hosts] == ["nas.local:8080", "192.168.1.2"]

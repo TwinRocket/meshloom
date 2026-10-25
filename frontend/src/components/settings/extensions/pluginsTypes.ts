@@ -92,10 +92,22 @@ export interface ScanReason {
   informative: boolean;
 }
 
+/** A local-network device found in a local plugin's code (MSHL-342): a suggestion only. */
+export interface LanHostSuggestion {
+  /** The `lan_hosts` entry (no credentials, no default port). */
+  host: string;
+  /** The first source line that mentions it. */
+  line: number;
+  /** A known service port (Home Assistant 8123, radio proxy 5051, Meshloom 8000). */
+  service_port: boolean;
+}
+
 export interface PluginSourceResult {
   instance: PluginInstance;
   scan: ScanReason[];
   http_hosts: string[];
+  lan_hosts?: LanHostSuggestion[];
+  lan_hosts_truncated?: boolean;
 }
 
 export interface CheckFinding {
@@ -112,6 +124,8 @@ export interface PluginCheckResult {
   errors: CheckFinding[];
   warnings: CheckFinding[];
   http_hosts: string[];
+  lan_hosts?: LanHostSuggestion[];
+  lan_hosts_truncated?: boolean;
 }
 
 export interface PluginTestRequest {

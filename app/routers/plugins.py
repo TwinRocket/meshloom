@@ -16,6 +16,7 @@ reaches the admins as a ``plugin_status`` event.
 
 import ast
 import asyncio
+import ipaddress
 import logging
 import platform
 import re
@@ -30,9 +31,10 @@ from app.auth import audit
 from app.auth.permissions import has_permission, require
 from app.auth.principal import get_principal
 from app.log_redaction import redact_text
+from app.net.egress_guard import is_self_address
 from app.plugins import bot_conversion, installer
 from app.plugins import pause as plugin_pause
-from app.plugins.attention import scan_source
+from app.plugins.attention import AttentionReport, scan_source
 from app.plugins.capabilities.grants import dropped_for_supervisor, effective_permissions
 from app.plugins.config_schema import secret_fields, validate_config_values
 from app.plugins.errors import PluginIssue, PluginValidationError
@@ -44,7 +46,11 @@ from app.plugins.host import (
     plugin_manager,
 )
 from app.plugins.manifest import parse_manifest
-from app.plugins.permissions import MESSAGES_SEND_MAX_PER_DAY, MESSAGES_SEND_MAX_PER_HOUR
+from app.plugins.permissions import (
+    MESSAGES_SEND_MAX_PER_DAY,
+    MESSAGES_SEND_MAX_PER_HOUR,
+    split_lan_host,
+)
 from app.repository.plugins import PluginRepository, PluginStoreError
 from app.secret_fields import REDACTED, scrub_error
 from app.version_info import get_app_build_info
@@ -234,11 +240,26 @@ class SourceRequest(_Body):
     source: str = Field(max_length=MAX_SOURCE_BYTES)
 
 
+class LanHostSuggestionView(BaseModel):
+    host: str = Field(description="A ``lan_hosts`` entry (no credentials, no default port).")
+    line: int = Field(description="The first source line that mentions it.")
+    service_port: bool = Field(
+        description="Its port is a known service port (Home Assistant, radio proxy, web app)."
+    )
+
+
 class SourceResult(BaseModel):
     instance: PluginInstanceView
     scan: list[dict[str, Any]]
     http_hosts: list[str] = Field(
         default_factory=list, description="``https://`` hosts found in the code (to accept)."
+    )
+    lan_hosts: list[LanHostSuggestionView] = Field(
+        default_factory=list,
+        description="Local-network devices found in the code (suggestions, at most 10).",
+    )
+    lan_hosts_truncated: bool = Field(
+        default=False, description="More devices may exist past the bounds."
     )
 
 
@@ -274,6 +295,11 @@ class CheckResult(BaseModel):
         default_factory=list,
         description="A local plugin: ``https://`` hosts found in the code, to accept.",
     )
+    lan_hosts: list[LanHostSuggestionView] = Field(
+        default_factory=list,
+        description="A local plugin: local-network devices found in the code (suggestions).",
+    )
+    lan_hosts_truncated: bool = False
 
 
 class LogsResult(BaseModel):
@@ -922,6 +948,22 @@ async def put_source(
         return await _put_source(row["instance_id"], row, body)
 
 
+def _lan_suggestions(report: AttentionReport) -> list[LanHostSuggestionView]:
+    """The scanner's LAN suggestions minus the IP literals of this machine (a bind probe,
+    nothing is sent; names were dropped by the scanner, never resolved here)."""
+    kept: list[LanHostSuggestionView] = []
+    for suggestion in report.lan_hosts:
+        host, _port = split_lan_host(suggestion.host)
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            ip = None
+        if ip is not None and is_self_address(ip):
+            continue
+        kept.append(LanHostSuggestionView(**suggestion.to_json()))
+    return kept
+
+
 async def _put_source(instance_id: str, row: dict[str, Any], body: SourceRequest) -> SourceResult:
     if row["kind"] != "local":
         raise _error(409, "not_local", "Only a local plugin has editable source")
@@ -946,7 +988,11 @@ async def _put_source(instance_id: str, row: dict[str, Any], body: SourceRequest
         for r in report.reasons
     ]
     return SourceResult(
-        instance=await _view(await _row(instance_id), True), scan=scan, http_hosts=report.http_hosts
+        instance=await _view(await _row(instance_id), True),
+        scan=scan,
+        http_hosts=report.http_hosts,
+        lan_hosts=_lan_suggestions(report),
+        lan_hosts_truncated=report.lan_truncated,
     )
 
 
@@ -978,6 +1024,8 @@ async def check_plugin(instance_id: str) -> CheckResult:
 
     row = await _row(instance_id)
     http_hosts: list[str] = []
+    lan_hosts: list[LanHostSuggestionView] = []
+    lan_truncated = False
     if row["kind"] == "local":
         report = CheckReport()
         try:
@@ -987,6 +1035,8 @@ async def check_plugin(instance_id: str) -> CheckResult:
                 report.errors.append(Finding("package", issue.code, issue.message, issue.path))
         scanned = scan_source(row["source"] or "")
         http_hosts = list(scanned.http_hosts)
+        lan_hosts = _lan_suggestions(scanned)
+        lan_truncated = scanned.lan_truncated
         for reason in scanned.reasons:
             text = reason.code if reason.detail is None else f"{reason.code}: {reason.detail}"
             report.warnings.append(
@@ -1008,6 +1058,8 @@ async def check_plugin(instance_id: str) -> CheckResult:
         errors=[CheckFinding(**f) for f in body["errors"]],
         warnings=[CheckFinding(**f) for f in body["warnings"]],
         http_hosts=http_hosts,
+        lan_hosts=lan_hosts,
+        lan_hosts_truncated=lan_truncated,
     )
 
 
