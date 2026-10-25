@@ -273,18 +273,28 @@ async def test_a_bad_entry_is_dropped_on_its_own(backup_db, api, manager):
     wrong_id = {**good, "instance_id": str(uuid.uuid4()), "plugin_id": "local.other-abcdef"}
     no_source = {**good, "instance_id": str(uuid.uuid4()), "source": None}
     bad_schema = {**good, "instance_id": str(uuid.uuid4()), "config_schema": {"type": 3}}
+    bad_python = {**good, "instance_id": str(uuid.uuid4()), "source": "def broken(:\n"}
     leaked = {
         **good,
         "instance_id": str(uuid.uuid4()),
         # A file written by hand with the mask or a secret in config: never stored.
         "config": {"city": "Lyon", "api_key": "hand-written"},
     }
-    entries = [good, good, "junk", {"plugin_id": "local.x-abcdef"}, wrong_id, no_source, bad_schema]
+    entries = [
+        good,
+        good,
+        "junk",
+        {"plugin_id": "local.x-abcdef"},
+        wrong_id,
+        no_source,
+        bad_schema,
+        bad_python,
+    ]
     warnings = await restore_sections(
         {PLUGINS_SECTION: BackupSection(data={"instances": [*entries, leaked]})}
     )
     dropped = [w for w in warnings if w.startswith("plugin_dropped:")]
-    assert len(dropped) == 6
+    assert len(dropped) == 7
     assert "plugin_dropped:invalid" in dropped
     assert "plugins_restored:2" in warnings
     restored = await PluginRepository.get_all()

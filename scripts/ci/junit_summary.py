@@ -15,13 +15,19 @@ MAX_DETAIL_CHARS = 1500
 
 def main(path: str) -> int:
     report = Path(path)
+    missing = (
+        f"**No JUnit report at `{path}`**: pytest did not finish "
+        "(crash, timeout or kill). See the job log."
+    )
     if not report.is_file():
-        print(
-            f"**No JUnit report at `{path}`**: pytest did not finish "
-            "(crash, timeout or kill). See the job log."
-        )
+        print(missing)
         return 0
-    root = ET.parse(report).getroot()
+    try:
+        root = ET.parse(report).getroot()
+    except ET.ParseError:
+        # Empty or truncated: pytest died while writing it.
+        print(f"{missing} The report exists but is empty or truncated: pytest probably crashed.")
+        return 0
     suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
     totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
     for suite in suites:

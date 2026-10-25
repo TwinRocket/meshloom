@@ -14,7 +14,10 @@
         "save": "Enregistrer les réseaux",
         "saving": "Enregistrement…",
         "saved": "Réseaux de confiance enregistrés",
-        "adminWarning": "Toute personne sur {{networks}} obtient les droits d'administrateur sans mot de passe : elle peut changer chaque réglage, compte et plugin. Préférez un compte membre, lecteur ou kiosque."
+        "adminWarning": "Toute personne sur {{networks}} obtient les droits d'administrateur sans mot de passe : elle peut changer chaque réglage, compte et plugin. Préférez un compte membre, lecteur ou kiosque.",
+        "publicOrWideWarning": "{{cidr}} est public ou aussi large que permis (une plage /8 en IPv4 ou /16 en IPv6) : tous ceux qui s'y trouvent seraient connectés sans mot de passe.",
+        "userDisabledNotice": "Le compte de {{cidr}} est désactivé : cette règle ne s'applique jamais. Choisissez un autre compte ou supprimez la règle.",
+        "userMustChangeNotice": "Le compte de {{cidr}} doit d'abord changer son mot de passe : cette règle ne s'applique pas tant qu'il ne l'a pas fait. Choisissez un autre compte ou connectez-vous une fois avec ce compte."
       },
       "securityNotice": {
         "title": "Avertissement de sécurité de l'accès",

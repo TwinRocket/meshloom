@@ -14,7 +14,10 @@
         "save": "Save networks",
         "saving": "Saving…",
         "saved": "Trusted networks saved",
-        "adminWarning": "Anyone on {{networks}} gets administrator rights without a password: they can change every setting, account and plugin. Prefer a member, viewer or kiosk account."
+        "adminWarning": "Anyone on {{networks}} gets administrator rights without a password: they can change every setting, account and plugin. Prefer a member, viewer or kiosk account.",
+        "publicOrWideWarning": "{{cidr}} is public or as wide as allowed (a /8 IPv4 or /16 IPv6 range): everyone in it would be signed in without a password.",
+        "userDisabledNotice": "The account of {{cidr}} is disabled: this rule never applies. Pick another account or remove the rule.",
+        "userMustChangeNotice": "The account of {{cidr}} must change its password first: this rule never applies until it does. Pick another account or sign in once as that account."
       },
       "securityNotice": {
         "title": "Access security notice",

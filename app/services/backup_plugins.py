@@ -29,6 +29,7 @@ A 4.18.x file, and a 5.0 file written before this section, has no ``plugins`` se
 nothing changes for them.
 """
 
+import ast
 import asyncio
 import json
 import logging
@@ -314,6 +315,10 @@ def _plan(
     if item.kind == "local":
         if item.source is None or len(item.source.encode("utf-8")) > MAX_SOURCE_BYTES:
             raise _Dropped("source")
+        try:
+            ast.parse(item.source)  # as PUT /source does: a broken body is never kept
+        except (SyntaxError, ValueError, RecursionError, MemoryError):
+            raise _Dropped("source not valid Python") from None
         source = item.source
         if any(row["plugin_id"] == plugin_id for row in rows):
             plugin_id = _new_local_id(plugin_id)

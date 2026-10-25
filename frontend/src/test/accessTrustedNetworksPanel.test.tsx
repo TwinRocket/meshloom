@@ -177,3 +177,40 @@ describe('trusted network refusals', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expected));
   });
 });
+
+describe('AccessTrustedNetworksPanel live notices', () => {
+  it('warns about a public or wide network while typing, before saving', async () => {
+    render(<AccessTrustedNetworksPanel />);
+    await addRule('192.168.1.0/24', '2');
+    expect(screen.queryByTestId('trusted-networks-wide-warning')).toBeNull();
+    const input = screen.getByLabelText(t('settings.access.trustedNetworks.cidr'));
+    fireEvent.change(input, { target: { value: '8.8.8.0/24' } });
+    expect(screen.getByTestId('trusted-networks-wide-warning')).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: '10.0.0.0/8' } });
+    expect(screen.getByTestId('trusted-networks-wide-warning')).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: '8.8.' } });
+    expect(screen.queryByTestId('trusted-networks-wide-warning')).toBeNull();
+  });
+
+  it('flags a saved rule whose account is disabled or must change its password', async () => {
+    settings.trusted_networks = [
+      { cidr: '192.168.1.0/24', user_id: 3 },
+      { cidr: '192.168.2.0/24', user_id: 4 },
+      { cidr: '192.168.3.0/24', user_id: 2 },
+    ];
+    vi.spyOn(api, 'listAuthUsers').mockResolvedValue([
+      user({ id: 2, username: 'tablet' }),
+      user({ id: 3, username: 'gone', disabled: true }),
+      user({ id: 4, username: 'fresh', must_change_password: true }),
+    ]);
+    render(<AccessTrustedNetworksPanel />);
+    const notes = await screen.findAllByTestId('trusted-networks-inactive-user');
+    expect(notes).toHaveLength(2);
+    expect(notes[0].textContent).toBe(
+      t('settings.access.trustedNetworks.userDisabledNotice', { cidr: '192.168.1.0/24' })
+    );
+    expect(notes[1].textContent).toBe(
+      t('settings.access.trustedNetworks.userMustChangeNotice', { cidr: '192.168.2.0/24' })
+    );
+  });
+});

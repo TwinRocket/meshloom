@@ -371,7 +371,9 @@ purpose.
   (`settings.access.audit.*`), trusted networks and the Access security notice in slice
   `bc` (`settings.access.trustedNetworks.*`, `settings.access.securityNotice.*`,
   `errors.auth_trusted_*`). `AccessTrustedNetworksPanel` edits the rules (a strong
-  warning when one maps to an administrator); the notice banner at the top of the
+  warning when one maps to an administrator, a live warning under a rule typed as a public or
+  /8-or-wider network via `lib/cidr.ts`, mirror of the server's `public_or_wide`, and a notice
+  on a rule whose account is disabled or must change its password); the notice banner at the top of the
   section shows the server's `security_notices` and nothing else. `AccessPairingPanel` (admin only; `api.createAuthPairing`/`listAuthPairings`/`revokeAuthPairing`, slice `bv`, `settings.access.pairing.*`) opens a dialog that creates a pairing code and draws its `qr_payload` with `PairingQr.tsx` (the only `qrcode.react` importer on that path, `lazy()`), with a countdown built from `expires_at - created_at` on the local clock (never the server's) that hides the QR at zero; the code exists only in that dialog, the list holds none; closing revokes a pending code (and one whose creation answers after the close), expiry or use (the dialog polls the pending list every 5 s, or a 404 on cancel) drops the code and QR text from state. Test: `src/test/accessPairingPanel.test.tsx`. `AccessTokensPanel` (`api.createAuthToken`/`listAuthTokens`/`revokeAuthToken`) is for `member` and `admin` only (`TOKEN_ROLES`), offers the role's own scopes (`tokenScopesForRole`), shows the secret once in a dialog that Escape and outside clicks cannot close, and under ingress adds a notice that tokens are refused there. Tests: `src/test/accessTokensPanel.test.tsx`, `src/test/settingsAccessSection.test.tsx`,
   `src/test/accessAuditPanel.test.tsx`, `src/test/accessTrustedNetworksPanel.test.tsx`. Add a settings section
   to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool

@@ -9,6 +9,7 @@ import type {
   AuthUserRow,
   TrustedNetworkRule,
 } from '../../auth/types';
+import { isPublicOrWideCidr } from '../../lib/cidr';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -98,6 +99,16 @@ export function AccessTrustedNetworksPanel({
     (rule) => rule.userId !== null && userById.get(rule.userId)?.role === 'admin'
   );
 
+  // A rule whose account was disabled or must change its password never applies.
+  const inactiveReason = (
+    rule: DraftRule
+  ): 'userDisabledNotice' | 'userMustChangeNotice' | null => {
+    const account = rule.userId === null ? undefined : userById.get(rule.userId);
+    if (!account) return null;
+    if (account.disabled) return 'userDisabledNotice';
+    return account.must_change_password ? 'userMustChangeNotice' : null;
+  };
+
   const update = (index: number, patch: Partial<DraftRule>) =>
     setDraft((rules) => rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
 
@@ -138,40 +149,69 @@ export function AccessTrustedNetworksPanel({
         </p>
       )}
       <ul className="space-y-2">
-        {draft.map((rule, index) => (
-          <li key={index} className="flex flex-wrap items-center gap-2">
-            <Input
-              aria-label={t('settings.access.trustedNetworks.cidr')}
-              value={rule.cidr}
-              placeholder="192.168.1.0/24"
-              spellCheck={false}
-              className={cn('w-48 font-mono')}
-              onChange={(event) => update(index, { cidr: event.target.value })}
-            />
-            <select
-              aria-label={t('settings.access.trustedNetworks.user')}
-              className={SELECT_CLASS}
-              value={rule.userId ?? ''}
-              onChange={(event) =>
-                update(index, { userId: event.target.value ? Number(event.target.value) : null })
-              }
-            >
-              <option value="">{t('settings.access.trustedNetworks.pickUser')}</option>
-              {enabledUsers.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.display_name || user.username} ({t(`auth.role.${user.role}`)})
-                </option>
-              ))}
-            </select>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDraft((rules) => rules.filter((_, i) => i !== index))}
-            >
-              {t('settings.access.trustedNetworks.remove')}
-            </Button>
-          </li>
-        ))}
+        {draft.map((rule, index) => {
+          const reason = inactiveReason(rule);
+          const cidr = rule.cidr.trim();
+          return (
+            <li key={index} className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  aria-label={t('settings.access.trustedNetworks.cidr')}
+                  value={rule.cidr}
+                  placeholder="192.168.1.0/24"
+                  spellCheck={false}
+                  className={cn('w-48 font-mono')}
+                  onChange={(event) => update(index, { cidr: event.target.value })}
+                />
+                <select
+                  aria-label={t('settings.access.trustedNetworks.user')}
+                  className={SELECT_CLASS}
+                  value={rule.userId ?? ''}
+                  onChange={(event) =>
+                    update(index, {
+                      userId: event.target.value ? Number(event.target.value) : null,
+                    })
+                  }
+                >
+                  <option value="">{t('settings.access.trustedNetworks.pickUser')}</option>
+                  {rule.userId !== null && userById.get(rule.userId)?.disabled && (
+                    <option value={rule.userId}>{userById.get(rule.userId)!.username}</option>
+                  )}
+                  {enabledUsers.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.display_name || user.username} ({t(`auth.role.${user.role}`)})
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDraft((rules) => rules.filter((_, i) => i !== index))}
+                >
+                  {t('settings.access.trustedNetworks.remove')}
+                </Button>
+              </div>
+              {isPublicOrWideCidr(cidr) && (
+                <p
+                  role="note"
+                  data-testid="trusted-networks-wide-warning"
+                  className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-[0.8125rem]"
+                >
+                  {t('settings.access.trustedNetworks.publicOrWideWarning', { cidr })}
+                </p>
+              )}
+              {reason && (
+                <p
+                  role="note"
+                  data-testid="trusted-networks-inactive-user"
+                  className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-[0.8125rem]"
+                >
+                  {t(`settings.access.trustedNetworks.${reason}`, { cidr })}
+                </p>
+              )}
+            </li>
+          );
+        })}
       </ul>
       {admins.length > 0 && (
         <p

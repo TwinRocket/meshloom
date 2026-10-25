@@ -363,7 +363,7 @@ by `services/backup.py`.
   is kept as it is (`plugin_kept:<id>`); an `instance_id` already used by
   another plugin, or one that is not a uuid, gets a new uuid; a local
   `plugin_id` already used gets a new `-xxxxxx` suffix. A bad entry (invalid
-  shape, manifest, schema, missing source, oversized JSON, duplicate) is dropped
+  shape, manifest, schema, missing source, source that is not valid Python, oversized JSON, duplicate) is dropped
   on its own: `plugin_dropped:<id or "invalid">`. Counters:
   `plugins_restored:<n>`, `plugins_to_reinstall:<n>`,
   `plugin_secrets_missing:<n>`.
