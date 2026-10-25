@@ -61,3 +61,32 @@ async def test_the_three_parts_are_joined_and_an_incomplete_channel_is_disabled(
         assert "webhook" in json.loads(rows["new"][1]) and rows["new"][2] == 1
     finally:
         await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_a_channel_with_the_secret_part_missing_is_disabled_and_pending(tmp_path):
+    path = tmp_path / "b.db"
+    database = Database(str(path))
+    await database.connect()
+    await database.disconnect()
+    conn = await aiosqlite.connect(path)
+    try:
+        await _insert(conn, "nosecret", {"token_a": "TDUMMY1", "token_b": "BDUMMY2"}, {})
+        await set_version(conn, 123)
+        await conn.commit()
+        assert await run_migrations(conn) == LATEST_SCHEMA_VERSION - 123
+        config, secrets, enabled = await (
+            await conn.execute(
+                "SELECT config, secrets, enabled FROM notification_channels WHERE id = 'nosecret'"
+            )
+        ).fetchone()
+        assert json.loads(config) == {} and json.loads(secrets) == {}
+        assert enabled == 0
+        pending = await (
+            await conn.execute(
+                "SELECT value FROM notification_state WHERE key = 'secret_pending:nosecret'"
+            )
+        ).fetchone()
+        assert json.loads(pending[0]) == ["webhook"]
+    finally:
+        await conn.close()
