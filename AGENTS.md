@@ -143,6 +143,9 @@ same checks in check mode, so an unformatted file passes locally and fails in CI
 if you do not commit the autofix. Prettier checks every file under
 `frontend/src/`, Markdown included.
 
+`dbus-fast` is a runtime dependency on Linux only, but the dev group installs it
+on every platform so pyright resolves the BlueZ imports on macOS too.
+
 Backend lint is a plain `uv run ruff check` over the whole repo (so `scripts/`
 is linted too); the format check covers `app/ meshloom_plugin/ tests/ scripts/`
 (not Markdown, which `ruff format` would also rewrite). The backend CI job runs
