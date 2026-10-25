@@ -44,7 +44,7 @@ A plugin never opens a connection itself. When it says it **contacts `api.exampl
 
 Servers under `meshloom.app` are reserved to Meshloom's own plugins. Meshloom's log shows each request with its address, but never the part after `?`, where API keys usually sit.
 
-Plugins that **may talk to a device on your network** (a home automation box, a printer) will come later: you will then accept each device by name. Until then a plugin cannot reach your local network at all.
+A plugin may also ask to **talk to a device on your network** (a home automation box, a printer). The consent then lists each device by name (`hue-bridge.local`, `192.168.1.20:8080`...). Meshloom reaches only those devices, on the listed port, possibly without encryption (`http://`); the name must lead to an address of your local network every time it is looked up, a redirect may only go to another listed device or server, and every other rule above still applies. Only accept a device you know: the plugin can then talk to it as freely as you can.
 
 Combined with reading private channels or direct messages, this permission lets a plugin send them to the servers it lists: only allow both for a plugin you trust.
 

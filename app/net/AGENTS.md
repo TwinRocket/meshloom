@@ -125,6 +125,16 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
     hop-by-hop `Connection`, `Keep-Alive`, `Proxy-Authorization`,
     `Proxy-Connection`, `TE`, `Trailer`, `Upgrade`) never reach the transport;
     `header_filter(name, value)` may drop more, never restore one.
+- `lan_hosts=HostAllowlist` (on `validate_destination` and
+  `follow_checked_redirects`; the plugin `http` capability's declared LAN
+  devices, MSHL-282): a host in that list may use `http` or `https` whatever
+  `schemes` says, and every resolved address must pass `check_lan_addresses`
+  (`is_lan_address`: `10/8`, `172.16/12`, `192.168/16`, `fc00::/7`, tested as
+  written, so mapped and transition forms are not LAN; never a metadata
+  address). Anything else raises `egress_lan_address`, metadata and
+  documentation `egress_private_address`. A host in neither list raises
+  `egress_host_not_allowed` before the scheme check and the lookup. Without
+  `lan_hosts` nothing changes.
 - The existing consumers below keep `validate_destination` plus
   `pinned_async_client` and never follow redirects; they did not change.
 
@@ -175,7 +185,7 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   exact release-asset redirect hosts `objects.githubusercontent.com` and
   `release-assets.githubusercontent.com`, both listed, HTTPS only
   (`schemes=frozenset({"https"})`); later `store.meshloom.app`) and the plugin `http` capability (the
-  plugin's declared hosts, 10 s, 1 MB response, 256 KB body, redirects
+  plugin's declared hosts, plus its declared `lan_hosts`, 10 s, 1 MB response, 256 KB body, redirects
   re-validated to a declared host) both send through
   `follow_checked_redirects` with a `HostAllowlist`.
   New consumers call

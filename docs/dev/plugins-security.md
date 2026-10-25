@@ -229,6 +229,35 @@ frame.
   not readable through `open`; without OS isolation, the bypasses above still
   reach them.
 
+## LAN hosts (`http.lan_hosts`, MSHL-282)
+
+The `http` capability reaches a device on the user's network only through
+`lan_hosts`, each entry named in the consent. What holds, all in
+`app/net/egress_guard.py` (`validate_destination(..., lan_hosts=...)`) and
+covered by `tests/test_egress_guard_lan_hosts.py` and `tests/test_plugin_http_lan.py`:
+
+- Exact entries only: no wildcard, no range, no `localhost`/`*.localhost`, no
+  metadata name, no IP literal outside `10/8`, `172.16/12`, `192.168/16`,
+  `fc00::/7` (manifest validation and `HostAllowlist`, port included).
+- DNS rebinding: every address a `lan_hosts` name resolves to must be in those
+  ranges, tested as written (`is_lan_address`): loopback, link-local, CGNAT,
+  metadata, documentation, IPv4-mapped/NAT64/6to4 forms and public addresses
+  are refused (`egress_lan_address`, metadata and documentation as
+  `egress_private_address`). The connection is pinned to the checked address.
+- Redirects: every hop is checked again against `hosts` and `lan_hosts`; a hop
+  to an undeclared LAN device, or to plain HTTP outside `lan_hosts`, is
+  refused before any lookup.
+- `hosts` stays public-only; an entry cannot be in both lists.
+
+Residual risks, accepted:
+
+- Plain HTTP to a declared device: anyone on the LAN can read or alter it.
+- A user can accept the Meshloom host's own LAN address. The radio proxy listens
+  on `0.0.0.0` without authentication (port 5051), so such a plugin can reach it
+  and bypass its send budgets. The consent names the device; the user decides.
+- CGNAT (Tailscale) and link-local addresses are not accepted, and a device with a
+  self-signed certificate fails over `https`.
+
 ## Tests
 
 What runs, and where:
