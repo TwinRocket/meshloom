@@ -620,7 +620,7 @@ def test_launcher_restarts_chromium_on_rotation_through_sg(tmp_path):
             f'chmod u-r "{token_file}"\n'
             "exit $rc\n"
         ),
-        "sleep": "#!/bin/sh\nexec /bin/sleep 0.1\n",
+        "sleep": f'#!/bin/sh\nprintf "%s\\n" "$1" >>"{log}.sleep"\nexec /bin/sleep 0.1\n',
     }
     for name, body in tools.items():
         (bin_dir / name).write_text(body)
@@ -646,6 +646,18 @@ def test_launcher_restarts_chromium_on_rotation_through_sg(tmp_path):
         assert len(_wait_for_lines(Path(f"{log}.browser"), 1)) == 1
         time.sleep(0.5)  # a few unchanged polls: no restart
         assert len(Path(f"{log}.browser").read_text().splitlines()) == 1
+        # MSHL-315: through sg the launcher checks every 6th tick only.
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            ticks = Path(f"{log}.sleep").read_text().splitlines().count("10")
+            if ticks >= 12:
+                break
+            time.sleep(0.1)
+        sg_calls = len(Path(f"{log}.sg").read_text().splitlines())
+        assert ticks >= 12
+        # One sg for the bootstrap token plus one for the first stamp, then at
+        # most ticks // 6 (+1 for a poll racing this read).
+        assert sg_calls <= 2 + ticks // 6 + 1, (sg_calls, ticks)
         _write_token(token_file, second)
         browsers = _wait_for_lines(Path(f"{log}.browser"), 2)
     finally:
