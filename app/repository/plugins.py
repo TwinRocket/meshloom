@@ -594,14 +594,26 @@ class PluginUidRepository:
 
     @staticmethod
     async def allocate(
-        instance_id: str, candidates: Iterable[int], is_free: Callable[[int], bool]
+        instance_id: str,
+        candidates: Iterable[int],
+        is_free: Callable[[int], bool],
+        *,
+        release: Callable[[int], None] | None = None,
     ) -> int:
-        """The instance's uid: the stored one, else the lowest free candidate no row
-        holds. Raises ``PluginUidError`` when none is left.
+        """The instance's uid: the stored one, else the first free candidate no row
+        holds, in the order of ``candidates`` (under ``setuid`` it starts at an
+        offset derived from the install id). Raises ``PluginUidError`` when none
+        is left.
 
         ``is_free`` may block (``getpwuid`` asks NSS, maybe LDAP): it runs in a
         thread, outside the write transaction. The pick is then inserted only if
-        no row took it meanwhile; otherwise the search goes on past it."""
+        no row took it meanwhile; otherwise the search goes on past it.
+
+        ``is_free`` may also take something for the pick (its host-wide lease,
+        MSHL-357). When the race is lost because a concurrent call stored another
+        uid for this instance, ``release`` gives the pick back, inside the write
+        transaction so no other allocation can insert it in between (MSHL-359).
+        A pick another instance stored keeps what was taken: it is that row's now."""
         stored = await PluginUidRepository.get(instance_id)
         if stored is not None:
             return stored
@@ -617,12 +629,14 @@ class PluginUidRepository:
                     "SELECT uid FROM plugin_uids WHERE instance_id = ?", (instance_id,)
                 ) as cursor:
                     row = await cursor.fetchone()
-                if row is not None:
-                    return int(row[0])
                 async with conn.execute(
                     "SELECT 1 FROM plugin_uids WHERE uid = ?", (uid,)
                 ) as cursor:
                     held = await cursor.fetchone() is not None
+                if row is not None:
+                    if release is not None and not held:
+                        await asyncio.to_thread(release, uid)
+                    return int(row[0])
                 if not held:
                     await conn.execute(
                         "INSERT INTO plugin_uids (instance_id, uid, allocated_at) VALUES (?, ?, ?)",

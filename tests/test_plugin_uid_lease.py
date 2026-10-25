@@ -5,6 +5,7 @@ live in the shared temp dirs (here tmp dirs standing in for them), so another
 install never takes, nor purges, a uid this one holds. No uid switch is needed.
 """
 
+import errno
 import os
 from pathlib import Path
 
@@ -90,6 +91,45 @@ def test_a_lease_taken_in_one_domain_only_is_refused_and_rolled_back(domains):
         a.acquire(40000)
     assert not (domains[0] / LEASE_DIR_NAME / "40000").exists()
     assert (domains[1] / LEASE_DIR_NAME / "40000").read_text().strip() == B
+
+
+def _no_space(monkeypatch, *names: str) -> None:
+    """Writing a lease (all of them, or only `names`) fails with ENOSPC, as when a
+    plugin filled the shared tmpfs."""
+    create = UidLeases._create
+
+    def full(self, dir_fd, name):
+        if not names or name in names:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        return create(self, dir_fd, name)
+
+    monkeypatch.setattr(UidLeases, "_create", full)
+
+
+def test_a_lease_that_cannot_be_written_fails_closed(domains, monkeypatch):
+    """MSHL-359: ENOSPC (or EACCES...) on a lease is a `UidLeaseError`, never a bare
+    `OSError`; the leases already written for that uid are rolled back."""
+    a = _leases(A, domains)
+    create = UidLeases._create
+    calls = 0
+
+    def second_domain_full(self, dir_fd, name):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        return create(self, dir_fd, name)
+
+    monkeypatch.setattr(UidLeases, "_create", second_domain_full)
+    with pytest.raises(UidLeaseError) as exc:
+        a.acquire(40000)
+    assert not isinstance(exc.value, UidLeaseTaken)
+    assert str(domains[1] / LEASE_DIR_NAME / "40000") in exc.value.paths
+    for domain in domains:
+        assert not (domain / LEASE_DIR_NAME / "40000").exists()
+    monkeypatch.setattr(UidLeases, "_create", create)
+    a.acquire(40000)  # space back: taken
+    assert (domains[1] / LEASE_DIR_NAME / "40000").read_text().strip() == A
 
 
 def test_release_frees_the_uid_for_another_install(domains):
@@ -287,3 +327,72 @@ async def test_startup_takes_back_the_leases_of_kept_uids(test_db, leasing_setui
     )
     with pytest.raises(UidLeaseTaken):
         other.claim_uid(40000)
+
+
+async def test_a_full_temp_dir_refuses_the_start_cleanly(
+    test_db, leasing_setuid, monkeypatch, tmp_path
+):
+    """MSHL-359: ENOSPC on the lease makes the start fail with a host error (no
+    bare `OSError`), and no uid row is left behind."""
+    _no_space(monkeypatch)
+    manager = PluginManager(plugins_root=tmp_path / "plugins")
+    a = await _instance("a")
+    with pytest.raises(PluginHostError) as exc:
+        await manager._instance_backend(a)
+    assert exc.value.code == "uid_leased"
+    assert await PluginUidRepository.all() == {}
+
+
+async def test_startup_goes_on_past_a_lease_it_cannot_write(
+    test_db, leasing_setuid, monkeypatch, tmp_path
+):
+    """MSHL-359: one kept uid whose lease cannot be written (ENOSPC) is blocked and
+    named in health; the other uids are still leased and checked."""
+    mine, other = leasing_setuid
+    manager = PluginManager(plugins_root=tmp_path / "plugins")
+    a, b = await _instance("a"), await _instance("b")
+    assert (await manager._instance_backend(a)).uid == 40000
+    assert (await manager._instance_backend(b)).uid == 40001
+    mine.leases.close()
+    for domain in (tmp_path / "tmp", tmp_path / "shm"):
+        for name in ("40000", "40001"):
+            (domain / LEASE_DIR_NAME / name).unlink()
+    _no_space(monkeypatch, "40000")
+    await manager.reap_uids()
+    assert str(tmp_path / "tmp" / LEASE_DIR_NAME / "40000") in manager.purge_blocked()
+    assert (tmp_path / "tmp" / LEASE_DIR_NAME / "40001").read_text().strip() == (
+        mine.leases.install_id
+    )
+    with pytest.raises(UidLeaseTaken):
+        other.claim_uid(40001)
+
+
+async def test_a_pick_lost_to_the_same_instance_gives_its_lease_back(
+    test_db, leasing_setuid, monkeypatch, tmp_path
+):
+    """MSHL-359: two concurrent first starts of one instance: the lease of the pick
+    that lost the race is removed, so no other install is kept from that uid."""
+    import asyncio
+
+    mine, other = leasing_setuid
+    manager = PluginManager(plugins_root=tmp_path / "plugins")
+    a = await _instance("a")
+    loop = asyncio.get_running_loop()
+    available = SetuidBackend.uid_available
+    raced = False
+
+    def racing(self, uid):
+        nonlocal raced
+        free = available(self, uid)  # takes the lease of 40000
+        if not raced:
+            raced = True
+            asyncio.run_coroutine_threadsafe(
+                PluginUidRepository.allocate(a, [40003], lambda _uid: True), loop
+            ).result(timeout=10)
+        return free
+
+    monkeypatch.setattr(SetuidBackend, "uid_available", racing)
+    assert (await manager._instance_backend(a)).uid == 40003
+    for domain in (tmp_path / "tmp", tmp_path / "shm"):
+        assert not (domain / LEASE_DIR_NAME / "40000").exists()
+    other.claim_uid(40000)  # free for the other install

@@ -826,10 +826,24 @@ def test_purge_fails_when_the_server_still_sees_something(monkeypatch) -> None:
     assert seen == [(40010, [Path("/nowhere")]), (40010, None)]
 
 
-# The top of the uid range, shared out between the xdist workers; tests that need a
-# plugin uid outside every worker's block take it below (`_uid_outside_the_blocks`).
-_WORKER_UIDS = 200
-_MIN_BLOCK = 10
+# The top of the uid range, shared out between the xdist workers in blocks of
+# `_BLOCK` (worker gwN: the N-th block from the top); tests that need a plugin uid
+# outside every worker's block take it below them (`_uid_outside_the_blocks`). The
+# blocks may cover at most the top half of `INSTANCE_UIDS` (500 workers).
+_BLOCK = 10
+
+
+def _worker_count() -> int:
+    from app.plugins.isolation.setuid import INSTANCE_UIDS
+
+    workers = max(int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1")), 1)
+    if workers * _BLOCK > len(INSTANCE_UIDS) // 2:
+        pytest.fail(
+            f"{workers} xdist workers: at most {len(INSTANCE_UIDS) // 2 // _BLOCK} get a"
+            f" block of {_BLOCK} test uids without overlapping (use fewer, `-n`)",
+            pytrace=False,
+        )
+    return workers
 
 
 def _free_instance_uids(count: int) -> list[int]:
@@ -837,20 +851,15 @@ def _free_instance_uids(count: int) -> list[int]:
 
     # MSHL-356: pytest-xdist runs these tests in parallel workers of one container, and
     # a purge removes every System V object and file the uid owns, so two workers
-    # sharing a uid destroy each other's fixtures. Each worker gets its own block
-    # (MSHL-358: sized from the worker count, never wrapped around onto another's).
-    workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
-    size = _WORKER_UIDS // max(workers, 1)
-    if size < _MIN_BLOCK:
-        pytest.fail(
-            f"{workers} xdist workers: at most {_WORKER_UIDS // _MIN_BLOCK} share the"
-            f" {_WORKER_UIDS} test uids without overlapping (use fewer, `-n`)",
-            pytrace=False,
-        )
+    # sharing a uid destroy each other's fixtures. Each worker gets its own block,
+    # never wrapped around onto another's (MSHL-358), whatever the worker count
+    # (MSHL-359: fixed-size blocks, so `-n auto` works on any number of cores).
+    workers = _worker_count()
     number = os.environ.get("PYTEST_XDIST_WORKER", "gw0").removeprefix("gw")
     worker = int(number) if number.isdigit() else 0
     assert worker < workers, f"worker gw{worker} out of {workers}"
-    pool = INSTANCE_UIDS[-_WORKER_UIDS:][size * worker :][:size]
+    top = len(INSTANCE_UIDS) - _BLOCK * worker
+    pool = INSTANCE_UIDS[top - _BLOCK : top]
     found = [uid for uid in pool if uid_is_free(uid)][:count]
     assert len(found) == count
     return found
@@ -860,8 +869,29 @@ def _uid_outside_the_blocks(*, avoid: int) -> int:
     """A free plugin uid no worker's block holds (`_free_instance_uids`)."""
     from app.plugins.isolation.setuid import INSTANCE_UIDS, uid_is_free
 
-    below = INSTANCE_UIDS[:-_WORKER_UIDS]
+    below = INSTANCE_UIDS[: len(INSTANCE_UIDS) - _BLOCK * _worker_count()]
     return next(u for u in reversed(below) if u != avoid and uid_is_free(u))
+
+
+def test_worker_uid_blocks_never_overlap(monkeypatch) -> None:
+    """MSHL-359: any worker count up to the cap gets disjoint blocks, all above the
+    uids `_uid_outside_the_blocks` picks from."""
+    from app.plugins.isolation import setuid as setuid_mod
+
+    monkeypatch.setattr(setuid_mod, "uid_is_free", lambda uid: True)
+    for workers in (1, 2, 21, 64, 500):
+        monkeypatch.setenv("PYTEST_XDIST_WORKER_COUNT", str(workers))
+        seen: set[int] = set()
+        for worker in {0, min(1, workers - 1), workers // 2, workers - 1}:
+            monkeypatch.setenv("PYTEST_XDIST_WORKER", f"gw{worker}")
+            block = set(_free_instance_uids(2))
+            assert len(block) == 2 and not block & seen
+            seen |= block
+        outside = _uid_outside_the_blocks(avoid=-1)
+        assert outside < min(seen)
+    monkeypatch.setenv("PYTEST_XDIST_WORKER_COUNT", "501")
+    with pytest.raises(pytest.fail.Exception, match="at most 500"):
+        _free_instance_uids(1)
 
 
 @pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")

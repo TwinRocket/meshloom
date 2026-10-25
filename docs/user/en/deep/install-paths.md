@@ -98,6 +98,13 @@ Plugins run in the container under user numbers 40000 to 49999 (see [Plugins](/e
 
 Several Meshloom containers on one host share these numbers too. Each Meshloom notes the numbers it uses in a `.meshloom-plugin-uids` folder of its temporary folders (`/tmp`, `/var/tmp`, `/dev/shm`) and never takes, nor cleans, a number another one noted there, so two copies that share `/tmp` or the IPC namespace (`--ipc=host`) stay apart. Copies that share nothing still start at different numbers. If you remove a Meshloom for good while its temporary folders stay (no reboot), its numbers stay taken until you delete its notes in `/tmp/.meshloom-plugin-uids`; Settings → Extensions says so when a number is blocked this way.
 
+A few cases to know when running several Meshloom on one host:
+
+- **A copied data folder.** The data folder holds a `plugin-install-id` file that tells this Meshloom apart from the others. A raw copy of the folder (to run a second Meshloom) carries it: delete `plugin-install-id` in the copy before starting it, and it gets a new one. If a plugin of the copy is then refused because the original holds its number, Settings → Extensions names the note: delete it if the original is gone, or uninstall and reinstall that plugin on the copy.
+- **Shared processes, separate temporary folders.** With `--pid=host` but separate `/tmp`, the two Meshloom cannot see each other's notes. They rarely pick the same number, but if they do, a plugin of one could stop the other's plugin processes. Share `/tmp` too, or do not share the process namespace.
+- **One Meshloom as root and one with `MESHLOOM_RUN_AS_USER` sharing `/tmp`.** The notes folder belongs to the one that started first; the other refuses to run plugins under their own accounts, for safety. Give them separate temporary folders.
+- **A full temporary folder.** If a note cannot be written (for example a plugin filled `/dev/shm`), the plugin does not start and Meshloom says why in its log; the others keep running.
+
 A Compose file written by hand cannot be updated from the interface. The installer's Docker mode adds a small helper that runs as root on the host: it pins the image by its signed digest in `.env` and installs updates when you ask in **Settings → Updates**. It never edits `docker-compose.yml`. Docker Desktop and rootless Docker get no helper: the stack follows `:latest`.
 
 ## Portainer
