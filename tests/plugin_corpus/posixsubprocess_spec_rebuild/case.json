@@ -1,5 +1,5 @@
 {
-  "description": "Rebuild _posixsubprocess from its spec through the import machinery kept in sys.modules (module_from_spec emits no import event), then run a program with its fork_exec. The hook cannot see it; RLIMIT_NPROC 0 makes the fork fail with EAGAIN at every level, unless the child runs as root.",
+  "description": "Rebuild _posixsubprocess from its spec through the import machinery kept in sys.modules (module_from_spec emits no import event), then run a program with its fork_exec. The hook cannot see it; on Linux the runner's seccomp filter makes the fork fail with EPERM at every level, root included (MSHL-323), and RLIMIT_NPROC 0 backs it for a non-root child.",
   "events": [
     {
       "params": {},
@@ -7,7 +7,7 @@
         "check": "spawn_refused"
       },
       "open_path": {
-        "note": "where RLIMIT_NPROC does not hold (a child running as root, or not Linux): the spec rebuild runs a program at none and bwrap; under bwrap the program is checked to stay in the box (MSHL-289)",
+        "note": "where no kernel guard holds (not Linux): the spec rebuild runs a program at none and bwrap; under bwrap the program is checked to stay in the box (MSHL-289)",
         "nproc_bypass": true,
         "closed_by": [
           "bwrap"

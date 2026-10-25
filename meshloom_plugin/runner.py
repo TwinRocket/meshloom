@@ -11,7 +11,9 @@ the bootstrap sets `sys.path = [app_root] + stdlib` and runs this module as
    stream.
 3. Scrub `os.environ`, set hard rlimits (`RLIMIT_NPROC` 0 on Linux: no thread,
    no process), a small thread stack size and `PR_SET_NO_NEW_PRIVS` and
-   `PR_SET_DUMPABLE` 0 (Linux), then import `asyncio`: it loads `socket`,
+   `PR_SET_DUMPABLE` 0 (Linux), drop inherited capabilities and install a
+   seccomp filter refusing clone/fork/exec (Linux, `meshloom_plugin.seccomp`:
+   the guard that also binds a root child), then import `asyncio`: it loads `socket`,
    `ssl` and `subprocess` at module level, which is why it comes before the
    purge rather than after it.
 4. Install the audit hook (`_HOOK_SOURCE`): no reachable mutable state. Then
@@ -212,7 +214,8 @@ def _apply_limits(params: dict[str, Any]) -> None:
         # the uid's task count reaches the limit, and with 0 it always has. This is
         # what closes the paths the hook cannot see (a `_posixsubprocess` rebuilt
         # from its spec, a thread on 3.11, native code). The runner itself needs
-        # neither. Root ignores RLIMIT_NPROC (docs/dev/plugins-security.md).
+        # neither. Root ignores RLIMIT_NPROC: the seccomp filter below covers it
+        # (docs/dev/plugins-security.md).
         wanted.append((resource.RLIMIT_NPROC, 0))
     for which, value in wanted:
         _soft, hard = resource.getrlimit(which)
@@ -243,6 +246,16 @@ def _apply_limits(params: dict[str, Any]) -> None:
         # read-write and take over this child's RPC channel.
         if prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
             raise RunnerStartError("limits_failed", f"PR_SET_DUMPABLE: errno {ctypes.get_errno()}")
+        # Capabilities inherited from a non-root server (MESHLOOM_RUN_AS_USER keeps
+        # CAP_SETUID/CAP_SETGID/CAP_KILL ambient) go, and a seccomp filter refuses clone,
+        # fork and exec: the guard that holds for a root child, which RLIMIT_NPROC
+        # does not bind (MSHL-323). Fatal where nothing else would hold.
+        from meshloom_plugin import seccomp
+
+        try:
+            seccomp.apply(prctl, required=os.geteuid() == 0)
+        except (seccomp.SeccompError, OSError) as exc:
+            raise RunnerStartError("limits_failed", str(exc)) from None
 
 
 # --- stage 4: the audit hook ----------------------------------------------------

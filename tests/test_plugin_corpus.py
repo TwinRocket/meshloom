@@ -205,11 +205,11 @@ def _open_path_applies(open_path: dict[str, Any] | None, level: str) -> bool:
 
 
 def _nproc_bypassed(level: str) -> bool:
-    """Where the runner's RLIMIT_NPROC 0 does not hold: not set (not Linux), or
-    ignored by a child running as root (none or bwrap started by root)."""
-    if not sys.platform.startswith("linux"):
-        return True
-    return os.geteuid() == 0 and level != "setuid"
+    """Where neither kernel guard of the runner holds: off Linux (no RLIMIT_NPROC
+    0, no seccomp filter). A child running as root ignores RLIMIT_NPROC, but the
+    seccomp filter refuses clone/fork/exec at every level there (MSHL-323)."""
+    del level
+    return not sys.platform.startswith("linux")
 
 
 def _refused_by_the_sandbox(response: dict[str, Any]) -> bool:
@@ -220,14 +220,16 @@ def _refused_by_the_sandbox(response: dict[str, Any]) -> bool:
 
 
 def _check_spawn_refused(response: dict[str, Any], _marker: os.stat_result) -> None:
-    """The hook refused the rebuild, or the fork failed: RLIMIT_NPROC is 0."""
+    """The hook refused the rebuild, or the fork failed: the seccomp filter answers
+    EPERM, RLIMIT_NPROC 0 EAGAIN (where no filter is installed)."""
     if _refused_by_the_sandbox(response):
         return
-    assert response.get("result") == {"refused": errno.EAGAIN}, response
+    assert response.get("result") in ({"refused": errno.EPERM}, {"refused": errno.EAGAIN}), response
 
 
 def _check_thread_refused(response: dict[str, Any], _marker: os.stat_result) -> None:
-    """The hook refused the start (3.12+), or the clone failed: RLIMIT_NPROC is 0."""
+    """The hook refused the start (3.12+), or the clone failed (seccomp filter, or
+    RLIMIT_NPROC 0)."""
     if _refused_by_the_sandbox(response):
         return
     error = _error(response)
