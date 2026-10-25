@@ -1241,7 +1241,7 @@ a false value (`services/legacy_env_settings.py`).
 
 ## Known non-issues
 
-- `meshcore` 2.3.15 `confirm_factory_reset()` sends `0x33` without the `reset`
+- `meshcore` 2.3.17 `confirm_factory_reset()` sends `0x33` without the `reset`
   suffix the firmware requires; Meshloom sends the raw frame `b"\x33reset"`.
 - `sender_timestamp` is 4-byte Unix seconds on the wire. Dedup is per second, and
   switching to milliseconds would break echo dedup.
@@ -1249,7 +1249,7 @@ a false value (`services/legacy_env_settings.py`).
   send endpoint; it does not create a second row.
 - Contact lat/lon `0.0` is MeshCore's "no GPS" value and overwrites older
   coordinates on purpose.
-- `meshcore` 2.3.15 `import_private_key()` waits only for OK/ERROR: a firmware
+- `meshcore` 2.3.17 `import_private_key()` waits only for OK/ERROR: a firmware
   built without key import answers DISABLED, which shows up as a timeout.
 - Repeater/room login passwords, channel secrets and the BLE PIN still reach the
   DEBUG logs (meshcore frame dumps), and app code logs channel names and keys at

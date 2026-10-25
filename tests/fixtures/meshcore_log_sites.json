@@ -1,5 +1,5 @@
 {
- "meshcore_version": "2.3.15",
+ "meshcore_version": "2.3.17",
  "log_sites": [
   {
    "module": "ble_cx.py",
@@ -320,6 +320,11 @@
    "module": "commands/messaging.py",
    "level": "debug",
    "call": "logger.debug(f\"Sending message to {dst_bytes.hex()}: {msg}\")"
+  },
+  {
+   "module": "commands/messaging.py",
+   "level": "debug",
+   "call": "logger.debug(f\"Sending raw data {payload.hex()} through path {'Flood' if path is None else path.hex()} of len {'-1' if path is None else path_len} with mode {path_hash_mode} (raw path: {path_bytes.hex()})\")"
   },
   {
    "module": "commands/messaging.py",
