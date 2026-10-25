@@ -555,16 +555,63 @@ def test_the_helper_never_runs_as_the_server_or_root(monkeypatch) -> None:
         SetuidBackend(10001, 10001).purge([Path("/tmp")])
 
 
-def test_owns_something_looks_only_at_the_top_of_each_dir(tmp_path: Path) -> None:
+def test_owns_something_looks_at_every_depth_on_the_same_file_system(tmp_path: Path) -> None:
     from app.plugins.isolation.setuid import owns_something
 
     nested = tmp_path / "a" / "b"
     nested.mkdir(parents=True)
     mine = os.getuid()
     assert owns_something(mine, [tmp_path])
-    assert not owns_something(mine, [nested])
+    assert owns_something(mine, [nested.parent])
+    assert not owns_something(mine, [nested])  # empty: nothing below it
+    (nested / "f").write_text("x")
+    assert owns_something(mine, [nested])
     assert not owns_something(mine + 1, [tmp_path])
     assert not owns_something(mine, [tmp_path / "missing"])
+
+
+def test_owns_something_gives_up_past_the_entry_cap(tmp_path: Path, monkeypatch) -> None:
+    from app.plugins.isolation import setuid as setuid_module
+
+    for n in range(5):
+        (tmp_path / f"f{n}").write_text("x")
+    monkeypatch.setattr(setuid_module, "PURGE_MAX_ENTRIES", 2)
+    # Too many to look at: answer True, the purge then decides (fail closed).
+    assert setuid_module.owns_something(os.getuid() + 1, [tmp_path])
+
+
+def test_owns_sysv_ipc_reads_owner_and_creator(tmp_path: Path) -> None:
+    from app.plugins.isolation.setuid import owns_sysv_ipc
+
+    (tmp_path / "shm").write_text(
+        "       key      shmid perms                  size  cpid  lpid nattch   uid   gid"
+        "  cuid  cgid      atime      dtime      ctime                   rss                  swap\n"
+        "         0          7   600                  4096   100   100      0 40001 40001"
+        " 40001 40001          0          0 1700000000                     0                     0\n"
+    )
+    (tmp_path / "msg").write_text(
+        "       key      msqid perms      cbytes       qnum lspid lrpid   uid   gid  cuid  cgid"
+        "      stime      rtime      ctime\n"
+        "         0          3   600           0          0     0     0 10001 10001 40002 40002"
+        "          0          0 1700000000\n"
+    )
+    (tmp_path / "sem").write_text("garbage\n")
+    assert owns_sysv_ipc(40001, tmp_path)  # owner of a segment
+    assert owns_sysv_ipc(40002, tmp_path)  # creator of a queue it gave away
+    assert not owns_sysv_ipc(40003, tmp_path)
+    assert not owns_sysv_ipc(40001, tmp_path / "missing")
+
+
+def test_purge_asks_the_helper_for_every_depth_and_sysv_ipc(monkeypatch) -> None:
+    from app.plugins.isolation import setuid as setuid_module
+
+    calls: list[tuple[str, ...]] = []
+    backend = SetuidBackend(40010, 40010)
+    monkeypatch.setattr(backend, "_helper", lambda op, *args: calls.append((op, *args)))
+    backend.purge([])
+    assert calls == [
+        ("purge", str(setuid_module.PURGE_MAX_ENTRIES), "shm:shmid,msg:msqid,sem:semid")
+    ]
 
 
 def _free_instance_uids(count: int) -> list[int]:
@@ -649,6 +696,57 @@ def test_purge_removes_only_what_the_instance_uid_left() -> None:
         assert left == [f"dir-{theirs.uid}", f"file-{theirs.uid}"]
         theirs.purge([shared])
         assert list(shared.iterdir()) == []
+    finally:
+        import shutil
+
+        shutil.rmtree(shared, ignore_errors=True)
+
+
+@pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
+def test_purge_reaches_deep_leftovers_and_sysv_ipc() -> None:
+    """MSHL-344: a file deep in a directory someone else owns (like /tmp/.X11-unix)
+    and a System V shared memory segment are gone after the purge."""
+    base = _backend("setuid")
+    (mine,) = (base.for_uid(uid) for uid in _free_instance_uids(1))
+    shared = shared_tmp_dir("meshloom-purge-deep-")
+    os.chmod(shared, 0o755)
+    socket_dir = shared / ".X11-unix" / "deeper"
+    socket_dir.mkdir(parents=True)
+    os.chmod(shared / ".X11-unix", 0o1777)
+    os.chmod(socket_dir, 0o1777)
+    plugin_dir = shared_tmp_dir("meshloom-purge-deep-plugin-")
+    leave = (
+        "import ctypes, os, sys\n"
+        "open(os.path.join(sys.argv[1], 'X0'), 'w').close()\n"
+        "libc = ctypes.CDLL(None, use_errno=True)\n"
+        "shmid = libc.shmget(0, 4096, 0o1000 | 0o600)\n"  # IPC_PRIVATE, IPC_CREAT
+        "print(shmid)\n"
+    )
+
+    def segment_alive(shmid: int) -> bool:
+        with open("/proc/sysvipc/shm") as table:
+            return any(line.split()[1] == str(shmid) for line in table.read().splitlines()[1:])
+
+    try:
+        proc = mine.spawn(
+            [sys.executable, "-I", "-S", "-c", leave, str(socket_dir)],
+            plugin_dir,
+            plugin_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+        )
+        out, _ = proc.communicate(timeout=30)
+        assert proc.returncode == 0
+        shmid = int(out.decode().strip())
+        assert shmid >= 0 and segment_alive(shmid)
+        from app.plugins.isolation.setuid import owns_something, owns_sysv_ipc
+
+        assert owns_something(mine.uid, [shared]) and owns_sysv_ipc(mine.uid)
+        mine.purge([shared])
+        assert not (socket_dir / "X0").exists()
+        assert socket_dir.is_dir()  # not the uid's: kept
+        assert not segment_alive(shmid)
+        assert not owns_something(mine.uid, [shared]) and not owns_sysv_ipc(mine.uid)
     finally:
         import shutil
 

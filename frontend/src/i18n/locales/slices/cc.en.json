@@ -223,6 +223,7 @@
     "install_failed": "The extension could not be installed.",
     "instance_cap_reached": "Too many extensions are running. Disable one first.",
     "instance_not_running": "This extension is not running.",
+    "uid_exhausted": "No system user ID is left for another extension. Uninstall unused extensions, then try again.",
     "quota_invalid": "A sending limit is out of range. It can only be lowered.",
     "scope_invalid": "The conversations selection is not valid.",
     "secret_required": "A secret value is missing.",

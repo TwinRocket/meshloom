@@ -223,6 +223,7 @@
     "install_failed": "L'extension n'a pas pu être installée.",
     "instance_cap_reached": "Trop d'extensions tournent. Désactivez-en une d'abord.",
     "instance_not_running": "Cette extension ne tourne pas.",
+    "uid_exhausted": "Plus aucun identifiant système libre pour une nouvelle extension. Désinstallez des extensions inutilisées puis réessayez.",
     "quota_invalid": "Une limite d'envoi est hors plage. Elle ne peut que baisser.",
     "scope_invalid": "La sélection de conversations n'est pas valide.",
     "secret_required": "Une valeur secrète est manquante.",
