@@ -85,7 +85,7 @@ notifications (migration 111, `app/notifications/AGENTS.md`);
 the import and, from the dispatcher ticket, by the rules API; outside `AppSettings` for now;
 shape in `app/notifications/AGENTS.md`);
 `share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
-(migration 102); `share_terms_version`, `share_terms_accepted_at` (migration 118): the version of the share
+(migration 102); `share_terms_version`, `share_terms_accepted_at` (migration 116): the version of the share
 terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS_VERSION` in
 `services/share.py`) and the Unix time of the acceptance, written by the server only, `excluded`
 from backups and reset to 0 in a database copy; `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,

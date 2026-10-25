@@ -1,4 +1,4 @@
-"""Migration 118: the share terms acceptance columns."""
+"""Migration 116: the share terms acceptance columns."""
 
 import aiosqlite
 

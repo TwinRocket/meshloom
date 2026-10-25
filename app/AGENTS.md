@@ -352,7 +352,7 @@ run as root).
   `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
   the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
   behaviours are restored.
-- Migration 118 adds `share_terms_version` and `share_terms_accepted_at` (consent state,
+- Migration 116 adds `share_terms_version` and `share_terms_accepted_at` (consent state,
   same backup rule as `share_enabled`). `PATCH /api/settings` takes `share_terms_accepted: true`
   only together with `share_enabled: true` (else 422): the server stamps its own
   `SHARE_TERMS_VERSION` and the time. `share_enabled: true` without an acceptance of the

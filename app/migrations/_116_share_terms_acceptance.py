@@ -1,4 +1,4 @@
-"""Migration 118: server-side record of the sharing terms acceptance (MSHL-292).
+"""Migration 116: server-side record of the sharing terms acceptance (MSHL-292).
 
 ``share_terms_version`` is the version of the share terms the owner accepted in the consent
 dialog (0 = never) and ``share_terms_accepted_at`` the Unix time of that acceptance (0 =
