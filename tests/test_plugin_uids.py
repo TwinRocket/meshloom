@@ -6,6 +6,7 @@ purge helpers run in tests/test_plugin_isolation.py where `setuid` is available.
 """
 
 import asyncio
+import subprocess
 import threading
 from pathlib import Path
 
@@ -171,6 +172,24 @@ async def test_blocking_dirs_reach_health_until_a_purge_succeeds(
     assert manager.purge_blocked() == []
     assert lifecycle.health_fields()["plugins_purge_blocked"] == []
     assert len(broadcasts) == 4
+
+
+async def test_a_helper_timeout_keeps_the_uid(test_db, fake_setuid, monkeypatch, tmp_path):
+    """MSHL-349: a purge helper that hangs past its timeout keeps the uid taken."""
+
+    def hang(self, dirs=None):
+        raise subprocess.TimeoutExpired(["python"], setuid_module.HELPER_TIMEOUT)
+
+    manager = PluginManager(plugins_root=tmp_path)
+    a = await _instance("a")
+    await manager._instance_backend(a)
+    monkeypatch.setattr(FakeSetuid, "purge", hang)
+    await manager.remove(a, purge=True)
+    assert await PluginUidRepository.get(a) == 40000  # kept
+    await PluginRepository.delete(a)
+    await manager.reap_uids()  # no crash at startup either
+    assert await PluginUidRepository.orphans() == {a: 40000}
+    assert manager.purge_blocked() == []
 
 
 async def test_other_levels_allocate_nothing(test_db, monkeypatch, tmp_path):

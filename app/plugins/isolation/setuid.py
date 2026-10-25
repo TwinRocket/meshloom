@@ -112,6 +112,13 @@ op, args = sys.argv[2], sys.argv[3:]
 WORK_DIR_NAME = re.compile(r"meshloom-plugin-[a-z0-9_]{8}")
 uid = os.getuid()
 O_DIR_PATH = os.O_PATH | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
+PROC = "/proc"
+
+
+def shown(path):
+    # One printable line per path: control characters, line breaks and undecodable
+    # bytes escaped, any other character (accents, CJK) kept as is.
+    return "".join(c if c.isprintable() else ascii(c)[1:-1] for c in path)
 
 
 def unlock_one(parent_fd, name):
@@ -127,7 +134,7 @@ def unlock_one(parent_fd, name):
         mode = stat.S_IMODE(st.st_mode)
         if mode & 0o700 != 0o700:
             try:
-                os.chmod(f"/proc/self/fd/{fd}", mode | 0o700)
+                os.chmod(f"{PROC}/self/fd/{fd}", mode | 0o700)
             except FileNotFoundError:
                 # No /proc: an O_PATH descriptor cannot be chmod-ed any other way,
                 # and chmod(follow_symlinks=False) is not implemented on Linux.
@@ -228,8 +235,7 @@ elif op == "purge":
                 # (or below) that this walk cannot see. Fail closed, except for
                 # another instance's work directory (0711 without root).
                 if os.access(path, os.X_OK) and not other_work_dir(path, base):
-                    # ascii(): one line per path, whatever its name holds.
-                    print(f"{ascii(path)[1:-1]}: not listable", file=sys.stderr)
+                    print(f"{shown(path)}: not listable", file=sys.stderr)
                 continue
             except OSError as exc:
                 print(f"{path}: {exc}", file=sys.stderr)
@@ -259,12 +265,21 @@ elif op == "purge":
         "msg": lambda i: libc.msgctl(i, 0, None),
         "sem": lambda i: libc.semctl(i, 0, 0),
     }
+    # A missing table is skipped only on a kernel without System V IPC (/proc
+    # mounted): without /proc an object this uid owns would survive the uid's
+    # release and reach the next instance given it, so the purge fails.
+    proc_mounted = os.path.isdir(PROC + "/self")
     for kind in kinds:
         kind, _, id_column = kind.partition(":")
         try:
-            with open("/proc/sysvipc/" + kind) as table:
+            with open(PROC + "/sysvipc/" + kind) as table:
                 lines = table.read().splitlines()
-        except OSError:
+        except FileNotFoundError:
+            if not proc_mounted:
+                print(f"sysvipc {kind}: cannot be listed, /proc is not mounted", file=sys.stderr)
+            continue
+        except OSError as exc:
+            print(f"sysvipc {kind}: {exc}", file=sys.stderr)
             continue
         head = lines[0].split() if lines else []
         for line in lines[1:]:
@@ -355,12 +370,19 @@ def owns_something(uid: int, dirs: Iterable[Path] | None = None) -> bool:
 
 def owns_sysv_ipc(uid: int, root: Path = Path("/proc/sysvipc")) -> bool:
     """True when `uid` owns or created a System V shared memory segment, message
-    queue or semaphore set (the tables are world-readable)."""
+    queue or semaphore set (the tables are world-readable). Also True when a table
+    cannot be read (no /proc, fail closed); a table missing while /proc is mounted
+    is a kernel without System V IPC."""
+    proc_mounted = (root.parent / "self").is_dir()
     for kind, _ in SYSV_IPC_KINDS:
         try:
             lines = (root / kind).read_text().splitlines()
+        except FileNotFoundError:
+            if proc_mounted:
+                continue
+            return True
         except OSError:
-            continue
+            return True
         head = lines[0].split() if lines else []
         for line in lines[1:]:
             row = dict(zip(head, line.split(), strict=False))
@@ -456,7 +478,8 @@ class SetuidBackend(IsolationBackend):
     def purge(self, dirs: Iterable[Path] | None = None) -> None:
         """Remove what this uid owns in the shared temp dirs (at any depth) and its
         System V IPC objects. Raises `ValueError` (or `OSError`) when the helper
-        fails, meets a directory it may enter but not list, or leaves something the
+        fails (`subprocess.TimeoutExpired` when it hangs), meets a directory it may
+        enter but not list, or leaves something the
         server still sees (`owns_something`, run as the server afterwards: as root it
         lists every directory): the uid is then kept. `PurgeBlockedError` (a
         `ValueError`) names the directories it could not list."""
@@ -485,7 +508,8 @@ class SetuidBackend(IsolationBackend):
             ],
             stdin=subprocess.DEVNULL,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="backslashreplace",
             timeout=HELPER_TIMEOUT,
             cwd="/",
             env=launch.runner_env(),

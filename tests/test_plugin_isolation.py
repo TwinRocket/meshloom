@@ -601,7 +601,21 @@ def test_owns_sysv_ipc_reads_owner_and_creator(tmp_path: Path) -> None:
     assert owns_sysv_ipc(40001, tmp_path)  # owner of a segment
     assert owns_sysv_ipc(40002, tmp_path)  # creator of a queue it gave away
     assert not owns_sysv_ipc(40003, tmp_path)
-    assert not owns_sysv_ipc(40001, tmp_path / "missing")
+
+
+def test_owns_sysv_ipc_fails_closed_without_proc(tmp_path: Path) -> None:
+    """MSHL-349: an unreadable table must not let the uid go (a segment it owns
+    would reach the next instance); only a kernel without SysV IPC is skipped."""
+    from app.plugins.isolation.setuid import owns_sysv_ipc
+
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    assert owns_sysv_ipc(40001, proc / "sysvipc")  # /proc not mounted
+    (proc / "self").mkdir()
+    assert not owns_sysv_ipc(40001, proc / "sysvipc")  # mounted, no SysV IPC
+    (proc / "sysvipc").mkdir()
+    (proc / "sysvipc" / "shm").mkdir()  # unreadable as a file
+    assert owns_sysv_ipc(40001, proc / "sysvipc")
 
 
 def test_purge_asks_the_helper_for_every_depth_and_sysv_ipc(monkeypatch) -> None:
@@ -1029,13 +1043,91 @@ def test_the_account_uid_comes_from_the_passwd_entry(monkeypatch) -> None:
         shutil.rmtree(shared, ignore_errors=True)
 
 
+def _helper_with_proc(proc: str) -> str:
+    from app.plugins.isolation import setuid as setuid_module
+
+    source = setuid_module._HELPER_SOURCE.replace('PROC = "/proc"', f"PROC = {proc!r}")
+    assert source != setuid_module._HELPER_SOURCE
+    return source
+
+
+def _helper_directly(source: str, *args: str) -> subprocess.CompletedProcess:
+    # The helper as this (unprivileged) uid, the way `_helper` starts it.
+    return subprocess.run(
+        [sys.executable, "-I", "-S", "-B", "-c", source, str(launch.APP_ROOT), *args],
+        capture_output=True,
+        encoding="utf-8",
+        errors="backslashreplace",
+        env=launch.runner_env(),
+        timeout=30,
+        check=False,
+    )
+
+
+@pytest.mark.skipif(not LINUX, reason="the helper is Linux only")
+def test_without_proc_the_purge_fails_on_sysv_ipc(monkeypatch, tmp_path: Path) -> None:
+    """MSHL-349: without /proc the helper cannot list the System V IPC objects the
+    uid owns; the purge fails (uid kept) instead of skipping them. With /proc
+    mounted but no table (kernel without SysV IPC), nothing is reported."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    kinds = ",".join(f"{kind}:{column}" for kind, column in setuid_module.SYSV_IPC_KINDS)
+    no_proc = _helper_with_proc("/nonexistent/proc")
+    backends = available_backends()
+    if "setuid" in backends:
+        (runner,) = (backends["setuid"].for_uid(uid) for uid in _free_instance_uids(1))
+        empty = shared_tmp_dir("meshloom-noproc-ipc-")
+        try:
+            monkeypatch.setattr(setuid_module, "_HELPER_SOURCE", no_proc)
+            with pytest.raises(ValueError, match="/proc is not mounted"):
+                runner.purge([empty])
+            monkeypatch.undo()
+            runner.purge([empty])
+        finally:
+            shutil.rmtree(empty, ignore_errors=True)
+        return
+    if os.geteuid() == 0:
+        pytest.skip("root without the meshloom-plugin account")
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    args = ("purge", "100", kinds, "40000-50000", str(empty))
+    proc = _helper_directly(no_proc, *args)
+    assert proc.returncode == 0
+    assert "sysvipc shm: cannot be listed, /proc is not mounted" in proc.stderr
+    fake_proc = tmp_path / "proc"
+    (fake_proc / "self").mkdir(parents=True)
+    assert _helper_directly(_helper_with_proc(str(fake_proc)), *args).stderr == ""
+
+
+@pytest.mark.skipif(
+    not LINUX or os.geteuid() == 0, reason="the helper is Linux only; root lists all"
+)
+def test_blocking_paths_keep_printable_characters(tmp_path: Path) -> None:
+    """MSHL-349: a blocking path keeps accents (shown as is in the UI) and escapes
+    control characters, so it stays one line."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    trap = tmp_path / "café\x1bnoir\nfin"
+    trap.mkdir()
+    trap.chmod(0o311)  # enterable, not listable (a scanned dir, not removed)
+    kinds = ",".join(f"{kind}:{column}" for kind, column in setuid_module.SYSV_IPC_KINDS)
+    try:
+        proc = _helper_directly(
+            setuid_module._HELPER_SOURCE, "purge", "100", kinds, "40000-50000", str(trap)
+        )
+    finally:
+        trap.chmod(0o700)
+    expected = f"{tmp_path}/café\\x1bnoir\\nfin{setuid_module.NOT_LISTABLE}"
+    assert proc.stderr.splitlines() == [expected]
+
+
 @pytest.mark.skipif(not LINUX, reason="the helper is Linux only")
 def test_without_proc_a_locked_dir_fails_the_removal_clearly(monkeypatch) -> None:
     """MSHL-349: with no /proc the helper cannot chmod through an O_PATH descriptor;
     the removal fails (fail closed) and says why, instead of NotImplementedError."""
     from app.plugins.isolation import setuid as setuid_module
 
-    no_proc = setuid_module._HELPER_SOURCE.replace("/proc/self/fd/", "/nonexistent/proc/fd/")
+    no_proc = _helper_with_proc("/nonexistent/proc")
     assert no_proc != setuid_module._HELPER_SOURCE
     backends = available_backends()
     if "setuid" in backends:
@@ -1062,14 +1154,7 @@ def test_without_proc_a_locked_dir_fails_the_removal_clearly(monkeypatch) -> Non
         else:
             os.makedirs(top / "sub")
             os.chmod(top, 0o300)
-            proc = subprocess.run(
-                [sys.executable, "-I", "-S", "-B", "-c", no_proc, str(launch.APP_ROOT)]
-                + ["rmtree", str(top)],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
+            proc = _helper_directly(no_proc, "rmtree", str(top))
             assert proc.returncode != 0
             assert "/proc is not mounted" in proc.stderr.strip().splitlines()[-1]
             assert top.exists()

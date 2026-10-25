@@ -46,6 +46,7 @@ import logging
 import os
 import re
 import signal
+import subprocess
 import sys
 import tempfile
 import time
@@ -1481,7 +1482,8 @@ class PluginManager:
         them on success); the error, or None when the uid is clean."""
         try:
             await asyncio.to_thread(backend.for_uid(uid).purge)
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            # A helper that timed out also keeps the uid taken (fail closed).
             self._set_purge_blocked(uid, getattr(exc, "paths", ()))
             return exc
         self._set_purge_blocked(uid, ())
