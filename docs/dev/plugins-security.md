@@ -131,11 +131,18 @@ at reboot. Rules:
   above) collision, a plugin of one install can signal the other's plugin
   processes (same uid). Keep the temp dirs shared when sharing the pid namespace.
 - Errors: any `OSError` writing or checking a lease (`ENOSPC` when a plugin filled
-  the shared tmpfs, `EACCES`...) is a `UidLeaseError` (fail closed, MSHL-359): the
-  start is refused (`uid_leased`) and `reap_uids` marks that uid blocked and goes
-  on with the others. A pick that took its lease and then lost the allocation race
-  to another uid stored for the same instance gives the lease back
-  (`PluginUidRepository.allocate(release=...)`, inside the write transaction).
+  the shared tmpfs, `EACCES`...) is a `UidLeaseIOError` (a `UidLeaseError`, fail
+  closed, MSHL-359): the start is refused with its own reason
+  (`uid_lease_io_error`, MSHL-360; `uid_leased` stays for a lease another install
+  or a running copy holds, or a lease directory that is not this server's) and
+  `reap_uids` marks that uid blocked and goes on with the others. A failed write
+  leaves nothing behind: the lease is locked before it is linked to its name, and
+  removed again if the temp file cannot be cleaned up. A pick that took its lease
+  and then lost the allocation race to another uid stored for the same instance,
+  or whose allocation transaction failed (database error, cancellation), gives the
+  lease back once a write transaction shows no row holds the uid
+  (`PluginUidRepository.allocate(release=...)`); if that check fails too, the lease
+  stays (fail closed: this install may still allocate that uid, the others may not).
 - A raw copy of the data dir carries `plugin-install-id`: the copy is the same
   install for the leases (refused while the original runs on a shared temp dir,
   but free to take, and purge, the original's leases once it stops). Delete

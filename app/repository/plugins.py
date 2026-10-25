@@ -25,6 +25,7 @@ exported (no JSON backup section, emptied in the SQLite download).
 
 import asyncio
 import json
+import logging
 import time
 import unicodedata
 import uuid
@@ -554,10 +555,26 @@ class PluginUidError(Exception):
     """No uid of the range is free."""
 
 
+logger = logging.getLogger(__name__)
+
+
 def _first_free_uid(
     candidates: Iterable[int], taken: set[int], is_free: Callable[[int], bool]
 ) -> int | None:
     return next((uid for uid in candidates if uid not in taken and is_free(uid)), None)
+
+
+async def _give_back_uid(uid: int, release: Callable[[int], None]) -> None:
+    """``release(uid)`` when no row holds ``uid``, checked inside a write transaction
+    so no allocation can insert it in between. Best effort: when the database
+    still fails, the lease stays (it only keeps the uid from other installs)."""
+    try:
+        async with db.tx() as conn:
+            async with conn.execute("SELECT 1 FROM plugin_uids WHERE uid = ?", (uid,)) as cursor:
+                if await cursor.fetchone() is None:
+                    await asyncio.to_thread(release, uid)
+    except Exception as exc:
+        logger.warning("Plugin uid %s: lease kept, the allocation check failed: %s", uid, exc)
 
 
 class PluginUidRepository:
@@ -613,7 +630,10 @@ class PluginUidRepository:
         MSHL-357). When the race is lost because a concurrent call stored another
         uid for this instance, ``release`` gives the pick back, inside the write
         transaction so no other allocation can insert it in between (MSHL-359).
-        A pick another instance stored keeps what was taken: it is that row's now."""
+        A pick another instance stored keeps what was taken: it is that row's now.
+        A pick whose transaction fails (a database error, a cancellation) gives
+        it back too, once a new write transaction shows no row holds it; when
+        that check cannot run either, the lease stays (fail closed, MSHL-360)."""
         stored = await PluginUidRepository.get(instance_id)
         if stored is not None:
             return stored
@@ -624,25 +644,31 @@ class PluginUidRepository:
             uid = await asyncio.to_thread(_first_free_uid, pool, taken, is_free)
             if uid is None:
                 raise PluginUidError("no free plugin uid left")
-            async with db.tx() as conn:
-                async with conn.execute(
-                    "SELECT uid FROM plugin_uids WHERE instance_id = ?", (instance_id,)
-                ) as cursor:
-                    row = await cursor.fetchone()
-                async with conn.execute(
-                    "SELECT 1 FROM plugin_uids WHERE uid = ?", (uid,)
-                ) as cursor:
-                    held = await cursor.fetchone() is not None
-                if row is not None:
-                    if release is not None and not held:
-                        await asyncio.to_thread(release, uid)
-                    return int(row[0])
-                if not held:
-                    await conn.execute(
-                        "INSERT INTO plugin_uids (instance_id, uid, allocated_at) VALUES (?, ?, ?)",
-                        (instance_id, uid, int(time.time())),
-                    )
-                    return uid
+            try:
+                async with db.tx() as conn:
+                    async with conn.execute(
+                        "SELECT uid FROM plugin_uids WHERE instance_id = ?", (instance_id,)
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                    async with conn.execute(
+                        "SELECT 1 FROM plugin_uids WHERE uid = ?", (uid,)
+                    ) as cursor:
+                        held = await cursor.fetchone() is not None
+                    if row is not None:
+                        if release is not None and not held:
+                            await asyncio.to_thread(release, uid)
+                        return int(row[0])
+                    if not held:
+                        await conn.execute(
+                            "INSERT INTO plugin_uids (instance_id, uid, allocated_at)"
+                            " VALUES (?, ?, ?)",
+                            (instance_id, uid, int(time.time())),
+                        )
+                        return uid
+            except BaseException:
+                if release is not None:
+                    await _give_back_uid(uid, release)
+                raise
             lost.add(uid)
 
     @staticmethod

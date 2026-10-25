@@ -1472,7 +1472,15 @@ class PluginManager:
                 "uid_exhausted", "no free uid left for a plugin instance"
             ) from None
         except (ValueError, OSError) as exc:  # `UidLeaseError`: refused, or not checkable
+            from app.plugins.isolation.uid_lease import UidLeaseIOError
+
             logger.warning("Plugin uid of %s refused: %s", instance_id, exc)
+            if isinstance(exc, (UidLeaseIOError, OSError)):
+                # ENOSPC, EACCES... on a lease: nobody else is known to hold the uid
+                # (MSHL-360).
+                raise PluginHostError(
+                    "uid_lease_io_error", "the plugin uid lease cannot be written"
+                ) from None
             raise PluginHostError(
                 "uid_leased", "the plugin uid is held by another Meshloom on this machine"
             ) from None

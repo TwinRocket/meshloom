@@ -245,6 +245,7 @@
     "instance_not_running": "This extension is not running.",
     "uid_exhausted": "No system user ID is left for another extension. Uninstall unused extensions, then try again.",
     "uid_leased": "The system account of this extension is held by another Meshloom on this machine. See Settings → Extensions.",
+    "uid_lease_io_error": "The system account of this extension could not be reserved: the shared temporary folder is full or not writable. Free some space there, then try again.",
     "quota_invalid": "A sending limit is out of range. It can only be lowered.",
     "scope_invalid": "The conversations selection is not valid.",
     "secret_required": "A secret value is missing.",
