@@ -309,7 +309,7 @@ Community guard.
   `share_disabled` even for a cached object), then the disk cache
   (`services/share_cache.py`, a thin `diskcache` wrapper: `<data dir>/share-cache/`
   next to `MESHCORE_DATABASE_PATH`, mode 0700, created on first use; 200 MiB
-  (files, SQLite index, `-shm` and write-ahead log up to a budget of at most 4 MiB;
+  (files, SQLite index, `-shm`, plus a write-ahead log budget of at most 4 MiB reserved up front;
   approximate: a reader pinning a snapshot blocks WAL truncation, the excess is then
   left uncounted) with least-recently-used eviction done by `_set` itself BEFORE the
   write, under a lock, so concurrent fills never overshoot (diskcache's batch culling is

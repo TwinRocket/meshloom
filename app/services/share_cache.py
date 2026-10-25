@@ -13,7 +13,7 @@ default executor. No hand-written LRU, index or atomic write.
 - **Bounds.** ``SIZE_LIMIT`` (200 MiB), ``MAX_ENTRIES`` (oldest inserted
   entries dropped before a write past it) and ``TTL_S`` (1 h) per entry. The
   size counts ``volume()`` (the files plus the SQLite index), the ``-shm`` file
-  and the write-ahead log up to ``wal_budget()``. ``_set`` takes a write lock,
+  and ``wal_budget()``, reserved for the write-ahead log whatever it weighs now. ``_set`` takes a write lock,
   drops expired entries, then evicts the least recently used ones BEFORE
   writing until the new object fits, so the measured total never goes over the
   limit, even with concurrent fills (diskcache's own culling writes first and
@@ -172,16 +172,21 @@ class ShareCache:
             return 0
 
     def _used(self, cache: Any) -> int:
-        """Files + index, plus the log (up to its budget) and the shm file.
+        """Files + index, the ``-shm`` file and the log's full budget.
 
-        The log counts only up to ``wal_budget()``: a reader pinning a snapshot
-        stops SQLite from truncating it, and evicting entries (or clearing the
-        cache) cannot shrink it, so the excess is left out rather than wiping
-        the cache for nothing.
+        The budget is reserved up front, whatever the log weighs right now: it
+        grows after the write (and after this check), so counting only its
+        current size would let the total cross the limit. A reader pinning a
+        snapshot stops SQLite from truncating the log; evicting entries (or
+        clearing the cache) cannot shrink it, so the excess beyond the budget
+        is left out rather than wiping the cache for nothing.
         """
-        wal = min(self._wal_size(), self.wal_budget())
         shm = self._side_files() - self._wal_size()
-        return int(cache.volume()) + wal + shm
+        return int(cache.volume()) + self.wal_budget() + shm
+
+    def measured(self, cache: Any) -> int:
+        """What is on disk now: files, index, log and shm (for tests and logs)."""
+        return int(cache.volume()) + self._side_files()
 
     def _truncate_wal(self) -> None:
         """Checkpoint and truncate the log; back off while a reader blocks it."""

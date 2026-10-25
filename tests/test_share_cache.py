@@ -157,7 +157,7 @@ async def test_concurrent_fills_never_exceed_the_cap(tmp_path):
         nonlocal peak
         while not stop.is_set():
             if cache.opened:
-                peak = max(peak, cache._used(cache._open()))
+                peak = max(peak, cache.measured(cache._open()))
             await asyncio.sleep(0)
 
     try:
