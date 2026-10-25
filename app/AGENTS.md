@@ -309,12 +309,14 @@ Community guard.
   `share_disabled` even for a cached object), then the disk cache
   (`services/share_cache.py`, a thin `diskcache` wrapper: `<data dir>/share-cache/`
   next to `MESHCORE_DATABASE_PATH`, mode 0700, created on first use; 200 MiB
-  (approximate: files, SQLite index and write-ahead log, the log being truncated back
-  under a budget of at most 4 MiB) with least-recently-used eviction done by `_set`
-  itself, serialised by a lock (diskcache's batch culling is off, `cull_limit=0`: it
-  overshot and over-evicted; the LRU order needs `cache._sql`, so diskcache is pinned
-  `<5.7`, checked once at open, and a failed check falls back to clearing the cache on
-  overflow with a warning), an object over the cap is not stored, 5000 entries, 1 h per entry; blocking calls in the default
+  (files, SQLite index, `-shm` and write-ahead log up to a budget of at most 4 MiB;
+  approximate: a reader pinning a snapshot blocks WAL truncation, the excess is then
+  left uncounted) with least-recently-used eviction done by `_set` itself BEFORE the
+  write, under a lock, so concurrent fills never overshoot (diskcache's batch culling is
+  off, `cull_limit=0`: it writes first and over-evicts; the LRU order needs
+  `cache._sql`, so diskcache is pinned `<5.7`, checked once at open, and a failed check
+  or query falls back to clearing the cache before the write, with a warning), an
+  object over the cap is not stored, 5000 entries, 1 h per entry; blocking calls in the default
   executor; the HA add-on excludes it from backups, `backup_exclude`). A hit makes no request. A miss calls `fetch_object` then
   `checked_object`: an image type must match its magic bytes (`sniff_image_type`),
   GIF at most 5 MiB, `imagesize` must read the dimensions, at most 40 Mpx
