@@ -1287,7 +1287,16 @@ describe('FeedView event names stay cheap', () => {
     })) as unknown as import('../types').Contact[];
     const index = indexContacts(contacts);
     expect(index.size).toBe(2000);
-    const lookups = vi.spyOn(Array.prototype, 'find');
+    // Count only scans of a contact-sized list: i18next itself calls Array.prototype.find.
+    const originalFind = Array.prototype.find;
+    let contactScans = 0;
+    const lookups = vi.spyOn(Array.prototype, 'find').mockImplementation(function (
+      this: unknown[],
+      ...args: Parameters<typeof originalFind>
+    ) {
+      if (this.length >= contacts.length) contactScans += 1;
+      return originalFind.apply(this, args);
+    });
     const event = {
       key: 'k',
       at: 1,
@@ -1299,7 +1308,7 @@ describe('FeedView event names stay cheap', () => {
     } as const;
     const view = describeFeedEvent(event, i18n.t.bind(i18n), 'fr', index, []);
     expect(view.sentence).toContain('n1999');
-    expect(lookups).not.toHaveBeenCalled();
+    expect(contactScans).toBe(0);
     lookups.mockRestore();
   });
 });
