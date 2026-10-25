@@ -273,30 +273,43 @@ A preset is an Apprise service described as data, no code per service: a `Preset
 
 `rules.quiet_hours` = `{enabled, start, end, weekdays, digest_at_end}` (absent = disabled; a malformed
 stored value reads as disabled). The window is `services/update_window.in_window` over the dispatcher's
-wall clock in host-local time (an overnight window belongs to its opening weekday); no settings UI yet.
+wall clock in host-local time (an overnight window belongs to its opening weekday). The settings UI is
+`QuietHoursControl` (rules panel) plus a *Exempt from quiet hours* box on each channel card.
 
 - **Precedence in `Dispatcher._emit`**: (1) the rules, mutes and block lists and, on Web Push, each
   account's own choices, conversation exceptions and pause decide who wants the event: an event nobody
-  wants is never counted; (2) the global and the channel `paused_until` (`paused` row, dropped, no
-  digest); (3) quiet hours. `urgent` events and `always_deliver` ones skip (2) and (3); a channel with
+  wants is never counted; (2) the global and the channel `paused_until` (`paused` row, dropped; the
+  global one is also counted in `pause:*` counters for the resume summary, below); (3) quiet hours. `urgent` events and `always_deliver` ones skip (2) and (3); a channel with
   `quiet_hours_exempt` (registry default true for `webhook`, false otherwise; the imported `legacy:*`
-  rows keep 0) skips (3); an account's *Always notify me* does not skip (3). The synthetic
+  rows keep 0 on purpose, MSHL-368: 4.18.x had no quiet hours and they are off until enabled, and the
+  card's box flips it, `legacy:*` included) skips (3); an account's *Always notify me* does not skip (3). The synthetic
   catalogue events tied to `targets` follow the same path.
+- **Dedup before counting** (MSHL-368): `_first_hold` applies the same per-channel dedup key and TTL as
+  `_admit` before a held event is counted, so a re-emitted event is counted once. Quiet hours share
+  `_admit`'s keys; the pause uses `dedup:pause:<channel>:<key>` (a paused event is not delivered, so a
+  copy after the resume still is).
 - **Suppression**: a `suppressed_quiet` journal row and, with `digest_at_end`, one counter in
   `notification_state`, `quiet:<channel>:<event>:<conversation state key>` (value = count, no expiry; one
   `UPDATE`, an `INSERT` only for a new key: `NotificationJournalRepository.counter_incr`). A Web Push job
   that carries a `PushAudience` is counted per wanted account (`builtin:push@<user id>`, `@d` for the
   accounts without an override). No text, sender or name is stored; deleting a channel deletes its counters;
   the backup leaves them out.
-- **Digest**: a 60 s task (`_quiet_loop`, started by the first `emit`, so by `app_started` after a restart;
-  `quiet_tick()` is what tests call) runs once the window is closed and no global pause holds:
-  `counters_take` reads and deletes the counters, then each enabled, unpaused channel gets one
+- **Digest**: a 60 s task (`_quiet_loop`, started at app startup by `start_notifications()` in the
+  lifespan, and idempotently by `emit`; `quiet_tick()` is what tests call) runs once the window is closed
+  and no global pause holds: `counters_take` reads and deletes the counters, then each enabled, unpaused channel gets one
   `quiet_digest` delivery through `_admit` (limits apply). `build_digest` sums counts: Public and `#`
   channels are named, DMs and private channels only when the channel's `include_message_text` is `always`,
   else they are `dms` / `private` counts. `render.quiet_digest_text` writes it in FR and EN
-  (`scope: "pause"` has its own wording for the global pause resume, T10, not wired yet). On Web Push the
-  digest audience is the accounts with counters (minus paused ones). A digest that fails to send is not
-  retried beyond the usual policy; counters are already cleared.
+  (`scope: "pause"` has its own wording). On Web Push the
+  digest audience is the accounts with counters (minus paused ones).
+- **Pause summary** (MSHL-368, T10): what the *global* pause held (not a channel's own pause) is counted
+  under `pause:<channel>...` (same key shape, same `digest_at_end` gate) and `quiet_tick` sends one
+  `quiet_digest` with `scope: "pause"` per channel once the pause is over, whether or not a quiet window
+  is open; the pause summary goes first.
+- **Digest failures** (MSHL-368): a digest `_admit` drops (limits) or that targets a paused channel is
+  put back (`_put_back`, `counter_add`) and retried each tick, at most `QUIET_DIGEST_RETRIES` (10) ticks
+  in a row, then given up with a warning. A disabled or deleted channel gets none. A queued digest that
+  still answers `retry` gets the one long retry (`quiet_digest` is in `LONG_RETRY_EVENTS`).
 - Tests: `tests/test_quiet_hours.py`.
 
 ## Producers

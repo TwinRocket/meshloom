@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 DIGEST_EVENT = "quiet_digest"
 COUNTER_PREFIX = "quiet:"
+# Same key shape, for what the global pause held (the "while you were paused" digest).
+PAUSE_PREFIX = "pause:"
 ACCOUNT_DEFAULT = "d"
 TOP_CONVERSATIONS = 3
 NAME_MAX = 40
@@ -94,8 +96,10 @@ def is_quiet(rules: Mapping[str, Any], now: float) -> bool:
 # -- counters ---------------------------------------------------------------------
 
 
-def counter_key(channel_key: str, event: str, conversation: str) -> str:
-    return f"{COUNTER_PREFIX}{channel_key}:{event}:{conversation}"
+def counter_key(
+    channel_key: str, event: str, conversation: str, prefix: str = COUNTER_PREFIX
+) -> str:
+    return f"{prefix}{channel_key}:{event}:{conversation}"
 
 
 def account_channel_key(channel_id: str, account: int | None) -> str:
@@ -103,12 +107,14 @@ def account_channel_key(channel_id: str, account: int | None) -> str:
     return f"{channel_id}@{ACCOUNT_DEFAULT if account is None else account}"
 
 
-def parse_counter_key(key: str) -> tuple[str, str | int | None, str, str] | None:
+def parse_counter_key(
+    key: str, prefix: str = COUNTER_PREFIX
+) -> tuple[str, str | int | None, str, str] | None:
     """``(channel id, account, event, conversation)`` of a counter key; account is None for a
     counter shared by everyone, ``"d"`` for the default group, else the user id."""
-    if not key.startswith(COUNTER_PREFIX):
+    if not key.startswith(prefix):
         return None
-    parts = key[len(COUNTER_PREFIX) :].rsplit(":", 2)
+    parts = key[len(prefix) :].rsplit(":", 2)
     if len(parts) != 3:
         return None
     channel, event, conversation = parts

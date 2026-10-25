@@ -7,7 +7,7 @@ host time zone; the dispatcher is driven by hand (``quiet_tick``), never by its 
 import asyncio
 import json
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 
@@ -94,6 +94,14 @@ async def _counters(db) -> dict[str, str]:
     async with db.readonly() as conn:
         async with conn.execute(
             "SELECT key, value FROM notification_state WHERE key LIKE 'quiet:%'"
+        ) as cursor:
+            return dict(await cursor.fetchall())
+
+
+async def _counters_of(db, prefix: str) -> dict[str, str]:
+    async with db.readonly() as conn:
+        async with conn.execute(
+            "SELECT key, value FROM notification_state WHERE key LIKE ?", (f"{prefix}%",)
         ) as cursor:
             return dict(await cursor.fetchall())
 
@@ -347,6 +355,125 @@ async def test_push_digest_goes_only_to_wanted_accounts(test_db):
     )
     assert built is not None and built.audience is not None
     assert built.audience.default is None and built.audience.per_user[7]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_re_emitted_event_is_counted_once(test_db):
+    await _setup(test_db)
+    wall = Wall(at(2, 23))
+    dispatcher = Dispatcher(transport_for=lambda _c: StubTransport(), wall_clock=wall)
+    for _ in range(3):  # the same event (same dedup key) arriving again
+        await dispatcher.emit(None, payload=_dm(n=5), targets=["email-1"])
+    await dispatcher.emit(None, payload=_dm(n=6), targets=["email-1"])
+    assert list((await _counters(test_db)).values()) == ["2"]
+    # Counted while held, so the same event after the window is no new message either.
+    wall.now = at(3, 12)
+    transport = StubTransport()
+    after = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall)
+    assert await after.quiet_tick() == 1
+    await _settle(after)
+    assert transport.payloads[0]["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_pause_digest_is_sent_at_resume(test_db):
+    await _setup(test_db)
+    await _set_rules(test_db, {"paused_until": int(at(2, 15))})  # no quiet hours: a plain pause
+    wall = Wall(at(2, 12))
+    transport = StubTransport()
+    dispatcher = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall)
+    await dispatcher.emit(None, payload=_dm(n=1), targets=["email-1"])
+    await dispatcher.emit(None, payload=_dm(n=2), targets=["email-1"])
+    await dispatcher.emit(None, payload=_dm(n=2), targets=["email-1"])  # a duplicate
+    await _settle(dispatcher)
+    assert transport.calls == []
+    assert list((await _counters_of(test_db, "pause:")).values()) == ["2"]
+    assert await dispatcher.quiet_tick() == 0  # still paused: counters kept
+    assert len(await _counters_of(test_db, "pause:")) == 1
+    wall.now = at(2, 15, 1)
+    assert await dispatcher.quiet_tick() == 1
+    await _settle(dispatcher)
+    [payload] = transport.payloads
+    assert payload["scope"] == "pause" and payload["count"] == 2
+    title, _ = event_notification_text(payload, "en", include_message_text="never")
+    assert title == "Summary of the pause"
+    assert await _counters_of(test_db, "pause:") == {}
+    assert await dispatcher.quiet_tick() == 0
+
+
+@pytest.mark.asyncio
+async def test_a_dropped_digest_is_put_back_and_given_up_after_a_bound(test_db, monkeypatch):
+    from app.notifications import dispatcher as dmod
+
+    await _setup(test_db)
+    wall = Wall(at(2, 23))
+    transport = StubTransport()
+    dispatcher = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall)
+    await dispatcher.emit(None, payload=_dm(n=1), targets=["email-1"])
+    wall.now = at(3, 8)
+    dropped = {"on": True}
+    real = dispatcher._admit
+
+    async def admit(channel, job, rules):
+        return False if dropped["on"] else await real(channel, job, rules)
+
+    monkeypatch.setattr(dispatcher, "_admit", admit)
+    assert await dispatcher.quiet_tick() == 0
+    assert list((await _counters(test_db)).values()) == ["1"]  # kept for the next tick
+    dropped["on"] = False
+    assert await dispatcher.quiet_tick() == 1
+    await _settle(dispatcher)
+    assert transport.payloads[0]["count"] == 1 and await _counters(test_db) == {}
+    # Still dropped after QUIET_DIGEST_RETRIES ticks: given up, nothing left behind.
+    wall.now = at(3, 23)
+    await dispatcher.emit(None, payload=_dm(n=2), targets=["email-1"])
+    wall.now = at(4, 8)
+    dropped["on"] = True
+    for _ in range(dmod.QUIET_DIGEST_RETRIES):
+        assert await dispatcher.quiet_tick() == 0
+        assert len(await _counters(test_db)) == 1
+    assert await dispatcher.quiet_tick() == 0
+    assert await _counters(test_db) == {}
+
+
+@pytest.mark.asyncio
+async def test_a_retryable_digest_failure_gets_the_long_retry(test_db):
+    from app.notifications.dispatcher import LONG_RETRY_EVENTS
+
+    assert qh.DIGEST_EVENT in LONG_RETRY_EVENTS
+
+
+@pytest.mark.asyncio
+async def test_start_runs_the_loop_before_any_event(test_db):
+    dispatcher = Dispatcher(transport_for=lambda _c: StubTransport())
+    assert dispatcher._quiet_task is None
+    dispatcher.start()
+    task = dispatcher._quiet_task
+    assert task is not None and not task.done()
+    dispatcher.start()
+    assert dispatcher._quiet_task is task  # idempotent
+    task.cancel()
+
+
+def utc(month: int, day: int, hour: int, minute: int = 0) -> float:
+    return datetime(2026, month, day, hour, minute, tzinfo=UTC).timestamp()
+
+
+def test_window_follows_the_host_wall_clock_across_dst():
+    # Europe/Paris: fall back on 2026-10-25 (03:00 CEST -> 02:00 CET), forward on 2026-03-29.
+    overnight = {"quiet_hours": {**ON}}
+    assert qh.is_quiet(overnight, utc(10, 25, 5, 59))  # 06:59 CET
+    assert not qh.is_quiet(overnight, utc(10, 25, 6))  # 07:00 CET: the window closes
+    assert qh.is_quiet(overnight, utc(3, 29, 4, 59))  # 06:59 CEST
+    assert not qh.is_quiet(overnight, utc(3, 29, 5))  # 07:00 CEST
+    # A window inside the changed hour follows the clock on the wall: 02:30 happens twice in
+    # autumn (both inside), and the missing hour of spring is skipped, not bridged.
+    inside = {"quiet_hours": {**ON, "start": "02:30", "end": "03:30"}}
+    assert qh.is_quiet(inside, utc(10, 25, 0, 30))  # 02:30 CEST
+    assert qh.is_quiet(inside, utc(10, 25, 1, 30))  # 02:30 CET, the repeated hour
+    assert not qh.is_quiet(inside, utc(10, 25, 2, 30))  # 03:30 CET
+    assert not qh.is_quiet(inside, utc(3, 29, 0, 59))  # 01:59 CET
+    assert qh.is_quiet(inside, utc(3, 29, 1, 0))  # 03:00 CEST, after the gap
 
 
 # -- API and backup -----------------------------------------------------------

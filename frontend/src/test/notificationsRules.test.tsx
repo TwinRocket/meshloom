@@ -475,6 +475,53 @@ describe('ConversationExceptions', () => {
   });
 });
 
+describe('QuietHoursControl', () => {
+  it('writes the quiet_hours fields one at a time and shows the host zone', async () => {
+    mockApi();
+    const patch = vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(RULES);
+    render(<Harness />);
+    const panel = await screen.findByTestId('notification-quiet-hours');
+    expect(panel).toHaveTextContent('UTC');
+    fireEvent.click(screen.getByLabelText(t('settings.notifications.quiet.enabled')));
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ quiet_hours: { enabled: true } }));
+    const start = screen.getByLabelText(t('settings.notifications.quiet.start'));
+    expect(start).toHaveValue('22:00');
+    fireEvent.change(start, { target: { value: '23:30' } });
+    fireEvent.blur(start);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ quiet_hours: { start: '23:30' } }));
+    fireEvent.click(within(panel).getByRole('button', { name: t('settings.updates.weekday.6') }));
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ quiet_hours: { weekdays: [0, 1, 2, 3, 4, 5] } })
+    );
+    fireEvent.click(screen.getByLabelText(t('settings.notifications.quiet.digest')));
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ quiet_hours: { digest_at_end: false } })
+    );
+  });
+
+  it('shows the stored window and snaps an emptied time back', async () => {
+    mockApi({
+      ...RULES,
+      quiet_hours: {
+        enabled: true,
+        start: '21:00',
+        end: '06:30',
+        weekdays: [5, 6],
+        digest_at_end: true,
+      },
+    });
+    const patch = vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(RULES);
+    render(<Harness />);
+    const end = await screen.findByLabelText(t('settings.notifications.quiet.end'));
+    expect(end).toHaveValue('06:30');
+    expect(screen.getByLabelText(t('settings.notifications.quiet.enabled'))).toBeChecked();
+    fireEvent.change(end, { target: { value: '' } });
+    fireEvent.blur(end);
+    expect(end).toHaveValue('06:30');
+    expect(patch).not.toHaveBeenCalled();
+  });
+});
+
 describe('GlobalPauseControl', () => {
   it('writes paused_until for 1 h, 8 h and tomorrow, and resumes with null', async () => {
     mockApi();

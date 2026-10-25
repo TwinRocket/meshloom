@@ -11,7 +11,7 @@
       "exceptionChip": "{{name}}, {{channel}} : {{state}}. Cliquer pour changer.",
       "pause": {
         "title": "Ne pas déranger",
-        "help": "Suspend toutes les notifications sauf celles marquées « toujours livrer ».",
+        "help": "Suspend toutes les notifications sauf celles marquées « toujours livrer ». À la fin, un message résume ce qui a été retenu (option de résumé des heures calmes).",
         "active": "En pause, encore {{hours}} h {{minutes}} min",
         "inactive": "Les notifications sont actives.",
         "choice_1h": "1 heure",

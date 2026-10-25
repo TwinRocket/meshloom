@@ -254,6 +254,23 @@ describe('channel list', () => {
     expect(screen.getByTestId('channel-status-ntfy-aaaaaaaa')).toHaveTextContent('Working');
   });
 
+  it('flips quiet_hours_exempt from the card, legacy channels included', async () => {
+    mockApi([PUSH, channel({ id: 'legacy:webhook', type: 'webhook', name: 'Webhook' })]);
+    const update = vi
+      .spyOn(api, 'updateNotificationChannel')
+      .mockResolvedValue(channel({ id: 'legacy:webhook', quiet_hours_exempt: true }));
+    render(<Harness />);
+    const card = await screen.findByTestId('channel-card-legacy:webhook');
+    const box = within(card).getByRole('checkbox', {
+      name: t('settings.notifications.channels.quietExempt'),
+    });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith('legacy:webhook', { quiet_hours_exempt: true })
+    );
+  });
+
   it('explains a 409 legacy_managed answer instead of the raw error', async () => {
     mockApi([PUSH, channel({ id: 'legacy:webhook', type: 'webhook', name: 'Webhook' })]);
     vi.spyOn(api, 'updateNotificationChannel').mockRejectedValue(

@@ -301,6 +301,11 @@ async def lifespan(app: FastAPI):
 
     await plugin_pause.load()
 
+    # The quiet-hours digest loop runs from startup, not from the first event.
+    from app.notifications.dispatcher import start_notifications
+
+    start_notifications()
+
     # Start fanout modules (MQTT, etc.) from database configs
     from app.fanout.manager import fanout_manager
 
