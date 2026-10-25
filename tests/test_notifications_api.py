@@ -135,6 +135,14 @@ async def test_types_every_secret_field_is_write_only_and_kinds_stay_in_the_subs
         "telegram",
         "gotify",
         "home_assistant",
+        "pushover",
+        "matrix",
+        "signal",
+        "slack",
+        "mattermost",
+        "rocketchat",
+        "sms_free",
+        "sms_sfr",
     }
     secret_names = {
         "email": {"password"},
