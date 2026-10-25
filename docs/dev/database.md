@@ -91,7 +91,7 @@ terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS
 `services/share.py`) and the Unix time of the acceptance, written by the server only, `excluded`
 from backups and reset to 0 in a database copy; `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
 never exported by a backup; `store_online`: the Store egress consent, off by default,
-migration 103, not in `AppSettings` yet, excluded from backups and reset to 0 in a
+migration 103, in `AppSettings` since MSHL-194 (`app/plugins/store_egress.py`), excluded from backups and reset to 0 in a
 database copy; `plugins_paused`, `plugins_paused_at`, `plugins_paused_by`: the global plugin
 pause, its Unix time and the user name of who set it (migration 120, `app/plugins/pause.py`,
 written only by `PUT /api/plugins/pause`, outside `AppSettings`, excluded from backups).

@@ -324,7 +324,7 @@ class AppSettingsRepository:
                    radio_offline_grace_s,
                    share_enabled, share_shorten_mode, share_preview_policy,
                    share_terms_version, share_terms_accepted_at,
-                   notification_language
+                   store_online, notification_language
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -551,6 +551,7 @@ class AppSettingsRepository:
             push_private_endpoints_review=_flag("push_private_endpoints_review"),
             radio_offline_grace_s=_grace,
             share_enabled=_flag("share_enabled"),
+            store_online=_flag("store_online"),
             share_terms_version=_count("share_terms_version"),
             share_terms_accepted_at=_count("share_terms_accepted_at"),
             share_shorten_mode=_share_choice(
@@ -605,6 +606,7 @@ class AppSettingsRepository:
         push_private_endpoints_review: bool | None = None,
         radio_offline_grace_s: int | None = None,
         share_enabled: bool | None = None,
+        store_online: bool | None = None,
         share_terms_accepted: bool | None = None,
         share_shorten_mode: str | None = None,
         share_preview_policy: str | None = None,
@@ -752,6 +754,7 @@ class AppSettingsRepository:
             ("push_private_endpoints_grandfathered", push_private_endpoints_grandfathered),
             ("push_private_endpoints_review", push_private_endpoints_review),
             ("share_enabled", share_enabled),
+            ("store_online", store_online),
         ):
             if flag is not None:
                 updates.append(f"{column} = ?")
@@ -838,6 +841,7 @@ class AppSettingsRepository:
         push_private_endpoints_review: bool | None = None,
         radio_offline_grace_s: int | None = None,
         share_enabled: bool | None = None,
+        store_online: bool | None = None,
         share_terms_accepted: bool | None = None,
         share_shorten_mode: str | None = None,
         share_preview_policy: str | None = None,
@@ -891,6 +895,7 @@ class AppSettingsRepository:
                 push_private_endpoints_review=push_private_endpoints_review,
                 radio_offline_grace_s=radio_offline_grace_s,
                 share_enabled=share_enabled,
+                store_online=store_online,
                 share_terms_accepted=share_terms_accepted,
                 share_shorten_mode=share_shorten_mode,
                 share_preview_policy=share_preview_policy,
@@ -910,6 +915,10 @@ class AppSettingsRepository:
             from app.services.share import note_share_settings_changed
 
             note_share_settings_changed(enabled=result.share_enabled)
+        if store_online is not None:
+            from app.plugins.store_egress import note_store_online_changed
+
+            await note_store_online_changed(result.store_online)
         if destinations_before is not None:
             from app.notify import notify_destination_changed
 

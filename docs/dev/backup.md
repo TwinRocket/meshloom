@@ -196,9 +196,9 @@ These hold for every section; a restore function must keep them:
 
    The sharing consent (`app_settings.share_enabled`, with its recorded terms acceptance
    `share_terms_version` and `share_terms_accepted_at`) and the Store consent
-   (`app_settings.store_online`, not in `AppSettings` yet) are not seeds but follow the
+   (`app_settings.store_online`) are not seeds but follow the
    same rule: they are left out of the JSON export (`BackupExport` serializes
-   `settings` without those three columns; `store_online` is not in `AppSettings`),
+   `settings` without those four columns, `_CONSENT_FIELDS` in `app/models.py`),
    never restored, and set to 0 in the SQLite snapshot
    copy (`SNAPSHOT_RESET_COLUMNS`), so a copy put back elsewhere cannot enable the
    sharing or Store egress.

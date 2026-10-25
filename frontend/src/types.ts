@@ -1563,6 +1563,20 @@ export type NotificationLanguage = 'auto' | 'fr' | 'en';
 export type ShareShortenMode = 'auto' | 'always' | 'never';
 export type SharePreviewPolicy = 'always' | 'private' | 'never';
 
+/** `GET /api/store/status`: what the Store sends and to whom; makes no request. */
+export interface StoreStatus {
+  enabled: boolean;
+  /** Exactly the hosts the Store client may reach (its egress allowlist). */
+  hosts: string[];
+  sends: Array<'ip_address' | 'user_agent'>;
+  user_agent: string;
+  refresh_interval_s: number;
+  /** What this instance does not receive while the Store is offline. */
+  missed_when_disabled: Array<'updates' | 'revocation_alerts'>;
+  refresh_running: boolean;
+  last_refresh_at: number | null;
+}
+
 /** `GET /api/share/status`: makes no request to the share service. */
 export interface ShareStatus {
   enabled: boolean;
@@ -1649,6 +1663,8 @@ export interface AppSettings {
   radio_offline_grace_s?: number;
   /** Consent to the link and file sharing service. Off by default; never restored from a backup. */
   share_enabled?: boolean;
+  /** Store egress consent (MSHL-194): off by default, never restored from a backup. */
+  store_online?: boolean;
   /** Computed: `share_enabled` and the accepted terms are current. Read-only, not stored. */
   share_effective?: boolean;
   share_shorten_mode?: ShareShortenMode;
@@ -1701,6 +1717,8 @@ export interface AppSettingsUpdate {
   push_private_endpoints_review?: boolean;
   radio_offline_grace_s?: number;
   share_enabled?: boolean;
+  /** Store egress consent (MSHL-194): off by default, never restored from a backup. */
+  store_online?: boolean;
   share_shorten_mode?: ShareShortenMode;
   share_preview_policy?: SharePreviewPolicy;
   notification_language?: NotificationLanguage;
