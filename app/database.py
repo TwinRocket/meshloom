@@ -380,6 +380,22 @@ CREATE TABLE IF NOT EXISTS plugin_kept_data (
     kept_at INTEGER NOT NULL
 );
 
+-- Custom GitHub repositories of the Store (migration 126, MSHL-196). Keep identical
+-- to the migration.
+CREATE TABLE IF NOT EXISTS store_repositories (
+    repository TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    added_at INTEGER NOT NULL,
+    checked_at INTEGER,
+    last_error TEXT,
+    tag TEXT,
+    plugin_id TEXT,
+    version TEXT,
+    manifest TEXT,
+    archive_sha256 TEXT,
+    archive_size INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS plugin_send_quota (
     instance_id TEXT NOT NULL,
     period TEXT NOT NULL CHECK (period IN ('hour', 'day')),

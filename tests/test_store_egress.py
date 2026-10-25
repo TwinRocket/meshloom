@@ -150,9 +150,15 @@ class TestOffNothingLeaves:
         await _online_instance()
         routes = _store_routes()
         assert ("GET", "/api/store/status") in routes
+        assert ("POST", "/api/store/repositories") in routes
+        assert ("DELETE", "/api/store/repositories/x/x") in routes
+        bodies = {("POST", "/api/store/repositories"): {"repository": "example/weather"}}
         async with await _client() as client:
             for method, path in routes:
-                assert (await client.request(method, path)).status_code < 500
+                response = await client.request(method, path, json=bodies.get((method, path)))
+                assert response.status_code < 500
+                # 422 would mean the handler never ran: add a body above.
+                assert response.status_code != 422, (method, path, response.text)
             assert (await client.patch("/api/settings", json={})).status_code == 200
             assert (
                 await client.patch("/api/settings", json={"store_online": False})

@@ -65,6 +65,8 @@
           "plugin.config_changed": "Plugin settings changed",
           "plugins.paused": "All plugins paused",
           "plugins.resumed": "All plugins resumed",
+          "store.repository_added": "Custom repository added",
+          "store.repository_removed": "Custom repository removed",
           "backup.restored": "Backup restored",
           "private_key.imported": "Private key imported",
           "factory_reset": "Radio factory reset",

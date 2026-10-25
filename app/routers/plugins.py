@@ -715,6 +715,13 @@ def _install_error(exc: installer.InstallError) -> HTTPException:
         "store_offline": "Downloading plugins is turned off",
         "download_blocked": "The download was refused",
         "download_failed": "The archive could not be downloaded",
+        "repository_no_release": "The repository has no release",
+        "repository_moved": "The repository moved: add it under its new name",
+        "repository_assets_missing": "The latest release lacks a required asset",
+        "repository_manifest_invalid": "The release's manifest.json is invalid",
+        "repository_sha256_invalid": "The release's plugin.zip.sha256 holds no sha256",
+        "repository_tag_invalid": "The latest release has an unusable tag",
+        "repository_asset_too_large": "A release asset is too large",
     }
     return _error(
         exc.status,

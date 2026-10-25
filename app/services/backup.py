@@ -312,6 +312,11 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "owners of the data an uninstall kept: follows plugin_kv, never exported",
     ),
+    "store_repositories": (
+        "excluded",
+        "custom Store repositories and their cached release: re-added by the admin; a "
+        "restored custom instance reinstalls from its own repository",
+    ),
     "plugin_send_quota": ("excluded", "plugin send counters: runtime state"),
     "plugin_send_guard": (
         "excluded",

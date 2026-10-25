@@ -365,6 +365,10 @@ by `services/backup.py`.
   converted bots (`fanout_configs_bots_archive`, migration 122) stays out too, and
   so does `plugin_kept_data` (migration 125: the owners of the data an uninstall
   with "keep data" left; it travels in the SQLite download, it holds no secret).
+  `store_repositories` (migration 126, the custom Store repositories and their
+  cached release) stays out as well: the admin adds them again; a restored
+  `custom` instance keeps its `repository`, and the installer's `custom` resolver
+  accepts the repository of an installed instance even when it is not in the list.
 - **Restore.** A local plugin comes back whole (manifest, source, config,
   grants = its declared permissions). Any other kind comes back as a
   **to reinstall** row (`attention.type = "reinstall"`): its code is not in the
