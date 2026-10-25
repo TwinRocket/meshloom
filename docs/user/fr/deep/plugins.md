@@ -162,7 +162,7 @@ Meshloom 5.0.0 retire les bots Python de **MQTT & Automation**. Au premier déma
 
 Rien, de lui-même. Meshloom 5.0.0 n’a pas de store d’extensions en ligne : les seules extensions que vous pouvez ajouter sont celles qui sont fournies, celles que vous écrivez et les bots convertis de la 4.18, et Meshloom ne contacte aucun serveur pour les lister, les récupérer ou les mettre à jour. Les mises à jour des extensions fournies arrivent avec Meshloom lui-même.
 
-Une extension n’atteint Internet que si vous avez accepté la permission **Se connecter à internet**, et alors seulement les serveurs listés dans son écran de consentement, par l’intermédiaire de Meshloom (voir plus haut). Ce qu’elle y envoie la regarde, d’où l’avertissement quand elle lit les canaux privés ou les messages directs avec cette permission. La sauvegarde ne contient jamais les secrets ni les données stockées d’une extension (voir [Sauvegarde](/fr/docs/backup/)). Un bot converti garde son code ; s’il y avait mis un jeton, il se retrouve dans la sauvegarde comme le code de toute extension locale : déplacez-le dans un réglage.
+Une extension n’atteint Internet que si vous avez accepté la permission **Se connecter à internet**, et alors seulement les serveurs listés dans son écran de consentement, par l’intermédiaire de Meshloom (voir plus haut). Ce qu’elle y envoie la regarde, d’où l’avertissement quand elle lit les canaux privés ou les messages directs avec cette permission. La sauvegarde ne contient jamais les secrets ni les données stockées d’une extension (voir [Sauvegarde](/docs/backup/)). Un bot converti garde son code ; s’il y avait mis un jeton, il se retrouve dans la sauvegarde comme le code de toute extension locale : déplacez-le dans un réglage.
 
 ## Pas de retour à la 4.18
 
