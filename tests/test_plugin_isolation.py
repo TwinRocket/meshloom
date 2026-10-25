@@ -295,12 +295,27 @@ def _descendants(pid: int) -> set[int]:
     return found
 
 
-def _alive(pid: int) -> bool:
+def _stat(pid: int) -> list[str] | None:
+    """The `/proc/<pid>/stat` fields after the command name (state first), or None."""
     try:
         stat_line = Path(f"/proc/{pid}/stat").read_bytes()
     except OSError:
+        return None
+    return stat_line[stat_line.rfind(b")") + 2 :].decode().split()
+
+
+def _identity(pid: int) -> str | None:
+    """The process start time (stat field 22): tells a pid from a later reuse of it."""
+    fields = _stat(pid)
+    return fields[19] if fields else None
+
+
+def _alive(pid: int, identity: str | None = None) -> bool:
+    """Running or sleeping (not a zombie) and, given `identity`, still the same process."""
+    fields = _stat(pid)
+    if fields is None or fields[0] == "Z":
         return False
-    return stat_line[stat_line.rfind(b")") + 2 :][:1] != b"Z"
+    return identity is None or fields[19] == identity
 
 
 @pytest.mark.skipif(not LINUX, reason="walks /proc")
@@ -309,12 +324,21 @@ def test_sigkill_of_the_group_leaves_no_process(level: str) -> None:
     backend = _backend(level)
     plugin_dir = shared_tmp_dir("meshloom-kill-plugin-")
     work_dir = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-kill-work-")))
-    # The child forks twice. Under bwrap the grandchild even leaves the session, as
-    # a plugin escaping through fork_exec could: the pid namespace still takes it
+    # The child forks twice. Under bwrap the forks even leave the session, as a
+    # plugin escaping through fork_exec could: the pid namespace still takes them
     # down. Without a pid namespace a new session would outlive the group kill
     # (docs/dev/plugins-security.md, "OS isolation"), so the other levels stay in it.
+    # Each fork drops a marker once it is set up: the tree is read only after both,
+    # never in the middle of a fork (MSHL-301).
     setsid = "    os.setsid()\n" if level == "bwrap" else ""
-    script = f"import os, time\nif os.fork() == 0:\n    os.fork()\n{setsid}time.sleep(60)\n"
+    script = (
+        "import os, time\n"
+        "if os.fork() == 0:\n"
+        "    os.fork()\n"
+        f"{setsid}"
+        "    open(f'ready-{os.getpid()}', 'x').close()\n"
+        "time.sleep(60)\n"
+    )
     proc = backend.spawn(
         [sys.executable, "-I", "-S", "-c", script],
         plugin_dir,
@@ -325,18 +349,21 @@ def test_sigkill_of_the_group_leaves_no_process(level: str) -> None:
     )
     try:
         deadline = time.monotonic() + 10
-        tree = _descendants(proc.pid)
-        # The child and the grandchild, plus the sandbox's own init under bwrap.
-        while len([p for p in tree if _alive(p)]) < 2 and time.monotonic() < deadline:
+        while len(list(work_dir.glob("ready-*"))) < 2 and time.monotonic() < deadline:
             time.sleep(0.05)
-            tree = _descendants(proc.pid)
+        assert len(list(work_dir.glob("ready-*"))) == 2, "the forks never got ready"
+        # The child and the grandchild, plus the sandbox's own init under bwrap. Each
+        # pid is kept with its start time, so a pid the system hands out again after
+        # the kill is not taken for a survivor.
+        tree = {pid: _identity(pid) for pid in _descendants(proc.pid)}
         assert len(tree) >= 2, tree
         os.killpg(proc.pid, signal.SIGKILL)
         proc.wait(timeout=10)
-        deadline = time.monotonic() + 5
-        while any(_alive(p) for p in tree) and time.monotonic() < deadline:
+        deadline = time.monotonic() + 10
+        while any(_alive(p, i) for p, i in tree.items()) and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert not [p for p in tree if _alive(p)]
+        survivors = {p: _stat(p) for p, i in tree.items() if _alive(p, i)}
+        assert not survivors, survivors
     finally:
         if proc.poll() is None:
             proc.kill()
