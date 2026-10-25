@@ -97,7 +97,6 @@ export const FeedMessageRow = memo(function FeedMessageRow({
       data-index={index}
       role="listitem"
       tabIndex={readOnly ? undefined : 0}
-      aria-label={mentionsUs ? t('feed.row.mentionAria', { name: labels.conversation }) : undefined}
       data-mention={mentionsUs ? 'true' : undefined}
       className={`absolute left-0 top-0 w-full cursor-pointer border-b border-border/50 py-2 text-sm hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring${
         mentionsUs ? ' border-l-2 border-l-primary pl-2' : ''
@@ -179,6 +178,13 @@ export const FeedMessageRow = memo(function FeedMessageRow({
               {labels.sender}
             </span>
           ))}
+        {mentionsUs && (
+          // Visually hidden, not an aria-label: a label would replace the row's content for a
+          // screen reader.
+          <span className="sr-only">
+            {t('feed.row.mentionAria', { name: labels.conversation })}
+          </span>
+        )}
         {row.region && <RegionBadge region={row.region} className="ml-0" />}
         {row.outgoing && (
           <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wider">

@@ -60,6 +60,10 @@ feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
   cursor of the **Load earlier control packets** button (`'more'`) and `exhausted`. A 403 ends it
   silently. The purge `raw_packet_retention_days` removes undecrypted packets (third-party
   Request/AnonRequest), so they may be missing. `resetFeedStore()` clears it.
+- **Row memoisation.** `FeedMessageRow` is `memo`, so every prop must keep its identity across
+  renders: `labels` comes from `createFeedNameResolver`, which caches per row object, and `time`
+  from the per-language cache of `createTimeFormatter`. Do not build a fresh object inline in the
+  row's call site (`docs/dev/feed.md`, `feedPerf.test.tsx` guard it).
 - **Event rows.** `recordFeedEvent(event)` (active store only; returns `false` otherwise) holds the
   session-only rows of `utils/feedEvents.ts`, sorted by `(at, key)`, deduped by `key`, bounded by
   `FEED_EVENT_MAX` = 200. Like control rows they survive `onReconnect`, `clearFeedRows()` and

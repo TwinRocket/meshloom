@@ -41,7 +41,11 @@ export function createFeedNameResolver(
     ])
   );
 
-  return (row) => {
+  // One labels object per row object: `FeedMessageRow` is memoized, and a fresh object on each
+  // render would re-render every mounted row on every emit. A new row object (an ack, a rename)
+  // or a new resolver (names changed) gets fresh labels.
+  const cache = new WeakMap<Message, FeedRowLabels>();
+  const resolve = (row: Message): FeedRowLabels => {
     if (row.type === 'CHAN') {
       const channel = channelByKey.get(row.conversation_key.toUpperCase());
       const parsed = parseSenderFromText(row.text);
@@ -65,5 +69,13 @@ export function createFeedNameResolver(
       content: row.text,
       pendingChannel: false,
     };
+  };
+  return (row) => {
+    let labels = cache.get(row);
+    if (!labels) {
+      labels = resolve(row);
+      cache.set(row, labels);
+    }
+    return labels;
   };
 }

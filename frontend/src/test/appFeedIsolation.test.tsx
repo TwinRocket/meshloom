@@ -147,6 +147,7 @@ import {
   resetFeedStore,
   useFeedRows,
 } from '../stores/feedStore';
+import { resetRawPacketStore } from '../stores/rawPacketStore';
 import type { Message } from '../types';
 
 function frame(id: number): Message {
@@ -198,6 +199,7 @@ describe('feed messages and the chat render path', () => {
     });
     mocks.api.getNotificationRules.mockResolvedValue({ radio_offline_grace_s: 60 });
     resetFeedStore();
+    resetRawPacketStore();
     mocks.api.getRadioConfig.mockResolvedValue({
       public_key: 'aa'.repeat(32),
       name: 'TestNode',
@@ -255,6 +257,35 @@ describe('feed messages and the chat render path', () => {
 
     // Guards against passing for the wrong reason: the frames really reached the store.
     expect(getFeedSnapshot().rows).toHaveLength(200);
+    expect(mocks.messageList.mock.calls.length).toBe(rendersBefore);
+  });
+
+  it('keeps the chat render count flat under the load budget: 2 000 messages and 500 packets', async () => {
+    type RawOptions = { onRawPacket?: (p: unknown) => void } | null;
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId('message-list')).toBeInTheDocument());
+    activateFeedStore();
+
+    const rendersBefore = mocks.messageList.mock.calls.length;
+    await pushFrames(2000);
+    await act(async () => {
+      for (let i = 1; i <= 500; i += 1)
+        (mocks.ws.options as unknown as RawOptions)?.onRawPacket?.({
+          id: i,
+          observation_id: i,
+          timestamp: 1_700_000_000 + i,
+          data: `0100bbaa${i.toString(16).padStart(4, '0')}${'11'.repeat(16)}`,
+          payload_type: 'Request',
+          snr: null,
+          rssi: null,
+          decrypted: false,
+          decrypted_info: null,
+        });
+      await Promise.resolve();
+    });
+
+    expect(getFeedSnapshot().rows).toHaveLength(2000);
+    expect(getFeedSnapshot().controlPackets).toHaveLength(500);
     expect(mocks.messageList.mock.calls.length).toBe(rendersBefore);
   });
 

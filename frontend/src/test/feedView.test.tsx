@@ -1450,10 +1450,10 @@ describe('FeedView quick text filter and mentions', () => {
     const marked = items.filter((item) => item.getAttribute('data-mention') === 'true');
     expect(marked).toHaveLength(1);
     expect(marked[0]).toHaveTextContent('look');
-    expect(marked[0]).toHaveAttribute(
-      'aria-label',
-      i18n.t('feed.row.mentionAria', { name: 'Public' })
-    );
+    // Announced by visually hidden text; the row keeps its content as its accessible name.
+    expect(marked[0]).not.toHaveAttribute('aria-label');
+    expect(marked[0]).toHaveTextContent(i18n.t('feed.row.mentionAria', { name: 'Public' }));
+    expect(marked[0]).toHaveTextContent('look');
   });
 
   it('slow: filters 2 000 loaded rows within 500 ms', async () => {

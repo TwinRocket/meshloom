@@ -84,6 +84,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('feed conversation facets', () => {
+  it('renders the filter panel with zero conversations: the text field, no lists, reset off', async () => {
+    mocks.getMessages.mockResolvedValue([]);
+    renderFeed();
+    const facets = await column();
+    expect(facets.getByTestId('feed-text-filter')).toBeInTheDocument();
+    expect(facets.queryAllByRole('checkbox')).toHaveLength(0);
+    expect(facets.queryByText(i18n.t('feed.facets.channels'))).not.toBeInTheDocument();
+    expect(facets.getByTestId('feed-facets-reset')).toBeDisabled();
+    expect(screen.getByTestId('feed-facets-open')).toHaveTextContent(i18n.t('feed.facets.filters'));
+  });
+
   it('lists channels and contacts of the loaded rows with their counts', async () => {
     renderFeed();
     const facets = await column();
