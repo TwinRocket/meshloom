@@ -217,8 +217,15 @@ def _payload_type_filter(value: str | None) -> frozenset[PayloadType] | None:
     """Parse ``payload_type``: one name or a comma-separated list (any of them matches)."""
     if value is None:
         return None
-    members = {_payload_type_member(part) for part in value.split(",") if part.strip()}
-    return frozenset(members) or None
+    parts = [part for part in value.split(",") if part.strip()]
+    if not parts:
+        if "," in value:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid payload_type: {value}",
+            )
+        return None  # empty or blank: no filter, as before
+    return frozenset(_payload_type_member(part) for part in parts)
 
 
 def _payload_type_member(value: str) -> PayloadType:

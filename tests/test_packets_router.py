@@ -1011,6 +1011,16 @@ class TestPacketHistoryMultiType:
         bad = await client.get("/api/packets/history?payload_type=REQUEST,NOPE")
         assert bad.status_code == 422
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [",", ",,", " , ,"])
+    async def test_only_empty_list_items_are_rejected(self, test_db, client, value):
+        response = await client.get("/api/packets/history", params={"payload_type": value})
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_blank_payload_type_is_still_no_filter(self, test_db, client):
+        assert (await client.get("/api/packets/history?payload_type=")).status_code == 200
+
     @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_four_type_filter_on_20000_rows_is_bounded(self, test_db, client):

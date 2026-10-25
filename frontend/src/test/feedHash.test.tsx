@@ -76,6 +76,8 @@ describe('feed hash grammar', () => {
       includeMuted: true,
       includePending: false,
       node: `contact:${PUBKEY}`,
+      // The grammar does not carry conversations: they are not in the query.
+      conversations: [],
     };
     const query = feedQueryOf(filters, true);
     expect(applyFeedQuery(defaultFeedFilters, query)).toEqual(filters);

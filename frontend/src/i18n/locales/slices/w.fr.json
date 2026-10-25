@@ -5,6 +5,19 @@
       "description": "Filtrer les lignes de contrôle par répéteur, salon, canal ou paquets qui nous sont adressés.",
       "all": "Tous les nœuds",
       "clear": "Afficher à nouveau tous les nœuds (actuellement : {{name}})"
+    },
+    "facets": {
+      "title": "Conversations",
+      "description": "Limiter la chronologie aux canaux et contacts choisis.",
+      "scope": "Compteurs sur les lignes chargées",
+      "channels": "Canaux",
+      "contacts": "Contacts",
+      "reset": "Réinitialiser",
+      "filters": "Filtres",
+      "filtersActive_one": "Filtres ({{formatted}})",
+      "filtersActive_other": "Filtres ({{formatted}})",
+      "messageCount_one": "{{formatted}} message",
+      "messageCount_other": "{{formatted}} messages"
     }
   }
 }

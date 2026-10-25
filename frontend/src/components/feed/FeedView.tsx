@@ -26,6 +26,8 @@ import { setRadioOfflineGraceS, visibleFeedEvents } from '../../utils/feedEvents
 import { formatNumber } from '../../utils/formatNumber';
 import {
   applyFeedQuery,
+  conversationFacetId,
+  countConversations,
   countHiddenRows,
   controlPreset,
   feedQueryOf,
@@ -68,6 +70,7 @@ import {
 } from './feedLastSeen';
 import { pickAnchor, scrollShiftForAnchor, type ScrollAnchor } from './feedScroll';
 import type { FeedRowActions } from './feedActions';
+import { FeedFacets, type FeedFacetItem } from './FeedFacets';
 import { FeedFilterChips } from './FeedFilterChips';
 import { FeedDisplayBar } from './FeedDisplayBar';
 import { displayFilters, enterFullscreen, leaveFullscreen, useDisplayChrome } from './feedDisplay';
@@ -384,6 +387,43 @@ export function FeedView({
     [channels, contacts]
   );
 
+  // Channels and Contacts facets: the conversations of the loaded rows, counted on what the
+  // filters keep (except the pick itself). A picked conversation absent from the window stays
+  // listed with 0 so it can always be unpicked.
+  const facetLists = useMemo(() => {
+    const counts = countConversations(rows, effective, channels, nowSec);
+    const labels = new Map<string, FeedFacetItem>();
+    const add = (type: Message['type'], key: string, count: number) => {
+      const id = conversationFacetId({ type, conversation_key: key });
+      const label = resolveLabels({
+        type,
+        conversation_key: key,
+        text: '',
+        outgoing: false,
+        sender_name: null,
+      } as Message).conversation;
+      labels.set(id, { id, label, count });
+    };
+    const seen = new Map<string, Message>();
+    for (const row of rows) seen.set(conversationFacetId(row), row);
+    for (const [id, count] of counts) {
+      const row = seen.get(id);
+      if (row) add(row.type, row.conversation_key, count);
+    }
+    for (const id of effective.conversations) {
+      if (labels.has(id)) continue;
+      const [kind, key] = [id.slice(0, id.indexOf(':')), id.slice(id.indexOf(':') + 1)];
+      add(kind === 'chan' ? 'CHAN' : 'PRIV', key, 0);
+    }
+    const byLabel = (a: FeedFacetItem, b: FeedFacetItem) =>
+      a.label.localeCompare(b.label, i18n.language) || a.id.localeCompare(b.id);
+    const all = [...labels.values()];
+    return {
+      channels: all.filter((item) => item.id.startsWith('chan:')).sort(byLabel),
+      contacts: all.filter((item) => item.id.startsWith('priv:')).sort(byLabel),
+    };
+  }, [rows, effective, channels, nowSec, resolveLabels, i18n.language]);
+
   /** Rows the current filters keep among those the store holds right now. */
   const countVisibleNow = useCallback(() => {
     const node = filtersRef.current.node;
@@ -532,7 +572,7 @@ export function FeedView({
 
   // Muted / pending and the node are client-side: ticking them in place can leave a short list that
   // cannot be scrolled, so the same bounded fetch applies.
-  const clientFilterKey = `${shown.includeMuted}|${shown.includePending}|${activeNode}`;
+  const clientFilterKey = `${shown.includeMuted}|${shown.includePending}|${activeNode}|${shown.conversations.join(',')}`;
   useEffect(() => {
     if (firstClientFilterRef.current) {
       firstClientFilterRef.current = false;
@@ -822,6 +862,15 @@ export function FeedView({
         onSelect={(node) => setFilters((prev) => ({ ...prev, node }))}
       />
     ) : null;
+  const facetsNode =
+    !display && facetLists.channels.length + facetLists.contacts.length > 0 ? (
+      <FeedFacets
+        channels={facetLists.channels}
+        contacts={facetLists.contacts}
+        selected={filters.conversations}
+        onChange={(conversations) => setFilters((prev) => ({ ...prev, conversations }))}
+      />
+    ) : null;
   const inspector = (
     <RawPacketInspectorDialog
       open={inspected !== null}
@@ -847,7 +896,7 @@ export function FeedView({
         {controlHistory.truncated && !controlHistory.error && (
           <span data-testid="feed-control-history-truncated">
             {t('feed.controlHistoryTruncated', {
-              formatted: controlHistory.scanned.toLocaleString(i18n.language),
+              formatted: formatNumber(controlHistory.scanned),
             })}
           </span>
         )}
@@ -883,6 +932,7 @@ export function FeedView({
       )}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {facet}
+        {facetsNode}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {historyBar}
           {content}

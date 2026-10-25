@@ -5,6 +5,8 @@ import { buildFeedItems, createDayLabeler, localDayKey } from '../components/fee
 import { createFeedNameResolver } from '../components/feed/feedNames';
 import type { Channel, Contact, Message } from '../types';
 import {
+  conversationFacetId,
+  countConversations,
   countHiddenRows,
   defaultFeedFilters,
   FEED_FILTERS_STORAGE_KEY,
@@ -331,5 +333,50 @@ describe('withoutPrivate', () => {
   it('leaves a session with channels off and no DMs asking for nothing', () => {
     const none = withoutPrivate({ ...defaultFeedFilters, chan: false, priv: false });
     expect(none).toMatchObject({ chan: false, priv: false });
+  });
+});
+
+describe('conversation facets model', () => {
+  const key = 'AB'.repeat(16);
+  const row = (over: Partial<Message> = {}): Message =>
+    ({
+      id: 1,
+      type: 'CHAN',
+      conversation_key: key,
+      outgoing: false,
+      text: '',
+      ...over,
+    }) as Message;
+
+  it('defaults to no pick; a stored list is kept, deduped, and non-strings dropped', () => {
+    expect(normalizeFeedFilters(null).conversations).toEqual([]);
+    expect(
+      normalizeFeedFilters({ conversations: ['chan:a', 'chan:a', 3, '', 'priv:b'] }).conversations
+    ).toEqual(['chan:a', 'priv:b']);
+    expect(normalizeFeedFilters({ conversations: 'chan:a' }).conversations).toEqual([]);
+  });
+
+  it('keeps only the picked conversations, whatever the case of the key', () => {
+    const filters = { ...defaultFeedFilters, conversations: [conversationFacetId(row())] };
+    expect(rowPassesFilters(row(), filters, [], 0)).toBe(true);
+    expect(rowPassesFilters(row({ conversation_key: key.toLowerCase() }), filters, [], 0)).toBe(
+      true
+    );
+    expect(rowPassesFilters(row({ conversation_key: 'CD'.repeat(16) }), filters, [], 0)).toBe(
+      false
+    );
+    // A channel and a contact never collide.
+    expect(rowPassesFilters(row({ type: 'PRIV' }), filters, [], 0)).toBe(false);
+  });
+
+  it('counts what the other filters keep, ignoring the pick itself', () => {
+    const rows = [row({ id: 1 }), row({ id: 2 }), row({ id: 3, outgoing: true })];
+    const filters = {
+      ...defaultFeedFilters,
+      outgoing: false,
+      conversations: ['chan:ffff'],
+    };
+    const counts = countConversations(rows, filters, [], 0);
+    expect([...counts]).toEqual([[conversationFacetId(row()), 2]]);
   });
 });
