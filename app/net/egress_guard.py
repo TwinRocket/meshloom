@@ -30,6 +30,7 @@ import errno
 import ipaddress
 import logging
 import os
+import re
 import socket
 import ssl
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
@@ -320,11 +321,46 @@ def _default_gateways(
     return frozenset(gateways)
 
 
+# The Home Assistant supervisor network (``hassio`` bridge, ``homeassistant`` alias): its
+# gateway is the host, which exposes the HA core API and the radio proxy.
+_HASSIO_NET = ipaddress.ip_network("172.30.32.0/23")
+# Interfaces a container only sees when it shares the host's network namespace
+# (``network_mode: host``): the engine's own bridges and the containers' veth ends.
+_HOST_NETWORK_IFACE = re.compile(
+    r"^(docker\d+|hassio|br-[0-9a-f]+|veth\w+|cni-podman\d+|podman\d+)$"
+)
+
+
+def _host_networking(dev: str = "/proc/net/dev") -> bool:
+    """True when this container shares the host's network namespace: it then lists the
+    engine's bridges (``docker0``, ``hassio``, ``br-*``) or veth ends, which a bridged
+    container never sees. Unreadable or no match: False (the gateway stays refused)."""
+    try:
+        with open(dev, encoding="ascii", errors="replace") as f:
+            names = [line.split(":", 1)[0].strip() for line in f.readlines()[2:] if ":" in line]
+    except OSError:
+        return False
+    return any(_HOST_NETWORK_IFACE.match(n) for n in names)
+
+
+def _gateway_is_host(ip: IPAddress) -> bool:
+    """Inside a container, whether the default gateway ``ip`` is the engine's host. In
+    bridge networking it always is. With host networking the gateway is the LAN router
+    (a legitimate device), except the Home Assistant supervisor gateway, which stays
+    refused; the host's own bridge addresses are caught by the bind probe."""
+    if ip not in _default_gateways():
+        return False
+    if _host_networking():
+        return ip.version == 4 and ip in _HASSIO_NET
+    return True
+
+
 def is_self_address(ip: IPAddress) -> bool:
     """True when ``ip`` reaches the machine Meshloom runs on (MSHL-330): an address of
     one of its interfaces (its LAN address, a Docker bridge such as 172.17.0.1, a
     Tailscale address...), or, inside a container, the default gateway, which is the
-    Docker or Home Assistant host. There the radio proxy (5051, no authentication)
+    Docker or Home Assistant host (not with ``network_mode: host``, where it is the LAN
+    router: ``_gateway_is_host``). There the radio proxy (5051, no authentication)
     and the app's own port listen. The host's LAN address seen from inside a bridged
     container cannot be listed: that residual risk is in
     ``docs/dev/plugins-security.md``."""
@@ -332,7 +368,7 @@ def is_self_address(ip: IPAddress) -> bool:
         ip = ip.ipv4_mapped  # ::ffff:a.b.c.d reaches the IPv4 interface a.b.c.d
     if _binds_locally(ip):
         return True
-    return _in_container() and ip in _default_gateways()
+    return _in_container() and _gateway_is_host(ip)
 
 
 def check_lan_addresses(ips: Iterable[IPAddress]) -> None:

@@ -367,3 +367,16 @@ def test_blank_name_made_of_a_filler_is_refused():
     bad = copy.deepcopy(SAMPLE)
     bad["name"] = {"en": "\u3164"}
     assert ("text_invalid", "name") in _issues(bad)
+
+
+def test_lan_host_overlap_check_is_defence_in_depth():
+    # The per-host validators refuse any name valid in both lists, so no manifest (and no
+    # golden vector) reaches this check; it guards a future relaxation. Call it directly.
+    from pydantic_core import PydanticCustomError
+
+    from app.plugins.permissions import HttpParams
+
+    params = HttpParams.model_construct(hosts=["nas.local"], lan_hosts=["nas.local:8080"])
+    with pytest.raises(PydanticCustomError) as exc:
+        params._unique()
+    assert exc.value.type == "lan_host_overlap"

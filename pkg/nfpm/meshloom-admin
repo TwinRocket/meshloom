@@ -11,7 +11,9 @@
 #     The child runs in a session of its own (runuser -c), so it never has
 #     root's controlling terminal and cannot push input into it (TIOCSTI);
 #     with a terminal on stdin, stdout and stderr it also gets its own pty
-#     (runuser --pty).
+#     (runuser --pty). Ctrl-C ends the child through runuser, which prints
+#     "Session terminated, killing shell..." and sends SIGTERM (SIGKILL after
+#     about 2 s); app/cli.py treats SIGTERM like Ctrl-C: "interrupted", exit 130.
 #   - Docker image and Home Assistant add-on: /usr/local/bin/meshloom-admin, run with
 #     `docker compose exec` / `docker exec` (the container user is already right).
 # The project is not pip-installed in the venv (no build backend), so a console
