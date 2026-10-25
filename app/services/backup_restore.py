@@ -676,7 +676,7 @@ async def _execute_identity(
 
 
 async def _meshloom_step(run: _Run) -> None:
-    from app.services.backup import restore_json, restore_meshloom_extra
+    from app.services.backup import restore_json, restore_meshloom_extra, restore_push_owners
     from app.services.backup_sections import restore_sections
 
     if not run.options.steps.meshloom:
@@ -712,6 +712,9 @@ async def _meshloom_step(run: _Run) -> None:
         )
     if isinstance(doc, BackupExportV2) and doc.sections:
         run.result.warnings.extend(await restore_sections(doc.sections))
+    if isinstance(doc, BackupExportV2) and doc.meshloom_extra is not None:
+        # After the accounts section: the owners are matched by username (MSHL-320).
+        await restore_push_owners(doc.meshloom_extra)
     run.set("meshloom", "done")
 
 
