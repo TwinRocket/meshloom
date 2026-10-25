@@ -49,10 +49,15 @@ class AppriseTransport:
             markdown = channel.config.get("format") == "markdown"
         if not urls:
             return SendResult("failed", error_code="not_configured")
+        policy = channel.include_message_text
+        if preset is not None and preset.text_policy_locked and policy != preset.text_policy:
+            # Defence in depth: the API and the restore keep a locked policy, a row written
+            # any other way still never sends a text an SMS service would cut.
+            policy = preset.text_policy or "never"
         title, body = event_notification_text(
             dict(event.payload),
             await channel_language(channel),
-            include_message_text=channel.include_message_text,
+            include_message_text=policy,
             markdown=markdown,
         )
         results = await send_to_urls(

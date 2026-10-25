@@ -141,7 +141,7 @@ export function ChannelForm({
             <select
               id={`${prefix}-text`}
               value={draft.include_message_text}
-              disabled={disabled}
+              disabled={disabled || entry.include_message_text_locked}
               onChange={(event) =>
                 patch({ include_message_text: event.target.value as NotificationIncludeText })
               }
@@ -155,6 +155,14 @@ export function ChannelForm({
               </option>
               <option value="never">{t('settings.notifications.channels.includeTextNever')}</option>
             </select>
+            {entry.include_message_text_locked && (
+              <p
+                className="text-[0.8125rem] text-muted-foreground"
+                data-testid="text-policy-locked"
+              >
+                {t('settings.notifications.channels.includeTextLocked')}
+              </p>
+            )}
           </div>
         )}
 

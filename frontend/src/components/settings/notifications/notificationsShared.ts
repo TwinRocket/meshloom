@@ -1,10 +1,16 @@
 import {
   Bell,
+  BellDot,
   BellRing,
+  Hash,
   House,
   Mail,
   MessageCircle,
+  MessagesSquare,
+  Rocket,
   Send,
+  ShieldCheck,
+  Smartphone,
   Webhook,
   type LucideIcon,
 } from 'lucide-react';
@@ -33,6 +39,14 @@ export const TYPE_ICONS: Record<string, LucideIcon> = {
   gotify: BellRing,
   home_assistant: House,
   discord: MessageCircle,
+  pushover: BellDot,
+  matrix: Hash,
+  signal: ShieldCheck,
+  slack: MessagesSquare,
+  mattermost: MessagesSquare,
+  rocketchat: Rocket,
+  sms_free: Smartphone,
+  sms_sfr: Smartphone,
 };
 
 export function iconFor(type: string): LucideIcon {

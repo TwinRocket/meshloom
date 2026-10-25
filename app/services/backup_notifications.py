@@ -209,6 +209,11 @@ async def _restore_channel(
     except ChannelError:
         warnings.append(f"notification_channel_dropped:{item.id}")
         return False
+    if entry.text_policy_locked and item.include_message_text != entry.include_message_text_default:
+        # A service that cuts a long text (SMS) keeps its policy: a file cannot loosen it.
+        own["include_message_text"] = entry.include_message_text_default
+        warnings.append(f"notification_text_policy_forced:{item.id}")
+        logger.warning("Restore: text policy of channel %s forced to its fixed value", item.id)
     public = _public_config(entry, item.config)
     if (
         entry.singleton_id is not None

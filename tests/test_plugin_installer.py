@@ -754,7 +754,7 @@ async def test_kept_data_goes_after_the_retention(test_db):
     async with test_db.readonly() as conn:
         async with conn.execute("SELECT kept_at FROM plugin_kept_data") as cursor:
             kept_at = (await cursor.fetchone())[0]
-    # Rows nobody owns (left before migration 124) are recorded, not deleted at once.
+    # Rows nobody owns (left before migration 125) are recorded, not deleted at once.
     async with test_db.tx() as conn:
         await conn.execute(
             "INSERT INTO plugin_kv (instance_id, key, value, updated_at) VALUES ('ghost', 'k', '1', 0)"

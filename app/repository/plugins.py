@@ -451,7 +451,7 @@ class PluginRepository:
         return config
 
 
-# -- Data kept by an uninstall (plugin_kept_data, migration 124) ---------------------
+# -- Data kept by an uninstall (plugin_kept_data, migration 125) ---------------------
 
 # How long an uninstall with keep_data keeps the KV and secrets nobody took back.
 KEPT_DATA_RETENTION_S = 90 * 24 * 3600

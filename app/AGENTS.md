@@ -460,6 +460,8 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 124 (MSHL-365) rewrites Slack preset channels from `token_a`/`token_b`/`token_c` to one
+  `webhook` secret (`tests/test_migrations/test_migration_124.py`).
 - Migration 102 adds the share settings to `app_settings` (`share_enabled`,
   `share_shorten_mode`, `share_preview_policy`, `share_instance_seed`). Fresh databases get
   them from the migration, not from `SCHEMA_TABLES` (later columns are all added that
@@ -489,10 +491,10 @@ run as root).
   names only in the JSON `plugins` section, `services/backup_plugins.py`); `plugin_kv`
   is never exported. Rules: `docs/dev/plugins.md`, "Data model", and
   `docs/dev/backup.md`, "Plugins".
-- Migration 124 adds `plugin_kept_data` (MSHL-366: the owner of the KV rows and secrets an
+- Migration 125 adds `plugin_kept_data` (MSHL-366: the owner of the KV rows and secrets an
   uninstall with "keep data" left, so a reinstall from the same source takes them back and
   the hourly cleanup deletes them after 90 days; DDL also in `SCHEMA_TABLES`, compared by
-  `tests/test_migrations/test_migration_124.py`). It records the orphans of earlier
+  `tests/test_migrations/test_migration_125.py`). It records the orphans of earlier
   uninstalls with an empty `plugin_id` (never reattached, deleted after 90 days). Excluded
   from the JSON backup, kept in the SQLite download.
 - Migration 105 adds `plugin_send_quota` (the per-instance send counters of the

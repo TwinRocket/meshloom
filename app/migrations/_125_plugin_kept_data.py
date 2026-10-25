@@ -1,4 +1,4 @@
-"""Migration 124: ``plugin_kept_data``, the data an uninstall kept (MSHL-366).
+"""Migration 125: ``plugin_kept_data``, the data an uninstall kept (MSHL-366).
 
 An uninstall with ``keep_data`` keeps the instance's ``plugin_kv`` and ``plugin_secrets``
 rows, keyed by an ``instance_id`` that no longer exists. One row here records who owned
@@ -17,7 +17,7 @@ import time
 import aiosqlite
 
 # Kept textually identical to SCHEMA_TABLES in app/database.py:
-# tests/test_migrations/test_migration_124.py compares the two schemas.
+# tests/test_migrations/test_migration_125.py compares the two schemas.
 _STATEMENT = """CREATE TABLE IF NOT EXISTS plugin_kept_data (
     instance_id TEXT PRIMARY KEY,
     plugin_id TEXT NOT NULL,

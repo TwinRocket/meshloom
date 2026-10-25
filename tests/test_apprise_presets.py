@@ -66,7 +66,13 @@ def examples(preset: Preset) -> dict[str, str]:
 
 
 def secret_values(preset: Preset) -> list[str]:
-    return [spec.example for spec in preset.fields if spec.secret]
+    """The secrets as they appear in the compiled URL (a ``url`` secret, split by the
+    template, shows as its last path segment)."""
+    return [
+        spec.example.rsplit("/", 1)[-1] if spec.kind == "url" else spec.example
+        for spec in preset.fields
+        if spec.secret
+    ]
 
 
 def body(preset: Preset, **overrides: str) -> ChannelCreate:
@@ -119,7 +125,9 @@ def test_types_lists_the_preset_next_to_the_natives(preset):
         assert (
             prop.get("writeOnly") or any(o.get("writeOnly") for o in prop.get("anyOf", []))
         ) == (spec.secret)
-        assert ("format" in prop and prop["format"] == "uri") == (spec.kind == "url")
+        assert ("format" in prop and prop["format"] == "uri") == (
+            spec.kind == "url" and not spec.secret
+        )
         assert ("enum" in prop) == (spec.kind == "choice")
     required = set(entry["schema"].get("required", []))
     assert required == {s.name for s in preset.fields if s.required and not s.secret}
@@ -205,7 +213,13 @@ async def test_a_failure_with_the_url_in_its_text_is_scrubbed(test_db, preset):
     created = await Channels.create(body(preset))
     _channel, secrets = await Channels.get_for_send(created.id)  # type: ignore[misc]
     url = compile_url(preset, {**created.config, **secrets})
-    text = scrub_error(f"HTTPSConnectionPool: failed for {url}", secrets.values())
+    # A pasted webhook (``url`` secret) is scrubbed whole; the compiled URL only holds a
+    # slice of it, which is why the dispatcher stores delivery codes, never a URL.
+    quoted = url if not any(f.secret and f.kind == "url" for f in preset.fields) else ""
+    text = scrub_error(
+        f"HTTPSConnectionPool: failed for {quoted} {' '.join(secrets.values())}",
+        secrets.values(),
+    )
     assert text is not None
     assert not any(secret in text for secret in secret_values(preset))
     assert "****" in text
@@ -625,7 +639,7 @@ def test_the_added_presets_compile_to_the_urls_apprise_documents():
         "signal://sig.lan:8080/%2B33600000000/%2B33611111111"
     )
     assert compile_url(
-        spec_of("slack"), {"token_a": "T0AAAA", "token_b": "B0BBBB", "token_c": "xYz123"}
+        spec_of("slack"), {"webhook": "https://hooks.slack.com/services/T0AAAA/B0BBBB/xYz123"}
     ) == ("slack://T0AAAA/B0BBBB/xYz123")
     mattermost = {"server": "https://mm.example.org/chat/", "token": "abc123"}
     assert compile_url(spec_of("mattermost"), mattermost) == "mmosts://mm.example.org/chat/abc123"
@@ -726,7 +740,9 @@ async def test_a_self_hosted_server_on_a_lan_needs_the_private_network_box(
         ("matrix", {"room": "general"}, "room"),
         ("matrix", {"server": "https://m.example.org/sub"}, "server"),
         ("signal", {"to": "0600000000"}, "to"),
-        ("slack", {"token_a": "T0/x"}, "token_a"),
+        ("slack", {"webhook": "https://hooks.slack.com/services/T0/x"}, "webhook"),
+        ("slack", {"webhook": "https://evil.example.net/services/T0AAAA/B0BBBB/xYz123"}, "webhook"),
+        ("slack", {"webhook": "http://hooks.slack.com/services/T0AAAA/B0BBBB/xYz123"}, "webhook"),
         ("sms_free", {"user": "12ab"}, "user"),
         ("sms_sfr", {"to": "+33600000000,"}, "to"),
     ],
@@ -748,3 +764,120 @@ async def test_a_kept_matrix_credential_does_not_follow_a_new_server(test_db):
         )
     assert refused.value.code == "secret_required"
     assert refused.value.params["fields"] == ["credential"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preset_id", ["sms_free", "sms_sfr"])
+async def test_an_sms_text_policy_is_enforced_not_just_a_default(test_db, preset_id):
+    from app.notifications.channels import ChannelUpdate
+
+    spec = spec_of(preset_id)
+    assert next(e for e in types_schema() if e["type"] == preset_id)["include_message_text_locked"]
+    for wanted in ("always", "public_only"):
+        request = body(spec).model_copy(update={"include_message_text": wanted})
+        with pytest.raises(ChannelError) as refused:
+            await Channels.prepare(request)
+        assert refused.value.code == "text_policy_locked"
+    ok = await Channels.create(body(spec).model_copy(update={"include_message_text": "never"}))
+    assert ok.include_message_text == "never"
+    with pytest.raises(ChannelError) as refused:
+        await Channels.update(ok.id, ChannelUpdate(include_message_text="always"))
+    assert refused.value.code == "text_policy_locked"
+    kept = await Channels.update(ok.id, ChannelUpdate(include_message_text="never", name="x"))
+    assert (kept.name, kept.include_message_text) == ("x", "never")
+    # Another cloud preset stays free to choose.
+    assert not next(e for e in types_schema() if e["type"] == "pushover")[
+        "include_message_text_locked"
+    ]
+    await Channels.prepare(
+        body(spec_of("pushover")).model_copy(update={"include_message_text": "always"})
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_slack_webhook_is_one_secret_split_at_send_time(test_db):
+    spec = spec_of("slack")
+    assert [f.name for f in spec.fields] == ["webhook"]
+    created = await Channels.create(body(spec))
+    assert created.config == {}
+    assert created.secret_fields_set == ["webhook"]
+    assert "hooks.slack.com" not in json.dumps(created.model_dump())
+
+
+@pytest.mark.asyncio
+async def test_a_matrix_credential_is_required_at_save_time_and_never_echoed(test_db):
+    from app.notifications.channels import ChannelUpdate
+
+    request = body(spec_of("matrix"))
+    config = {k: v for k, v in request.config.items() if k != "credential"}
+    with pytest.raises(ChannelError) as refused:
+        await Channels.prepare(request.model_copy(update={"config": config}))
+    assert (refused.value.code, refused.value.params["fields"]) == (
+        "config_required",
+        ["credential"],
+    )
+    created = await Channels.create(request)
+    with pytest.raises(ChannelError) as cleared:
+        await Channels.update(created.id, ChannelUpdate(config={"credential": ""}))
+    assert cleared.value.code == "config_required"
+    assert "syt_dummy" not in repr(cleared.value.params)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preset_id", ["sms_free", "sms_sfr"])
+async def test_the_transport_clamps_a_locked_text_policy_at_send_time(
+    test_db, preset_id, monkeypatch
+):
+    seen: list[str] = []
+
+    def fake_text(payload, language, *, include_message_text, markdown):
+        seen.append(include_message_text)
+        return "title", "body"
+
+    async def fake_send(urls, **kwargs):
+        return []
+
+    monkeypatch.setattr("app.notifications.transports.apprise.event_notification_text", fake_text)
+    monkeypatch.setattr("app.notifications.transports.apprise.send_to_urls", fake_send)
+    monkeypatch.setattr("app.email_template.resolve_instance_language", _en)
+    created = await Channels.create(body(spec_of(preset_id)))
+    channel, secrets = await Channels.get_for_send(created.id)  # type: ignore[misc]
+    # A row written around the API (an old backup, a manual edit) says "always".
+    await AppriseTransport().send(
+        channel.model_copy(update={"include_message_text": "always"}), None, delivery(), secrets
+    )
+    assert seen == ["never"]
+    other = await Channels.create(body(spec_of("pushover")))
+    channel, secrets = await Channels.get_for_send(other.id)  # type: ignore[misc]
+    await AppriseTransport().send(
+        channel.model_copy(update={"include_message_text": "always"}), None, delivery(), secrets
+    )
+    assert seen == ["never", "always"]
+
+
+def test_scrub_error_also_hides_the_last_segment_of_a_webhook_url():
+    webhook = "https://hooks.slack.com/services/TDUMMY1/BDUMMY2/dummysecret"
+    text = scrub_error("failed slack://TDUMMY1/BDUMMY2/dummysecret", [webhook])
+    assert text is not None and "dummysecret" not in text
+
+
+@pytest.mark.asyncio
+async def test_a_failed_slack_send_stores_and_logs_no_url_part(test_db, monkeypatch, caplog):
+
+    created = await Channels.create(body(spec_of("slack")))
+    channel, secrets = await Channels.get_for_send(created.id)  # type: ignore[misc]
+
+    def refuse(server, title, body_text, markdown):
+        return False, _Response(status=500)
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(apprise_medium, "_send_sync", refuse)
+    monkeypatch.setattr(apprise_medium, "_sleep", no_sleep)
+    monkeypatch.setattr("app.email_template.resolve_instance_language", _en)
+    with caplog.at_level("DEBUG"):
+        result = await AppriseTransport().send(channel, None, delivery(), secrets)
+    assert not result.ok
+    assert "dummysecret" not in (result.error_code or "")
+    assert "dummysecret" not in caplog.text

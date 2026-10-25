@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 124 (the value of
+- Numbering is contiguous from 001. The current head is 125 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -385,13 +385,13 @@ download. `PluginRepository` (`plugins.py`).
 
 ### `plugin_kept_data`
 
-Owners of the data an uninstall with "keep data" left behind (migration 124, MSHL-366):
+Owners of the data an uninstall with "keep data" left behind (migration 125, MSHL-366):
 PK `instance_id` (the uninstalled instance), `plugin_id`, `kind`, `repository` (NULL for
 bundled), `kept_at` (Unix seconds). A reinstall of the same `plugin_id` + `kind` +
 `repository` (never `local`) takes the `plugin_kv` rows and the secrets whose field is
 still in the schema; the record is deleted. The hourly cleanup deletes records older
 than 90 days together with their `plugin_kv` and `plugin_secrets` rows, and records any
-untracked orphan it finds (migration 124 records the orphans of earlier uninstalls with
+untracked orphan it finds (migration 125 records the orphans of earlier uninstalls with
 an empty `plugin_id`, which nothing reattaches). Holds no secret: excluded from the JSON
 backup (a JSON restore reuses a kept id only for the same owner), kept in the database
 download. `PluginKeptDataRepository` (`plugins.py`).
