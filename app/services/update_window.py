@@ -77,7 +77,13 @@ def _local_wall_clock(day: datetime, hour: int, minute: int) -> datetime:
     rather than the offset of ``day``. A time skipped by a spring-forward gap lands
     after the gap; an ambiguous autumn time resolves to its first occurrence.
     """
-    return datetime.combine(day.date(), time(hour, minute)).astimezone()
+    naive = datetime.combine(day.date(), time(hour, minute))
+    # ``fold`` picks the offset in a gap or an overlap, and CPython versions disagree on
+    # which fold is the "pre-transition" one in a gap (3.11 vs 3.14): try both.
+    first, second = naive.replace(fold=0).astimezone(), naive.replace(fold=1).astimezone()
+    if first.replace(tzinfo=None) == naive == second.replace(tzinfo=None):
+        return min(first, second)  # autumn overlap: the first occurrence
+    return max(first, second)  # spring gap: the first instant after the gap
 
 
 def _clock_minutes(hour: int, minute: int) -> int:
