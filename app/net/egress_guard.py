@@ -12,7 +12,9 @@ Callers that talk to a fixed set of hosts (the Store client, the plugin
 ``http`` capability) also pass a ``HostAllowlist`` and send through
 ``follow_checked_redirects``: every redirect hop is validated again, the
 request and response bodies are capped (the response while it streams) and
-headers a caller must never set are dropped. The plugin capability also passes
+headers a caller must never set are dropped. A request body is bytes or a
+``StreamedBody`` (a known length and a factory of chunks, so an upload streams
+from disk with its exact ``Content-Length`` and is reopened for each attempt). The plugin capability also passes
 its declared LAN devices as ``lan_hosts``: those, and only those, may be reached
 over plain HTTP and must resolve to a LAN address (10/8, 172.16/12, 192.168/16,
 100.64/10, fc00::/7) that is not the Meshloom host itself (``is_self_address``)
@@ -657,6 +659,37 @@ async def validate_destination(
     return ResolvedDestination(url=url.strip(), scheme=scheme, host=host, port=port, ips=ips)
 
 
+@dataclass(frozen=True)
+class StreamedBody:
+    """A request body of a known ``length`` sent as chunks, never held whole in memory.
+
+    ``open`` returns a fresh iterator for each attempt (another validated
+    address, a 307/308 hop), so a body is never sent half-consumed. The guard
+    sets ``Content-Length`` to ``length`` itself (no chunked transfer); h11
+    refuses to send more or fewer bytes than that.
+    """
+
+    length: int
+    open: Callable[[], AsyncIterator[bytes]]
+
+
+RequestContent = bytes | StreamedBody | None
+
+
+def _body_and_headers(
+    content: RequestContent, headers: dict[str, str]
+) -> tuple[bytes | AsyncIterator[bytes] | None, dict[str, str]]:
+    if isinstance(content, StreamedBody):
+        return content.open(), {**headers, "Content-Length": str(content.length)}
+    return content, headers
+
+
+def _content_length(content: RequestContent) -> int:
+    if isinstance(content, StreamedBody):
+        return content.length
+    return len(content or b"")
+
+
 def pinned_url(dest: ResolvedDestination, ip: IPAddress) -> httpx.URL:
     """The destination URL with its host replaced by one validated IP."""
     return httpx.URL(dest.url).copy_with(host=str(ip))
@@ -673,20 +706,20 @@ class PinnedClient:
         self,
         method: str,
         *,
-        content: bytes | None = None,
+        content: RequestContent = None,
         headers: Mapping[str, str] | None = None,
     ) -> httpx.Response:
         dest = self.destination
-        sent_headers = self._headers(headers)
         last: httpx.ConnectError | None = None
         # Like a dual-stack connect: the next validated address only when the
         # connection itself failed, never once the request may have been sent.
         for ip in dest.ips:
+            body, sent_headers = _body_and_headers(content, self._headers(headers))
             try:
                 return await self._client.request(
                     method,
                     pinned_url(dest, ip),
-                    content=content,
+                    content=body,
                     headers=sent_headers,
                     extensions={"sni_hostname": dest.host},
                 )
@@ -698,7 +731,7 @@ class PinnedClient:
         raise last
 
     async def post(
-        self, *, content: bytes | None = None, headers: Mapping[str, str] | None = None
+        self, *, content: RequestContent = None, headers: Mapping[str, str] | None = None
     ) -> httpx.Response:
         return await self.request("POST", content=content, headers=headers)
 
@@ -707,18 +740,18 @@ class PinnedClient:
         self,
         method: str,
         *,
-        content: bytes | None = None,
+        content: RequestContent = None,
         headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[httpx.Response]:
         """``request`` with the body left unread, for callers that cap it."""
         dest = self.destination
-        sent_headers = self._headers(headers)
         last: httpx.ConnectError | None = None
         for ip in dest.ips:
+            body, sent_headers = _body_and_headers(content, self._headers(headers))
             request = self._client.build_request(
                 method,
                 pinned_url(dest, ip),
-                content=content,
+                content=body,
                 headers=sent_headers,
                 extensions={"sni_hostname": dest.host},
             )
@@ -831,7 +864,7 @@ async def follow_checked_redirects(
     max_request_bytes: int | None = None,
     max_response_bytes: int | None = None,
     total_timeout: float | None = None,
-    content: bytes | None = None,
+    content: RequestContent = None,
     headers: Mapping[str, str] | None = None,
     header_filter: Callable[[str, str], bool] | None = None,
     cross_origin_headers: Iterable[str] = (),
@@ -843,7 +876,8 @@ async def follow_checked_redirects(
 
     Every hop, the first included, goes through ``validate_destination`` with
     the same allowlist, LAN hosts, schemes and private-network rule, then a pinned
-    client. A body above ``max_request_bytes`` is refused before the first DNS
+    client. ``content`` is bytes or a ``StreamedBody`` (its ``Content-Length`` set
+    by the guard). A body above ``max_request_bytes`` is refused before the first DNS
     lookup; a response is aborted as soon as it declares or streams more than
     ``max_response_bytes``. ``timeout`` applies per httpx operation,
     ``total_timeout`` (seconds) to the whole chain, so a server dripping bytes
@@ -862,7 +896,7 @@ async def follow_checked_redirects(
     keeps ``verify_tls``. Raises ``EgressBlocked``, ``httpx`` transport errors or
     ``TimeoutError``.
     """
-    if max_request_bytes is not None and content is not None and len(content) > max_request_bytes:
+    if max_request_bytes is not None and _content_length(content) > max_request_bytes:
         raise EgressBlocked("egress_request_too_large")
     sent_headers = {
         k: v

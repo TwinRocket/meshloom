@@ -5,6 +5,10 @@ The browser never talks to the service: these routes do, through
 request. Writes refuse a request the browser marks ``Sec-Fetch-Site: cross-site``
 (defence in depth, SECURITY.md); CORS is untouched.
 
+``POST /files`` takes the raw bytes of an image (not multipart), stages them
+under ``<data dir>/share-tmp/``, checks them and uploads them
+(``app.services.share_upload``); nothing leaves before the local checks pass.
+
 ``GET /{id}`` proxies a shared object through the disk cache (``read_object``)
 with headers that never let it run as active content. ``message_id`` names the
 message the id was seen in: the caller must be able to read that message (a
@@ -13,6 +17,7 @@ kiosk never reads a direct message) and its text must carry the id.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 from urllib.parse import urlsplit
 
@@ -22,13 +27,14 @@ from app import keystore
 from app.auth.permissions import can_read_private, forbidden, require
 from app.models import (
     ShareCacheClearResponse,
+    ShareFileResponse,
     ShareLinkRequest,
     ShareLinkResponse,
     ShareMetaResponse,
     ShareStatus,
 )
 from app.repository import AppSettingsRepository, MessageRepository
-from app.services import share
+from app.services import share, share_upload
 from app.services.instance_identity import identity_ready
 from app.services.share import ShareError
 
@@ -118,6 +124,55 @@ async def create_share_link(body: ShareLinkRequest) -> ShareLinkResponse:
         raise ShareError("share_disabled")
     link = await share.create_link(_checked_url(body.url))
     return ShareLinkResponse(id=link.id, url=link.url, expires_at=link.expires_at)
+
+
+@router.post(
+    "/files",
+    response_model=ShareFileResponse,
+    status_code=201,
+    dependencies=[Depends(require("send")), Depends(refuse_cross_site)],
+)
+async def upload_share_file(request: Request) -> ShareFileResponse:
+    """Upload an image: the raw body, its ``Content-Type`` and ``Content-Length``.
+
+    Headers: ``X-Share-Mode`` (``public``; ``encrypted`` is 422
+    ``share_mode_unavailable`` until M3), optional ``X-Share-Name`` (validated,
+    never stored nor sent in public mode). Every refusal before the upload
+    reads at most what was declared and makes no request.
+    """
+    # Off first: a disabled instance answers share_disabled and reads nothing.
+    if await share.share_egress_state() is None:
+        raise ShareError("share_disabled")
+    headers = request.headers
+    mode = headers.get("x-share-mode", "").strip()
+    if mode == "encrypted":
+        raise ShareError("share_mode_unavailable")
+    if mode != "public" or "transfer-encoding" in headers:
+        raise ShareError("share_invalid_request")
+    content_type = share_upload.normal_content_type(headers.get("content-type"))
+    if content_type not in share.IMAGE_CONTENT_TYPES:
+        raise ShareError("share_type_refused")
+    length = share_upload.declared_length(headers.get("content-length"), content_type)
+    share_upload.check_name(headers.get("x-share-name"))
+    # Known local refusals before receiving megabytes for nothing.
+    if share.share_banned():
+        raise ShareError("share_banned")
+    if share.share_breaker().cooling():
+        raise ShareError("share_unavailable")
+    with share_upload.upload_slot():
+        async with share_upload.staged_upload(
+            request.stream(), content_type=content_type, length=length
+        ) as staged:
+            await asyncio.to_thread(share_upload.check_staged, staged)
+            stored = await share_upload.upload_file(staged)
+    return ShareFileResponse(
+        id=stored.id,
+        url=stored.url,
+        expires_at=stored.expires_at,
+        size=stored.size,
+        mode="public",
+        text=share_upload.suggested_text(stored.url),
+    )
 
 
 # Query parameters a read accepts: nothing else, never twice.

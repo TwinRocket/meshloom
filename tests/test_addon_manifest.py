@@ -182,5 +182,7 @@ def test_the_image_reference_cannot_carry_capitals() -> None:
 
 
 def test_share_cache_is_left_out_of_backups() -> None:
-    """The shared images cache (<addon_config>/share-cache) is rebuilt on demand."""
-    assert "share-cache" in _config().get("backup_exclude", [])
+    """The shared images cache is rebuilt on demand; share-tmp holds uploads in progress."""
+    excluded = _config().get("backup_exclude", [])
+    assert "share-cache" in excluded
+    assert "share-tmp" in excluded

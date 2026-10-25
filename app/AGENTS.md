@@ -303,6 +303,27 @@ Community guard.
   `SERVICE_CALLS` in `tests/test_share_off_no_egress.py` (the test finds them
   from the module and fails otherwise); `/api/share/*` routes are found from
   `app.routes` and swept too.
+- **Uploads (`services/share_upload.py`, MSHL-243).** `upload_file` (`POST /v1/files`,
+  public mode) lives outside `services/share.py`, so it is not in `SERVICE_CALLS`; its
+  route is in the `/api/share/*` sweep and `tests/test_share_upload.py` asserts no request
+  and no DNS lookup for every local refusal. The body is staged, never read whole into
+  memory: `staged_upload` streams `request.stream()` to `<data dir>/share-tmp/`
+  (`tmp_directory()`, next to `MESHCORE_DATABASE_PATH`, mode 0700 enforced on every use;
+  each file 0600, `O_EXCL | O_NOFOLLOW`, random name) and computes the sha256 on the way;
+  one byte past the declared `Content-Length` stops the read, a short body is refused
+  (400 `share_invalid_request`); the file is removed in `finally`, and
+  `clean_tmp_directory()` empties the folder at startup (`main.py` lifespan; files and
+  links unlinked, never followed). `check_staged` runs before any egress: magic bytes =
+  declared type, else 415 `share_type_refused`; `imagesize` (2.x, `exif_rotation=False`)
+  must read the dimensions, else 415; GIF over 5 MiB or more than 40 Mpx is 413
+  `share_too_large` (as the contract answers). `upload_slot()` allows
+  `MAX_CONCURRENT_UPLOADS` (2) at once; one more is 429 `share_rate_limited`,
+  `params.scope = "local"`, never queued. `upload_file` sends `X-Share-Mode`,
+  `X-Share-Sha256`, the image `Content-Type` and the binding
+  `mode LF sha256 LF proposed_id LF content_length` (`proposed_id` empty in public mode)
+  through `share_request(body=StreamedBody(...))`; the answer must keep the id grammar,
+  a share host, `url == https://<host>/<id>` and the sent size, else 502
+  `share_unavailable`. The HA add-on keeps `share-tmp` out of backups.
 - **Meta cache.** `get_meta` replays a good answer for `META_CACHE_S` (10 min,
   256 ids), after the opt-in check; turning sharing off clears it.
 - **Objects (`read_object`, MSHL-244).** Opt-in check first (off answers
@@ -341,7 +362,14 @@ Community guard.
   'none'; sandbox`, `Cache-Control: private, max-age=3600`, `Content-Disposition`
   `inline` for an image and `attachment` (`.bin`) otherwise, `filename*=` built
   from the id), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
-  sharing off, no egress). On both reads the only query parameter is
+  sharing off, no egress), `POST /files` (`send`; raw image body, not multipart; checks in
+  order: off `share_disabled`, `X-Share-Mode: encrypted` 422 `share_mode_unavailable`
+  (M3, T28), another mode or a `Transfer-Encoding` 400, a type outside
+  `IMAGE_CONTENT_TYPES` 415, `Content-Length` missing/malformed 400 or over the type cap
+  413 before reading, `X-Share-Name` (optional, validated as a plain name and never used
+  or sent) 400, ban, breaker, then the upload slot, staging and checks above; 201
+  `ShareFileResponse` `{id, url, expires_at, size, mode, text}`, `text` = `📷 <url>`,
+  30 bytes on `meshl.ink`, the composer's suggested message). On both reads the only query parameter is
   `message_id` (anything else or a repeat is 400 `share_invalid_request`); when
   given, the message must exist and contain the id (else 404 `share_not_found`)
   and a non-channel message needs `read_private` (a kiosk gets 403). Every write route depends on
