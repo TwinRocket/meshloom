@@ -389,7 +389,9 @@ The uid of each plugin instance under the `setuid` isolation level (migration 12
 MSHL-339): PK `instance_id`, `uid` (UNIQUE, CHECK `> 0`, from 40000-49999), `allocated_at`
 (Unix seconds). No foreign key: a row outlives its instance until the files its uid left
 in the shared temporary directories are purged, then it is deleted
-(`PluginUidRepository`, `app/plugins/host.py`). Host state: excluded from every backup.
+(`PluginUidRepository`, `app/plugins/host.py`). Host state: excluded from every backup. The
+same uid is also leased host-wide in the shared temp dirs (`app/plugins/isolation/uid_lease.py`,
+MSHL-357), keyed by `<data dir>/plugin-install-id`.
 
 ### `plugin_send_guard`
 

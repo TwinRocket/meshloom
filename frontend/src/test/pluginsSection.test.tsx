@@ -708,11 +708,24 @@ describe('global pause and member view', () => {
     expect(banner).toHaveTextContent('/tmp/locked');
     expect(banner).toHaveTextContent('/var/tmp/other');
     expect(banner).toHaveTextContent(t('settings.extensions.isolation.purgeBlocked.fix'));
+    expect(screen.queryByTestId('plugins-purge-blocked-lease')).toBeNull();
     unmount();
 
     render(<SettingsExtensionsSection health={health({ plugins_purge_blocked: [] })} />);
     await screen.findByTestId('plugin-isolation');
     expect(screen.queryByTestId('plugins-purge-blocked')).toBeNull();
+  });
+
+  it('explains a uid lease held by another Meshloom on the machine', async () => {
+    vi.spyOn(api, 'getPluginsPause').mockResolvedValue({ paused: false, since: null, by: null });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([instance()]);
+    const lease = '/tmp/.meshloom-plugin-uids/40007';
+    render(<SettingsExtensionsSection health={health({ plugins_purge_blocked: [lease] })} />);
+    const banner = await screen.findByTestId('plugins-purge-blocked');
+    expect(banner).toHaveTextContent(lease);
+    expect(within(banner).getByTestId('plugins-purge-blocked-lease')).toHaveTextContent(
+      t('settings.extensions.isolation.purgeBlocked.leaseFix')
+    );
   });
 
   it('never prints an empty date when the pause has none', async () => {

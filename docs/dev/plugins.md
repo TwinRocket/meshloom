@@ -907,7 +907,8 @@ instance of the repository cache (stored status, `disabled` when not enabled),
 with live values for the running ones. Health carries `plugins_isolation`,
 `plugins_disabled`, `plugins_disabled_source`, `plugins_paused_since`,
 `plugins_pause_unreadable`, `plugins_purge_blocked` (under `setuid`: temp dirs a uid
-purge could not list, the uid kept; empty below admin) and `plugin_statuses`; an
+purge could not list, or the lease file of another install holding the uid, MSHL-357;
+the uid kept; empty below admin) and `plugin_statuses`; an
 anonymous caller gets none of them.
 
 Who sees errors: `plugin_status` is admin-only. `health` (REST and WebSocket)

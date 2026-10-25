@@ -12,7 +12,7 @@ import contextlib
 import os
 import shutil
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -40,6 +40,26 @@ class IsolationBackend:
     def for_uid(self, uid: int) -> "IsolationBackend":
         """This backend bound to one instance's uid (`per_instance_uid` only)."""
         return self
+
+    # Per-instance uid allocation (`per_instance_uid` only; `setuid` holds a host-wide
+    # lease per uid, `uid_lease`, MSHL-357).
+
+    def uid_candidates(self) -> Sequence[int]:
+        """The uids an instance may get, in the order to try them."""
+        return ()
+
+    def uid_available(self, uid: int) -> bool:
+        """True when `uid` may go to a new instance (and is now leased for it)."""
+        return True
+
+    def claim_uid(self, uid: int) -> None:
+        """Hold `uid` for this install; raises `ValueError` when that is refused."""
+
+    def release_uid(self, uid: int) -> None:
+        """Give `uid` back once a purge freed it."""
+
+    def prepare_uid_leases(self) -> None:
+        """Startup work for the uid leases, before any child runs."""
 
     def purge(self, dirs: Iterable[Path] | None = None) -> None:
         """Remove what this backend's uid left in the shared temporary directories

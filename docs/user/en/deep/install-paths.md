@@ -96,6 +96,8 @@ The container runs as root by default. To run it as user number 10001 instead, s
 
 Plugins run in the container under user numbers 40000 to 49999 (see [Plugins](/en/docs/deep/plugins/)). Docker does not translate user numbers unless you turn on `userns-remap`, so on the host they are the same numbers. Meshloom skips a number that has an account inside the container, but it cannot see the host's accounts: if the host uses numbers in that range (often through a directory such as LDAP), a plugin's processes and the files it leaves in folders shared with the host belong to that account there. Leave the range unused on the host, or turn on `userns-remap`.
 
+Several Meshloom containers on one host share these numbers too. Each Meshloom notes the numbers it uses in a `.meshloom-plugin-uids` folder of its temporary folders (`/tmp`, `/var/tmp`, `/dev/shm`) and never takes, nor cleans, a number another one noted there, so two copies that share `/tmp` or the IPC namespace (`--ipc=host`) stay apart. Copies that share nothing still start at different numbers. If you remove a Meshloom for good while its temporary folders stay (no reboot), its numbers stay taken until you delete its notes in `/tmp/.meshloom-plugin-uids`; Settings → Extensions says so when a number is blocked this way.
+
 A Compose file written by hand cannot be updated from the interface. The installer's Docker mode adds a small helper that runs as root on the host: it pins the image by its signed digest in `.env` and installs updates when you ask in **Settings → Updates**. It never edits `docker-compose.yml`. Docker Desktop and rootless Docker get no helper: the stack follows `:latest`.
 
 ## Portainer

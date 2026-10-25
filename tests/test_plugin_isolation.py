@@ -826,19 +826,42 @@ def test_purge_fails_when_the_server_still_sees_something(monkeypatch) -> None:
     assert seen == [(40010, [Path("/nowhere")]), (40010, None)]
 
 
+# The top of the uid range, shared out between the xdist workers; tests that need a
+# plugin uid outside every worker's block take it below (`_uid_outside_the_blocks`).
+_WORKER_UIDS = 200
+_MIN_BLOCK = 10
+
+
 def _free_instance_uids(count: int) -> list[int]:
     from app.plugins.isolation.setuid import INSTANCE_UIDS, uid_is_free
 
     # MSHL-356: pytest-xdist runs these tests in parallel workers of one container, and
     # a purge removes every System V object and file the uid owns, so two workers
-    # sharing a uid destroy each other's fixtures. Each worker gets its own block.
-    worker = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
-    number = worker.removeprefix("gw")
-    block = (int(number) if number.isdigit() else 0) % 20
-    pool = INSTANCE_UIDS[-200 + 10 * block :][:10]
+    # sharing a uid destroy each other's fixtures. Each worker gets its own block
+    # (MSHL-358: sized from the worker count, never wrapped around onto another's).
+    workers = int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1"))
+    size = _WORKER_UIDS // max(workers, 1)
+    if size < _MIN_BLOCK:
+        pytest.fail(
+            f"{workers} xdist workers: at most {_WORKER_UIDS // _MIN_BLOCK} share the"
+            f" {_WORKER_UIDS} test uids without overlapping (use fewer, `-n`)",
+            pytrace=False,
+        )
+    number = os.environ.get("PYTEST_XDIST_WORKER", "gw0").removeprefix("gw")
+    worker = int(number) if number.isdigit() else 0
+    assert worker < workers, f"worker gw{worker} out of {workers}"
+    pool = INSTANCE_UIDS[-_WORKER_UIDS:][size * worker :][:size]
     found = [uid for uid in pool if uid_is_free(uid)][:count]
     assert len(found) == count
     return found
+
+
+def _uid_outside_the_blocks(*, avoid: int) -> int:
+    """A free plugin uid no worker's block holds (`_free_instance_uids`)."""
+    from app.plugins.isolation.setuid import INSTANCE_UIDS, uid_is_free
+
+    below = INSTANCE_UIDS[:-_WORKER_UIDS]
+    return next(u for u in reversed(below) if u != avoid and uid_is_free(u))
 
 
 @pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
@@ -1104,7 +1127,7 @@ def test_purge_skips_a_work_dir_only_when_a_plugin_uid_owns_it() -> None:
     account = account_uid()
     stranger = next(u for u in range(30000, 39999) if uid_is_free(u))
     assert stranger not in INSTANCE_UIDS and stranger != account
-    other = next(u for u in reversed(INSTANCE_UIDS) if u != mine.uid and uid_is_free(u))
+    other = _uid_outside_the_blocks(avoid=mine.uid)
     shared = shared_tmp_dir("meshloom-purge-stranger-")
     os.chmod(shared, 0o1777)
     plugin_dir = shared_tmp_dir("meshloom-purge-stranger-plugin-")
