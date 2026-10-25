@@ -280,7 +280,16 @@ async def test_a_bad_entry_is_dropped_on_its_own(backup_db, api, manager):
         # A file written by hand with the mask or a secret in config: never stored.
         "config": {"city": "Lyon", "api_key": "hand-written"},
     }
-    entries = [good, good, "junk", {"plugin_id": "local.x-abcdef"}, wrong_id, no_source, bad_schema, bad_python]
+    entries = [
+        good,
+        good,
+        "junk",
+        {"plugin_id": "local.x-abcdef"},
+        wrong_id,
+        no_source,
+        bad_schema,
+        bad_python,
+    ]
     warnings = await restore_sections(
         {PLUGINS_SECTION: BackupSection(data={"instances": [*entries, leaked]})}
     )
