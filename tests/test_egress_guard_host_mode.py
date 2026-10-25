@@ -49,6 +49,11 @@ class Box:
         (self.sys_net / name / "iflink").write_text(f"{iflink}\n")
         return self
 
+    def lower(self, name: str, parent: str) -> "Box":
+        """``name`` is a VLAN or macvlan over ``parent`` in this namespace."""
+        (self.sys_net / name / f"lower_{parent}").symlink_to(self.sys_net / parent)
+        return self
+
     def default_via(self, iface: str, gateway) -> "Box":
         self.route.write_text(
             ROUTE_HEADER + f"{iface}\t00000000\t{_hex_le(gateway)}\t0003\t0\t0\t0\t00000000\n"
@@ -123,6 +128,41 @@ def test_ipv6_default_route_interface_is_checked_too(box):
         "00000000000000000000000000000000 00 00000000000000000000000000000000 00 "
         "fe800000000000000000000000000001 00000400 00000001 00000000 00000003     eth1\n"
     )
+    assert not box.host_networking()
+
+
+@pytest.mark.parametrize("kind", ["vlan", "macvlan"])
+def test_host_networking_through_a_vlan_or_macvlan_is_recognised(box, kind):
+    # enp1s0.10 (VLAN) or mv0 (macvlan) on the host: iflink is the parent's ifindex.
+    iface = "enp1s0.10" if kind == "vlan" else "mv0"
+    box.interfaces("lo", "enp1s0", iface, "docker0").link("enp1s0", 2, 2).link(iface, 5, 2)
+    box.lower(iface, "enp1s0").default_via(iface, ROUTER)
+    assert box.host_networking()
+
+
+def test_vlan_over_a_bond_is_recognised(box):
+    box.interfaces("lo", "eth0", "bond0", "bond0.20", "docker0")
+    box.link("eth0", 2, 2).link("bond0", 3, 3).link("bond0.20", 4, 3)
+    box.lower("bond0.20", "bond0").default_via("bond0.20", ROUTER)
+    assert box.host_networking()
+
+
+def test_a_macvlan_container_is_not_host_networking(box):
+    # Docker's macvlan driver: the parent stays in the host namespace, so the
+    # container's eth0 has an iflink but no lower_ entry.
+    box.interfaces("lo", "eth0", "docker0").link("eth0", 9, 2).default_via("eth0", ROUTER)
+    assert not box.host_networking()
+
+
+def test_a_lower_entry_must_match_the_iflink(box):
+    box.interfaces("lo", "enp1s0", "eth0", "docker0").link("enp1s0", 2, 2).link("eth0", 9, 16)
+    box.lower("eth0", "enp1s0").default_via("eth0", BRIDGE_GATEWAY)
+    assert not box.host_networking()
+
+
+def test_a_lower_that_is_not_its_own_link_does_not_count(box):
+    box.interfaces("lo", "veth0", "veth0.5", "docker0").link("veth0", 2, 30).link("veth0.5", 3, 2)
+    box.lower("veth0.5", "veth0").default_via("veth0.5", BRIDGE_GATEWAY)
     assert not box.host_networking()
 
 

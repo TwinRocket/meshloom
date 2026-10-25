@@ -339,22 +339,41 @@ _HOST_NETWORK_IFACE = re.compile(
 )
 
 
-def _own_link(iface: str, sys_net: str) -> bool:
+def _read_index(path: str) -> int:
+    with open(path, encoding="ascii") as f:
+        return int(f.read().strip())
+
+
+def _own_link(iface: str, sys_net: str, depth: int = 0) -> bool:
     """True when ``iface`` is its own link (``iflink == ifindex`` in sysfs): a physical
-    NIC, a bridge, Wi-Fi, a WireGuard tunnel. A bridged container's ``eth0`` is a veth
-    (or macvlan) whose link is its peer in another namespace: False. Unreadable:
-    False."""
-    if not iface or "/" in iface or iface in (".", ".."):
+    NIC, a bridge, Wi-Fi, a WireGuard tunnel. Also true for a VLAN or macvlan stacked
+    on such a link in this namespace: the kernel lists its parent as a ``lower_<name>``
+    entry only when the parent lives in the same namespace (MSHL-340). A bridged
+    container's ``eth0`` is a veth (or a macvlan) whose link is its peer or parent in
+    another namespace, with no ``lower_`` entry: False. Unreadable: False."""
+    if not iface or "/" in iface or iface in (".", "..") or depth > 3:
         return False
     try:
         base = os.path.join(sys_net, iface)
-        with open(os.path.join(base, "ifindex"), encoding="ascii") as f:
-            ifindex = int(f.read().strip())
-        with open(os.path.join(base, "iflink"), encoding="ascii") as f:
-            iflink = int(f.read().strip())
+        ifindex = _read_index(os.path.join(base, "ifindex"))
+        iflink = _read_index(os.path.join(base, "iflink"))
     except (OSError, ValueError):
         return False
-    return ifindex == iflink
+    if ifindex == iflink:
+        return True
+    try:
+        lowers = [e[len("lower_") :] for e in os.listdir(base) if e.startswith("lower_")]
+    except OSError:
+        return False
+    for lower in lowers:
+        try:
+            if _read_index(os.path.join(sys_net, lower, "ifindex")) != iflink:
+                continue
+        except (OSError, ValueError):
+            continue
+        if _own_link(lower, sys_net, depth + 1):
+            return True
+    return False
 
 
 def _host_networking(
@@ -366,7 +385,8 @@ def _host_networking(
     """True when this container shares the host's network namespace. Two signals,
     both required: it lists the engine's bridges (``docker0``, ``hassio``, ``br-*``)
     or veth ends, which a bridged container never sees; and every default route
-    leaves through an interface that is its own link (``_own_link``), never a veth
+    leaves through an interface that is its own link, or a VLAN or macvlan on one
+    (``_own_link``), never a veth
     whose peer is elsewhere. The second rules out a bridged container that runs its
     own engine (Docker-in-Docker shows ``docker0`` but routes through its veth
     ``eth0``, and its gateway is the real host). Unreadable, no default route or no
