@@ -72,6 +72,8 @@ COPY pyproject.toml uv.lock ./
 
 # Copy application code
 COPY app/ ./app/
+# Plugin child runtime, a top-level package next to app/ (app/plugins/launch.py)
+COPY meshloom_plugin/ ./meshloom_plugin/
 
 # Layer-2 bundled hashtag names: same CC0 snapshot the backend loads
 # (repo path first, then this packaged copy next to meshcore_channels.py).
@@ -86,10 +88,29 @@ COPY --from=frontend-builder /build/dist ./frontend/dist
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
 
+# The account plugin children drop to when the server runs as root (the default
+# here and in the Home Assistant add-on): app/plugins/isolation/setuid.py. No
+# shell, no home, no password; Docker's seccomp profile refuses the user
+# namespaces bubblewrap needs, so this is the isolation of the image.
+# uid/gid pinned to 10002 (next to MESHLOOM_RUN_AS_USER's 10001): Docker does not
+# remap users, so this is that uid on the host too, and the first system uid
+# (999) is often a real host account. An existing account is kept as it is.
+ARG PLUGIN_UID=10002
+RUN if ! getent passwd meshloom-plugin >/dev/null; then \
+        getent group meshloom-plugin >/dev/null \
+            || groupadd --system --gid "${PLUGIN_UID}" meshloom-plugin; \
+        useradd --system --uid "${PLUGIN_UID}" --gid meshloom-plugin --no-create-home \
+            --home-dir /nonexistent --shell /usr/sbin/nologin meshloom-plugin; \
+    fi
+
 # Root by default, like every image before it. MESHLOOM_RUN_AS_USER=10001 opts
 # in to running as that uid (see docker-entrypoint.sh). setpriv comes with
 # util-linux in the base image.
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+# Recovery command (app/cli.py): `docker compose exec meshloom meshloom-admin ...`.
+# The same wrapper the deb/rpm package ships; it finds /app/.venv by itself.
+COPY --chmod=0755 pkg/nfpm/meshloom-admin /usr/local/bin/meshloom-admin
 
 # Last, because its value changes with every commit and an ENV layer invalidates
 # everything built after it. Declared any earlier, it rebuilt the dependency
@@ -103,4 +124,4 @@ EXPOSE 8000
 # Run the application. The entrypoint only execs CMD unless
 # MESHLOOM_RUN_AS_USER is set, so the Home Assistant add-on's CMD is unchanged.
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

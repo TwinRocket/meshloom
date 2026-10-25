@@ -14,7 +14,9 @@ import time
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, replace
+from typing import Literal
 
+from app.auth import audit
 from app.models import (
     BackupCounts,
     BackupEnvelope,
@@ -334,6 +336,9 @@ async def inspect_backup(
     result.wifi_open_network = result.has_wifi_credentials and bool(
         opened.wifi and opened.wifi.open_network
     )
+    from app.services.backup_sections import summarize_sections
+
+    result.sections = summarize_sections(opened.sections)
     if extra is not None:
         result.counts.fanout_configs = len(extra.fanout_configs)
         result.counts.push_subscriptions = len(extra.push_subscriptions)
@@ -434,6 +439,8 @@ class RestoreOptions:
     replace_live_identity: bool = False
     wipe_history: bool = False
     expected_live_public_key: str | None = None
+    # Who asked: the job writes the ``backup.restored`` audit row when it ends.
+    actor: audit.AuditActor = audit.SYSTEM_ACTOR
 
 
 class _Run:
@@ -670,6 +677,7 @@ async def _execute_identity(
 
 async def _meshloom_step(run: _Run) -> None:
     from app.services.backup import restore_json, restore_meshloom_extra
+    from app.services.backup_sections import restore_sections
 
     if not run.options.steps.meshloom:
         run.set("meshloom", "skipped", "step_off")
@@ -686,14 +694,24 @@ async def _meshloom_step(run: _Run) -> None:
             push_defaults=doc.push_defaults,
             push_conversation_overrides=doc.push_conversation_overrides,
             vapid_subject=doc.vapid_subject,
-        )
+        ),
+        run_hooks=False,  # once for the whole job, in _run_restore
     )
     run.result.contacts_upserted = result.contacts_upserted
     run.result.channels_upserted = result.channels_upserted
     run.result.groups_upserted = result.groups_upserted
     run.result.settings_updated = result.settings_updated
+    run.result.warnings.extend(result.warnings)
     if isinstance(doc, BackupExportV2) and doc.meshloom_extra is not None:
-        run.result.warnings.extend(await restore_meshloom_extra(doc.meshloom_extra))
+        has_opt_in = (
+            doc.settings is not None
+            and "push_allow_private_endpoints" in doc.settings.model_fields_set
+        )
+        run.result.warnings.extend(
+            await restore_meshloom_extra(doc.meshloom_extra, settings_have_push_opt_in=has_opt_in)
+        )
+    if isinstance(doc, BackupExportV2) and doc.sections:
+        run.result.warnings.extend(await restore_sections(doc.sections))
     run.set("meshloom", "done")
 
 
@@ -879,32 +897,58 @@ async def _maybe_save_ble_pin(outcome, doc: BackupExportV2) -> None:
     await RadioTransportRepository.save(snapshot)
 
 
+def _restore_wrote(run: _Run) -> bool:
+    """The job changed the identity or reached the Meshloom data: the restore
+    hooks run (a refused or radio-only job writes nothing they care about)."""
+    return run.step("identity").status == "done" or run.step("meshloom").status not in (
+        "pending",
+        "skipped",
+    )
+
+
 async def _run_restore(run: _Run) -> None:
+    # The final state is published last, once the result, the restore hooks and
+    # the Wi-Fi prompt are settled: a poller that sees it sees a finished job.
+    state: Literal["done", "failed"] = "failed"
     try:
         await _identity_step(run)
         if run.stop:
             for name in STEP_ORDER[1:]:
                 if run.step(name).status == "pending":
                     run.set(name, "skipped", "identity_failed")
-            run.job.state = "failed"
             return
         await _meshloom_step(run)
         await _radio_steps(run)
-        run.job.state = "done"
+        state = "done"
     except Exception:
         logger.exception("Backup restore failed")
         for step in run.job.steps:
             if step.status in ("pending", "running"):
                 step.status = "failed"
                 step.code = "internal_error"
-        run.job.state = "failed"
     finally:
         run.result.steps = [step.model_copy() for step in run.job.steps]
         run.result.warnings = list(dict.fromkeys(run.result.warnings))
         run.job.result = run.result
+        if _restore_wrote(run):
+            from app.services.backup_sections import run_on_restore_hooks
+
+            await run_on_restore_hooks("json")
         run.job.finished_at = int(time.time())
+        doc_format = getattr(run.doc, "format", None)
         run.doc = None  # type: ignore[assignment]  # drop the secrets now
         _set_running(None)
+        run.job.state = state
+        await audit.record(
+            "backup.restored",
+            "success" if state == "done" else "failure",
+            actor=run.options.actor,
+            target=f"restore_job:{run.job.job_id}",
+            details={
+                "format": doc_format,
+                "steps": {step.step: step.status for step in run.job.steps},
+            },
+        )
 
 
 async def start_restore_backup_v2(

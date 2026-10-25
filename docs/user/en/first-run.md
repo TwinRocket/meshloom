@@ -13,6 +13,19 @@ http://127.0.0.1:8000
 
 From another device on the same network, use the machine's IP address with port `8000`.
 
+## Create your account
+
+The first time you open Meshloom, before anything else, it asks you to create the administrator account. Choose a user name and a password of at least 12 characters (a few words in a row make a good one; it must differ from the user name and not be a common password), and optionally a display name. The language buttons under the form switch the interface.
+
+If this Meshloom already held data before it asked for accounts (an upgrade), the page also asks for the **installation code**: 8 digits that Meshloom prints in its log each time it starts while no account exists. Spaces and dashes in the code do not matter. To find it:
+
+- **Docker:** `docker logs <container>` and look for "installation code".
+- **Package install:** `journalctl -u meshloom`.
+- **Home Assistant add-on:** the **Log** tab of the add-on.
+- **Any install:** `meshloom-admin setup-code` on the host prints a new code.
+
+Afterwards Meshloom opens a login page to anyone who is not signed in. If a session ends while the page is open, a dialog asks for your password again and you resume where you were. Your name is in the account button (bottom of the side rail, or the top of **Settings** on a phone), which also has **Sign out**. On plain `http://` your password crosses the network unencrypted, which the login page points out: use HTTPS or a network you trust.
+
 ## Language of the interface
 
 The interface opens in French by default. To switch to English, open **Settings > Local Configuration** and change **Language**. The choice applies to this browser only. This guide uses the English names of buttons and menus.
@@ -82,7 +95,7 @@ The conversation list is split into sections: **Favorites**, **Channels**, **Con
 The **Tools** screen (or the icon bar) opens:
 
 - **Packet Feed**: every packet the radio hears, whether or not it can be decrypted.
-- **Control journal**: requests, replies and group data, kept apart from conversations.
+- **Feed**: every message and the control traffic (requests, replies, group data) in one timeline. The **Control** preset (`#control`) shows the control traffic alone.
 - **Live**: packets appear on a map as they are heard.
 - **Mesh Visualizer**: the paths packets actually took.
 - **Trace**: a route test through chosen repeaters.
@@ -97,6 +110,6 @@ The **Add Channel/Contact** button creates a conversation: a contact from its pu
 
 Other useful pages in **Settings**: **Notifications** (below), **Updates**, **MQTT & Automation** (outputs and bots), **Alerts** (telemetry thresholds), **Database** (size and storage cleanup), **Statistics** and **About**.
 
-**Settings > Notifications** is where you choose what Meshloom tells you about (new contacts, direct messages, new repeaters or sensors, found channels, telemetry alerts, updates), and where: Web Push on this browser, email, or a webhook. Push also works when the browser is closed, but needs HTTPS. Meshloom shows no pop-up alerts inside the open tab. See [Push notifications](/en/docs/deep/push/).
+**Settings > Notifications** is where you choose what Meshloom tells you about (new contacts, direct messages, new repeaters or sensors, found channels, telemetry alerts, updates), and where. Each place is a **channel**: Web Push on this browser, e-mail, a webhook, ntfy, Discord, Telegram, Gotify, Home Assistant or any [Apprise](https://appriseit.com/) service. Web Push also works when the browser is closed, but needs HTTPS; ntfy, Gotify or Home Assistant on your network do not. Meshloom shows no pop-up alerts inside the open tab. See [Notifications](/en/docs/deep/notifications/) and, for browsers, [Push notifications](/en/docs/deep/push/).
 
 To send your first message: [Messages](/en/docs/messages/).

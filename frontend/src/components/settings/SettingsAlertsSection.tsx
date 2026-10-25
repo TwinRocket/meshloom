@@ -1,15 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../../api';
-import { usePush } from '../../contexts/PushSubscriptionContext';
 import {
   DEFAULT_TELEMETRY_ALERT_RULES,
   TELEMETRY_ALERT_RULE_IDS,
-  isEmailDestinationReady,
-  isWebhookDestinationReady,
   normalizeTelemetryAlertCatalog,
-  resolveNotificationDestinations,
-  resolveNotificationMedia,
   resolveTelemetryAlertRules,
   type AppSettings,
   type AppSettingsUpdate,
@@ -40,6 +35,7 @@ import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { SettingsGroupHeader } from './settingsPrimitives';
+import { TelemetryAlertChannels } from './notifications/TelemetryAlertChannels';
 
 const BUILTIN_UNITS: Record<string, string> = {
   battery: 'V',
@@ -103,14 +99,9 @@ export function SettingsAlertsSection({
   className?: string;
 }) {
   const { t } = useTranslation();
-  const { preferences, patchPreferences } = usePush();
   const [catalog, setCatalog] = useState<TelemetryAlertCatalog | null>(null);
   const [overrideKey, setOverrideKey] = useState<string | null>(null);
   const rules = resolveTelemetryAlertRules(appSettings.telemetry_alert_rules);
-  const dest = resolveNotificationDestinations(appSettings.notification_destinations);
-  const alertMedia = resolveNotificationMedia(
-    preferences?.defaults.telemetry_alert ?? rules.channels
-  );
   const rulesRef = useRef(rules);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -165,8 +156,6 @@ export function SettingsAlertsSection({
     });
   };
 
-  const emailReady = isEmailDestinationReady(dest.email);
-  const webhookReady = isWebhookDestinationReady(dest.webhook);
   const metrics = catalogMetricMap(catalog);
   const ruleIds = metricIdsFromCatalog(catalog);
 
@@ -237,41 +226,11 @@ export function SettingsAlertsSection({
   return (
     <div className={className}>
       <div className="space-y-3">
-        <SettingsGroupHeader title={t('settings.alerts.voices')} storedOn="server" instant />
-        <p className="text-[0.8125rem] text-muted-foreground">{t('settings.alerts.voicesHelp')}</p>
-        <VoiceRow
-          id="push"
-          label={t('settings.alerts.voicePush')}
-          help={t('settings.alerts.voicePushHelp')}
-          checked={alertMedia.push}
-          onCheckedChange={(checked) => {
-            void patchPreferences({ defaults: { telemetry_alert: { push: checked } } });
-          }}
-        />
-        <VoiceRow
-          id="email"
-          label={t('settings.alerts.voiceEmail')}
-          help={t('settings.alerts.voiceEmailHelp')}
-          checked={alertMedia.email}
-          disabled={!emailReady}
-          configureHref={!emailReady ? '#settings/notifications' : undefined}
-          configureLabel={t('settings.alerts.configureDestinations')}
-          onCheckedChange={(checked) => {
-            void patchPreferences({ defaults: { telemetry_alert: { email: checked } } });
-          }}
-        />
-        <VoiceRow
-          id="webhook"
-          label={t('settings.alerts.voiceWebhook')}
-          help={t('settings.alerts.voiceWebhookHelp')}
-          checked={alertMedia.webhook}
-          disabled={!webhookReady}
-          configureHref={!webhookReady ? '#settings/notifications' : undefined}
-          configureLabel={t('settings.alerts.configureDestinations')}
-          onCheckedChange={(checked) => {
-            void patchPreferences({ defaults: { telemetry_alert: { webhook: checked } } });
-          }}
-        />
+        <SettingsGroupHeader title={t('settings.alerts.channelsGroup')} storedOn="server" instant />
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.alerts.channelsHelp')}
+        </p>
+        <TelemetryAlertChannels />
       </div>
 
       <Separator />
@@ -485,50 +444,6 @@ export function SettingsAlertsSection({
           }
         />
       )}
-    </div>
-  );
-}
-
-function VoiceRow({
-  id,
-  label,
-  help,
-  checked,
-  disabled,
-  configureHref,
-  configureLabel,
-  onCheckedChange,
-}: {
-  id: string;
-  label: string;
-  help: string;
-  checked: boolean;
-  disabled?: boolean;
-  configureHref?: string;
-  configureLabel?: string;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">
-      <Checkbox
-        id={`alert-voice-${id}`}
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={(value) => onCheckedChange(value === true)}
-        className="mt-0.5"
-      />
-      <div className="space-y-1">
-        <Label htmlFor={`alert-voice-${id}`}>{label}</Label>
-        <p className="text-[0.8125rem] text-muted-foreground">{help}</p>
-        {configureHref && (
-          <a
-            href={configureHref}
-            className="inline-block text-[0.8125rem] underline text-primary hover:text-primary/80 transition-colors"
-          >
-            {configureLabel}
-          </a>
-        )}
-      </div>
     </div>
   );
 }

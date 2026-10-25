@@ -1,0 +1,104 @@
+{
+  "settings": {
+    "notifications": {
+      "rulesSaveFailed": "Could not save the notification rules",
+      "exceptionsHelpN": "Conversations with their own rule. Click a channel to cycle: inherit the event rule, always notify, never notify.",
+      "exceptionState": {
+        "inherit": "inherit",
+        "on": "on",
+        "off": "off"
+      },
+      "exceptionChip": "{{name}}, {{channel}}: {{state}}. Click to change.",
+      "pause": {
+        "title": "Do not disturb",
+        "help": "Pauses every notification except the ones marked “always deliver”.",
+        "active": "Paused, {{hours}} h {{minutes}} min left",
+        "inactive": "Notifications are on.",
+        "choice_1h": "1 hour",
+        "choice_8h": "8 hours",
+        "choice_tomorrow": "Until tomorrow 8:00",
+        "off": "Resume now"
+      },
+      "matrix": {
+        "help": "Choose which channels each event notifies. “Always deliver” goes through the pause.",
+        "caption": "Events by notification channel",
+        "event": "Event",
+        "alwaysDeliver": "Always deliver",
+        "alwaysDeliverFor": "{{event}}: always deliver",
+        "cell": "{{event}} — {{channel}}",
+        "kindCell": "New {{kind}} — {{channel}}",
+        "channelOff": "off",
+        "locked": "Always on",
+        "mentionWholeWord": "Match whole words only",
+        "groups": {
+          "messages": "Messages",
+          "nodes": "Nodes",
+          "radio": "Radio",
+          "telemetry": "Telemetry",
+          "meshloom": "Meshloom"
+        },
+        "contactTypes": {
+          "companion": "Companions",
+          "repeater": "Repeaters",
+          "sensor": "Sensors"
+        },
+        "events": {
+          "message_dm": {
+            "label": "Direct messages",
+            "help": "A private message to you."
+          },
+          "message_channel": {
+            "label": "Channel messages",
+            "help": "Public and hashtag channels (a channel with its own key stays silent unless it has an exception)."
+          },
+          "message_mention": {
+            "label": "Mentions",
+            "help": "Someone mentions you in a channel."
+          },
+          "contact_first_seen": {
+            "label": "New node seen",
+            "help": "A node heard for the first time, by type."
+          },
+          "channel_found": {
+            "label": "Channel found",
+            "help": "A new hashtag channel is found."
+          },
+          "radio_offline": {
+            "label": "Radio offline",
+            "help": "The radio stays disconnected past the grace delay."
+          },
+          "radio_online": {
+            "label": "Radio back online",
+            "help": "The radio is reconnected."
+          },
+          "telemetry_alert": {
+            "label": "Telemetry alert",
+            "help": "A tracked reading raises an alert."
+          },
+          "app_started": {
+            "label": "Meshloom started",
+            "help": "The server has started."
+          },
+          "app_update": {
+            "label": "Update available",
+            "help": "A new Meshloom version is available."
+          },
+          "notify_destination_changed": {
+            "label": "Destination changed",
+            "help": "A notification destination was modified."
+          },
+          "notify_channel_changed": {
+            "label": "Channel changed",
+            "help": "A notification channel was created, changed or removed. Always sent to Web Push."
+          }
+        },
+        "alwaysUrgent": "Always on: this event is urgent, so the pause never holds it.",
+        "alwaysDeliverUrgent": "{{event}}: always delivered (urgent)"
+      },
+      "exceptionOrphan": "{{name}}, {{channel}}: channel no longer exists. Click to remove.",
+      "exceptionOrphanState": "removed",
+      "rulesLoadFailed": "Could not load the notification rules.",
+      "rulesRetry": "Retry"
+    }
+  }
+}

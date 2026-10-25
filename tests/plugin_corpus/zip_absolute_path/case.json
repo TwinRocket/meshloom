@@ -1,0 +1,13 @@
+{
+  "description": "An entry with an absolute name, which some extractors write at that path.",
+  "stage": "install",
+  "archive": [
+    {
+      "name": "/tmp/meshloom-corpus-escaped.py",
+      "text": "print('outside')\n"
+    }
+  ],
+  "expect": {
+    "install_error": "package_unsafe_path"
+  }
+}

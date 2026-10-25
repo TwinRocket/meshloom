@@ -8,10 +8,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from meshcore import EventType
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import require
 from app.config import get_recent_log_lines, settings
 from app.models import AppSettings
 from app.radio_sync import get_contacts_selected_for_radio_sync, get_radio_channel_limit
@@ -113,7 +114,6 @@ class DebugHealthSummary(BaseModel):
     oldest_undecrypted_timestamp: int | None
     fanouts_with_errors: dict[str, FanoutStatusResponse] = Field(default_factory=dict)
     bots_disabled_source: Literal["env", "until_restart"] | None = None
-    basic_auth_enabled: bool = False
 
 
 class DebugEnvironment(BaseModel):
@@ -152,6 +152,20 @@ class DebugAppSettings(BaseModel):
     auto_clock_wraparound: bool = True
 
 
+class DebugNotificationChannel(BaseModel):
+    """A notification channel for the support snapshot: no config, no secret value."""
+
+    id: str
+    type: str
+    preset: str | None = None
+    enabled: bool
+    secret_fields_set: list[str] = Field(
+        description="Names of the write-only fields that hold a value (never the values)"
+    )
+    last_error: str | None = None
+    failure_count: int = 0
+
+
 class DebugCompanionCli(BaseModel):
     supported: bool
     reason: CapabilityReason = Field(
@@ -173,6 +187,7 @@ class DebugSnapshotResponse(BaseModel):
     environment: DebugEnvironment
     health: DebugHealthSummary
     settings: DebugAppSettings
+    notification_channels: list[DebugNotificationChannel] = Field(default_factory=list)
     runtime: DebugRuntimeInfo
     database: DebugDatabaseInfo
     radio_probe: DebugRadioProbe
@@ -302,6 +317,28 @@ def _build_debug_app_settings(app_settings: AppSettings) -> DebugAppSettings:
     )
 
 
+async def _build_notification_channels() -> list[DebugNotificationChannel]:
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    try:
+        channels = await NotificationChannelRepository.list_all()
+    except Exception:
+        logger.debug("notification channels unreadable for the debug snapshot", exc_info=True)
+        return []
+    return [
+        DebugNotificationChannel(
+            id=channel.id,
+            type=channel.type,
+            preset=channel.preset,
+            enabled=channel.enabled,
+            secret_fields_set=channel.secret_fields_set,
+            last_error=channel.last_error,
+            failure_count=channel.failure_count,
+        )
+        for channel in channels
+    ]
+
+
 def _derive_debug_radio_state(
     *,
     radio_connected: bool,
@@ -345,7 +382,6 @@ def _build_debug_health_summary(
         oldest_undecrypted_timestamp=health_data["oldest_undecrypted_timestamp"],
         fanouts_with_errors=fanouts_with_errors,
         bots_disabled_source=health_data["bots_disabled_source"],
-        basic_auth_enabled=health_data["basic_auth_enabled"],
     )
 
 
@@ -472,7 +508,9 @@ def _build_companion_cli() -> DebugCompanionCli | None:
     )
 
 
-@router.get("/debug", response_model=DebugSnapshotResponse)
+@router.get(
+    "/debug", response_model=DebugSnapshotResponse, dependencies=[Depends(require("admin"))]
+)
 async def debug_support_snapshot() -> DebugSnapshotResponse:
     """Return a support/debug snapshot with recent logs and live radio state."""
     connection_info = radio_runtime.connection_info
@@ -505,6 +543,7 @@ async def debug_support_snapshot() -> DebugSnapshotResponse:
         environment=await _build_environment(),
         health=_build_debug_health_summary(health_data, radio_state=radio_state),
         settings=_build_debug_app_settings(app_settings),
+        notification_channels=await _build_notification_channels(),
         runtime=DebugRuntimeInfo(
             connection_info=connection_info,
             connection_desired=connection_desired,

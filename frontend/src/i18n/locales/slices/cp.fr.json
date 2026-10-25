@@ -1,0 +1,24 @@
+{
+  "chatHeader": {
+    "notifyLoading": "Chargement des canaux…",
+    "notifyLoadFailed": "Impossible de charger les canaux de notification.",
+    "notifyNone": "Aucun canal de notification n'est activé.",
+    "notifyConfigureChannels": "Configurer les canaux de notification",
+    "notifyState": {
+      "inherit": "par défaut",
+      "on": "activé ici",
+      "off": "coupé ici"
+    }
+  },
+  "settings": {
+    "alerts": {
+      "channelsHelp": "Les alertes de télémétrie vont vers les canaux cochés ici. La matrice de Notifications modifie la même ligne.",
+      "channelsLoadFailed": "Impossible de charger les canaux de notification.",
+      "channelsNone": "Aucun canal de notification n'est activé.",
+      "channelsGroup": "Canaux des alertes de télémétrie",
+      "channelOn": "activé",
+      "channelOff": "désactivé",
+      "channelsSaveFailed": "Impossible d'enregistrer les canaux des alertes"
+    }
+  }
+}

@@ -11,6 +11,7 @@ from meshcore import EventType
 
 from app.background_tasks import spawn
 from app.loop_lock import LoopBoundLock
+from app.message_limits import ensure_channel_text_fits, ensure_direct_text_fits
 from app.models import ResendChannelMessageResponse
 from app.radio import RadioOperationBusyError
 from app.region_scope import is_unscoped, normalize_region_scope
@@ -391,6 +392,7 @@ async def send_channel_message_with_effective_scope(
                         f"after 3 attempts. The radio may still be region-scoped. "
                         f"Consider rebooting the radio."
                     ),
+                    audience="send",
                 )
 
         if apply_phm:
@@ -431,6 +433,7 @@ async def send_channel_message_with_effective_scope(
                         f"after 3 attempts. The radio is still using a non-default hop "
                         f"width. Set it back manually in Radio settings."
                     ),
+                    audience="send",
                 )
 
 
@@ -647,6 +650,7 @@ async def send_direct_message_to_contact(
     contact_repository=ContactRepository,
 ) -> DirectSendResult:
     """Send a direct message and persist/broadcast the outgoing row."""
+    ensure_direct_text_fits(text)
     if retry_task_scheduler is None:
         retry_task_scheduler = spawn
     if retry_sleep_fn is None:
@@ -875,6 +879,7 @@ async def send_channel_message_to_channel(
         async with radio_manager.radio_operation("send_channel_message") as mc:
             radio_name = mc.self_info.get("name", "") if mc.self_info else ""
             our_public_key = (mc.self_info.get("public_key") or None) if mc.self_info else None
+            ensure_channel_text_fits(text, radio_name)
             text_with_sender = f"{radio_name}: {text}" if radio_name else text
             logger.info("Sending channel message to %s: %s", channel.name, text[:50])
 
@@ -1023,6 +1028,9 @@ async def resend_channel_message_record(
             text_to_send = message.text
             if radio_name and text_to_send.startswith(f"{radio_name}: "):
                 text_to_send = text_to_send[len(f"{radio_name}: ") :]
+            # Known limitation: the allowance follows the radio's current name. After a
+            # rename to a longer name, an old message that fit may now be refused.
+            ensure_channel_text_fits(text_to_send, radio_name)
             if new_timestamp:
                 sent_at = int(now_fn())
                 sender_timestamp = await allocate_outgoing_sender_timestamp(

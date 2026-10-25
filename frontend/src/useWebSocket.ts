@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { AUTH_RESTORED_EVENT } from './auth/authEvents';
 import type {
   Channel,
   CommunityLiveStatus,
@@ -10,6 +11,7 @@ import type {
   RadioWifiState,
   RawPacket,
 } from './types';
+import { invalidateConversationNotifications } from './hooks/useConversationNotifications';
 import { isDispatchableWsEvent, parseWsEvent } from './wsEvents';
 
 interface ErrorEvent {
@@ -250,6 +252,13 @@ export function useWebSocket(options: UseWebSocketOptions) {
           case 'success':
             handlers.onSuccess?.(msg.data as SuccessEvent);
             break;
+          case 'notification_channel_changed':
+            // The bells' cached channel list is stale.
+            invalidateConversationNotifications();
+            break;
+          case 'plugin_status':
+            // A health refresh follows (`app/plugins/host.py`): nothing to do here.
+            break;
           case 'pong':
             // Heartbeat response, ignore
             break;
@@ -288,11 +297,14 @@ export function useWebSocket(options: UseWebSocketOptions) {
       if (document.visibilityState === 'visible') reconnectNow();
     };
     window.addEventListener('online', reconnectNow);
+    // Signed in again after a session expired: the refused socket should not sit out its backoff.
+    window.addEventListener(AUTH_RESTORED_EVENT, reconnectNow);
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
       shouldReconnectRef.current = false;
       window.removeEventListener('online', reconnectNow);
+      window.removeEventListener(AUTH_RESTORED_EVENT, reconnectNow);
       document.removeEventListener('visibilitychange', onVisibility);
       if (stableTimerRef.current !== null) {
         clearTimeout(stableTimerRef.current);

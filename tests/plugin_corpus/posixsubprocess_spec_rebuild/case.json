@@ -1,0 +1,19 @@
+{
+  "description": "Open path: rebuild _posixsubprocess from its spec through the import machinery kept in sys.modules (module_from_spec emits no import event). Where the module is built into the interpreter (python-build-standalone) this gives fork_exec back; only the OS isolation closes it. The plugin stops at checking fork_exec exists.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      },
+      "open_path": {
+        "note": "_posixsubprocess spec rebuild: open in-process at every level; under bwrap and setuid the program it could exec is checked to stay in the box (MSHL-180)",
+        "closed_by": [
+          "bwrap",
+          "setuid"
+        ],
+        "os_check": "exec_escape"
+      }
+    }
+  ]
+}

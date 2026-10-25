@@ -25,6 +25,45 @@ configs are validated on every create and update, enabled or not.
 - `system:*` ids are reserved: hidden from `/api/fanout` and fanout statuses,
   `PATCH`/`DELETE` on them answer 403.
 
+## Secrets
+
+- Secret config keys are write-only: `FANOUT_SECRET_KEYS` in `app/secret_fields.py`
+  (Apprise `urls`, webhook `url`, `headers` and `hmac_secret`, the MQTT
+  `password`, SQS `access_key_id`, `secret_access_key` and `session_token`).
+  `GET /api/fanout` and `GET /api/fanout/{id}` return them through
+  `redact_config()`: `********` when set, `""` when not; Apprise adds the
+  derived `urls_redacted` (one `redact_apprise_url()` line per URL), the webhook
+  `url_redacted` (`redact_url()`: scheme, host, port), both never stored. The
+  webhook `headers` are an object secret (`_OBJECT_SECRET_KEYS`): names in
+  clear, each value `********` or `""`. `allow_private_network`
+  and `private_network_grandfathered` are plain flags, not secrets.
+- Writes go through `merge_secrets()`: a key omitted, `None` or `********`
+  keeps the stored value, `""` clears it, anything else replaces it; derived
+  keys are dropped. An object secret merges by name: a `********` value keeps
+  that name's stored value (none: the name is dropped), a name left out is
+  removed, `""` for the whole object clears it to `{}`. A secret that is its
+  own destination (webhook `url`, like Apprise `urls`) is resolved first, so
+  keeping it is no move. The routes and the backup restore use it, so a redacted
+  config sent back never overwrites a secret.
+- A kept secret never follows a destination change. `FANOUT_DESTINATION_KEYS`
+  lists, per type, the keys that say where the secret goes (with their
+  defaults: an absent key reads as its default): webhook `url` (its
+  `headers` values and `hmac_secret` follow it), MQTT
+  `broker_host`/`broker_port`/`use_tls`/`tls_insecure` (and the Community
+  broker's transport, TLS and path), SQS `queue_url`/`endpoint_url`/`region_name`. When one of them
+  changes and a non-empty stored secret would be kept, `merge_secrets()` raises
+  `SecretRequiredError`: `PATCH` answers 400 `secret_required` (params
+  `fields`), and the restore clears that secret and adds the warning
+  `secret_dropped_destination_changed:<name>`. Sending the secret again (or
+  `""`) passes. The editor mirrors the table (`SECRET_DESTINATION_KEYS`) and
+  marks the kept secret field required once a destination field is edited.
+- `get_statuses()` (health, `/api/debug`) passes each `last_error` through
+  `scrub_error()` with `config_secret_values()`: for an Apprise URL, only its
+  `user:password` and path tokens (`apprise_url_secret_parts()`), for a
+  webhook URL its user, path and query parts (`url_secret_parts()`) and the
+  header values, so the host stays readable; the Apprise module scrubs its send
+  errors before logging them.
+
 ## Event flow
 
 ```
@@ -39,7 +78,14 @@ dispatch_telemetry_event(data)                    app/websocket.py (no WS event)
   -> broadcast_telemetry (all modules)
 radio_stats._stats_sampling_loop (every 60 s)
   -> broadcast_health_fanout (all modules)
+every broadcast_* above (message: after the pending-channel check)
+  -> plugin_manager.dispatch(hook, data)          app/plugins/host.py (queues, never blocks)
 ```
+
+Plugins get the same events through the plugin host, not as fanout modules:
+`message`, `raw_packet`, `contact`, `telemetry`, `health`, each to the running
+instances that subscribe that hook (`docs/dev/plugins.md`, "Supervisor"). The
+legacy `bot` module is unchanged.
 
 `realtime=False` (historical decrypt) skips the proxy, fanout and push.
 
@@ -85,15 +131,36 @@ reach every module.
 - **`bot`** runs user code through `exec()` with full `__builtins__`, by design
   (arbitrary code execution; changing it is the out-of-scope Plugins work). Runs
   are capped in concurrency and time; `_bot_globals` persists between runs. The
-  bot waits 2 s so echoes can dedupe, and bot sends are spaced at least 2 s apart.
+  bot waits 2 s so echoes can dedupe, and bot sends are spaced at least 2 s apart
+  (`send_spacer` of `app/plugins/quotas.py`, shared with the plugin instances).
   Optional arguments (`region`, `scoped`, …) are passed only to bots whose
-  signature names them (`_analyze_bot_signature`). `region` is `None` both when
+  signature names them (`analyze_bot_signature`, now in `meshloom_plugin/compat.py`, which
+  the plugin shim for migrated bots shares; `bot_exec` re-imports it). `region` is `None` both when
   unscoped and when unknown: check `scoped` first. In a `BotReply` dict, an absent
   `region` keeps the channel's `flood_scope_override`, `None` sends unscoped.
+- **Egress guard.** `webhook`, `apprise`, `sqs` and `map_upload` destinations
+  go through `app/net/egress_guard.py` with `config.allow_private_network`
+  (default false; migration 100 grandfathered existing rows). The validators
+  stay network-free; the routes add `_check_destinations` (DNS) for a row that
+  is or becomes enabled, and the modules check again before each send. Apprise
+  accepts only the allowlist of `app/net/apprise_urls.py`, with Matrix
+  discovery and e-mail WKD forced off. Details:
+  `app/net/AGENTS.md`.
 - **`webhook`** always sends `X-Webhook-Event: message`, and with a secret the
   signature header `sha256=<hex HMAC of the body>` (compact, sorted-keys JSON).
+  It sends through `pinned_async_client` (no redirect, no proxy variables);
+  `last_error` is a code (`egress_*`, `timeout`, `connect_error`...) or `HTTP <status>`.
+- **`apprise`** sends the instances `validate_apprise_urls` returned (redirects
+  off); a refused URL sets `last_error` to `<code> (URL <line>)`, never the URL.
+  It skips blocked senders and muted channels (`services/message_filters.py`,
+  the one block-list rule the notification rules use too); `mqtt_private`, `sqs` and
+  `webhook` still forward them (machine integrations,
+  `tests/test_message_filters.py`).
 - **`map_upload`** defaults to `dry_run: true` (logs only), signs each upload with
-  the radio's private key from `keystore` and skips without it.
+  the radio's private key from `keystore` and skips without it. Uploads go
+  through `_post()` (guard, then pinned client).
+- **`sqs`** checks a custom `endpoint_url` at `start()`; refused, it never
+  builds the boto3 client and reports the code.
 
 ## System module (not a user type)
 
@@ -115,6 +182,9 @@ Detail: `docs/dev/community-client.md`.
 3. In `app/routers/fanout.py`: add it to `_VALID_TYPES`, add a
    `_validate_<type>_config` wired into `_validate_and_normalize_config`, and an
    `_enforce_scope` branch if the scope is fixed.
+   List its secret keys in `FANOUT_SECRET_KEYS` (`app/secret_fields.py`), even
+   when empty, its destination keys in `FANOUT_DESTINATION_KEYS` (and the
+   editor's `SECRET_DESTINATION_KEYS`), and use `SecretInput` for the secrets.
 4. Frontend (`frontend/src/components/settings/SettingsFanoutSection.tsx`): add the
    type to `FANOUT_TYPE_ORDER`, the `DraftType` union and
    `CREATE_INTEGRATION_DEFINITIONS`, a `<Type>ConfigEditor` and its

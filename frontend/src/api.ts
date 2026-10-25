@@ -1,9 +1,60 @@
 import type { TFunction } from 'i18next';
 
+import {
+  reportAuthRequired,
+  reportEnrolmentRequired,
+  reportForbidden,
+  reportPasswordChangeRequired,
+} from './auth/authEvents';
+import type {
+  BundledPlugin,
+  LocalPluginCreate,
+  PluginCheckResult,
+  PluginDiagnostic,
+  PluginInstallRequest,
+  PluginLogs,
+  PluginPatch,
+  PluginSourceResult,
+  PluginTestRequest,
+  PluginTestResult,
+} from './components/settings/extensions/pluginsTypes';
+import type {
+  NotificationChannel,
+  NotificationChannelCreate,
+  NotificationChannelPatch,
+  NotificationDeliveries,
+  NotificationEventInfo,
+  NotificationRules,
+  NotificationRulesPatch,
+  NotificationTypeInfo,
+} from './notifications/types';
+import type {
+  AuthAuditPage,
+  AuthLoginRequest,
+  AuthMe,
+  AuthSessionRow,
+  AuthPairingCreate,
+  AuthPairingCreated,
+  AuthPairingRow,
+  AuthTokenCreate,
+  AuthTokenCreated,
+  AuthTokenRow,
+  AuthUserCreate,
+  AuthUserPatch,
+  AuthUserRow,
+  AuthSessionInfo,
+  AuthSettings,
+  AuthSetupRequest,
+  PasskeyRow,
+  RecoveryCodes,
+  TotpEnrolment,
+  TotpStatus,
+} from './auth/types';
 import { edgeSessionLost, isEdgeRedirect, reportEdgeSessionExpired } from './utils/edgeSession';
 
 import type {
   AppSettings,
+  AppSettingsView,
   AppSettingsUpdate,
   BackupExport,
   BackupInspectResult,
@@ -67,7 +118,6 @@ import type {
   PathDiscoveryResponse,
   NotificationDestinationChannel,
   PushDefaultsPatch,
-  ConversationMediaOverride,
   PushPreferences,
   PushSubscriptionInfo,
   TelemetryAlertCatalog,
@@ -102,6 +152,10 @@ import type {
   OssUpdateStatus,
   TraceResponse,
   UnreadCounts,
+  ShareLink,
+  ShareMeta,
+  PluginInstance,
+  ShareStatus,
 } from './types';
 
 const API_BASE = './api';
@@ -112,7 +166,9 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly detail: unknown = undefined
+    public readonly detail: unknown = undefined,
+    /** Seconds the server asked us to wait (429), from `Retry-After` or `params.retry_after`. */
+    public readonly retryAfter: number | null = null
   ) {
     super(message);
     this.name = 'ApiError';
@@ -142,7 +198,8 @@ export function formatApiError(err: unknown, t: TFunction): string {
     const parsed = getApiErrorCode(err.detail);
     if (parsed) {
       const key = `errors.${parsed.code}`;
-      const translated = t(key, parsed.params);
+      const retryAfter = err.retryAfter ?? undefined;
+      const translated = t(key, { retry_after: retryAfter, ...parsed.params });
       if (translated !== key) {
         return translated;
       }
@@ -181,9 +238,45 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     throw new ApiError('Authentication required', res.status);
   }
   if (!res.ok) {
-    throw await apiErrorFrom(res);
+    const error = await apiErrorFrom(res);
+    // The account is gone (expired session, or no account yet): the gate takes over.
+    // Login and setup answer their own 401, which is a form error and not a lost session.
+    if (error.status === 401 && !AUTH_FORM_PATHS.has(url)) {
+      reportAuthRequired(getApiErrorCode(error.detail)?.code ?? null);
+    }
+    // The role may not do this: the session layer decides whether to tell the reader.
+    const refusal = error.status === 403 ? getApiErrorCode(error.detail) : null;
+    if (refusal?.code === 'auth_password_change_required') reportPasswordChangeRequired();
+    if (refusal?.code === 'auth_2fa_enrolment_required') reportEnrolmentRequired();
+    if (refusal?.code === 'auth_forbidden') {
+      const permission = refusal.params.permission;
+      reportForbidden({
+        method: options?.method ?? 'GET',
+        permission: typeof permission === 'string' ? permission : null,
+      });
+    }
+    throw error;
   }
+  // 204 No Content (revoking a token) has no body to parse.
+  if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+const AUTH_FORM_PATHS = new Set([
+  '/auth/login',
+  '/auth/login/2fa',
+  '/auth/setup',
+  // The passkey sign-in answers its own 401 (a wrong assertion, an expired pending login).
+  '/auth/webauthn/login/options',
+  '/auth/webauthn/login/verify',
+]);
+
+/** Seconds from a `Retry-After` header (delta-seconds form), or null. */
+function retryAfterSeconds(header: string | null, detail: unknown): number | null {
+  const fromParams = Number(getApiErrorCode(detail)?.params.retry_after);
+  if (Number.isFinite(fromParams) && fromParams > 0) return Math.ceil(fromParams);
+  const fromHeader = header === null ? NaN : Number(header);
+  return Number.isFinite(fromHeader) && fromHeader > 0 ? Math.ceil(fromHeader) : null;
 }
 
 /** The ApiError for a failed response (FastAPI's {"detail": ...} unwrapped). */
@@ -204,7 +297,9 @@ async function apiErrorFrom(res: Response): Promise<ApiError> {
   } catch {
     // Not JSON, use raw text
   }
-  return new ApiError(errorMessage, res.status, detail);
+  const retryAfter =
+    res.status === 429 ? retryAfterSeconds(res.headers?.get('Retry-After') ?? null, detail) : null;
+  return new ApiError(errorMessage, res.status, detail, retryAfter);
 }
 
 /** The file name a Content-Disposition header proposes (RFC 5987 first). */
@@ -239,6 +334,118 @@ interface DecryptResult {
 }
 
 export const api = {
+  // Auth (public routes: they answer before anyone is signed in)
+  getAuthSession: () => fetchJson<AuthSessionInfo>('/auth/session', { cache: 'no-store' }),
+  authSetup: (body: AuthSetupRequest) =>
+    fetchJson<AuthSessionInfo>('/auth/setup', { method: 'POST', body: JSON.stringify(body) }),
+  authLogin: (body: AuthLoginRequest) =>
+    fetchJson<AuthSessionInfo>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  /** `POST /auth/login/2fa`: the second step, the pending token of the first and a code. */
+  authLogin2fa: (
+    body: { pending_token: string; code: string } | { pending_token: string; passkey: object }
+  ) =>
+    fetchJson<AuthSessionInfo>('/auth/login/2fa', { method: 'POST', body: JSON.stringify(body) }),
+  /** Passkeys (`/auth/webauthn/*`): options and answers are the browser's JSON, passed through. */
+  passkeyLoginOptions: (pending_token?: string) =>
+    fetchJson<object>('/auth/webauthn/login/options', {
+      method: 'POST',
+      body: JSON.stringify(pending_token ? { pending_token } : {}),
+    }),
+  passkeyLoginVerify: (credential: object) =>
+    fetchJson<AuthSessionInfo>('/auth/webauthn/login/verify', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    }),
+  passkeyRegisterOptions: (password: string, code?: string) =>
+    fetchJson<object>('/auth/webauthn/register/options', {
+      method: 'POST',
+      body: JSON.stringify(code ? { password, code } : { password }),
+    }),
+  passkeyRegisterVerify: (credential: object, name: string) =>
+    fetchJson<PasskeyRow>('/auth/webauthn/register/verify', {
+      method: 'POST',
+      body: JSON.stringify({ credential, name }),
+    }),
+  listPasskeys: () => fetchJson<PasskeyRow[]>('/auth/webauthn/credentials', { cache: 'no-store' }),
+  deletePasskey: (id: number, password: string) =>
+    fetchJson<{ ok: boolean }>(`/auth/webauthn/credentials/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ password }),
+    }),
+  getTotpStatus: () => fetchJson<TotpStatus>('/auth/2fa', { cache: 'no-store' }),
+  enrolTotp: (password: string) =>
+    fetchJson<TotpEnrolment>('/auth/2fa/enrol', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  confirmTotp: (code: string) =>
+    fetchJson<RecoveryCodes>('/auth/2fa/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  disableTotp: (password: string, code: string) =>
+    fetchJson<{ ok: boolean }>('/auth/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    }),
+  regenerateRecoveryCodes: (password: string, code: string) =>
+    fetchJson<RecoveryCodes>('/auth/2fa/recovery', {
+      method: 'POST',
+      body: JSON.stringify({ password, code }),
+    }),
+  authLogout: () => fetchJson<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  /** `PATCH /auth/me`: the one write open while a password change is required. */
+  changeOwnPassword: (current_password: string, new_password: string) =>
+    fetchJson<unknown>('/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ current_password, new_password }),
+    }),
+  getAuthMe: () => fetchJson<AuthMe>('/auth/me', { cache: 'no-store' }),
+  patchAuthMe: (patch: { display_name: string }) =>
+    fetchJson<AuthMe>('/auth/me', { method: 'PATCH', body: JSON.stringify(patch) }),
+  listAuthSessions: () => fetchJson<AuthSessionRow[]>('/auth/sessions', { cache: 'no-store' }),
+  revokeAuthSession: (id: string) =>
+    fetchJson<{ ok: boolean }>(`/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Every session but the current one. */
+  revokeOtherAuthSessions: () =>
+    fetchJson<{ revoked: number }>('/auth/sessions', { method: 'DELETE' }),
+  // API and device tokens (own account; an admin lists everyone's)
+  listAuthTokens: () => fetchJson<AuthTokenRow[]>('/auth/tokens', { cache: 'no-store' }),
+  createAuthToken: (body: AuthTokenCreate) =>
+    fetchJson<AuthTokenCreated>('/auth/tokens', { method: 'POST', body: JSON.stringify(body) }),
+  revokeAuthToken: (id: string) =>
+    fetchJson<void>(`/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Device pairing codes (admin, own session)
+  listAuthPairings: () => fetchJson<AuthPairingRow[]>('/auth/pairings', { cache: 'no-store' }),
+  createAuthPairing: (body: AuthPairingCreate) =>
+    fetchJson<AuthPairingCreated>('/auth/pairings', { method: 'POST', body: JSON.stringify(body) }),
+  revokeAuthPairing: (id: string) =>
+    fetchJson<void>(`/auth/pairings/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Users (admin)
+  listAuthUsers: () => fetchJson<AuthUserRow[]>('/auth/users', { cache: 'no-store' }),
+  createAuthUser: (body: AuthUserCreate) =>
+    fetchJson<AuthUserRow>('/auth/users', { method: 'POST', body: JSON.stringify(body) }),
+  patchAuthUser: (id: number, patch: AuthUserPatch) =>
+    fetchJson<AuthUserRow>(`/auth/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteAuthUser: (id: number) =>
+    fetchJson<{ ok: boolean }>(`/auth/users/${id}`, { method: 'DELETE' }),
+  setAuthUserPassword: (id: number, password: string, must_change_password: boolean) =>
+    fetchJson<AuthUserRow>(`/auth/users/${id}/password`, {
+      method: 'POST',
+      body: JSON.stringify({ password, must_change_password }),
+    }),
+  revokeAuthUserSessions: (id: number) =>
+    fetchJson<{ revoked: number }>(`/auth/users/${id}/sessions`, { method: 'DELETE' }),
+  /** `GET /auth/audit` (admin): one page of the audit log, newest first; `cursor` is the previous `next_cursor`. */
+  getAuthAudit: (cursor?: string | null, limit = 100) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return fetchJson<AuthAuditPage>(`/auth/audit?${params}`, { cache: 'no-store' });
+  },
+  getAuthSettings: () => fetchJson<AuthSettings>('/auth/settings', { cache: 'no-store' }),
+  patchAuthSettings: (patch: Partial<AuthSettings>) =>
+    fetchJson<AuthSettings>('/auth/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+
   // Health
   getHealth: () => fetchJson<HealthStatus>('/health'),
   getUpdates: () => fetchJson<OssUpdateStatus>('/updates'),
@@ -474,6 +681,8 @@ export const api = {
       after?: number;
       after_id?: number;
       q?: string;
+      outgoing?: boolean;
+      since_id?: number;
     },
     signal?: AbortSignal
   ) => {
@@ -487,6 +696,8 @@ export const api = {
     if (params?.after !== undefined) searchParams.set('after', params.after.toString());
     if (params?.after_id !== undefined) searchParams.set('after_id', params.after_id.toString());
     if (params?.q) searchParams.set('q', params.q);
+    if (params?.outgoing !== undefined) searchParams.set('outgoing', String(params.outgoing));
+    if (params?.since_id !== undefined) searchParams.set('since_id', params.since_id.toString());
     const query = searchParams.toString();
     return fetchJson<Message[]>(`/messages${query ? `?${query}` : ''}`, { signal });
   },
@@ -588,6 +799,7 @@ export const api = {
 
   // App Settings
   getSettings: () => fetchJson<AppSettings>('/settings'),
+  getSettingsView: () => fetchJson<AppSettingsView>('/settings/view'),
   updateSettings: (settings: AppSettingsUpdate) =>
     fetchJson<AppSettings>('/settings', {
       method: 'PATCH',
@@ -675,12 +887,16 @@ export const api = {
   getJsonBackup: () => fetchJson<BackupExport>('/settings/backup/json'),
   /** The full backup (radio identity, settings, Wi-Fi, Meshloom), optionally encrypted. */
   exportFullBackup: async (
-    passphrase?: string
+    passphrase?: string,
+    includeAccounts = true
   ): Promise<{ data: unknown; filename: string; warnings: string[] }> => {
     const res = await fetch(`${API_BASE}/settings/backup/export`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(passphrase ? { passphrase } : {}),
+      body: JSON.stringify({
+        ...(passphrase ? { passphrase } : {}),
+        include_accounts: includeAccounts,
+      }),
     });
     if (!res.ok) {
       throw await apiErrorFrom(res);
@@ -991,18 +1207,107 @@ export const api = {
     fetchJson<{ deleted: boolean }>(`/push/subscriptions/${id}`, { method: 'DELETE' }),
   testPushSubscription: (id: string) =>
     fetchJson<{ status: string }>(`/push/subscriptions/${id}/test`, { method: 'POST' }),
+  getPlugins: () => fetchJson<PluginInstance[]>('/plugins'),
+  getBundledPlugins: () => fetchJson<BundledPlugin[]>('/plugins/bundled'),
+  installPlugin: (body: PluginInstallRequest) =>
+    fetchJson<PluginInstance>('/plugins/install', { method: 'POST', body: JSON.stringify(body) }),
+  patchPlugin: (id: string, body: PluginPatch) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  createLocalPlugin: (body: LocalPluginCreate) =>
+    fetchJson<PluginInstance>('/plugins', { method: 'POST', body: JSON.stringify(body) }),
+  putPluginSource: (id: string, source: string) =>
+    fetchJson<PluginSourceResult>(`/plugins/${encodeURIComponent(id)}/source`, {
+      method: 'PUT',
+      body: JSON.stringify({ source }),
+    }),
+  checkPlugin: (id: string) =>
+    fetchJson<PluginCheckResult>(`/plugins/${encodeURIComponent(id)}/check`, { method: 'POST' }),
+  testPlugin: (id: string, body: PluginTestRequest) =>
+    fetchJson<PluginTestResult>(`/plugins/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  restartPlugin: (id: string) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
+  getPluginLogs: (id: string, limit = 200) =>
+    fetchJson<PluginLogs>(`/plugins/${encodeURIComponent(id)}/logs?limit=${limit}`, {
+      cache: 'no-store',
+    }),
+  getPluginDiagnostic: (id: string) =>
+    fetchJson<PluginDiagnostic>(`/plugins/${encodeURIComponent(id)}/diagnostic`, {
+      cache: 'no-store',
+    }),
+  deletePlugin: (id: string, keepData: boolean) =>
+    fetchJson<void>(`/plugins/${encodeURIComponent(id)}?keep_data=${keepData}`, {
+      method: 'DELETE',
+    }),
+  getShareStatus: () => fetchJson<ShareStatus>('/share/status'),
+  shortenLink: (url: string) =>
+    fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),
+  getShareMeta: (id: string) => fetchJson<ShareMeta>(`/share/${encodeURIComponent(id)}/meta`),
+  // Notifications (admin). The push preference routes below are deprecated shims, removed
+  // in 5.2.0: use the rules.
+  getNotificationTypes: () => fetchJson<NotificationTypeInfo[]>('/notifications/types'),
+  getNotificationEvents: () =>
+    fetchJson<{ contract_version: number; events: NotificationEventInfo[] }>(
+      '/notifications/events'
+    ),
+  getNotificationChannels: () => fetchJson<NotificationChannel[]>('/notifications/channels'),
+  getNotificationChannel: (id: string) =>
+    fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}`),
+  createNotificationChannel: (body: NotificationChannelCreate) =>
+    fetchJson<NotificationChannel>('/notifications/channels', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateNotificationChannel: (id: string, body: NotificationChannelPatch) =>
+    fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteNotificationChannel: (id: string) =>
+    fetchJson<{ deleted: boolean }>(`/notifications/channels/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  /** Test a configuration before saving it: nothing is persisted. */
+  testNotificationConfig: (body: NotificationChannelCreate) =>
+    fetchJson<{ status: string }>('/notifications/channels/test', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** One test per 5 s per channel: a second one answers 429 `rate_limited`. */
+  testNotificationChannel: (id: string) =>
+    fetchJson<{ status: string }>(`/notifications/channels/${encodeURIComponent(id)}/test`, {
+      method: 'POST',
+    }),
+  getNotificationRules: () => fetchJson<NotificationRules>('/notifications/rules'),
+  patchNotificationRules: (body: NotificationRulesPatch) =>
+    fetchJson<NotificationRules>('/notifications/rules', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  /** `channels: null` clears the exception of the conversation. */
+  setNotificationConversationRule: (key: string, channels: Record<string, boolean> | null) =>
+    fetchJson<NotificationRules>(`/notifications/rules/conversations/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ channels }),
+    }),
+  getNotificationDeliveries: (params: { channel?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.channel) query.set('channel', params.channel);
+    if (params.limit) query.set('limit', String(params.limit));
+    const suffix = query.toString();
+    return fetchJson<NotificationDeliveries>(
+      `/notifications/deliveries${suffix ? `?${suffix}` : ''}`
+    );
+  },
   getPushPreferences: () => fetchJson<PushPreferences>('/push/preferences'),
   patchPushPreferences: (partial: { defaults?: PushDefaultsPatch; vapid_subject?: string }) =>
     fetchJson<PushPreferences>('/push/preferences', {
       method: 'PATCH',
       body: JSON.stringify(partial),
-    }),
-  setPushConversationOverride: (
-    key: string,
-    override: boolean | ConversationMediaOverride | null
-  ) =>
-    fetchJson<PushPreferences>(`/push/preferences/conversations/${encodeURIComponent(key)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ override }),
     }),
 };

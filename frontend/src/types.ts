@@ -307,6 +307,61 @@ export interface RadioRegionDiscoveryResponse {
 
 export type RadioAdvertMode = 'flood' | 'zero_hop';
 
+/** One plugin instance as the plugin host sees it (health and the `plugin_status` event). */
+export interface PluginStatusEntry {
+  instance_id: string;
+  plugin_id: string | null;
+  label: string | null;
+  status: string | null;
+  last_error: string | null;
+  dropped_events: number;
+  restarts: number;
+  /** The plugin's own one-line status (`status.set`), null when it set none. */
+  summary?: string | null;
+  /** What the plugin send guards refused since start; absent or empty when nothing. */
+  send_guard?: {
+    total: number;
+    by_scope: Partial<Record<string, number>>;
+    last: { scope: string; at: number } | null;
+  };
+  /** Why the instance waits for the user (`config_required`, ...); null when it does not. */
+  attention?: PluginAttention | null;
+}
+
+export interface PluginAttention {
+  type: string;
+  [key: string]: unknown;
+}
+
+/** One plugin instance of `GET /api/plugins` (`config`, `source` and `last_error` are admin-only). */
+export interface PluginInstance {
+  instance_id: string;
+  plugin_id: string;
+  label: string;
+  kind: 'bundled' | 'store' | 'custom' | 'local';
+  version: string;
+  enabled: boolean;
+  manifest: Record<string, unknown>;
+  /** Secret fields read `********`. */
+  config: Record<string, unknown>;
+  config_schema: Record<string, unknown>;
+  secret_fields: string[];
+  scope: Record<string, unknown>;
+  granted_permissions: Record<string, unknown>;
+  quotas: Record<string, unknown>;
+  auto_update: boolean;
+  source: string | null;
+  installed_at: number;
+  updated_at: number;
+  status: string;
+  last_error: string | null;
+  attention: PluginAttention | null;
+  sort_order: number;
+  summary: string | null;
+  restarts: number;
+  dropped_events: number;
+}
+
 export interface FanoutStatusEntry {
   name: string;
   type: string;
@@ -369,10 +424,23 @@ export interface HealthStatus {
   database_size_mb: number;
   oldest_undecrypted_timestamp: number | null;
   fanout_statuses: Record<string, FanoutStatusEntry>;
+  /** Each notification channel's status, keyed by channel id (`builtin:push`, `legacy:webhook`...). */
+  notification_statuses?: Record<string, NotificationChannelStatus>;
   bots_disabled: boolean;
   bots_disabled_source?: 'env' | 'until_restart' | null;
-  basic_auth_enabled?: boolean;
+  /** Plugin host: isolation level, why it is off (null when on), and each instance. */
+  plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
+  plugins_disabled_source?: 'env' | 'platform' | 'isolation' | null;
+  plugin_statuses?: Record<string, PluginStatusEntry>;
   radio_proxy?: RadioProxyStatus | null;
+}
+
+export interface NotificationChannelStatus {
+  status: 'connected' | 'error' | 'paused' | 'disconnected';
+  /** A code, scrubbed of the channel's secrets; null below the admin role. */
+  last_error: string | null;
+  /** Epoch seconds of the last successful send. */
+  last_ok_at: number | null;
 }
 
 export interface FanoutConfig {
@@ -591,6 +659,8 @@ export interface Message {
   packet_hash?: string | null;
   /** True for CHAN and PRIV flood; persisted so the badge survives raw-packet purge. */
   observer_reach_eligible?: boolean | null;
+  /** WS `message` events only: true when produced by historical decryption. Absent otherwise. */
+  historical?: boolean;
 }
 
 export interface MessagesAroundResponse {
@@ -609,7 +679,6 @@ type ConversationType =
   | 'contact'
   | 'channel'
   | 'raw'
-  | 'control'
   | 'map'
   | 'live'
   | 'visualizer'
@@ -617,7 +686,8 @@ type ConversationType =
   | 'trace'
   | 'locate'
   | 'discovered'
-  | 'test';
+  | 'test'
+  | 'feed';
 
 export interface Conversation {
   type: ConversationType;
@@ -628,6 +698,10 @@ export interface Conversation {
   mapFocusKey?: string;
   /** For locate view: key, prefix, or search token */
   locateKey?: string;
+  /** For the feed view: preset folded into it (`#control`, the Control preset) */
+  feedPreset?: 'control';
+  /** For the feed view: its filters as a canonical hash query, no `?` */
+  feedQuery?: string;
 }
 
 export type LocateSource = 'local' | 'corescope' | 'mixte';
@@ -976,12 +1050,16 @@ export interface UiPreferences {
   nav_rail: string[];
   /** Theme id, or empty to follow the operating system. */
   theme: string;
+  /** Tool id the app opens on when the URL has no hash; empty means the conversations. */
+  start_view?: string;
   /** Names the server rather than the device, so it shows from any browser. */
   server_label?: ServerLabel;
 }
 
 export type TelemetryAlertOp = 'lt' | 'gt';
-export type NotificationDestinationChannel = 'email' | 'webhook';
+export type NotificationDestinationChannel = 'email' | 'webhook' | 'apprise';
+export type AppriseMessageText = 'always' | 'public_only' | 'never';
+export type AppriseFormat = 'text' | 'markdown';
 export type NotificationEmailMode = 'none' | 'starttls' | 'ssl';
 
 export interface TelemetryAlertRuleSpec {
@@ -1001,9 +1079,12 @@ export interface TelemetryAlertNodeOverride {
   rules?: Record<string, TelemetryAlertRuleOverrideSpec>;
 }
 
-/** Telemetry-alert v2 document persisted on GET/PATCH /api/settings. */
+/**
+ * Telemetry-alert v2 document persisted on GET/PATCH /api/settings. Where the alerts go is
+ * the `telemetry.alert` row of the notification rules, not a field here; a stored `channels`
+ * key from an older document is ignored.
+ */
 export interface TelemetryAlertRules {
-  channels: { push: boolean; email: boolean; webhook: boolean };
   rules: Record<string, TelemetryAlertRuleSpec>;
   overrides: Record<string, TelemetryAlertNodeOverride>;
 }
@@ -1019,13 +1100,30 @@ export interface NotificationEmailDest {
 }
 
 export interface NotificationWebhookDest {
+  /** Write-only, like ``hmac_secret``: ``********`` when set (the URL often holds a token). */
   url: string;
   hmac_secret: string;
+  /** Scheme and host of the stored URL (``https://host/****``), on API reads only. */
+  url_redacted?: string;
+  /** Egress guard opt-in: a destination on the LAN or localhost. */
+  allow_private_network: boolean;
+  /** Set for a webhook saved before the guard existed: shows a one-time banner. */
+  private_network_grandfathered: boolean;
+}
+
+/** Apprise destination. ``urls`` (one per line) is write-only: ``********`` when set. */
+export interface NotificationAppriseDest {
+  urls: string;
+  /** Egress guard opt-in for the hosts the URLs name (ntfy, Gotify, Home Assistant). */
+  allow_private_network: boolean;
+  include_message_text: AppriseMessageText;
+  format: AppriseFormat;
 }
 
 export interface NotificationDestinations {
   email: NotificationEmailDest;
   webhook: NotificationWebhookDest;
+  apprise: NotificationAppriseDest;
 }
 
 /** PATCH omit/null keeps a secret; empty string clears it. */
@@ -1034,6 +1132,7 @@ export interface NotificationDestinationsUpdate {
   webhook?: Partial<Omit<NotificationWebhookDest, 'hmac_secret'>> & {
     hmac_secret?: string | null;
   };
+  apprise?: Partial<Omit<NotificationAppriseDest, 'urls'>> & { urls?: string | null };
 }
 
 export interface TelemetryAlertCatalogMetric {
@@ -1105,11 +1204,21 @@ export const DEFAULT_NOTIFICATION_DESTINATIONS: NotificationDestinations = {
     from: '',
     to: '',
   },
-  webhook: { url: '', hmac_secret: '' },
+  webhook: {
+    url: '',
+    hmac_secret: '',
+    allow_private_network: false,
+    private_network_grandfathered: false,
+  },
+  apprise: {
+    urls: '',
+    allow_private_network: false,
+    include_message_text: 'public_only',
+    format: 'text',
+  },
 };
 
 export const DEFAULT_TELEMETRY_ALERT_RULES: TelemetryAlertRules = {
-  channels: { push: true, email: false, webhook: false },
   rules: {
     battery: { enabled: true, op: 'lt', threshold: 3.5, hysteresis: 0.2 },
     noise: { enabled: true, op: 'gt', threshold: -90, hysteresis: 3 },
@@ -1221,15 +1330,6 @@ export function resolveTelemetryAlertRules(
   if (!isNewTelemetryAlertRulesShape(raw)) return migrateLegacyTelemetryAlertRules(raw);
 
   const next = structuredClone(DEFAULT_TELEMETRY_ALERT_RULES);
-  const channels = asRecord(raw.channels);
-  if (channels) {
-    next.channels = {
-      push: typeof channels.push === 'boolean' ? channels.push : next.channels.push,
-      email: typeof channels.email === 'boolean' ? channels.email : next.channels.email,
-      webhook: typeof channels.webhook === 'boolean' ? channels.webhook : next.channels.webhook,
-    };
-  }
-
   const incomingRules = asRecord(raw.rules);
   if (incomingRules) {
     for (const [id, spec] of Object.entries(incomingRules)) {
@@ -1274,7 +1374,9 @@ export function resolveNotificationDestinations(
   const raw = asRecord(dest);
   const email = asRecord(raw?.email);
   const webhook = asRecord(raw?.webhook);
+  const apprise = asRecord(raw?.apprise);
   const mode = email?.mode;
+  const textPolicy = apprise?.include_message_text;
   return {
     email: {
       host: typeof email?.host === 'string' ? email.host : '',
@@ -1288,6 +1390,16 @@ export function resolveNotificationDestinations(
     webhook: {
       url: typeof webhook?.url === 'string' ? webhook.url : '',
       hmac_secret: typeof webhook?.hmac_secret === 'string' ? webhook.hmac_secret : '',
+      ...(typeof webhook?.url_redacted === 'string' ? { url_redacted: webhook.url_redacted } : {}),
+      allow_private_network: webhook?.allow_private_network === true,
+      private_network_grandfathered: webhook?.private_network_grandfathered === true,
+    },
+    apprise: {
+      urls: typeof apprise?.urls === 'string' ? apprise.urls : '',
+      allow_private_network: apprise?.allow_private_network === true,
+      include_message_text:
+        textPolicy === 'always' || textPolicy === 'never' ? textPolicy : 'public_only',
+      format: apprise?.format === 'markdown' ? 'markdown' : 'text',
     },
   };
 }
@@ -1298,6 +1410,10 @@ export function isEmailDestinationReady(email: NotificationEmailDest | undefined
 
 export function isWebhookDestinationReady(webhook: NotificationWebhookDest | undefined): boolean {
   return Boolean(webhook?.url?.trim());
+}
+
+export function isAppriseDestinationReady(apprise: NotificationAppriseDest | undefined): boolean {
+  return Boolean(apprise?.urls?.trim());
 }
 
 function secretForPatch(draft: string, stored: string | undefined): string | undefined {
@@ -1314,6 +1430,8 @@ export function buildNotificationDestinationsPatch(
   const current = stored ?? DEFAULT_NOTIFICATION_DESTINATIONS;
   const emailPassword = secretForPatch(draft.email.password, current.email.password);
   const hmacSecret = secretForPatch(draft.webhook.hmac_secret, current.webhook.hmac_secret);
+  const webhookUrl = secretForPatch(draft.webhook.url, current.webhook.url);
+  const appriseUrls = secretForPatch(draft.apprise.urls, current.apprise.urls);
   return {
     email: {
       host: draft.email.host,
@@ -1325,8 +1443,19 @@ export function buildNotificationDestinationsPatch(
       ...(emailPassword !== undefined ? { password: emailPassword } : {}),
     },
     webhook: {
-      url: draft.webhook.url,
+      ...(webhookUrl !== undefined ? { url: webhookUrl } : {}),
+      allow_private_network: draft.webhook.allow_private_network,
       ...(hmacSecret !== undefined ? { hmac_secret: hmacSecret } : {}),
+      ...(draft.webhook.private_network_grandfathered !==
+      current.webhook.private_network_grandfathered
+        ? { private_network_grandfathered: draft.webhook.private_network_grandfathered }
+        : {}),
+    },
+    apprise: {
+      allow_private_network: draft.apprise.allow_private_network,
+      include_message_text: draft.apprise.include_message_text,
+      format: draft.apprise.format,
+      ...(appriseUrls !== undefined ? { urls: appriseUrls } : {}),
     },
   };
 }
@@ -1417,6 +1546,38 @@ export function normalizeTelemetryAlertCatalog(raw: unknown): TelemetryAlertCata
   return { metrics, latches, tracked };
 }
 
+export type NotificationLanguage = 'auto' | 'fr' | 'en';
+export type ShareShortenMode = 'auto' | 'always' | 'never';
+export type SharePreviewPolicy = 'always' | 'private' | 'never';
+
+/** `GET /api/share/status`: makes no request to the share service. */
+export interface ShareStatus {
+  enabled: boolean;
+  host: string;
+  hosts: string[];
+  identity_ready: boolean;
+  dm_encryption_available: boolean;
+  banned: boolean;
+  /** The share client's breaker is open: the service (and its terms pages) is not answering. */
+  unreachable: boolean;
+  shorten_mode: ShareShortenMode;
+  preview_policy: SharePreviewPolicy;
+}
+
+/** `POST /api/share/links` answer. */
+export interface ShareLink {
+  id: string;
+  url: string;
+  expires_at: number;
+}
+
+/** `GET /api/share/{id}/meta` answer (links). */
+export interface ShareMeta {
+  kind: string;
+  target_host: string | null;
+  expires_at: number | null;
+}
+
 export interface AppSettings {
   ui_preferences: UiPreferences;
   max_radio_contacts: number;
@@ -1440,11 +1601,41 @@ export interface AppSettings {
   force_channel_slot_reconfigure?: boolean;
   load_with_autoevict?: boolean;
   auto_clock_wraparound?: boolean;
+  /** CORS allowlist (Settings → Local Configuration → Allowed origins). Empty: same-origin only. */
+  auth_allowed_origins?: string[];
+  /** Accept Web Push endpoints on a private network (self-hosted UnifiedPush). */
+  push_allow_private_endpoints?: boolean;
+  /** The upgrade turned push_allow_private_endpoints on: show a one-time notice. */
+  push_private_endpoints_grandfathered?: boolean;
+  /** The upgrade switched the opt-in off for a hostname it cannot place: show a review notice. */
+  push_private_endpoints_review?: boolean;
+  /** Seconds the radio may stay unreachable before radio_offline is sent (0 = at once). */
+  radio_offline_grace_s?: number;
+  /** Consent to the link and file sharing service. Off by default; never restored from a backup. */
+  share_enabled?: boolean;
+  share_shorten_mode?: ShareShortenMode;
+  share_preview_policy?: SharePreviewPolicy;
+  notification_language?: NotificationLanguage;
   directory_available?: boolean;
   /** Absent until the backend ships the field; UI falls back to defaults. */
   telemetry_alert_rules?: TelemetryAlertRules;
   notification_destinations?: NotificationDestinations;
 }
+
+/**
+ * `GET /api/settings/view`: the part of `AppSettings` every role may read
+ * (`app/models.py`, `AppSettingsView`). Everything else stays administrator-only.
+ */
+export type AppSettingsView = Pick<
+  AppSettings,
+  | 'ui_preferences'
+  | 'last_message_times'
+  | 'flood_scope'
+  | 'known_regions'
+  | 'blocked_keys'
+  | 'blocked_names'
+  | 'directory_available'
+>;
 
 export interface AppSettingsUpdate {
   ui_preferences?: UiPreferences;
@@ -1466,6 +1657,15 @@ export interface AppSettingsUpdate {
   force_channel_slot_reconfigure?: boolean;
   load_with_autoevict?: boolean;
   auto_clock_wraparound?: boolean;
+  auth_allowed_origins?: string[];
+  push_allow_private_endpoints?: boolean;
+  push_private_endpoints_grandfathered?: boolean;
+  push_private_endpoints_review?: boolean;
+  radio_offline_grace_s?: number;
+  share_enabled?: boolean;
+  share_shorten_mode?: ShareShortenMode;
+  share_preview_policy?: SharePreviewPolicy;
+  notification_language?: NotificationLanguage;
 }
 
 export interface DirectoryHopHit {
@@ -1604,6 +1804,8 @@ export interface BackupExport {
   channels: BackupChannel[];
   settings: AppSettings | null;
   groups: ContactGroup[];
+  /** Secrets written as `********` instead of their value, by path (v1 download). */
+  secret_omitted?: Record<string, boolean>;
 }
 
 export interface BackupRestoreResult {
@@ -1611,6 +1813,8 @@ export interface BackupRestoreResult {
   channels_upserted: number;
   settings_updated: boolean;
   groups_upserted: number;
+  /** `code:value` strings (`secret_dropped_destination_changed:email.password`). */
+  warnings: string[];
   private_key_warning: string;
 }
 
@@ -1695,7 +1899,21 @@ export interface BackupInspectResult {
   wifi_ssid_differs_on_tcp: boolean;
   /** Reached over TCP and the file turns Wi-Fi off. */
   wifi_off_on_tcp?: boolean;
+  /** The file's named sections (added by features such as plugins or accounts). */
+  sections?: BackupSectionSummary[];
   warnings: string[];
+}
+
+export interface BackupSectionSummary {
+  name: string;
+  /** This version restores it (else it is ignored). */
+  known: boolean;
+  /** Written by a newer version of its owner: not restored. */
+  too_new: boolean;
+  /** Holds secrets (hashes included). */
+  sensitive: boolean;
+  /** What it holds, per language (en, fr); null when unknown. */
+  description: Record<string, string> | null;
 }
 
 export interface BackupRestoreSteps {
@@ -1971,6 +2189,7 @@ export interface NotificationMediaFlags {
   push: boolean;
   email: boolean;
   webhook: boolean;
+  apprise: boolean;
 }
 
 export type NotificationMediaChannel = keyof NotificationMediaFlags;
@@ -1979,11 +2198,12 @@ export const DEFAULT_NOTIFICATION_MEDIA: NotificationMediaFlags = {
   push: true,
   email: false,
   webhook: false,
+  apprise: false,
 };
 
 export function resolveNotificationMedia(raw: unknown): NotificationMediaFlags {
   if (typeof raw === 'boolean') {
-    return { push: raw, email: false, webhook: false };
+    return { push: raw, email: false, webhook: false, apprise: false };
   }
   if (raw && typeof raw === 'object') {
     const obj = raw as Record<string, unknown>;
@@ -1991,6 +2211,7 @@ export function resolveNotificationMedia(raw: unknown): NotificationMediaFlags {
       push: Boolean(obj.push),
       email: Boolean(obj.email),
       webhook: Boolean(obj.webhook),
+      apprise: Boolean(obj.apprise),
     };
   }
   return { ...DEFAULT_NOTIFICATION_MEDIA };
@@ -2012,6 +2233,9 @@ export interface PushDefaults {
   channel_found: NotificationMediaFlags;
   telemetry_alert: NotificationMediaFlags;
   oss_update: NotificationMediaFlags;
+  radio_offline: NotificationMediaFlags;
+  radio_online: NotificationMediaFlags;
+  app_started: NotificationMediaFlags;
 }
 
 export type PushDefaultsPatch = {

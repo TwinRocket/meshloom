@@ -63,8 +63,15 @@ jobs:
 
       - name: Overlay tagged sources
         run: |
-          rm -rf app frontend
+          rm -rf app frontend meshloom_plugin
           cp -a tag-src/app tag-src/frontend .
+          # Tags before 5.0 have no meshloom_plugin/: ship an empty directory so
+          # Dockerfile.nfpm-armhf's COPY and build_nfpm_packages.sh still work.
+          if [ -d tag-src/meshloom_plugin ]; then
+            cp -a tag-src/meshloom_plugin .
+          else
+            mkdir -p meshloom_plugin
+          fi
           cp tag-src/pyproject.toml tag-src/uv.lock .
           [ -f tag-src/LICENSE.md ] && cp tag-src/LICENSE.md .
           [ -f tag-src/LICENSES.md ] && cp tag-src/LICENSES.md .

@@ -1,3 +1,4 @@
+import { useCapabilities } from './auth/SessionProvider';
 import {
   useEffect,
   useCallback,
@@ -31,27 +32,21 @@ import {
 } from './hooks';
 import { toast } from './components/ui/sonner';
 import { AppShell } from './components/AppShell';
+import { toolAllowed } from './components/navDestinations';
 import type { MessageInputHandle } from './components/MessageInput';
 import { DistanceUnitProvider } from './contexts/DistanceUnitContext';
 import { PathHopWidthProvider } from './contexts/PathHopWidthContext';
 import { RichPayloadProvider } from './contexts/RichPayloadContext';
-import { usePush } from './contexts/PushSubscriptionContext';
+import { NotificationStatusProvider } from './contexts/NotificationStatusContext';
 import { messageContainsMention } from './utils/messageParser';
 import { getStateKey } from './utils/conversationState';
-import { isPublicChannelKey } from './utils/publicChannel';
 import { seedCommunityEnabled, useCommunityEnabled } from './stores/communityStore';
 import type {
   BulkCreateHashtagChannelsResult,
   Channel,
+  Contact,
   Conversation,
   Message,
-  NotificationMediaChannel,
-  NotificationMediaFlags,
-} from './types';
-import {
-  isEmailDestinationReady,
-  isWebhookDestinationReady,
-  resolveNotificationDestinations,
 } from './types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM } from './types';
 import { shouldAutoFocusInput } from './utils/autoFocusInput';
@@ -61,23 +56,6 @@ interface NewMessagePrefillRequest {
   tab: 'hashtag';
   hashtagName: string;
   nonce: number;
-}
-
-function conversationPushPolicy(
-  conversation: Conversation,
-  channels: Channel[]
-): { messageType: 'PRIV' | 'CHAN'; isHashtag?: boolean; isPublic?: boolean } | null {
-  if (conversation.type === 'contact') {
-    return { messageType: 'PRIV' };
-  }
-  if (conversation.type === 'channel') {
-    return {
-      messageType: 'CHAN',
-      isHashtag: channels.find((channel) => channel.key === conversation.id)?.is_hashtag,
-      isPublic: isPublicChannelKey(conversation.id),
-    };
-  }
-  return null;
 }
 
 /**
@@ -121,7 +99,7 @@ export function App() {
   const [bulkAddResult, setBulkAddResult] = useState<BulkCreateHashtagChannelsResult | null>(null);
   const [repeaterAutoLoginKey, setRepeaterAutoLoginKey] = useState<string | null>(null);
   const [visibilityVersion, setVisibilityVersion] = useState(0);
-  const pushSubscription = usePush();
+  const capabilities = useCapabilities();
   const {
     showNewMessage,
     showSettings,
@@ -254,6 +232,12 @@ export function App() {
   useEffect(() => {
     channelsRef.current = channels;
   }, [channels]);
+  // Same for the contacts, null until the first load: the feed's event rows tell a new contact
+  // from a snapshot frame by what the client already held.
+  const contactsRef = useRef<Contact[] | null>(null);
+  useEffect(() => {
+    contactsRef.current = contactsLoaded ? contacts : null;
+  }, [contacts, contactsLoaded]);
 
   const handleToggleFavorite = useCallback(
     async (type: 'channel' | 'contact', id: string) => {
@@ -320,6 +304,7 @@ export function App() {
     activeConversationRef,
     handleSelectConversation,
     markDefaultConversationSet,
+    syncFeedQuery,
   } = useConversationRouter({
     channels,
     contacts,
@@ -329,6 +314,8 @@ export function App() {
     pendingDeleteFallbackRef,
     settingsLoaded: appSettings !== null && communityEnabled !== null,
     directoryEnabled,
+    startView: appSettings?.ui_preferences?.start_view ?? '',
+    toolAllowed: (id) => toolAllowed(id, capabilities),
   });
 
   const {
@@ -477,6 +464,7 @@ export function App() {
     blockedKeysRef,
     blockedNamesRef,
     channelsRef,
+    contactsRef,
     activeConversationRef,
     observeMessage,
     recordMessageEvent,
@@ -694,49 +682,10 @@ export function App() {
     onDeleteChannel: handleDeleteChannel,
     onDeleteContact: handleDeleteContact,
     onSetChannelFloodScopeOverride: handleSetChannelFloodScopeOverride,
-    getNotifyMediaEnabled: (conversation: Conversation): NotificationMediaFlags => {
-      const empty: NotificationMediaFlags = { push: false, email: false, webhook: false };
-      if (conversation.type !== 'contact' && conversation.type !== 'channel') {
-        return empty;
-      }
-      const policy = conversationPushPolicy(conversation, channels);
-      if (!policy) return empty;
-      const key = getStateKey(conversation.type, conversation.id);
-      return {
-        push: pushSubscription.isConversationMediaEnabled(key, policy, 'push'),
-        email: pushSubscription.isConversationMediaEnabled(key, policy, 'email'),
-        webhook: pushSubscription.isConversationMediaEnabled(key, policy, 'webhook'),
-      };
-    },
-    onSetConversationMediaFor: async (
-      conversation: Conversation,
-      channel: NotificationMediaChannel,
-      enabled: boolean
-    ) => {
-      if (conversation.type !== 'contact' && conversation.type !== 'channel') {
-        return;
-      }
-      const key = getStateKey(conversation.type, conversation.id);
-      if (
-        channel === 'push' &&
-        enabled &&
-        !pushSubscription.isSubscribed &&
-        pushSubscription.isSupported
-      ) {
-        await pushSubscription.subscribe();
-      }
-      await pushSubscription.setConversationOverride(key, { [channel]: enabled });
-    },
     onOpenNotifySettings: () => {
       setSettingsSection('notifications');
       if (!showSettings) handleToggleSettingsView();
     },
-    emailReady: isEmailDestinationReady(
-      resolveNotificationDestinations(appSettings?.notification_destinations).email
-    ),
-    webhookReady: isWebhookDestinationReady(
-      resolveNotificationDestinations(appSettings?.notification_destinations).webhook
-    ),
   };
   const bulkAddChannelResultModalProps = {
     result: bulkAddResult,
@@ -779,7 +728,9 @@ export function App() {
     onSetChannelFloodScopeOverride: handleSetChannelFloodScopeOverride,
     onSetChannelPathHashModeOverride: handleSetChannelPathHashModeOverride,
     onSelectConversation: handleSelectConversationWithTargetReset,
+    onNavigateToMessage: handleNavigateToMessage,
     onOpenContactInfo: handleOpenContactInfo,
+    onFeedQueryChange: syncFeedQuery,
     onOpenChannelInfo: handleOpenChannelInfo,
     onSenderClick: handleSenderClick,
     onChannelReferenceClick: handleChannelReferenceClick,
@@ -791,47 +742,6 @@ export function App() {
     onSendMessage: handleSendMessage,
     onMessageDeleted: removeMessage,
     onDismissUnreadMarker: dismissChannelUnreadMarker,
-    notifyMediaEnabled: (() => {
-      const empty: NotificationMediaFlags = { push: false, email: false, webhook: false };
-      if (
-        !activeConversation ||
-        (activeConversation.type !== 'contact' && activeConversation.type !== 'channel')
-      ) {
-        return empty;
-      }
-      const policy = conversationPushPolicy(activeConversation, channels);
-      if (!policy) return empty;
-      const key = getStateKey(activeConversation.type, activeConversation.id);
-      return {
-        push: pushSubscription.isConversationMediaEnabled(key, policy, 'push'),
-        email: pushSubscription.isConversationMediaEnabled(key, policy, 'email'),
-        webhook: pushSubscription.isConversationMediaEnabled(key, policy, 'webhook'),
-      };
-    })(),
-    emailReady: isEmailDestinationReady(
-      resolveNotificationDestinations(appSettings?.notification_destinations).email
-    ),
-    webhookReady: isWebhookDestinationReady(
-      resolveNotificationDestinations(appSettings?.notification_destinations).webhook
-    ),
-    onSetConversationMedia: async (channel: NotificationMediaChannel, enabled: boolean) => {
-      if (
-        !activeConversation ||
-        (activeConversation.type !== 'contact' && activeConversation.type !== 'channel')
-      ) {
-        return;
-      }
-      const key = getStateKey(activeConversation.type, activeConversation.id);
-      if (
-        channel === 'push' &&
-        enabled &&
-        !pushSubscription.isSubscribed &&
-        pushSubscription.isSupported
-      ) {
-        await pushSubscription.subscribe();
-      }
-      await pushSubscription.setConversationOverride(key, { [channel]: enabled });
-    },
     onOpenNotifySettings: () => {
       setSettingsSection('notifications');
       if (!showSettings) handleToggleSettingsView();
@@ -933,12 +843,15 @@ export function App() {
         locateKey: publicKey,
       });
     },
-    onToggleBlockedKey: handleBlockKey,
-    onToggleBlockedName: handleBlockName,
+    // Blocking and telemetry tracking are written with the app settings (administrators).
+    onToggleBlockedKey: capabilities.isAdmin ? handleBlockKey : undefined,
+    onToggleBlockedName: capabilities.isAdmin ? handleBlockName : undefined,
     blockedKeys: appSettings?.blocked_keys ?? [],
     blockedNames: appSettings?.blocked_names ?? [],
     trackedTelemetryContacts: appSettings?.tracked_telemetry_contacts ?? [],
-    onToggleTrackedTelemetryContact: handleToggleTrackedTelemetryContact,
+    onToggleTrackedTelemetryContact: capabilities.isAdmin
+      ? handleToggleTrackedTelemetryContact
+      : undefined,
   };
   const channelInfoPaneProps = {
     channelKey: infoPaneChannelKey,
@@ -1006,44 +919,46 @@ export function App() {
           showPathHopWidth={showPathHopWidth}
           setShowPathHopWidth={setShowPathHopWidth}
         >
-          <AppShell
-            navRailOrder={appSettings?.ui_preferences?.nav_rail}
-            serverLabel={serverLabel}
-            showNewMessage={showNewMessage}
-            showBulkAddResults={bulkAddResult !== null}
-            showSettings={showSettings}
-            settingsSection={settingsSection}
-            sidebarOpen={sidebarOpen}
-            showCracker={showCracker}
-            onSettingsSectionChange={setSettingsSection}
-            onSidebarOpenChange={setSidebarOpen}
-            onCrackerRunningChange={setCrackerRunning}
-            onToggleSettingsView={handleToggleSettingsView}
-            onClearActiveConversation={() => {
-              // The hash has to go with it: left behind, the router reads it on the
-              // next pass and reopens the conversation that was just closed.
-              updateUrlHash(null);
-              setActiveConversation(null);
-            }}
-            onCloseSettingsView={handleCloseSettingsView}
-            onCloseNewMessage={handleCloseNewMessage}
-            onCloseBulkAddResults={handleCloseBulkAddResults}
-            statusProps={statusProps}
-            sidebarProps={sidebarProps}
-            conversationPaneProps={conversationPaneProps}
-            searchProps={searchProps}
-            settingsProps={settingsProps}
-            crackerProps={crackerProps}
-            newMessageModalProps={newMessageModalProps}
-            bulkAddChannelResultModalProps={bulkAddChannelResultModalProps}
-            contactInfoPaneProps={contactInfoPaneProps}
-            channelInfoPaneProps={channelInfoPaneProps}
-            onRepeaterAutoLogin={handleRepeaterAutoLogin}
-            onIdentityAdopted={handleIdentityAdopted}
-            conversationListCollapsed={desktopSidebarCollapsed}
-            onToggleConversationList={handleToggleDesktopSidebar}
-            onExpandConversationList={handleExpandDesktopSidebar}
-          />
+          <NotificationStatusProvider statuses={health?.notification_statuses}>
+            <AppShell
+              navRailOrder={appSettings?.ui_preferences?.nav_rail}
+              serverLabel={serverLabel}
+              showNewMessage={showNewMessage}
+              showBulkAddResults={bulkAddResult !== null}
+              showSettings={showSettings}
+              settingsSection={settingsSection}
+              sidebarOpen={sidebarOpen}
+              showCracker={showCracker}
+              onSettingsSectionChange={setSettingsSection}
+              onSidebarOpenChange={setSidebarOpen}
+              onCrackerRunningChange={setCrackerRunning}
+              onToggleSettingsView={handleToggleSettingsView}
+              onClearActiveConversation={() => {
+                // The hash has to go with it: left behind, the router reads it on the
+                // next pass and reopens the conversation that was just closed.
+                updateUrlHash(null);
+                setActiveConversation(null);
+              }}
+              onCloseSettingsView={handleCloseSettingsView}
+              onCloseNewMessage={handleCloseNewMessage}
+              onCloseBulkAddResults={handleCloseBulkAddResults}
+              statusProps={statusProps}
+              sidebarProps={sidebarProps}
+              conversationPaneProps={conversationPaneProps}
+              searchProps={searchProps}
+              settingsProps={settingsProps}
+              crackerProps={crackerProps}
+              newMessageModalProps={newMessageModalProps}
+              bulkAddChannelResultModalProps={bulkAddChannelResultModalProps}
+              contactInfoPaneProps={contactInfoPaneProps}
+              channelInfoPaneProps={channelInfoPaneProps}
+              onRepeaterAutoLogin={handleRepeaterAutoLogin}
+              onIdentityAdopted={handleIdentityAdopted}
+              conversationListCollapsed={desktopSidebarCollapsed}
+              onToggleConversationList={handleToggleDesktopSidebar}
+              onExpandConversationList={handleExpandDesktopSidebar}
+            />
+          </NotificationStatusProvider>
         </PathHopWidthProvider>
       </RichPayloadProvider>
     </DistanceUnitProvider>

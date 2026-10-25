@@ -1,0 +1,11 @@
+{
+  "errors": {
+    "auth_2fa_invalid": "Invalid or already used code.",
+    "auth_2fa_pending_invalid": "This sign-in expired. Enter your password again.",
+    "auth_2fa_already_enabled": "Two-factor authentication is already on.",
+    "auth_2fa_not_pending": "Start the two-factor setup first.",
+    "auth_2fa_not_enabled": "Two-factor authentication is off.",
+    "auth_2fa_not_applicable": "This account has no password: Home Assistant and kiosk accounts sign in another way.",
+    "auth_2fa_enrolment_required": "Set up two-factor authentication before going on: the administrator requires it."
+  }
+}

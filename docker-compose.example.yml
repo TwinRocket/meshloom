@@ -32,8 +32,9 @@ services:
 
       # Security
       # MESHCORE_DISABLE_BOTS: "true"
-      # MESHCORE_BASIC_AUTH_USERNAME: changeme
-      # MESHCORE_BASIC_AUTH_PASSWORD: changeme
+      # Accounts live in the database (Settings → Users & Access). The retired
+      # MESHCORE_BASIC_AUTH_* variables are imported once into an administrator
+      # on a database with no account, then ignored: do not set them.
 
       # Web Push: the contact address (a real mailto: for iPhones) is set in
       # Settings → Notifications. MESHCORE_VAPID_SUBJECT is no longer read.

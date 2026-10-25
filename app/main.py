@@ -39,25 +39,32 @@ if sys.platform == "win32":
     del _loop, _is_proactor
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api_docs import API_DESCRIPTION, API_TAGS_METADATA, register_api_docs_routes
+from app.auth.middleware import AuthMiddleware
+from app.auth.permissions import enforce_declaration
 from app.config import settings as server_settings
 from app.config import setup_logging
+from app.cors import AllowedOriginsCORSMiddleware
 from app.database import db
 from app.frontend_static import (
     register_first_available_frontend_static_routes,
     register_frontend_missing_fallback,
 )
+from app.middleware import proxy_headers
+from app.middleware.host_guard import HostGuardMiddleware
+from app.middleware.proxy_headers import TrustedProxyHeadersMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.radio import RadioDisconnectedError
 from app.radio_sync import (
     stop_background_contact_reconciliation,
@@ -67,6 +74,9 @@ from app.radio_sync import (
     stop_telemetry_collect,
 )
 from app.routers import (
+    auth,
+    auth_totp,
+    auth_webauthn,
     channels,
     community,
     contact_groups,
@@ -77,7 +87,9 @@ from app.routers import (
     health,
     locate,
     messages,
+    notifications,
     packets,
+    plugins,
     push,
     radio,
     radio_wifi,
@@ -85,12 +97,13 @@ from app.routers import (
     repeaters,
     rooms,
     settings,
+    share,
     statistics,
     tools,
     updates,
     ws,
 )
-from app.security import add_optional_basic_auth_middleware
+from app.services.hardening import set_not_dumpable
 from app.services.hashtag_catalogue import (
     start_hashtag_catalogue_polling,
     stop_hashtag_catalogue_polling,
@@ -108,38 +121,65 @@ logger = logging.getLogger(__name__)
 
 async def _startup_radio_connect_and_setup() -> None:
     """Connect/setup the radio in the background so HTTP serving can start immediately."""
+    started = time.monotonic()
+    connected = False
+    try:
+        connected = await _connect_radio_on_startup()
+    except asyncio.CancelledError:
+        # Shutting down: the start never completed, nothing to announce.
+        raise
+    except Exception:
+        logger.exception("Failed to connect to radio on startup")
+    # Startup is complete (radio connected or not): tell the user once.
+    from app.notifications.radio_watch import radio_watch
+
+    radio_watch.note_startup_complete(
+        version=get_app_build_info().version,
+        radio_connected=connected,
+        connect_s=time.monotonic() - started if connected else None,
+    )
+
+
+async def _connect_radio_on_startup() -> bool:
     if not radio_manager.connection_desired:
         logger.info("Radio connection not desired; skipping startup connect")
-        return
+        return False
     from app.services.radio_transport import get_transport
 
     snapshot = await get_transport()
     if not snapshot.configured:
         logger.info("Radio transport is not configured; skipping startup connect")
-        return
-    try:
-        connected = await radio_manager.reconnect_and_prepare(broadcast_on_success=True)
-        if connected:
-            logger.info("Connected to radio")
-        elif (reason := expected_reboot_reason(radio_manager)) is not None:
-            logger.info(
-                "Radio is rebooting %s; the connection monitor will reconnect it and finish setup",
-                reboot_purpose(reason),
-            )
-        else:
-            logger.warning("Failed to connect to radio on startup")
-    except Exception:
-        logger.exception("Failed to connect to radio on startup")
+        return False
+    connected = await radio_manager.reconnect_and_prepare(broadcast_on_success=True)
+    if connected:
+        logger.info("Connected to radio")
+    elif (reason := expected_reboot_reason(radio_manager)) is not None:
+        logger.info(
+            "Radio is rebooting %s; the connection monitor will reconnect it and finish setup",
+            reboot_purpose(reason),
+        )
+    else:
+        logger.warning("Failed to connect to radio on startup")
+    return bool(connected)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage database and radio connection lifecycle."""
+    set_not_dumpable()
     db_path = Path(server_settings.database_path)
     file_existed = db_path.is_file() and db_path.stat().st_size > 0
 
     await db.connect()
     logger.info("Database connected")
+
+    # A SQLite snapshot put back in place: the restore hooks run once.
+    from app.services.backup_sections import run_sqlite_restore_hooks
+
+    try:
+        await run_sqlite_restore_hooks(db)
+    except Exception:
+        logger.exception("Failed to run the restore hooks of a restored database snapshot")
 
     from app.services.radio_transport import (
         database_has_mesh_history,
@@ -176,7 +216,7 @@ async def lifespan(app: FastAPI):
     # Retired MESHCORE_* settings (VAPID contact, radio workarounds): copied into
     # app_settings once, then only a warning while they (or a retired
     # MESHLOOM_COMMUNITY* variable) are still set.
-    from app import radio_workarounds
+    from app import origin_policy, radio_workarounds
     from app.services.legacy_env_settings import import_legacy_env_settings
 
     try:
@@ -188,6 +228,31 @@ async def lifespan(app: FastAPI):
     except Exception:
         # The workarounds stay off (their defaults) rather than block startup.
         logger.exception("Failed to load the radio workarounds from app_settings")
+    try:
+        await origin_policy.load()
+    except Exception:
+        # Same-origin only (the default) rather than block startup.
+        logger.exception("Failed to load the allowed origins from app_settings")
+    try:
+        await proxy_headers.load()
+    except Exception:
+        # No trusted proxy (the default): forwarded headers stay ignored.
+        logger.exception("Failed to load the trusted proxies from auth_settings")
+
+    # Accounts: import the retired Basic credentials, or issue the installation
+    # code on an existing database with no account yet (app/auth/setup_code.py).
+    from app.auth.setup_code import prepare_first_run
+
+    try:
+        await prepare_first_run(
+            existing_database=existing_database,
+            basic_username=server_settings.basic_auth_username,
+            basic_password=server_settings.basic_auth_password,
+        )
+    except Exception:
+        # Fail closed: setup answers 503 until a retry from the setup route succeeds
+        # (app/auth/setup_code.py), and every other route still needs an account.
+        logger.exception("Failed to prepare the first-run account setup")
 
     # Initialize VAPID keys for Web Push (generates on first run)
     from app.push.vapid import ensure_vapid_keys
@@ -230,6 +295,11 @@ async def lifespan(app: FastAPI):
         await fanout_manager.load_from_db()
     except Exception:
         logger.exception("Failed to start fanout modules")
+
+    # One supervised child per enabled plugin instance (staggered, in the background).
+    from app.plugins import lifecycle as plugin_lifecycle
+
+    await plugin_lifecycle.start()
 
     from app.radio_proxy.manager import radio_proxy_manager
 
@@ -293,6 +363,7 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
 
 async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> None:
     from app.background_tasks import drain_background_tasks
+    from app.plugins import lifecycle as plugin_lifecycle
     from app.services.community_live import shutdown_community_live
     from app.services.community_status_clear import stop_status_clear_worker
 
@@ -302,6 +373,7 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
         ("startup radio task", lambda: _cancel_task(startup_radio_task)),
         ("community live", shutdown_community_live),
         ("community status clear", stop_status_clear_worker),
+        ("plugins", plugin_lifecycle.stop),  # bounded: never over 10 s
         ("fanout modules", fanout_manager.stop_all),
         ("radio proxy", radio_proxy_manager.stop),
         ("connection monitor", radio_manager.stop_connection_monitor),
@@ -338,18 +410,25 @@ app = FastAPI(
     openapi_tags=API_TAGS_METADATA,
     docs_url=None,
     lifespan=lifespan,
+    # Default deny: an /api route that declares no permission is admin-only
+    # (app/auth/permissions.py).
+    dependencies=[Depends(enforce_declaration)],
 )
 
 register_api_docs_routes(app)
-add_optional_basic_auth_middleware(app, server_settings)
+# Innermost: every route needs a principal except the public ones (app/auth/middleware.py).
+app.add_middleware(AuthMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=500)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Same-origin by default; Settings lists the other sites allowed (app/cors.py).
+app.add_middleware(AllowedOriginsCORSMiddleware)
+# HSTS (https only, never ingress), no-store on auth routes, Permissions-Policy.
+app.add_middleware(SecurityHeadersMiddleware)
+# DNS-rebinding guard (observation mode by default): inside the proxy-headers
+# middleware, which records the TCP peer the ingress exemption reads.
+app.add_middleware(HostGuardMiddleware)
+# Outside the gate and CORS: the one interpreter of X-Forwarded-For/-Proto, from
+# the trusted proxies setting (app/middleware/proxy_headers.py).
+app.add_middleware(TrustedProxyHeadersMiddleware)
 
 
 @app.exception_handler(RadioDisconnectedError)
@@ -417,6 +496,9 @@ async def log_server_errors(request: Request, call_next):
 
 # API routes - all prefixed with /api for production compatibility
 app.include_router(health.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
+app.include_router(auth_totp.router, prefix="/api")
+app.include_router(auth_webauthn.router, prefix="/api")
 app.include_router(debug.router, prefix="/api")
 app.include_router(fanout.router, prefix="/api")
 app.include_router(community.router, prefix="/api")
@@ -430,9 +512,12 @@ app.include_router(repeaters.router, prefix="/api")
 app.include_router(rooms.router, prefix="/api")
 app.include_router(channels.router, prefix="/api")
 app.include_router(messages.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 app.include_router(packets.router, prefix="/api")
+app.include_router(plugins.router, prefix="/api")
 app.include_router(read_state.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
+app.include_router(share.router, prefix="/api")
 app.include_router(statistics.router, prefix="/api")
 app.include_router(tools.router, prefix="/api")
 app.include_router(updates.router, prefix="/api")

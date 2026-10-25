@@ -4,6 +4,7 @@ import { takePrefetchOrFetch } from '../prefetch';
 import { toast } from '../components/ui/sonner';
 import { noteRadioWifiHealth } from '../stores/radioWifiStore';
 import i18n from '../i18n';
+import { useCapabilities } from '../auth/SessionProvider';
 import type {
   HealthStatus,
   RadioAdvertMode,
@@ -16,6 +17,8 @@ import type {
 } from '../types';
 
 export function useRadioControl() {
+  // The radio configuration and the Wi-Fi state are administrator-only on the server.
+  const { isAdmin } = useCapabilities();
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [config, setConfig] = useState<RadioConfig | null>(null);
   const [meshDiscovery, setMeshDiscovery] = useState<RadioDiscoveryResponse | null>(null);
@@ -30,8 +33,8 @@ export function useRadioControl() {
   // The Wi-Fi store fetches its state when the radio becomes connected and set up
   // (the server sends no Wi-Fi event on socket connect).
   useEffect(() => {
-    noteRadioWifiHealth(health);
-  }, [health]);
+    if (isAdmin) noteRadioWifiHealth(health);
+  }, [health, isAdmin]);
 
   // Cancel any in-flight reboot polling on unmount
   useEffect(() => {
@@ -41,13 +44,14 @@ export function useRadioControl() {
   }, []);
 
   const fetchConfig = useCallback(async () => {
+    if (!isAdmin) return;
     try {
       const data = await takePrefetchOrFetch('config', api.getRadioConfig);
       setConfig(data);
     } catch (err) {
       console.error('Failed to fetch config:', err);
     }
-  }, []);
+  }, [isAdmin]);
 
   const handleSaveConfig = useCallback(
     async (update: RadioConfigUpdate) => {

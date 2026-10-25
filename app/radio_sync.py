@@ -21,6 +21,7 @@ from typing import Literal
 from meshcore import EventType, MeshCore
 
 from app import radio_workarounds
+from app.auth.ws_events import WsEvent
 from app.background_tasks import spawn
 from app.channel_constants import PUBLIC_CHANNEL_KEY, PUBLIC_CHANNEL_NAME
 from app.event_handlers import cleanup_expired_acks, on_contact_message
@@ -138,7 +139,7 @@ async def _reconcile_contact_messages_background(
             if contact is not None:
                 for old_key in promoted_keys:
                     broadcast_event(
-                        "contact_resolved",
+                        WsEvent.CONTACT_RESOLVED,
                         {"previous_public_key": old_key, "contact": contact.model_dump()},
                     )
     except Exception as exc:

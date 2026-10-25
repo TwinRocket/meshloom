@@ -1,6 +1,6 @@
 ---
 title: Around the messages
-description: The map, the visualizer, the packet feed — what you watch without sending anything.
+description: The map, the visualizer, the packet feed, the feed — what you watch without sending anything.
 level: start
 order: 5
 ---
@@ -10,6 +10,10 @@ A radio hears much more than what is addressed to you. Adverts (a node announcin
 None of this is needed to send a message. It is observation. You can skip it entirely.
 
 On a phone, open these tools from **Tools** in the bottom bar. Each one comes with a one-line description. On a large screen, they sit on the icon rail on the left, and you can reorder or remove them in **Settings → Navigation**. The node map is its own destination, next to your conversations.
+
+### Start page
+
+**Settings → Navigation → Start page** chooses where Meshloom opens when the address has no `#` part. The default is your conversations, as before. Pick the map or any tool (the Feed, its Control preset, the live view…) to open there instead. It is a setting of the instance, changed by an administrator, and it applies to every session and browser, including a kiosk screen. A link to a conversation or a tool still wins, and so does **Reopen the last viewed** on a device where you turned it on and that has a view to reopen. A tool your role may not use is skipped and you land on your conversations.
 
 ## The node map
 
@@ -71,9 +75,26 @@ Meshloom Community can pause its public feed for a while. A small **Live paused*
 
 If Meshloom Community has banned your radio, the banner says so and the Community packets stop; see [If your radio is banned](/en/docs/deep/community/#if-your-radio-is-banned).
 
-## The control journal
+## The feed
 
-The **control journal** gathers traffic that is not a conversation: requests, responses, anonymous requests (such as logins) and group data. Packets are grouped by the node they talk to. When the content stays encrypted, you see the envelope, not the contents.
+The **Feed** puts everything in one timeline, newest at the bottom: the messages of all your channels and direct messages, and the control traffic (requests, responses, anonymous requests such as logins, and group data) between them, in time order. When the content of a control packet stays encrypted, you see the envelope, not the contents; click a row to open the packet inspector.
+
+- **Chips.** *Messages*, *Control* and *Events* choose the sources (all three are on by default). Under *Messages*, *Channels*, *Direct messages*, *Received* and *Sent* narrow what is shown, and *Muted channels* and *Pending channels* bring back the ones hidden by default. The **Direct messages** chip is a display choice only: hiding them does not protect them, since anyone who can open Meshloom can read them (see [A trusted network](/en/docs/trust/)). Your choice is remembered in this browser. An account that may not read direct messages (the `kiosk` role) has no **Direct messages** chip at all: the Feed asks the server for channels only, an address with `types=priv` is ignored, and a remembered choice for direct messages is left in storage but not used. Control, and muted or pending channels, stay readable. If the server ever refuses the list, the Feed says so in its empty state instead of showing an error.
+- **Nodes.** With *Control* on, a **Nodes** facet lists the repeaters and rooms, the channels, the packets addressed to you and the unresolved ones. Picking one narrows the control rows to it.
+- **Events.** With *Events* on, the feed adds one line when something changes around the radio: **the radio is offline** (after it stayed unreachable for the *radio offline* delay of the Notifications rules, which administrators' sessions read; other sessions use the default of one minute; a short flap and the reboots Meshloom starts itself add nothing) and **back online** with how long it was away, **a new contact heard** (not unknown or room contacts, and not one you add by hand in this tab), **a contact renamed**, and **a channel discovered**. A line offers what you may do with it: open the contact, review the channel in *Discovered channels* (accounts that can send), open the radio settings (administrators). Events are kept for this session only: closing or reloading the page forgets them, and an event that happened while the Feed was never opened is not recovered, and a radio already offline when the page loads is not reported. They use the same names as the notifications of *Settings > Notifications*, and in a node picked in the Nodes facet, only that node's events remain. In the display mode they are shown without any action.
+- **Follow mode.** The feed stays at the newest row while you are at the bottom. Scroll up and a **Follow** button counts what arrived since and takes you back. Scrolling up also loads older messages.
+- **Since your last visit.** A line **New since your last visit** marks the first message that arrived after you last had the feed open, in this browser.
+- **Reading marks nothing as read.** Unread counts stay as they are until you open the conversation itself.
+
+The filters are also in the address bar. Change a chip and the address becomes, for example, `#feed?src=messages,control&types=chan,priv&dir=in,out&muted=0&pending=0`: bookmark it, or use it as the kiosk screen's address, and the Feed opens with those filters whatever the browser remembers (the address wins over the remembered filters, which win over the defaults). `src` lists the sources (`messages`, `control`, `events`), `types` the kinds (`chan`, `priv`), `dir` the directions (`in`, `out`), `muted` and `pending` are `1` to show those channels, `node` is a node's public key (64 hexadecimal characters), and `display=1` turns on the display mode (below). **Channels are not in it on purpose**: a private channel's key is its access, and bookmarks are synced by your browser's account, so a channel key is never written in an address. Anything unknown or malformed in the address is ignored. The same form (`feed?...`, `control?...`, without the `#`) can be the **Start page**.
+
+### Display mode
+
+The **Display mode** button in the Feed's header (or `display=1` in the address) turns the Feed into a screen for the wall: text 25 % larger, no rail, menu, header or filter chips, the newest message always in view, day separators and a small clock, no blur or shadow, and full screen when the browser allows it. **Exit** (top right) brings back your filters exactly as they were; your remembered filters and your choice about reactions are never changed. Direct messages are hidden and images and GIFs are not loaded, whatever the address says; **Exit** is the only control. Hiding direct messages is a display choice, not an access control: the browser still receives them, and what keeps them off a shared screen is the `kiosk` account. See [Raspberry Pi image](/en/docs/rpi/#display-mode).
+
+### The Control preset
+
+**Control** opens the same feed with only the *Control* source on, with the Nodes list beside it on a computer or already open on a phone (once nodes are known): the old control journal. It is a preset, not a separate page: the address `#control` and bookmarks to it keep working, and the address bar still shows `#control`. Your changes to the chips there are not remembered, so the regular feed keeps the filters you chose for it. **Control** is not in the icon bar by default; add it in **Settings > Navigation**, or find it in the search palette (Ctrl/Cmd+K).
 
 ## RF locate
 
@@ -83,7 +104,7 @@ It starts from what your own radio heard. With Meshloom Community on, it also us
 
 ## Discovered channels
 
-Meshloom tries to recognize hashtag channels it hears but has no key for. It first tries a built-in list of well-known names. With Community on and an airport code saved, it also asks Community for names that could match. When it finds one, it sends a "Found channels" notification (see [Push notifications](/en/docs/deep/push/)).
+Meshloom tries to recognize hashtag channels it hears but has no key for. It first tries a built-in list of well-known names. With Community on and an airport code saved, it also asks Community for names that could match. When it finds one, it sends a "Found channels" notification (see [Notifications](/en/docs/deep/notifications/)).
 
 A channel found this way does not enter your conversations by itself. It appears in **Discovered channels**, where you choose **Adopt** to add it to your chats or **Refuse** to dismiss it. Refused channels are kept in a list, so you can reverse your decision.
 

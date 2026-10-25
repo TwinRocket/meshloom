@@ -3,6 +3,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from app.auth.ws_events import WsEvent
 from app.loop_lock import LoopBoundLock
 from app.models import CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, Contact, ContactUpsert, Message
 from app.repository import (
@@ -95,7 +96,7 @@ async def resolve_fallback_direct_message_context(
         await contact_repository.upsert(placeholder_upsert)
         contact = await contact_repository.get_by_key(normalized_sender)
         if contact is not None:
-            broadcast_fn("contact", contact.model_dump())
+            broadcast_fn(WsEvent.CONTACT, contact.model_dump())
 
     return FallbackDirectMessageContext(
         conversation_key=normalized_sender,

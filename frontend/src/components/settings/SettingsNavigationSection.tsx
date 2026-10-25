@@ -4,12 +4,14 @@ import { ChevronUp, ChevronDown, Check, Plus } from 'lucide-react';
 import {
   addToRail,
   DEFAULT_RAIL,
+  DIRECTORY_ONLY_RAIL_IDS,
   RAIL_ITEMS,
   resolveRail,
   type RailItemId,
 } from '../navDestinations';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 import { Button } from '../ui/button';
+import { Label } from '../ui/label';
 import { cn } from '../../lib/utils';
 
 /**
@@ -27,9 +29,25 @@ import { cn } from '../../lib/utils';
 interface Props {
   order: string[];
   onChange: (order: RailItemId[]) => void;
+  /** `ui_preferences.start_view`: a tool id, or empty for the conversations. */
+  startView?: string;
+  onStartViewChange?: (startView: string) => void;
+  /** Only an administrator writes instance settings. */
+  startViewReadOnly?: boolean;
 }
 
-export function SettingsNavigationSection({ order, onChange }: Props) {
+/** Everything the app may open on: the places, not the bar's own entries. */
+const START_VIEW_ITEMS = RAIL_ITEMS.filter(
+  (item) => item.id === 'map' || (item.conversation && !DIRECTORY_ONLY_RAIL_IDS.includes(item.id))
+);
+
+export function SettingsNavigationSection({
+  order,
+  onChange,
+  startView = '',
+  onStartViewChange,
+  startViewReadOnly = false,
+}: Props) {
   const { t } = useTranslation();
   const [saved, setSaved] = useState(false);
 
@@ -53,8 +71,48 @@ export function SettingsNavigationSection({ order, onChange }: Props) {
     commit(next);
   };
 
+  // A stored id this list does not offer (a page the instance lacks) is still shown, not erased.
+  const known = START_VIEW_ITEMS.some((item) => item.id === startView);
+
   return (
     <div className="space-y-4">
+      <SettingsGroup id="settings-start-page">
+        <SettingsGroupHeader
+          id="settings-start-page"
+          title={t('settingsNavigation.startPageTitle')}
+          storedOn="server"
+          instant
+        />
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settingsNavigation.startPageHelp')}
+        </p>
+        <Label htmlFor="settings-start-page-select">{t('settingsNavigation.startPage')}</Label>
+        <select
+          id="settings-start-page-select"
+          value={startView}
+          disabled={startViewReadOnly || !onStartViewChange}
+          onChange={(event) => {
+            onStartViewChange?.(event.target.value);
+            setSaved(true);
+            window.setTimeout(() => setSaved(false), 1500);
+          }}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          <option value="">{t('settingsNavigation.startPageConversations')}</option>
+          {START_VIEW_ITEMS.map(({ id, labelKey }) => (
+            <option key={id} value={id}>
+              {t(labelKey)}
+            </option>
+          ))}
+          {startView && !known && <option value={startView}>{startView}</option>}
+        </select>
+        {startViewReadOnly && (
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settingsNavigation.startPageAdminOnly')}
+          </p>
+        )}
+      </SettingsGroup>
+
       <SettingsGroup id="settings-navigation">
         <SettingsGroupHeader
           id="settings-navigation"

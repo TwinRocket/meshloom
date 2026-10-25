@@ -1,0 +1,27 @@
+{
+  "errors": {
+    "invalid_config": "The channel settings are not valid. Check the highlighted fields.",
+    "config_required": "Some required fields are empty.",
+    "auth_failed": "The service refused the credentials (token, password or key).",
+    "rate_limited": "Too many requests: wait a few seconds and try again.",
+    "quota_exceeded": "The service's quota is used up. Try again later.",
+    "channel_paused": "This channel is paused.",
+    "channel_missing": "This channel does not exist. Create it first.",
+    "builtin_channel": "This built-in channel cannot be deleted.",
+    "type_immutable": "The type of a channel cannot be changed. Create a new channel instead.",
+    "channel_exists": "A channel with this id already exists.",
+    "channel_id_reserved": "This channel id is reserved.",
+    "channel_type_unknown": "Unknown channel type.",
+    "legacy_managed": "This channel is still managed by the 4.18.x notification setting, which decides until Meshloom reads the new rules: edit it with its own form on its card."
+  },
+  "settings": {
+    "access": {
+      "audit": {
+        "actions": {
+          "notify.channel_changed": "Notification channel changed",
+          "notify.rules_changed": "Notification rules changed"
+        }
+      }
+    }
+  }
+}

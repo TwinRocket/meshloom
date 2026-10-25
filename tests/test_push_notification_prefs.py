@@ -56,14 +56,21 @@ class TestPushNotificationSettingsRepo:
         assert coerced["new_dm"]["push"] is True
 
     @pytest.mark.asyncio
-    async def test_telemetry_alert_media_seeds_from_rules_channels(self, test_db):
+    async def test_telemetry_alert_media_ignore_the_old_rules_channels(self, test_db):
         await AppSettingsRepository.update(
             telemetry_alert_rules=TelemetryAlertRules(
                 channels=TelemetryAlertChannels(push=False, email=True, webhook=True)
             )
         )
         defaults = await AppSettingsRepository.get_push_defaults()
-        assert defaults["telemetry_alert"] == {"push": False, "email": True, "webhook": True}
+        assert defaults["telemetry_alert"] == {
+            "push": True,
+            "email": False,
+            "webhook": False,
+            "apprise": False,
+        }
+        stored = (await AppSettingsRepository.get()).telemetry_alert_rules
+        assert stored.channels.model_dump() == TelemetryAlertChannels().model_dump()
 
     @pytest.mark.asyncio
     async def test_set_override_true_false_none(self, test_db):

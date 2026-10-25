@@ -1,0 +1,9 @@
+{
+  "settings": {
+    "notifications": {
+      "pushReview": "Une mise à jour a désactivé l'option réseau privé pour vos appareils push, car Meshloom ne peut pas savoir où mène l'adresse d'un appareil sans la résoudre. Si l'un d'eux est un distributeur UnifiedPush auto-hébergé joint par un nom qui pointe vers votre réseau (DNS interne, nom Tailscale *.ts.net), ses notifications sont refusées tant que vous ne cochez pas la case ci-dessous. Rien n'a été supprimé.",
+      "pushReviewEnable": "Autoriser les réseaux privés",
+      "pushReviewDismiss": "Fermer"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "settings": {
+    "notifications": {
+      "language": {
+        "label": "Notification language",
+        "auto": "Automatic",
+        "fr": "Français",
+        "en": "English",
+        "help": "The language of e-mail and Apprise notifications. Automatic follows the language of the subscribed browsers: English only when most of them use English, French on a tie. Each browser's push notifications keep that browser's language.",
+        "saveFailed": "Could not save the notification language"
+      }
+    }
+  }
+}

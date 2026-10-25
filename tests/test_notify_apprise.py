@@ -1,0 +1,518 @@
+"""Apprise as the fourth notification medium (notifications phase 0, MSHL-104).
+
+The transport runs with ``_send_sync`` mocked (one call per URL object), except
+for one test that goes through a local HTTP server to check that the real
+``requests`` answer reaches the retry policy.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from unittest.mock import AsyncMock
+
+import pytest
+
+import app.notify as notify
+from app.data.meshcore_channels import hashtag_key_from_name
+from app.models import NotificationAppriseDest, NotificationDestinations
+from app.notifications import apprise_medium
+from app.notifications.apprise_medium import AppriseSendFailed, _Response
+from app.notifications.dispatcher import notification_dispatcher
+from app.push.manager import event_notification_text
+from app.repository.settings import AppSettingsRepository
+
+TG_A = "tgram://111111:AAAA-token-a/1001"
+TG_B = "tgram://222222:BBBB-token-b/2002"
+DM_KEY = "aa" * 32
+
+
+@pytest.fixture(autouse=True)
+def _reset_apprise_state(monkeypatch):
+    monkeypatch.setattr(notify, "_apprise_last_error", None)
+    monkeypatch.setattr(
+        "app.email_template.resolve_instance_language", AsyncMock(return_value="en")
+    )
+
+
+@pytest.fixture
+def sleeps(monkeypatch) -> list[float]:
+    recorded: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        recorded.append(seconds)
+
+    monkeypatch.setattr(apprise_medium, "_sleep", fake_sleep)
+    return recorded
+
+
+def _fake_sends(monkeypatch, answers: dict[str, list[_Response | None]]) -> list[tuple]:
+    """``_send_sync`` answering per chat id: ``None`` is a success."""
+    calls: list[tuple] = []
+
+    def fake(server, title, body, markdown):
+        chat = str(server.targets[0][0])
+        calls.append((chat, title, body, markdown))
+        queue = answers.get(chat) or [None]
+        answer = queue.pop(0) if len(queue) > 1 else queue[0]
+        return (answer is None, answer or _Response(status=200))
+
+    monkeypatch.setattr(apprise_medium, "_send_sync", fake)
+    return calls
+
+
+def _dest(urls: str, **kwargs) -> NotificationDestinations:
+    return NotificationDestinations(apprise=NotificationAppriseDest(urls=urls, **kwargs))
+
+
+def _dm(text: str = "secret plans", sender: str = "Léa") -> dict:
+    return {
+        "type": "PRIV",
+        "conversation_key": DM_KEY,
+        "sender_name": sender,
+        "text": text,
+        "outgoing": False,
+    }
+
+
+def _hashtag_message(text: str = "hello mesh") -> dict:
+    return {
+        "type": "CHAN",
+        "conversation_key": hashtag_key_from_name("#test").hex().upper(),
+        "channel_name": "#test",
+        "sender_name": "Bob",
+        "text": text,
+        "outgoing": False,
+    }
+
+
+# -- transport -----------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_one_object_per_url_and_only_the_failed_url_is_retried(monkeypatch, sleeps):
+    calls = _fake_sends(monkeypatch, {"2002": [_Response(status=503), _Response(status=503), None]})
+    await notify.send_apprise_alert(_dest(f"{TG_A}\n{TG_B}"), _dm())
+    assert [chat for chat, *_ in calls] == ["1001", "2002", "2002", "2002"]
+    assert sleeps == [5.0, 30.0]
+    assert notify.apprise_last_error() is None
+
+
+@pytest.mark.asyncio
+async def test_no_retry_on_401(monkeypatch, sleeps):
+    calls = _fake_sends(monkeypatch, {"1001": [_Response(status=401)]})
+    with pytest.raises(AppriseSendFailed) as exc:
+        await notify.send_apprise_alert(_dest(TG_A), _dm())
+    assert exc.value.code == "service_rejected"
+    assert exc.value.status == 401
+    assert len(calls) == 1
+    assert sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_network_error_is_retried_then_reported(monkeypatch, sleeps):
+    calls = _fake_sends(monkeypatch, {"1001": [_Response(network_error=True)]})
+    with pytest.raises(AppriseSendFailed) as exc:
+        await notify.send_apprise_alert(_dest(TG_A), _dm())
+    assert exc.value.code == "network_error"
+    assert len(calls) == 3
+    assert sleeps == [5.0, 30.0]
+
+
+@pytest.mark.asyncio
+async def test_retry_after_is_respected(monkeypatch, sleeps):
+    _fake_sends(monkeypatch, {"1001": [_Response(status=429, retry_after="7"), None]})
+    await notify.send_apprise_alert(_dest(TG_A), _dm())
+    assert sleeps == [7.0]
+
+
+@pytest.mark.asyncio
+async def test_last_error_is_scrubbed(monkeypatch, sleeps):
+    _fake_sends(monkeypatch, {"1001": [_Response(status=500)]})
+    with pytest.raises(AppriseSendFailed):
+        await notify.send_apprise_alert(_dest(TG_A), _dm())
+    last = notify.apprise_last_error()
+    assert last is not None
+    assert last["code"] == "service_error"
+    assert last["line"] == 1
+    assert last["url"] == "tgram://****"
+    assert "AAAA" not in str(last) and "111111" not in str(last)
+
+
+@pytest.mark.asyncio
+async def test_refused_url_does_not_stop_the_others(monkeypatch, sleeps):
+    calls = _fake_sends(monkeypatch, {})
+    with pytest.raises(Exception) as exc:
+        await notify.send_apprise_alert(_dest(f"dbus://\n{TG_B}"), _dm())
+    assert getattr(exc.value, "code", "") == "egress_scheme"
+    assert [chat for chat, *_ in calls] == ["2002"]
+
+
+class _Handler(BaseHTTPRequestHandler):
+    answers: list[tuple[int, dict[str, str]]] = []
+    hits = 0
+
+    def do_POST(self):  # noqa: N802
+        type(self).hits += 1
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        status, headers = type(self).answers.pop(0) if type(self).answers else (200, {})
+        self.send_response(status)
+        for key, value in headers.items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def http_server():
+    _Handler.answers = []
+    _Handler.hits = 0
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield server
+    finally:
+        server.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_real_http_answer_drives_the_retry_policy(http_server, sleeps):
+    port = http_server.server_address[1]
+    _Handler.answers = [(429, {"Retry-After": "3"}), (200, {})]
+    dest = _dest(f"json://127.0.0.1:{port}/hook", allow_private_network=True)
+    await notify.send_apprise_alert(dest, _dm())
+    assert _Handler.hits == 2
+    assert sleeps == [3.0]
+
+    _Handler.answers = [(401, {})]
+    _Handler.hits = 0
+    with pytest.raises(AppriseSendFailed) as exc:
+        await notify.send_apprise_alert(dest, _dm())
+    assert exc.value.code == "service_rejected"
+    assert _Handler.hits == 1
+
+
+# The limiter (one send at a time, 2 s apart, "+N", the first-seen cap) is the
+# dispatcher's: tests/test_notification_dispatcher.py.
+
+
+# -- message text policy -------------------------------------------------------
+
+
+def test_public_only_hides_dm_text_and_keeps_hashtag_text():
+    title, body = event_notification_text(_dm(), "en", include_message_text="public_only")
+    assert "secret plans" not in title + body
+    assert body == "Message from Léa"
+    title, body = event_notification_text(
+        _hashtag_message(), "en", include_message_text="public_only"
+    )
+    assert "hello mesh" in body
+
+
+def test_public_only_hides_a_private_hash_channel():
+    message = {**_hashtag_message(), "conversation_key": "DD" * 16}
+    _title, body = event_notification_text(message, "en", include_message_text="public_only")
+    assert "hello mesh" not in body
+
+
+def test_never_strips_both():
+    _title, body = event_notification_text(_dm(), "fr", include_message_text="never")
+    assert body == "Message de Léa"
+    _title, body = event_notification_text(_hashtag_message(), "en", include_message_text="never")
+    assert "hello mesh" not in body
+
+
+def test_markdown_escapes_and_neutralises_mentions():
+    message = _hashtag_message("@everyone [click](https://evil.example) <@123> @here")
+    _title, body = event_notification_text(
+        message, "en", include_message_text="always", markdown=True
+    )
+    assert "@everyone" not in body and "@here" not in body and "<@1" not in body
+    assert "](" not in body
+    assert "\\[click\\]" in body
+
+
+def test_mentions_are_neutralised_in_text_format_too():
+    _title, body = event_notification_text(_hashtag_message("@everyone hi"), "en")
+    assert "@everyone" not in body
+
+
+@pytest.mark.asyncio
+async def test_dm_to_a_mocked_url_carries_no_message_text(monkeypatch, sleeps):
+    calls = _fake_sends(monkeypatch, {})
+    await notify.send_apprise_alert(_dest(TG_A), _dm())
+    await notify.send_apprise_alert(_dest(TG_A), _hashtag_message())
+    (_, dm_title, dm_body, _), (_, chan_title, chan_body, _) = calls
+    assert "secret plans" not in dm_title + dm_body
+    assert "hello mesh" in chan_body
+
+    calls.clear()
+    await notify.send_apprise_alert(_dest(TG_A, include_message_text="never"), _hashtag_message())
+    assert "hello mesh" not in calls[0][1] + calls[0][2]
+
+
+# -- dispatch ------------------------------------------------------------------
+
+
+@pytest.fixture
+def apprise_sends(monkeypatch) -> list[dict]:
+    """What reaches the Apprise medium through the dispatcher's legacy:apprise worker."""
+    submitted: list[dict] = []
+
+    async def fake_send(dest, payload):
+        submitted.append(dict(payload))
+
+    monkeypatch.setattr(notify, "send_apprise_alert", fake_send)
+    return submitted
+
+
+async def _dispatch(payload: dict, flags: dict) -> None:
+    """Set the event's media in the preferences (mirrored into the rules), then emit it."""
+    from app.notifications.producers import emit_payload
+
+    await AppSettingsRepository.set_push_defaults({"app_started": {"push": False, **flags}})
+    await emit_payload(payload)
+    await notification_dispatcher().wait_idle()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_enqueues_only_with_urls_and_flag(test_db, apprise_sends):
+    await _dispatch({"event": "app_started"}, {"apprise": True})
+    assert apprise_sends == []  # no URL configured
+
+    await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
+    await _dispatch({"event": "app_started"}, {"apprise": False})
+    assert apprise_sends == []
+    await _dispatch({"event": "app_started"}, {"apprise": True})
+    assert apprise_sends == [{"event": "app_started"}]
+
+
+@pytest.mark.asyncio
+async def test_dm_matrix_apprise_flag_reaches_the_queue(test_db, apprise_sends):
+    from app.notifications.producers import emit_message
+
+    submitted = apprise_sends
+    await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
+    await AppSettingsRepository.set_push_defaults({"new_dm": {"push": False, "apprise": True}})
+    await emit_message(_dm())
+    await notification_dispatcher().wait_idle()
+    assert len(submitted) == 1
+    assert submitted[0]["text"] == "secret plans"  # the policy applies at send time
+
+
+# -- settings API, secrets, proof of modification ------------------------------
+
+
+@pytest.fixture
+def destination_notices(monkeypatch) -> list[dict]:
+    from app.push.manager import push_manager
+
+    notices: list[dict] = []
+
+    async def fake_dispatch_event(data):
+        notices.append(dict(data))
+
+    monkeypatch.setattr(push_manager, "dispatch_event", fake_dispatch_event)
+    return notices
+
+
+async def _patch_apprise(client, **apprise):
+    return await client.patch(
+        "/api/settings", json={"notification_destinations": {"apprise": apprise}}
+    )
+
+
+@pytest.mark.asyncio
+async def test_settings_never_return_an_apprise_url(test_db, client, destination_notices):
+    response = await _patch_apprise(client, urls=f"{TG_A}\n{TG_B}")
+    assert response.status_code == 200
+    for body in (response.text, (await client.get("/api/settings")).text):
+        assert "AAAA" not in body and "111111" not in body and "tgram" not in body
+    assert response.json()["notification_destinations"]["apprise"]["urls"] == "********"
+
+
+@pytest.mark.asyncio
+async def test_redacted_urls_keep_and_empty_clears(test_db, client, destination_notices):
+    await _patch_apprise(client, urls=TG_A)
+    response = await _patch_apprise(client, urls="********", include_message_text="never")
+    assert response.status_code == 200
+    stored = (await AppSettingsRepository.get()).notification_destinations.apprise
+    assert stored.urls == TG_A
+    assert stored.include_message_text == "never"
+
+    await _patch_apprise(client, urls="")
+    assert (await AppSettingsRepository.get()).notification_destinations.apprise.urls == ""
+
+
+@pytest.mark.asyncio
+async def test_refused_url_is_a_coded_400_at_save(test_db, client, destination_notices):
+    response = await _patch_apprise(client, urls=f"{TG_A}\ndbus://")
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == "egress_scheme"
+    assert detail["params"]["line"] == 2
+    assert (await AppSettingsRepository.get()).notification_destinations.apprise.urls == ""
+    assert destination_notices == []
+
+
+@pytest.mark.asyncio
+async def test_destination_change_sends_the_push_notice(test_db, client, destination_notices):
+    await _patch_apprise(client, urls=TG_A)
+    await asyncio.sleep(0.05)
+    assert destination_notices == [{"event": "notify.destination_changed", "kinds": ["apprise"]}]
+
+    destination_notices.clear()
+    await _patch_apprise(client, urls="********")  # nothing changed
+    await client.patch(
+        "/api/settings",
+        json={"notification_destinations": {"webhook": {"url": "https://93.184.215.14/h"}}},
+    )
+    await asyncio.sleep(0.05)
+    assert destination_notices == [{"event": "notify.destination_changed", "kinds": ["webhook"]}]
+
+
+def test_destination_notice_text():
+    from app.push.manager import _build_payload
+
+    payload = _build_payload(
+        {"event": "notify.destination_changed", "kinds": ["apprise", "email"]}, "en"
+    )
+    assert "Notification destination changed" in payload
+    assert "Apprise, e-mail" in payload
+
+
+@pytest.mark.asyncio
+async def test_json_backup_omits_apprise_urls(test_db, destination_notices):
+    from app.services.backup import export_json
+
+    await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
+    document = (await export_json()).model_dump_json()
+    assert "AAAA" not in document
+    assert "settings.notification_destinations.apprise.urls" in document
+
+
+@pytest.mark.asyncio
+async def test_test_route_covers_apprise_with_coded_errors(
+    test_db, client, monkeypatch, sleeps, destination_notices
+):
+    route = "/api/settings/notification-destinations/test"
+    response = await client.post(route, json={"channel": "apprise"})
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "invalid_config"
+
+    await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
+    _fake_sends(monkeypatch, {"1001": [_Response(status=401)]})
+    response = await client.post(route, json={"channel": "apprise"})
+    assert response.status_code == 502
+    assert response.json()["detail"] == {"code": "auth_failed", "params": {}}
+    assert "AAAA" not in response.text
+
+    _fake_sends(monkeypatch, {})
+    # One test per channel every five seconds: a second one is a 429.
+    assert (await client.post(route, json={"channel": "apprise"})).status_code == 429
+    from app.notifications.api_support import reset_test_limiters
+
+    reset_test_limiters()
+    response = await client.post(route, json={"channel": "apprise"})
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "channel": "apprise"}
+    assert response.headers["Deprecation"] == "@1792368000"
+
+
+@pytest.mark.asyncio
+async def test_health_reports_notification_statuses(test_db, client, monkeypatch, sleeps):
+    _fake_sends(monkeypatch, {"1001": [_Response(status=500)]})
+    await AppSettingsRepository.update(notification_destinations=_dest(TG_A))
+    from app.notifications.producers import emit_message
+
+    await AppSettingsRepository.set_push_defaults({"new_dm": {"push": True, "apprise": True}})
+    await emit_message(_dm())
+    await notification_dispatcher().wait_idle()
+    body = (await client.get("/api/health")).json()
+    status = body["notification_statuses"]["legacy:apprise"]
+    assert status["status"] == "error"
+    assert status["last_error"] == "line 1: service_error"
+    assert "AAAA" not in str(body)
+    assert body["notification_statuses"]["builtin:push"]["status"] == "connected"
+
+
+# -- review round 1 (mentions, DEBUG logs, multi-target retries) ---------------
+
+
+@pytest.mark.parametrize(
+    "mention",
+    [
+        "@everyone",
+        "@here",
+        "@channel",
+        "@all",
+        "@room",
+        "@Channel",
+        "<@123>",
+        "<@!123>",
+        "<!channel>",
+        "<!here>",
+        "<!everyone>",
+    ],
+)
+@pytest.mark.parametrize("markdown", [False, True])
+def test_every_room_wide_mention_is_neutralised(mention, markdown):
+    _title, body = event_notification_text(
+        _hashtag_message(f"hi {mention} there"), "en", markdown=markdown
+    )
+    plain = body.replace("\\", "")
+    assert mention not in plain
+    assert "​" in plain
+
+
+def test_ordinary_at_words_are_left_alone():
+    _title, body = event_notification_text(_hashtag_message("mail me @alice or @allison"), "en")
+    assert "@alice" in body and "@allison" in body
+
+
+@pytest.mark.asyncio
+async def test_a_multi_target_url_is_not_retried(monkeypatch, sleeps):
+    calls = _fake_sends(monkeypatch, {"1001": [_Response(status=503)]})
+    with pytest.raises(AppriseSendFailed) as exc:
+        await notify.send_apprise_alert(_dest("tgram://111111:AAAA-token-a/1001/1002"), _dm())
+    assert exc.value.code == "service_error"
+    assert len(calls) == 1
+    assert sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_apprise_debug_logs_never_carry_url_tokens(http_server, sleeps):
+    import logging
+
+    from app.log_redaction import RedactingFormatter
+
+    secret = "PathTokenS3cret"
+    port = http_server.server_address[1]
+    _Handler.answers = [(500, {}), (500, {}), (500, {})]
+    records: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            records.append(self.format(record))
+
+    handler = _Capture(level=logging.DEBUG)
+    handler.setFormatter(RedactingFormatter(logging.Formatter("%(name)s %(message)s")))
+    apprise_logger = logging.getLogger("apprise")
+    previous = apprise_logger.level
+    apprise_logger.setLevel(logging.DEBUG)
+    apprise_logger.addHandler(handler)
+    try:
+        dest = _dest(f"json://user:{secret}@127.0.0.1:{port}/{secret}x", allow_private_network=True)
+        with pytest.raises(AppriseSendFailed):
+            await notify.send_apprise_alert(dest, _dm())
+    finally:
+        apprise_logger.removeHandler(handler)
+        apprise_logger.setLevel(previous)
+    debug_lines = "\n".join(records)
+    assert "127.0.0.1" in debug_lines  # Apprise did log the request at DEBUG
+    assert secret not in debug_lines

@@ -1,0 +1,13 @@
+{
+  "errors": {
+    "auth_ingress_only": "Home Assistant signs you in here: open Meshloom from the Home Assistant sidebar while signed in to Home Assistant."
+  },
+  "auth": {
+    "ingress": {
+      "title": "Sign in through Home Assistant",
+      "body": "This page is served by Home Assistant, which signs you in to Meshloom: there is no Meshloom password to type here. Sign in to Home Assistant, then open Meshloom from its sidebar.",
+      "disabled": "If you are already signed in to Home Assistant, a Meshloom administrator may have disabled your account.",
+      "retry": "Try again"
+    }
+  }
+}

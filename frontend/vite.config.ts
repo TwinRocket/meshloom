@@ -22,7 +22,9 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true,
+        // Keep the browser's Host: /api/ws refuses an Origin that does not
+        // match Host, and Origin here is the Vite server's (never rewrite it).
+        changeOrigin: false,
         ws: true,
       },
       '/docs': {

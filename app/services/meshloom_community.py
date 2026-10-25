@@ -59,6 +59,7 @@ from app.models import (
     CommunityOptOutPending,
     CommunityStatus,
 )
+from app.net.breaker import CircuitBreaker
 from app.services.community_ban import (
     banned_http_exception,
     banned_route,
@@ -197,8 +198,8 @@ class CommunityUpstreamError(HTTPException):
         self.upstream_status = upstream_status
 
 
-class CommunityBreaker:
-    """Consecutive-failure circuit breaker for Community HTTP (closed/open/half-open)."""
+class CommunityBreaker(CircuitBreaker):
+    """The Community client's breaker (``app/net/breaker.py``) with its thresholds."""
 
     def __init__(
         self,
@@ -206,37 +207,7 @@ class CommunityBreaker:
         threshold: int = BREAKER_FAILURE_THRESHOLD,
         open_seconds: float = BREAKER_OPEN_SECONDS,
     ) -> None:
-        self.threshold = threshold
-        self.open_seconds = open_seconds
-        self.failures = 0
-        self.open_until = 0.0
-        self.trial_in_flight = False
-
-    def allow(self, *, now: float | None = None) -> bool:
-        """True when a call may go out. Half-open lets exactly one trial through."""
-        current = time.monotonic() if now is None else now
-        if self.failures < self.threshold:
-            return True
-        if current < self.open_until or self.trial_in_flight:
-            return False
-        self.trial_in_flight = True
-        return True
-
-    def record_success(self) -> None:
-        self.failures = 0
-        self.open_until = 0.0
-        self.trial_in_flight = False
-
-    def record_failure(self, *, now: float | None = None) -> None:
-        current = time.monotonic() if now is None else now
-        self.failures += 1
-        self.trial_in_flight = False
-        if self.failures >= self.threshold:
-            self.open_until = current + self.open_seconds
-
-    @property
-    def is_open(self) -> bool:
-        return self.failures >= self.threshold
+        super().__init__(threshold=threshold, open_seconds=open_seconds)
 
 
 _breaker = CommunityBreaker()
@@ -1380,7 +1351,7 @@ async def fetch_meshloom_latest() -> dict[str, Any] | None:
     state = await community_egress_state()
     if state is None:
         return None
-    if _breaker.is_open and time.monotonic() < _breaker.open_until:
+    if _breaker.cooling():
         return None
     url = f"{state.api_base}/v1/meshloom/latest"
     try:
@@ -1471,7 +1442,7 @@ async def stats_request(
     except BaseException:
         # Cancellation or a local bug: release a half-open trial without judging Community.
         if uses_breaker:
-            _breaker.trial_in_flight = False
+            _breaker.release_trial()
         raise
     if not uses_breaker:
         return response

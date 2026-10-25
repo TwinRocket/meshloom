@@ -10,6 +10,8 @@
     "radio_no_response_after_send": "Send command was issued to the radio, but no response was heard back. The message may or may not have sent successfully.",
     "cannot_decrypt_historical_dms": "Cannot decrypt historical DMs",
     "historical_decrypt_complete": "Historical decrypt complete for {{name}}",
+    "historical_decrypt_complete_rooms_one": "Historical decrypt complete for {{count}} room",
+    "historical_decrypt_complete_rooms_other": "Historical decrypt complete for {{count}} rooms",
     "radio_contacts_enum_failed": "Could not enumerate radio contacts",
     "radio_inconsistency_found": "A periodic poll task has discovered radio inconsistencies.",
     "mqtt_connected": "MQTT connected",

@@ -13,6 +13,7 @@ import { DesktopRail } from './DesktopRail';
 import { RadioStatusDialog } from './RadioStatusDialog';
 import { UpdateAvailableDialog } from './UpdateAvailableDialog';
 import { useOssUpdates } from '../hooks/useOssUpdates';
+import { useCapabilities } from '../auth/SessionProvider';
 import { RAIL_ITEMS, type BottomNavTarget } from './navDestinations';
 import { ConversationListView } from './ConversationListView';
 import { DesktopListSplit } from './DesktopListSplit';
@@ -39,6 +40,7 @@ import type { CrackerPanelProps } from './CrackerPanel';
 import type { SearchViewProps } from './SearchView';
 import type { SettingsModalProps } from './SettingsModal';
 import { ChevronLeft, PanelLeftOpen } from 'lucide-react';
+import { toolIdOf } from './feed/feedConversation';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import { LazyBoundary } from './LazyBoundary';
@@ -200,9 +202,11 @@ export function AppShell({
   // it, and every surface below reads it, so an opt-out shows everywhere at once.
   const { status: communityStatus, enabled: communityEnabled } = useCommunityState();
 
+  const { isAdmin: canAdminister } = useCapabilities();
+  // `GET /api/community` and `GET /api/updates` answer administrators only.
   useEffect(() => {
-    void refreshCommunityStatus();
-  }, []);
+    if (canAdminister) void refreshCommunityStatus();
+  }, [canAdminister]);
 
   const [crackerMounted, setCrackerMounted] = useState(false);
   if (showCracker && !crackerMounted) {
@@ -219,6 +223,7 @@ export function AppShell({
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const ossUpdates = useOssUpdates({
     onSeeUpdate: () => handleOpenSettings('updates'),
+    enabled: canAdminister,
   });
   const updateAvailable = ossUpdates.status?.update_available === true;
   const activeType = conversationPaneProps.activeConversation?.type;
@@ -242,7 +247,7 @@ export function AppShell({
   // keeps Tools lit, because that is where the reader came from and where Back goes.
   const TOOL_TYPES = [
     'raw',
-    'control',
+    'feed',
     'live',
     'visualizer',
     'trace',
@@ -387,11 +392,7 @@ export function AppShell({
       onDeleteChannel={sidebarProps.onDeleteChannel}
       onDeleteContact={sidebarProps.onDeleteContact}
       onSetChannelFloodScopeOverride={sidebarProps.onSetChannelFloodScopeOverride}
-      getNotifyMediaEnabled={sidebarProps.getNotifyMediaEnabled}
-      onSetConversationMedia={sidebarProps.onSetConversationMediaFor}
       onOpenNotifySettings={sidebarProps.onOpenNotifySettings}
-      emailReady={sidebarProps.emailReady}
-      webhookReady={sidebarProps.webhookReady}
     />
   );
 
@@ -403,30 +404,33 @@ export function AppShell({
       >
         {t('shell.skipToContent')}
       </a>
-      <ServerLabelBand label={serverLabel} />
+      {/* Hidden by the feed display mode (`styles.css`, `data-feed-display`). */}
+      <div data-shell-banners="" className="contents">
+        <ServerLabelBand label={serverLabel} />
 
-      {!(showSettings && settingsSection === 'radio') && (
-        <RadioSetupBanner
-          health={statusProps.health ?? null}
-          onOpenRadioSettings={() => handleOpenSettings('radio')}
-        />
-      )}
-      {!(showSettings && settingsSection === 'radio') && (
-        <PathHashOneByteBanner
-          config={statusProps.config}
-          onOpenRadioSettings={() => handleOpenSettings('radio')}
-        />
-      )}
-      {/* Shown everywhere, the Community settings included: nothing but the
-          status leaves until a position is chosen or Community is left. */}
-      {communityWaitingForPosition(communityStatus) && <CommunityWaitingBanner />}
-      {communityStatus && !(showSettings && settingsSection === 'community') && (
-        <CommunitySetupBanner
-          enabled={communityStatus.enabled}
-          iata={communityStatus.iata}
-          onOpenSettings={() => handleOpenSettings('community')}
-        />
-      )}
+        {!(showSettings && settingsSection === 'radio') && (
+          <RadioSetupBanner
+            health={statusProps.health ?? null}
+            onOpenRadioSettings={() => handleOpenSettings('radio')}
+          />
+        )}
+        {!(showSettings && settingsSection === 'radio') && (
+          <PathHashOneByteBanner
+            config={statusProps.config}
+            onOpenRadioSettings={() => handleOpenSettings('radio')}
+          />
+        )}
+        {/* Shown everywhere, the Community settings included: nothing but the
+            status leaves until a position is chosen or Community is left. */}
+        {communityWaitingForPosition(communityStatus) && <CommunityWaitingBanner />}
+        {communityStatus && !(showSettings && settingsSection === 'community') && (
+          <CommunitySetupBanner
+            enabled={communityStatus.enabled}
+            iata={communityStatus.iata}
+            onOpenSettings={() => handleOpenSettings('community')}
+          />
+        )}
+      </div>
       <div data-toast-anchor="statusbar" aria-hidden="true" />
 
       <div className="flex flex-1 overflow-hidden">
@@ -441,7 +445,7 @@ export function AppShell({
           order={navRailOrder}
           // Settings render over whatever was open, so the pane underneath must not
           // keep the rail lit: two places cannot both be where you are.
-          activeToolId={showSettings ? null : (activeType ?? null)}
+          activeToolId={showSettings ? null : toolIdOf(conversationPaneProps.activeConversation)}
           directoryEnabled={directoryEnabled}
           onOpenRadioStatus={() => setRadioStatusOpen(true)}
           onSelectTool={(id) => {

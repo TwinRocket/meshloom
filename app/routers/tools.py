@@ -3,10 +3,11 @@
 import logging
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from meshcore import EventType
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import require
 from app.decoder import outgoing_group_text_packet_hash
 from app.models import Channel
 from app.region_scope import normalize_region_scope
@@ -96,7 +97,9 @@ async def _clear_test_slot(mc) -> None:
     )
 
 
-@router.post("/mesh-test", response_model=MeshTestResponse)
+@router.post(
+    "/mesh-test", response_model=MeshTestResponse, dependencies=[Depends(require("admin"))]
+)
 async def send_mesh_test(request: MeshTestRequest) -> MeshTestResponse:
     """Send one scoped GroupText on the built-in test channel and report its hash.
 

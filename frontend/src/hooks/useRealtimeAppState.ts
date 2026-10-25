@@ -15,6 +15,20 @@ import { getStateKey } from '../utils/conversationState';
 import { mergeContactIntoList } from '../utils/contactMerge';
 import { getContactDisplayName } from '../utils/pubkey';
 import { clearRawPackets, MAX_RAW_PACKETS, recordRawPacket } from '../stores/rawPacketStore';
+import {
+  applyFeedAck,
+  recordFeedControlPacket,
+  recordFeedMessage,
+  removeFeedMessage,
+  renameFeedConversation,
+} from '../stores/feedStore';
+import { reconcileFeed } from '../components/feed/feedHistory';
+import {
+  forgetContact,
+  noteChannelFrame,
+  noteContactFrame,
+  noteRadioHealth,
+} from '../utils/feedEvents';
 import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
 import { noteCommunityLiveOptedOut, refreshCommunityStatus } from '../stores/communityStore';
 import { refreshRadioWifiAfterReconnect, setRadioWifiState } from '../stores/radioWifiStore';
@@ -46,6 +60,8 @@ interface UseRealtimeAppStateArgs {
   blockedKeysRef: MutableRefObject<string[]>;
   blockedNamesRef: MutableRefObject<string[]>;
   channelsRef: MutableRefObject<Channel[]>;
+  /** The contact list as the client holds it, or null until its first load (feed event rows). */
+  contactsRef: MutableRefObject<Contact[] | null>;
   activeConversationRef: MutableRefObject<Conversation | null>;
   observeMessage: (msg: Message) => { added: boolean; activeConversation: boolean };
   recordMessageEvent: (args: {
@@ -142,6 +158,7 @@ export function useRealtimeAppState({
   blockedKeysRef,
   blockedNamesRef,
   channelsRef,
+  contactsRef,
   activeConversationRef,
   observeMessage,
   recordMessageEvent,
@@ -188,6 +205,8 @@ export function useRealtimeAppState({
         const prev = prevHealthRef.current;
         prevHealthRef.current = data;
         setHealth(data);
+        // Store-side bookkeeping, no React state: a flag check until the feed is first opened.
+        noteRadioHealth(data);
         const nextRadioState =
           data.radio_state ??
           (data.radio_initializing
@@ -264,6 +283,14 @@ export function useRealtimeAppState({
         code?: string;
         params?: Record<string, unknown>;
       }) => {
+        // A decryption pass inserts old messages under new ids, a frame each: fetch what a
+        // lagging client may have missed (no-op until the feed is first opened).
+        if (
+          success.code === 'historical_decrypt_complete' ||
+          success.code === 'historical_decrypt_complete_rooms'
+        ) {
+          void reconcileFeed();
+        }
         const key = success.code ? `errors.${success.code}` : '';
         const translated = key ? i18n.t(key, success.params) : success.message;
         toast.success(key && translated !== key ? translated : success.message, {
@@ -273,6 +300,7 @@ export function useRealtimeAppState({
       onReconnect: () => {
         clearRawPackets();
         reconcileOnReconnect();
+        void reconcileFeed();
         refreshUnreads();
         // A Community change made while the socket was down sent us nothing.
         void refreshCommunityStatus();
@@ -313,6 +341,9 @@ export function useRealtimeAppState({
           return;
         }
 
+        // Store call only (no React state): a no-op until the feed is first opened.
+        recordFeedMessage(msg);
+
         const isMutedChannel =
           msg.type === 'CHAN' &&
           !!msg.conversation_key &&
@@ -331,6 +362,13 @@ export function useRealtimeAppState({
         }
       },
       onContact: (contact: Contact) => {
+        // A `contact` frame is a snapshot, not an event: the feed reports only a key the client
+        // never held, and nothing while the list is unloaded or a reconnect resync is in flight.
+        const held = contactsRef.current;
+        noteContactFrame(contact, {
+          previous: held?.find((c) => c.public_key === contact.public_key),
+          resyncing: held === null || activeSnapshotsRef.current.size > 0,
+        });
         noteDelta('contacts', contact.public_key);
         setContacts((prev) => mergeContactIntoList(prev, contact));
       },
@@ -343,6 +381,7 @@ export function useRealtimeAppState({
           )
         );
         renameConversationMessages(previousPublicKey, contact.public_key);
+        renameFeedConversation(previousPublicKey, contact.public_key);
         renameConversationState(
           getStateKey('contact', previousPublicKey),
           getStateKey('contact', contact.public_key)
@@ -360,6 +399,7 @@ export function useRealtimeAppState({
       onChannel: (channel: Channel) => {
         noteDelta('channels', channel.key);
         const existed = channelsRef.current.some((item) => item.key === channel.key);
+        noteChannelFrame(channel, existed);
         mergeChannelIntoList(channel);
         if (!existed && channel.membership === 'pending') {
           toast(i18n.t('discovered.toast', { name: channel.name }), {
@@ -376,6 +416,7 @@ export function useRealtimeAppState({
         }
       },
       onContactDeleted: (publicKey: string) => {
+        forgetContact(publicKey);
         noteDelta('contacts', publicKey);
         setContacts((prev) => prev.filter((c) => c.public_key !== publicKey));
         removeConversationMessages(publicKey);
@@ -400,6 +441,8 @@ export function useRealtimeAppState({
       onRawPacket: (packet: RawPacket) => {
         emitStatusDotPulse(packet.payload_type);
         recordRawPacket(packet, maxRawPackets);
+        // The feed keeps its own control rows: `onReconnect` clears the raw buffer, not these.
+        recordFeedControlPacket(packet);
       },
       onCommunityPacket: (packet: CommunityPacket) => {
         recordCommunityPacket(packet);
@@ -418,9 +461,11 @@ export function useRealtimeAppState({
         extras?: { packet_hash?: string | null; observer_reach_eligible?: boolean | null }
       ) => {
         receiveMessageAck(messageId, ackCount, paths, packetId, extras);
+        applyFeedAck(messageId, ackCount, paths, packetId, extras);
       },
       onMessageDeleted: (messageId: number) => {
         removeMessage(messageId);
+        removeFeedMessage(messageId);
       },
       onRadioWifi: (state: RadioWifiState) => {
         setRadioWifiState(state);
@@ -431,6 +476,7 @@ export function useRealtimeAppState({
       blockedKeysRef,
       blockedNamesRef,
       channelsRef,
+      contactsRef,
       checkMention,
       fetchAllContacts,
       fetchConfig,

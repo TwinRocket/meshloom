@@ -38,6 +38,7 @@ from typing import Any
 
 from pydantic import SecretStr
 
+from app.auth.ws_events import WsEvent
 from app.models import (
     RadioWifiChangeResult,
     RadioWifiCredentialsRequest,
@@ -180,7 +181,7 @@ def _broadcast(state: RadioWifiState) -> None:
 
     # WebSocket clients only: Wi-Fi state is local UI state, never for the radio
     # proxy, fanout modules or Web Push.
-    broadcast_event("radio_wifi", state.model_dump(mode="json"), realtime=False)
+    broadcast_event(WsEvent.RADIO_WIFI, state.model_dump(mode="json"), realtime=False)
 
 
 def _prompt_held() -> bool:

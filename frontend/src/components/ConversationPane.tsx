@@ -5,12 +5,14 @@ import { Radio } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { api, formatApiError } from '../api';
+import type { SearchNavigateTarget } from './SearchView';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { ChatHeader } from './ChatHeader';
 import { MessageInput, type MessageInputHandle } from './MessageInput';
 import { MessageList } from './MessageList';
 import { RoomServerPanel } from './RoomServerPanel';
+import { useCapabilities } from '../auth/SessionProvider';
 import { LocatePane, locateConversation } from './LocatePane';
 import { TracePane } from './TracePane';
 import { ToolPaneHeader } from './ToolPaneHeader';
@@ -20,8 +22,6 @@ import type {
   Conversation,
   HealthStatus,
   Message,
-  NotificationMediaChannel,
-  NotificationMediaFlags,
   PathDiscoveryResponse,
   RadioAdvertMode,
   RadioConfig,
@@ -30,7 +30,6 @@ import type {
 } from '../types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, CONTACT_TYPE_SENSOR } from '../types';
 import { isPendingChannel } from '../utils/channelMembership';
-import { ControlJournalView } from './ControlJournalView';
 import { DiscoveredChannelsView } from './DiscoveredChannelsView';
 import {
   getContactDisplayName,
@@ -45,6 +44,7 @@ const RepeaterDashboard = lazy(() =>
 const RawPacketFeedView = lazy(() =>
   import('./RawPacketFeedView').then((m) => ({ default: m.RawPacketFeedView }))
 );
+const FeedView = lazy(() => import('./feed/FeedView').then((m) => ({ default: m.FeedView })));
 const SensorTelemetryPanel = lazy(() =>
   import('./SensorTelemetryPanel').then((m) => ({ default: m.SensorTelemetryPanel }))
 );
@@ -95,7 +95,11 @@ interface ConversationPaneProps {
     pathHashModeOverride: number | null
   ) => Promise<void>;
   onSelectConversation: (conversation: Conversation) => void;
+  /** The feed's rows: the conversation, scrolled to the message. */
+  onNavigateToMessage?: (target: SearchNavigateTarget) => void;
   onOpenContactInfo: (publicKey: string, fromChannel?: boolean) => void;
+  /** The feed's current filters as a hash query, so the active conversation keeps them. */
+  onFeedQueryChange?: (feedQuery: string) => void;
   onOpenChannelInfo: (channelKey: string) => void;
   onSenderClick: (sender: string, quote?: string) => void;
   onChannelReferenceClick?: (channelName: string) => void;
@@ -111,10 +115,6 @@ interface ConversationPaneProps {
   onDismissUnreadMarker: () => void;
   onSendMessage: (text: string) => Promise<void>;
   onMessageDeleted?: (messageId: number) => void;
-  notifyMediaEnabled?: NotificationMediaFlags;
-  emailReady?: boolean;
-  webhookReady?: boolean;
-  onSetConversationMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenNotifySettings?: () => void;
   trackedTelemetryRepeaters: string[];
   onToggleTrackedTelemetry: (publicKey: string) => Promise<void>;
@@ -199,6 +199,8 @@ export function ConversationPane({
   onSetChannelPathHashModeOverride,
   onSelectConversation,
   onOpenContactInfo,
+  onFeedQueryChange,
+  onNavigateToMessage,
   onOpenChannelInfo,
   onSenderClick,
   onChannelReferenceClick,
@@ -210,10 +212,6 @@ export function ConversationPane({
   onDismissUnreadMarker,
   onSendMessage,
   onMessageDeleted,
-  notifyMediaEnabled,
-  emailReady,
-  webhookReady,
-  onSetConversationMedia,
   onOpenNotifySettings,
   trackedTelemetryRepeaters,
   onToggleTrackedTelemetry,
@@ -242,6 +240,7 @@ export function ConversationPane({
   onRefuseChannel,
 }: ConversationPaneProps) {
   const { t } = useTranslation();
+  const capabilities = useCapabilities();
   const [advertisingMode, setAdvertisingMode] = useState<RadioAdvertMode | null>(null);
 
   const handleLiveAdvertise = async (mode: RadioAdvertMode) => {
@@ -435,16 +434,26 @@ export function ConversationPane({
     );
   }
 
-  if (activeConversation.type === 'control') {
+  if (activeConversation.type === 'feed') {
     return (
-      <ControlJournalView
-        contacts={contacts}
-        channels={channels}
-        onOpenContactInfo={onOpenContactInfo}
-        onSelectConversation={onSelectConversation}
-        publicKey={config?.public_key}
-        onBackToTools={onBackToTools}
-      />
+      <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingFeed')} />}>
+        <FeedView
+          // A preset is applied when the view opens, so another preset is another view.
+          key={activeConversation.feedPreset ?? 'feed'}
+          preset={activeConversation.feedPreset}
+          initialQuery={activeConversation.feedQuery}
+          onQueryChange={onFeedQueryChange}
+          contacts={contacts}
+          channels={channels}
+          radioName={config?.name}
+          publicKey={config?.public_key}
+          onBackToTools={onBackToTools}
+          onNavigateToMessage={onNavigateToMessage}
+          onSelectConversation={onSelectConversation}
+          onOpenContactInfo={onOpenContactInfo}
+          onOpenRadioSettings={onOpenRadioSettings}
+        />
+      </LazyBoundary>
     );
   }
 
@@ -511,6 +520,42 @@ export function ConversationPane({
     );
   }
 
+  if (activeContactIsRepeater && !capabilities.canAdministerRepeaters) {
+    // The dashboard is all repeater administration (login, status, ACL, commands): the
+    // server refuses each of those, so the pane says so instead of offering them.
+    return (
+      <>
+        <ChatHeader
+          conversation={activeConversation}
+          contacts={contacts}
+          channels={channels}
+          config={config}
+          onOpenNotifySettings={onOpenNotifySettings}
+          onTrace={onTrace}
+          onPathDiscovery={onPathDiscovery}
+          onToggleFavorite={onToggleFavorite}
+          onTogglePin={onTogglePin}
+          onMuteChannel={onMuteChannel}
+          onSetChannelFloodScopeOverride={onSetChannelFloodScopeOverride}
+          onSetChannelPathHashModeOverride={onSetChannelPathHashModeOverride}
+          onDeleteChannel={onDeleteChannel}
+          onDeleteContact={onDeleteContact}
+          onOpenContactInfo={onOpenContactInfo}
+          onOpenChannelInfo={onOpenChannelInfo}
+          onBack={onBack}
+          pending={false}
+        />
+        <p
+          role="status"
+          data-testid="repeater-admin-forbidden"
+          className="p-6 text-center text-sm text-muted-foreground"
+        >
+          {t('capabilities.repeaterAdminOnly')}
+        </p>
+      </>
+    );
+  }
+
   if (activeContactIsRepeater) {
     return (
       <LazyBoundary fallback={<LoadingPane label={t('conversation.loadingDashboard')} />}>
@@ -536,7 +581,8 @@ export function ConversationPane({
     );
   }
 
-  const showRoomChat = !activeContactIsRoom || roomAuthenticated;
+  const showRoomChat =
+    !activeContactIsRoom || roomAuthenticated || !capabilities.canAdministerRepeaters;
 
   return (
     <>
@@ -545,10 +591,6 @@ export function ConversationPane({
         contacts={contacts}
         channels={channels}
         config={config}
-        notifyMediaEnabled={notifyMediaEnabled}
-        emailReady={emailReady}
-        webhookReady={webhookReady}
-        onSetConversationMedia={onSetConversationMedia}
         onOpenNotifySettings={onOpenNotifySettings}
         onTrace={onTrace}
         onPathDiscovery={onPathDiscovery}
@@ -583,7 +625,7 @@ export function ConversationPane({
           />
         </LazyBoundary>
       )}
-      {activeContactIsRoom && activeContact && (
+      {activeContactIsRoom && activeContact && capabilities.canAdministerRepeaters && (
         <RoomServerPanel
           key={activeContact.public_key}
           contact={activeContact}
@@ -616,7 +658,9 @@ export function ConversationPane({
             onChannelReferenceClick={onChannelReferenceClick}
             onLoadOlder={onLoadOlder}
             onResendChannelMessage={
-              activeConversation.type === 'channel' ? onResendChannelMessage : undefined
+              activeConversation.type === 'channel' && capabilities.canSend
+                ? onResendChannelMessage
+                : undefined
             }
             radioName={config?.name}
             config={config}
@@ -632,6 +676,7 @@ export function ConversationPane({
             conversationKey={activeConversation.id}
           />
           {activeConversation.type === 'channel' &&
+          capabilities.canSend &&
           isPendingChannel(channels.find((channel) => channel.key === activeConversation.id)) ? (
             <div className="flex shrink-0 gap-2 border-t border-border p-3">
               <Button
@@ -651,7 +696,10 @@ export function ConversationPane({
                 {t('discovered.refuse')}
               </Button>
             </div>
-          ) : !(activeConversation.type === 'contact' && isPrefixOnlyActiveContact) ? (
+          ) : !capabilities.canSend ||
+            (activeContactIsRoom && !capabilities.canAdministerRepeaters) ? null : !(
+              activeConversation.type === 'contact' && isPrefixOnlyActiveContact
+            ) ? (
             <MessageInput
               ref={messageInputRef}
               onSend={onSendMessage}

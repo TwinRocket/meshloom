@@ -114,7 +114,7 @@ class TestDisableBotsHealthEndpoint:
     async def test_health_includes_bots_disabled_true(self, test_db):
         with patch(
             "app.routers.health.settings",
-            MagicMock(disable_bots=True, basic_auth_enabled=False, database_path="x"),
+            MagicMock(disable_bots=True, database_path="x"),
         ):
             with patch("app.routers.health.os.path.getsize", return_value=0):
                 data = await build_health_data(True, "TCP: 1.2.3.4:4000")
@@ -125,7 +125,7 @@ class TestDisableBotsHealthEndpoint:
     async def test_health_includes_bots_disabled_false(self, test_db):
         with patch(
             "app.routers.health.settings",
-            MagicMock(disable_bots=False, basic_auth_enabled=False, database_path="x"),
+            MagicMock(disable_bots=False, database_path="x"),
         ):
             with patch("app.routers.health.os.path.getsize", return_value=0):
                 data = await build_health_data(True, "TCP: 1.2.3.4:4000")
@@ -133,22 +133,22 @@ class TestDisableBotsHealthEndpoint:
         assert data["bots_disabled"] is False
 
     @pytest.mark.asyncio
-    async def test_health_includes_basic_auth_enabled(self, test_db):
+    async def test_health_has_no_basic_auth_field(self, test_db):
         with patch(
             "app.routers.health.settings",
-            MagicMock(disable_bots=False, basic_auth_enabled=True, database_path="x"),
+            MagicMock(disable_bots=False, database_path="x"),
         ):
             with patch("app.routers.health.os.path.getsize", return_value=0):
                 data = await build_health_data(True, "TCP: 1.2.3.4:4000")
 
-        assert data["basic_auth_enabled"] is True
+        assert "basic_auth_enabled" not in data
 
     @pytest.mark.asyncio
     async def test_health_includes_runtime_bot_disable_source(self, test_db):
         with (
             patch(
                 "app.routers.health.settings",
-                MagicMock(disable_bots=False, basic_auth_enabled=False, database_path="x"),
+                MagicMock(disable_bots=False, database_path="x"),
             ),
             patch("app.routers.health.os.path.getsize", return_value=0),
             patch("app.fanout.manager.fanout_manager") as mock_fm,

@@ -1,0 +1,43 @@
+{
+  "_comment": "app_settings columns as a 4.18.x install stores them (push_defaults, push_conversation_overrides, notification_destinations): SMTP, webhook and Apprise configured, mixed legacy bool/object media flags, two conversation overrides.",
+  "push_defaults": {
+    "new_contact": true,
+    "new_dm": {"push": true, "email": true, "apprise": true},
+    "advert_repeater": false,
+    "advert_companion": {"push": false, "webhook": true},
+    "advert_sensor": {"push": true},
+    "channel_found": true,
+    "telemetry_alert": {"push": true, "email": true, "webhook": true, "apprise": false},
+    "oss_update": false,
+    "radio_offline": {"push": true, "email": true, "webhook": false, "apprise": true},
+    "radio_online": true,
+    "app_started": false
+  },
+  "push_conversation_overrides": {
+    "contact-aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899": {"push": false, "email": true},
+    "channel-8B3387E9C5CDEA6AC9E5EDBAA115CD72": true
+  },
+  "notification_destinations": {
+    "email": {
+      "host": "smtp.example.org",
+      "port": 465,
+      "mode": "ssl",
+      "user": "meshloom",
+      "password": "smtp-pass-1",
+      "from": "meshloom@example.org",
+      "to": "me@example.org,you@example.org"
+    },
+    "webhook": {
+      "url": "http://192.168.1.20:8080/hook?token=abc",
+      "hmac_secret": "hmac-secret-1",
+      "allow_private_network": true,
+      "private_network_grandfathered": false
+    },
+    "apprise": {
+      "urls": "ntfy://ntfy.example.org/topic-secret\ntgram://123456:AAbbCC/987654",
+      "allow_private_network": false,
+      "include_message_text": "never",
+      "format": "markdown"
+    }
+  }
+}

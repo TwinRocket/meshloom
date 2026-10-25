@@ -14,6 +14,7 @@ on:
       - "Dockerfile.nfpm-armhf"
       - "Dockerfile.nfpm-armhf.dockerignore"
       - "app/**"
+      - "meshloom_plugin/**"
       - ".nvmrc"
       - "pyproject.toml"
       - "uv.lock"
@@ -75,6 +76,29 @@ jobs:
             --stage-dir stage-amd64 \
             --package-only \
             --output-dir dist
+
+      # The recovery command (app/cli.py) must be in the package and run from
+      # the path the docs give: unpack the .deb where it will live and ask for --help.
+      - name: Check meshloom-admin in the amd64 package
+        run: |
+          deb="$(ls dist/meshloom_*_amd64.deb | head -n 1)"
+          dpkg-deb -c "$deb" | grep -E -- '^-rwxr-xr-x .* \./opt/meshloom/\.venv/bin/meshloom-admin$'
+          dpkg-deb -c "$deb" | grep -E -- '^l.* \./usr/bin/meshloom-admin -> /opt/meshloom/\.venv/bin/meshloom-admin$'
+          unpack="$(mktemp -d)"
+          dpkg-deb -x "$deb" "$unpack"
+          sudo mv "$unpack/opt/meshloom" /opt/meshloom
+          # As root, with the service user the package creates (sysusers) in place.
+          sudo useradd --system --no-create-home meshloom
+          sudo /opt/meshloom/.venv/bin/meshloom-admin --help
+
+      # The kiosk launcher ships at the path images flashed before 5.0 use.
+      - name: Check the kiosk launcher in the amd64 package
+        run: |
+          deb="$(ls dist/meshloom_*_amd64.deb | head -n 1)"
+          dpkg-deb -c "$deb" | grep -E -- '^-rwxr-xr-x .* \./usr/lib/meshloom/meshloom-kiosk$'
+
+      - name: shellcheck the kiosk launcher and the maintainer script
+        run: shellcheck -e SC2174 pkg/rpi/meshloom-kiosk pkg/nfpm/postinstall.sh
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

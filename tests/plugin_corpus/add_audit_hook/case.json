@@ -1,0 +1,11 @@
+{
+  "description": "Add an audit hook of its own (to see or veto events). CPython swallows the refusal and never adds the hook: the plugin sees no event.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "result": false
+      }
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import type { Capabilities, Capability } from '../auth/capabilities';
 import {
   MessageCircle,
   Map as MapIcon,
@@ -12,6 +13,7 @@ import {
   Search,
   Hash,
   RadioTower,
+  Newspaper,
   type LucideIcon,
 } from 'lucide-react';
 import type { Conversation } from '../types';
@@ -42,6 +44,7 @@ export const UNREAD_BADGE_MAX = 99;
 export type RailItemId =
   | BottomNavTarget
   | 'raw'
+  | 'feed'
   | 'control'
   | 'live'
   | 'visualizer'
@@ -60,6 +63,22 @@ export type RailItemId =
  */
 export const DIRECTORY_ONLY_RAIL_IDS: readonly RailItemId[] = ['test'];
 
+/**
+ * What a tool needs from the role. The pages below only call routes that refuse the
+ * role anyway, so the interface does not offer them (the server enforces regardless).
+ */
+const TOOL_CAPABILITY: Partial<Record<string, Capability>> = {
+  test: 'admin',
+  trace: 'send',
+  discovered: 'send',
+};
+
+/** Whether the role may use the tool; an id with no entry needs nothing beyond reading. */
+export function toolAllowed(id: string, capabilities: Pick<Capabilities, 'has'>): boolean {
+  const needed = TOOL_CAPABILITY[id];
+  return needed === undefined || capabilities.has(needed);
+}
+
 export interface RailItem {
   id: RailItemId;
   labelKey: string;
@@ -75,12 +94,25 @@ export interface RailItem {
   overlay?: boolean;
 }
 
-const tool = (id: Exclude<RailItemId, BottomNavTarget>, labelKey: string, Icon: LucideIcon) => ({
+const tool = (
+  id: Exclude<RailItemId, BottomNavTarget | 'control'>,
+  labelKey: string,
+  Icon: LucideIcon
+) => ({
   id,
   labelKey,
   Icon,
   permanent: false,
   conversation: { type: id, id, name: id } as Conversation,
+});
+
+/** `control` is the feed opened with the Control preset, not a view of its own. */
+const controlTool = (): RailItem => ({
+  id: 'control',
+  labelKey: 'sidebar.controlJournal',
+  Icon: ScrollText,
+  permanent: false,
+  conversation: { type: 'feed', id: 'feed', name: 'feed', feedPreset: 'control' },
 });
 
 /**
@@ -115,7 +147,8 @@ export const RAIL_ITEMS: RailItem[] = [
     })
   ),
   tool('raw', 'sidebar.packetFeed', List),
-  tool('control', 'sidebar.controlJournal', ScrollText),
+  tool('feed', 'sidebar.feed', Newspaper),
+  controlTool(),
   tool('live', 'sidebar.live', Radio),
   tool('visualizer', 'sidebar.meshVisualizer', Waypoints),
   tool('trace', 'sidebar.trace', Spline),
@@ -135,7 +168,10 @@ const RAIL_BY_ID = new Map(RAIL_ITEMS.map((item) => [item.id, item]));
  * having to learn that the rail can be arranged at all — removing what you do not
  * use is an easier thing to think of than adding what you never saw.
  */
-export const DEFAULT_RAIL: RailItemId[] = RAIL_ITEMS.map(({ id }) => id);
+export const DEFAULT_RAIL: RailItemId[] = RAIL_ITEMS.map(({ id }) => id).filter(
+  // The preset is a way into the feed, offered in Settings → Navigation, not a default.
+  (id) => id !== 'control'
+);
 
 /** localStorage flag so a stored rail is only given the discovered tool once. */
 export const RAIL_DISCOVERED_BACKFILL_KEY = 'meshloom-rail-tool-discovered';

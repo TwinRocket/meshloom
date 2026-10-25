@@ -56,6 +56,32 @@ Sans aucun réseau, ouvrez `http://127.0.0.1:8000` sur le Pi lui-même. La messa
 
 Les bots, qui exécutent du code sur la machine, sont désactivés sur cette image, comme dans tout paquet Linux. Voir [Un réseau de confiance](/docs/trust/).
 
+## Image kiosque (écran au mur)
+
+L’image kiosque affiche Meshloom en plein écran sur un écran branché au Pi, avec un compte `kiosk` en lecture seule et sans mot de passe : il lit les messages des canaux, jamais les messages directs, et n’a aucun réglage.
+
+Sur une image kiosque neuve, ou gravée avant la 5.0 une fois mise à jour, l’écran affiche d’abord **Compte administrateur pas encore créé** avec un code d’installation. Depuis un téléphone ou un ordinateur du même réseau, ouvrez `http://meshloom.local:8000`, saisissez ce code et créez le compte administrateur. Quelques secondes plus tard, l’écran du mur ouvre Meshloom tout seul, connecté avec le compte kiosque. Le code n’apparaît que sur l’écran du Pi ; pour en obtenir un nouveau, lancez `meshloom-admin setup-code` sur le Pi.
+
+L’écran se connecte avec un **jeton d’appareil** que Meshloom écrit sur le Pi, dans `/var/lib/meshloom-kiosk/kiosk.token` : seul l’utilisateur du bureau du Pi peut le lire, le jeton n’apparaît jamais dans une adresse ni dans la liste des programmes en cours, et il ne fonctionne que depuis le Pi lui-même. Aucun réseau de confiance n’est nécessaire. Dans **Réglages → Utilisateurs et accès → Jetons d’API et d’appareil**, un administrateur le voit sous le nom **Kiosk screen** (propriétaire `kiosk`) : **Révoquer** le remplace aussitôt par un nouveau : l’écran est déconnecté, puis se reconnecte avec le nouveau jeton en quelques secondes. Pour garder l’écran déconnecté, désactivez le compte `kiosk` dans **Utilisateurs et accès**. Le jeton n’ouvre que la session de l’écran, sur le Pi lui-même : une copie utilisée depuis une autre machine, ou sur toute autre adresse de l’API, est refusée.
+
+Sur une image kiosque gravée avant la 5.0, redémarrez le Pi une fois après la mise à jour : la session du bureau a alors accès au jeton et l’écran se connecte.
+
+Pour que l’écran du mur s’ouvre sur le Fil (ou sur un autre outil) après un redémarrage, un administrateur règle **Réglages → Navigation → Page de démarrage** : elle s’applique à toutes les sessions, compte kiosque compris, sans SSH. `MESHLOOM_KIOSK_URL` reste une variable d’amorçage du lanceur sur une image montée à la main ; une page de démarrage ne s’applique que si cette adresse n’a pas de partie `#`.
+
+### Mode affichage
+
+Le mode affichage est le Fil conçu pour un écran mural : texte agrandi (25 % de plus que votre propre taille de texte), ni menu ni barre latérale, pas de pastilles de filtre, les derniers messages toujours à l’écran, séparateurs de jours et petite horloge. C’est un **choix d’affichage**, pas un verrou. Trois façons de l’activer :
+
+- le bouton **Mode affichage** dans l’en-tête du Fil, qui demande aussi le plein écran au navigateur quand il l’autorise (un bouton **Quitter** reste en haut à droite) ;
+- `#feed?display=1` comme **Page de démarrage** (`feed?display=1`, sans le `#`), la voie qui évite le SSH ;
+- `#feed?display=1` à la fin de `MESHLOOM_KIOSK_URL` sur une image montée à la main, par exemple `http://127.0.0.1:8000/#feed?display=1`. Une page de démarrage est ignorée quand l’adresse a une partie `#`.
+
+Ce qui change : les filtres du Fil ne sont pas modifiés et reviennent quand vous quittez le mode. Seuls les canaux sont demandés au serveur (`type=CHAN`), **les messages directs sont masqués** et **les images et GIF ne sont pas chargés**, quoi que dise l’adresse : rien dans le mode ne les réactive. Les lignes ne se cliquent ni ne prennent le focus, et **Quitter** est le seul contrôle restant. Votre choix d’afficher les réactions n’est jamais modifié. Flou et ombres sont désactivés.
+
+**Le mode affichage ne verrouille rien.** Masquer les messages directs décide seulement de ce que cet écran dessine : le navigateur les reçoit toujours, et quiconque peut se connecter peut les lire ailleurs. Ce qui garde les messages directs hors de l’écran, c’est le compte `kiosk` sous lequel tourne l’image, à qui le serveur les refuse ; sous ce compte le Fil n’a pas de puce **Messages directs**, ne demande que les canaux et n’affiche jamais d’erreur à ce sujet (il lit toujours les canaux en sourdine ou en attente, et les paquets de contrôle). Voir [Un réseau de confiance](/docs/trust/).
+
+Dans Home Assistant, le plein écran demande `allowfullscreen` sur le cadre de Home Assistant lui-même : voir [Home Assistant](/docs/deep/home-assistant/).
+
 ## Mettre à jour
 
 Quand l’image (ou toute installation par paquet Linux) sait se mettre à jour seule, **Réglages > Mises à jour** propose **Installer maintenant** et une mise à jour automatique facultative. Cela ne met à jour que Meshloom, depuis le dépôt Meshloom signé, jamais tout le système d’exploitation. Les images à partir de la 4.18 sont prêtes pour cela dès la sortie. Sur une image plus ancienne, un seul `sudo apt update && sudo apt install meshloom` l’active.

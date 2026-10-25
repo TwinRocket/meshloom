@@ -9,12 +9,24 @@ This file is the entry point for every coding agent. Area files, read only when
 you work there:
 
 - `app/AGENTS.md`: backend (radio lifecycle, sending, migrations, Community client, updates, telemetry, push).
+- `app/net/AGENTS.md`: the egress guard for user-chosen destinations (SSRF, IP pinning).
 - `app/fanout/AGENTS.md`: the fanout bus (MQTT, bots, webhooks, Apprise, SQS, map upload).
 - `frontend/AGENTS.md`: frontend (state, WebSocket client, i18n, layout).
 - `frontend/src/components/visualizer/AGENTS.md`: the 3D packet visualizer.
 
-Developer reference: `docs/dev/` (database schema, Community client, frontend
-Community state, releasing, BLE pairing). User docs: `docs/user/` (en, fr). Environment variables for users:
+Developer reference, `docs/dev/`:
+
+- `database.md`: SQLite schema, migrations, indexes, retention.
+- `auth.md`: local accounts (data model, argon2id, the auth gate, providers, permissions, sessions and cookie, CSRF rule, Host guard, tokens, TOTP, passkeys, kiosk, setup code, `/api/auth` routes) and the manual checklist for the five install kinds plus the kiosk image, run before the 5.0.0 tag.
+- `backup.md`: full backup sections and restore hooks.
+- `community-client.md`: the Community client; `frontend-community.md`: its frontend state.
+- `releasing.md`: branches, images, the release chain.
+- `ble-pairing.md`: BLE pairing through BlueZ.
+- `device-pairing.md`: device pairing codes and the QR payload, the contract meshenger follows.
+- `radio-bench.md`: the opt-in live-radio suite.
+- `plugins.md`, `plugins-security.md`, `plugins/`: the plugin system and its isolation.
+
+User docs: `docs/user/` (en, fr). Environment variables for users:
 `docs/user/en/deep/environment.md`.
 
 ## Working rules
@@ -35,13 +47,18 @@ Community state, releasing, BLE pairing). User docs: `docs/user/` (en, fr). Envi
   Refresh copies, never edit them to make a test pass.
 - **Out of scope until explicitly launched.** Do not start these, and do not "fix"
   them on the side:
-  - Access: accounts, login, CORS and credentials, Origin/Host checks.
   - Plugins: a marketplace that will replace the bots' `exec`.
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
 
-  The current posture (CORS `*` with credentials, optional Basic auth only, bots
-  running `exec()`, an unauthenticated proxy) is described in `SECURITY.md`,
-  "Known limits". It is a fact, not a recommendation.
+  On `preversion-5` every `/api` route needs a signed-in account
+  (`app/auth/middleware.py`, `docs/dev/auth.md`) and declares the permission
+  its role must hold (`app/auth/permissions.py`, default deny); CORS is
+  same-origin plus the Allowed origins list and unsafe cross-site requests are
+  refused. The rest of the posture (bots running `exec()`, the radio proxy on
+  5051 unauthenticated and bound to `0.0.0.0` by owner decision, the
+  `Authorization: Basic` window until 5.2) is described in `SECURITY.md`,
+  "Known limits". It is a fact, not a recommendation. The user page is
+  `docs/user/{en,fr}/deep/access.md` (same headings in both languages).
 - **No environment variable for anything a user tunes.** Settings live in
   `app_settings` and the UI. Retired variables are imported once into an existing
   database, then only warned about (`app/services/legacy_env_settings.py`,
@@ -56,6 +73,8 @@ Community state, releasing, BLE pairing). User docs: `docs/user/` (en, fr). Envi
 ```
 meshloom/             the Home Assistant add-on (not a Python package): config.yaml, run.py,
                       Dockerfile FROM the GHCR image
+meshloom_plugin/      plugin child runtime (runner, RPC framing, import policy): stdlib only,
+                      shipped next to app/ (docs/dev/plugins.md, "Runner")
 pkg/keys/             public release key and its procedure (README.md)
 pkg/nfpm/             .deb/.rpm packaging, systemd units, root update helper apply-update
 scripts/quality/      all_quality.sh (the gate)
@@ -64,7 +83,8 @@ scripts/setup/        install.sh and the embeds it carries (sync_installer_embed
 docs/user/            user docs, published by meshloom.app from the latest X.Y.Z tag, not from main
 docker-compose.dev.yaml  runs ghcr.io/twinrocket/meshloom:edge (never builds; see below)
 .github/workflows/    docker.yml (:edge from main, :next from preversion-5, release images),
-                      forward-merge.yml (main into preversion-5); see docs/dev/releasing.md
+                      forward-merge.yml (main into preversion-5); see docs/dev/releasing.md;
+tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-bench.md
 ```
 
 ## Architecture invariants
@@ -88,12 +108,27 @@ docker-compose.dev.yaml  runs ghcr.io/twinrocket/meshloom:edge (never builds; se
   call path around it. The few bounded exceptions and the "waiting for a
   position" level are in `app/AGENTS.md`. The radio's position leaves only in
   the IATA bind and the on-click IATA suggestion.
+- **Share egress.** Sharing off (`share_enabled`, the default) means no
+  connection at all to the share service. Every request goes through
+  `share_request()` in `app/services/share.py` (`share_egress_state()`, then the
+  egress guard with `SHARE_HOST` as the only allowed host), never a separate path;
+  `tests/test_share_off_no_egress.py` sweeps it (`app/AGENTS.md`).
+- **User-chosen destinations.** The notification webhook, Web Push, their
+  test routes and the fanout outputs (webhook, Apprise, SQS, map upload) go
+  through the egress guard (`app/net/egress_guard.py`, see `app/net/AGENTS.md`):
+  validated before any connection, then sent pinned to a validated IP where
+  the client allows it (not Apprise, not boto3). Apprise URLs also pass the
+  scheme allowlist of `app/net/apprise_urls.py`. A new outbound path to a
+  user-chosen URL must use the guard. A caller with a fixed set of hosts (the
+  Store client, the plugin `http` capability, the share service client) passes
+  a `HostAllowlist` and sends through `follow_checked_redirects` (each redirect
+  hop re-validated, bodies capped while streaming).
 
 ## Commands
 
 ```bash
 uv sync                                   # backend deps (Python >= 3.11; CI: 3.11, 3.12, 3.14)
-uv run uvicorn app.main:app --reload      # backend on :8000
+uv run uvicorn app.main:app --reload --no-proxy-headers  # backend on :8000
 cd frontend && npm ci && npm run dev      # Vite on :5173, proxies /api to :8000 (Node 26)
 
 ./scripts/quality/all_quality.sh          # THE gate: must be green before any PR
@@ -101,7 +136,7 @@ cd frontend && npm ci && npm run dev      # Vite on :5173, proxies /api to :8000
 
 `all_quality.sh` autofixes first (`ruff check --fix`, `ruff format`,
 `eslint --fix`, `prettier --write`), so it may leave edits behind: commit them.
-Then it runs `pyright app/`, `pytest tests/`, `vitest run`, `tsc` and `vite build`.
+Then it runs `pyright app/ meshloom_plugin/`, `pytest tests/`, `vitest run`, `tsc` and `vite build`.
 CI (`.github/workflows/all-quality.yml`, aggregate job `all-quality`) runs the
 same checks in check mode, so an unformatted file passes locally and fails in CI
 if you do not commit the autofix. Prettier checks every file under
@@ -117,7 +152,15 @@ scripts/build/check_signing_keys.sh                              # pkg/keys cons
 ```
 
 The e2e tests (`tests/e2e`, Playwright) need a real radio and are not part of
-the gate (`CONTRIBUTING.md`).
+the gate (`CONTRIBUTING.md`). Neither is the radio bench (`tests/radio_bench`,
+skipped unless `MESHLOOM_RADIO_BENCH_URL` is set): it drives a running instance
+and its radio through the API and the radio proxy, restores every setting it
+changes and checks they are back (`docs/dev/radio-bench.md`):
+
+```bash
+MESHLOOM_RADIO_BENCH_URL=http://host:8010 MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
+  uv run pytest tests/radio_bench -m radio -n 0
+```
 
 ## Conventions and pitfalls
 

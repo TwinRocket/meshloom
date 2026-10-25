@@ -1,0 +1,21 @@
+{
+  "_comment": "URLs POST /api/share/links accepts (ok) or refuses with share_invalid_url (ok=false); used by tests/test_share_url_cases.py and frontend/src/test/shareShortenUtils.test.ts so the composer's isShortenable mirrors app/routers/share.py _checked_url.",
+  "cases": [
+    {"url": "https://example.org/a/b?c=d", "ok": true},
+    {"url": "http://www.example.com/x", "ok": true},
+    {"url": "https://user:pw@example.org/x", "ok": false},
+    {"url": "https://user@example.org/x", "ok": false},
+    {"url": "http://192.168.1.10:8123/dashboard", "ok": false},
+    {"url": "http://8.8.8.8/x", "ok": false},
+    {"url": "http://[::1]/x", "ok": false},
+    {"url": "http://localhost:8000/x", "ok": false},
+    {"url": "http://app.localhost/x", "ok": false},
+    {"url": "http://nas.local/x", "ok": false},
+    {"url": "http://router.lan/x", "ok": false},
+    {"url": "http://svc.internal/x", "ok": false},
+    {"url": "http://box.home.arpa/x", "ok": false},
+    {"url": "http://intranet/x", "ok": false},
+    {"url": "ftp://example.org/x", "ok": false},
+    {"url": "javascript:alert(1)", "ok": false}
+  ]
+}

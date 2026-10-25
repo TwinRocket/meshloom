@@ -10,17 +10,23 @@ It should only be enabled on trusted systems where the user understands
 the security implications.
 """
 
-import asyncio
-import inspect
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException
 
-from app.loop_lock import LoopBoundLock, LoopBoundSemaphore
+from app.loop_lock import LoopBoundSemaphore
+from app.message_limits import is_message_too_long
+from app.plugins.quotas import SEND_SPACING_SECONDS, send_spacer
+from meshloom_plugin.compat import (
+    REGION_UNSET,
+    BotResult,
+    call_bot,
+    coerce_result,
+)
+from meshloom_plugin.compat import analyze_bot_signature as _analyze_bot_signature
 
 logger = logging.getLogger(__name__)
 
@@ -33,24 +39,12 @@ _bot_executor = ThreadPoolExecutor(max_workers=100, thread_name_prefix="bot_")
 # Timeout for bot code execution (seconds)
 BOT_EXECUTION_TIMEOUT = 10
 
-# Minimum spacing between bot message sends (seconds)
-# This ensures repeaters have time to return to listening mode
-BOT_MESSAGE_SPACING = 2.0
-
-# Global state for rate limiting bot sends
-_bot_send_lock = LoopBoundLock()
-_last_bot_send_time: float = 0.0
+# Minimum spacing between automatic sends (seconds), shared with the plugin
+# instances: `app/plugins/quotas.py` (`send_spacer`) owns it.
+BOT_MESSAGE_SPACING = SEND_SPACING_SECONDS
 
 # global container for persistent data storage between bot executions, will be added to execution namespace
 _bot_globals: dict[str, Any] = {}
-
-
-@dataclass(frozen=True)
-class BotCallPlan:
-    """How to call a validated bot() function."""
-
-    call_style: str
-    keyword_args: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -70,145 +64,21 @@ class BotReply:
     flood_scope_override: str | None = None
 
 
-def _coerce_bot_dict_reply(result: dict) -> "BotReply | None":
-    """Normalize a ``{"region", "message"}`` bot return into a BotReply, or None.
+def _to_bot_reply(result: BotResult) -> BotReply:
+    """Turn a normalised bot result into a BotReply, region in the radio's form.
 
-    ``message`` may be a string or a list of strings (empties dropped). A missing
-    ``message`` (or no valid messages) yields None. ``region`` is optional: absent
-    means "use the channel default", ``None`` means "send unscoped", and a string
-    is normalized to the radio's region form.
+    An absent region means "use the channel default", ``None`` means "send
+    unscoped", and a string is normalized to the radio's region form.
     """
     from app.region_scope import normalize_region_scope
 
-    raw = result.get("message")
-    if isinstance(raw, str):
-        messages = [raw] if raw.strip() else []
-    elif isinstance(raw, list):
-        messages = [m for m in raw if isinstance(m, str) and m.strip()]
+    if result.region is REGION_UNSET:
+        override: str | None = None
+    elif result.region is None:
+        override = ""  # explicit: send unscoped
     else:
-        logger.debug("Bot dict response 'message' must be a string or list of strings")
-        return None
-    if not messages:
-        return None
-
-    if "region" in result:
-        region_value = result.get("region")
-        if region_value is None:
-            flood_scope_override: str | None = ""  # explicit: send unscoped
-        elif isinstance(region_value, str):
-            flood_scope_override = normalize_region_scope(region_value)
-        else:
-            logger.debug("Bot dict response 'region' must be a string or None")
-            return None
-    else:
-        flood_scope_override = None  # no region specified: use channel default
-
-    return BotReply(messages=messages, flood_scope_override=flood_scope_override)
-
-
-def _analyze_bot_signature(bot_func_or_sig) -> BotCallPlan:
-    """Validate bot() signature and return a supported call plan."""
-    try:
-        sig = (
-            bot_func_or_sig
-            if isinstance(bot_func_or_sig, inspect.Signature)
-            else inspect.signature(bot_func_or_sig)
-        )
-    except (ValueError, TypeError) as exc:
-        raise ValueError("Bot function signature could not be inspected") from exc
-
-    params = sig.parameters
-    param_values = tuple(params.values())
-    positional_params = [
-        p
-        for p in param_values
-        if p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-    ]
-    has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in param_values)
-    has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in param_values)
-    explicit_optional_names = tuple(
-        name
-        for name in ("is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped")
-        if name in params
-    )
-    unsupported_required_kwonly = [
-        p.name
-        for p in param_values
-        if p.kind == inspect.Parameter.KEYWORD_ONLY
-        and p.default is inspect.Parameter.empty
-        and p.name not in {"is_outgoing", "path_bytes_per_hop", "packet_hash", "region", "scoped"}
-    ]
-    if unsupported_required_kwonly:
-        raise ValueError(
-            "Bot function signature is not supported. Unsupported required keyword-only "
-            "parameters: " + ", ".join(unsupported_required_kwonly)
-        )
-
-    positional_capacity = len(positional_params)
-    base_args = [object()] * 8
-    base_keyword_args: dict[str, object] = {
-        "sender_name": object(),
-        "sender_key": object(),
-        "message_text": object(),
-        "is_dm": object(),
-        "channel_key": object(),
-        "channel_name": object(),
-        "sender_timestamp": object(),
-        "path": object(),
-    }
-    candidate_specs: list[tuple[str, list[object], dict[str, object]]] = []
-    keyword_args = dict(base_keyword_args)
-    if has_kwargs or "is_outgoing" in params:
-        keyword_args["is_outgoing"] = False
-    if has_kwargs or "path_bytes_per_hop" in params:
-        keyword_args["path_bytes_per_hop"] = 1
-    if has_kwargs or "packet_hash" in params:
-        keyword_args["packet_hash"] = ""
-    if has_kwargs or "region" in params:
-        keyword_args["region"] = None
-    if has_kwargs or "scoped" in params:
-        keyword_args["scoped"] = False
-    candidate_specs.append(("keyword", [], keyword_args))
-
-    if not has_kwargs and explicit_optional_names:
-        kwargs: dict[str, object] = {}
-        if has_kwargs or "is_outgoing" in params:
-            kwargs["is_outgoing"] = False
-        if has_kwargs or "path_bytes_per_hop" in params:
-            kwargs["path_bytes_per_hop"] = 1
-        if has_kwargs or "packet_hash" in params:
-            kwargs["packet_hash"] = ""
-        if has_kwargs or "region" in params:
-            kwargs["region"] = None
-        if has_kwargs or "scoped" in params:
-            kwargs["scoped"] = False
-        candidate_specs.append(("mixed_keyword", base_args, kwargs))
-
-    if has_varargs or positional_capacity >= 11:
-        candidate_specs.append(("positional_11", base_args + [False, 1, ""], {}))
-    if has_varargs or positional_capacity >= 10:
-        candidate_specs.append(("positional_10", base_args + [False, 1], {}))
-    if has_varargs or positional_capacity >= 9:
-        candidate_specs.append(("positional_9", base_args + [False], {}))
-    if has_varargs or positional_capacity >= 8:
-        candidate_specs.append(("legacy", base_args, {}))
-
-    for call_style, args, kwargs in candidate_specs:
-        try:
-            sig.bind(*args, **kwargs)
-        except TypeError:
-            continue
-        if call_style in {"keyword", "mixed_keyword"}:
-            return BotCallPlan(call_style="keyword", keyword_args=tuple(kwargs.keys()))
-        return BotCallPlan(call_style=call_style)
-
-    raise ValueError(
-        "Bot function signature is not supported. Use the default bot template as a reference. "
-        "Supported trailing parameters are: path; path + is_outgoing; "
-        "path + path_bytes_per_hop; path + is_outgoing + path_bytes_per_hop; "
-        "path + is_outgoing + path_bytes_per_hop + packet_hash; "
-        "or use **kwargs for forward compatibility (which also receives region and scoped)."
-    )
+        override = normalize_region_scope(result.region)
+    return BotReply(messages=result.messages, flood_scope_override=override)
 
 
 def execute_bot_code(
@@ -303,102 +173,35 @@ def execute_bot_code(
         return None
 
     try:
-        # Call the bot function with appropriate signature
-        if call_plan.call_style == "positional_11":
-            result = bot_func(
-                sender_name,
-                sender_key,
-                message_text,
-                is_dm,
-                channel_key,
-                channel_name,
-                sender_timestamp,
-                path,
-                is_outgoing,
-                path_bytes_per_hop,
-                packet_hash,
-            )
-        elif call_plan.call_style == "positional_10":
-            result = bot_func(
-                sender_name,
-                sender_key,
-                message_text,
-                is_dm,
-                channel_key,
-                channel_name,
-                sender_timestamp,
-                path,
-                is_outgoing,
-                path_bytes_per_hop,
-            )
-        elif call_plan.call_style == "positional_9":
-            result = bot_func(
-                sender_name,
-                sender_key,
-                message_text,
-                is_dm,
-                channel_key,
-                channel_name,
-                sender_timestamp,
-                path,
-                is_outgoing,
-            )
-        elif call_plan.call_style == "keyword":
-            keyword_args: dict[str, Any] = {}
-            if "sender_name" in call_plan.keyword_args:
-                keyword_args["sender_name"] = sender_name
-            if "sender_key" in call_plan.keyword_args:
-                keyword_args["sender_key"] = sender_key
-            if "message_text" in call_plan.keyword_args:
-                keyword_args["message_text"] = message_text
-            if "is_dm" in call_plan.keyword_args:
-                keyword_args["is_dm"] = is_dm
-            if "channel_key" in call_plan.keyword_args:
-                keyword_args["channel_key"] = channel_key
-            if "channel_name" in call_plan.keyword_args:
-                keyword_args["channel_name"] = channel_name
-            if "sender_timestamp" in call_plan.keyword_args:
-                keyword_args["sender_timestamp"] = sender_timestamp
-            if "path" in call_plan.keyword_args:
-                keyword_args["path"] = path
-            if "is_outgoing" in call_plan.keyword_args:
-                keyword_args["is_outgoing"] = is_outgoing
-            if "path_bytes_per_hop" in call_plan.keyword_args:
-                keyword_args["path_bytes_per_hop"] = path_bytes_per_hop
-            if "packet_hash" in call_plan.keyword_args:
-                keyword_args["packet_hash"] = packet_hash
-            if "region" in call_plan.keyword_args:
-                keyword_args["region"] = region
-            if "scoped" in call_plan.keyword_args:
-                keyword_args["scoped"] = scoped
-            result = bot_func(**keyword_args)
-        else:
-            result = bot_func(
-                sender_name,
-                sender_key,
-                message_text,
-                is_dm,
-                channel_key,
-                channel_name,
-                sender_timestamp,
-                path,
-            )
+        result = call_bot(
+            bot_func,
+            call_plan,
+            {
+                "sender_name": sender_name,
+                "sender_key": sender_key,
+                "message_text": message_text,
+                "is_dm": is_dm,
+                "channel_key": channel_key,
+                "channel_name": channel_name,
+                "sender_timestamp": sender_timestamp,
+                "path": path,
+                "is_outgoing": is_outgoing,
+                "path_bytes_per_hop": path_bytes_per_hop,
+                "packet_hash": packet_hash,
+                "region": region,
+                "scoped": scoped,
+            },
+        )
 
-        # Validate result
-        if result is None:
+        normalized = coerce_result(result, logger.debug)
+        if normalized is None:
             return None
         if isinstance(result, dict):
             # Structured reply: {"region": ..., "message": str | list[str]}
-            return _coerce_bot_dict_reply(result)
+            return _to_bot_reply(normalized)
         if isinstance(result, str):
-            return result if result.strip() else None
-        if isinstance(result, list):
-            # Filter to non-empty strings only
-            valid_messages = [msg for msg in result if isinstance(msg, str) and msg.strip()]
-            return valid_messages if valid_messages else None
-
-        logger.debug("Bot function returned unsupported type: %s", type(result))
-        return None
+            return result
+        return normalized.messages
 
     except Exception:
         logger.exception("Bot function execution failed")
@@ -463,22 +266,11 @@ async def _send_single_bot_message(
             channel default, "" = unscoped, region name = scope to that region).
             Ignored for DMs, which are not region-scoped.
     """
-    global _last_bot_send_time
-
     from app.models import SendChannelMessageRequest, SendDirectMessageRequest
     from app.routers.messages import send_channel_message, send_direct_message
 
-    # Serialize bot sends and enforce minimum spacing
-    async with _bot_send_lock:
-        # Calculate how long since last bot send
-        now = time.monotonic()
-        time_since_last = now - _last_bot_send_time
-
-        if _last_bot_send_time > 0 and time_since_last < BOT_MESSAGE_SPACING:
-            wait_time = BOT_MESSAGE_SPACING - time_since_last
-            logger.debug("Rate limiting bot send, waiting %.2fs", wait_time)
-            await asyncio.sleep(wait_time)
-
+    # Serialize automatic sends (bots and plugins) and enforce the minimum spacing
+    async with send_spacer.slot() as slot:
         try:
             if is_dm:
                 if flood_scope_override is not None:
@@ -501,11 +293,14 @@ async def _send_single_bot_message(
                 logger.warning("Cannot send bot response: no destination")
                 return  # Don't update timestamp if we didn't send
         except HTTPException as e:
+            if is_message_too_long(e):
+                logger.warning("Bot reply refused, too long: %s", e.detail)
+                return
             logger.error("Bot failed to send response: %s", e.detail, exc_info=True)
             return  # Don't update timestamp on failure
         except Exception:
             logger.exception("Bot failed to send response")
             return  # Don't update timestamp on failure
 
-        # Update last send time after successful send
-        _last_bot_send_time = time.monotonic()
+        # Only a successful send moves the spacing reference
+        slot.sent()

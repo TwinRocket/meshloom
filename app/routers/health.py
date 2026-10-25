@@ -1,11 +1,15 @@
 import os
 from typing import Any, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from app.auth.permissions import Permission, has_permission, public
+from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
+from app.notifications.dispatcher import notification_statuses, notifications_capped
+from app.plugins import lifecycle as plugin_lifecycle
 from app.repository import RawPacketRepository
 from app.services.radio_lifecycle import expected_reboot_reason
 from app.services.radio_runtime import radio_runtime as radio_manager
@@ -13,6 +17,37 @@ from app.services.radio_stats import get_latest_radio_stats
 from app.version_info import get_app_build_info
 
 router = APIRouter(tags=["health"])
+
+# Below this permission `health` (REST and WebSocket) carries no error text:
+# the fanout, notification, radio proxy and plugin `last_error` (raw exception
+# text, hosts, ports) and the plugins' `send_guard` are emptied, the statuses
+# stay (MSHL-64: fanout and plugin status are admin-only).
+HEALTH_DETAIL_PERMISSION: Permission = "admin"
+
+
+def _without_last_error(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return value.model_copy(update={"last_error": None})
+    if isinstance(value, dict):
+        return {**value, "last_error": None}
+    return value
+
+
+def _blank_last_error(entries: Any) -> Any:
+    if not isinstance(entries, dict):
+        return entries
+    return {key: _without_last_error(value) for key, value in entries.items()}
+
+
+def without_admin_details(health: dict[str, Any]) -> dict[str, Any]:
+    """`health` as a principal without `HEALTH_DETAIL_PERMISSION` gets it."""
+    out = dict(plugin_lifecycle.without_plugin_errors(health))
+    for key in ("fanout_statuses", "notification_statuses"):
+        if key in out:
+            out[key] = _blank_last_error(out[key])
+    if out.get("radio_proxy") is not None:
+        out["radio_proxy"] = _without_last_error(out["radio_proxy"])
+    return out
 
 
 class RadioDeviceInfoResponse(BaseModel):
@@ -33,6 +68,34 @@ class FanoutStatusResponse(BaseModel):
     type: str
     status: str
     last_error: str | None = None
+
+
+class PluginStatusResponse(BaseModel):
+    """One plugin instance as the supervisor sees it (docs/dev/plugins.md, "Statuses")."""
+
+    instance_id: str
+    plugin_id: str | None = None
+    label: str | None = None
+    status: str | None = None
+    last_error: str | None = None
+    dropped_events: int = 0
+    restarts: int = 0
+    # What the send guards refused since start (`total`, `by_scope`, `last`; `{}` when
+    # nothing); blanked below `HEALTH_DETAIL_PERMISSION`.
+    send_guard: dict[str, Any] = Field(default_factory=dict)
+
+
+class NotificationStatusResponse(BaseModel):
+    """One notification channel, keyed by its id (``app/notifications/dispatcher.py``).
+
+    ``last_error`` is a code (for Apprise with the URL's line and redacted host),
+    scrubbed of the channel's secrets; never an exception text. Emptied below
+    ``HEALTH_DETAIL_PERMISSION``.
+    """
+
+    status: Literal["connected", "error", "paused", "disconnected"]
+    last_error: str | None = None
+    last_ok_at: int | None = None
 
 
 class RadioStatsSnapshot(BaseModel):
@@ -76,9 +139,15 @@ class HealthResponse(BaseModel):
     database_size_mb: float
     oldest_undecrypted_timestamp: int | None
     fanout_statuses: dict[str, FanoutStatusResponse] = Field(default_factory=dict)
+    notification_statuses: dict[str, NotificationStatusResponse] = Field(default_factory=dict)
+    # The global notification cap (rules ``limits.global_per_hour``) is reached.
+    notifications_capped: bool = False
     bots_disabled: bool = False
     bots_disabled_source: Literal["env", "until_restart"] | None = None
-    basic_auth_enabled: bool = False
+    # The plugin host (app/plugins/lifecycle.py): None when the system is off.
+    plugins_isolation: Literal["none", "setuid", "bwrap"] | None = None
+    plugins_disabled_source: Literal["env", "platform", "isolation"] | None = None
+    plugin_statuses: dict[str, PluginStatusResponse] = Field(default_factory=dict)
     radio_proxy: RadioProxyStatus | None = None
 
 
@@ -227,17 +296,38 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "database_size_mb": db_size_mb,
         "oldest_undecrypted_timestamp": oldest_ts,
         "fanout_statuses": fanout_statuses,
+        "notification_statuses": await notification_statuses(),
+        "notifications_capped": notifications_capped(),
         "bots_disabled": bots_disabled_source is not None,
         "bots_disabled_source": bots_disabled_source,
-        "basic_auth_enabled": _read_optional_bool_setting("basic_auth_enabled"),
         "transport_configured": transport_configured,
         "identity": identity,
         "radio_proxy": _radio_proxy_status(),
+        **plugin_lifecycle.health_fields(),
     }
 
 
-@router.get("/health", response_model=HealthResponse)
-async def healthcheck() -> HealthResponse:
-    """Check if the API is running and if the radio is connected."""
+class MinimalHealthResponse(BaseModel):
+    """What an anonymous caller gets: the process answers, nothing else."""
+
+    ok: bool = True
+
+
+@router.get(
+    "/health",
+    response_model=HealthResponse | MinimalHealthResponse,
+    dependencies=[Depends(public())],
+)
+async def healthcheck(request: Request) -> HealthResponse | MinimalHealthResponse:
+    """Check if the API is running and if the radio is connected.
+
+    Public, for probes (Uptime Kuma, Home Assistant REST sensors, Docker, the
+    kiosk launcher): an anonymous caller gets only ``{"ok": true}``, the details
+    need a signed-in principal (``app/auth/middleware.py``).
+    """
+    if get_principal(request) is None:
+        return MinimalHealthResponse()
     data = await build_health_data(radio_manager.is_connected, radio_manager.connection_info)
+    if not has_permission(get_principal(request), HEALTH_DETAIL_PERMISSION):
+        data = without_admin_details(data)
     return HealthResponse(**data)

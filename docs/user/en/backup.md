@@ -29,7 +29,7 @@ The group holds:
 
 - **Full backup (radio and Meshloom)**: the file described on this page.
 - **Restore a backup**: restores a full backup, or an older Meshloom-only backup.
-- **Download meshcore.db**: a copy of the whole database (message history included). It never contains the radio's private key and is not restored from the interface.
+- **Download meshcore.db**: a copy of the whole database (message history included). It never contains the radio's private key, the Bluetooth PIN or the keys described under "Not included" below, and is not restored from the interface. If you put such a copy back in place of the database yourself, Meshloom treats it as a restore when it next starts (see [What the backup contains](#what-the-backup-contains), "Not included").
 
 ## Restore after reflashing
 
@@ -53,11 +53,11 @@ After a restore, join **Meshloom Community** again if you want it: participation
 
 ## Encryption
 
-The full backup contains your radio's private key and, if the radio stores them, its Wi-Fi password, plus other secrets kept by Meshloom: channel keys, the Bluetooth PIN, the SMTP password, webhook and integration secrets. Anyone holding the file can impersonate your node.
+The full backup contains your radio's private key and, if the radio stores them, its Wi-Fi password, plus other secrets kept by Meshloom: channel keys, the Bluetooth PIN, the SMTP password, webhook and integration secrets. Anyone holding the file can impersonate your node. With **Include accounts** checked (the default), it also contains the password hashes and two-factor secrets of every account: anyone holding it can try to guess the passwords offline. Uncheck the box before sending a backup to someone else, for instance for help.
 
 Tick **Encrypt with a passphrase** before downloading to protect it (8 characters or more). The file is then unreadable without the passphrase, and nobody can recover a lost passphrase. Meshloom asks for it when you restore. Without encryption, treat the file like the key itself. An encrypted backup is limited to 16 MiB; Meshloom refuses to encrypt a larger one (thousands of contacts, large bots), which then downloads only without encryption.
 
-Note that anyone who can reach your Meshloom can download this backup, and so can a web page opened in a browser on a machine that reaches it: keep Meshloom on a network you trust (see [Security](/en/docs/deep/security/#the-nodes-private-key)).
+Note that anyone who can reach your Meshloom can download this backup: keep Meshloom on a network you trust (see [Security](/en/docs/deep/security/#the-nodes-private-key)).
 
 ## What the backup contains
 
@@ -72,14 +72,22 @@ Note that anyone who can reach your Meshloom can download this backup, and so ca
 
 - Contacts (favourites, routes), channels with their keys and region scope, contact groups.
 - The settings: regions, block lists, telemetry tracking, alert rules, notification destinations, updates, interface preferences, push preferences, the radio proxy settings, the **Workarounds** group of **Settings → Radio → Advanced** (the clock fix included).
-- MQTT, webhook, Apprise, SQS, map upload and Home Assistant integrations, with their secrets, each enabled or disabled as in the file: an enabled one starts sending right after the restore. **Bots come back disabled**: a bot runs code on the server, so enable each one after reading it. On a server where bots are turned off (`MESHCORE_DISABLE_BOTS=true`, the default of the Linux package and the Raspberry Pi image, or **Disable Bots Until Server Restart**), bots are **not restored at all**: turn bots on first if you want them back. Before you restore, the summary names each integration, says whether the file enables the radio proxy, and says which bots are skipped.
+- The notification channels and rules, **without any secret**: a channel's secrets (the password, a webhook, Discord or Apprise address, a ntfy topic or token) are never written to the file, and neither are the secrets of the e-mail, webhook and Apprise destinations of the settings. A restored channel that lost a secret comes back **switched off** and marked *Secret missing after a restore*, and Meshloom never sends with an empty secret. Open it in **Settings → Notifications → Channels**, type each missing secret again (or clear it on purpose), then switch the channel on. On a Meshloom that already has the destination, its stored secrets are kept. A channel that already exists here with the same address keeps its stored secret. A pause (*Do not disturb*) is not restored. A backup made by Meshloom 4.18 restores into the same channels and rules (Web Push, e-mail, webhook, Apprise, the per-conversation exceptions).
+- MQTT, webhook, Apprise, SQS, map upload and Home Assistant integrations, with their secrets, each enabled or disabled as in the file: an enabled one starts sending right after the restore, except one allowed to reach a private network, which comes back disabled with a notice: check its address, then enable it. **Bots come back disabled**: a bot runs code on the server, so enable each one after reading it. On a server where bots are turned off (`MESHCORE_DISABLE_BOTS=true`, the default of the Linux package and the Raspberry Pi image, or **Disable Bots Until Server Restart**), bots are **not restored at all**: turn bots on first if you want them back. Before you restore, the summary names each integration, says whether the file enables the radio proxy, and says which bots are skipped.
 - The Web Push keys and subscriptions, restored only on a Meshloom that has no subscriptions of its own. Restored subscriptions receive your message notifications at once, so the summary names the address each one sends to before you restore.
+- The accounts, when **Include accounts** is checked (it is by default): user names, display names, roles, Home Assistant identities, disabled accounts, password hashes and two-factor secrets. Login sessions, the audit log, pairing codes and the Meshloom Remote identity are never in the file. Restoring a file with accounts replaces the accounts of this Meshloom and signs every session out: sign in again with an account from the file. A file whose accounts include no enabled administrator who can sign in on this Meshloom (an account with a password, or a Home Assistant user when restoring on the add-on) is not used for accounts (the current ones stay), so a restore never locks you out: an add-on backup whose only administrator is a Home Assistant user keeps the current accounts on Docker or the Linux package. A file without accounts keeps the current accounts. A trusted network whose account is not the same person after the restore is removed. The API and device tokens come with the accounts (their fingerprints only, never the tokens themselves), so the devices keep working; a token whose account is missing from the file, or whose account's role no longer allows its scopes, is not restored, and a file with accounts but no tokens leaves none.
+
+Newer versions of Meshloom add more parts to this file. A part the running version does not know is left aside, and the rest is restored; a part missing from the file leaves the matching data as it is. If one part cannot be restored, it is left as it was, the others still are, and the restore says which part failed. A part made by a newer Meshloom than yours is not restored: update Meshloom first. Before you restore, the summary lists these parts and marks the ones that contain secrets (such as accounts); when a backup holds such parts, encrypt it (see [Encryption](#encryption)).
+
+**Restore a full backup on Meshloom 5.0 or later only.** Meshloom 4.18 and earlier read it as an older Meshloom-only backup: they restore the contacts, channels, settings and groups, and silently drop the radio's identity and settings, the Wi-Fi credentials, the integrations, the push keys and every added part, without saying so. A restore file is limited to 64 MiB.
 
 **Not included:**
 
 - Messages, raw packets and telemetry history: use **Download meshcore.db** for those.
 - The radio connection settings (port, address, Bluetooth device): they belong to the machine.
 - Meshloom Community participation and its region code: joining is your choice, made again.
+- The link and file sharing consent: a backup restored on another machine would otherwise switch on a service nobody agreed to there, so sharing stays off (or as it is) after a restore. How links are shortened and when previews load are restored.
 - The radio's clock (Meshloom sets it) and a few settings no command reaches (buzzer and vibration).
+- The keys Meshloom uses to identify itself to online services (remote access, link sharing). They never leave the server, not even in a full backup that holds the radio's private key, nor in a `meshcore.db` download: Meshloom creates new ones after every restore, including a `meshcore.db` copy put back in place (made by this version or a later one), so those services need linking again.
 
 Channels are written into the radio's slots by the restore, and the slots above them are emptied. Meshloom manages those slots itself on every connection: they are filled again as you use the channels.

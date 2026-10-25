@@ -1,0 +1,21 @@
+{
+  "description": "List the server's data directory and the server code.",
+  "events": [
+    {
+      "params": {
+        "path": "$DATA_DIR"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "path": "$APP_ROOT/app"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

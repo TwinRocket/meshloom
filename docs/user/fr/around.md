@@ -1,6 +1,6 @@
 ---
 title: Autour des messages
-description: La carte, le visualiseur, le flux de paquets — ce qu’on regarde sans rien envoyer.
+description: La carte, le visualiseur, le flux de paquets, le fil — ce qu’on regarde sans rien envoyer.
 level: start
 order: 5
 ---
@@ -10,6 +10,10 @@ Une radio entend beaucoup plus que ce qui vous est adressé. Annonces (un nœud 
 Rien de ce qui suit n’est nécessaire pour envoyer un message. C’est de l’observation. On peut s’en passer entièrement.
 
 Sur un téléphone, on ouvre ces outils depuis **Outils**, dans la barre du bas. Chacun est accompagné d’une courte description. Sur un grand écran, ils sont sur la barre d’icônes à gauche, que l’on peut réordonner ou alléger dans **Réglages → Navigation**. La carte des nœuds est une destination à part, à côté des conversations.
+
+### Page de démarrage
+
+**Réglages → Navigation → Page de démarrage** choisit où Meshloom s'ouvre quand l'adresse n'a pas de partie `#`. Par défaut, ce sont vos conversations, comme avant. Choisissez la carte ou un outil (le Fil, son préréglage Contrôle, la vue en direct…) pour ouvrir là à la place. C'est un réglage de l'instance, modifié par un administrateur, et il s'applique à toutes les sessions et à tous les navigateurs, écran de kiosque compris. Un lien vers une conversation ou un outil l'emporte toujours, tout comme **Rouvrir la dernière vue** sur un appareil où vous l'avez activé et qui a une vue à rouvrir. Un outil que votre rôle ne peut pas utiliser est ignoré et vous arrivez sur vos conversations.
 
 ## La carte des nœuds
 
@@ -69,11 +73,28 @@ Les paquets de votre propre radio s’affichent toujours. Ceux des observateurs 
 
 Meshloom Community peut mettre son flux public en pause pendant un moment. Une petite étiquette **Live en pause** s’affiche alors à côté du réglage du son, et seuls les paquets de votre propre radio sont dessinés. Il n’y a rien à faire : votre serveur revérifie à peu près chaque minute et les paquets de Community reviennent d’eux-mêmes quand le flux reprend.
 
-Si Meshloom Community a banni votre radio, le bandeau le dit et les paquets de Community s’arrêtent ; voir [Si votre radio est bannie](/fr/docs/deep/community/#si-votre-radio-est-bannie).
+Si Meshloom Community a banni votre radio, le bandeau le dit et les paquets de Community s’arrêtent ; voir [Si votre radio est bannie](/docs/deep/community/#si-votre-radio-est-bannie).
 
-## Le journal de contrôle
+## Le fil
 
-Le **journal de contrôle** rassemble le trafic qui n’est pas une conversation : requêtes, réponses, requêtes anonymes (comme les connexions) et données de groupe. Les paquets sont regroupés par nœud concerné. Quand le contenu reste chiffré, on voit l’enveloppe, pas le contenu.
+Le **Fil** réunit tout dans une seule chronologie, le plus récent en bas : les messages de tous vos canaux et messages directs, et le trafic de contrôle (requêtes, réponses, requêtes anonymes comme les connexions, et données de groupe) entre eux, dans l’ordre du temps. Quand le contenu d’un paquet de contrôle reste chiffré, on voit l’enveloppe, pas le contenu ; cliquez sur une ligne pour ouvrir l’inspecteur de paquet.
+
+- **Puces.** *Messages*, *Contrôle* et *Événements* choisissent les sources (les trois sont activées par défaut). Sous *Messages*, *Canaux*, *Messages directs*, *Reçus* et *Envoyés* restreignent l’affichage, et *Canaux en sourdine* et *Canaux en attente* font revenir ceux qui sont masqués par défaut. La puce **Messages directs** n’est qu’un choix d’affichage : les masquer ne les protège pas, puisque quiconque peut ouvrir Meshloom peut les lire (voir [Un réseau de confiance](/docs/trust/)). Votre choix est mémorisé dans ce navigateur. Un compte qui n’a pas le droit de lire les messages directs (le rôle `kiosk`) n’a pas du tout la puce **Messages directs** : le Fil ne demande que les canaux au serveur, une adresse avec `types=priv` est ignorée, et un choix mémorisé pour les messages directs reste en stockage sans être utilisé. Le contrôle, les canaux en sourdine ou en attente restent lisibles. Si le serveur refusait un jour la liste, le Fil l’indique dans son état vide au lieu d’afficher une erreur.
+- **Nœuds.** Avec *Contrôle* activé, une facette **Nœuds** liste les répéteurs et salons, les canaux, les paquets qui vous sont adressés et les non résolus. En choisir un restreint les lignes de contrôle à celui-ci.
+- **Événements.** Avec *Événements* activé, le fil ajoute une ligne quand quelque chose change autour de la radio : **la radio est hors ligne** (après le délai *radio hors ligne* des règles de Notifications, que lisent les sessions administrateur ; les autres utilisent la minute par défaut ; une brève coupure et les redémarrages lancés par Meshloom lui-même n’ajoutent rien) puis **de nouveau en ligne** avec la durée d’absence, **un nouveau contact entendu** (ni contacts inconnus ni salons, ni un contact ajouté à la main dans cet onglet), **un contact renommé** et **un canal découvert**. Une ligne propose ce que vous pouvez en faire : ouvrir le contact, voir le canal dans *Canaux découverts* (comptes qui peuvent envoyer), ouvrir les réglages de la radio (administrateurs). Les événements ne sont conservés que pour cette session : fermer ou recharger la page les oublie, et un événement survenu alors que le Fil n’a jamais été ouvert n’est pas retrouvé, et une radio déjà hors ligne au chargement de la page n’est pas signalée. Ils portent les mêmes noms que les notifications de *Réglages > Notifications*, et avec un nœud choisi dans la facette Nœuds, seuls ses événements restent. En mode affichage ils s’affichent sans aucune action.
+- **Mode suivi.** Le fil reste sur la ligne la plus récente tant que vous êtes en bas. Remontez, et un bouton **Suivre** compte ce qui est arrivé depuis et vous ramène en bas. Remonter charge aussi les messages plus anciens.
+- **Depuis votre dernière visite.** Une ligne **Nouveau depuis votre dernière visite** marque le premier message arrivé après la dernière fois que vous aviez le fil ouvert, dans ce navigateur.
+- **Lire ne marque rien comme lu.** Les compteurs de non lus restent inchangés tant que vous n’ouvrez pas la conversation elle-même.
+
+Les filtres sont aussi dans la barre d’adresse. Changez une pastille et l’adresse devient, par exemple, `#feed?src=messages,control&types=chan,priv&dir=in,out&muted=0&pending=0` : mettez-la en favori, ou utilisez-la comme adresse d’un écran kiosque, et le fil s’ouvre avec ces filtres quoi que le navigateur ait retenu (l’adresse l’emporte sur les filtres mémorisés, qui l’emportent sur les valeurs par défaut). `src` liste les sources (`messages`, `control`, `events`), `types` les genres (`chan`, `priv`), `dir` les sens (`in`, `out`), `muted` et `pending` valent `1` pour afficher ces canaux, `node` est la clé publique d’un nœud (64 caractères hexadécimaux) et `display=1` active le mode affichage (ci-dessous). **Les canaux n’y sont volontairement pas** : la clé d’un canal privé est son accès et les favoris sont synchronisés par le compte de votre navigateur, donc une clé de canal n’est jamais écrite dans une adresse. Tout ce qui est inconnu ou mal formé dans l’adresse est ignoré. La même forme (`feed?...`, `control?...`, sans le `#`) peut être la **Page de démarrage**.
+
+### Mode affichage
+
+Le bouton **Mode affichage** dans l’en-tête du Fil (ou `display=1` dans l’adresse) transforme le Fil en écran mural : texte agrandi de 25 %, ni barre latérale, ni menu, ni en-tête, ni pastilles de filtre, le dernier message toujours à l’écran, séparateurs de jours et petite horloge, sans flou ni ombre, et plein écran quand le navigateur l’autorise. **Quitter** (en haut à droite) rend vos filtres exactement comme ils étaient ; vos filtres mémorisés et votre choix sur les réactions ne sont jamais modifiés. Les messages directs sont masqués et les images et GIF ne sont pas chargés, quoi que dise l’adresse ; **Quitter** est le seul contrôle. Masquer les messages directs est un choix d’affichage, pas un contrôle d’accès : le navigateur les reçoit toujours, et c’est le compte `kiosk` qui les garde hors d’un écran partagé. Voir [Image Raspberry Pi](/docs/rpi/#mode-affichage).
+
+### Le préréglage Contrôle
+
+**Contrôle** ouvre le même fil avec seulement la source *Contrôle* activée, avec la liste des Nœuds à côté sur ordinateur ou déjà ouverte sur téléphone (dès que des nœuds sont connus) : l’ancien journal de contrôle. C’est un préréglage, pas une page à part : l’adresse `#control` et les signets qui y mènent continuent de fonctionner, et la barre d’adresse affiche toujours `#control`. Vos changements de puces n’y sont pas mémorisés, de sorte que le fil habituel garde les filtres que vous lui avez choisis. **Contrôle** n’est plus dans la barre d’icônes par défaut ; ajoutez-le dans **Réglages > Navigation**, ou trouvez-le dans la palette de recherche (Ctrl/Cmd+K).
 
 ## La localisation RF
 
@@ -83,7 +104,7 @@ Elle part de ce que votre propre radio a entendu. Avec Meshloom Community activ�
 
 ## Les canaux découverts
 
-Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir la clé. Il essaie d’abord une liste intégrée de noms connus. Avec Community activé et un code d’aéroport enregistré, il demande aussi à Community des noms qui pourraient correspondre. Quand il en trouve un, il envoie une notification « Canaux trouvés » (voir [Notifications push](/docs/deep/push/)).
+Meshloom essaie de reconnaître les salons hashtag qu’il entend sans en avoir la clé. Il essaie d’abord une liste intégrée de noms connus. Avec Community activé et un code d’aéroport enregistré, il demande aussi à Community des noms qui pourraient correspondre. Quand il en trouve un, il envoie une notification « Canaux trouvés » (voir [Notifications](/docs/deep/notifications/)).
 
 Un salon trouvé ainsi n’entre pas tout seul dans vos discussions. Il apparaît dans **Canaux découverts**, où **Adopter** l’ajoute à vos discussions et **Refuser** l’écarte. Les canaux refusés sont conservés dans une liste, ce qui permet de revenir sur sa décision.
 

@@ -31,12 +31,15 @@ def cleanup_test_db_dir():
 async def patched_database(path: str = ":memory:"):
     """A connected Database with schema + migrations, wired into every repository."""
     from app.repository import (
+        auth,
         channels,
         contact_groups,
         contact_telemetry,
         contacts,
         directory,
         messages,
+        notification_channels,
+        plugins,
         push_subscriptions,
         radio_proxy,
         radio_transport,
@@ -48,15 +51,19 @@ async def patched_database(path: str = ":memory:"):
     )
     from app.repository import fanout as fanout_repo
 
+    notification_channels.invalidate_cache()
     db = Database(path)
     await db.connect()
 
     submodules = [
+        auth,
         contacts,
         channels,
         contact_groups,
         directory,
         messages,
+        notification_channels,
+        plugins,
         radio_proxy,
         radio_transport,
         raw_packets,
@@ -82,6 +89,7 @@ async def patched_database(path: str = ":memory:"):
     try:
         yield db
     finally:
+        notification_channels.invalidate_cache()
         for mod, original in originals:
             mod.db = original
         packets_module.db = original_packets_db
@@ -102,6 +110,47 @@ async def _reset_hashtag_catalogue():
 
     yield
     await reset_for_tests()
+
+
+@pytest.fixture(autouse=True)
+def _settle_notifications(request, monkeypatch):
+    """Each emit waits until the dispatcher's queues are empty, so a test can assert
+    on a send right after the producer returns, as before the dispatcher (the jobs
+    still go through the real queues and workers). Tests of the dispatcher itself
+    opt out with ``@pytest.mark.async_notifications``."""
+    if request.node.get_closest_marker("async_notifications"):
+        yield
+        return
+    from app.notifications.dispatcher import Dispatcher
+
+    emit = Dispatcher.emit
+
+    async def emit_and_settle(self, *args, **kwargs):
+        queued = await emit(self, *args, **kwargs)
+        await self.wait_idle()
+        return queued
+
+    monkeypatch.setattr(Dispatcher, "emit", emit_and_settle)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_notification_test_limiters():
+    """The notification test routes allow one test per channel every few seconds."""
+    from app.notifications.api_support import reset_test_limiters
+
+    reset_test_limiters()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_host_guard():
+    """The Host guard keeps its mode and the names it observed in memory."""
+    from app.middleware import host_guard
+
+    host_guard.reset()
+    yield
+    host_guard.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -130,6 +179,16 @@ def _reset_community_breaker():
 
 
 @pytest.fixture(autouse=True)
+def _reset_share_client():
+    """Every test starts with a closed share breaker, full read buckets, no ban."""
+    from app.services.share import reset_share_client_for_tests
+
+    reset_share_client_for_tests()
+    yield
+    reset_share_client_for_tests()
+
+
+@pytest.fixture(autouse=True)
 async def _stop_community_status_clear():
     """The retained-status clear worker must not outlive the test that started it."""
     from app.services.community_status_clear import stop_status_clear_worker
@@ -142,10 +201,43 @@ async def _stop_community_status_clear():
 def _reset_radio_workarounds():
     """A workaround switched on by one test must not leak into the next one."""
     from app import radio_workarounds
+    from app.services.message_filters import invalidate_block_lists
 
     radio_workarounds.reset()
+    invalidate_block_lists()
     yield
     radio_workarounds.reset()
+    invalidate_block_lists()
+
+
+@pytest.fixture(autouse=True)
+def _reset_cors_allowed_origins():
+    """An origin allowed by one test must not leak into the next one."""
+    from app import origin_policy
+
+    origin_policy.reset()
+    yield
+    origin_policy.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_trusted_proxies():
+    """A trusted proxy saved by one test must not leak into the next one."""
+    from app.middleware import proxy_headers
+
+    proxy_headers.reset()
+    yield
+    proxy_headers.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_trusted_networks():
+    """Trusted network rules (and their audit memory) must not leak between tests."""
+    from app.auth.providers import trusted_network
+
+    trusted_network.reset()
+    yield
+    trusted_network.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -258,6 +350,88 @@ async def _reset_radio_proxy_runtime():
     radio_proxy_manager._sessions.clear()
     radio_proxy_manager._pending_acks.clear()
     radio_proxy_manager._last_error = None
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth_state():
+    """No first-run preparation, empty Basic caches and no login delays at the start of each test."""
+    from app.auth import setup_code, webauthn
+    from app.auth.ratelimit import reset_login_limiter
+    from app.auth.totp import reset_pending_logins
+    from app.security import reset_basic_state
+
+    setup_code.reset_first_run_state()
+    reset_basic_state()
+    reset_login_limiter()
+    reset_pending_logins()
+    webauthn.reset_state()
+    yield
+    setup_code.reset_first_run_state()
+    reset_basic_state()
+    reset_login_limiter()
+    reset_pending_logins()
+    webauthn.reset_state()
+
+
+@pytest.fixture(autouse=True)
+def _auth_as_admin(request, monkeypatch):
+    """Sign every app request in as an admin, so route tests need no login.
+
+    The auth gate itself is tested with ``@pytest.mark.real_auth``
+    (``tests/test_auth_*.py``), which keeps the real resolution.
+    """
+    if request.node.get_closest_marker("real_auth"):
+        yield
+        return
+    from app.auth import middleware
+    from app.auth.models import User
+    from app.auth.principal import Principal
+
+    user = User(id=1, username="test-admin", role="admin", created_at=0, updated_at=0)
+
+    async def _resolve(scope, headers, via, secure):
+        result = middleware._Resolution()
+        result.principal = Principal(user=user, via=via, credential="session")
+        return result
+
+    monkeypatch.setattr(middleware, "resolve", _resolve)
+    yield
+
+
+@pytest.fixture
+def sign_in_as(monkeypatch):
+    """Sign app requests in with another role than the default admin.
+
+    ``sign_in_as("kiosk")``; ``scopes`` narrows the role like a token scope.
+    """
+    from app.auth import middleware
+    from app.auth.models import User
+    from app.auth.principal import Principal
+
+    def _sign_in(role: str, *, scopes: frozenset[str] = frozenset(), credential="session"):
+        user = User(id=2, username=f"test-{role}", role=role, created_at=0, updated_at=0)  # type: ignore[arg-type]
+
+        async def _resolve(scope, headers, via, secure):
+            result = middleware._Resolution()
+            result.principal = Principal(user=user, via=via, credential=credential, scopes=scopes)
+            return result
+
+        monkeypatch.setattr(middleware, "resolve", _resolve)
+
+    return _sign_in
+
+
+@pytest.fixture
+def fast_argon2(monkeypatch):
+    """argon2id at libsodium's minimum cost: same code paths, milliseconds per hash."""
+    import nacl.pwhash.argon2id as argon2id
+
+    real_str = argon2id.str
+
+    def fast_str(password, opslimit=None, memlimit=None):
+        return real_str(password, opslimit=argon2id.OPSLIMIT_MIN, memlimit=argon2id.MEMLIMIT_MIN)
+
+    monkeypatch.setattr(argon2id, "str", fast_str)
 
 
 @pytest.fixture

@@ -7,6 +7,12 @@ set -eu
 user="$(getent passwd 1000 | cut -d: -f1 || true)"
 [ -n "$user" ] || exit 0
 
+# The launcher reads the kiosk device token through this group
+# (pkg/nfpm/postinstall.sh creates it; app/services/kiosk.py writes the file).
+if getent group meshloom-kiosk >/dev/null 2>&1; then
+    usermod -aG meshloom-kiosk "$user" || true
+fi
+
 if [ -f /etc/lightdm/lightdm.conf ]; then
     if grep -q '^[#]*autologin-user=' /etc/lightdm/lightdm.conf; then
         sed -i -e "s/^[#]*autologin-user=.*/autologin-user=${user}/" /etc/lightdm/lightdm.conf

@@ -64,10 +64,9 @@ Voir [Meshloom Community](/docs/deep/community/).
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Les bots exécutent du code Python avec un accès complet à la machine. Le paquet Linux la met à `true` dans `meshloom.env` |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(vide)* | Nom d’utilisateur demandé par le navigateur pour toute l’application, connexion en direct (WebSocket) comprise. À utiliser avec [HTTPS](/docs/deep/https/) |
-| `MESHCORE_BASIC_AUTH_PASSWORD` | *(vide)* | Mot de passe associé |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Verrou d'hôte du système d'extensions : à `true`, aucune extension ne démarre, quels que soient les réglages. Indépendant de `MESHCORE_DISABLE_BOTS` |
 
-Les deux variables d’authentification doivent être définies ensemble. Définir l’une sans l’autre empêche Meshloom de démarrer. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
+À partir de la 5.0 `MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD` sont retirées (voir aussi **Variables retirées**) : quand les deux sont définies et que Meshloom n’a encore aucun compte, le premier démarrage en crée le compte administrateur, puis elles ne sont plus lues et un avertissement est journalisé à chaque démarrage tant qu’elles sont définies (retirez-les ; les comptes se gèrent dans **Réglages → Utilisateurs et accès**). En définir une seule n’importe rien et n’empêche plus Meshloom de démarrer. `Authorization: Basic` avec le nom et le mot de passe d’un compte reste accepté jusqu’à la 5.2, puis sera retiré. Un nom d’utilisateur de plus de 64 caractères ne peut pas devenir un compte : l’import est ignoré avec une erreur dans le journal, et vous créez l’administrateur avec le code d’installation imprimé dans le journal. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
 
 ## Installation et mises à jour
 
@@ -79,6 +78,17 @@ L’installateur les définit pour vous. On les modifie rarement à la main.
 | `MESHLOOM_UPDATE_HELPER` | `compose` pour une pile Docker gérée par l’assistant de mise à jour, `none` pour désactiver l’installation depuis l’interface |
 | `MESHLOOM_RUN_AS_USER` | Docker uniquement. Un nombre comme `10001` fait tourner Meshloom sous cet utilisateur plutôt que root. Voir [Autres chemins d’installation](/docs/deep/install-paths/) |
 | `MESHLOOM_IMAGE` | Docker uniquement. L’image que Compose démarre, idéalement figée par son empreinte |
+
+## Notifications
+
+Les notifications se règlent dans **Réglages → Notifications** et se stockent dans la base de données, pas dans des variables (voir [Notifications](/docs/deep/notifications/)). Les canaux (leurs réglages, secrets et limites) ont leurs propres tables ; les réglages ci-dessous sont dans la table des réglages :
+
+| Réglage | Défaut | Description |
+|---------|--------|-------------|
+| `notification_language` | `auto` | `auto`, `fr` ou `en`. La langue de l’instance pour les notifications (un canal peut avoir la sienne) ; `auto` suit les navigateurs abonnés au push (anglais seulement si une majorité stricte des navigateurs est en anglais, français en cas d’égalité) |
+| `notification_rules` | `{}` | Les règles de notification (quel canal reçoit quel événement, exceptions par conversation). Écrites par l’import 4.18 vers 5.0, le tableau des règles, la cloche, **Ne pas déranger** et la suppression d’un canal ; `paused_until` (la pause) et les options du tableau (`mention_whole_word`) y sont |
+| `radio_offline_grace_s` | `60` | Secondes pendant lesquelles la radio peut rester injoignable avant l’envoi de **Radio hors ligne** (0 à 3600 ; 0 notifie tout de suite). Se règle sous la ligne **Radio hors ligne** du tableau des règles |
+| `push_allow_private_endpoints` | `false` | Accepte les points d’accès Web Push sur un réseau privé, pour un distributeur UnifiedPush auto-hébergé. Voir [Push](/docs/deep/push/#services-push-sur-un-réseau-privé) |
 
 ## Variables retirées
 
@@ -106,6 +116,7 @@ Meshloom écrit le même avertissement à chaque démarrage tant que l’une d�
 
 | Variable retirée | Ce qu’elle devient |
 |----------|--------|
+| `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Lues uniquement au premier démarrage sans compte, pour créer l’administrateur ; compatibilité jusqu’à la 5.2 : `Authorization: Basic` reste accepté, puis sera retiré. Les comptes se gèrent dans **Réglages → Utilisateurs et accès**. Même avertissement à chaque démarrage |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignorée, avec le même avertissement. La clé privée de la radio peut toujours être relue : par `GET /api/radio/private-key` et dans la sauvegarde complète (**Réglages → Base de données**, voir [Sauvegarder la radio](/docs/backup/)). Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud) |
 
 ## Réglages stockés dans la base
@@ -118,9 +129,10 @@ On les change dans l’interface web. Rien de tout cela ne se définit par l’e
 | **Base de données** | `auto_decrypt_dm_on_advert` |
 | **Gestion radio-application** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 de chaque au maximum), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alertes** | `telemetry_alert_rules` |
-| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail et webhook) |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail, webhook et Apprise, les destinations 4.18.x), `notification_language`, `notification_rules`, `radio_offline_grace_s`, `push_allow_private_endpoints` ; les nouvelles tables `notification_channels`, `notification_deliveries`, `notification_counters` et `notification_state` |
 | **Mises à jour** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
-| **Configuration locale** et **Navigation** | `ui_preferences` : thème, étiquette de l’instance, barre de gauche |
+| **Utilisateurs et accès** | `public_urls` (**Adresses publiques** : les noms auxquels Meshloom répond depuis l’extérieur, déclarés par un administrateur ; aucune variable d’environnement n’existe pour cela), `host_guard_mode` (observation ou strict) |
+| **Configuration locale** et **Navigation** | `ui_preferences` : thème, étiquette de l’instance, barre de gauche ; `auth_allowed_origins` : les autres sites autorisés à appeler l’API (**Origines autorisées**) |
 | Canaux découverts | `rejected_channels` : les canaux que vous avez refusés |
 | Hors interface | `raw_packet_retention_days` : supprime automatiquement les paquets illisibles plus vieux que ce nombre de jours (`0` garde tout). À régler par `PATCH /api/settings` |
 

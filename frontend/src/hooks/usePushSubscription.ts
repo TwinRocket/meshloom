@@ -1,15 +1,9 @@
+import { useCapabilities } from '../auth/SessionProvider';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from '../components/ui/sonner';
-import { api } from '../api';
+import { api, formatApiError } from '../api';
 import i18n from '../i18n';
-import type {
-  ConversationMediaOverride,
-  NotificationMediaChannel,
-  PushDefaultsPatch,
-  PushPreferences,
-  PushSubscriptionInfo,
-} from '../types';
-import { conversationIsEnabled } from '../utils/pushPolicy';
+import type { PushDefaultsPatch, PushPreferences, PushSubscriptionInfo } from '../types';
 import { getSavedLanguage } from '../utils/languagePreference';
 
 function generateLabel(): string {
@@ -91,33 +85,15 @@ function getApplicationServerKeyBytes(
   return new Uint8Array(key);
 }
 
-export type ConversationPushContext = {
-  messageType: 'PRIV' | 'CHAN';
-  isHashtag?: boolean;
-  isPublic?: boolean;
-};
-
 export interface PushSubscriptionState {
   isSupported: boolean;
   isSubscribed: boolean;
   currentSubscriptionId: string | null;
   allSubscriptions: PushSubscriptionInfo[];
   preferences: PushPreferences | null;
-  /** Keys present in ``preferences.overrides`` — not an enabled-conversation list. */
-  overrideEntries: string[];
   loading: boolean;
   subscribe: () => Promise<string | null>;
   unsubscribe: () => Promise<void>;
-  isConversationPushEnabled: (stateKey: string, ctx: ConversationPushContext) => boolean;
-  isConversationMediaEnabled: (
-    stateKey: string,
-    ctx: ConversationPushContext,
-    channel: NotificationMediaChannel
-  ) => boolean;
-  setConversationOverride: (
-    key: string,
-    override: boolean | ConversationMediaOverride | null
-  ) => Promise<void>;
   patchPreferences: (partial: {
     defaults?: PushDefaultsPatch;
     vapid_subject?: string;
@@ -157,13 +133,17 @@ export function usePushSubscription(): PushSubscriptionState {
     []
   );
 
+  // Push preferences are administrator-only, a browser's own subscriptions need `send`.
+  const { isAdmin, canSend } = useCapabilities();
   useEffect(() => {
-    api
-      .getPushPreferences()
-      .then(setPreferences)
-      .catch(() => {});
+    if (isAdmin) {
+      api
+        .getPushPreferences()
+        .then(setPreferences)
+        .catch(() => {});
+    }
 
-    if (isSupported) {
+    if (isSupported && canSend) {
       // Always load all registered devices so Settings can manage them even
       // when this particular browser isn't subscribed.
       const subsPromise = api.getPushSubscriptions().catch(() => [] as PushSubscriptionInfo[]);
@@ -179,7 +159,7 @@ export function usePushSubscription(): PushSubscriptionState {
         })
         .catch(() => {});
     }
-  }, [isSupported, reconcileCurrentSubscription]);
+  }, [isSupported, isAdmin, canSend, reconcileCurrentSubscription]);
 
   const refreshSubscriptions = useCallback(async () => {
     try {
@@ -272,18 +252,6 @@ export function usePushSubscription(): PushSubscriptionState {
     }
   }, [currentSubscriptionId, refreshSubscriptions]);
 
-  const setConversationOverride = useCallback(
-    async (key: string, override: boolean | ConversationMediaOverride | null) => {
-      try {
-        const updated = await api.setPushConversationOverride(key, override);
-        setPreferences(updated);
-      } catch {
-        toast.error(i18n.t('notifications.pushPrefsFailed'));
-      }
-    },
-    []
-  );
-
   const patchPreferences = useCallback(
     async (partial: { defaults?: PushDefaultsPatch; vapid_subject?: string }) => {
       try {
@@ -294,32 +262,6 @@ export function usePushSubscription(): PushSubscriptionState {
       }
     },
     []
-  );
-
-  const isConversationMediaEnabled = useCallback(
-    (
-      stateKey: string,
-      ctx: ConversationPushContext,
-      channel: NotificationMediaChannel = 'push'
-    ): boolean => {
-      if (!preferences) return false;
-      return conversationIsEnabled({
-        stateKey,
-        messageType: ctx.messageType,
-        defaults: preferences.defaults,
-        overrides: preferences.overrides,
-        isHashtag: ctx.isHashtag,
-        isPublic: ctx.isPublic,
-        channel,
-      });
-    },
-    [preferences]
-  );
-
-  const isConversationPushEnabled = useCallback(
-    (stateKey: string, ctx: ConversationPushContext): boolean =>
-      isConversationMediaEnabled(stateKey, ctx, 'push'),
-    [isConversationMediaEnabled]
   );
 
   const deleteSubscription = useCallback(
@@ -344,8 +286,10 @@ export function usePushSubscription(): PushSubscriptionState {
     try {
       await api.testPushSubscription(subscriptionId);
       toast.success(i18n.t('notifications.pushTestSent'));
-    } catch {
-      toast.error(i18n.t('notifications.pushTestFailed'));
+    } catch (err) {
+      toast.error(i18n.t('notifications.pushTestFailed'), {
+        description: formatApiError(err, i18n.t),
+      });
     }
   }, []);
 
@@ -355,13 +299,9 @@ export function usePushSubscription(): PushSubscriptionState {
     currentSubscriptionId,
     allSubscriptions,
     preferences,
-    overrideEntries: preferences ? Object.keys(preferences.overrides) : [],
     loading,
     subscribe,
     unsubscribe,
-    isConversationPushEnabled,
-    isConversationMediaEnabled,
-    setConversationOverride,
     patchPreferences,
     deleteSubscription,
     testPush,

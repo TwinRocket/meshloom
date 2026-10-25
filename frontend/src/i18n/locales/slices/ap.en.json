@@ -1,0 +1,25 @@
+{
+  "plugins": {
+    "sendGuards": {
+      "title": "Protection of the mesh",
+      "intro": "Meshloom limits what plugins can send, all of them together, and cuts loops between auto-responders. You can lower the limits, never raise them.",
+      "scope": {
+        "plugin": "This plugin reached its own sending limit.",
+        "instance": "All plugins together reached the hourly limit for this Meshloom.",
+        "destination": "Too many messages to this channel or contact this hour.",
+        "sender_cooldown": "The plugin already replied to this sender less than 30 seconds ago.",
+        "quiet_window": "The plugin does not answer a message that arrived right after it sent one."
+      },
+      "limits": {
+        "instance_per_hour": "Messages per hour, all plugins together",
+        "channel_per_hour": "Messages per hour to one channel",
+        "contact_per_hour": "Messages per hour to one contact",
+        "default": "Default: {{value}}"
+      },
+      "status": {
+        "refused": "{{count}} message refused by the send guards since start",
+        "last": "Last: {{scope}}"
+      }
+    }
+  }
+}

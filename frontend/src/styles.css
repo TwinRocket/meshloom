@@ -296,6 +296,12 @@
    `.conversation-header-more` its container-query `display: none` over the
    `inline-flex` its buttons carry. */
 @layer utilities {
+  /* Names come from the mesh: isolate them so a bidi override inside cannot
+     reorder the text around it. */
+  .bidi-isolate {
+    unicode-bidi: isolate;
+  }
+
   /* Translucent surfaces that let the content below show through, blurred.
      iOS renders installed apps this way at the screen edges — it blurs whatever sits
      under the status bar whether we ask for it or not — so an opaque bar reads as a
@@ -340,6 +346,34 @@
     .with-bottom-nav .overflow-y-auto {
       padding-bottom: 0;
     }
+  }
+
+  /* Feed display mode (kiosk, wall screen): `FeedView` sets `data-feed-display` on the root
+     while it is on. The shell's chrome goes (rail, bottom bar and the room it reserves), and
+     so do blur and shadow, which a wall screen or a Pi 4 pays for and nobody reads. */
+  [data-feed-display] [data-desktop-rail],
+  [data-feed-display] [data-bottom-nav],
+  [data-feed-display] [data-shell-banners] {
+    display: none;
+  }
+
+  [data-feed-display] .with-bottom-nav .overflow-y-auto {
+    padding-bottom: 0;
+  }
+
+  [data-feed-display] *,
+  [data-feed-display] *::before,
+  [data-feed-display] *::after {
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  /* The bar is the top edge of the screen once the header is gone: a notch or a status bar
+     must not cover its Exit control. Platform variants live here, never in the component. */
+  [data-platform='ios'] [data-feed-display-bar],
+  [data-platform='android'] [data-feed-display-bar] {
+    padding-top: max(var(--safe-area-top), 0.5rem);
   }
 
   /* iOS Safari zooms the page in when a focused form control renders text under 16px,

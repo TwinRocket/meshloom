@@ -1,0 +1,131 @@
+{
+  "notifications": {
+    "channels": {
+      "fields": {
+        "host": "Serveur SMTP",
+        "port": "Port",
+        "mode": "Chiffrement",
+        "user": "Nom d'utilisateur",
+        "password": "Mot de passe",
+        "from": "Adresse d'expédition",
+        "to": "Destinataires (séparés par des virgules)",
+        "cc": "Copie (séparés par des virgules)",
+        "url": "URL du webhook",
+        "hmac_secret": "Secret HMAC (facultatif)",
+        "urls": "URL Apprise (une par ligne)",
+        "format": "Format du message"
+      },
+      "help": {
+        "email_to": "Séparez plusieurs adresses par des virgules.",
+        "webhook_url": "L'URL reçoit un POST JSON. Elle est en écriture seule : elle n'est jamais réaffichée.",
+        "apprise_urls": "Une URL Apprise par ligne, par exemple ntfys://ntfy.sh/mon-sujet. En écriture seule."
+      }
+    }
+  },
+  "settings": {
+    "notifications": {
+      "types": {
+        "web_push": {
+          "name": "Web Push",
+          "description": "Notifications du navigateur et du téléphone (HTTPS requis)."
+        },
+        "email": {
+          "name": "E-mail",
+          "description": "Envoyer un e-mail par votre serveur SMTP.",
+          "mode": {
+            "options": {
+              "none": "Aucun",
+              "starttls": "STARTTLS",
+              "ssl": "SSL/TLS"
+            }
+          }
+        },
+        "webhook": {
+          "name": "Webhook",
+          "description": "Envoyer un message JSON par POST vers une URL que vous contrôlez."
+        },
+        "apprise": {
+          "name": "Apprise",
+          "description": "Tous les services gérés par Apprise, via leurs URL.",
+          "format": {
+            "options": {
+              "text": "Texte brut",
+              "markdown": "Markdown"
+            }
+          }
+        },
+        "ntfy": {
+          "name": "ntfy",
+          "description": "Publier sur un sujet ntfy (ntfy.sh ou votre serveur)."
+        }
+      },
+      "channels": {
+        "title": "Canaux",
+        "help": "Un canal est un endroit où Meshloom envoie des notifications. Ajoutez-en un, testez-le, puis choisissez ce qu'il reçoit.",
+        "empty": "Aucun canal pour l'instant.",
+        "loading": "Chargement des canaux…",
+        "builtinPushName": "Web Push (navigateurs de ce serveur)",
+        "status": {
+          "connected": "Fonctionne",
+          "error": "Erreur",
+          "paused": "En pause",
+          "disconnected": "Désactivé"
+        },
+        "lastError": "Dernière erreur : {{code}}",
+        "pushUnavailableHttp": "Indisponible en HTTP : ouvrez Meshloom en HTTPS (ou sur localhost) pour utiliser Web Push.",
+        "enabledFor": "Activer {{name}}",
+        "devices": "Appareils et réglages Web Push",
+        "edit": "Modifier",
+        "delete": "Supprimer",
+        "deleteConfirm": "Confirmer la suppression",
+        "cancel": "Annuler",
+        "editTitle": "Modifier {{name}}",
+        "editHelp": "Les secrets affichent « Une valeur est définie » : laissez-les tels quels pour les conserver.",
+        "save": "Enregistrer",
+        "saved": "Canal enregistré.",
+        "fieldInvalid": "Cette valeur n'est pas valide.",
+        "add": "Ajouter un canal",
+        "addTitle": "Ajouter un canal",
+        "step": {
+          "pick": "Étape 1 sur 3 : choisissez un type.",
+          "settings": "Étape 2 sur 3 : configurez-le. Le test part avant tout enregistrement.",
+          "receive": "Étape 3 sur 3 : choisissez ce qu'il reçoit."
+        },
+        "testAndContinue": "Envoyer un test et continuer",
+        "testSent": "Notification de test envoyée.",
+        "skipTest": "Continuer sans test réussi",
+        "back": "Retour",
+        "receiveTitle": "Que recevoir ici ?",
+        "receive": {
+          "like_push": "Comme Push",
+          "like_pushHelp": "Les mêmes événements que Web Push, pour ce canal aussi.",
+          "alerts_only": "Alertes seulement",
+          "alerts_onlyHelp": "Radio hors ligne ou revenue, alertes de télémétrie, mentions et changements de canal.",
+          "everything": "Tout",
+          "everythingHelp": "Tous les événements configurables."
+        },
+        "untested": "Cette configuration n'a pas été testée avec succès.",
+        "created": "Canal ajouté.",
+        "rulesFailed": "Le canal est ajouté, mais ses événements n'ont pas pu être réglés.",
+        "toggleFailed": "Impossible de modifier {{name}}.",
+        "testFailed": "Le test sur {{name}} a échoué.",
+        "deleteFailed": "Impossible de supprimer {{name}}.",
+        "deleted": "Canal supprimé.",
+        "name": "Nom",
+        "language": "Langue des notifications",
+        "cloudNote": "Ce service est exploité par un tiers : ce que vous envoyez quitte votre réseau. Par défaut, les messages des conversations privées ne sont pas inclus.",
+        "includeText": "Inclure le texte des messages",
+        "includeTextPublicOnly": "Canaux publics seulement (par défaut)",
+        "includeTextAlways": "Toujours",
+        "includeTextNever": "Jamais (un avis générique)",
+        "lan": "Autoriser une destination sur réseau privé",
+        "lanWarning": "À cocher seulement si la destination est à vous (un serveur de votre LAN ou cette machine). Meshloom pourra alors joindre des adresses privées.",
+        "verifyTls": "Vérifier le certificat TLS",
+        "verifyTlsHelp": "À décocher seulement pour un serveur au certificat auto-signé de confiance.",
+        "legacyHelp": "C’est votre destination 4.18.x : elle se modifie ici, avec son propre formulaire, tant que Meshloom ne livre pas depuis les nouvelles règles.",
+        "legacyTaken": "Déjà configuré comme destination 4.18.x : modifiez-la depuis sa carte.",
+        "legacyRemove": "Supprimer cette destination"
+      }
+    }
+  }
+}

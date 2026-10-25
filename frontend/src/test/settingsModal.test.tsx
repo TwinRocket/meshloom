@@ -47,7 +47,6 @@ import {
   REOPEN_LAST_CONVERSATION_KEY,
 } from '../utils/lastViewedConversation';
 import { ApiError, api } from '../api';
-import { SECRET_REDACTED } from '../types';
 import { toast } from '../components/ui/sonner';
 import { DISTANCE_UNIT_KEY } from '../utils/distanceUnits';
 import { SHOW_PATH_HOP_WIDTH_KEY } from '../utils/pathHopWidthPreference';
@@ -270,6 +269,47 @@ function openDatabaseSection() {
 
 describe('SettingsModal', () => {
   beforeEach(() => {
+    vi.spyOn(api, 'getNotificationChannels').mockResolvedValue([
+      {
+        id: 'builtin:push',
+        type: 'web_push',
+        preset: null,
+        name: 'Web Push',
+        enabled: true,
+        language: 'auto',
+        config: {},
+        secret_fields: [],
+        secret_unreadable: false,
+        allow_private_network: false,
+        include_message_text: 'always',
+        verify_tls: true,
+        quiet_hours_exempt: false,
+        rate_per_min: null,
+        rate_per_hour: null,
+        rate_per_day: null,
+        limits: { per_min: null, per_hour: null, per_day: null },
+        sort_order: 0,
+        created_at: 1,
+        paused_until: null,
+        failure_count: 0,
+        deletable: false,
+        status: { status: 'connected', last_error: null, last_ok_at: null },
+      },
+    ]);
+    vi.spyOn(api, 'getNotificationTypes').mockResolvedValue([]);
+    vi.spyOn(api, 'getNotificationEvents').mockResolvedValue({ contract_version: 1, events: [] });
+    vi.spyOn(api, 'getNotificationRules').mockResolvedValue({
+      version: 1,
+      paused_until: null,
+      events: {},
+      conversations: {},
+      keywords: [],
+      watched_nodes: [],
+      radio_offline_grace_s: 60,
+      mention_whole_word: false,
+      push_allow_private_endpoints: false,
+      host_timezone: 'UTC',
+    });
     vi.spyOn(api, 'getFanoutConfigs').mockResolvedValue([]);
     vi.spyOn(api, 'getRadioTransport').mockResolvedValue(baseTransport);
     vi.spyOn(api, 'updateRadioTransport').mockResolvedValue(baseTransport);
@@ -1252,7 +1292,7 @@ describe('SettingsModal', () => {
     expect(screen.getByText(i18n.t('settings.proxy.warning'))).toBeInTheDocument();
   });
 
-  it('lists notifications after local in the accordion nav', () => {
+  it('lists Users & Access, then notifications, after local in the accordion nav', () => {
     renderModal({ mobile: true });
     const sectionToggles = screen
       .getAllByRole('button')
@@ -1264,66 +1304,95 @@ describe('SettingsModal', () => {
     );
 
     expect(localIdx).toBeGreaterThanOrEqual(0);
-    expect(notificationsIdx).toBe(localIdx + 1);
+    expect(labels[localIdx + 1]).toContain(i18n.t('settingsNav.access'));
+    expect(notificationsIdx).toBe(localIdx + 2);
 
     fireEvent.click(sectionToggles[notificationsIdx]);
-    expect(screen.getByText(i18n.t('settings.notifications.thisDevice'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.defaults'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.exceptions'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.vapidSubject'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.ossUpdate'))).toBeInTheDocument();
-    expect(
-      screen.queryByText(i18n.t('settings.notifications.telemetryAlert'))
-    ).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.notifications.destinations'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('settings.notifications.channels.title'))).toBeInTheDocument();
   });
 
-  it('keeps the secret-kept placeholder in step with the saved secret, rollback included', async () => {
-    let rejectSave: (err: Error) => void = () => {};
-    const onSaveAppSettings = vi.fn(
-      () =>
-        new Promise<void>((_resolve, reject) => {
-          rejectSave = reject;
-        })
+  it('shows the notification language (Automatic by default) and saves a choice', async () => {
+    const onSaveAppSettings = vi.fn(async () => {});
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'notifications',
+      onSaveAppSettings,
+      appSettings: { ...baseSettings },
+    });
+
+    const select = await screen.findByLabelText(i18n.t('settings.notifications.language.label'));
+    expect(select).toHaveValue('auto');
+    expect(
+      Array.from((select as HTMLSelectElement).options).map((option) => option.textContent)
+    ).toEqual([
+      i18n.t('settings.notifications.language.auto'),
+      i18n.t('settings.notifications.language.fr'),
+      i18n.t('settings.notifications.language.en'),
+    ]);
+
+    fireEvent.change(select, { target: { value: 'en' } });
+    await waitFor(() =>
+      expect(onSaveAppSettings).toHaveBeenLastCalledWith({ notification_language: 'en' })
     );
+  });
+
+  it('shows the grandfathered push notice and dismisses it', async () => {
+    const onSaveAppSettings = vi.fn(async () => {});
     renderModal({
       externalSidebarNav: true,
       desktopSection: 'notifications',
       onSaveAppSettings,
       appSettings: {
         ...baseSettings,
-        notification_destinations: {
-          email: {
-            host: 'smtp.example.org',
-            port: 587,
-            mode: 'starttls',
-            user: 'me',
-            password: SECRET_REDACTED,
-            from: 'me@example.org',
-            to: 'you@example.org',
-          },
-          webhook: { url: 'https://example.org/hook', hmac_secret: SECRET_REDACTED },
-        },
+        push_allow_private_endpoints: true,
+        push_private_endpoints_grandfathered: true,
       },
     });
 
-    const kept = i18n.t('settings.notifications.secretKept');
-    const password = await screen.findByLabelText(i18n.t('settings.notifications.emailPassword'));
-    expect(password).toHaveAttribute('placeholder', kept);
-    expect(screen.getByLabelText(i18n.t('settings.notifications.webhookHmac'))).toHaveAttribute(
-      'placeholder',
-      kept
+    expect(
+      await screen.findByText(i18n.t('settings.notifications.pushGrandfathered'))
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(i18n.t('settings.notifications.pushAllowPrivate'))).toBeChecked();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: i18n.t('settings.notifications.webhookGrandfatheredDismiss'),
+      })
     );
+    await waitFor(() =>
+      expect(onSaveAppSettings).toHaveBeenLastCalledWith({
+        push_private_endpoints_grandfathered: false,
+      })
+    );
+  });
 
-    // A new password is saved optimistically: the placeholder no longer claims a kept secret.
-    fireEvent.change(password, { target: { value: 'new-secret' } });
-    fireEvent.blur(password);
-    await waitFor(() => expect(onSaveAppSettings).toHaveBeenCalledTimes(1));
-    expect(password).not.toHaveAttribute('placeholder');
+  it('shows the push review notice, re-enables in one click and dismisses', async () => {
+    const onSaveAppSettings = vi.fn(async () => {});
+    renderModal({
+      externalSidebarNav: true,
+      desktopSection: 'notifications',
+      onSaveAppSettings,
+      appSettings: {
+        ...baseSettings,
+        push_allow_private_endpoints: false,
+        push_private_endpoints_review: true,
+      },
+    });
 
-    // The save fails: the saved secret rolls back, and so does the placeholder.
-    rejectSave(new Error('boom'));
-    await waitFor(() => expect(password).toHaveAttribute('placeholder', kept));
+    expect(
+      await screen.findByText(i18n.t('settings.notifications.pushReview'))
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.notifications.pushReviewEnable') })
+    );
+    await waitFor(() =>
+      expect(onSaveAppSettings).toHaveBeenLastCalledWith({ push_allow_private_endpoints: true })
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: i18n.t('settings.notifications.pushReviewDismiss') })
+    );
+    await waitFor(() =>
+      expect(onSaveAppSettings).toHaveBeenLastCalledWith({ push_private_endpoints_review: false })
+    );
   });
 
   it('renders the alerts section from the external sidebar', async () => {
@@ -1332,8 +1401,7 @@ describe('SettingsModal', () => {
       desktopSection: 'alerts',
     });
 
-    expect(await screen.findByText(i18n.t('settings.alerts.voices'))).toBeInTheDocument();
-    expect(screen.getByLabelText(i18n.t('settings.alerts.voicePush'))).toBeInTheDocument();
+    expect(await screen.findByText(i18n.t('settings.alerts.channelsGroup'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('settings.alerts.globalRules'))).toBeInTheDocument();
   });
 

@@ -1,0 +1,13 @@
+{
+  "description": "The child exits in the middle of a handler: the host reports a crash and starts a new child.",
+  "stage": "host",
+  "events": [
+    {
+      "hook": "message",
+      "params": {},
+      "expect": {
+        "killed": "crash"
+      }
+    }
+  ]
+}

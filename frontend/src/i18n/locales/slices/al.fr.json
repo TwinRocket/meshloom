@@ -1,0 +1,62 @@
+{
+  "plugins": {
+    "permissions": {
+      "messages_read": {
+        "title": "Lire les messages",
+        "description": "Reçoit les messages que Meshloom entend, dans les limites ci-dessous et dans les conversations que vous choisissez pour cette extension.",
+        "channels_public": "Canaux publics seulement : le canal Public et les canaux # que tout le monde peut rejoindre.",
+        "channels_all": "Tous les canaux, privés compris.",
+        "direct": "Vos messages privés.",
+        "outgoing": "Les messages que vous envoyez, y compris ceux de cette extension."
+      },
+      "messages_send": {
+        "title": "Envoyer des messages",
+        "description": "Envoie des messages depuis votre radio, sous votre nom.",
+        "targets_reply": "Seulement des réponses, dans la conversation du message auquel elle répond.",
+        "targets_scope": "Vers les canaux et contacts qu'elle peut lire.",
+        "targets_any": "Vers n'importe quel canal ou contact, sans qu'on le lui demande. À n'autoriser que pour une extension de confiance.",
+        "quota": "Au plus {{per_hour, number}} messages par heure et {{per_day, number}} par jour."
+      },
+      "raw_packets_read": {
+        "title": "Lire les paquets radio",
+        "description": "Reçoit les paquets bruts que la radio entend. Elle ne voit leur contenu déchiffré que pour les messages qu'elle peut lire."
+      },
+      "contacts_read": {
+        "title": "Lire les contacts",
+        "description": "Voit les noms, clés publiques, dernière activité et positions des nœuds que vous connaissez."
+      },
+      "channels_read": {
+        "title": "Lister les canaux",
+        "description": "Voit les noms et les clés des canaux publics, et des canaux privés quand elle peut lire tous les canaux. La clé d'un canal permet à n'importe qui de le lire."
+      },
+      "telemetry_read": {
+        "title": "Lire la télémétrie",
+        "description": "Reçoit la télémétrie de vos nœuds et l'état de Meshloom."
+      },
+      "storage": {
+        "title": "Stocker des données",
+        "description": "Conserve jusqu'à 5 Mo de données à elle dans Meshloom."
+      },
+      "http": {
+        "title": "Se connecter à Internet",
+        "description": "Se connecte uniquement aux serveurs listés ici, en passant par Meshloom : {{hosts}}.",
+        "private_messages_warning": "Cette extension peut transmettre vos messages privés à {{hosts}}."
+      },
+      "timer": {
+        "title": "S'exécuter à intervalles",
+        "description": "Se réveille plus tard, au plus tôt 10 secondes après l'avoir demandé."
+      }
+    },
+    "capabilityErrors": {
+      "permission_denied": "L'extension a demandé quelque chose qu'elle n'a pas le droit de faire.",
+      "quota_exceeded": "L'extension a atteint une de ses limites.",
+      "target_not_allowed": "L'extension a voulu envoyer un message là où elle n'en a pas le droit.",
+      "target_unknown": "L'extension a voulu envoyer un message à un canal ou un contact qui n'existe pas.",
+      "region_unknown": "L'extension a demandé une région que Meshloom ne connaît pas.",
+      "message_too_long": "Le message de l'extension était trop long pour la radio.",
+      "send_failed": "La radio n'a pas envoyé le message de l'extension.",
+      "quota_unavailable": "Meshloom n'a pas pu vérifier les limites d'envoi : le message de l'extension n'a pas été envoyé.",
+      "invalid_params": "L'extension a fait une demande invalide."
+    }
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "schemaForm": {
+    "required": "(required)",
+    "secretSet": "A value is set",
+    "replace": "Replace",
+    "clear": "Clear",
+    "replaceFor": "Replace {{name}}",
+    "clearFor": "Clear {{name}}",
+    "cancel": "Cancel",
+    "undo": "Undo",
+    "willClear": "The value will be removed when you save.",
+    "keepHint": "Leave empty to keep the current value.",
+    "none": "None",
+    "onePerLine": "One per line",
+    "unsupported": "The field “{{name}}” cannot be shown: its schema uses “{{keyword}}”, which this form does not support.",
+    "rootUnsupported": "This form cannot be shown: its schema uses “{{keyword}}”, which is not supported."
+  },
+  "settings": {
+    "extensions": {
+      "config": {
+        "save": "Save settings",
+        "saved": "Settings saved.",
+        "goTo": "Go to the settings",
+        "issue": {
+          "config_value_invalid": "This value is not accepted.",
+          "config_field_unknown": "This field is not known to the extension.",
+          "config_value_missing": "This field is required."
+        }
+      },
+      "local": {
+        "newButton": "New local extension",
+        "title": "Code and tests",
+        "line": "line {{line}}",
+        "create": {
+          "title": "New local extension",
+          "text": "A local extension is a small Python program kept in Meshloom. It starts turned off, with only the permissions you give it.",
+          "label": "Name",
+          "template": "Starting code",
+          "templateEcho": "Echo: answers “!pling” with “Plong!”",
+          "templateBlank": "Empty",
+          "confirm": "Create"
+        },
+        "hooks": {
+          "title": "Events it listens to",
+          "message": "Messages",
+          "raw_packet": "Radio packets",
+          "contact": "Contacts",
+          "telemetry": "Telemetry",
+          "health": "Health",
+          "timer": "Timer"
+        },
+        "codeTitle": "Code",
+        "editorAria": "Extension code",
+        "saveCode": "Save code",
+        "unsaved": "Unsaved changes",
+        "codeSaved": "Code saved.",
+        "syntaxError": "The code is not valid Python (line {{line}}).",
+        "scanTitle": "Worth a look",
+        "hostsFound": "The code mentions these servers. It can only reach servers you allow.",
+        "allowHost": "Allow {{host}}",
+        "permissionsTitle": "Events and permissions",
+        "savePermissions": "Save permissions and events",
+        "permissionsSaved": "Permissions saved.",
+        "hostsLabel": "Servers it may contact",
+        "hostsPlaceholder": "One server per line, for example api.example.com",
+        "checkTitle": "Check",
+        "checkHint": "Reads the manifest and scans the code. Nothing is run.",
+        "check": "Check",
+        "saveFirst": "Save the code first.",
+        "checkOk": "No error found.",
+        "checkFailed": "The check found errors.",
+        "testTitle": "Test with a message",
+        "testHint": "Sends a made-up message to the running extension and shows what it answers.",
+        "testNoHook": "This extension does not listen to messages.",
+        "testNeedsOn": "Turn the extension on to test it.",
+        "testText": "Message text",
+        "testTarget": "Pretend it came from",
+        "targetDefault": "A test channel",
+        "targetChannel": "One of my channels",
+        "targetContact": "A contact",
+        "pickChannel": "Pick a channel",
+        "contactPlaceholder": "Contact public key",
+        "nothingSent": "Nothing was sent to the radio: the answers below were captured.",
+        "echoTitle": "What the extension answered",
+        "noReply": "It did not answer.",
+        "truncated": "Some answers were cut.",
+        "testLog": "Log",
+        "reason": {
+          "threading": "Threads are not allowed ({{detail}}).",
+          "import_not_allowed": "Module not allowed: {{detail}}.",
+          "global_statement": "“global” ({{detail}}): the value is lost when the extension restarts.",
+          "module_state": "Module-level state is lost when the extension restarts.",
+          "print_call": "“print” goes to the log.",
+          "process_call": "Starting a process is refused ({{detail}}).",
+          "long_literal": "A text longer than one message.",
+          "eval_call": "“eval” is refused.",
+          "exec_call": "“exec” is refused.",
+          "open_call": "Opening files is refused.",
+          "compile_call": "“compile” is refused.",
+          "import_call": "Dynamic imports are refused.",
+          "syntax_error": "The code is not valid Python.",
+          "source_too_large": "The code is over 1 MiB.",
+          "too_complex": "The code is too complex to analyse.",
+          "manifest_invalid": "The manifest is invalid."
+        },
+        "test": "Run the test"
+      }
+    }
+  }
+}

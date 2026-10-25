@@ -37,7 +37,7 @@ On a system that is not Linux (macOS, for example), the service choice is not of
 
 For a service, the script installs a package from the signed Meshloom repository (`apt` on Debian and Ubuntu, `dnf` on Fedora). If the repository has nothing for your machine, it falls back to the package attached to the GitHub release, and finally to an installation from the source code. On an ARMv6 board (Raspberry Pi 1, original Zero and Zero W) it stops at once instead: Meshloom does not run there. See [Raspberry Pi image](/en/docs/rpi/).
 
-**Security.** The script asks nothing about security, and the choice matters. Bots run code on the machine and are **on by default**, except in the Linux package (and therefore the Raspberry Pi image), which turns them off in `/etc/meshloom/meshloom.env`. With Docker or from source, add `MESHCORE_DISABLE_BOTS=true` to turn them off (in the Home Assistant add-on, turn on its `disable_bots` option), and `MESHCORE_BASIC_AUTH_USERNAME` with `MESHCORE_BASIC_AUTH_PASSWORD` to require a shared login. See [A trusted network](/en/docs/trust/).
+**Security.** The script asks nothing about security, and the choice matters. Bots run code on the machine and are **on by default**, except in the Linux package (and therefore the Raspberry Pi image), which turns them off in `/etc/meshloom/meshloom.env`. With Docker or from source, add `MESHCORE_DISABLE_BOTS=true` to turn them off (in the Home Assistant add-on, turn on its `disable_bots` option). Signing in is always required: the first time you open Meshloom it asks you to create the administrator account (see [First launch](/en/docs/first-run/) and [Accounts and access](/en/docs/deep/access/)). See [A trusted network](/en/docs/trust/).
 
 ## Open the interface
 
@@ -90,11 +90,13 @@ If Home Assistant already runs on the machine that will host Meshloom, install M
 
 The button opens the right dialog on your own Home Assistant, with the address filled in. It is only a redirect and learns nothing about you. To do it by hand, go to **Settings > Add-ons > Add-on store > ⋮ > Repositories**, add the repository address, then install **Meshloom** from the store.
 
-Two things work differently there:
+A few things work differently there:
+
+**Home Assistant signs you in.** Opened from the sidebar, Meshloom asks for no password and shows no account creation page: the first Home Assistant user to open it becomes its administrator, the next ones get the **Member** role. This includes an add-on updated from 4.18. The `basic_auth_username` and `basic_auth_password` options are deprecated: if you had set them, they become a Meshloom account once (for the published port, below), then you can empty them; they will be removed in the next release.
 
 **The radio-sharing port is set in Home Assistant, not in Meshloom.** The interface is reached through the sidebar and publishes nothing, so the radio proxy (see [Radio transports](/en/docs/deep/transports/)) is the only thing visible on the network. Change its port in the add-on's **Network** panel. The field inside Meshloom only displays it, because a value typed there would make Meshloom listen where nothing is forwarded.
 
-**Notifications need an address of their own.** The sidebar has no stable public address, so Web Push cannot work through it alone. Give Meshloom a real host name (the Cloudflared add-on can do this without opening a port on your router) and open Meshloom at that address.
+**Notifications need an address of their own.** The sidebar has no stable public address, so Web Push cannot work through it alone. Give Meshloom a real host name (the Cloudflared add-on can do this without opening a port on your router) and open Meshloom at that address ([Remote access on your own](/en/docs/deep/remote-self-hosted/#home-assistant-add-on)).
 
 This is not the same as [publishing the mesh to Home Assistant over MQTT](/en/docs/deep/home-assistant/), which works from any installation and needs no add-on.
 

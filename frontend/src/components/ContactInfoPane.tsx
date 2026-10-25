@@ -1,3 +1,4 @@
+import { useCapabilities } from '../auth/SessionProvider';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, Ban, ChevronDown, ChevronRight, Crosshair, Search, Star } from 'lucide-react';
@@ -132,6 +133,7 @@ export function ContactInfoPane({
   onToggleTrackedTelemetryContact,
 }: ContactInfoPaneProps) {
   const { t } = useTranslation();
+  const { canSend } = useCapabilities();
   const { distanceUnit } = useDistanceUnit();
   const isNameOnly = contactKey?.startsWith('name:') ?? false;
   const nameOnlyValue = isNameOnly && contactKey ? contactKey.slice(5) : null;
@@ -516,7 +518,8 @@ export function ContactInfoPane({
             <div className="px-5 py-3 border-b border-border">
               <button
                 type="button"
-                className="text-sm flex items-center gap-2 hover:text-primary transition-colors"
+                className="text-sm flex items-center gap-2 hover:text-primary transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-inherit"
+                disabled={!canSend}
                 onClick={() => onToggleFavorite('contact', contact.public_key)}
                 title={t('contactInfo.favoriteHelp')}
               >

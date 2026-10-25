@@ -77,6 +77,15 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
         "description": "Browser Web Push subscriptions, per-device preferences, tests, and conversations.",
     },
     {
+        "name": "notifications",
+        "description": (
+            "Notification channels (secrets are write-only), rules and the global pause, "
+            "test sends (rate limited), the delivery journal and the event catalogue. "
+            "Admin only; a channel change arrives as a `notification_channel_changed` "
+            "WebSocket event."
+        ),
+    },
+    {
         "name": "fanout",
         "description": "MQTT, bots, webhooks, Apprise, SQS, Home Assistant, and map upload integrations.",
     },
@@ -87,6 +96,15 @@ API_TAGS_METADATA: list[dict[str, Any]] = [
     {
         "name": "statistics",
         "description": "Aggregated mesh, message, packet, channel, and contact statistics.",
+    },
+    {
+        "name": "plugins",
+        "description": (
+            "Plugin instances: install a bundled plugin, create and edit a local one, "
+            "configure (secrets are write-only), enable, restart, check, test, logs and "
+            "diagnostic. Writes, logs and diagnostics are admin-only; status changes "
+            "arrive as `plugin_status` WebSocket events."
+        ),
     },
     {
         "name": "updates",
@@ -166,6 +184,47 @@ def _add_common_error_responses(openapi_schema: dict[str, Any]) -> None:
                 responses.setdefault(status_code, _error_response(description))
 
 
+# How a client authenticates (``docs/dev/auth.md``): an API or device token in
+# ``Authorization: Bearer`` (scripts, meshenger; never in a query string), or the
+# browser's session cookie. Basic stays as the 4.x compatibility credential.
+SECURITY_SCHEMES: dict[str, dict[str, Any]] = {
+    "bearerToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": (
+            "An API or device token (mlt_...), created with POST /api/auth/tokens and shown"
+            " once. Send it in the Authorization header on HTTP requests and on the"
+            " /api/ws upgrade; a token in a query string is ignored. Its scopes narrow its"
+            " owner's role, never extend it."
+        ),
+    },
+    "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "meshloom_session",
+        "description": (
+            "The browser session from POST /api/auth/login (__Host-meshloom_session over https)."
+        ),
+    },
+}
+
+
+def _add_security_schemes(openapi_schema: dict[str, Any]) -> None:
+    """Declare the credentials; the routes of ``PUBLIC_ROUTES`` need none."""
+    from app.auth.middleware import PUBLIC_ROUTES
+
+    components = openapi_schema.setdefault("components", {})
+    components.setdefault("securitySchemes", {}).update(SECURITY_SCHEMES)
+    openapi_schema["security"] = [{name: []} for name in SECURITY_SCHEMES]
+    paths = openapi_schema.get("paths")
+    if not isinstance(paths, dict):
+        return
+    for method, path in PUBLIC_ROUTES:
+        operation = paths.get(path, {}).get(method.lower())
+        if isinstance(operation, dict):
+            operation["security"] = []
+
+
 def install_custom_openapi(app: FastAPI) -> None:
     """Install OpenAPI metadata polishing used by the custom docs page."""
     original_openapi = app.openapi
@@ -184,6 +243,7 @@ def install_custom_openapi(app: FastAPI) -> None:
             servers=app.servers,
         )
         _add_common_error_responses(openapi_schema)
+        _add_security_schemes(openapi_schema)
         app.openapi_schema = openapi_schema
         return app.openapi_schema
 

@@ -159,6 +159,8 @@ copy_manifests() {
 copy_project_files() {
     mkdir -p "$OPT/frontend"
     cp -a "$REPO_ROOT/app" "$OPT/app"
+    # Plugin child runtime, a top-level package next to app/ (app/plugins/launch.py)
+    cp -a "$REPO_ROOT/meshloom_plugin" "$OPT/meshloom_plugin"
     copy_manifests
     [ -f "$REPO_ROOT/LICENSE.md" ] && cp "$REPO_ROOT/LICENSE.md" "$OPT/"
     [ -f "$REPO_ROOT/LICENSES.md" ] && cp "$REPO_ROOT/LICENSES.md" "$OPT/"
@@ -253,6 +255,7 @@ sed \
     -e "s|__NFPM_VERSION__|$VERSION|g" \
     -e "s|__STAGING__|$STAGING|g" \
     -e "s|__PKGDIR__|$PKGDIR|g" \
+    -e "s|__RPIDIR__|$REPO_ROOT/pkg/rpi|g" \
     "$PKGDIR/nfpm.yaml.tmpl" >"$CFG"
 
 echo "[nfpm] Packaging $ARCH $VERSION..."

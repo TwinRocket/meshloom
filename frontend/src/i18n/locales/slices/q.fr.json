@@ -1,0 +1,24 @@
+{
+  "sidebar": {
+    "feed": "Fil"
+  },
+  "toolsView": {
+    "feedDescription": "Tous les messages des canaux et des messages directs dans une seule chronologie, en direct"
+  },
+  "conversation": {
+    "loadingFeed": "Chargement du fil..."
+  },
+  "feed": {
+    "title": "Fil d'activité",
+    "listLabel": "Messages, du plus ancien au plus récent",
+    "empty": "Aucun message pour l'instant. Ils apparaissent ici à mesure qu'ils arrivent.",
+    "follow": "Suivre",
+    "followNew_one": "Suivre ({{formatted}} nouveau message)",
+    "followNew_other": "Suivre ({{formatted}} nouveaux messages)",
+    "loadingOlder": "Chargement des messages plus anciens...",
+    "beginning": "Début de l'historique",
+    "loadError": "Impossible de charger le fil : {{error}}",
+    "loadOlderError": "Impossible de charger les messages plus anciens : {{error}}",
+    "retry": "Réessayer"
+  }
+}
