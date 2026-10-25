@@ -466,8 +466,11 @@ MSHL-279).** Not run yet; record the result here.
 
 `app/auth/providers/trusted_network.py`: Home Assistant's `trusted_networks`,
 closed whenever a proxy is in the loop. Rules are `auth_settings.trusted_networks`
-(`[{cidr, user_id}]`, migration 101, empty by default), kept in memory (read on
-first use, replaced by `AuthSettingsRepository.update()`). The gate asks the
+(`[{cidr, user_id}]`, migration 101, empty by default), kept in memory with
+the `public_urls` the `Host` check needs (read on first use, replaced by
+`AuthSettingsRepository.update()`). Every check before the account lookup is
+synchronous and in memory (peer, rule match, `rule_blocker`), so a request from
+an unlisted or proxied peer costs no database read. The gate asks the
 provider **last**: only when the request sent no `Authorization` header and no
 session cookie resolved (an expired cookie still gets the rule; a wrong Basic or
 Bearer credential never does). The principal is `via = "trusted"`, credential
@@ -495,7 +498,9 @@ A rule never applies (`rule_blocker`, fail closed) when:
   page that holds no cookie at all. The rule is `host_allowed` in
   `app/middleware/host_guard.py`, shared with the general guard below.
 
-The account must exist, be enabled and have no pending password change. The
+The account must exist, be enabled and have no pending password change (a
+rule naming such an account is refused at save time, so it never sits there
+doing nothing). The
 longest matching prefix wins, then the first listed. Every auto-login writes one
 `login` row (`via = trusted`, `details = {method: "trusted_network", cidr}`) at
 most once per client address, user and UTC day (in memory, `MAX_AUDITED`
@@ -505,6 +510,8 @@ entries).
 `/8`/`/16`, no IPv4-mapped form, no duplicate network, at most 32, an existing
 enabled account) and refuses, with coded 400s, a rule that overlaps a trusted
 proxy (checked both ways: a new proxy overlapping a saved rule is refused too),
+one whose account is missing or disabled (`auth_trusted_network_user_invalid`) or
+must change its password (`auth_trusted_network_user_must_change`),
 one covering loopback where loopback is refused, and one covering the Docker
 default gateway (`docker_gateways()`, from `/proc/net/route` on a container
 install) while `public_urls` is set. `GET` adds `security_notices`, the Access
@@ -512,7 +519,11 @@ security notice the UI shows at the top of Users & Access:
 `trusted_admin_reduced_plugin_isolation` (a rule maps to an enabled admin while
 plugins run with isolation `none`; an unreadable state counts as reduced) and
 `trusted_loopback_or_gateway_public` (a rule covers loopback or the gateway
-while `public_urls` is set). The Remote conditions come with Remote.
+while `public_urls` is set) and `trusted_network_public_or_wide`
+(`public_or_wide`: a rule is as wide as allowed, `/8` IPv4 or `/16` IPv6, or not
+`is_private`, the shared address space `100.64.0.0/10` counting as private;
+accepted, since Home Assistant allows it too, but almost always a mistake). The
+Remote conditions come with Remote.
 
 ### Proxy headers
 
@@ -1155,7 +1166,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
 | `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices, require_2fa_for_admins}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). One `settings.changed` row per field |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). One `settings.changed` row per field |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
 
 Every route above that changes something writes one audit row ("Audit log").

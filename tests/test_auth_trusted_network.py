@@ -418,3 +418,77 @@ def test_invalid_stored_rules_are_dropped():
         ]
     )
     assert [rule.cidr for rule in rules] == ["10.0.0.0/8"]
+
+
+async def test_request_checks_need_no_settings_read(monkeypatch):
+    """Once the rules are loaded, an unlisted or proxied peer costs no database
+    read, and the Host check uses the public URLs kept by ``apply()``."""
+    tablet = await _rule()
+    await AuthSettingsRepository.update(public_urls=["https://mesh.example.org"])
+
+    async def no_read(*args, **kwargs):
+        raise AssertionError("auth_settings read on the request path")
+
+    monkeypatch.setattr(AuthSettingsRepository, "get", staticmethod(no_read))
+    lan = {"type": "http", "client": LAN_PEER}
+    public_host = {"host": "mesh.example.org"}
+    resolved = await trusted_network.resolve_trusted_user(lan, public_host, "lan")
+    assert resolved is not None and resolved[0].id == tablet.id
+    outside = {"type": "http", "client": OUTSIDE_PEER}
+    assert await trusted_network.resolve_trusted_user(outside, public_host, "lan") is None
+    proxied = {**public_host, "x-forwarded-for": "1.2.3.4"}
+    assert await trusted_network.resolve_trusted_user(lan, proxied, "lan") is None
+    foreign = {"host": "evil.example"}
+    assert await trusted_network.resolve_trusted_user(lan, foreign, "lan") is None
+
+
+async def test_a_rule_for_an_account_that_must_change_its_password_is_refused():
+    async with _admin_client() as client:
+        member = await create_user("member1", role="member")
+        await UserRepository.update(member.id, must_change_password=True)
+        response = await client.patch(
+            "/api/auth/settings",
+            json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": member.id}]},
+        )
+        assert response.status_code == 400
+        assert _code(response) == "auth_trusted_network_user_must_change"
+        assert response.json()["detail"]["params"] == {"cidr": "192.168.1.0/24"}
+    assert (await AuthSettingsRepository.get()).trusted_networks == []
+
+
+@pytest.mark.parametrize(
+    ("cidr", "flagged"),
+    [
+        ("192.168.1.0/24", False),
+        ("10.0.0.0/16", False),
+        ("100.64.0.0/10", False),
+        ("fd00:1234::/48", False),
+        ("10.0.0.0/8", True),
+        ("8.8.8.0/24", True),
+        ("8.0.0.0/8", True),
+        ("2001:db8::/32", False),
+        ("2a01:e0a::/32", True),
+        ("fd00::/16", True),
+    ],
+)
+def test_public_or_wide(cidr, flagged):
+    assert trusted_network.public_or_wide(cidr) is flagged
+
+
+async def test_the_notice_names_a_public_or_wide_network():
+    async with _admin_client() as client:
+        tablet = await create_user("tablet", password=None, role="viewer")
+        body = (
+            await client.patch(
+                "/api/auth/settings",
+                json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": tablet.id}]},
+            )
+        ).json()
+        assert body["security_notices"] == []
+        body = (
+            await client.patch(
+                "/api/auth/settings",
+                json={"trusted_networks": [{"cidr": "8.8.8.0/24", "user_id": tablet.id}]},
+            )
+        ).json()
+        assert body["security_notices"] == ["trusted_network_public_or_wide"]

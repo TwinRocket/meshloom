@@ -37,8 +37,11 @@ Every auto-login writes one ``login`` audit row (``details.method =
 "trusted_network"``), at most once per client address, user and UTC day
 (``_audited``, bounded), so a LAN tablet polling the API does not flood the log.
 
-The rules are kept in memory: read from the database on first use, replaced
-by ``apply()`` after every ``AuthSettingsRepository.update()``.
+The rules and the declared public URLs the ``Host`` check needs are kept in
+memory: read from the database on first use, replaced by ``apply()`` after
+every ``AuthSettingsRepository.update()``. Every check before the account
+lookup is synchronous and in memory, so a request from an unlisted or proxied
+peer costs no database read.
 """
 
 from __future__ import annotations
@@ -94,10 +97,15 @@ ROUTE_TABLE = Path("/proc/net/route")
 
 _MAPPED = ipaddress.ip_network("::ffff:0:0/96")
 
+# Shared address space (carrier-grade NAT, Tailscale): not ``is_private`` in
+# Python, yet not reachable from the internet either.
+_SHARED = ipaddress.ip_network("100.64.0.0/10")
+
 # Bound of the "already audited today" set.
 MAX_AUDITED = 4096
 
 _rules: tuple[TrustedNetworkRule, ...] | None = None
+_public_urls: tuple[str, ...] = ()
 _audited: dict[tuple[str, int], int] = {}
 
 Address = ipaddress.IPv4Address | ipaddress.IPv6Address
@@ -135,6 +143,19 @@ def _overlaps(a: str, b: str) -> bool:
 def overlapping_proxy(cidr: str, proxies: Iterable[str]) -> str | None:
     """The first trusted proxy ``cidr`` overlaps, or None."""
     return next((proxy for proxy in proxies if _overlaps(cidr, proxy)), None)
+
+
+def public_or_wide(cidr: str) -> bool:
+    """A network that is almost always a mistake: as wide as allowed (``/8``
+    IPv4, ``/16`` IPv6) or not private (``is_private``; the shared address
+    space ``100.64.0.0/10`` counts as private). Accepted, but named by the
+    ``trusted_network_public_or_wide`` security notice."""
+    network = _network(cidr)
+    if network.prefixlen <= proxy_headers.MIN_PREFIX[network.version]:
+        return True
+    if network.version == 4 and network.subnet_of(_SHARED):  # type: ignore[arg-type]
+        return False
+    return not network.is_private
 
 
 def covers_loopback(cidr: str) -> bool:
@@ -218,8 +239,10 @@ def valid_stored_rules(stored: Iterable[TrustedNetworkRule]) -> tuple[TrustedNet
 
 
 def apply(auth_settings: AuthSettings) -> tuple[TrustedNetworkRule, ...]:
-    """Replace the in-memory rules with the valid ``trusted_networks``."""
-    global _rules
+    """Replace the in-memory rules with the valid ``trusted_networks``, and the
+    public URLs the ``Host`` check accepts with ``public_urls``."""
+    global _rules, _public_urls
+    _public_urls = tuple(auth_settings.public_urls)
     _rules = valid_stored_rules(auth_settings.trusted_networks)
     return _rules
 
@@ -235,8 +258,9 @@ async def current() -> tuple[TrustedNetworkRule, ...]:
 
 def reset() -> None:
     """Forget the rules and the audit memory (tests, and a fresh process)."""
-    global _rules
+    global _rules, _public_urls
     _rules = None
+    _public_urls = ()
     _audited.clear()
 
 
@@ -310,20 +334,13 @@ def rule_blocker(
 async def resolve_trusted_user(
     scope: Mapping[str, Any], headers: Mapping[str, str], via: str
 ) -> tuple[User, TrustedNetworkRule] | None:
-    """The account a trusted network rule signs this request in as, or None."""
+    """The account a trusted network rule signs this request in as, or None.
+
+    Reads the database only for the rules' first load and, once every request
+    check passed, for the mapped account.
+    """
     rules = await current()
     if not rules:
-        return None
-    from app.repository.auth import AuthSettingsRepository, UserRepository
-
-    settings = await AuthSettingsRepository.get()
-    if rule_blocker(
-        scope,
-        headers,
-        via,
-        trusted_proxies=proxy_headers.current(),
-        public_urls=settings.public_urls,
-    ):
         return None
     peer = _parse_address(proxy_headers.peer_address(scope))
     if peer is None:
@@ -331,6 +348,16 @@ async def resolve_trusted_user(
     rule = matching_rule(peer, rules)
     if rule is None:
         return None
+    if rule_blocker(
+        scope,
+        headers,
+        via,
+        trusted_proxies=proxy_headers.current(),
+        public_urls=_public_urls,
+    ):
+        return None
+    from app.repository.auth import UserRepository
+
     user = await UserRepository.get(rule.user_id)
     if user is None or user.disabled or user.must_change_password:
         return None

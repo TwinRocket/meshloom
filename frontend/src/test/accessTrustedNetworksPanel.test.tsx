@@ -149,4 +149,31 @@ describe('Access security notice', () => {
     );
     expect(screen.getByTestId('trusted-networks-admin-warning')).toBeInTheDocument();
   });
+
+  it('shows the public or wide network notice in both languages', () => {
+    const notice = 'trusted_network_public_or_wide' as const;
+    render(<AccessSecurityNoticeBanner notices={[notice]} />);
+    const text = t(`settings.access.securityNotice.${notice}`);
+    expect(screen.getByTestId('access-security-notice')).toHaveTextContent(text);
+    expect(text).not.toBe(`settings.access.securityNotice.${notice}`);
+    expect(i18n.t(`settings.access.securityNotice.${notice}`, { lng: 'en' })).not.toBe(text);
+  });
+});
+
+describe('trusted network refusals', () => {
+  it('explains a rule for an account that must change its password', async () => {
+    vi.spyOn(api, 'patchAuthSettings').mockRejectedValue(
+      new ApiError('Bad Request', 400, {
+        code: 'auth_trusted_network_user_must_change',
+        message: 'must change',
+        params: { cidr: '192.168.1.0/24' },
+      })
+    );
+    render(<AccessTrustedNetworksPanel />);
+    await addRule('192.168.1.0/24', '2');
+    fireEvent.click(screen.getByText(t('settings.access.trustedNetworks.save')));
+    const expected = t('errors.auth_trusted_network_user_must_change', { cidr: '192.168.1.0/24' });
+    expect(expected).toContain('192.168.1.0/24');
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expected));
+  });
 });

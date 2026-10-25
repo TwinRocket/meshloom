@@ -124,6 +124,9 @@ _MESSAGES = {
         "or too many trusted networks"
     ),
     "auth_trusted_network_user_invalid": "A trusted network names no enabled account",
+    "auth_trusted_network_user_must_change": (
+        "A trusted network names an account that must change its password first"
+    ),
     "auth_public_urls_invalid": (
         "Not an address of the form https://host[:port][/prefix], or too many public addresses"
     ),
@@ -804,7 +807,9 @@ class TrustedNetworkRuleView(BaseModel):
 
 
 SecurityNotice = Literal[
-    "trusted_admin_reduced_plugin_isolation", "trusted_loopback_or_gateway_public"
+    "trusted_admin_reduced_plugin_isolation",
+    "trusted_loopback_or_gateway_public",
+    "trusted_network_public_or_wide",
 ]
 
 
@@ -853,8 +858,9 @@ class AuthSettingsView(BaseModel):
     security_notices: list[SecurityNotice] = Field(
         description=(
             "The Access security notice: a trusted network signs in an administrator while "
-            "plugins run with reduced isolation, or covers loopback or the Docker gateway "
-            "while a public address is configured."
+            "plugins run with reduced isolation, covers loopback or the Docker gateway "
+            "while a public address is configured, or is public or as wide as allowed "
+            "(/8 IPv4, /16 IPv6)."
         )
     )
     require_2fa_for_admins: bool = Field(
@@ -918,6 +924,8 @@ async def _security_notices(settings: AuthSettings) -> list[SecurityNotice]:
             for rule in rules
         ):
             notices.append("trusted_loopback_or_gateway_public")
+    if any(trusted_network.public_or_wide(rule.cidr) for rule in rules):
+        notices.append("trusted_network_public_or_wide")
     return notices
 
 
@@ -976,6 +984,9 @@ async def _check_rules(
         user = await UserRepository.get(rule.user_id)
         if user is None or user.disabled:
             raise _error(400, "auth_trusted_network_user_invalid", {"cidr": rule.cidr})
+        if user.must_change_password:
+            # The gate never applies such a rule (``resolve_trusted_user``).
+            raise _error(400, "auth_trusted_network_user_must_change", {"cidr": rule.cidr})
 
 
 @router.get("/settings", response_model=AuthSettingsView, dependencies=[Depends(require("admin"))])
