@@ -78,6 +78,7 @@ EgressCode = Literal[
     "egress_lan_address",
     "egress_self_address",
     "egress_supervisor_address",
+    "egress_userinfo",
 ]
 
 DEFAULT_SCHEMES = frozenset({"http", "https"})
@@ -177,6 +178,7 @@ EGRESS_MESSAGES: dict[str, str] = {
     "a plugin may not reach",
     "egress_supervisor_address": "This address is on the Home Assistant Supervisor's internal "
     "network (Supervisor, other add-ons), which a plugin may not reach",
+    "egress_userinfo": "The address must not contain a user name or password",
 }
 
 

@@ -13,7 +13,8 @@ chose (SSRF). Like every agent doc here, check it against the code.
   malformed URL or port), `egress_private_address`, `egress_unresolvable`,
   and for fixed-host callers `egress_host_not_allowed`,
   `egress_too_many_redirects`, `egress_request_too_large`,
-  `egress_response_too_large` (see "Fixed-host callers").
+  `egress_response_too_large` (see "Fixed-host callers"), and `egress_userinfo` (a
+  URL with a user name or password, raised by `store_fetch` only, MSHL-366).
   `egress_detail(code)` builds the coded HTTP detail (never a host, an IP or the URL).
   `EgressBlocked.always_refused` is true for a refusal no opt-in can lift:
   every `egress_scheme` from the URL check, and a metadata or documentation
@@ -199,6 +200,8 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   (`github.com`, the exact release-asset redirect hosts `objects.githubusercontent.com`
   and `release-assets.githubusercontent.com`, and `store.meshloom.app`), HTTPS only,
   only while `app_settings.store_online`; `StoreOffline` otherwise, before any lookup.
+  It refuses a URL with user info (`egress_userinfo`) and narrows a caller's
+  `allowed_hosts` to `STORE_ALLOWLIST`. Plugin archive downloads use it (MSHL-366).
 - The plugin `http` capability (the
   plugin's declared hosts, plus its declared `lan_hosts`, 10 s, 1 MB response, 256 KB body, redirects
   re-validated to a declared host) both send through

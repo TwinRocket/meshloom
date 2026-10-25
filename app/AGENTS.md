@@ -336,13 +336,20 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   (`follow_checked_redirects` with `STORE_ALLOWLIST`, redirects re-validated, capped
   answers, `User-Agent: Meshloom/<version>` set by the module, a caller's one dropped).
   While `store_egress_allowed()` is false it raises `StoreOffline` (`code
-  "store_offline"`) before any DNS lookup. Installer and refresh code (MSHL-195 on) call
-  it and never open their own client.
+  "store_offline"`) before any DNS lookup; a URL with user info (`https://user:pw@host`)
+  is refused with `egress_userinfo`, also before any lookup. A caller's `allowed_hosts` is
+  intersected with `STORE_ALLOWLIST` (it can narrow, never widen). Installer and refresh
+  code call it and never open their own client: `installer.download_archive` goes through
+  it, and `app/main.py` wires `set_download_gate(store_egress_allowed)` (MSHL-366).
 - **Turning it off cuts at once.** `AppSettingsRepository.update` calls
   `note_store_online_changed()`: off bumps a generation, cancels the requests in flight
-  (they raise `StoreOffline`) and stops the refresh loop; on starts or wakes it.
+  (they raise `StoreOffline`) and stops the refresh loop; a switch from off to on starts
+  or wakes it (a `true` sent again while already on does nothing). A restore re-applies
+  the stored consent: the `store_egress` restore hook (`register_on_restore`, run after
+  JSON restores and by `run_sqlite_restore_hooks`) calls `note_store_online_changed()`.
 - **Refresh loop.** Started at boot only when the consent is on; every
-  `REFRESH_INTERVAL_S` (6 h) it runs the steps registered with
+  `REFRESH_INTERVAL_S` (6 h), and once when turned on, but never twice within
+  `MIN_REFRESH_GAP_S` (10 min), it runs the steps registered with
   `register_store_refresher()`, and only when at least one `custom` or `store` instance
   is installed. M2a registers none yet (skeleton).
 - **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the
@@ -451,6 +458,12 @@ run as root).
   names only in the JSON `plugins` section, `services/backup_plugins.py`); `plugin_kv`
   is never exported. Rules: `docs/dev/plugins.md`, "Data model", and
   `docs/dev/backup.md`, "Plugins".
+- Migration 124 adds `plugin_kept_data` (MSHL-366: the owner of the KV rows and secrets an
+  uninstall with "keep data" left, so a reinstall from the same source takes them back and
+  the hourly cleanup deletes them after 90 days; DDL also in `SCHEMA_TABLES`, compared by
+  `tests/test_migrations/test_migration_124.py`). It records the orphans of earlier
+  uninstalls with an empty `plugin_id` (never reattached, deleted after 90 days). Excluded
+  from the JSON backup, kept in the SQLite download.
 - Migration 105 adds `plugin_send_quota` (the per-instance send counters of the
   plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
   `tests/test_migrations/test_migration_105.py`), excluded from backups.

@@ -21,7 +21,9 @@ One entry per row of ``plugins`` (Store T12, ``docs/dev/backup.md``, "Plugins"):
   ``attention.type`` ``restored`` (reviewed and accepted like any other attention) or
   ``reinstall``. An existing row is never changed: the same instance (same ``instance_id``
   and ``plugin_id``) is kept as it is, and an ``instance_id`` or local ``plugin_id`` already
-  used by another plugin gets a new one.
+  used by another plugin gets a new one. So does an ``instance_id`` under which an uninstall
+  with ``keep_data`` left data (``plugin_kept_data``) of another plugin or source, or data
+  with no record; data kept from the same plugin and source goes back to the restored row.
 - Every entry is checked on its own (manifest, config schema, config values, scope, quotas,
   grants): a bad entry is dropped with a warning, a bad optional value is reset.
 
@@ -371,6 +373,8 @@ def _order(entry: object) -> int:
 
 
 async def restore_plugins(section: BackupSection, conn: aiosqlite.Connection) -> list[str]:
+    from app.repository.plugins import PluginKeptDataRepository
+
     data = BackupPluginsData.model_validate(section.data)
     warnings: list[str] = []
     rows = await _existing(conn)
@@ -410,6 +414,11 @@ async def restore_plugins(section: BackupSection, conn: aiosqlite.Connection) ->
             )
             warnings.append(f"{kind}:{plugin_id}")
             continue
+        if not await PluginKeptDataRepository.restorable_id(
+            conn, instance_id, values["plugin_id"], values["kind"], values["repository"]
+        ):
+            # Data an uninstall kept under this id belongs to another plugin or source.
+            instance_id = values["instance_id"] = str(uuid.uuid4())
         await _insert(conn, values)
         row = {
             key: values[key]

@@ -264,6 +264,33 @@ async def test_existing_rows_are_never_changed(backup_db, api, manager):
     assert echo["instance_id"] != rows["local"]["instance_id"]
 
 
+async def test_kept_data_goes_back_only_to_the_same_plugin(backup_db, api, manager):
+    """MSHL-366: an uninstall with keep_data, then a restore. The same instance gets its
+    data back; an entry of another plugin under that instance id gets a new id."""
+    rows = await _populate(api, manager)
+    section = await export_plugins()
+    assert section is not None
+    greeter_id = rows["greeter"]["instance_id"]
+    local_id = rows["local"]["instance_id"]
+    for iid in (greeter_id, local_id):
+        assert (await api.delete(f"/api/plugins/{iid}?keep_data=true")).status_code == 204
+
+    greeter = _entries(section)["meshloom.greeter"]
+    # Another plugin claiming the local instance's id (and so its kept data).
+    claim = {**greeter, "plugin_id": "meshloom.echo", "instance_id": local_id}
+    claim["manifest"] = {**claim["manifest"], "id": "meshloom.echo"}
+    await restore_sections({PLUGINS_SECTION: BackupSection(data={"instances": [greeter, claim]})})
+    restored = {row["plugin_id"]: row for row in await PluginRepository.get_all()}
+    assert restored["meshloom.greeter"]["instance_id"] == greeter_id
+    assert await PluginKvRepository.get(greeter_id, "state") == {"note": KV_MARKER}
+    echo = restored["meshloom.echo"]
+    assert echo["instance_id"] != local_id
+    assert await PluginKvRepository.get(echo["instance_id"], "state") is None
+    async with backup_db.readonly() as conn:
+        async with conn.execute("SELECT instance_id FROM plugin_kept_data") as cursor:
+            assert [r[0] for r in await cursor.fetchall()] == [local_id]
+
+
 async def test_a_bad_entry_is_dropped_on_its_own(backup_db, api, manager):
     rows = await _populate(api, manager)
     section = await export_plugins()

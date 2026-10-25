@@ -311,3 +311,118 @@ class TestRefreshLoop:
         await AppSettingsRepository.update(store_online=False)
         with pytest.raises(StoreOffline):
             await asyncio.wait_for(pending, 3)
+
+
+class TestReviewFollowUps:
+    """MSHL-366: user info refused, refresh spacing, restore hook, narrowing only."""
+
+    async def test_a_url_with_user_info_is_refused_before_any_lookup(self, test_db, dns, recorder):
+        await AppSettingsRepository.update(store_online=True)
+        for url in (
+            "https://user:pw@github.com/o/r",
+            "https://user@github.com/o/r",
+            "https://:pw@raw.githubusercontent.com/o/r",
+        ):
+            with pytest.raises(EgressBlocked) as info:
+                await store_fetch("GET", url, max_response_bytes=MAX)
+            assert info.value.code == "egress_userinfo"
+            assert info.value.permanent is True
+        assert recorder.requests == []
+        assert dns.lookups == []
+
+    async def test_user_info_is_refused_even_before_the_consent_check_passes(
+        self, test_db, dns, recorder
+    ):
+        with pytest.raises(StoreOffline):
+            await store_fetch("GET", "https://user:pw@github.com/o/r", max_response_bytes=MAX)
+        assert recorder.requests == []
+
+    async def test_allowed_hosts_only_narrow_the_store_allowlist(self, test_db, dns, recorder):
+        from app.net.egress_guard import HostAllowlist
+
+        await AppSettingsRepository.update(store_online=True)
+        wider = HostAllowlist.of("evil.example", "github.com")
+        with pytest.raises(EgressBlocked) as info:
+            await store_fetch(
+                "GET", "https://evil.example/x", max_response_bytes=MAX, allowed_hosts=wider
+            )
+        assert info.value.code == "egress_host_not_allowed"
+        narrow = HostAllowlist.of("github.com")
+        with pytest.raises(EgressBlocked):
+            await store_fetch(
+                "GET",
+                "https://raw.githubusercontent.com/x",
+                max_response_bytes=MAX,
+                allowed_hosts=narrow,
+            )
+        ok = await store_fetch(
+            "GET", "https://github.com/x", max_response_bytes=MAX, allowed_hosts=wider
+        )
+        assert ok.status_code == 200
+        assert _hosts(recorder) == ["github.com"]
+
+    async def test_ticks_are_never_closer_than_the_minimum_gap(self, test_db, monkeypatch):
+        await _online_instance()
+        await AppSettingsRepository.update(store_online=True)
+        await store_egress.stop_store_refresh()
+        now = [1_000_000.0]
+        monkeypatch.setattr(store_egress._state, "clock", lambda: now[0])
+        calls: list[int] = []
+
+        async def refresher() -> None:
+            calls.append(1)
+
+        register_store_refresher(refresher)
+        assert await store_egress.run_store_refresh() is True
+        now[0] += store_egress.MIN_REFRESH_GAP_S - 1
+        assert await store_egress.run_store_refresh() is False
+        now[0] += 1
+        assert await store_egress.run_store_refresh() is True
+        assert calls == [1, 1]
+
+    async def test_writing_true_again_does_not_trigger_a_refresh(self, test_db, dns, recorder):
+        await _online_instance()
+        calls: list[int] = []
+
+        async def refresher() -> None:
+            calls.append(1)
+
+        register_store_refresher(refresher)
+        await AppSettingsRepository.update(store_online=True)
+        task = store_egress._state.task
+        for _ in range(20):
+            if calls:
+                break
+            await asyncio.sleep(0.01)
+        assert calls == [1]
+        for _ in range(3):
+            await AppSettingsRepository.update(store_online=True)
+            await note_store_online_changed(True)
+        await asyncio.sleep(0.05)
+        assert calls == [1]
+        assert store_egress._state.task is task
+
+    async def test_a_restore_reapplies_the_consent_and_cancels_in_flight(
+        self, test_db, monkeypatch
+    ):
+        from app.services.backup_sections import run_on_restore_hooks
+
+        started = asyncio.Event()
+
+        async def hanging(*_args, **_kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(store_egress, "follow_checked_redirects", hanging)
+        await AppSettingsRepository.update(store_online=True)
+        pending = asyncio.create_task(
+            store_fetch("GET", "https://github.com/o/r", max_response_bytes=MAX)
+        )
+        await asyncio.wait_for(started.wait(), 3)
+        # What a SQLite snapshot does: the column comes back off without the settings route.
+        async with test_db.tx() as conn:
+            await conn.execute("UPDATE app_settings SET store_online = 0 WHERE id = 1")
+        await run_on_restore_hooks("sqlite")
+        with pytest.raises(StoreOffline):
+            await asyncio.wait_for(pending, 3)
+        assert not store_egress.store_refresh_running()

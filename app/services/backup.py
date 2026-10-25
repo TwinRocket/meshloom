@@ -308,6 +308,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     ),
     "plugin_kv": ("excluded", "plugin storage: data of the plugin, never exported"),
     "plugin_secrets": ("excluded", "plugin config secrets, never exported"),
+    "plugin_kept_data": (
+        "excluded",
+        "owners of the data an uninstall kept: follows plugin_kv, never exported",
+    ),
     "plugin_send_quota": ("excluded", "plugin send counters: runtime state"),
     "plugin_send_guard": (
         "excluded",

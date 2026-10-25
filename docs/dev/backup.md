@@ -358,7 +358,9 @@ by `services/backup.py`.
   `writeOnly` field, stored secret and `********` value; `config_for_init` is
   never called. `plugin_kv`, the send counters, `status`, `last_error`,
   `attention` and `archive_sha256` stay out (`BACKUP_COVERAGE`). The archive of
-  converted bots (`fanout_configs_bots_archive`, migration 122) stays out too.
+  converted bots (`fanout_configs_bots_archive`, migration 122) stays out too, and
+  so does `plugin_kept_data` (migration 124: the owners of the data an uninstall
+  with "keep data" left; it travels in the SQLite download, it holds no secret).
 - **Restore.** A local plugin comes back whole (manifest, source, config,
   grants = its declared permissions). Any other kind comes back as a
   **to reinstall** row (`attention.type = "reinstall"`): its code is not in the
@@ -381,7 +383,11 @@ by `services/backup.py`.
   preview keeps `bot_names` (they become extensions).
 - **Never overwrites.** The same instance (same `instance_id` and `plugin_id`)
   is kept as it is (`plugin_kept:<id>`); an `instance_id` already used by
-  another plugin, or one that is not a uuid, gets a new uuid; a local
+  another plugin, or one that is not a uuid, gets a new uuid, and so does an id
+  that owns kept data (`plugin_kv` or secrets left by an uninstall) unless its
+  `plugin_kept_data` record names the same `plugin_id`, `kind` and `repository`
+  (`PluginKeptDataRepository.restorable_id`): then the restored row takes that data
+  back and the record goes, otherwise another plugin never reads it; a local
   `plugin_id` already used gets a new `-xxxxxx` suffix. A bad entry (invalid
   shape, manifest, schema, missing source, source that is not valid Python, oversized JSON, duplicate) is dropped
   on its own: `plugin_dropped:<id or "invalid">`; in the Home Assistant add-on, an entry

@@ -191,7 +191,18 @@ can be installed several times ("Weather for #paris", "Weather for #lyon"):
 `app/repository/plugins.py`: `PluginRepository` (CRUD, an in-memory copy of the rows
 like `repository/fanout.py`) and `PluginKvRepository` (`get`, `set`, `delete`, `keys`,
 `usage_bytes`, values stored as JSON). `delete(instance_id, keep_data=True)` keeps the
-KV rows and the secrets ("uninstall, keep data"; MSHL-195), under the deleted instance id. Refusals are a
+KV rows and the secrets ("uninstall, keep data"; MSHL-195), under the deleted instance id,
+and records their owner in `plugin_kept_data` (`plugin_id`, `kind`, `repository`, `kept_at`;
+nothing is recorded when the instance had no data). MSHL-366: an install of the same
+`plugin_id` + `kind` + `repository` (never `local`, whose code the user writes) takes the
+latest kept data back inside the `create` transaction (`PluginKeptDataRepository.find`,
+`create(kept=...)`): the KV rows move to the new instance id, the secrets whose field is
+still `writeOnly` in the schema move too and count as present for the required-field
+check (the install `config` can replace them, or clear them with `""`), the rest are
+deleted; the audit row gets `reattached_data: true`. Kept data nobody takes back is
+deleted after 90 days (`KEPT_DATA_RETENTION_S`) by the hourly cleanup
+(`PluginKeptDataRepository.prune`, `services/stale_contacts.py`), which also records
+untracked orphans so their 90 days start. Refusals are a
 `PluginStoreError` with a stable `code` and the field or key names, never a value.
 
 KV bounds (constants in `app/repository/plugins.py`; the `storage` capability
@@ -710,11 +721,16 @@ then `PreparedInstall.commit()` (or `discard()`).
   T22, the index Store M3), so `POST /install` answers 404 `plugin_source_unavailable`.
 - **Download gate.** A remote source is fetched only when `downloads_allowed()` is true:
   `set_download_gate(async callable)`, fail closed (no gate, or a gate that raises, means
-  409 `store_offline`, and no request leaves). The `store_online` setting (MSHL-194) is to
-  be wired here.
-- **Download.** Through `follow_checked_redirects` (`app/net/egress_guard.py`): https only,
-  the source's host allowlist on every hop (5 redirects), public addresses only, no
-  cookies or proxy, 60 s total. The cap is `min(expected_size, 5 MiB)`: the
+  409 `store_offline`, and no request leaves). `app/main.py` wires
+  `set_download_gate(store_egress_allowed)` at startup (MSHL-366), so the gate is the
+  Store consent (`store_online`, MSHL-194).
+- **Download.** Through `store_fetch` (`app/plugins/store_egress.py`, MSHL-366), which
+  checks the consent again (409 `store_offline`) and cancels the download when the Store
+  is turned off mid-way (also 409 `store_offline`), then `follow_checked_redirects`
+  (`app/net/egress_guard.py`): https only, no user info in the URL (`egress_userinfo`),
+  only the hosts in both the source's allowlist and `STORE_ALLOWLIST` on every hop (a
+  source can narrow the list, never widen it; 5 redirects), public addresses only, no
+  cookies or proxy, 60 s total, `User-Agent: Meshloom/<version>`. The cap is `min(expected_size, 5 MiB)`: the
   `Content-Length` is checked before the body and the stream is aborted past the cap
   (`archive_too_large`; `archive_mismatch` `size` when the entry announced less). A host
   or address refused is 409 `download_blocked` (`params.reason`, the guard's code); a
@@ -1047,7 +1063,7 @@ non-admin refused by the permission gate writes no row and changes nothing.
 | `POST /plugins/{id}/test` | admin | `{text, channel?\|contact?}`: one `test: true` `event.message` through `dispatch_test` (no scope or `messages.read` filtering). The sends are captured by the host and never reach the radio send path; the answer is `{result, sends, truncated, logs}` with every string scrubbed of the instance's secrets (`last_error` and `summary` too). 409 `plugins_paused`, 409 `instance_not_running`, 404 `channel_not_found`/`contact_not_found`, 504 `test_timeout`. |
 | `GET /plugins/{id}/logs?limit=` | admin | Tail of the stderr ring (default 200, 1 to 500), lines cut at 1000 characters, scrubbed of the instance's secrets and passed through `redact_text`. Not part of `/api/debug` (asserted). |
 | `GET /plugins/{id}/diagnostic` | admin | Plugin id and version, kind, Meshloom and Python versions, isolation level, status, last error, restarts, effective permission names, the last 50 log lines. No config value. |
-| `DELETE /plugins/{id}?keep_data=` | admin | Stops the process, deletes the row, the KV and the secrets (both kept with `keep_data`, under the old instance id: a new install gets a new id and starts empty), a local plugin's directory, and the shared code of a `bundled`/`custom`/`store` plugin when no other instance uses it; 204. |
+| `DELETE /plugins/{id}?keep_data=` | admin | Stops the process, deletes the row, the KV and the secrets (both kept with `keep_data`, under the old instance id, and taken back by the next install of the same plugin from the same source, or deleted after 90 days: "Data model"), a local plugin's directory, and the shared code of a `bundled`/`custom`/`store` plugin when no other instance uses it; 204. |
 
 There is no "disable until restart" route (the bots' own route was removed in MSHL-192); the global pause (`/plugins/pause`) replaces it. Typed codes are shown by the UI as `errors.<code>` (texts: Store T11a).
 

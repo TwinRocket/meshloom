@@ -5,6 +5,7 @@ Remote archives come through the real egress guard: DNS answers from a table
 request. The archives are built from ``tests/plugin_dev/echo``.
 """
 
+import asyncio
 import hashlib
 import io
 import json
@@ -21,7 +22,7 @@ import httpx
 import pytest
 
 from app.net.egress_guard import HostAllowlist
-from app.plugins import installer
+from app.plugins import installer, store_egress
 from app.plugins.errors import PluginValidationError
 from app.plugins.host import Budgets, PluginManager
 from app.plugins.package import MAX_COMPRESSED_BYTES
@@ -160,10 +161,13 @@ def net(monkeypatch):
 
 @pytest.fixture
 def online(monkeypatch):
+    """The Store consent on: the installer's gate and ``store_fetch`` both read it."""
+
     async def allowed() -> bool:
         return True
 
     monkeypatch.setattr(installer, "_download_gate", allowed)
+    monkeypatch.setattr(store_egress, "store_egress_allowed", allowed)
 
 
 def leftovers(root: Path) -> list[str]:
@@ -193,7 +197,7 @@ async def test_remote_archive_is_checked_extracted_and_moved(tmp_path, net, onli
     assert (root / "acme.echo" / "plugin.py").is_file()
     assert (root / "acme.echo" / "plugin.py").stat().st_mode & 0o777 == 0o644
     assert not (root / "_staging").exists()
-    assert net.requests[0].headers["user-agent"].startswith("meshloom/")
+    assert net.requests[0].headers["user-agent"].startswith("Meshloom/")
 
 
 async def test_redirect_to_an_allowed_host_is_followed(tmp_path, net, online):
@@ -232,6 +236,100 @@ async def test_a_failed_download_is_download_failed(tmp_path, net, online):
     assert (err.value.code, err.value.status) == ("download_failed", 502)
     assert err.value.params == {"http_status": 404}
     assert leftovers(tmp_path / "plugins") == []
+
+
+# --- the Store consent (MSHL-366: downloads go through store_fetch) ----------------
+
+
+async def test_downloads_follow_the_store_consent_even_past_the_gate(tmp_path, net, monkeypatch):
+    async def allowed() -> bool:
+        return True
+
+    async def refused() -> bool:
+        return False
+
+    # The gate let it through (a stale check, a race): store_fetch still refuses.
+    monkeypatch.setattr(installer, "_download_gate", allowed)
+    monkeypatch.setattr(store_egress, "store_egress_allowed", refused)
+    data = build_archive(tmp_path)
+    net.serve(ARCHIVE_URL, data)
+    with pytest.raises(installer.InstallError) as err:
+        await installer.prepare_install(remote(data), tmp_path / "plugins", plugin_id="acme.echo")
+    assert (err.value.code, err.value.status) == ("store_offline", 409)
+    assert net.requests == []
+    assert leftovers(tmp_path / "plugins") == []
+
+
+async def test_the_gate_is_the_store_consent(tmp_path, net, monkeypatch, test_db):
+    from app.repository import AppSettingsRepository
+
+    monkeypatch.setattr(installer, "_download_gate", None)
+    installer.set_download_gate(store_egress.store_egress_allowed)
+    data = build_archive(tmp_path)
+    net.serve(ARCHIVE_URL, data)
+    assert not await installer.downloads_allowed()
+    with pytest.raises(installer.InstallError) as err:
+        await installer.prepare_install(remote(data), tmp_path / "plugins", plugin_id="acme.echo")
+    assert err.value.code == "store_offline"
+    assert net.requests == []
+    await AppSettingsRepository.update(store_online=True)
+    try:
+        assert await installer.downloads_allowed()
+        prepared = await installer.prepare_install(
+            remote(data), tmp_path / "plugins", plugin_id="acme.echo"
+        )
+        prepared.discard()
+    finally:
+        await store_egress.reset_store_egress_for_tests()
+
+
+async def test_turning_the_store_off_cancels_a_download_in_flight(tmp_path, net, online):
+    started = asyncio.Event()
+
+    class Hanging(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            started.set()
+            await asyncio.Event().wait()
+            yield b""
+
+        async def aclose(self) -> None:
+            return None
+
+    data = build_archive(tmp_path)
+    net.routes[ARCHIVE_URL] = lambda: httpx.Response(200, stream=Hanging())
+    root = tmp_path / "plugins"
+    pending = asyncio.create_task(
+        installer.prepare_install(remote(data), root, plugin_id="acme.echo")
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 3)
+        await store_egress.note_store_online_changed(False)
+        with pytest.raises(installer.InstallError) as err:
+            await asyncio.wait_for(pending, 3)
+        assert (err.value.code, err.value.status) == ("store_offline", 409)
+        assert leftovers(root) in ([], ["_staging"])
+    finally:
+        await store_egress.reset_store_egress_for_tests()
+
+
+async def test_an_archive_url_with_user_info_is_refused(tmp_path, net, online):
+    data = build_archive(tmp_path)
+    source = remote(data, archive_url="https://user:pw@github.com/acme/echo/plugin.zip")
+    with pytest.raises(installer.InstallError) as err:
+        await installer.prepare_install(source, tmp_path / "plugins", plugin_id="acme.echo")
+    assert err.value.code == "download_blocked"
+    assert net.requests == []
+
+
+async def test_a_source_cannot_widen_the_store_allowlist(tmp_path, net, online):
+    data = build_archive(tmp_path)
+    url = "https://evil.example.org/plugin.zip"
+    net.serve(url, data)
+    source = remote(data, archive_url=url, allowed_hosts=HostAllowlist.of("evil.example.org"))
+    with pytest.raises(installer.InstallError) as err:
+        await installer.prepare_install(source, tmp_path / "plugins", plugin_id="acme.echo")
+    assert err.value.code == "download_blocked"
+    assert net.requests == []
 
 
 async def test_sha256_mismatch_leaves_nothing(tmp_path, net, online):
@@ -539,29 +637,196 @@ async def test_missing_required_config_is_config_required_and_no_start(
     assert manager.get(row["instance_id"]) is None
 
 
+async def _secrets(test_db, instance_id: str) -> list[str]:
+    async with test_db.readonly() as conn:
+        async with conn.execute(
+            "SELECT field FROM plugin_secrets WHERE instance_id = ?", (instance_id,)
+        ) as cursor:
+            return [r[0] for r in await cursor.fetchall()]
+
+
+async def _kept(test_db) -> list[tuple[str, str, str, str | None]]:
+    async with test_db.readonly() as conn:
+        async with conn.execute(
+            "SELECT instance_id, plugin_id, kind, repository FROM plugin_kept_data"
+        ) as cursor:
+            return [tuple(r) for r in await cursor.fetchall()]
+
+
 async def test_keep_data_keeps_the_kv_and_the_secrets(api, manager, catalog, test_db, tmp_path):
     sources, _ = catalog
     sources["acme.echo"] = build_archive(tmp_path, schema=SCHEMA)
-
-    async def secrets(instance_id: str) -> list[str]:
-        async with test_db.readonly() as conn:
-            async with conn.execute(
-                "SELECT field FROM plugin_secrets WHERE instance_id = ?", (instance_id,)
-            ) as cursor:
-                return [r[0] for r in await cursor.fetchall()]
-
     for keep in (True, False):
-        response = await install(api, config={"greeting": "hi", "token": SECRET})
+        response = await install(
+            api, repository=f"acme/{keep}", config={"greeting": "hi", "token": SECRET}
+        )
         assert response.status_code == 201, response.text
         assert SECRET not in response.text
         iid = response.json()["instance_id"]
         await PluginKvRepository.set(iid, "k", 1)
-        assert await secrets(iid) == ["token"]
+        assert await _secrets(test_db, iid) == ["token"]
         deleted = await api.delete(f"/api/plugins/{iid}?keep_data={str(keep).lower()}")
         assert deleted.status_code == 204
         assert await PluginKvRepository.keys(iid) == (["k"] if keep else [])
-        assert await secrets(iid) == (["token"] if keep else [])
+        assert await _secrets(test_db, iid) == (["token"] if keep else [])
         assert leftovers(manager.plugins_root()) == []
+    # Only the kept uninstall is recorded, with its owner.
+    assert [row[1:] for row in await _kept(test_db)] == [("acme.echo", "custom", "acme/True")]
+
+
+async def test_a_reinstall_takes_the_kept_data_back(api, manager, catalog, test_db, tmp_path):
+    from app.repository.plugins import PluginRepository as Repo
+
+    sources, _ = catalog
+    sources["acme.echo"] = build_archive(tmp_path, schema=SCHEMA)
+    first = await install(api, config={"greeting": "hi", "token": SECRET})
+    old = first.json()["instance_id"]
+    await PluginKvRepository.set(old, "k", 1)
+    assert (await api.delete(f"/api/plugins/{old}?keep_data=true")).status_code == 204
+
+    again = await install(api, config={"greeting": "hello"})
+    assert again.status_code == 201, again.text
+    new = again.json()["instance_id"]
+    assert new != old
+    assert SECRET not in again.text
+    assert again.json()["config"]["token"] == "********"
+    assert await PluginKvRepository.keys(new) == ["k"]
+    assert await _secrets(test_db, new) == ["token"]
+    assert (await Repo.config_for_init(new))["token"] == SECRET
+    assert await PluginKvRepository.keys(old) == []
+    assert await _secrets(test_db, old) == []
+    assert await _kept(test_db) == []
+
+
+async def test_a_reinstall_can_replace_or_clear_a_kept_secret(
+    api, manager, catalog, test_db, tmp_path
+):
+    sources, _ = catalog
+    sources["acme.echo"] = build_archive(tmp_path, schema=SCHEMA)
+    for replacement, expected in (("tok-new", ["token"]), ("", [])):
+        first = await install(api, config={"greeting": "hi", "token": SECRET})
+        old = first.json()["instance_id"]
+        assert (await api.delete(f"/api/plugins/{old}?keep_data=true")).status_code == 204
+        again = await install(api, config={"greeting": "hi", "token": replacement})
+        new = again.json()["instance_id"]
+        assert await _secrets(test_db, new) == expected
+        if expected:
+            assert (await PluginRepository.config_for_init(new))["token"] == replacement
+        assert await _kept(test_db) == []
+        assert (await api.delete(f"/api/plugins/{new}")).status_code == 204
+
+
+async def test_another_source_never_gets_the_kept_data(api, manager, catalog, test_db, tmp_path):
+    sources, _ = catalog
+    sources["acme.echo"] = build_archive(tmp_path, schema=SCHEMA)
+    first = await install(api, config={"greeting": "hi", "token": SECRET})
+    old = first.json()["instance_id"]
+    await PluginKvRepository.set(old, "k", 1)
+    assert (await api.delete(f"/api/plugins/{old}?keep_data=true")).status_code == 204
+
+    other = await install(api, repository="mallory/echo", config={"greeting": "hi"})
+    assert other.status_code == 201, other.text
+    new = other.json()["instance_id"]
+    assert await PluginKvRepository.keys(new) == []
+    assert await _secrets(test_db, new) == []
+    assert "token" not in other.json()["config"]
+    # Still kept for the right source.
+    assert [row[0] for row in await _kept(test_db)] == [old]
+    assert await PluginKvRepository.keys(old) == ["k"]
+
+
+async def test_kept_data_goes_after_the_retention(test_db):
+    from app.repository.plugins import KEPT_DATA_RETENTION_S, PluginKeptDataRepository
+
+    row = await PluginRepository.create(
+        plugin_id="acme.echo",
+        label="Echo",
+        kind="custom",
+        version="1.0.0",
+        manifest={},
+        config_schema=SCHEMA,
+        config={"greeting": "hi", "token": SECRET},
+        repository="acme/echo",
+    )
+    iid = row["instance_id"]
+    await PluginKvRepository.set(iid, "k", 1)
+    await PluginRepository.delete(iid, keep_data=True)
+    async with test_db.readonly() as conn:
+        async with conn.execute("SELECT kept_at FROM plugin_kept_data") as cursor:
+            kept_at = (await cursor.fetchone())[0]
+    # Rows nobody owns (left before migration 124) are recorded, not deleted at once.
+    async with test_db.tx() as conn:
+        await conn.execute(
+            "INSERT INTO plugin_kv (instance_id, key, value, updated_at) VALUES ('ghost', 'k', '1', 0)"
+        )
+    assert await PluginKeptDataRepository.prune(kept_at + 10) == 0
+    assert sorted(r[0] for r in await _kept(test_db)) == sorted([iid, "ghost"])
+    assert await PluginKeptDataRepository.find("acme.echo", "custom", "acme/echo") is not None
+    assert await PluginKeptDataRepository.prune(kept_at + KEPT_DATA_RETENTION_S) == 1
+    assert await PluginKvRepository.keys(iid) == []
+    assert await _secrets(test_db, iid) == []
+    assert [r[0] for r in await _kept(test_db)] == ["ghost"]
+    assert await PluginKeptDataRepository.find("acme.echo", "custom", "acme/echo") is None
+    assert await PluginKeptDataRepository.prune(kept_at + 10 + KEPT_DATA_RETENTION_S) == 1
+    assert await PluginKvRepository.keys("ghost") == []
+    assert await _kept(test_db) == []
+
+
+async def test_local_kept_data_is_never_taken_back_by_an_install(test_db):
+    from app.repository.plugins import PluginKeptDataRepository
+
+    row = await PluginRepository.create(
+        plugin_id="me.local", label="Local", kind="local", version="1", manifest={}
+    )
+    await PluginKvRepository.set(row["instance_id"], "k", 1)
+    await PluginRepository.delete(row["instance_id"], keep_data=True)
+    assert [r[2] for r in await _kept(test_db)] == ["local"]
+    assert await PluginKeptDataRepository.find("me.local", "local", None) is None
+
+
+async def test_keep_data_without_data_records_nothing(test_db):
+    row = await PluginRepository.create(
+        plugin_id="acme.echo", label="Echo", kind="custom", version="1", manifest={}
+    )
+    await PluginRepository.delete(row["instance_id"], keep_data=True)
+    assert await _kept(test_db) == []
+
+
+async def test_a_restore_reuses_an_id_only_for_the_same_owner(test_db):
+    from app.repository.plugins import PluginKeptDataRepository
+
+    row = await PluginRepository.create(
+        plugin_id="acme.echo",
+        label="Echo",
+        kind="custom",
+        version="1",
+        manifest={},
+        repository="acme/echo",
+    )
+    iid = row["instance_id"]
+    await PluginKvRepository.set(iid, "k", 1)
+    await PluginRepository.delete(iid, keep_data=True)
+    async with test_db.tx() as conn:
+        assert not await PluginKeptDataRepository.restorable_id(
+            conn, iid, "acme.echo", "custom", "mallory/echo"
+        )
+        assert not await PluginKeptDataRepository.restorable_id(
+            conn, iid, "other.plugin", "custom", "acme/echo"
+        )
+        assert await PluginKeptDataRepository.restorable_id(
+            conn, "fresh-id", "acme.echo", "custom", "acme/echo"
+        )
+        await conn.execute(
+            "INSERT INTO plugin_kv (instance_id, key, value, updated_at) VALUES ('ghost', 'k', '1', 0)"
+        )
+        # Data with no record: never handed to a restored row.
+        assert not await PluginKeptDataRepository.restorable_id(
+            conn, "ghost", "acme.echo", "custom", "acme/echo"
+        )
+        assert await PluginKeptDataRepository.restorable_id(
+            conn, iid, "acme.echo", "custom", "acme/echo"
+        )
+    assert [r[0] for r in await _kept(test_db)] == []
 
 
 async def test_archive_mismatch_through_the_route(api, manager, net, monkeypatch, online, tmp_path):

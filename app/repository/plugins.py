@@ -21,6 +21,12 @@ for a field with no stored value is refused (``secret_required``): the mask is
 never stored as a value. Secrets are stored in clear until the Notifications key
 file (``app/secret_store.py``) exists, like the repeater passwords today; never
 exported (no JSON backup section, emptied in the SQLite download).
+
+An uninstall with ``keep_data`` leaves the KV and secret rows of an ``instance_id``
+that no longer exists and records their owner in ``plugin_kept_data``
+(``PluginKeptDataRepository``): the next install of the same ``plugin_id`` from the same
+source (``kind`` and ``repository``, never ``local``) takes them back, and
+``prune()`` deletes them ``KEPT_DATA_RETENTION_S`` after the uninstall.
 """
 
 import asyncio
@@ -30,6 +36,7 @@ import time
 import unicodedata
 import uuid
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import aiosqlite
@@ -259,6 +266,15 @@ async def _update_in_conn(
     return await _get_in_conn(conn, instance_id)
 
 
+@dataclass(frozen=True)
+class KeptData:
+    """The data an uninstall kept, as found for a new install: the old ``instance_id``
+    and the names of its stored secrets (never their values)."""
+
+    instance_id: str
+    secret_fields: frozenset[str]
+
+
 class PluginRepository:
     """CRUD for plugin instances, secrets included (write-only)."""
 
@@ -283,13 +299,19 @@ class PluginRepository:
         status: str = "installed",
         attention: Mapping[str, Any] | None = None,
         instance_id: str | None = None,
+        kept: KeptData | None = None,
     ) -> dict[str, Any]:
         """Create an instance (a new uuid unless ``instance_id`` is given).
-        ``config_schema`` is the plugin's validated ``config.schema.json``."""
+        ``config_schema`` is the plugin's validated ``config.schema.json``. ``kept``
+        (from ``PluginKeptDataRepository.find``) is the data an uninstall kept: its KV
+        and the secrets the schema still declares move to the new instance, in the same
+        transaction, unless ``config`` replaces or clears them."""
         new_id = instance_id or str(uuid.uuid4())
         now = int(time.time())
         schema = dict(config_schema or {})
-        plain, writes = _split_config(config or {}, secret_fields(schema), frozenset())
+        names = secret_fields(schema)
+        stored = kept.secret_fields & names if kept is not None else frozenset()
+        plain, writes = _split_config(config or {}, names, stored)
         async with db.tx() as conn:
             async with conn.execute(
                 "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM plugins"
@@ -329,6 +351,8 @@ class PluginRepository:
                     sort_order,
                 ),
             )
+            if kept is not None:
+                await _adopt_in_conn(conn, kept, new_id, names)
             await _write_secrets_in_conn(conn, new_id, writes, now)
             result = await _get_in_conn(conn, new_id)
         assert result is not None
@@ -389,8 +413,10 @@ class PluginRepository:
     @staticmethod
     async def delete(instance_id: str, *, keep_data: bool = False) -> None:
         """Remove an instance and its send counters; its KV and secrets too unless
-        ``keep_data``."""
+        ``keep_data``, which records them in ``plugin_kept_data`` instead."""
         async with db.tx() as conn:
+            if keep_data:
+                await _keep_in_conn(conn, instance_id, int(time.time()))
             await conn.execute("DELETE FROM plugins WHERE instance_id = ?", (instance_id,))
             await conn.execute(
                 "DELETE FROM plugin_send_quota WHERE instance_id = ?", (instance_id,)
@@ -423,6 +449,158 @@ class PluginRepository:
             ) as cursor:
                 config.update({r["field"]: r["value"] for r in await cursor.fetchall()})
         return config
+
+
+# -- Data kept by an uninstall (plugin_kept_data, migration 124) ---------------------
+
+# How long an uninstall with keep_data keeps the KV and secrets nobody took back.
+KEPT_DATA_RETENTION_S = 90 * 24 * 3600
+# Kinds whose kept data a new install can take back. A local plugin's plugin_id is
+# whatever its pasted manifest says, so another local plugin could claim it.
+_REATTACHABLE_KINDS = frozenset({"bundled", "store", "custom"})
+
+
+async def _has_data(conn: aiosqlite.Connection, instance_id: str) -> bool:
+    async with conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM plugin_kv WHERE instance_id = ?)"
+        " OR EXISTS (SELECT 1 FROM plugin_secrets WHERE instance_id = ?)",
+        (instance_id, instance_id),
+    ) as cursor:
+        row = await cursor.fetchone()
+    return bool(row and row[0])
+
+
+async def _keep_in_conn(conn: aiosqlite.Connection, instance_id: str, now: int) -> None:
+    """Record who owned the data of an instance being uninstalled with ``keep_data``
+    (nothing when it has none)."""
+    async with conn.execute(
+        "SELECT plugin_id, kind, repository FROM plugins WHERE instance_id = ?", (instance_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None or not await _has_data(conn, instance_id):
+        return
+    await conn.execute(
+        """
+        INSERT OR REPLACE INTO plugin_kept_data
+            (instance_id, plugin_id, kind, repository, kept_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (instance_id, row["plugin_id"], row["kind"], row["repository"], now),
+    )
+
+
+async def _adopt_in_conn(
+    conn: aiosqlite.Connection, kept: KeptData, new_id: str, secret_names: frozenset[str]
+) -> None:
+    """Move the kept KV and the secrets ``secret_names`` still declares to ``new_id``;
+    the other kept secrets are deleted. Does nothing if the record went meanwhile."""
+    async with conn.execute(
+        "DELETE FROM plugin_kept_data WHERE instance_id = ?", (kept.instance_id,)
+    ) as cursor:
+        if cursor.rowcount < 1:
+            return
+    await conn.execute(
+        "UPDATE plugin_kv SET instance_id = ? WHERE instance_id = ?", (new_id, kept.instance_id)
+    )
+    for field in sorted(secret_names):
+        await conn.execute(
+            "UPDATE plugin_secrets SET instance_id = ? WHERE instance_id = ? AND field = ?",
+            (new_id, kept.instance_id, field),
+        )
+    await conn.execute("DELETE FROM plugin_secrets WHERE instance_id = ?", (kept.instance_id,))
+
+
+class PluginKeptDataRepository:
+    """The KV and secrets an uninstall with ``keep_data`` left (``plugin_kept_data``)."""
+
+    @staticmethod
+    async def find(plugin_id: str, kind: str, repository: str | None) -> KeptData | None:
+        """The latest data kept by an uninstall of ``plugin_id`` from the same source
+        (``kind`` and ``repository``), or ``None``; never for a ``local`` plugin."""
+        if kind not in _REATTACHABLE_KINDS:
+            return None
+        async with db.readonly() as conn:
+            async with conn.execute(
+                """
+                SELECT instance_id FROM plugin_kept_data
+                WHERE plugin_id = ? AND kind = ? AND repository IS ?
+                  AND instance_id NOT IN (SELECT instance_id FROM plugins)
+                ORDER BY kept_at DESC, instance_id LIMIT 1
+                """,
+                (plugin_id, kind, repository),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return None
+            async with conn.execute(
+                "SELECT field FROM plugin_secrets WHERE instance_id = ?", (row["instance_id"],)
+            ) as cursor:
+                fields = frozenset(r["field"] for r in await cursor.fetchall())
+        return KeptData(row["instance_id"], fields)
+
+    @staticmethod
+    async def restorable_id(
+        conn: aiosqlite.Connection,
+        instance_id: str,
+        plugin_id: str,
+        kind: str,
+        repository: str | None,
+    ) -> bool:
+        """Whether a backup restore may create ``instance_id`` (inside its transaction).
+        Kept data under that id goes to the new row only when it was kept from the same
+        plugin and source; any other data under it (another owner, or none recorded)
+        means the restore must pick a new id. On ``True`` the record is dropped: the
+        data is the restored instance's again."""
+        async with conn.execute(
+            "SELECT plugin_id, kind, repository FROM plugin_kept_data WHERE instance_id = ?",
+            (instance_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return not await _has_data(conn, instance_id)
+        if (row["plugin_id"], row["kind"], row["repository"]) != (plugin_id, kind, repository):
+            return False
+        await conn.execute("DELETE FROM plugin_kept_data WHERE instance_id = ?", (instance_id,))
+        return True
+
+    @staticmethod
+    async def prune(now: int | None = None) -> int:
+        """Housekeeping (hourly): drop the records of ids that have an instance again,
+        delete the data kept more than ``KEPT_DATA_RETENTION_S`` ago, and record the
+        KV or secret rows nobody owns so their retention starts. Returns the number of
+        kept data sets deleted."""
+        now = int(time.time()) if now is None else now
+        async with db.tx() as conn:
+            await conn.execute(
+                "DELETE FROM plugin_kept_data WHERE instance_id IN (SELECT instance_id FROM plugins)"
+            )
+            async with conn.execute(
+                "SELECT instance_id FROM plugin_kept_data WHERE kept_at <= ?",
+                (now - KEPT_DATA_RETENTION_S,),
+            ) as cursor:
+                expired = [r["instance_id"] for r in await cursor.fetchall()]
+            for instance_id in expired:
+                for table in ("plugin_kv", "plugin_secrets", "plugin_kept_data"):
+                    await conn.execute(
+                        f"DELETE FROM {table} WHERE instance_id = ?",  # noqa: S608
+                        (instance_id,),
+                    )
+            await conn.execute(
+                """
+                INSERT OR IGNORE INTO plugin_kept_data
+                    (instance_id, plugin_id, kind, repository, kept_at)
+                SELECT instance_id, '', '', NULL, ? FROM (
+                    SELECT instance_id FROM plugin_kv
+                    UNION
+                    SELECT instance_id FROM plugin_secrets
+                )
+                WHERE instance_id NOT IN (SELECT instance_id FROM plugins)
+                """,
+                (now,),
+            )
+        if expired:
+            logger.info("Deleted the kept data of %d uninstalled plugin instance(s)", len(expired))
+        return len(expired)
 
 
 def _check_kv_key(key: str) -> None:

@@ -5,10 +5,14 @@ Every installed kind goes through one pipeline (`prepare_install` then
 `PreparedInstall.commit`): an `ArchiveSource` gives the source's entry for the plugin
 (id, version, permissions) and the archive with its sha256. A remote archive
 (`RemoteArchiveSource`, tiers `custom` and `store`) is downloaded only when the
-download gate says yes (`set_download_gate`; fail closed: no gate, no download), through
-the egress guard (`app/net/egress_guard.py`: https, allowlisted hosts, public addresses,
-checked redirects), with the declared length checked first and the 5 MiB cap enforced
-while streaming; its size and sha256 must match the entry before anything is written.
+download gate says yes (`set_download_gate`, wired at startup to the Store consent
+`store_egress_allowed`; fail closed: no gate, no download), through the Store egress
+gate `store_fetch` (`app/plugins/store_egress.py`: the consent checked again, the
+download cancelled when the Store is turned off, `STORE_ALLOWLIST` narrowed by the
+source's hosts, no user info in the URL) and so the egress guard
+(`app/net/egress_guard.py`: https, public addresses, checked redirects), with the
+declared length checked first and the 5 MiB cap enforced while streaming; its size and
+sha256 must match the entry before anything is written.
 The archive is then validated and extracted (`app/plugins/package.py`: zip-slip,
 symlinks, special files, size and entry caps) into `<data>/plugins/_staging/<uuid>/`,
 its manifest must equal the entry (id, version, permissions), and the tree is moved
@@ -43,7 +47,7 @@ from typing import Any, Literal, TypeGuard
 
 import httpx
 
-from app.net.egress_guard import EgressBlocked, HostAllowlist, follow_checked_redirects
+from app.net.egress_guard import EgressBlocked, HostAllowlist
 from app.plugins.errors import PluginValidationError
 from app.plugins.package import (
     MAX_COMPRESSED_BYTES,
@@ -372,7 +376,6 @@ Tier = Literal["bundled", "custom", "store"]
 DOWNLOAD_TIMEOUT = 60.0
 DOWNLOAD_MAX_REDIRECTS = 5
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
-_HTTPS = frozenset({"https"})
 
 
 class InstallError(Exception):
@@ -443,7 +446,7 @@ class BundledSource(ArchiveSource):
 class RemoteArchiveSource(ArchiveSource):
     """An archive at an ``https://`` URL on a fixed set of hosts, announced by a source
     (a custom repository, the Store index). The sha256 is mandatory: without it nothing
-    is downloaded."""
+    is downloaded. ``allowed_hosts`` can only narrow ``STORE_ALLOWLIST``."""
 
     def __init__(
         self,
@@ -499,26 +502,27 @@ class RemoteArchiveSource(ArchiveSource):
 
 
 async def download_archive(url: str, *, allowed_hosts: HostAllowlist, max_bytes: int) -> bytes:
-    """GET ``url`` through the egress guard: https only, the allowlisted hosts on every
-    redirect hop, public addresses only, ``Content-Length`` checked first and the body
-    aborted as soon as it streams past ``max_bytes``."""
-    from app.version_info import get_app_build_info
+    """GET ``url`` through the Store egress gate (``store_fetch``): refused
+    (``store_offline``) while the Store consent is off and cancelled when it is turned
+    off mid-download; https only, the hosts in both ``allowed_hosts`` and
+    ``STORE_ALLOWLIST`` on every redirect hop, no user info, public addresses only,
+    ``Content-Length`` checked first and the body aborted as soon as it streams past
+    ``max_bytes``."""
+    from app.plugins.store_egress import StoreOffline, store_fetch
 
     try:
-        response = await follow_checked_redirects(
+        response = await store_fetch(
             "GET",
             url,
-            timeout=httpx.Timeout(15.0),
             allowed_hosts=allowed_hosts,
-            schemes=_HTTPS,
+            timeout=httpx.Timeout(15.0),
             max_redirects=DOWNLOAD_MAX_REDIRECTS,
             max_response_bytes=max_bytes,
             total_timeout=DOWNLOAD_TIMEOUT,
-            headers={
-                "User-Agent": f"meshloom/{get_app_build_info().version}",
-                "Accept": "application/octet-stream",
-            },
+            headers={"Accept": "application/octet-stream"},
         )
+    except StoreOffline:
+        raise InstallError("store_offline", 409) from None
     except EgressBlocked as exc:
         if exc.code == "egress_response_too_large":
             raise InstallError("archive_too_large") from None
@@ -530,7 +534,9 @@ async def download_archive(url: str, *, allowed_hosts: HostAllowlist, max_bytes:
     return response.content
 
 
-# Store egress (MSHL-194): remote downloads are refused until a gate says yes.
+# Store egress (MSHL-194): remote downloads are refused until a gate says yes. The app
+# wires `store_egress_allowed` at startup (`app/main.py`); `download_archive` checks the
+# consent again through `store_fetch`.
 DownloadGate = Callable[[], Awaitable[bool]]
 
 
