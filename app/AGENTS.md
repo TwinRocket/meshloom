@@ -287,7 +287,8 @@ Community guard.
   The wrapper is shipped at `/opt/meshloom/.venv/bin/meshloom-admin` (`nfpm.yaml.tmpl`)
   and `/usr/local/bin/meshloom-admin` (`Dockerfile`; the add-on is `FROM` that image).
   On the package it must run as root (also linked as `/usr/bin/meshloom-admin`): it parses
-  `/etc/meshloom/meshloom.env` (root:meshloom 0640) as data, never sources it, and refuses
+  `/etc/meshloom/meshloom.env` (root:root 0640, nfpm `file_info`; directory root:meshloom 0750,
+  `postinstall.sh`) as data, never sources it, and refuses
   it unless it and its directory are root-owned, not group/world-writable and not a link
   (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with `runuser`
   (`--pty` when stdin, stdout and stderr are terminals). It runs python with `-P` so a local `app/` cannot shadow the

@@ -5,7 +5,7 @@
 # One wrapper for every install kind that ships a Python tree:
 #   - deb/rpm and the RPi image: /opt/meshloom/.venv/bin/meshloom-admin, also
 #     linked as /usr/bin/meshloom-admin. Run it with sudo: it reads
-#     /etc/meshloom/meshloom.env (root:meshloom 0640, refused unless owned by root
+#     /etc/meshloom/meshloom.env (root:root 0640 in root:meshloom 0750, refused unless owned by root
 #     and not group- or world-writable, nor a link), then drops to the `meshloom`
 #     user, which owns the database, so SQLite never leaves root-owned -wal files.
 #     With a terminal on stdin, stdout and stderr, the child gets its own pty
@@ -71,7 +71,7 @@ if [ "$APP" = "$PKG_ROOT" ]; then
                 || [ -z "$(find "$env_dir" -prune -user "$root_uid" ! -perm -020 ! -perm -002)" ]; then
                 echo "meshloom-admin: refusing $env_file: it must be a regular file owned by root" \
                     "in a root-owned directory, neither group- nor world-writable" \
-                    "(chown root:meshloom; chmod 0640); or pass --db" >&2
+                    "(chown root:root; chmod 0640); or pass --db" >&2
                 exit 1
             fi
             if [ ! -r "$env_file" ]; then
