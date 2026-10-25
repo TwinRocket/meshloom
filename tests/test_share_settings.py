@@ -154,6 +154,7 @@ async def test_json_export_leaves_the_consent_out(test_db):
     )
     dumped = (await export_json()).model_dump(mode="json")
     assert "share_enabled" not in dumped["settings"]
+    assert "share_effective" not in dumped["settings"]
     assert "share_terms_version" not in dumped["settings"]
     assert "share_terms_accepted_at" not in dumped["settings"]
     assert dumped["settings"]["share_shorten_mode"] == "never"
@@ -238,3 +239,29 @@ async def test_acceptance_without_enabling_is_refused(test_db):
         await update_settings(AppSettingsUpdate(share_terms_accepted=True))
     assert refused.value.status_code == 422
     assert (await AppSettingsRepository.get()).share_terms_version == 0
+
+
+@pytest.mark.asyncio
+async def test_share_effective_follows_the_accepted_terms(test_db, monkeypatch):
+    """``share_enabled`` is the stored choice, ``share_effective`` what is actually on."""
+    from app.routers.settings import get_settings
+
+    assert (await get_settings()).share_effective is False
+
+    await update_settings(AppSettingsUpdate(share_enabled=True, share_terms_accepted=True))
+    settings = await get_settings()
+    assert settings.share_enabled is True
+    assert settings.share_effective is True
+    assert await share.share_egress_state() is not None
+
+    # The terms moved on since the owner accepted: the choice stays, the effect stops.
+    monkeypatch.setattr(share, "SHARE_TERMS_VERSION", SHARE_TERMS_VERSION + 1)
+    settings = await get_settings()
+    assert settings.share_enabled is True
+    assert settings.share_effective is False
+    assert await share.share_egress_state() is None
+
+    await update_settings(AppSettingsUpdate(share_enabled=False))
+    settings = await get_settings()
+    assert settings.share_enabled is False
+    assert settings.share_effective is False

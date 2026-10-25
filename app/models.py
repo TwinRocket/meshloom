@@ -1552,7 +1552,12 @@ class AppSettingsView(BaseModel):
 
 
 # Consent state: never written to a backup file nor restored.
-_CONSENT_FIELDS = {"share_enabled", "share_terms_version", "share_terms_accepted_at"}
+_CONSENT_FIELDS = {
+    "share_enabled",
+    "share_effective",
+    "share_terms_version",
+    "share_terms_accepted_at",
+}
 
 
 class AppSettings(BaseModel):
@@ -1733,6 +1738,15 @@ class AppSettings(BaseModel):
             "Instance-level consent to the link and file sharing service (shortened "
             "links, shared images). Off: nothing is ever sent to it. Never restored "
             "from a backup"
+        ),
+    )
+    share_effective: bool = Field(
+        default=False,
+        description=(
+            "Computed: sharing is actually on, that is share_enabled and the accepted terms "
+            "are the current version (the state share_egress_state() and "
+            "GET /api/share/status report). share_enabled alone is the stored choice and "
+            "stays true when the terms changed since. Not stored, never restored from a backup"
         ),
     )
     share_terms_version: int = Field(

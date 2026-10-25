@@ -1564,6 +1564,29 @@ export interface ShareStatus {
   preview_policy: SharePreviewPolicy;
 }
 
+/**
+ * Terms-acceptance fields of `GET /api/share/status` and `PATCH /api/settings` (MSHL-292).
+ * The backend (`ShareStatus`, `AppSettingsUpdate`) is the source of truth.
+ *
+ * The terms version is a server-side constant: the consent dialog never sends it, only
+ * `share_terms_accepted: true` with `share_enabled: true`, and the server records its
+ * own current version and the time.
+ */
+export interface ShareTermsFields {
+  /** Current version of the share terms (server-side constant). */
+  terms_version: number;
+  /** Version the owner accepted, 0 when never. */
+  terms_accepted_version: number;
+  /** Unix time of the recorded acceptance, null when never accepted. */
+  terms_accepted_at: number | null;
+  /** Sharing was turned on under older terms: it is off until accepted again. */
+  terms_stale: boolean;
+}
+
+export type ShareStatusWithTerms = ShareStatus & ShareTermsFields;
+
+export type ShareSettingsUpdate = AppSettingsUpdate & { share_terms_accepted?: boolean };
+
 /** `POST /api/share/links` answer. */
 export interface ShareLink {
   id: string;
@@ -1613,6 +1636,8 @@ export interface AppSettings {
   radio_offline_grace_s?: number;
   /** Consent to the link and file sharing service. Off by default; never restored from a backup. */
   share_enabled?: boolean;
+  /** Computed: `share_enabled` and the accepted terms are current. Read-only, not stored. */
+  share_effective?: boolean;
   share_shorten_mode?: ShareShortenMode;
   share_preview_policy?: SharePreviewPolicy;
   notification_language?: NotificationLanguage;

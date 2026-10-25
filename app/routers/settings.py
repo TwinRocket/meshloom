@@ -54,6 +54,7 @@ from app.services.backup_crypto import (
     BackupCryptoError,
     encrypt_backup_async,
 )
+from app.services.share import share_is_effective, share_terms_current
 from app.telemetry_interval import (
     DEFAULT_TELEMETRY_INTERVAL_HOURS,
     TELEMETRY_INTERVAL_OPTIONS_HOURS,
@@ -374,6 +375,7 @@ async def _present_settings(settings: AppSettings) -> AppSettings:
             )
         }
     )
+    redacted = redacted.model_copy(update={"share_effective": share_is_effective(settings)})
     return await annotate_directory_available(redacted)
 
 
@@ -563,11 +565,12 @@ async def update_settings(
         if update.share_enabled is not True:
             raise HTTPException(status_code=422, detail="share_terms_accepted needs share_enabled")
         kwargs["share_terms_accepted"] = True
-    if update.share_enabled is True and update.share_terms_accepted is not True:
-        from app.services.share import SHARE_TERMS_VERSION
-
-        if (await AppSettingsRepository.get()).share_terms_version != SHARE_TERMS_VERSION:
-            raise HTTPException(status_code=409, detail="share_terms_required")
+    if (
+        update.share_enabled is True
+        and update.share_terms_accepted is not True
+        and not share_terms_current(await AppSettingsRepository.get())
+    ):
+        raise HTTPException(status_code=409, detail="share_terms_required")
     if update.share_shorten_mode is not None:
         kwargs["share_shorten_mode"] = update.share_shorten_mode
     if update.notification_language is not None:

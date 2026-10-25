@@ -364,7 +364,10 @@ run as root).
   `SHARE_TERMS_VERSION` and the time. `share_enabled: true` without an acceptance of the
   current version is a 409 `share_terms_required`. `GET /api/share/status` returns
   `terms_version`, `terms_accepted_version`, `terms_accepted_at` and `terms_stale`; its
-  `enabled` is the effective state (consent and current terms). No `/api/share/status`
+  `enabled` is the effective state (consent and current terms). `GET /api/settings` keeps
+  `share_enabled` as the stored choice (the settings toggle edits it, and it stays true after a
+  terms bump) and adds the computed, unstored `share_effective` (`share_enabled` and current
+  terms: what `share_egress_state()` uses), excluded from backups like the consent. No `/api/share/status`
   contract exists in `meshloom-community/docs/contracts` (checked): no `CONTRACTS:` commit.
 - Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
   also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)

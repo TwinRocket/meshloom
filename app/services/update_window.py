@@ -3,13 +3,17 @@
 Weekdays use ISO Monday=0 .. Sunday=6, matching ``datetime.weekday()``.
 Equal start/end means the whole selected calendar day. An empty weekday
 list never opens a window.
+
+All wall-clock arithmetic goes through naive local datetimes localized with
+``astimezone()``, so days that are 23 or 25 hours long (DST switches) keep the
+configured ``HH:MM`` (``tests/test_update_window.py``, ``TestDstSwitch``).
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 
@@ -56,9 +60,30 @@ def host_tz_name() -> str:
 
 
 def _as_local(now: datetime) -> datetime:
-    if now.tzinfo is None:
-        return now.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    """Return ``now`` as an aware datetime in the host timezone.
+
+    A naive value is read as host wall-clock time. ``astimezone()`` on a naive
+    datetime resolves the UTC offset in force at *that* date, so a value on the
+    other side of a DST switch gets the right offset (``replace(tzinfo=...)`` with
+    today's offset would not).
+    """
     return now.astimezone()
+
+
+def _local_wall_clock(day: datetime, hour: int, minute: int) -> datetime:
+    """Host wall-clock ``hour:minute`` on the calendar date of ``day``, DST-correct.
+
+    Built naive then localized, so the offset is the one in force at that moment
+    rather than the offset of ``day``. A time skipped by a spring-forward gap lands
+    after the gap; an ambiguous autumn time resolves to its first occurrence.
+    """
+    naive = datetime.combine(day.date(), time(hour, minute))
+    # ``fold`` picks the offset in a gap or an overlap, and CPython versions disagree on
+    # which fold is the "pre-transition" one in a gap (3.11 vs 3.14): try both.
+    first, second = naive.replace(fold=0).astimezone(), naive.replace(fold=1).astimezone()
+    if first.replace(tzinfo=None) == naive == second.replace(tzinfo=None):
+        return min(first, second)  # autumn overlap: the first occurrence
+    return max(first, second)  # spring gap: the first instant after the gap
 
 
 def _clock_minutes(hour: int, minute: int) -> int:
@@ -117,10 +142,11 @@ def next_window_start(
     open_h, open_m = (0, 0) if start_min == end_min else (start_h, start_m)
 
     for offset in range(0, 8):
-        day = local + timedelta(days=offset)
+        # Step calendar dates, not 24 h: a DST switch day is 23 or 25 hours long.
+        day = datetime.combine(local.date() + timedelta(days=offset), time())
         if day.weekday() not in days:
             continue
-        candidate = day.replace(hour=open_h, minute=open_m, second=0, microsecond=0)
+        candidate = _local_wall_clock(day, open_h, open_m)
         if candidate >= local:
             return candidate
     return None
