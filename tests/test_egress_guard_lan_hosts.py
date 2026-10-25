@@ -221,6 +221,7 @@ async def test_in_a_container_the_default_gateway_is_the_host(monkeypatch, tmp_p
     monkeypatch.setattr(egress_guard, "_default_gateways", lambda: gateways)
     assert not is_self_address(ipaddress.ip_address("172.17.0.1"))  # not in a container
     monkeypatch.setattr(egress_guard, "_in_container", lambda: True)
+    monkeypatch.setattr(egress_guard, "_host_networking", lambda: False)  # CI hosts have docker0
     assert is_self_address(ipaddress.ip_address("172.17.0.1"))
     assert is_self_address(ipaddress.ip_address("fd00::1"))
     assert not is_self_address(ipaddress.ip_address("172.17.0.5"))
