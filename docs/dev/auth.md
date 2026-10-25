@@ -213,7 +213,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `users.listed` | `GET /auth/users` (`details.count`), `meshloom-admin list-users` |
   | `setup_code.issued` | `meshloom-admin` |
   | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password; `delayed`/`refused` while a login delay runs; `refused` with `details.reason = password_policy` and `policy`), `POST /auth/users/{id}/password` (`details.reset`, `must_change`, `sessions_revoked`), `meshloom-admin reset-password` |
-  | `settings.changed` | `PATCH /auth/settings`, one row per field changed |
+  | `settings.changed` | `PATCH /auth/settings`, one row per field changed; `meshloom-admin host-guard-observe` and `rotate-device-key` (target `auth_settings.device_cookie_key`, never the key) |
   | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only, refusals included (403 while bots are disabled: `refused`; name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
   | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
   | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
@@ -398,6 +398,7 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
   by default, must still reach an administrator); the next ones get
   `auth_settings.ingress_default_role` (`member` by default). "First" is
   decided once: creating that admin sets `auth_settings.ingress_admin_granted`
+  in the same transaction as its insert
   (migration 107, backfilled to 1 when an ingress identity already existed),
   never cleared, so deleting the only ingress identity does not hand `admin` to
   the next one (or to the same HA user coming back). This is safe
@@ -859,9 +860,13 @@ and none by IP alone behind Docker:
   all three rules while its device id has fewer than `DEVICE_MAX_FAILURES` (5)
   failures; the count is dropped 15 minutes after the device's last failure
   (not a sliding 15-minute window: failures 14 minutes apart keep adding up)
-  or at its next successful login, and past 5 it follows the ordinary rules. The HMAC key is random per
-  process: after a restart every browser is unknown until its next successful
-  login (persisting the key needs a column: follow-up). One cookie per
+  or at its next successful login, and past 5 it follows the ordinary rules. The HMAC key is 32 random
+  bytes in `auth_settings.device_cookie_key` (migration 116), created on first
+  use and read from the database at each use (no cache), so cookies survive a
+  restart and `meshloom-admin rotate-device-key` (or a restored SQLite
+  download, where the column is cleared) forgets every browser at once. It is
+  never in the JSON backup or `GET /auth/settings`. Without the
+  `auth_settings` row a presented cookie is unknown (fail closed). One cookie per
   browser, for the last user who signed in on it. Never under ingress.
 - **Guarantees.** A known browser of the account always gets in with the
   right password, whatever a guesser does from any address. An unknown

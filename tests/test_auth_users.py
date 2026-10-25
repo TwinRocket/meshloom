@@ -251,7 +251,7 @@ async def test_admin_password_reset_signs_out_forgets_devices_and_forces_a_chang
         signed_in = await login(other, "member1")
         before = await UserRepository.get(member.id)
         assert before is not None
-        cookie = device_cookie.read(
+        cookie = await device_cookie.read(
             "; ".join(c.split(";")[0] for c in signed_in.headers.get_list("set-cookie")),
             secure=False,
         )

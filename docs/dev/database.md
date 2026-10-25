@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 115 (the value of
+- Numbering is contiguous from 001. The current head is 116 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -323,7 +323,9 @@ secret reaches `AppSettings`: `trusted_networks` (JSON `[{cidr, user_id}]`),
 the installation code), `ingress_admin_granted` (migration 107: the first Home
 Assistant identity was made admin; never cleared), `require_2fa_for_admins`
 (migration 109, off: admins with a password and no second factor reach only the
-enrolment routes). The CORS list stays `app_settings.auth_allowed_origins`.
+enrolment routes), `device_cookie_key` (migration 116: hex HMAC-SHA256 key of the
+known-device cookies, NULL until first use, replaced by `meshloom-admin
+rotate-device-key`, cleared in the SQLite download). The CORS list stays `app_settings.auth_allowed_origins`.
 `AuthSettingsRepository` (`auth.py`).
 
 ### `plugins`
@@ -461,7 +463,7 @@ order in `app/AGENTS.md`, "## Backups"):
   is not in the database, so not in the snapshot. In the copy (never the live
   database) every `app_settings.*_seed` column, the BLE PIN, the
   previous-transport snapshot, the password and TOTP secrets of `users` and
-  `auth_settings.setup_code_hash` are set to NULL, `sessions` and `plugin_secrets` are
+  `auth_settings.setup_code_hash` and `auth_settings.device_cookie_key` are set to NULL, `sessions` and `plugin_secrets` are
   emptied, the consents `share_enabled` and `store_online` are set to 0, and a one-row
   `meshloom_backup_snapshot` marker table is added: a database
   that starts with it is a restored snapshot, so startup runs the restore hooks

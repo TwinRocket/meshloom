@@ -391,7 +391,7 @@ async def _remember_device(
     current = await UserRepository.get(user.id)
     if current is None or not current.has_password:
         return
-    value = device_cookie.issue(current.id, current.updated_at, device_id)
+    value = await device_cookie.issue(current.id, current.updated_at, device_id)
     response.headers.append("set-cookie", device_cookie.cookie_header(value, secure=secure))
 
 
@@ -561,7 +561,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     limiter = ratelimit.login_limiter
     address = limiter.address_key(request.scope)
     secure = _secure(request)
-    presented = device_cookie.read(request.headers.get("cookie"), secure=secure)
+    presented = await device_cookie.read(request.headers.get("cookie"), secure=secure)
     device = await device_cookie.known_device(presented, body.username)
     try:
         limiter.check(address, body.username, device)

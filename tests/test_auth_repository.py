@@ -442,3 +442,44 @@ async def test_settings_writes_fail_loudly_without_the_row(test_db):
         await run_migrations(conn)
     await AuthSettingsRepository.set_setup_code_hash(hash_token("c"))
     assert await AuthSettingsRepository.get_setup_code_hash() == hash_token("c")
+
+
+@pytest.mark.asyncio
+async def test_the_first_ingress_admin_and_its_grant_share_one_transaction(test_db):
+    """MSHL-300: the insert and ``ingress_admin_granted`` commit together, so a
+    failure between them can never leave an ingress admin without the flag."""
+    from app.repository.auth import AuthSettingsMissingError
+
+    async with test_db.tx() as conn:
+        await conn.execute("DELETE FROM auth_settings")
+    with pytest.raises(AuthSettingsMissingError):
+        await UserRepository.create(
+            "ha", "admin", provider="ingress", external_id="x1", grant_ingress_admin=True
+        )
+    assert await UserRepository.get_by_external_id("ingress", "x1") is None
+
+    async with test_db.tx() as conn:
+        await conn.execute("INSERT INTO auth_settings (id) VALUES (1)")
+    assert not await AuthSettingsRepository.ingress_admin_granted()
+    user = await UserRepository.create(
+        "ha", "admin", provider="ingress", external_id="x1", grant_ingress_admin=True
+    )
+    assert user.role == "admin"
+    assert await AuthSettingsRepository.ingress_admin_granted()
+    # Without the flag, a create leaves it alone.
+    async with test_db.tx() as conn:
+        await conn.execute("UPDATE auth_settings SET ingress_admin_granted = 0")
+    await UserRepository.create("ha2", "member", provider="ingress", external_id="x2")
+    assert not await AuthSettingsRepository.ingress_admin_granted()
+
+
+@pytest.mark.asyncio
+async def test_device_cookie_key_is_created_once_and_rotated(test_db):
+    first = await AuthSettingsRepository.device_cookie_key()
+    assert len(first) == 32
+    assert await AuthSettingsRepository.device_cookie_key() == first
+    await AuthSettingsRepository.rotate_device_cookie_key()
+    second = await AuthSettingsRepository.device_cookie_key()
+    assert len(second) == 32 and second != first
+    # Never part of the settings model (GET /auth/settings).
+    assert "device_cookie_key" not in (await AuthSettingsRepository.get()).model_dump()

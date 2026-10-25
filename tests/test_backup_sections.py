@@ -737,6 +737,7 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
         )
     await AuthSessionRepository.create(user.id, hash_token("cookie"), lifetime_s=60)
     await AuthSettingsRepository.set_setup_code_hash(hash_token("setup"))
+    device_key = (await AuthSettingsRepository.device_cookie_key()).hex()
     await PairingCodeRepository.create(
         user.id, "phone", hash_token("pairing"), ["read"], [], expires_at=2**40
     )
@@ -752,8 +753,10 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
             assert (await c.fetchone())[0] == 0
         async with conn.execute("SELECT COUNT(*) FROM pairing_codes") as c:
             assert (await c.fetchone())[0] == 0
-        async with conn.execute("SELECT setup_code_hash FROM auth_settings") as c:
-            assert (await c.fetchone())[0] is None
+        async with conn.execute(
+            "SELECT setup_code_hash, device_cookie_key FROM auth_settings"
+        ) as c:
+            assert await c.fetchone() == (None, None)
     raw = snapshot.read_bytes()
     for secret in (
         password_hash,
@@ -762,7 +765,9 @@ async def test_sqlite_snapshot_carries_no_auth_secret(test_db, tmp_path):
         hash_token("pairing"),
         "JBSWY3DPEHPK3PXP",
         recovery_hash,
+        device_key,
     ):
         assert secret.encode() not in raw
     # The live database keeps them.
     assert await AuthSettingsRepository.get_setup_code_hash() == hash_token("setup")
+    assert (await AuthSettingsRepository.device_cookie_key()).hex() == device_key

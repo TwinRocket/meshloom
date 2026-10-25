@@ -85,9 +85,9 @@ Wrong passwords slow the next attempts down; they never lock an account.
 
 An IPv6 address counts by its /64 block: one home or server usually holds a whole block and could otherwise change address at each attempt.
 
-**Your own browser always gets in.** After you sign in, Meshloom remembers the browser with a cookie of its own (for 180 days, for the last account that signed in on it). With that cookie, the right password gets in at once, whatever anyone else sends from anywhere. A browser that types the wrong password 5 times loses that pass and follows the rules above; its mistakes are forgotten after 15 minutes without a new one, or at its next successful sign-in. Changing the account's password, role or name, disabling it, or restarting Meshloom forgets the browsers: the next successful sign-in remembers it again.
+**Your own browser always gets in.** After you sign in, Meshloom remembers the browser with a cookie of its own (for 180 days, for the last account that signed in on it). With that cookie, the right password gets in at once, whatever anyone else sends from anywhere. A browser that types the wrong password 5 times loses that pass and follows the rules above; its mistakes are forgotten after 15 minutes without a new one, or at its next successful sign-in. Changing the account's password, role or name, disabling it, restoring a database copy, or `meshloom-admin rotate-device-key` forgets the browsers: the next successful sign-in remembers it again. A restart or an update keeps them.
 
-From a browser Meshloom does not know yet (a new device, a cleared cookie, after a restart):
+From a browser Meshloom does not know yet (a new device, a cleared cookie, after a key rotation):
 
 - **On a Docker install (Compose or a plain container) with no trusted proxy set**, every visitor can arrive from Docker's own address, so the first and last rules are off and only the per-account rule applies. A guesser on the same address competes with you for the one attempt a second: one sending many attempts a second can keep you out until you use a browser Meshloom knows, or list your reverse proxy in **Trusted proxies**.
 - **Behind a reverse proxy that is not listed in Trusted proxies**, every visitor counts as the proxy's address, so one guesser's delays apply to everyone behind it. List the proxy. Meshloom logs a warning naming it.
@@ -251,6 +251,7 @@ The full backup (**Settings → Database**) carries the accounts when **Include 
 | `meshloom-admin remove-passkeys <user>` | Removes all of a user's passkeys (lost or stolen device). The password keeps working. |
 | `meshloom-admin revoke-sessions <user>` or `--all` | Signs one user, or everyone, out. |
 | `meshloom-admin host-guard-observe` | Switches the [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) back to observation mode, for when strict mode refuses the only name you can reach Meshloom by. |
+| `meshloom-admin rotate-device-key` | Forgets every remembered browser (see [Your own browser always gets in](#sign-in-delays)): each one follows the ordinary delays until its next successful sign-in. |
 
 A running Meshloom sees these changes on its next request; a browser that stays open on a page signed out this way loses its live connection within 30 seconds.
 

@@ -11,6 +11,7 @@ Run it on the machine (or in the container) that holds the database::
     meshloom-admin remove-passkeys alice
     meshloom-admin revoke-sessions --all
     meshloom-admin host-guard-observe
+    meshloom-admin rotate-device-key
 
 It opens the SQLite file directly, through the same repositories as the server
 (``app/repository/auth.py``), so a change is visible to a running server on its
@@ -70,6 +71,7 @@ _COMMAND_ACTIONS: dict[str, audit.AuditAction] = {
     "host-guard-observe": "settings.changed",
     "disable-2fa": "totp.disabled",
     "remove-passkeys": "passkey.removed",
+    "rotate-device-key": "settings.changed",
 }
 
 # Same floor as the setup form (cadrage P1); the full policy (common-password
@@ -359,6 +361,23 @@ async def _host_guard_observe(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _rotate_device_key(args: argparse.Namespace) -> int:
+    """A new known-device cookie key (``app/auth/device_cookie.py``): every browser
+    is forgotten and meets the ordinary login delays until its next sign-in."""
+    async with db.readonly() as conn:
+        async with conn.execute("PRAGMA table_info(auth_settings)") as cursor:
+            columns = {row[1] for row in await cursor.fetchall()}
+    if "device_cookie_key" not in columns:
+        raise CliError(
+            "this database has no auth_settings.device_cookie_key column: start Meshloom once "
+            "on this version so it migrates the database, then retry"
+        )
+    await AuthSettingsRepository.rotate_device_cookie_key()
+    await _audit(args, "auth_settings.device_cookie_key", rotated=True)
+    print("Known-device key rotated: every browser must sign in again to be recognised.")
+    return 0
+
+
 async def _enable_user(args: argparse.Namespace) -> int:
     user = await _find_user(args.username)
     if not user.disabled:
@@ -404,6 +423,7 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], Awaitable[int]]] = {
     "host-guard-observe": _host_guard_observe,
     "disable-2fa": _disable_2fa,
     "remove-passkeys": _remove_passkeys,
+    "rotate-device-key": _rotate_device_key,
 }
 
 
@@ -467,6 +487,11 @@ def build_parser() -> argparse.ArgumentParser:
     add(
         "host-guard-observe",
         "switch the Host guard back to observation mode (recover from a name that is refused)",
+    )
+
+    add(
+        "rotate-device-key",
+        "forget every known browser (new key for the known-device cookies of the login delays)",
     )
 
     cmd = add("revoke-sessions", "sign a user (or everyone) out")

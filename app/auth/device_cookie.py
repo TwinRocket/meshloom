@@ -17,10 +17,14 @@ fast it sends.
   cookie), and ``mac`` an HMAC-SHA256 over the rest. The account must also be
   enabled when the cookie is checked. ``updated_at`` has one-second
   resolution: a change in the same second as the previous one would not move it.
-- **Key.** A random per-process secret: after a restart every cookie is
-  unknown until the next successful login on that browser (the owner then
-  shares the one-attempt-a-second slot like any unknown browser). Persisting
-  it needs a column (follow-up).
+- **Key.** 32 random bytes in ``auth_settings.device_cookie_key`` (migration
+  116), created on first use and read from the database at each use (no
+  cache), so cookies survive a restart and a rotation applies at once. Never
+  in the JSON backup (``auth_settings`` is excluded) and cleared in the SQLite
+  download, so a restored copy gets a new key and every browser is unknown
+  until its next successful login. ``meshloom-admin rotate-device-key``
+  replaces it (every browser forgotten). Without the ``auth_settings`` row
+  (hand-edited database) a presented cookie is unknown (fail closed).
 - **Attributes.** ``HttpOnly``, ``SameSite=Strict``, ``Path=/api/auth``,
   ``Max-Age`` ``DEVICE_COOKIE_TTL_S`` (also checked against ``issued at``),
   plus ``Secure`` and the ``__Secure-`` name prefix when the request is https
@@ -40,7 +44,7 @@ from dataclasses import dataclass
 
 from starlette.requests import cookie_parser
 
-from app.repository.auth import UserRepository
+from app.repository.auth import AuthSettingsMissingError, AuthSettingsRepository, UserRepository
 
 DEVICE_COOKIE_TTL_S = 180 * 86400
 SECURE_COOKIE_NAME = "__Secure-meshloom_device"
@@ -49,21 +53,14 @@ COOKIE_PATH = "/api/auth"
 _VERSION = "v1"
 _MAX_LENGTH = 256
 
-_secret = secrets.token_bytes(32)
-
-
-def reset_device_secret() -> None:
-    """A new key: every issued cookie becomes unknown (tests)."""
-    global _secret
-    _secret = secrets.token_bytes(32)
 
 
 def cookie_name(secure: bool) -> str:
     return SECURE_COOKIE_NAME if secure else PLAIN_COOKIE_NAME
 
 
-def _mac(payload: str) -> str:
-    return hmac.new(_secret, payload.encode(), hashlib.sha256).hexdigest()
+def _mac(key: bytes, payload: str) -> str:
+    return hmac.new(key, payload.encode(), hashlib.sha256).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -74,20 +71,27 @@ class DeviceCookie:
     generation: str
 
 
-def issue(user_id: int, generation: int, device_id: str | None = None) -> str:
+async def issue(user_id: int, generation: int, device_id: str | None = None) -> str:
     """A signed cookie value for this user (``generation``: its ``updated_at``),
     keeping ``device_id`` when given."""
+    key = await AuthSettingsRepository.device_cookie_key()
     device = device_id or secrets.token_hex(16)
     payload = ".".join([_VERSION, str(user_id), str(int(time.time())), device, str(generation)])
-    return f"{payload}.{_mac(payload)}"
+    return f"{payload}.{_mac(key, payload)}"
 
 
-def parse(value: str | None) -> DeviceCookie | None:
+async def parse(value: str | None) -> DeviceCookie | None:
     """The signed fields, or None for anything malformed, unsigned or expired."""
     if not value or len(value) > _MAX_LENGTH:
         return None
     payload, _, mac = value.rpartition(".")
-    if not payload or not hmac.compare_digest(mac, _mac(payload)):
+    if not payload or not mac.isascii():
+        return None
+    try:
+        key = await AuthSettingsRepository.device_cookie_key()
+    except AuthSettingsMissingError:
+        return None
+    if not hmac.compare_digest(mac, _mac(key, payload)):
         return None
     parts = payload.split(".")
     if len(parts) != 5 or parts[0] != _VERSION:
@@ -101,10 +105,10 @@ def parse(value: str | None) -> DeviceCookie | None:
     return DeviceCookie(user_id, issued_at, parts[3], parts[4])
 
 
-def read(cookie_header: str | None, *, secure: bool) -> DeviceCookie | None:
+async def read(cookie_header: str | None, *, secure: bool) -> DeviceCookie | None:
     if not cookie_header:
         return None
-    return parse(cookie_parser(cookie_header).get(cookie_name(secure)))
+    return await parse(cookie_parser(cookie_header).get(cookie_name(secure)))
 
 
 async def known_device(cookie: DeviceCookie | None, username: str) -> str | None:

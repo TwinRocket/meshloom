@@ -164,7 +164,9 @@ These hold for every section; a restore function must keep them:
      the full backup excludes (`SNAPSHOT_SCRUBBED_COLUMNS`: the BLE PIN and the
      previous-transport snapshot that holds it) and the local accounts
      secrets (`SNAPSHOT_SCRUBBED_AUTH_COLUMNS`: `users.password_hash`,
-     `users.totp_secret`, `auth_settings.setup_code_hash`; the `sessions`
+     `users.totp_secret`, `auth_settings.setup_code_hash`,
+     `auth_settings.device_cookie_key`, so a restored copy makes a new
+     known-device key and forgets every browser; the `sessions`
      and `recovery_codes` tables and the plugin config secrets in
      `plugin_secrets` are emptied,
      `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
@@ -204,7 +206,7 @@ imported by `services/backup.py`.
   in base64url; a public key, never a secret; a version 1 or 2 file restores
   without them). Never
   `username_key` (recomputed), sessions, the audit trail or `auth_settings`
-  (with the setup code hash). Keys a file adds to a row are dropped
+  (with the setup code hash and the known-device cookie key). Keys a file adds to a row are dropped
   (`BackupUser`, `extra="ignore"`, `hide_input_in_errors`).
 - **Include accounts.** `ACCOUNT_SECTIONS` lists the sections the export box
   covers (`users` and `api_tokens`). Checked by default; unchecked, none of them is
