@@ -3,6 +3,7 @@ import { useSwipeable } from 'react-swipeable';
 
 import { CommunitySetupBanner } from './CommunitySetupBanner';
 import { CommunityWaitingBanner } from './CommunityWaitingBanner';
+import { ConvertedBotsBanner } from './ConvertedBotsBanner';
 import { EdgeSessionExpiredDialog } from './EdgeSessionExpiredDialog';
 import { PathHashOneByteBanner } from './PathHashOneByteBanner';
 import { RadioSetupBanner } from './RadioSetupBanner';
@@ -417,6 +418,13 @@ export function AppShell({
           <PathHashOneByteBanner
             config={statusProps.config}
             onOpenRadioSettings={() => handleOpenSettings('radio')}
+          />
+        )}
+        {!(showSettings && settingsSection === 'extensions') && (
+          <ConvertedBotsBanner
+            health={statusProps.health ?? null}
+            isAdmin={canAdminister}
+            onOpenExtensions={() => handleOpenSettings('extensions')}
           />
         )}
         {/* Shown everywhere, the Community settings included: nothing but the

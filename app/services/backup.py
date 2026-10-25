@@ -998,9 +998,10 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
             warnings.append(f"fanout_reserved:{entry.id}")
             continue
         if entry.type == "bot":
-            if await _restore_bot_as_plugin(entry, label):
+            restored = await _restore_bot_as_plugin(entry, label)
+            if restored == "converted":
                 converted_bots.append(label)
-            else:
+            elif restored is None:
                 warnings.append(f"fanout_invalid:{entry.id}:{entry.type}")
             continue
         existing = await FanoutConfigRepository.get(entry.id)
@@ -1067,23 +1068,25 @@ async def _restore_fanout_configs(entries: list[BackupFanoutConfig], warnings: l
     return len(written)
 
 
-async def _restore_bot_as_plugin(entry: BackupFanoutConfig, label: str) -> bool:
+async def _restore_bot_as_plugin(
+    entry: BackupFanoutConfig, label: str
+) -> Literal["converted", "present"] | None:
     """Write a 4.18 bot entry as a local plugin: disabled, attention ``restored`` with
-    ``review_permissions`` (a backup file may come from someone else). False when its
+    ``review_permissions`` (a backup file may come from someone else). ``None`` when its
     code is empty or does not parse. A bot already restored with the same code is not
-    duplicated."""
+    duplicated, nor counted again in the ``bots_converted`` warning (``"present"``)."""
     from app.database import db
     from app.plugins import bot_conversion
 
     source = entry.config.get("code")
     if not isinstance(source, str) or not bot_conversion.valid_source(source):
-        return False
+        return None
     async with db.tx() as conn:
         async with conn.execute(
             "SELECT 1 FROM plugins WHERE kind = 'local' AND source = ? LIMIT 1", (source,)
         ) as cursor:
             if await cursor.fetchone() is not None:
-                return True
+                return "present"
         row = bot_conversion.converted_row(
             label=entry.name or "Bot",
             source=source,
@@ -1092,7 +1095,7 @@ async def _restore_bot_as_plugin(entry: BackupFanoutConfig, label: str) -> bool:
             restored=True,
         )
         await bot_conversion.insert_converted(conn, row)
-    return True
+    return "converted"
 
 
 async def push_restore_applies(extra: MeshloomExtra) -> bool | None:

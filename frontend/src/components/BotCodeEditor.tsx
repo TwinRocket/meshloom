@@ -35,7 +35,7 @@ export function BotCodeEditor({
         }}
         className="text-sm"
         id={id}
-        aria-label={ariaLabel ?? t('settings.fanout.bot.editorAria')}
+        aria-label={ariaLabel ?? t('settings.extensions.local.editorAria')}
       />
     </div>
   );

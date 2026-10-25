@@ -176,8 +176,11 @@ async def test_bots_come_back_as_disabled_extensions(backup_db, proxy_spy, monke
     assert plugin["attention"]["was_enabled"] is True
 
     # Restoring the same file again does not duplicate the extension.
-    await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot()]))
+    # ... and the repeat is not counted in the "bots converted" warning either.
+    again = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot()]))
     assert len(await _converted_plugins()) == 1
+    assert not [w for w in again if w.startswith("bots_converted")]
+    assert not [w for w in again if w.startswith("fanout_invalid")]
 
 
 @pytest.mark.asyncio

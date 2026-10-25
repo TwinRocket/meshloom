@@ -70,9 +70,17 @@ def test_the_database_lives_where_the_addon_keeps_its_data() -> None:
     assert addon.build_environment({})["MESHCORE_DATABASE_PATH"] == "/config/meshcore.db"
 
 
-def test_the_retired_disable_bots_option_maps_to_nothing_and_warns(capsys) -> None:
-    """Bots became extensions in 5.0.0; a leftover value must not lock anything."""
-    for value in (True, False):
+def test_a_leftover_disable_bots_true_is_handed_to_the_migration_and_warns(capsys) -> None:
+    """Bots became extensions in 5.0.0. The old lock is read once by migration 122 (the
+    converted bots arrive switched off, as with the package); it locks nothing else."""
+    env = addon.build_environment({"disable_bots": True})
+    assert env["MESHCORE_DISABLE_BOTS"] == "true"
+    assert "MESHCORE_DISABLE_PLUGINS" not in env
+    assert "MESHCORE_DISABLE_PLUGINS" in capsys.readouterr().err
+
+
+def test_a_leftover_disable_bots_false_maps_to_nothing_and_warns(capsys) -> None:
+    for value in (False, "true", None):
         env = addon.build_environment({"disable_bots": value})
         assert "MESHCORE_DISABLE_BOTS" not in env
         assert "MESHCORE_DISABLE_PLUGINS" not in env
