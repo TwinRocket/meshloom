@@ -430,7 +430,9 @@ def uid_is_free(uid: int) -> bool:
         return True
 
 
-_BOX_PREFIX = re.compile(r"^\s*[+|] ?")  # ExceptionGroup traceback box
+_BOX_PREFIX = re.compile(r"^(?:\s*[+|] ?)+")  # ExceptionGroup traceback box (nested too)
+_TB_HEADER = re.compile(r"(?:Exception Group )?Traceback \(")  # at the start of a line
+_BOX_SEPARATOR = re.compile(r"[-+]+( \d+ [-+]+)?")  # "+---- 1 ----", "+-+----"
 _CRASH_LINE_MAX = 300  # Characters shown per crash line, after escaping.
 
 
@@ -571,16 +573,20 @@ class SetuidBackend(IsolationBackend):
                 )
             elif lines:
                 tail = _escape_capped(tail)
-            if proc.returncode != 0 and any("Traceback (" in line for line in lines):
+            unboxed = [_BOX_PREFIX.sub("", line) for line in lines]
+            if proc.returncode != 0 and any(_TB_HEADER.match(line) for line in unboxed):
                 # A crash, not a walk report: the first lines are the traceback's header
                 # and frames; the exception is at the end. The helper had no chance to
                 # escape it, so do it here (same rule as the helper's `shown`). An
-                # ExceptionGroup traceback is boxed in "+" / "|" prefixes: drop them.
-                unboxed = [_BOX_PREFIX.sub("", line, count=1) for line in lines]
+                # ExceptionGroup traceback is boxed in "+" / "|" prefixes and separated
+                # by "+---- n ----" lines: drop them.
                 final = [
                     line
                     for line in unboxed
-                    if line.strip(" +-") and not line[0].isspace() and "Traceback (" not in line
+                    if line.strip()
+                    and not line[0].isspace()
+                    and not _TB_HEADER.match(line)
+                    and not _BOX_SEPARATOR.fullmatch(line.strip())
                 ][-2:]
                 # Still no exception line (a bare "Traceback"): fall back to the last
                 # stderr line that says something, else the exit code.

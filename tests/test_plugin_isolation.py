@@ -739,8 +739,12 @@ def test_a_real_exception_group_crash_is_escaped_and_summed_up(monkeypatch) -> N
 
     from app.plugins.isolation import setuid as setuid_module
 
-    code = "raise ExceptionGroup('g', [ValueError('a\\x1b[31mb'), OSError('c' * 5000)])"
-    stderr = subprocess.run(
+    real_run = subprocess.run  # the module attribute is patched below
+    code = (
+        "raise ExceptionGroup('g', [ValueError('a\\x1b[31mb'), OSError('c' * 5000),"
+        " ExceptionGroup('n', [KeyError('k'), TypeError('t')])])"
+    )
+    stderr = real_run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=False
     ).stderr
     assert "Exception Group Traceback (" in stderr and "\x1b" in stderr
@@ -751,7 +755,36 @@ def test_a_real_exception_group_crash_is_escaped_and_summed_up(monkeypatch) -> N
     assert "\x1b" not in message
     assert "Traceback" not in message
     assert len(message) < 400
-    assert "OSError: " in message
+    assert "----" not in message and "+-" not in message
+    assert message.count(";") == 1  # the last two exception lines, nothing else
+    assert "TypeError: t" in message
+
+    # Nested groups with 2+ sub-exceptions: no separator or counter leaks, whichever
+    # exception comes last.
+    for tail_exc in ("ValueError('v')", "OSError('o')"):
+        code = (
+            "raise ExceptionGroup('g', [ExceptionGroup('n', [KeyError('k'), TypeError('t')]),"
+            f" {tail_exc}])"
+        )
+        err = real_run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=False
+        ).stderr
+        monkeypatch.setattr(
+            setuid_module.subprocess, "run", lambda *a, err=err, **k: _completed(1, err)
+        )
+        with pytest.raises(ValueError) as nested:
+            SetuidBackend(40010, 40010).purge([Path("/tmp")])
+        assert "----" not in str(nested.value) and "Traceback" not in str(nested.value)
+        assert tail_exc.split("(")[0] in str(nested.value)
+
+    # A plugin path that mentions "Traceback (" in a frame is not a crash header.
+    monkeypatch.setattr(
+        setuid_module.subprocess,
+        "run",
+        lambda *a, **k: _completed(0, '/tmp/x File "Traceback (a).py": boom\n'),
+    )
+    with pytest.raises(ValueError, match="boom"):
+        SetuidBackend(40010, 40010).purge([Path("/tmp")])
     assert not isinstance(exc.value, setuid_module.PurgeBlockedError)
 
     # A non-crash failure line is escaped too, without re-mangling the helper's backslashes.
