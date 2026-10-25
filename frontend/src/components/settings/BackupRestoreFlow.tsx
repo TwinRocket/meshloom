@@ -10,6 +10,7 @@ import { noteWifiRebootStarted, setRadioWifiState } from '../../stores/radioWifi
 import {
   BACKUP_FORMATS,
   type BackupInspectResult,
+  type BackupPushSummary,
   type BackupRestoreItem,
   type BackupRestoreJob,
   type BackupRestoreStep,
@@ -102,6 +103,17 @@ function SectionsSummary({ sections }: { sections: BackupSectionSummary[] }) {
 }
 
 /** Export warnings carried by the file, in the restore summary's words. */
+/** One push subscription of the preview: where it sends, and to whose account (MSHL-328). */
+export function pushTargetText(target: BackupPushSummary, t: TFunction): string {
+  const where = target.label
+    ? t('settings.fullRestore.pushTarget', { label: target.label, host: target.host })
+    : target.host;
+  if (target.owner === undefined) return where;
+  return target.owner
+    ? t('settings.fullRestore.pushTargetOwner', { target: where, owner: target.owner })
+    : t('settings.fullRestore.pushTargetFirstAdmin', { target: where });
+}
+
 function fileWarningTexts(warnings: string[], t: TFunction): string[] {
   const texts = warnings.map((raw) => {
     const [code, value] = splitCode(raw);
@@ -776,16 +788,7 @@ function RestoreSummary({
         {(inspect.push_targets?.length ?? 0) > 0 && (
           <p className="text-warning">
             {t('settings.fullRestore.pushTargets', {
-              list: (inspect.push_targets ?? [])
-                .map((target) =>
-                  target.label
-                    ? t('settings.fullRestore.pushTarget', {
-                        label: target.label,
-                        host: target.host,
-                      })
-                    : target.host
-                )
-                .join(', '),
+              list: (inspect.push_targets ?? []).map((target) => pushTargetText(target, t)).join('; '),
             })}
           </p>
         )}

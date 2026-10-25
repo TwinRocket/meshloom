@@ -56,6 +56,14 @@
           "badge": "Migrated",
           "text": "This extension was converted from a bot. Review what it may do below, then accept to start it."
         },
+        "restored": {
+          "badge": "Restored",
+          "text": "This extension was restored from a backup, switched off. Check its settings and what it may do below, then accept to start it."
+        },
+        "reinstall": {
+          "badge": "To reinstall",
+          "text": "This extension was restored from a backup without its code. It cannot start until it is installed again; you can also uninstall it."
+        },
         "other": {
           "badge": "Needs review",
           "text": "This extension waits for you to review it before it can start."
@@ -68,7 +76,8 @@
       "enableBlocked": {
         "frozen": "Cannot be enabled",
         "config_required": "Setup required first",
-        "review": "Open it to review and accept"
+        "review": "Open it to review and accept",
+        "reinstall": "Reinstall it first"
       },
       "isolation": {
         "title": "Isolation level",
@@ -165,6 +174,15 @@
         "text": "Review each converted extension before starting it: it only runs once you have accepted what it may do.",
         "acknowledge": "Got it"
       }
+    },
+    "fullRestore": {
+      "warnings": {
+        "plugins_restored": "{{value}} extension(s) were restored switched off: open each one in Settings > Extensions, review what it may do, then accept to turn it on.",
+        "plugins_to_reinstall": "{{value}} extension(s) of the backup are not shipped in it: they are listed in Settings > Extensions to reinstall and cannot start until then.",
+        "plugin_secrets_missing": "{{value}} extension(s) need their secrets again: secrets never leave Meshloom, so enter them in the extension's settings.",
+        "plugin_dropped": "An extension of the backup ({{value}}) could not be restored and was left out.",
+        "plugin_kept": "The extension {{value}} is already installed here: it was kept as it is."
+      }
     }
   },
   "errors": {
@@ -187,6 +205,7 @@
     "instance_not_running": "This extension is not running.",
     "quota_invalid": "A sending limit is out of range. It can only be lowered.",
     "scope_invalid": "The conversations selection is not valid.",
-    "secret_required": "A secret value is missing."
+    "secret_required": "A secret value is missing.",
+    "plugin_reinstall_required": "This extension was restored without its code: reinstall it before starting it."
   }
 }

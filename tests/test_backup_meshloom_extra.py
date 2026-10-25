@@ -362,6 +362,8 @@ async def test_inspect_shows_where_restored_push_notifications_go(backup_db):
         ("Phone", "push.example.net"),
         ("", "not a url"),
     ]
+    # No owner in the file: the first administrator gets them (MSHL-328).
+    assert [t.owner for t in result.push_targets] == [None, None]
 
     own = await PushSubscriptionRepository.create("https://push.example/host", "k", "a")
     await AppSettingsRepository.set_vapid_keys("host-priv", "host-pub")

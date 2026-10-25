@@ -2619,6 +2619,14 @@ class BackupPushSummary(BaseModel):
 
     label: str
     host: str
+    owner: str | None = Field(
+        default=None,
+        description=(
+            "The account that receives these notifications after the restore: the file's"
+            " owner username when an account of that name exists then (the file's accounts"
+            " when they are restored, else the current ones). None: the first administrator."
+        ),
+    )
 
 
 class BackupInspectResult(BaseModel):

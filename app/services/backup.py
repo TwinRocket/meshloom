@@ -17,6 +17,7 @@ import logging
 import re
 import time
 import unicodedata
+from collections.abc import Mapping
 from typing import Any, Literal, TypeVar
 from urllib.parse import quote, urlsplit
 
@@ -38,6 +39,7 @@ from app.models import (
     BackupRadioProxy,
     BackupRestoreRequest,
     BackupRestoreResult,
+    BackupSection,
     BackupV1Document,
     BackupVapid,
     BackupWifi,
@@ -57,6 +59,7 @@ from app.repository import (
 # registered before the lifespan runs the SQLite restore hooks.
 from app.services import (
     backup_notifications,  # noqa: F401  registers the notifications section
+    backup_plugins,  # noqa: F401  registers the plugins section
     instance_identity,  # noqa: F401, E402
 )
 from app.services.backup_accounts import ACCOUNT_SECTIONS  # registers the users section
@@ -281,11 +284,14 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "notification_deliveries": ("excluded", "delivery journal: runtime state"),
     "notification_counters": ("excluded", "hourly send counters: runtime state"),
     "notification_state": ("excluded", "dedup timestamps and outage state: runtime state"),
-    # Plugins (docs/dev/plugins.md, "Data model"). The instances and their KV get a
-    # backup section with the plugins API; the secrets never leave (emptied in the
-    # SQLite download too).
-    "plugins": ("excluded", "plugin instances: backup section with the plugins API"),
-    "plugin_kv": ("excluded", "plugin storage: backup section with the plugins API"),
+    # Plugins (docs/dev/plugins.md, "Data model"). The instances go through the
+    # plugins section (services/backup_plugins.py); the secrets never leave (emptied
+    # in the SQLite download too).
+    "plugins": (
+        "included",
+        "plugins section: local ones whole, the others to reinstall, no secret, no runtime state",
+    ),
+    "plugin_kv": ("excluded", "plugin storage: data of the plugin, never exported"),
     "plugin_secrets": ("excluded", "plugin config secrets, never exported"),
     "plugin_send_quota": ("excluded", "plugin send counters: runtime state"),
     "plugin_send_guard": (
@@ -1174,6 +1180,24 @@ async def _user_ids_by_username_key() -> dict[str | None, int]:
             return {str(row[1]): int(row[0]) for row in await cursor.fetchall()}
 
 
+async def preview_push_owners(
+    extra: MeshloomExtra, sections: Mapping[str, BackupSection]
+) -> list[str | None]:
+    """The owner each restored push subscription ends up with, in file order: its file
+    ``owner`` when an account of that username exists after the restore, else None (the
+    first administrator). The accounts after the restore are the file's when its users
+    section would be written, else the current ones (MSHL-328). Read-only."""
+    from app.services.backup_accounts import USERS_SECTION, restored_username_keys
+
+    keys = restored_username_keys(sections.get(USERS_SECTION))
+    if keys is None:
+        keys = {key for key in await _user_ids_by_username_key() if key is not None}
+    return [
+        sub.owner if (key := _owner_key(sub.owner)) is not None and key in keys else None
+        for sub in extra.push_subscriptions
+    ]
+
+
 async def restore_push_owners(extra: MeshloomExtra) -> int:
     """Give each restored push subscription back to the account of the same username.
 
@@ -1181,7 +1205,15 @@ async def restore_push_owners(extra: MeshloomExtra) -> int:
     owner that exists only in the file's accounts is found only then. A subscription
     whose owner is absent from the file (older backup) or has no account here keeps
     what the restore gave it (the first administrator). Only when the file's push data
-    was restored (``push_restore_applies``). Returns the number of rows reassigned."""
+    was restored (``push_restore_applies``). Returns the number of rows reassigned.
+
+    Its own transaction, not the accounts section's (MSHL-328): every state committed in
+    between is safe. ``restore_users`` already gives each subscription back to the account
+    of the same username in its transaction, so a failure here leaves a subscription with
+    that account or the first administrator, never a deleted one; and this single UPDATE
+    is idempotent, so the next restore completes it. Joining the accounts transaction
+    would tie ``meshloom_extra`` to a section that a file may not have, while this must
+    also run without it."""
     from app.database import db
 
     if not any(sub.owner for sub in extra.push_subscriptions):

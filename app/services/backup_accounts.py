@@ -54,7 +54,15 @@ import time
 
 import aiosqlite
 import nacl.pwhash.argon2id as argon2id
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from app.auth.models import (
     USERNAME_MAX_LENGTH,
@@ -380,6 +388,28 @@ def _close_account_sockets(user_ids: set[int]) -> None:
     closed = sum(ws_manager.close_user(user_id) for user_id in user_ids)
     if closed:
         logger.info("Backup restore: closed %d WebSocket(s) of replaced accounts", closed)
+
+
+def restored_username_keys(section: BackupSection | None) -> set[str] | None:
+    """The username keys the accounts restore would leave, or None when it would keep the
+    current accounts (no section, a newer or unreadable one, no admin who can sign in).
+    Read-only, for the restore preview (push owners, MSHL-328)."""
+    if section is None or section.version > USERS_SECTION_VERSION:
+        return None
+    try:
+        data = BackupUsersData.model_validate(section.data)
+    except ValidationError:
+        return None
+    addon = _is_addon()
+    if not any(user.can_sign_in_here(addon=addon) for user in data.users):
+        return None
+    keys: set[str] = set()
+    for user in data.users:
+        try:
+            keys.add(username_key(normalize_username(user.username)))
+        except ValueError:
+            continue
+    return keys
 
 
 async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> list[str]:

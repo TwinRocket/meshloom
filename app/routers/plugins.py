@@ -418,12 +418,19 @@ def _status_block(row: dict[str, Any], *, acknowledged: bool = False) -> HTTPExc
     """Why a start is refused by the row's status (cadrage 4.2): ``revoked`` and
     ``incompatible`` never run; ``needs_attention`` for a reason other than
     ``config_required`` (``review_permissions``, ``consent_required``, ...) needs the
-    admin to acknowledge it by sending ``granted_permissions`` again."""
+    admin to acknowledge it by sending ``granted_permissions`` again; ``reinstall`` (an
+    instance restored from a backup without its code) never starts."""
     status = row["status"]
     if status in ("revoked", "incompatible"):
         return _error(409, f"plugin_{status}", f"The instance is {status} and cannot start")
     attention = row["attention"] or {}
     kind = attention.get("type")
+    if status == "needs_attention" and kind == "reinstall":
+        # Restored from a backup without its code (services/backup_plugins.py): no
+        # acknowledgement can start it, only a reinstall or an uninstall.
+        return _error(
+            409, "plugin_reinstall_required", "The instance must be reinstalled before it starts"
+        )
     if status == "needs_attention" and kind not in (None, "config_required") and not acknowledged:
         return _error(
             409, "attention_required", "The instance needs a review before it starts", type=kind

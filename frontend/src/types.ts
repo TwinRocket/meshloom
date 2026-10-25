@@ -1885,6 +1885,8 @@ export interface BackupIntegrationSummary {
 export interface BackupPushSummary {
   label: string;
   host: string;
+  /** The account that receives them after the restore; null: the first administrator. */
+  owner?: string | null;
 }
 
 export interface BackupInspectResult {

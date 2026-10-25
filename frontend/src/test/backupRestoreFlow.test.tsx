@@ -42,6 +42,7 @@ vi.mock('../components/ui/sonner', () => ({ toast: mocks.toast }));
 import { ApiError } from '../api';
 import {
   BackupRestoreFlow,
+  pushTargetText,
   restoreCodeText,
   restoreWarningText,
 } from '../components/settings/BackupRestoreFlow';
@@ -758,6 +759,11 @@ describe('BackupRestoreFlow', () => {
       'notification_rules_dropped',
       'notification_rules_sanitized',
       'notification_destination_secrets_missing',
+      'plugins_restored:2',
+      'plugins_to_reinstall:1',
+      'plugin_secrets_missing:1',
+      'plugin_dropped:local.greeter-1a2b3c',
+      'plugin_kept:meshloom.echo',
     ];
     for (const language of ['en', 'fr']) {
       const t = i18n.getFixedT(language);
@@ -871,8 +877,8 @@ describe('BackupRestoreFlow', () => {
     mocks.inspectBackup.mockResolvedValue(
       inspectResult({
         push_targets: [
-          { label: 'Phone', host: 'push.example.net' },
-          { label: '', host: 'fcm.googleapis.com' },
+          { label: 'Phone', host: 'push.example.net', owner: 'alice' },
+          { label: '', host: 'fcm.googleapis.com', owner: null },
         ],
       })
     );
@@ -882,11 +888,27 @@ describe('BackupRestoreFlow', () => {
       label: 'Phone',
       host: 'push.example.net',
     });
+    const list = [
+      i18n.t('settings.fullRestore.pushTargetOwner', { target: phone, owner: 'alice' }),
+      i18n.t('settings.fullRestore.pushTargetFirstAdmin', { target: 'fcm.googleapis.com' }),
+    ].join('; ');
     expect(
-      await screen.findByText(
-        i18n.t('settings.fullRestore.pushTargets', { list: `${phone}, fcm.googleapis.com` })
-      )
+      await screen.findByText(i18n.t('settings.fullRestore.pushTargets', { list }))
     ).toBeVisible();
+  });
+
+  it('names the account each push subscription goes to, in French and English', () => {
+    for (const language of ['en', 'fr']) {
+      const t = i18n.getFixedT(language);
+      const owned = pushTargetText({ label: 'Phone', host: 'h.example', owner: 'alice' }, t);
+      expect(owned).toContain('alice');
+      expect(owned).toContain('h.example');
+      const fallback = pushTargetText({ label: '', host: 'h.example', owner: null }, t);
+      expect(fallback).toBe(
+        t('settings.fullRestore.pushTargetFirstAdmin', { target: 'h.example' })
+      );
+      expect(fallback).not.toContain('pushTarget');
+    }
   });
 
   it('neither shows nor reports again a finished job already handled', async () => {

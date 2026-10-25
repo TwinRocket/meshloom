@@ -303,10 +303,10 @@ function DrawerBody({
                 {t('settings.extensions.config.goTo')}
               </Button>
             )}
-            {reason !== 'config_required' && !frozen && (
+            {reason !== 'config_required' && reason !== 'reinstall' && !frozen && (
               <ConsentWarnings permissions={declared} manifest={instance.manifest} />
             )}
-            {reason !== 'config_required' && !frozen && (
+            {reason !== 'config_required' && reason !== 'reinstall' && !frozen && (
               <Button size="sm" onClick={acknowledge} disabled={readOnly}>
                 {t('settings.extensions.drawer.acceptAndEnable')}
               </Button>

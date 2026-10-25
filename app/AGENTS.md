@@ -375,8 +375,10 @@ run as root).
   from backups and reset to 0 in a database copy). Additive: bots in `fanout_configs`
   are untouched until the switch. One `plugin_id` can have several instances, each
   with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
-  never exported (`plugin_secrets` emptied in the database download). Rules:
-  `docs/dev/plugins.md`, "Data model".
+  never exported (`plugin_secrets` emptied in the database download, `secret_omitted`
+  names only in the JSON `plugins` section, `services/backup_plugins.py`); `plugin_kv`
+  is never exported. Rules: `docs/dev/plugins.md`, "Data model", and
+  `docs/dev/backup.md`, "Plugins".
 - Migration 105 adds `plugin_send_quota` (the per-instance send counters of the
   plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
   `tests/test_migrations/test_migration_105.py`), excluded from backups.
@@ -880,9 +882,10 @@ be wrong, because historical decryption inserts old messages with new ids.
   contacts and conversations. That section shows the latest job while it runs,
   or finished until a view handled it; a handled job is not shown again.
 - **Inspect** also lists the non-bot integrations with their `enabled` flag,
-  the file's proxy setting, `bots_will_be_skipped` and `push_targets` (label and
-  endpoint host of each push subscription the restore would write, per
-  `push_restore_applies`): integrations, the proxy and push subscriptions come
+  the file's proxy setting, `bots_will_be_skipped` and `push_targets` (label,
+  endpoint host and `owner` of each push subscription the restore would write, per
+  `push_restore_applies`; `owner` is the username it goes to, or null for the first
+  administrator, `preview_push_owners`, MSHL-328): integrations, the proxy and push subscriptions come
   back as in the file and start at once, so the summary names them.
 - **Restore body.** `POST /settings/backup/restore` reads a raw dict: no
   `backup` key is the v1 flat request (synchronous); a `backup` key starts the

@@ -147,6 +147,8 @@
       "proxyEnabled": "Le proxy radio est activé dans cette sauvegarde : il démarre dès la fin de la restauration et accepte les connexions sans authentification.",
       "pushTargets": "Cette sauvegarde contient des abonnements push : vos notifications de messages partent vers {{list}} dès la fin de la restauration.",
       "pushTarget": "{{label}} ({{host}})",
+      "pushTargetOwner": "{{target}}, pour le compte {{owner}}",
+      "pushTargetFirstAdmin": "{{target}}, pour le premier administrateur",
       "fileWarningsTitle": "À propos de ce fichier",
       "fileWarnings": {
         "private_key_export_disabled": "Le firmware de la radio n’autorisait pas l’export de sa clé privée : cette sauvegarde ne contient pas d’identité.",

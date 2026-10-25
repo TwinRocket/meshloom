@@ -45,6 +45,16 @@ There is one v2 format. A `meshloom-backup-v2` document is the v1 fields
   owner, else the first administrator. `meshloom_extra` has no version: the
   field is optional, and an older 5.0 build ignores it. The `users` restore
   keeps devices with the account of the same username too (`restore_users`).
+  `POST /settings/backup/inspect` shows that owner in each `push_targets[]`
+  entry (`owner`, MSHL-328, `preview_push_owners`): the file's username when an
+  account of that `username_key` exists after the restore (the file's `users`
+  section when it would be written, else the current accounts), else `null`,
+  the first administrator. `restore_push_owners` runs in its own transaction
+  after the sections, not in theirs: every state in between is consistent (an
+  unmatched subscription is the first administrator's, and `restore_users`
+  already moves devices by username in its transaction), the UPDATE is
+  idempotent, and `meshloom_extra` is not a section, so tying it to the
+  `users` transaction would couple it to a section a file may not have.
 - **Size.** `POST /settings/backup/inspect` and `POST /settings/backup/restore`
   read their body in chunks and refuse more than 64 MiB
   (`MAX_BACKUP_BODY_BYTES`) with 413 `backup_too_large`, before parsing.
@@ -56,24 +66,24 @@ from app.models import BackupSection
 from app.services.backup_sections import register_backup_section
 
 
-async def export_plugins() -> BackupSection | None:
-    rows = await PluginRepository.list_installed()
+async def export_widgets() -> BackupSection | None:
+    rows = await WidgetRepository.get_all()
     if not rows:
         return None  # nothing to write: the section is left out of the file
-    return BackupSection(secrets_omitted=True, data={"plugins": [...]})
+    return BackupSection(secrets_omitted=True, data={"widgets": [...]})
 
 
-async def restore_plugins(section: BackupSection, conn: aiosqlite.Connection) -> list[str]:
+async def restore_widgets(section: BackupSection, conn: aiosqlite.Connection) -> list[str]:
     # Write through conn only (see "Transactions").
     await conn.execute("INSERT INTO ...", (...,))
     return []  # warnings: "code" or "code:param"
 
 
 register_backup_section(
-    "plugins",
-    export_plugins,
-    restore_plugins,
-    description={"en": "Installed plugins", "fr": "Extensions installées"},
+    "widgets",
+    export_widgets,
+    restore_widgets,
+    description={"en": "Widgets", "fr": "Widgets"},
     sensitive=False,
     version=1,
 )
@@ -320,6 +330,51 @@ imported by `services/backup.py`.
 - `GET /settings/backup/json` stays `meshloom-backup-v1` and has no channel;
   `GET /api/debug` lists each channel with `secret_fields_set` (names), never a value.
 
+## Plugins (`plugins`)
+
+`app/services/backup_plugins.py` registers the `plugins` section (Store T12,
+MSHL-188, version 1, not `sensitive`: `secrets_omitted` is set instead), imported
+by `services/backup.py`.
+
+- **Data.** `{"instances": [...]}`, one entry per `plugins` row (at most 200):
+  instance id, plugin id, kind, label, version, `enabled`, manifest, config
+  schema, **public** config, `secret_omitted` (`{field: true}` for each
+  write-only field that held a value), scope, grants, quotas, `auto_update`,
+  `sort_order`, `repository`, and `source` for a local plugin only. No secret
+  leaves: the export reads `PluginRepository.get_all()` (masked) and drops every
+  `writeOnly` field, stored secret and `********` value; `config_for_init` is
+  never called. `plugin_kv`, the send counters, `status`, `last_error`,
+  `attention` and `archive_sha256` stay out (`BACKUP_COVERAGE`). The archive of
+  converted bots (Store T9) will stay out too.
+- **Restore.** A local plugin comes back whole (manifest, source, config,
+  grants = its declared permissions). Any other kind comes back as a
+  **to reinstall** row (`attention.type = "reinstall"`): its code is not in the
+  file, and `_status_block` refuses every start with 409
+  `plugin_reinstall_required`; the user can only uninstall it until the store
+  reinstall action exists (T20). When an instance of the same plugin and kind
+  is installed here, the row shares its manifest, version and schema and is
+  `restored` instead. Every restored row is **disabled**, `needs_attention`
+  (`restored`, accepted like any other attention by sending
+  `granted_permissions` again, or `reinstall`), with `was_enabled` and
+  `secrets_missing` (the omitted write-only names) in `attention`. Grants are
+  kept only when the manifest covers them; config values the schema refuses,
+  invalid scope or quotas are reset.
+- **Never overwrites.** The same instance (same `instance_id` and `plugin_id`)
+  is kept as it is (`plugin_kept:<id>`); an `instance_id` already used by
+  another plugin, or one that is not a uuid, gets a new uuid; a local
+  `plugin_id` already used gets a new `-xxxxxx` suffix. A bad entry (invalid
+  shape, manifest, schema, missing source, oversized JSON, duplicate) is dropped
+  on its own: `plugin_dropped:<id or "invalid">`. Counters:
+  `plugins_restored:<n>`, `plugins_to_reinstall:<n>`,
+  `plugin_secrets_missing:<n>`.
+- **Hook.** `on_restore("plugins")` writes out the code of each bundled
+  `reinstall` row this release ships (`installer.install_bundled`) and makes it
+  `restored` with the shipped manifest and schema, then announces every row to
+  the UI. Rows stay disabled.
+- **Older files** (4.18.x, and 5.0 files written before the section) have no
+  `plugins` section: the plugin tables are left as they are.
+- Tests: `tests/test_backup_plugins.py`.
+
 ## The `on_restore` hook
 
 ```python
@@ -357,7 +412,7 @@ snapshot's, or a service never used) stays empty until its first use creates
 one. Access (T38) adds its Remote seed to that module (`INSTANCE_SEED_SERVICES`)
 rather than a hook of its own, so any restore regenerates the Remote identity
 too; `services/backup_accounts.py` registers `accounts` (reloads the trusted
-network rules).
+network rules); `services/backup_plugins.py` registers `plugins` (see "Plugins").
 
 ## Tests
 
