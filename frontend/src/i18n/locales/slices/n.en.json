@@ -8,6 +8,7 @@
     "egress_request_too_large": "The request is larger than allowed.",
     "egress_response_too_large": "The answer is larger than allowed.",
     "egress_response_encoding": "The answer is compressed, which is not allowed here.",
+    "egress_lan_address": "This local-network device did not resolve to an address of your local network.",
     "timeout": "The destination did not answer in time.",
     "tls_error": "The secure (TLS) connection failed: check the certificate, or use http:// if the destination has no TLS.",
     "service_error": "The destination answered with HTTP error {{status}}."

@@ -34,7 +34,7 @@ from pydantic_core import PydanticCustomError
 
 from app.plugins.errors import PluginIssue, PluginValidationError, issues_from_pydantic
 from app.plugins.licenses import ACCEPTED_LICENSES
-from app.plugins.permissions import Host, Permissions, is_meshloom_domain
+from app.plugins.permissions import Host, Permissions, is_meshloom_domain, lan_host_name
 from app.plugins.scripts import mixed_script_word
 
 MANIFEST_MAX_BYTES = 64 * 1024
@@ -349,7 +349,11 @@ class Manifest(_Model):
                         "the name must not contain 'meshloom', 'official' or 'officiel'",
                     )
             if self.permissions.http is not None and any(
-                is_meshloom_domain(h) for h in self.permissions.http.hosts
+                is_meshloom_domain(h)
+                for h in [
+                    *self.permissions.http.hosts,
+                    *map(lan_host_name, self.permissions.http.lan_hosts),
+                ]
             ):
                 raise PydanticCustomError(
                     "http_host_reserved", "meshloom.app hosts are reserved to meshloom.* plugins"

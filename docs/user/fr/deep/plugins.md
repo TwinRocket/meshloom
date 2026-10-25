@@ -44,7 +44,7 @@ Une extension n’ouvre jamais de connexion elle-même. Quand elle indique qu’
 
 Les serveurs sous `meshloom.app` sont réservés aux extensions de Meshloom. Le journal de Meshloom montre chaque requête avec son adresse, mais jamais la partie après `?`, où se trouvent souvent les clés d’API.
 
-Les extensions qui **peuvent parler à un appareil de votre réseau** (une box domotique, une imprimante) viendront plus tard : vous accepterez alors chaque appareil par son nom. D’ici là, une extension ne peut pas joindre votre réseau local.
+Une extension peut aussi demander à **parler à un appareil de votre réseau** (une box domotique, une imprimante). Le consentement liste alors chaque appareil par son nom (`hue-bridge.local`, `192.168.1.20:8080`...). Meshloom ne joint que ces appareils, sur le port indiqué, éventuellement sans chiffrement (`http://`) ; le nom doit mener à une adresse de votre réseau local à chaque résolution, une redirection ne peut aller que vers un autre appareil ou serveur listé, et toutes les autres règles ci-dessus s’appliquent. N’acceptez qu’un appareil que vous connaissez : l’extension pourra lui parler aussi librement que vous.
 
 Associée à la lecture des canaux privés ou des messages privés, cette permission permet à une extension de les envoyer aux serveurs qu’elle liste : n’accordez les deux qu’à une extension de confiance.
 

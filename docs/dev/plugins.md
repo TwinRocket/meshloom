@@ -5,7 +5,7 @@ bot shim, the supervisor, the capability API v1, the OS isolation and `http.fetc
 (MSHL-175, MSHL-184, MSHL-176, MSHL-177, MSHL-179, MSHL-181, MSHL-180, MSHL-183;
 isolation: `docs/dev/plugins-security.md`, "OS isolation"). The server starts one
 supervised child per enabled instance, isolated by the OS, and answers its requests
-(see "Capabilities"); LAN hosts for `http` (MSHL-282), the global send budgets and loop guards
+(see "Capabilities"); the global send budgets and loop guards
 (Store T6b) and the UI are later tickets; the REST API is described in "API" (MSHL-185), and no
 bundled package ships yet (Store T26). Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
@@ -99,13 +99,13 @@ the golden vectors.
 | `messages.read` | `channels` `public` (default) or `all`; `direct`, `outgoing` (booleans, default false) |
 | `messages.send` | `targets` `reply` (default), `scope`, `any`; `per_hour` 1 to 60; `per_day` 1 to 500 |
 | `raw_packets.read`, `contacts.read`, `channels.read`, `telemetry.read`, `storage`, `timer` | none (`{}`) |
-| `http` | `hosts`: 1 to 20 exact lowercase hostnames or **public** IP literals (classified with the egress guard's range tables in `app/net/egress_guard.py`, never `ipaddress.is_global`); never a wildcard, a range, a URL or a port. A hostname's last label starts with a letter (so `127.1`, `2130706433` and `0x7f.1` are refused); an IP literal is canonical (no scope id, lowercase IPv6, not IPv4-mapped), and every range the guard refuses is refused (`host_private_ip`: private, loopback, link-local, multicast, NAT64 or 6to4 around a private IPv4, `169.254.169.254`, documentation ranges). Names `localhost`, `*.localhost`, `*.local`, `*.lan`, `*.home.arpa`, `*.internal` and single-label hosts are refused too (`host_private_name`). `meshloom.app` and its subdomains are refused unless the id is `meshloom.*` |
+| `http` | at least one of `hosts` and `lan_hosts` (`http_hosts_required`), no entry in both lists and no duplicate (`lan_host_overlap`, `host_duplicate`). `hosts`: up to 20 exact lowercase hostnames or **public** IP literals (classified with the egress guard's range tables in `app/net/egress_guard.py`, never `ipaddress.is_global`); never a wildcard, a range, a URL or a port. A hostname's last label starts with a letter (so `127.1`, `2130706433` and `0x7f.1` are refused); an IP literal is canonical (no scope id, lowercase IPv6, not IPv4-mapped), and every range the guard refuses is refused (`host_private_ip`: private, loopback, link-local, multicast, NAT64 or 6to4 around a private IPv4, `169.254.169.254`, documentation ranges). Names `localhost`, `*.localhost`, `*.local`, `*.lan`, `*.home.arpa`, `*.internal` and single-label hosts are refused too (`host_private_name`). `meshloom.app` and its subdomains are refused unless the id is `meshloom.*`. `lan_hosts`: up to 10 devices on the user's network, each `host` or `host:port` (`[v6]:port` for IPv6): a lowercase hostname (`*.local`, `*.lan`, single-label names are fine) or a canonical IP literal in a LAN range (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`); never a wildcard or range (`host_wildcard`, `host_range`), `localhost`/`*.localhost`, a metadata name or a non-LAN literal (`lan_host_not_lan`), never a bad port, scope id or uppercase (`lan_host_invalid`). Without a port only the scheme's default port is allowed |
 
 Reserved and refused with `permission_reserved`: `notifications.send`, `feed.post`,
 `ui.panel`, `channels.manage`, `contacts.manage`. Any other name is `extra_forbidden`.
 
-The IP restriction fails closed until MSHL-282 (declaring a LAN host in the manifest, with
-named consent) lands; it will relax then, as a contract change.
+`hosts` stays public-only; a device on the LAN is reachable only through `lan_hosts`
+(MSHL-282), which the consent lists by name, one line per device.
 
 ### Config schema
 
@@ -847,7 +847,8 @@ A permission is effective when the manifest declares it **and** the user granted
 it (`plugins.granted_permissions`); its parameters are the narrower of the two
 (`messages.read` `channels: all`, `direct` and `outgoing` need both;
 `messages.send` `targets` is the lower of `reply` < `scope` < `any`, `per_hour` and
-`per_day` the smaller; `http` the hosts both list). Parameters that fail the
+`per_day` the smaller; `http` the `hosts` and the `lan_hosts` both list, the permission
+dropped when both lists end up empty). Parameters that fail the
 registry's validation drop the permission. They are computed when the instance
 starts: a changed grant takes effect at the next start (`reload()`).
 
@@ -917,18 +918,21 @@ else: a refusal has no side effect, uses no quota and touches no network.
   URL of at most 2048 characters **without user info**, a known method, header
   names that are HTTP tokens and values without CR/LF, a body over 256 KiB with
   `params.limit`, a positive timeout); the host is one of the effective
-  `http.hosts`, exactly, on the scheme's default port (`host_not_allowed`;
+  `http.hosts` or `http.lan_hosts`, exactly, on the declared port or else the scheme's default port (`host_not_allowed`;
   `meshloom.app` and its subdomains only for a `meshloom.*` id, checked again here
-  although the manifest already refuses them); HTTPS (`https_required`: plain HTTP
-  is for LAN hosts declared by name and accepted at consent, MSHL-282, so no host
-  can use it yet); then the quota, 60 requests per instance and clock hour, in
+  although the manifest already refuses them); HTTPS (`https_required`), except for a
+  `lan_hosts` entry, which may use plain HTTP; then the quota, 60 requests per instance and clock hour, in
   memory (`quota_exceeded`, `params.period: "hour"`, `params.limit`,
   `params.retry_after`; a restart of Meshloom resets it, a restart of the child
   does not). A refused call uses no quota. Then the egress guard's fixed-host path
   (`follow_checked_redirects`, `app/net/AGENTS.md`) with the same hosts as the
-  allowlist, `https` only: pinned resolution, private and reserved addresses
-  refused (`host_not_allowed`), at most 3 redirects, each hop re-validated
-  (`host_not_allowed`, or `https_required` for a hop to `http:`), credentials
+  allowlist (`https` only for `hosts`; `lan_hosts` passed as `lan_hosts`): pinned
+  resolution, private and reserved addresses refused for `hosts`, and for a
+  `lan_hosts` name every resolved address must be in a LAN range (DNS-rebinding
+  safe: a name that resolves to loopback, link-local, CGNAT, metadata, a mapped
+  form or a public address is refused) (`host_not_allowed`), at most 3 redirects, each hop re-validated
+  against both lists (`host_not_allowed`, or `https_required` for a hop to `http:`
+  outside `lan_hosts`), credentials
   (`Authorization`, API key headers...) dropped once a hop leaves the origin,
   `Host`, `Content-Length`, `Transfer-Encoding`, `Cookie` and the hop-by-hop
   headers never sent, no cookie jar, `Accept-Encoding: identity`, a total of

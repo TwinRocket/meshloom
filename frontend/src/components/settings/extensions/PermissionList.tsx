@@ -1,6 +1,12 @@
 import { useTranslation } from 'react-i18next';
 
-import { httpHosts, permissionKey, privacyOf, readsPrivateAndConnects } from './pluginsShared';
+import {
+  httpHosts,
+  httpLanHosts,
+  permissionKey,
+  privacyOf,
+  readsPrivateAndConnects,
+} from './pluginsShared';
 
 type Permissions = Record<string, Record<string, unknown>>;
 
@@ -42,6 +48,13 @@ function PermissionRow({
   const { t } = useTranslation();
   const key = permissionKey(name);
   const hosts = name === 'http' ? httpHosts({ http: params }).join(', ') : '';
+  // Each LAN device is named on its own line: the consent says which device of the
+  // user's network the plugin will be able to talk to (MSHL-282).
+  const lanHosts = name === 'http' ? httpLanHosts({ http: params }) : [];
+  const description =
+    name === 'http' && !hosts && lanHosts.length > 0
+      ? t(`${key}.description_lan_only`)
+      : t(`${key}.description`, { hosts });
   const lines = useDetailLines(name, params);
   return (
     <li className="flex items-start gap-2 py-2">
@@ -57,14 +70,22 @@ function PermissionRow({
       )}
       <div className="min-w-0 text-sm">
         <div className="font-medium">{t(`${key}.title`)}</div>
-        <div className="text-muted-foreground break-words">
-          {t(`${key}.description`, { hosts })}
-        </div>
+        <div className="text-muted-foreground break-words">{description}</div>
         {lines.map((line) => (
           <div key={line} className="text-muted-foreground break-words">
             {line}
           </div>
         ))}
+        {lanHosts.length > 0 && (
+          <div data-testid="plugin-lan-hosts">
+            {lanHosts.map((host) => (
+              <div key={host} className="font-medium break-words">
+                {t(`${key}.lan_host`, { host })}
+              </div>
+            ))}
+            <div className="text-muted-foreground">{t(`${key}.lan_note`)}</div>
+          </div>
+        )}
       </div>
     </li>
   );
@@ -112,7 +133,7 @@ export function ConsentWarnings({
   manifest: Record<string, unknown>;
 }) {
   const { t } = useTranslation();
-  const hosts = httpHosts(permissions).join(', ');
+  const hosts = [...httpHosts(permissions), ...httpLanHosts(permissions)].join(', ');
   const privacy = privacyOf(manifest);
   return (
     <div className="space-y-2 text-sm">
