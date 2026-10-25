@@ -1209,6 +1209,9 @@ export const api = {
   patchMyPushRules: (body: MyPushRulesPatch) =>
     fetchJson<MyPushRules>('/push/my-rules', { method: 'PATCH', body: JSON.stringify(body) }),
   resetMyPushRules: () => fetchJson<MyPushRules>('/push/my-rules', { method: 'DELETE' }),
+  pauseMyPush: (until: number | null) =>
+    fetchJson<MyPushRules>('/push/my-pause', { method: 'PUT', body: JSON.stringify({ until }) }),
+  resumeMyPush: () => fetchJson<MyPushRules>('/push/my-pause', { method: 'DELETE' }),
   getPlugins: () => fetchJson<PluginInstance[]>('/plugins'),
   getBundledPlugins: () => fetchJson<BundledPlugin[]>('/plugins/bundled'),
   installPlugin: (body: PluginInstallRequest) =>

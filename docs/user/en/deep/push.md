@@ -39,7 +39,7 @@ Each account sees and manages only its own devices: **Your devices** lists the b
 
 An administrator also sees **Other accounts' devices**: each device's label, its account and the push service it goes through (never its full address, which works as a password for that browser), with a button to remove it, for a lost phone or a former member. Renaming or testing a device is left to its owner.
 
-Which events reach your devices follows the administrator's defaults unless you changed them in **My notifications**; nobody else's choices affect your devices.
+Which events reach your devices follows the administrator's defaults unless you changed them in **My notifications** (events, one conversation, or a pause of your own devices); nobody else's choices affect your devices.
 
 A device receives notifications only while its account is enabled and may send messages (member or administrator). A viewer or a kiosk cannot subscribe; the devices of a disabled account stay silent until it is enabled again, and deleting an account deletes its devices. Devices registered before accounts owned them (before Meshloom 5.0, or restored from a backup) belong to the first administrator.
 
@@ -57,9 +57,11 @@ A device receives notifications only while its account is enabled and may send m
 | PATCH | `/api/push/subscriptions/{id}` | Change the label or the language of one of your subscriptions |
 | DELETE | `/api/push/subscriptions/{id}` | Delete one of your subscriptions (an administrator: any) |
 | POST | `/api/push/subscriptions/{id}/test` | Send a test notification to one of your subscriptions |
-| GET | `/api/push/my-rules` | Your own notification rules: per event (and node type) the administrator's default and your choice |
-| PATCH | `/api/push/my-rules` | Set (`true`, `false`) or clear (`null`) your choice for events and node types |
-| DELETE | `/api/push/my-rules` | Clear all your choices |
+| GET | `/api/push/my-rules` | Your own notification rules: per event (and node type) the administrator's default and your choice, your conversation exceptions and your pause |
+| PATCH | `/api/push/my-rules` | Set (`true`, `false`) or clear (`null`) your choice for events, node types and conversations (`channel-<key>`, `contact-<public key>`) |
+| DELETE | `/api/push/my-rules` | Clear your event, node type and conversation choices (a pause in progress stays) |
+| PUT | `/api/push/my-pause` | Pause your devices until `until` (epoch seconds, within a year), or until you resume with `null` |
+| DELETE | `/api/push/my-pause` | End your pause |
 | GET | `/api/push/preferences` | **Deprecated.** Defaults, exceptions and VAPID subject |
 | PATCH | `/api/push/preferences` | **Deprecated.** Change defaults and/or the VAPID subject |
 | PUT | `/api/push/preferences/conversations/{key}` | **Deprecated.** Set or clear an exception for a conversation |

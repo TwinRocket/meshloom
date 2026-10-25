@@ -57,9 +57,11 @@ Un appareil ne reçoit des notifications que tant que son compte est actif et pe
 | PATCH | `/api/push/subscriptions/{id}` | Change l’étiquette ou la langue d’un de vos abonnements |
 | DELETE | `/api/push/subscriptions/{id}` | Supprime un de vos abonnements (un administrateur : n’importe lequel) |
 | POST | `/api/push/subscriptions/{id}/test` | Envoie une notification de test à un de vos abonnements |
-| GET | `/api/push/my-rules` | Vos règles de notification : par événement (et type de nœud) la valeur par défaut de l’administrateur et votre choix |
-| PATCH | `/api/push/my-rules` | Fixe (`true`, `false`) ou efface (`null`) votre choix pour des événements et des types de nœud |
-| DELETE | `/api/push/my-rules` | Efface tous vos choix |
+| GET | `/api/push/my-rules` | Vos règles de notification : par événement (et type de nœud) la valeur par défaut de l’administrateur et votre choix, vos exceptions de conversation et votre pause |
+| PATCH | `/api/push/my-rules` | Fixe (`true`, `false`) ou efface (`null`) votre choix pour des événements, des types de nœud et des conversations (`channel-<clé>`, `contact-<clé publique>`) |
+| DELETE | `/api/push/my-rules` | Efface vos choix d’événement, de type de nœud et de conversation (une pause en cours reste) |
+| PUT | `/api/push/my-pause` | Met vos appareils en pause jusqu’à `until` (secondes epoch, dans l’année), ou jusqu’à la reprise avec `null` |
+| DELETE | `/api/push/my-pause` | Met fin à votre pause |
 | GET | `/api/push/preferences` | **Déprécié.** Valeurs par défaut, exceptions et sujet VAPID |
 | PATCH | `/api/push/preferences` | **Déprécié.** Modifie les valeurs par défaut et/ou le sujet VAPID |
 | PUT | `/api/push/preferences/conversations/{key}` | **Déprécié.** Crée ou efface une exception pour une conversation |

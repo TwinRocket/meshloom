@@ -166,14 +166,22 @@ Un nouveau canal est rempli pour vous par la dernière étape du dialogue d’aj
 
 Le tableau ci-dessus porte les **valeurs par défaut**. Web Push est le seul canal dont les destinataires sont des personnes (chaque appareil appartient à un compte) : sous **Réglages → Notifications → Mes notifications**, chaque compte (membre ou administrateur) voit une ligne par événement, et une par type de nœud pour *Nouveau nœud vu*. Chaque ligne suit la valeur par défaut de l’administrateur (la liste indique si c’est *notifier* ou *ne pas notifier*) tant que vous ne choisissez pas **Me notifier toujours** ou **Ne jamais me notifier** ; **Revenir aux valeurs par défaut** efface tous vos choix. Vos choix ne valent que pour les appareils de votre compte, et personne d’autre ne les voit ni ne les modifie.
 
-- *Ne jamais me notifier* l’emporte sur tout pour vos appareils, exceptions de conversation comprises.
+- *Ne jamais me notifier* l’emporte sur tout pour vos appareils, exceptions de conversation de l’administrateur comprises.
 - *Me notifier toujours* respecte quand même ce qui relève de l’installation : les exceptions de l’administrateur pour une conversation, un canal en sourdine, les listes de blocage et **Ne pas déranger**.
 - L’e-mail, les webhooks, ntfy, Telegram et les autres canaux sont des destinations partagées que l’administrateur gère : ils continuent de suivre le tableau, quels que soient vos choix.
 - Une mention atteint vos appareils comme une mention quand vos règles vous donnent *Mentions*, sinon comme un message de canal ordinaire, jamais les deux.
-- Les résumés envoyés quand un canal dépasse sa limite (voir [Limites et regroupement](#limites-et-regroupement)) et l’avis qu’une destination a changé atteignent tous les appareils.
+- Les résumés envoyés quand un canal dépasse sa limite (voir [Limites et regroupement](#limites-et-regroupement)) suivent aussi vos règles : vous n’en recevez un que si au moins une des notifications qu’il remplace vous était destinée, et ses totaux ne comptent que celles-là. L’avis qu’une destination a changé atteint tous les appareils.
 - Tant que vous ne changez rien, rien ne diffère du tableau, et la mise à jour vers cette version ne change rien pour personne.
 
-Les mêmes choix sont disponibles par `GET`, `PATCH` et `DELETE /api/push/my-rules` (voir [Web Push](/docs/deep/push/)).
+### Vos exceptions de conversation
+
+Sous **Mes notifications → Conversations**, choisissez un canal ou un contact, puis **Couper pour moi** ou **Me notifier toujours**. Cela ne vaut que pour cette conversation, sur vos appareils seulement, et l’emporte sur vos lignes d’événement ci-dessus (un canal coupé pour vous reste silencieux même si *Messages de canal* est activé ; un contact dont vous voulez toujours des nouvelles notifie même si *Messages privés* est désactivé). *Couper pour moi* fait aussi taire les mentions de ce canal. *Me notifier toujours* ne passe pas outre ce qui relève de l’installation : une conversation en sourdine, un expéditeur bloqué et la pause de l’administrateur la maintiennent silencieuse. Changez le choix dans la liste, ou retirez la ligne pour suivre de nouveau vos lignes d’événement. Jusqu’à 256 conversations.
+
+### Mettre en pause vos appareils
+
+Sous **Mes notifications → Pause**, choisissez **1 heure**, **8 heures**, **Jusqu’à demain 8 h** ou **Jusqu’à la reprise**. Vos appareils ne reçoivent alors plus rien, sauf les alertes urgentes (radio hors ligne, alertes de télémétrie) et les événements que l’administrateur a marqués *Toujours livrer*, comme avec **Ne pas déranger**. Les résumés sont eux aussi suspendus. **Reprendre** y met fin plus tôt ; une pause avec une heure de fin s’arrête toute seule. Personne d’autre n’est touché, ni les destinations partagées (e-mail, webhooks...) : le **Ne pas déranger** de l’administrateur est distinct. **Revenir aux valeurs par défaut** efface vos règles et vos exceptions de conversation, mais pas une pause en cours.
+
+Les mêmes choix sont disponibles par `GET`, `PATCH` et `DELETE /api/push/my-rules`, et `PUT` et `DELETE /api/push/my-pause` (voir [Web Push](/docs/deep/push/)).
 
 ## Les événements
 

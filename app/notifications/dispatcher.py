@@ -51,7 +51,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -169,8 +169,8 @@ class _Job:
 
 
 @dataclass
-class _Held:
-    """What a channel's full bucket held back, as counts only (never a text)."""
+class _Counts:
+    """Counts of what a full bucket held back (never a text)."""
 
     count: int = 0
     dms: int = 0
@@ -196,6 +196,20 @@ class _Held:
             else:
                 self.private += 1
 
+    def merged(self, other: _Counts | None) -> _Counts:
+        if other is None:
+            return self
+        channels = dict(self.channels)
+        for name, n in other.channels.items():
+            channels[name] = channels.get(name, 0) + n
+        return _Counts(
+            self.count + other.count,
+            self.dms + other.dms,
+            self.private + other.private,
+            self.other + other.other,
+            channels,
+        )
+
     def payload(self) -> dict[str, Any]:
         out: dict[str, Any] = {"event": GROUPED_EVENT, "count": self.count}
         if self.dms:
@@ -211,6 +225,55 @@ class _Held:
             if rest:
                 out["private"] = out.get("private", 0) + rest
         return out
+
+
+@dataclass
+class _Held:
+    """What a channel held back. On Web Push each held job also remembers whose devices
+    wanted it (its ``PushAudience``, MSHL-361), so a summary reaches only the accounts that
+    would have had at least one of the jobs, with their own counts: ``everyone`` counts the
+    jobs without an audience, ``accounts`` those an account wants (key None: the accounts
+    without an override of their own)."""
+
+    count: int = 0
+    everyone: _Counts = field(default_factory=_Counts)
+    accounts: dict[int | None, _Counts] = field(default_factory=dict)
+    uids: set[int] = field(default_factory=set)
+
+    def add(self, job: _Job, *, per_account: bool = False) -> None:
+        self.count += 1
+        audience = job.delivery.audience if per_account else None
+        if audience is None:
+            self.everyone.add(job)
+            return
+        self.uids.update(audience.per_user)
+        if audience.default is not None:
+            self.accounts.setdefault(None, _Counts()).add(job)
+        for uid, payload in audience.per_user.items():
+            if payload is not None:
+                self.accounts.setdefault(uid, _Counts()).add(job)
+
+    def payload(self) -> dict[str, Any]:
+        return self.everyone.payload()
+
+    def audience(
+        self,
+        make: Callable[[_Counts], dict[str, Any]],
+        paused: Collection[int] = (),
+    ) -> PushAudience | None:
+        """The summary each account gets (``make`` builds it from the account's counts);
+        None when nobody would get one. ``paused`` are the accounts whose pause holds now."""
+
+        def payload_for(key: int | None) -> dict[str, Any] | None:
+            counts = self.everyone.merged(self.accounts.get(key))
+            return make(counts) if counts.count else None
+
+        known = (self.uids | {k for k in self.accounts if k is not None}) | set(paused)
+        audience = PushAudience(
+            default=payload_for(None),
+            per_user={uid: None if uid in paused else payload_for(uid) for uid in known},
+        )
+        return None if audience.empty else audience
 
 
 @dataclass
@@ -234,6 +297,7 @@ class _Worker:
     held: _Held = field(default_factory=_Held)
     agg_flusher: asyncio.Task[None] | None = None
     first_seen_held: int = 0
+    first_seen_audience: _Held = field(default_factory=_Held)
     first_seen_flusher: asyncio.Task[None] | None = None
     last_send_at: float | None = None
     long_retries: set[asyncio.Task[None]] = field(default_factory=set)
@@ -427,6 +491,7 @@ class Dispatcher:
             is_public_or_hashtag=is_open,
             muted=muted,
             blocked=blocked,
+            now=self._wall(),
         )
         listed = BUILTIN_PUSH_ID in channel_ids
         if audience.empty:
@@ -537,7 +602,7 @@ class Dispatcher:
 
     def _hold(self, worker: _Worker, job: _Job) -> None:
         """A full bucket: keep the job as a count for the next summary."""
-        worker.held.add(job)
+        worker.held.add(job, per_account=worker.channel_id == BUILTIN_PUSH_ID)
         self._journal(worker.channel_id, job.delivery.name, "aggregated", dedup_key=job.dedup_key)
         if worker.agg_flusher is None or worker.agg_flusher.done():
             from app.background_tasks import spawn
@@ -564,6 +629,11 @@ class Dispatcher:
                 await self._flush_journal()
             raise
         held, worker.held, worker.agg_flusher = worker.held, _Held(), None
+        summary = Delivery(GROUPED_EVENT, held.payload())
+        if worker.channel_id == BUILTIN_PUSH_ID:
+            summary = await self._push_summary(held, _Counts.payload, GROUPED_EVENT)
+            if summary is None:  # no account would have had any of the held jobs
+                return
         if buckets is not None and buckets.quota_exhausted():
             self._journal(worker.channel_id, GROUPED_EVENT, "quota_exceeded")
             return
@@ -576,7 +646,7 @@ class Dispatcher:
         if buckets is not None:
             await buckets.take()
         self._update_capped()
-        self._enqueue(worker.channel_id, _Job(Delivery(GROUPED_EVENT, held.payload())))
+        self._enqueue(worker.channel_id, _Job(summary))
 
     async def _channels(self, ids: list[str], *, allow_legacy: bool) -> list[Channel]:
         from app.repository.notification_channels import NotificationChannelRepository
@@ -612,6 +682,7 @@ class Dispatcher:
 
     def _hold_first_seen(self, worker: _Worker, job: _Job) -> None:
         worker.first_seen_held += 1
+        worker.first_seen_audience.add(job, per_account=worker.channel_id == BUILTIN_PUSH_ID)
         self._journal(worker.channel_id, job.delivery.name, "aggregated", dedup_key=job.dedup_key)
         if worker.first_seen_flusher is None or worker.first_seen_flusher.done():
             from app.background_tasks import spawn
@@ -640,12 +711,50 @@ class Dispatcher:
             # Waits for the hourly budget to free a slot, then says how many were held.
             async with worker.first_seen:
                 count, worker.first_seen_held = worker.first_seen_held, 0
+                held, worker.first_seen_audience = worker.first_seen_audience, _Held()
         except asyncio.CancelledError:
             if worker.first_seen_held:
                 self._journal(worker.channel_id, FIRST_SEEN_GROUPED_EVENT, "aborted")
                 await self._flush_journal()
             raise
-        self._enqueue(worker.channel_id, _Job(_grouped(FIRST_SEEN_GROUPED_EVENT, count)))
+        summary = _grouped(FIRST_SEEN_GROUPED_EVENT, count)
+        if worker.channel_id == BUILTIN_PUSH_ID:
+            pushed = await self._push_summary(
+                held,
+                lambda counts: _grouped(FIRST_SEEN_GROUPED_EVENT, counts.count).payload,
+                FIRST_SEEN_GROUPED_EVENT,
+            )
+            if pushed is None:
+                return
+            summary = pushed
+        self._enqueue(worker.channel_id, _Job(summary))
+
+    async def _push_summary(
+        self,
+        held: _Held,
+        make: Callable[[_Counts], dict[str, Any]],
+        name: str,
+    ) -> Delivery | None:
+        """The Web Push summary of what was held (MSHL-361): each account gets it only when
+        its own rules wanted at least one held job, counted from those jobs alone, and an
+        account paused now (MSHL-363) gets none. None when nobody is left."""
+        from app.notifications.user_rules import is_paused
+        from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+        try:
+            overrides = await UserNotificationRulesRepository.all_overrides()
+        except Exception:
+            logger.debug("account notification rules unreadable", exc_info=True)
+            overrides = {}
+        now = self._wall()
+        paused = {uid for uid, ov in overrides.items() if is_paused(ov, now)}
+        audience = held.audience(make, paused)
+        if audience is None:
+            return None
+        payload = audience.default or next(
+            (p for p in audience.per_user.values() if p is not None), {"event": name, "count": 0}
+        )
+        return Delivery(name, dict(payload), audience=audience)
 
     # -- worker -----------------------------------------------------------------
 

@@ -36,7 +36,7 @@ export function SettingsNotificationsSection({
 
   return (
     <div className={className}>
-      <MyNotificationRules />
+      <MyNotificationRules contacts={contacts} chatChannels={channels} />
 
       <NotificationChannelsPanel
         state={notificationChannels}

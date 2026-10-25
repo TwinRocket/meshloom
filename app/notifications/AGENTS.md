@@ -108,7 +108,7 @@ This file is a hypothesis: check it against the code.
   read nor written (migration 114 copied it into `push_defaults.telemetry_alert` where that key was missing) (`TelemetryAlertRules.channels` is `exclude=True`, accepted and ignored). The shims
   are removed in 5.2.0 (T34).
 
-## Per-account rules (`user_rules.py`, MSHL-321)
+## Per-account rules (`user_rules.py`, MSHL-321, 361, 362, 363)
 
 `app_settings.notification_rules` is the **admin defaults**. Web Push is the one channel whose
 recipients are accounts (each device has an owner, MSHL-290), so an account may change, for its
@@ -116,17 +116,27 @@ own devices only, whether an event reaches them; every other channel is a destin
 owns and keeps following the defaults (webhooks, e-mail, Apprise, ntfy, `legacy:*`).
 
 - **Storage.** `user_notification_rules` (migration 123): one row per account that changed
-  something, `{"version": 1, "events": {id: bool}, "contact_types": {kind: bool}}`
-  (`sanitize_override`: known events, the three contact kinds, booleans). No row means "follow
+  something, `{"version": 1, "events": {id: bool}, "contact_types": {kind: bool},
+  "conversations": {state_key: bool}, "pause": {"until": int | null}}` (`sanitize_override`:
+  known events, the three contact kinds, booleans, state keys `channel-<hex>`/`contact-<hex>`
+  (at most 256), a pause end in epoch seconds or null). The two later keys (MSHL-362, 363)
+  live in the same JSON document, so they needed no migration. No row means "follow
   the defaults", so migration 123 writes none and an upgrade changes nothing. The events that
   prove a destination change (`notify.channel_changed`, `notify.destination_changed`) and
   `notify.test` cannot be overridden. `UserNotificationRulesRepository.all_overrides()` is read
   from memory on every notification.
-- **Effective rules.** `push_wanted(rules, override, event, ...)`: a `false` choice cuts the
-  event for that account, conversation exceptions included; a `true` lists `builtin:push` on
-  that event (or contact kind) and then goes through the same evaluation as the defaults, so
-  the admin's conversation exceptions, mutes, block lists and the global pause still apply.
-  Conversation exceptions, `always_deliver`, keywords, watched nodes and the pause are instance
+- **Effective rules.** `push_wanted(rules, override, event, ..., now=)`, in this order: (1) the
+  account's **pause** (`is_paused`: set and not over) cuts everything but urgent events,
+  `always_deliver` ones and the locked events (MSHL-363, the instance pause's exemptions);
+  (2) the account's **conversation exception** for a `message.*` event's state key
+  (`conversation_state_key`, the key `rules.py` builds): `false` cuts every message event of
+  that conversation, mentions included; `true` lists `builtin:push` as a stored admin exception
+  would (so a muted conversation or a blocked sender still cuts it, unless `always_deliver`)
+  and wins over the account's own event choice (MSHL-362: more specific); (3) the account's
+  event choice: a `false` cuts the event, the admin's conversation exceptions included; a
+  `true` lists `builtin:push` on that event (or contact kind) and then goes through the same
+  evaluation as the defaults, so the admin's conversation exceptions, mutes, block lists and
+  the global pause still apply. `always_deliver`, keywords and watched nodes are instance
   settings: an account has no copy of them.
 - **Dispatch.** Without `targets`, `Dispatcher._emit` strips `builtin:push` from the channels the
   defaults chose and asks `build_audience` instead: a `PushAudience` that gives each account's
@@ -135,19 +145,34 @@ owns and keeps following the defaults (webhooks, e-mail, Apprise, ntfy, `legacy:
   override or a mention version exists (otherwise every device gets the payload, as before). The
   Web Push transport passes it to `PushManager.dispatch_event(audience=)`, which skips the
   devices of an account that wants nothing. A producer that routes Web Push alone with `targets`
-  asks for the same with `per_account=True`. Deliveries with no audience (a destination-change
-  proof, the `notifications_grouped` and `first_seen_grouped` summaries) reach every deliverable
-  device.
+  asks for the same with `per_account=True`. A delivery with no audience (a destination-change
+  proof) reaches every deliverable device.
+- **Grouped summaries (MSHL-361).** On `builtin:push` a held job (`_Held.add(job,
+  per_account=True)`, and `Worker.first_seen_audience` for `contact.first_seen`) remembers its
+  `PushAudience`: the counts are kept per account (key None: the accounts without an
+  override). `_push_summary` builds the summary's own audience at flush time: an account gets
+  `notifications_grouped` / `first_seen_grouped` only when at least one held job was wanted by
+  its rules, counted from those jobs alone (so a muted conversation never shows up in its
+  counts); an account paused at that moment gets none; with nobody left nothing is queued and
+  no cap or bucket token is spent. The other channels count every held job, as before.
 - **Mentions.** The producer takes `builtin:push` out of the instance-wide mention/plain split
   and hands the dispatcher both versions (`push_mention`). An account whose rules give it
   `message.mention` receives the mention, else the plain `message.channel`, never both.
 - **API.** `GET/PATCH/DELETE /api/push/my-rules` (`send`): per overridable event and per contact
-  kind `{default, choice}` (`choice` null follows the default). The admin edits the defaults
-  with `/api/notifications/rules` as before. The Settings page shows the account's own rules
-  next to its devices, and the admin's matrix as "defaults for all accounts".
+  kind `{default, choice}` (`choice` null follows the default), plus `conversations` (state key
+  to bool, patched with bool or null) and `pause` (`{active, until}`). `PUT /api/push/my-pause`
+  (`{until}`: epoch seconds within a year, or null until the account resumes; 400
+  `notification_pause_invalid`) and `DELETE /api/push/my-pause`. `DELETE /my-rules` forgets the
+  event, contact type and conversation choices and keeps a pause in force. Unknown ids or keys:
+  400 `notification_rule_unknown`; more than 256 conversations: 400
+  `notification_conversations_limit`. The admin edits the defaults with
+  `/api/notifications/rules` as before. The Settings page shows the account's own pause, rules
+  and conversation exceptions next to its devices, and the admin's matrix as "defaults for all
+  accounts".
 - **Backup.** The `notification_user_rules` section rides with the accounts
   (`docs/dev/backup.md`).
-- Tests: `tests/test_user_notification_rules.py`, `tests/test_migrations/test_migration_123.py`.
+- Tests: `tests/test_user_notification_rules.py`, `tests/test_user_push_summaries.py`,
+  `tests/test_migrations/test_migration_123.py`.
 
 ## Presets (`presets.py`)
 
