@@ -67,7 +67,8 @@ def without_plugin_errors(health: dict[str, Any]) -> dict[str, Any]:
 
 def health_fields() -> dict[str, Any]:
     """`plugins_isolation`, `plugins_disabled`, `plugins_disabled_source`,
-    `plugins_paused_since` and `plugin_statuses` for `/api/health`.
+    `plugins_paused_since`, `plugins_pause_unreadable` and `plugin_statuses` for
+    `/api/health`.
 
     The host lock, the platform and a failed isolation take precedence over the
     global pause (`paused`, `app/plugins/pause.py`)."""
@@ -88,5 +89,6 @@ def health_fields() -> dict[str, Any]:
         "plugins_disabled": source is not None,
         "plugins_disabled_source": source,
         "plugins_paused_since": pause_state.since if pause_state.paused else None,
+        "plugins_pause_unreadable": pause_state.unreadable,
         "plugin_statuses": statuses,
     }

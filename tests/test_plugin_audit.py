@@ -84,6 +84,8 @@ async def test_local_plugin_source_updates_are_audited_without_the_source(api, m
     ]
     assert rows[0].target == f"plugin:{iid}"
     assert rows[1].details["fields"] == ["source"]
+    assert rows[1].details["source_bytes"] == len(source.encode("utf-8"))
+    assert rows[2].details["source_bytes"] == len(b"def broken(:\n")
     assert SOURCE_MARK not in _dump(rows) and "broken" not in _dump(rows)
 
 

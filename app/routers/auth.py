@@ -901,17 +901,17 @@ class AuthSettingsPatch(BaseModel):
 
 
 def _plugins_isolation_reduced() -> bool:
-    """Plugins on with the ``none`` level. An unreadable state counts as reduced."""
+    """Plugins on, or only paused, with the ``none`` level. An unreadable state counts
+    as reduced. The global pause does not lift the notice: the risk is back on resume."""
     try:
         from app.plugins import lifecycle
 
         fields = lifecycle.health_fields()
     except Exception:
         return True
-    return fields.get("plugins_disabled_source") is None and fields.get("plugins_isolation") in (
-        None,
-        "none",
-    )
+    return fields.get("plugins_disabled_source") in (None, "paused") and fields.get(
+        "plugins_isolation"
+    ) in (None, "none")
 
 
 async def _security_notices(settings: AuthSettings) -> list[SecurityNotice]:

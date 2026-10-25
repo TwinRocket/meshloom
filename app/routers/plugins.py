@@ -872,13 +872,16 @@ async def put_source(
     instance_id: str, body: SourceRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
 ) -> SourceResult:
     """Replace a local plugin's code (``ast.parse`` first) and restart it when enabled.
-    Audited as ``plugin.updated`` with the source's size, never its text."""
+    Audited as ``plugin.updated`` with the source's size in bytes (``source_bytes``),
+    never its text."""
     row = await _row(instance_id)
     async with audit.audited(
         actor,
         "plugin.updated",
         target=_target(row["instance_id"]),
-        details=_audit_details(row, fields=["source"]),
+        details=_audit_details(
+            row, fields=["source"], source_bytes=len(body.source.encode("utf-8"))
+        ),
     ):
         return await _put_source(row["instance_id"], row, body)
 

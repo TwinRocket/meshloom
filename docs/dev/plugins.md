@@ -702,7 +702,14 @@ ones.
   too (`fanout_manager.set_bots_paused`, `bots_disabled_source: "paused"`). The
   pause survives a restart. Health says `plugins_disabled_source: "paused"` and
   `plugins_paused_since` only when no other gate applies: the host lock, the
-  platform and the isolation failure take precedence.
+  platform and the isolation failure take precedence. `start()` checks the pause
+  again right before it registers and launches the child, with no await in
+  between (MSHL-341): a start or enable in flight when the pause lands never
+  launches, since `pause_all()` only stops registered instances. If the stored
+  state cannot be read at boot, the pause fails closed: plugins and bots are held
+  as paused (`since` and `by` unknown), the log has the error and health adds
+  `plugins_pause_unreadable: true`; an admin's resume (or pause) writes the state
+  again.
 - **Isolation setup.** When `isolation.startup()` fails at start (detection, or
   the dedicated uid's file model: a database left `0644` would be readable by the
   plugin uid), the system fails closed: `fail_closed()`, nothing starts until a
@@ -829,8 +836,8 @@ principal without the `send` permission; `realtime=False`, so not to the
 proxy or fanout) and triggers a `health` broadcast. `statuses()` covers every
 instance of the repository cache (stored status, `disabled` when not enabled),
 with live values for the running ones. Health carries `plugins_isolation`,
-`plugins_disabled`, `plugins_disabled_source`, `plugins_paused_since` and
-`plugin_statuses`; an anonymous caller gets none of them.
+`plugins_disabled`, `plugins_disabled_source`, `plugins_paused_since`,
+`plugins_pause_unreadable` and `plugin_statuses`; an anonymous caller gets none of them.
 
 Who sees errors: `plugin_status` is admin-only. `health` (REST and WebSocket)
 keeps the statuses for every signed-in principal, but a principal below `admin`
@@ -869,7 +876,8 @@ records the actor, the target `plugin:<instance_id>` and `{plugin_id, kind, fiel
 `fields` lists the names of the changed fields only: never a config value, a secret or the source.
 `POST /install` is `plugin.installed`, `POST /plugins` `plugin.created`, `PATCH` `plugin.enabled`,
 `plugin.disabled`, `plugin.config_changed` (`config`, `scope`, `granted_permissions`, `quotas`,
-`hooks`) and `plugin.changed` (the other fields: `label`), one row per kind, `PUT source` `plugin.updated`, `DELETE` `plugin.removed`. A
+`hooks`) and `plugin.changed` (the other fields: `label`), one row per kind, `PUT source` `plugin.updated`
+(plus `source_bytes`, the size of the submitted source, never its text), `DELETE` `plugin.removed`. A
 non-admin refused by the permission gate writes no row and changes nothing.
 
 | Route | Role | Behaviour |

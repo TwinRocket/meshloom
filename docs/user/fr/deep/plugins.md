@@ -119,6 +119,7 @@ Chaque modification faite par un administrateur est inscrite au journal d’audi
 - Rien n’est perdu : chaque copie garde son interrupteur, ses réglages et ses données. Vous pouvez toujours installer, configurer ou activer des copies ; elles démarrent à la reprise.
 - Un bandeau indique depuis quand et par qui les extensions sont en pause, et les copies affichent l’état **En pause**. **Reprendre** relance exactement les copies dont l’interrupteur est activé.
 - La pause survit à un redémarrage de Meshloom. Les bots Python sont mis en pause en même temps.
+- Si Meshloom ne peut pas lire l’interrupteur de pause au démarrage, il joue la sécurité : extensions et bots restent en pause, sans date ni nom dans le bandeau, jusqu’à ce qu’un administrateur choisisse **Reprendre**.
 
 Elle se distingue des deux autres façons d’arrêter les extensions :
 

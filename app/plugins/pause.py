@@ -9,7 +9,10 @@ in-memory copy the supervisor reads (`plugin_manager.paused`). While paused:
   409 `plugins_paused`;
 - the legacy bot modules are held the same way (`fanout_manager.set_bots_paused`).
 
-Resume starts exactly the enabled instances again, staggered. The host lock
+Resume starts exactly the enabled instances again, staggered. If the persisted
+state cannot be read at boot, the pause fails closed (MSHL-341): plugins and bots
+are held as if paused, `unreadable` is set (health `plugins_pause_unreadable`)
+and an admin's resume, or pause, writes the state again. The host lock
 (`MESHCORE_DISABLE_PLUGINS`) is separate and takes precedence in health; this
 switch is not the old bots "disable until restart" toggle: it survives a
 restart until an admin resumes.
@@ -32,6 +35,9 @@ class PauseState:
     paused: bool = False
     since: int | None = None
     by: str | None = None
+    # Held because the persisted state could not be read at boot (fail closed),
+    # not because an admin paused: `since` and `by` are unknown.
+    unreadable: bool = False
 
 
 _state = PauseState()
@@ -50,7 +56,14 @@ async def load(manager: host.PluginManager | None = None) -> None:
     try:
         paused, since, by = await AppSettingsRepository.get_plugins_pause()
     except Exception:
-        logger.exception("Could not read the plugin pause; plugins start normally")
+        # Fail closed: an admin may have paused because of an incident, and nothing
+        # tells otherwise. Resume in Settings > Extensions lifts it (and persists).
+        logger.exception(
+            "Could not read the plugin pause; plugins and bots are held as paused "
+            "until an administrator resumes them"
+        )
+        _state = PauseState(True, unreadable=True)
+        _apply_flags(manager or host.plugin_manager, True)
         return
     _state = PauseState(paused, since, by) if paused else PauseState()
     _apply_flags(manager or host.plugin_manager, paused)
@@ -75,13 +88,14 @@ async def set_paused(
     from app.repository.settings import AppSettingsRepository
 
     async with _lock:
-        if paused == _state.paused:
+        # A fail-closed hold (`unreadable`) is not a recorded pause: pausing records it.
+        if paused == _state.paused and not _state.unreadable:
             return _state, False
         new = PauseState(True, int(time.time()), by) if paused else PauseState()
         # Persist first: the next boot honours the switch even if a stop fails here.
         await AppSettingsRepository.set_plugins_pause(new.paused, new.since, new.by)
         _state = new
-        if paused:
+        if paused:  # idempotent when already held (fail closed)
             await plugin_manager.pause_all()
             await fanout_manager.set_bots_paused(True)
         else:
