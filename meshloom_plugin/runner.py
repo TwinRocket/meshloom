@@ -9,11 +9,14 @@ the bootstrap sets `sys.path = [app_root] + stdlib` and runs this module as
 2. Keep private duplicates of the RPC descriptors; fd 0 becomes /dev/null and
    fd 1 (and `sys.stdout`) becomes stderr, so a `print()` never reaches the RPC
    stream.
-3. Scrub `os.environ`, set hard rlimits, a small thread stack size and
-   `PR_SET_NO_NEW_PRIVS` and `PR_SET_DUMPABLE` 0 (Linux), then import `asyncio`: it loads `socket`,
+3. Scrub `os.environ`, set hard rlimits (`RLIMIT_NPROC` 0 on Linux: no thread,
+   no process), a small thread stack size and `PR_SET_NO_NEW_PRIVS` and
+   `PR_SET_DUMPABLE` 0 (Linux), then import `asyncio`: it loads `socket`,
    `ssl` and `subprocess` at module level, which is why it comes before the
    purge rather than after it.
-4. Install the audit hook (`_HOOK_SOURCE`): no reachable mutable state.
+4. Install the audit hook (`_HOOK_SOURCE`): no reachable mutable state. Then
+   `sys.addaudithook` becomes a stub that raises, where CPython would swallow
+   the hook's refusal.
 5. Purge `sys.modules` and scrub the references other modules hold to the
    denied ones, then install the import guard (a `sys.meta_path` finder and a
    `builtins.__import__` wrapper).
@@ -205,8 +208,12 @@ def _apply_limits(params: dict[str, Any]) -> None:
     # RLIMIT_AS; the limit only means something on Linux.
     if sys.platform.startswith("linux"):
         wanted.append((resource.RLIMIT_AS, limits["address_space"]))
-    if params["isolation"] == "setuid":
-        wanted.append((resource.RLIMIT_NPROC, limits["processes"]))
+        # No thread and no process, at every level: clone() fails with EAGAIN once
+        # the uid's task count reaches the limit, and with 0 it always has. This is
+        # what closes the paths the hook cannot see (a `_posixsubprocess` rebuilt
+        # from its spec, a thread on 3.11, native code). The runner itself needs
+        # neither. Root ignores RLIMIT_NPROC (docs/dev/plugins-security.md).
+        wanted.append((resource.RLIMIT_NPROC, 0))
     for which, value in wanted:
         _soft, hard = resource.getrlimit(which)
         if hard != resource.RLIM_INFINITY:
@@ -431,6 +438,26 @@ def _install_audit_hook(
         raise RunnerStartError(
             "audit_hook_failed", f"cannot install the audit hook: {exc}"
         ) from None
+    # The hook refuses `sys.addaudithook`, but CPython swallows an Exception a hook
+    # raises for that event and just skips the new hook: the plugin would never
+    # know. The stub makes the refusal an error it sees.
+    sys.addaudithook = _add_audit_hook_stub()
+
+
+_ADD_AUDIT_HOOK_STUB = """
+def addaudithook(hook, _error=PermissionError):
+    raise _error("plugin sandbox: sys.addaudithook is not allowed")
+"""
+
+
+def _add_audit_hook_stub() -> Any:
+    """`sys.addaudithook`'s replacement: like the hook, no globals and no builtins."""
+    namespace: dict[str, Any] = {"__builtins__": {"PermissionError": PermissionError}}
+    exec(compile(_ADD_AUDIT_HOOK_STUB, "<meshloom-audit-hook>", "exec"), namespace)
+    stub = namespace["addaudithook"]
+    namespace.clear()
+    stub.__builtins__.clear()
+    return stub
 
 
 # --- stage 5: purge and import guard -------------------------------------------

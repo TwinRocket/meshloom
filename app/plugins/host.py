@@ -266,7 +266,8 @@ def read_proc_tree_cpu_seconds(pid: int) -> float | None:
     """CPU of `pid` and every descendant, reaped ones included (`cutime`, `cstime`).
 
     Under bwrap the supervisor's child is bwrap and the runner a grandchild, and
-    a plugin may start processes of its own: the budget covers the whole tree.
+    a child running as root ignores `RLIMIT_NPROC` 0 and may start processes of
+    its own: the budget covers the whole tree.
     None when `pid` is unreadable.
     """
     total = 0

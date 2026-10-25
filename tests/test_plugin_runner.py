@@ -327,10 +327,12 @@ def test_hostile_call_is_refused_and_the_child_keeps_serving(hostile: Runner, ca
     assert hostile.event({"case": "ping"})["result"] == "pong"
 
 
-def test_extra_audit_hook_is_never_added(hostile: Runner) -> None:
+def test_extra_audit_hook_is_refused_loudly(hostile: Runner) -> None:
     # sys.addaudithook() swallows an Exception raised by an existing hook and
-    # returns None without adding the new one: the refusal is silent by design.
-    assert hostile.event({"case": "audit_hook"})["result"] is False
+    # returns None without adding the new one; the runner's stub raises instead.
+    response = hostile.event({"case": "audit_hook"})
+    assert _error_type(response) == "PermissionError", response
+    assert "plugin sandbox: " in response["error"]["message"], response
     assert hostile.event({"case": "ping"})["result"] == "pong"
 
 
@@ -438,7 +440,8 @@ def test_runner_serves_under_each_isolation_level(level: str, work: Path) -> Non
             status = Path(f"/proc/{runner.proc.pid}/status").read_text()
             uids = next(line for line in status.splitlines() if line.startswith("Uid:")).split()[1:]
             assert set(uids) == {str(backend.uid)}  # real, effective, saved, fs
-            _os_check_nproc(runner, backend, work)
+        if LINUX:
+            _assert_no_thread_or_process(runner)
     finally:
         runner.close()
 
@@ -492,11 +495,15 @@ def test_setuid_announced_to_a_root_child_is_refused(work: Path) -> None:
     assert "root" in error["message"]
 
 
-def _os_check_nproc(runner: Runner, _backend: IsolationBackend, _work: Path) -> None:
-    """Threads stay possible on 3.11, but bounded by RLIMIT_NPROC for the uid."""
-    limits = Path(f"/proc/{runner.proc.pid}/limits").read_text()
+def _assert_no_thread_or_process(runner: Runner) -> None:
+    """RLIMIT_NPROC is 0 (soft and hard) at every level: no clone() succeeds."""
+    # Under bwrap, proc.pid is bwrap (and its init): the runner is the leaf.
+    pid = runner.proc.pid
+    while children := Path(f"/proc/{pid}/task/{pid}/children").read_text().split():
+        pid = int(children[0])
+    limits = Path(f"/proc/{pid}/limits").read_text()
     line = next(line for line in limits.splitlines() if line.startswith("Max processes"))
-    assert line.split()[3] == str(policy.DEFAULT_LIMITS["processes"]), line
+    assert line.split()[2:4] == ["0", "0"], line
 
 
 def test_launch_env_keeps_only_the_whitelisted_keys() -> None:
@@ -786,6 +793,16 @@ def test_audit_hook_failure_refuses_to_start(monkeypatch: pytest.MonkeyPatch) ->
     assert exc.value.code == "audit_hook_failed"
 
 
+def test_add_audit_hook_stub_refuses_without_globals() -> None:
+    from meshloom_plugin import runner
+
+    stub = runner._add_audit_hook_stub()
+    assert stub.__globals__ == {}
+    assert stub.__builtins__ == {}
+    with pytest.raises(PermissionError, match="plugin sandbox: sys.addaudithook"):
+        stub(lambda event, args: None)
+
+
 def test_hook_source_compiles_to_a_function_without_globals() -> None:
     from meshloom_plugin import runner
 
@@ -800,6 +817,8 @@ def test_hook_source_compiles_to_a_function_without_globals() -> None:
         hook("open", ("/plugin/../etc/passwd", "r", os.O_RDONLY))
     with pytest.raises(PermissionError):
         hook("os.rename", ("/tmp-private/a", "/plugin/a", -1, -1))
+    with pytest.raises(PermissionError):
+        hook("sys.addaudithook", ())  # behind the stub: see the corpus case add_audit_hook
     hook("open", ("/plugin/plugin.py", "r", os.O_RDONLY))
     hook("open", (b"/plugin/plugin.py", "r", os.O_RDONLY))
     hook("open", ("/tmp-private/note.txt", "w", os.O_WRONLY | os.O_CREAT))

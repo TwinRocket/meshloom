@@ -1,10 +1,10 @@
 {
-  "description": "Add an audit hook of its own (to see or veto events). CPython swallows the refusal and never adds the hook: the plugin sees no event.",
+  "description": "Add an audit hook of its own (to see or veto events). The runner replaced sys.addaudithook with a stub that raises: the refusal is an error the plugin sees, where CPython alone would swallow it and skip the hook.",
   "events": [
     {
       "params": {},
       "expect": {
-        "result": false
+        "error_type": "PermissionError"
       }
     }
   ]

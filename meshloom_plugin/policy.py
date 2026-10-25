@@ -108,14 +108,13 @@ DENIED_MODULES = frozenset(
 # The only environment variables a child keeps (cadrage §4.3).
 ENV_KEYS = ("LANG", "PYTHONHASHSEED")
 
-# Default hard limits (cadrage §4.2). `processes` applies only under the dedicated
-# uid: RLIMIT_NPROC counts every task of the uid and root ignores it.
+# Default hard limits (cadrage §4.2). Not listed: RLIMIT_NPROC, which the runner
+# sets to 0 on Linux at every level (no thread, no process; root ignores it).
 DEFAULT_LIMITS = {
     "address_space": 256 * 1024 * 1024,
     "open_files": 64,
     "file_size": 50 * 1024 * 1024,
     "cpu_seconds": 3600,
-    "processes": 64,
 }
 
 MAX_CONCURRENT_HANDLERS = 8

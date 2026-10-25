@@ -41,7 +41,7 @@ end in `none` with the reason logged.
 | `/proc/<server>/environ`, `mem` | not there (own pid namespace and `/proc`) | refused (root's process) | refused by `PR_SET_DUMPABLE` (non-root servers), readable when the server is root |
 | Write outside the work dir | refused (read-only binds, `--remount-ro /`) | refused (root-owned tree) | only the hooks |
 | Network | none (own network namespace, loopback down) | open (the hooks refuse sockets in-process) | the hooks only |
-| A process it execs (`fork_exec` rebuilt) | stays in the sandbox | stays the uid, `RLIMIT_NPROC` | none of the above |
+| A process it execs (`fork_exec` rebuilt) | none: `RLIMIT_NPROC` 0 fails the fork; a root child stays in the sandbox | none: `RLIMIT_NPROC` 0 fails the fork | none: `RLIMIT_NPROC` 0 fails the fork, unless the server runs as root |
 | SIGKILL of the group | kills everything (the sandbox's pid 1 goes, the kernel kills the namespace) | kills the group; a grandchild that called `setsid()` survives until the service or container stops | same as `setuid` |
 
 ### `bwrap` (`bwrap.py`)
@@ -71,9 +71,9 @@ without the setuid bit.
 users, so it is that uid on the host too, and the first system uid, 999, is
 often a real host account; no shell, no home; an account that already exists is
 kept; the add-on is `FROM` that image). The work dir is created by
-the server and handed to the uid (`chown`, `0700`). The runner sets
-`RLIMIT_NPROC` (64, counted over every task of the uid) and refuses to start
-when told `setuid` while still root. At startup (`isolation.startup()`) the
+the server and handed to the uid (`chown`, `0700`). The runner refuses to
+start when told `setuid` while still root (it sets `RLIMIT_NPROC` 0 at every
+level, and root ignores it). At startup (`isolation.startup()`) the
 file model is applied to the data directory: `0711` on the directory, `0600` on
 each file in it, `0700` on each subdirectory but `plugins/`, whose tree is
 `0755`/`0644`; the server's umask becomes `077`, so later files are born
@@ -84,7 +84,7 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 ### Known limits of the OS layer
 
 - Under `setuid`, every instance shares the uid: one plugin can read another
-  one's work dir, signal its process and use up the shared `RLIMIT_NPROC`. It
+  one's work dir and signal its process. It
   cannot read or write another child's memory: the runner sets
   `PR_SET_DUMPABLE` 0 (every level), so `/proc/<pid>/mem` and `ptrace` of a
   sibling are refused (`test_a_sibling_under_the_same_uid_cannot_open_the_child_memory`).
@@ -113,7 +113,7 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 | Descriptors from 3 up closed at start; the RPC descriptors duplicated, fd 0 = `/dev/null`, fd 1 = stderr | nothing inherited from the server; `print()` cannot corrupt the RPC stream |
 | The cwd must be the `work_dir` the supervisor named (`launch.prepare_work_dir()`, 0700), not `/`, not nested with the plugin directory; otherwise no start | the only writable place is a private directory, never the server's cwd or the plugin's code |
 | `os.environ` cleared but `LANG` and `PYTHONHASHSEED` (and the supervisor passes only those) | no server secret in the environment |
-| Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` under the dedicated uid only; small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap |
+| Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` 0 (Linux, every level); small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap; no thread and no process can be created, whatever path the hook does not see (the kernel counts the uid's tasks against the limit; root, `CAP_SYS_RESOURCE` and `CAP_SYS_ADMIN` ignore it) |
 | `PR_SET_NO_NEW_PRIVS` (Linux) | no privilege gain through a setuid binary, even if a process were spawned |
 | `PR_SET_DUMPABLE` 0 (Linux, before any plugin code) | `execve` (and the uid drop) made the child dumpable again; now no process of the same uid, another instance included, can open its `/proc/<pid>/mem` or `ptrace` it |
 | Audit hook (PEP 578) | refuses the events below |
@@ -143,9 +143,11 @@ The audit hook raises `PermissionError` on:
 - `gc.get_objects`, `gc.get_referrers`, `gc.get_referents`;
 - `object.__setattr__` of `__code__` or `__class__`;
 - `sys.addaudithook` (CPython swallows the exception and does not add the hook,
-  so the refusal is silent);
+  so after the install the runner also replaces `sys.addaudithook` with a stub,
+  compiled like the hook without globals or builtins, that raises
+  `PermissionError`: the refusal is an error the plugin sees);
 - thread start (`_thread.start_new_thread`, `_thread.start_joinable_thread`;
-  3.12 and later only, see below);
+  3.12 and later only; on 3.11 `RLIMIT_NPROC` 0 fails the clone, see below);
 - `resource.setrlimit`, `resource.prlimit`;
 - the `import` event for every name in `policy.DENIED_MODULES`.
 - the `import` event of an extension module (it carries the file) whose file is
@@ -169,19 +171,19 @@ frame.
    `asyncio.open_connection` fails that way. Corpus: `loaded_module_reach`.
 2. **`_posixsubprocess.fork_exec` emits no audit event.** Answer: the module is
    purged, its dict cleared, its import refused (hook and import guard), and
-   asyncio's `subprocess` references are stubs. **Not closed**: where
-   `_posixsubprocess` is built into the interpreter (python-build-standalone,
-   which the deb/rpm packages ship), plugin code can rebuild the module from its
-   spec through the import machinery kept in `sys.modules`
-   (`importlib._bootstrap.module_from_spec` emits no `import` event) and call
-   `fork_exec`; checked on 3.11. Only the OS isolation contains this path, and
-   not equally: under `bwrap` what it execs has no database, no app code and no
-   network; under `setuid` it cannot read the `0600` database or the server's
-   environment, but **its network is open** (LAN, internet and the radio proxy
-   on loopback, outside the capability API and the send quotas; see "Known
-   limits of the OS layer"); under `none` nothing contains it (corpus:
-   `posixsubprocess_spec_rebuild`, check `exec_escape`, which checks network
-   only under `bwrap`). Corpus: `posixsubprocess_reach` (the routes the runner does close).
+   asyncio's `subprocess` references are stubs. Where `_posixsubprocess` is an
+   extension module (Debian's and the official Docker images' Python), loading it
+   again emits an `import` event the hook refuses. Where it is built into the
+   interpreter (python-build-standalone, which the deb/rpm packages ship), plugin
+   code can rebuild the module from its spec through the import machinery kept
+   in `sys.modules` (`importlib._bootstrap.module_from_spec` emits no `import`
+   event) and call `fork_exec`. **Closed by `RLIMIT_NPROC` 0** (MSHL-289): the
+   fork fails with `EAGAIN` at every level, 3.11 to 3.14. **Still open when the
+   child runs as root** (the server started as root with `none` or `bwrap`):
+   root ignores the limit. Under `bwrap` what it execs then has no database, no
+   app code and no network (check `exec_escape`); under `none` nothing contains
+   it. Corpus: `posixsubprocess_spec_rebuild` (runs a program through the
+   rebuilt `fork_exec`), `posixsubprocess_reach` (the routes the hook closes).
 3. **The hook's frame is reachable through the traceback** of the exception it
    raises. Answer: the frame holds only immutable values (the event name, the
    arguments tuple, strings, ints, types) and its globals and builtins are empty
@@ -201,10 +203,14 @@ frame.
 - `sys.meta_path`, `builtins.__import__` and `sys.modules` are mutable: plugin
   code can remove the import guard. The allowlist is an aid for authors (a clear
   error, a known surface), not a boundary; the hook keeps refusing the events.
-- On Python 3.11 starting a thread emits no audit event: a plugin can start
-  threads there (the `threading` import is refused to plugin code, `_thread` is
-  not a boundary). Thread stacks are small, `RLIMIT_AS` bounds them at every
-  level and `RLIMIT_NPROC` under the dedicated uid (the corpus checks it).
+- On Python 3.11 starting a thread emits no audit event (the `threading` import
+  is refused to plugin code, `_thread` is not a boundary). `RLIMIT_NPROC` 0 makes
+  the clone fail (`RuntimeError: can't start new thread`) at every level, except
+  for a child running as root (corpus: `thread_start`).
+- `RLIMIT_NPROC` does not hold a child running as root: a server running as
+  root without the `meshloom-plugin` account (`bwrap` or `none`, see the level
+  table). The Docker image and the add-on run their children under `setuid`,
+  the deb/rpm packages and the RPi image run the server as a non-root user.
 - The RPC descriptors are ordinary small integers: plugin code can write to the
   server directly. The server must treat every child message as hostile input
   (bounded lines, typed checks), which it does anyway.
@@ -213,8 +219,9 @@ frame.
   its own instance; the lines read meanwhile are held back within hard caps (128
   lines, 1 MiB) and the overflow is refused, so the wait cannot grow memory without
   bound. The server's own per-event 30 s deadline still applies.
-- `RLIMIT_AS` is not set on macOS (not enforced there); macOS is a development
-  platform only.
+- `RLIMIT_AS` and `RLIMIT_NPROC` are not set on macOS (`RLIMIT_AS` is not
+  enforced there, `RLIMIT_NPROC` counts the whole login session); macOS is a
+  development platform only.
 - A file descriptor number given to `open()` is accepted (only descriptors the
   child already holds can be named).
 - Reading the standard library and the runner package is allowed (they are
@@ -280,17 +287,17 @@ three levels are available.
 | `loaded_module_reach` | runner | `socket` through `sys.modules`, `asyncio.base_events`, `asyncio.open_connection` (bypass 1) | purged, `PermissionError` |
 | `subprocess_spawn` | runner | `subprocess`, `os.system`, `os.posix_spawn`, `os.execv` | `PermissionError` |
 | `posixsubprocess_reach` | runner | `_posixsubprocess` by import and through asyncio (bypass 2) | `PermissionError` |
-| `posixsubprocess_spec_rebuild` | runner | rebuild `_posixsubprocess` from its spec | open path: `xfail` at `none`, `exec_escape` at `bwrap`/`setuid` |
+| `posixsubprocess_spec_rebuild` | runner | rebuild `_posixsubprocess` from its spec and run a program with `fork_exec` | refused: the import, or the fork (`EAGAIN`); a root child: open path, `exec_escape` at `bwrap`, `xfail` at `none` |
 | `fork_bomb` | runner | `os.fork()` in a loop | `PermissionError` at the first |
 | `kill_parent` | runner | `os.kill`, `os.killpg` (signal 0) | `PermissionError` |
-| `thread_start` | runner | `_thread.start_new_thread` | `PermissionError` on 3.12+; 3.11: open path, `nproc` at `setuid`, `xfail` elsewhere |
+| `thread_start` | runner | `_thread.start_new_thread` | `PermissionError` on 3.12+; 3.11: `can't start new thread` (`RLIMIT_NPROC` 0); a root child on 3.11: open path, `xfail` |
 | `ctypes_import` | runner | `ctypes`, `_ctypes` | `PermissionError` |
 | `extension_import` | runner | `mmap`, `fcntl`, `sqlite3` | `PermissionError` |
 | `native_load_from_work_dir` | runner | load native code written to the work dir (bypass 4) | `PermissionError` |
 | `zipimport` | runner | import `zipimport` | `PermissionError`, not in `sys.modules` |
 | `gc_objects` | runner | `gc.get_objects`, by import and by spec rebuild | `PermissionError` |
 | `code_patch` | runner | set `__code__`, `__class__` | `PermissionError` |
-| `add_audit_hook` | runner | `sys.addaudithook` | silently not added |
+| `add_audit_hook` | runner | `sys.addaudithook` | `PermissionError` (the stub) |
 | `hook_frame` | runner | walk the traceback into the hook's frame (bypass 3) | empty globals and builtins, immutable locals |
 | `rlimit_raise` | runner | `resource.setrlimit`, module rebuilt from its spec | `PermissionError` |
 | `putenv` | runner | change the environment | `PermissionError` |
@@ -321,7 +328,8 @@ stand-in and a database, not a hostile child).
 **Mutation check** (`scripts/test/plugin_mutations.py`, MSHL-191; Python 3.11
 in a privileged Linux arm64 container, root, all three levels): each guard below
 was removed in turn and the cases pinning it failed: the `os.fork`,
-`sys.addaudithook`, `gc.get_objects` and `resource.setrlimit` refusals, the open
+`sys.addaudithook`, `gc.get_objects` and `resource.setrlimit` refusals, the
+`sys.addaudithook` stub, `RLIMIT_NPROC` 0 (MSHL-289), the open
 read roots, the native-suffix write rule, the native load roots, the environment
 scrub, `RLIMIT_AS`, the host's two 3.11 pipe guards together (the stdout drain
 after a framing kill and the bounded wait for the pipes: either one alone

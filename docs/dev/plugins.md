@@ -394,13 +394,15 @@ line on stdin is the RPC stream.
 3. Clear `os.environ` but `policy.ENV_KEYS`; hard rlimits (soft = hard):
    `RLIMIT_NOFILE` 64, `RLIMIT_FSIZE` 50 MiB, `RLIMIT_CORE` 0, `RLIMIT_CPU`
    3600 s, `RLIMIT_AS` 256 MiB on Linux only (macOS does not enforce it),
-   `RLIMIT_NPROC` only when `isolation == "setuid"`; `_thread.stack_size(256 KiB)`;
+   `RLIMIT_NPROC` 0 on Linux at every level (no thread, no process: it closes
+   what the hook cannot see; root ignores it); `_thread.stack_size(256 KiB)`;
    `PR_SET_NO_NEW_PRIVS` and `PR_SET_DUMPABLE` 0 on Linux (through `ctypes`,
    purged afterwards; dumpable 0 keeps a same-uid sibling out of
    `/proc/<pid>/mem`). Then
    `asyncio` is imported: it loads `socket`, `ssl` and `subprocess` at module
    level, so it cannot come after the hook, and step 5 removes them again.
-4. Install the audit hook.
+4. Install the audit hook, then replace `sys.addaudithook` with a stub that
+   raises `PermissionError` (CPython alone swallows the hook's refusal).
 5. Purge `sys.modules` of every module that is neither loaded at interpreter
    start-up nor allowlisted (`importlib`, `runpy`, `pkgutil` and `zipimport` are
    purged although loaded at start-up), clear the dicts of the denied modules and
