@@ -83,8 +83,23 @@ class TestErrorMapping:
             (_err("banned", 403), "share_banned", {}),
             (
                 _err("quota_exceeded", 429, {"Retry-After": "3600"}, scope="key"),
-                "share_quota_exceeded",
+                "share_quota_key",
                 {"retry_after": 3600, "scope": "key"},
+            ),
+            (
+                _err("quota_exceeded", 429, scope="ip"),
+                "share_quota_ip",
+                {"retry_after": None, "scope": "ip"},
+            ),
+            (
+                _err("quota_exceeded", 429, scope="global"),
+                "share_quota_global",
+                {"retry_after": None, "scope": "global"},
+            ),
+            (
+                _err("quota_exceeded", 429, scope="other"),
+                "share_quota_exceeded",
+                {"retry_after": None, "scope": "other"},
             ),
             (
                 _err("quota_exceeded", 429, scope="<script>"),

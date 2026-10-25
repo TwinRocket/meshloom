@@ -49,18 +49,25 @@
       "additionalProperties": false,
       "properties": {
         "hosts": {
+          "description": "Public hosts, reached over HTTPS only.",
           "items": {
             "type": "string"
           },
           "maxItems": 20,
-          "minItems": 1,
           "title": "Hosts",
+          "type": "array"
+        },
+        "lan_hosts": {
+          "description": "Devices of the user's local network, by name or LAN IP, optionally with :port; HTTP or HTTPS; each must resolve to a LAN address.",
+          "items": {
+            "maxLength": 260,
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Lan Hosts",
           "type": "array"
         }
       },
-      "required": [
-        "hosts"
-      ],
       "title": "HttpParams",
       "type": "object"
     },

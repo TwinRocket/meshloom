@@ -61,8 +61,15 @@ def _narrow(name: str, declared: dict[str, Any], granted: dict[str, Any]) -> dic
                 result[key] = min(values)
         return result
     if name == "http":
-        hosts = [h for h in granted.get("hosts", []) if h in set(declared.get("hosts", []))]
-        return {"hosts": hosts}
+        # Public hosts and LAN devices narrow the same way; an empty list is left out,
+        # like `HttpParams` serialises it.
+        result = {}
+        for key in ("hosts", "lan_hosts"):
+            allowed = set(declared.get(key, []))
+            kept = [h for h in granted.get(key, []) if h in allowed]
+            if kept:
+                result[key] = kept
+        return result
     return {}
 
 
@@ -82,7 +89,7 @@ def effective_permissions(
         if mine is None or theirs is None:
             continue
         narrowed = _narrow(name, theirs, mine)
-        if name == "http" and not narrowed["hosts"]:
+        if name == "http" and not narrowed:
             continue
         result[name] = narrowed
     return result

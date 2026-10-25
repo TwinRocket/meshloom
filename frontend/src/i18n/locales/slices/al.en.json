@@ -40,6 +40,9 @@
       "http": {
         "title": "Connect to the internet",
         "description": "Connects only to the servers listed here, through Meshloom: {{hosts}}.",
+        "description_lan_only": "Connects only to the devices of your local network listed here, through Meshloom.",
+        "lan_host": "This plugin will be able to talk to this device on your network: {{host}}",
+        "lan_note": "Devices on your network are reached directly, possibly without encryption (plain HTTP).",
         "private_messages_warning": "This plugin can send your private messages to {{hosts}}."
       },
       "timer": {

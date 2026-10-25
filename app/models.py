@@ -2445,6 +2445,9 @@ class BackupPushSubscription(BaseModel):
     auth: str = Field(min_length=1)
     label: str = ""
     language: str = "fr"
+    # The owner's username (never the numeric id, which names someone else on another
+    # instance). Absent in files from before MSHL-320: the device goes to the first admin.
+    owner: str | None = Field(default=None, max_length=256)
 
 
 class BackupRadioProxy(BaseModel):

@@ -251,6 +251,54 @@ describe('SettingsExtensionsSection', () => {
     expect(screen.queryByTestId('plugin-exfiltration-warning')).not.toBeInTheDocument();
   });
 
+  it('names each LAN device in the consent, in English and French', async () => {
+    const lanFixture: BundledPlugin = {
+      ...fixture,
+      permissions: {
+        'messages.read': { channels: 'public', direct: true },
+        http: { lan_hosts: ['printer.local', '[fd00::20]:8443'] },
+      },
+      privacy: { sends_to_third_parties: [], stores_message_content: false },
+    };
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([]);
+    vi.spyOn(api, 'getBundledPlugins').mockResolvedValue([lanFixture]);
+    const install = vi.spyOn(api, 'installPlugin').mockResolvedValue(instance());
+    render(<SettingsExtensionsSection health={health()} />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('settings.extensions.add.button') })
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Weather|Météo/ }));
+
+    const lan = await screen.findByTestId('plugin-lan-hosts');
+    for (const host of ['printer.local', '[fd00::20]:8443']) {
+      expect(lan).toHaveTextContent(t('plugins.permissions.http.lan_host', { host }));
+    }
+    expect(lan).toHaveTextContent(t('plugins.permissions.http.lan_note'));
+    expect(
+      screen.getByText(t('plugins.permissions.http.description_lan_only'))
+    ).toBeInTheDocument();
+    // LAN devices count as destinations for the exfiltration sentence.
+    expect(screen.getByTestId('plugin-exfiltration-warning')).toHaveTextContent(
+      t('plugins.permissions.http.private_messages_warning', {
+        hosts: 'printer.local, [fd00::20]:8443',
+      })
+    );
+    const fr = i18n.getFixedT('fr');
+    expect(fr('plugins.permissions.http.lan_host', { host: 'printer.local' })).toBe(
+      'Cette extension pourra communiquer avec cet appareil de votre réseau : printer.local'
+    );
+
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByRole('button', { name: t('settings.extensions.add.install') }));
+    await waitFor(() =>
+      expect(install).toHaveBeenCalledWith({
+        kind: 'bundled',
+        plugin_id: 'meshloom.weather',
+        granted_permissions: lanFixture.permissions,
+      })
+    );
+  });
+
   it('shows a coded API error translated', async () => {
     vi.spyOn(api, 'getPlugins').mockResolvedValue([]);
     vi.spyOn(api, 'getBundledPlugins').mockResolvedValue([fixture]);

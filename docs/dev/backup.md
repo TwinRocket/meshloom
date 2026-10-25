@@ -35,6 +35,16 @@ There is one v2 format. A `meshloom-backup-v2` document is the v1 fields
   the v1 fields and silently drops `identity`, `radio`, `wifi`,
   `meshloom_extra` and `sections`. The user page tells users to restore v2 files
   on 5.0 or later only.
+- **Push subscription owners.** Each `meshloom_extra.push_subscriptions[]`
+  entry carries `owner`, the owning account's username (MSHL-320; never the
+  numeric id, which names someone else on another instance). The restore gives
+  the subscription to the account with the same `username_key` here, once at
+  creation and again after the sections (`restore_push_owners`), so an owner
+  that only comes with the file's `users` section is found. No match, or a file
+  without `owner` (before MSHL-320), keeps the previous rule: the row's current
+  owner, else the first administrator. `meshloom_extra` has no version: the
+  field is optional, and an older 5.0 build ignores it. The `users` restore
+  keeps devices with the account of the same username too (`restore_users`).
 - **Size.** `POST /settings/backup/inspect` and `POST /settings/backup/restore`
   read their body in chunks and refuse more than 64 MiB
   (`MAX_BACKUP_BODY_BYTES`) with 413 `backup_too_large`, before parsing.

@@ -399,8 +399,14 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
     await conn.execute("DELETE FROM recovery_codes")
     await conn.execute("DELETE FROM webauthn_credentials")
     # Push devices outlive the accounts they belonged to (ON DELETE CASCADE would drop
-    # them, those the restore just wrote included): unowned, they go to the first
-    # administrator (``PushSubscriptionRepository``).
+    # them, those the restore just wrote included): unowned while the users are
+    # replaced, then given back to the account of the same username (never the same
+    # id, which may name someone else); with none, they stay unowned and go to the
+    # first administrator (``PushSubscriptionRepository``, MSHL-320).
+    async with conn.execute(
+        "SELECT ps.id, u.username_key FROM push_subscriptions ps JOIN users u ON u.id = ps.user_id"
+    ) as cursor:
+        push_owners = [(str(row[0]), str(row[1])) for row in await cursor.fetchall()]
     await conn.execute("UPDATE push_subscriptions SET user_id = NULL")
     await conn.execute("DELETE FROM users")
     seen_credentials: set[bytes] = set()
@@ -471,6 +477,12 @@ async def restore_users(section: BackupSection, conn: aiosqlite.Connection) -> l
         # Unreachable after the check above; raising rolls the section back.
         raise RuntimeError("accounts restore would leave no administrator who can sign in")
     after = await _username_keys(conn)
+    if push_owners:
+        await conn.executemany(
+            "UPDATE push_subscriptions SET user_id ="
+            " (SELECT id FROM users WHERE username_key = ?) WHERE id = ?",
+            [(key, sub_id) for sub_id, key in push_owners],
+        )
     warnings = await _keep_trusted_networks(conn, before, after)
     # In memory only, and fail closed: a rolled-back commit just closed sockets.
     _close_account_sockets(set(before) | set(after))

@@ -292,8 +292,11 @@ Community guard.
   `/etc/meshloom/meshloom.env` (root:root 0640, nfpm `file_info`; directory root:meshloom 0750,
   `postinstall.sh`) as data, never sources it, and refuses
   it unless it and its directory are root-owned, not group/world-writable and not a link
-  (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with `runuser`
-  (`--pty` when stdin, stdout and stderr are terminals). It runs python with `-P` so a local `app/` cannot shadow the
+  (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with
+  `runuser -s /bin/sh -c 'exec "$0" "$@"'` (never `-u`, which keeps root's session): the child
+  always starts a new session, so it never has root's controlling terminal (TIOCSTI), piped or
+  not, and runuser kills it on Ctrl-C; `--pty` too when stdin, stdout and stderr are all
+  terminals (`scripts/test/meshloom_admin_tty.sh`, run as root in `nfpm.yml`). It runs python with `-P` so a local `app/` cannot shadow the
   install. It finds the database the way the service does (that env file, `/config` for the
   add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
 - It opens the file itself (`mode=rw`, never created, no schema script, no migration:
@@ -827,7 +830,8 @@ be wrong, because historical decryption inserts old messages with new ids.
   (`private_network_restored_disabled:<name>`), a fanout secret sent as
   `********` keeping the stored one (`merge_secrets`) unless its destination
   moved (`secret_dropped_destination_changed:<name>`), VAPID keys and
-  subscriptions only on a host with no subscriptions of its own, proxy through
+  subscriptions only on a host with no subscriptions of its own (owners matched by
+  username after the sections, `restore_push_owners`), proxy through
   `services/radio_proxy_settings.py`), then in one companion CLI session: radio
   settings group by group (no clock sync per group, one at the end; a reboot
   then skips the rest; `tx_power` is a signed byte meshcore reads unsigned, so it
@@ -1137,7 +1141,11 @@ the stored one unless the row changes owner. `UserRepository.delete` also delete
 explicitly (no reliance on the cascade alone). Sends go to `PushSubscriptionRepository.deliverable()` only: owner enabled and holding
 `send` in `ROLE_PERMISSIONS` (kiosk and viewer own nothing deliverable; a token acts for its
 user). The rules stay instance-wide. `restore_users` unowns rows before replacing the accounts
-so the cascade keeps them. A push service
+so the cascade keeps them, then gives each back to the account of the same `username_key`
+(unowned when none). The full backup carries each subscription's owner by username
+(`BackupPushSubscription.owner`, MSHL-320, never the id); `_restore_push` and, after the
+sections, `restore_push_owners` match it to an account here; no match, or an older file
+without it, keeps the first-admin fallback. A push service
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
 urllib3 connections); a private endpoint needs the instance setting
