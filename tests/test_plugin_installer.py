@@ -13,13 +13,15 @@ import socket
 import sys
 import zipfile
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import httpx
 import pytest
 
 from app.net.egress_guard import HostAllowlist
 from app.plugins import installer
+from app.plugins.errors import PluginValidationError
 from app.plugins.host import Budgets, PluginManager
 from app.plugins.package import MAX_COMPRESSED_BYTES
 from app.repository.plugins import PluginKvRepository, PluginRepository
@@ -639,3 +641,20 @@ async def test_conflicting_kind_or_version_is_refused(api, manager, catalog, tmp
     assert (response.status_code, code_of(response)) == (409, "plugin_kind_conflict")
     other = await install(api, version="2.0.0")
     assert (other.status_code, code_of(other)) == (409, "plugin_version_conflict")
+
+
+def test_failed_extraction_spares_a_concurrent_staging_dir(tmp_path: Path) -> None:
+    """A failed install empties only its own `_staging/<uuid>`, never a sibling's."""
+    sibling = tmp_path / installer._STAGING / "other-install"
+    sibling.mkdir(parents=True)
+    (sibling / "manifest.json").write_text("{}")
+    source = cast(installer.ArchiveSource, SimpleNamespace(tier="third_party", repository=None))
+    with pytest.raises(PluginValidationError):
+        installer._stage(b"not a zip", "0" * 64, source, ("x.y", "1.0.0", {}), tmp_path)
+    assert (sibling / "manifest.json").exists()
+    assert [p.name for p in (tmp_path / installer._STAGING).iterdir()] == ["other-install"]
+
+
+def test_bad_plugin_ids_never_reach_the_filesystem(tmp_path: Path) -> None:
+    assert installer._tree_version(tmp_path / "..") is None
+    assert not installer.code_installed(tmp_path, "../etc", "1.0.0")

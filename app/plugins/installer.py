@@ -646,7 +646,7 @@ class PreparedInstall:
 
 
 def _tree_version(target: Path) -> str | None:
-    if _tree_plugin_id(target) is None:
+    if not re.fullmatch(_PLUGIN_ID_RE, target.name) or _tree_plugin_id(target) is None:
         return None
     try:
         version = json.loads((target / "manifest.json").read_text("utf-8")).get("version")
@@ -715,6 +715,8 @@ def _stage(
     plugins_root: Path,
 ) -> PreparedInstall:
     staging = plugins_root / _STAGING / uuid.uuid4().hex
+    # Created here, so a failed extraction only ever empties this install's own subdir.
+    staging.mkdir(parents=True)
     origin = "bundled" if source.tier == "bundled" else "third_party"
     try:
         package = extract_package(data, staging, origin=origin)

@@ -203,7 +203,7 @@ class BundledPluginView(BaseModel):
 
 class InstallRequest(_Body):
     kind: Literal["bundled", "custom", "store"]
-    plugin_id: str = Field(max_length=64)
+    plugin_id: str = Field(max_length=64, pattern=f"^{installer._PLUGIN_ID_RE}$")
     version: str | None = Field(default=None, min_length=1, max_length=64)
     repository: str | None = Field(
         default=None, min_length=1, max_length=200, description="A custom repository."
