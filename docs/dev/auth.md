@@ -1308,7 +1308,9 @@ in its header), `app/routers/auth_kiosk.py`, `pkg/rpi/meshloom-kiosk`,
   config on stdin (`printf` is a builtin): the token is never in an argv
   (`ps`), a URL or a log. It accepts only a returned path of the expected form
   and opens Chromium on it, else the plain URL (fail closed: the setup or
-  sign-in page). Every 10 s it compares a CRC of the token file (`cksum` on
+  sign-in page). Every 10 s (every 60 s through `sg`, to spare a fork chain
+  and any audit line per check; on Debian trixie `sg` itself logs nothing to
+  auth.log) it compares a CRC of the token file (`cksum` on
   stdin, with the same `sg` fallback) and restarts Chromium when it changed (a
   rotation). Tests: `tests/test_kiosk_token.py` (also runs the launcher's
   functions against fake `curl`, the restart loop against fake `chromium` and
@@ -1350,7 +1352,7 @@ the result here.
 3. Reboot: the screen opens the app again with no setup or sign-in page.
 4. `ps -ef | grep -c mlt_` on the Pi stays 0 while Chromium runs.
 5. Revoke **Kiosk screen** in the tokens list: `/var/lib/meshloom-kiosk/kiosk.token`
-   changes at once, the screen is signed out and within about 10 s signs in
+   changes at once, the screen is signed out and within about 10 s (60 s in a session older than the group) signs in
    again with the new token.
 6. From another machine, `curl -H "Authorization: Bearer $(sudo cat
    /var/lib/meshloom-kiosk/kiosk.token)" http://<pi>:8000/api/channels`

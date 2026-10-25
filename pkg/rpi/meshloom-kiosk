@@ -144,8 +144,17 @@ while true; do
         "${target:-$URL}" &
     browser=$!
     stamp=$(token_stamp)
+    # Readable file: a cheap cksum every 10 s. Through sg (session older than
+    # the group membership) each check forks sg, a shell and cksum, and a
+    # setgid helper may be logged by some PAM/audit setups, so check 6 times
+    # less often (60 s) until the next login joins the group.
+    tick=0
     while kill -0 "$browser" 2>/dev/null; do
         sleep 10
+        tick=$((tick + 1))
+        if [ ! -r "$TOKEN_FILE" ] && [ $((tick % 6)) -ne 0 ]; then
+            continue
+        fi
         if [ "$(token_stamp)" != "$stamp" ]; then
             kill "$browser" 2>/dev/null || true
             break
