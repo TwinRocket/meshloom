@@ -762,6 +762,7 @@ describe('BackupRestoreFlow', () => {
       'plugins_to_reinstall:1',
       'plugin_secrets_missing:1',
       'plugin_dropped:local.greeter-1a2b3c',
+      'plugin_dropped_supervisor:local.greeter-1a2b3c',
       'plugin_kept:meshloom.echo',
     ];
     for (const language of ['en', 'fr']) {

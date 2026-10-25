@@ -311,3 +311,32 @@ async def test_a_file_without_the_section_changes_nothing(backup_db, api, manage
     before = await PluginRepository.get_all()
     assert await restore_sections({}) == []
     assert await PluginRepository.get_all() == before
+
+
+async def test_restore_names_the_supervisor_network_in_the_addon(
+    backup_db, api, manager, monkeypatch, caplog
+):
+    """MSHL-355: an entry whose ``lan_hosts`` lists a supervisor-network address is dropped
+    (fail closed) in the add-on with its own warning; elsewhere it is restored."""
+    rows = await _populate(api, manager)
+    section = await export_plugins()
+    assert section is not None
+    good = _entries(section)[rows["local"]["plugin_id"]]
+    await _wipe()
+    http = {"hosts": ["api.example.org"], "lan_hosts": ["172.30.32.2"]}
+    manifest = {**good["manifest"], "permissions": {"http": http}}
+    entry = {**good, "instance_id": str(uuid.uuid4()), "manifest": manifest}
+    other = {**entry, "instance_id": str(uuid.uuid4())}
+    other["manifest"] = {**manifest, "permissions": {"http": {"lan_hosts": ["10.0.0.1x"]}}}
+    data = BackupSection(data={"instances": [entry, other]})
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    warnings = await restore_sections({PLUGINS_SECTION: data})
+    pid = good["plugin_id"]
+    assert f"plugin_dropped_supervisor:{pid}" in warnings
+    assert f"plugin_dropped:{pid}" in warnings  # the other manifest problem: generic reason
+    assert not any(w.startswith("plugins_restored") for w in warnings)
+    assert await PluginRepository.get_all() == []
+    assert "172.30.32.2" not in caplog.text
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    warnings = await restore_sections({PLUGINS_SECTION: BackupSection(data={"instances": [entry]})})
+    assert "plugins_restored:1" in warnings

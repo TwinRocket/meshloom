@@ -80,14 +80,17 @@ def _issues(issues: list[PluginIssue]) -> list[dict[str, str]]:
     return [{"code": i.code, "path": i.path} for i in issues][:50]
 
 
-def _manifest_error(exc: PluginValidationError, message: str) -> HTTPException:
-    """400 ``manifest_invalid``; ``lan_host_supervisor`` when a ``lan_hosts`` entry is on the
-    Home Assistant supervisor network (add-on only, MSHL-350), so the UI can say why."""
+def _manifest_error(
+    exc: PluginValidationError, message: str, default: str = "manifest_invalid"
+) -> HTTPException:
+    """400 ``manifest_invalid`` (``default``); ``lan_host_supervisor`` when a ``lan_hosts``
+    entry is on the Home Assistant supervisor network (add-on only, MSHL-350), so the UI can
+    say why."""
     issues = _issues(exc.issues)
     code = (
         "lan_host_supervisor"
         if any(i["code"] == "lan_host_supervisor" for i in issues)
-        else "manifest_invalid"
+        else default
     )
     return _error(400, code, message, issues=issues)
 
@@ -682,8 +685,8 @@ async def _install(body: InstallRequest) -> PluginInstanceView:
     try:
         await asyncio.to_thread(installer.install_bundled, bundled, root)
     except PluginValidationError as exc:
-        raise _error(
-            400, "package_invalid", "The bundled package is invalid", issues=_issues(exc.issues)
+        raise _manifest_error(
+            exc, "The bundled package is invalid", default="package_invalid"
         ) from None
     except OSError:
         logger.exception("Installing bundled plugin %s failed", body.plugin_id)

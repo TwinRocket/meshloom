@@ -218,6 +218,7 @@
         "plugins_to_reinstall": "{{value}} extension(s) of the backup are not shipped in it: they are listed in Settings > Extensions to reinstall and cannot start until then.",
         "plugin_secrets_missing": "{{value}} extension(s) need their secrets again: secrets never leave Meshloom, so enter them in the extension's settings.",
         "plugin_dropped": "An extension of the backup ({{value}}) could not be restored and was left out.",
+        "plugin_dropped_supervisor": "An extension of the backup ({{value}}) was left out: it lists a local device address on the Home Assistant Supervisor’s internal network, which an extension may not reach.",
         "plugin_kept": "The extension {{value}} is already installed here: it was kept as it is."
       }
     }

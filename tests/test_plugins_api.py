@@ -1070,3 +1070,43 @@ async def test_view_flags_a_dropped_supervisor_permission_to_admins(
     messages = [r.getMessage() for r in caplog.records]
     assert any("permission http dropped" in m and "supervisor" in m for m in messages)
     assert not any("172.30.32.2" in m for m in messages)
+
+
+async def test_view_hides_the_supervisor_notice_from_non_admins(
+    api, manager, monkeypatch, sign_in_as
+):
+    """MSHL-355: ``permission_dropped_supervisor`` is for administrators only."""
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    created = await api.post(
+        "/api/plugins",
+        json={"label": "Sup", "hooks": ["message"], "permissions": SUPERVISOR_HTTP},
+    )
+    assert created.status_code == 201
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    [admin_view] = (await api.get("/api/plugins")).json()
+    assert admin_view["notices"] == ["permission_dropped_supervisor"]
+    sign_in_as("member")
+    [view] = (await api.get("/api/plugins")).json()
+    assert view["notices"] == []
+
+
+@pytest.mark.parametrize(
+    ("issue", "code"),
+    [("lan_host_supervisor", "lan_host_supervisor"), ("lan_host_invalid", "package_invalid")],
+)
+async def test_bundled_install_names_the_supervisor_network(api, manager, monkeypatch, issue, code):
+    """MSHL-355: a bundled package refused for a supervisor-network ``lan_hosts`` entry says
+    so; any other package problem stays ``package_invalid``. Nothing is installed."""
+    from app.plugins.errors import PluginIssue, PluginValidationError
+
+    def refuse(*_args, **_kwargs):
+        raise PluginValidationError(
+            [PluginIssue(issue, "permissions.http.lan_hosts.0", "172.30.32.2")]
+        )
+
+    monkeypatch.setattr(installer, "install_bundled", refuse)
+    body = {"kind": "bundled", "plugin_id": "meshloom.echo", "granted_permissions": ECHO_GRANT}
+    refused = await api.post("/api/plugins/install", json=body)
+    assert refused.status_code == 400 and code_of(refused) == code
+    assert "172.30.32.2" not in refused.text
+    assert await PluginRepository.get_all() == []

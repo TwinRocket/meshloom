@@ -218,6 +218,7 @@
         "plugins_to_reinstall": "{{value}} extension(s) de la sauvegarde n'y sont pas incluses : elles apparaissent dans Réglages > Extensions, à réinstaller, et ne peuvent pas démarrer d'ici là.",
         "plugin_secrets_missing": "{{value}} extension(s) ont besoin de leurs secrets : ils ne quittent jamais Meshloom, saisissez-les à nouveau dans les réglages de l'extension.",
         "plugin_dropped": "Une extension de la sauvegarde ({{value}}) n'a pas pu être restaurée et a été laissée de côté.",
+        "plugin_dropped_supervisor": "Une extension de la sauvegarde ({{value}}) a été laissée de côté : elle liste une adresse d’appareil local sur le réseau interne du Superviseur Home Assistant, qu’une extension ne peut pas atteindre.",
         "plugin_kept": "L'extension {{value}} est déjà installée ici : elle a été conservée telle quelle."
       }
     }
