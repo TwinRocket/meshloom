@@ -22,6 +22,7 @@ Developer reference, `docs/dev/`:
 - `community-client.md`: the Community client; `frontend-community.md`: its frontend state.
 - `releasing.md`: branches, images, the release chain.
 - `ble-pairing.md`: BLE pairing through BlueZ.
+- `feed.md`: the Feed's performance budget and the guards (query plans, store load test, row memoisation).
 - `device-pairing.md`: device pairing codes and the QR payload, the contract meshenger follows.
 - `radio-bench.md`: the opt-in live-radio suite.
 - `plugins.md`, `plugins-security.md`, `plugins/`: the plugin system and its isolation.

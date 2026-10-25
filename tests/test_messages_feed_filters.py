@@ -158,19 +158,60 @@ async def _listing_sql(db, **kw):
     return captured["sql"], captured["params"]
 
 
+def _plan_cases():
+    """Every server-side combination the feed sends: type x outgoing x cursor (+ blocked)."""
+    cases = {}
+    for mtype in (None, "CHAN", "PRIV"):
+        for outgoing in (None, True, False):
+            for cursor in ("first", "before", "since_id"):
+                kw: dict = {"limit": 200}
+                if mtype:
+                    kw["msg_type"] = mtype
+                if outgoing is not None:
+                    kw["outgoing"] = outgoing
+                if cursor == "before":
+                    kw.update(before=1_700_000_000, before_id=500)
+                elif cursor == "since_id":
+                    kw["since_id"] = 1
+                name = f"{mtype or 'any'}-{'any' if outgoing is None else outgoing}-{cursor}"
+                cases[name] = kw
+                if cursor == "first":
+                    # The route always passes the blocked lists when the user has some.
+                    cases[name + "-blocked"] = {
+                        **kw,
+                        "blocked_keys": ["ab" * 32],
+                        "blocked_names": ["spam"],
+                    }
+    return cases
+
+
+_PLAN_CASES = _plan_cases()
+
+
+async def _seed_mixed(db, count: int = 3000):
+    """A table the planner has something to choose on: both types, 10 % outgoing, 20 chats."""
+    async with db.tx() as conn:
+        await conn.executemany(
+            "INSERT INTO messages (type, conversation_key, text, received_at, outgoing, "
+            "sender_timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "CHAN" if i % 3 else "PRIV",
+                    f"{i % 20:032x}",
+                    f"m{i}",
+                    1_700_000_000 + i,
+                    1 if i % 10 == 0 else 0,
+                    i,
+                )
+                for i in range(1, count + 1)
+            ],
+        )
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "kw",
-    [
-        {},
-        {"msg_type": "CHAN"},
-        {"msg_type": "CHAN", "outgoing": True},
-        {"since_id": 1},
-        {"since_id": 1, "msg_type": "CHAN"},
-    ],
-    ids=["no-filter", "type", "type+outgoing", "since_id", "since_id+type"],
-)
+@pytest.mark.parametrize("kw", list(_PLAN_CASES.values()), ids=list(_PLAN_CASES))
 async def test_listing_plan_uses_index_without_temp_sort(test_db, kw):
+    await _seed_mixed(test_db)
     sql, params = await _listing_sql(test_db, **kw)
     plan = await _plan(test_db, sql, params)
     assert "USING INDEX" in plan or "USING COVERING INDEX" in plan, plan

@@ -125,19 +125,30 @@ const PIN_FRAMES = 12;
 /** How long the twin of a "Paired" badge stays highlighted after the scroll. */
 const HIGHLIGHT_MS = 2000;
 
-function useTimeFormatter(language: string) {
-  return useMemo(() => {
-    const time = new Intl.DateTimeFormat(language, {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-    const full = new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'medium' });
-    return (seconds: number) => ({
+function createTimeFormatter(language: string) {
+  const time = new Intl.DateTimeFormat(language, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const full = new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'medium' });
+  // One object per second value: a row's `time` prop must keep its identity across renders.
+  const cache = new Map<number, { short: string; full: string }>();
+  return (seconds: number) => {
+    const cached = cache.get(seconds);
+    if (cached) return cached;
+    if (cache.size >= 4096) cache.clear();
+    const formatted = {
       short: time.format(seconds * 1000),
       full: full.format(seconds * 1000),
-    });
-  }, [language]);
+    };
+    cache.set(seconds, formatted);
+    return formatted;
+  };
+}
+
+function useTimeFormatter(language: string) {
+  return useMemo(() => createTimeFormatter(language), [language]);
 }
 
 /**
