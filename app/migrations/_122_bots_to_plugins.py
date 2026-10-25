@@ -70,7 +70,7 @@ async def migrate(conn: aiosqlite.Connection) -> None:
         "SELECT id, name, enabled, config, scope, sort_order, created_at"
         " FROM fanout_configs WHERE type = 'bot' ORDER BY sort_order, created_at, id"
     ) as cursor:
-        bots = await cursor.fetchall()
+        bots = list(await cursor.fetchall())
     locked = bot_conversion.env_true(os.environ.get(ENV_BOT_LOCK))
     now = int(time.time())
     for config_id, name, enabled, config, scope, sort_order, created_at in bots:

@@ -1076,7 +1076,7 @@ async def _restore_bot_as_plugin(entry: BackupFanoutConfig, label: str) -> bool:
     from app.plugins import bot_conversion
 
     source = entry.config.get("code")
-    if not bot_conversion.valid_source(source):
+    if not isinstance(source, str) or not bot_conversion.valid_source(source):
         return False
     async with db.tx() as conn:
         async with conn.execute(
