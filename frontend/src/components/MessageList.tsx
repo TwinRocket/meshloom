@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import { handleKeyboardActivate } from '../utils/a11y';
+import { canCopyToClipboard } from './feed/feedActions';
 import {
   ChevronDown,
   Copy,
@@ -131,6 +132,7 @@ function MessageActionMenu({
   canReply,
   canDelete,
   canOpenContact,
+  canCopy,
   replyLabel,
   copyLabel,
   contactLabel,
@@ -146,6 +148,8 @@ function MessageActionMenu({
   canReply: boolean;
   canDelete: boolean;
   canOpenContact: boolean;
+  /** False when `navigator.clipboard` is missing (HTTP on the LAN): the item is not offered. */
+  canCopy: boolean;
   replyLabel: string;
   copyLabel: string;
   contactLabel: string;
@@ -165,7 +169,7 @@ function MessageActionMenu({
       className="absolute right-0 top-7 z-50 w-52 overflow-hidden rounded-xl border border-border bg-card py-1 shadow-lg"
     >
       {canReply && <MessageActionMenuItem icon={Reply} label={replyLabel} onSelect={onReply} />}
-      <MessageActionMenuItem icon={Copy} label={copyLabel} onSelect={onCopy} />
+      {canCopy && <MessageActionMenuItem icon={Copy} label={copyLabel} onSelect={onCopy} />}
       {canOpenContact && (
         <MessageActionMenuItem icon={User} label={contactLabel} onSelect={onContact} />
       )}
@@ -1566,6 +1570,7 @@ export function MessageList({
                         canReply={canReply && canSend && Boolean(replyName)}
                         canDelete={canSend}
                         canOpenContact={canOpenContact}
+                        canCopy={canCopyToClipboard()}
                         replyLabel={t('messageList.reply')}
                         copyLabel={t('messageList.copy')}
                         contactLabel={t('messageList.contactInfo')}

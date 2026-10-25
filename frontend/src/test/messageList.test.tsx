@@ -943,6 +943,24 @@ describe('MessageList Open reactions and replies', () => {
     expect(writeText).toHaveBeenCalledWith('hello world');
   });
 
+  it('does not offer Copy when navigator.clipboard is missing (HTTP on the LAN)', async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+
+    render(
+      <MessageList
+        messages={[createMessage({ sender_name: 'Alice' })]}
+        contacts={[]}
+        loading={false}
+      />
+    );
+
+    await user.click(screen.getByRole('button', { name: i18n.t('messageList.actions') }));
+
+    expect(screen.getByTestId('message-action-menu')).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: i18n.t('messageList.copy') })).toBeNull();
+  });
+
   it('does not offer react or reply on outgoing messages', async () => {
     const user = userEvent.setup();
     render(

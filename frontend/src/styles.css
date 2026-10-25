@@ -342,9 +342,21 @@
     padding-bottom: calc(4.25rem + var(--safe-area-bottom-capped));
   }
 
+  /* A button floated over a scrolling list (the Feed's Follow button) clears the bar too,
+     or it sits half under the glass. The list's reserve is capped on purpose (rows may run
+     under the glass); a button must clear the bar's real top: its height, the home
+     indicator and the bar's own 0.5rem gap (`BottomNav`), plus the usual margin. */
+  .with-bottom-nav [data-above-bottom-nav] {
+    bottom: calc(4.25rem + var(--safe-area-bottom) + 0.5rem + 0.75rem);
+  }
+
   @media (min-width: 768px) {
     .with-bottom-nav .overflow-y-auto {
       padding-bottom: 0;
+    }
+
+    .with-bottom-nav [data-above-bottom-nav] {
+      bottom: 0.75rem;
     }
   }
 
