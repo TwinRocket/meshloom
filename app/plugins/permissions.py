@@ -244,6 +244,9 @@ class HttpParams(_Params):
             self.lan_hosts
         ):
             raise PydanticCustomError("host_duplicate", "hosts must be unique")
+        # Defence in depth: the per-host validators already make the two lists
+        # disjoint (a public name is never a local one), so no manifest reaches this
+        # today; it guards a future relaxation of either validator.
         if set(self.hosts) & {lan_host_name(h) for h in self.lan_hosts}:
             raise PydanticCustomError(
                 "lan_host_overlap", "a host is either public (hosts) or local (lan_hosts)"

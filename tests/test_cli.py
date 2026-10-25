@@ -690,5 +690,7 @@ def test_sigterm_ends_the_cli_like_ctrl_c_and_getpass_works_with_stdout_piped(db
             proc.kill()
     assert proc.returncode == 130
     assert b"meshloom-admin: interrupted" in rest
+    # The prompt line is ended before the message (no "Repeat the password: meshloom-admin").
+    assert b"Repeat the password: \nmeshloom-admin: interrupted" in err + rest
     assert b"Traceback" not in rest
     assert out == b""

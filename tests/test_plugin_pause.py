@@ -161,6 +161,31 @@ async def test_put_is_idempotent_and_audited_once(api, manager):
     assert len(await _audit_rows("plugins.resumed")) == 1
 
 
+async def test_a_start_in_flight_when_the_pause_lands_does_not_launch(api, manager, monkeypatch):
+    # MSHL-341: start() awaits the repository after its first pause check; a pause set
+    # during that await must still win, since pause_all() only stops what is registered.
+    created = await install(api, manager)
+    iid = created["instance_id"]
+    await manager.stop(iid)
+    assert manager.get(iid) is None
+
+    entered, release = asyncio.Event(), asyncio.Event()
+    real_get = PluginRepository.get
+
+    async def slow_get(instance_id):
+        entered.set()
+        await release.wait()
+        return await real_get(instance_id)
+
+    monkeypatch.setattr(PluginRepository, "get", slow_get)
+    starting = asyncio.create_task(manager.start(iid))
+    await asyncio.wait_for(entered.wait(), 5)
+    await manager.pause_all()
+    release.set()
+    await asyncio.wait_for(starting, 5)
+    assert manager.get(iid) is None
+
+
 # --- persistence -----------------------------------------------------------------
 
 
@@ -177,6 +202,60 @@ async def test_the_pause_survives_a_restart(api, manager, monkeypatch):
 
     await _pause(api, False)
     assert await AppSettingsRepository.get_plugins_pause() == (False, None, None)
+
+
+async def test_an_unreadable_pause_fails_closed_until_an_admin_resumes(api, manager, monkeypatch):
+    from app.fanout.manager import fanout_manager
+    from app.routers.health import HealthResponse, build_health_data
+
+    created = await install(api, manager)
+    iid = created["instance_id"]
+    await manager.stop_all(5.0)
+    manager.paused = False
+
+    real = AppSettingsRepository.get_plugins_pause
+
+    async def broken():
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(AppSettingsRepository, "get_plugins_pause", broken)
+    await pause_module.load(manager)
+    monkeypatch.setattr(AppSettingsRepository, "get_plugins_pause", real)
+    state = pause_module.state()
+    assert state.paused and state.unreadable and state.since is None and state.by is None
+    assert manager.paused and fanout_manager._bots_paused
+    await manager.load_from_db()
+    assert manager.get(iid) is None
+    health = HealthResponse(**await build_health_data(False, None))
+    assert health.plugins_disabled_source == "paused"
+    assert health.plugins_pause_unreadable is True and health.plugins_paused_since is None
+    body = (await api.get("/api/plugins/pause")).json()
+    assert body == {"paused": True, "since": None, "by": None}
+
+    # Resume writes the state again and starts the enabled set.
+    await _pause(api, False)
+    assert await AppSettingsRepository.get_plugins_pause() == (False, None, None)
+    assert not pause_module.state().paused and not manager.paused
+    await wait_until(lambda: manager.get(iid) is not None, what="restarted")
+    health = HealthResponse(**await build_health_data(False, None))
+    assert health.plugins_pause_unreadable is False and health.plugins_disabled_source is None
+
+
+async def test_pausing_over_an_unreadable_hold_records_the_pause(api, manager, monkeypatch):
+    real = AppSettingsRepository.get_plugins_pause
+
+    async def broken():
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(AppSettingsRepository, "get_plugins_pause", broken)
+    await pause_module.load(manager)
+    monkeypatch.setattr(AppSettingsRepository, "get_plugins_pause", real)
+
+    state = await _pause(api, True)
+    assert state["paused"] is True and state["by"] == "test-admin" and state["since"]
+    assert not pause_module.state().unreadable
+    assert (await AppSettingsRepository.get_plugins_pause())[0] is True
+    assert len(await _audit_rows("plugins.paused")) == 1
 
 
 # --- health ----------------------------------------------------------------------

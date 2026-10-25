@@ -364,6 +364,14 @@ async def test_the_notice_names_an_admin_rule_with_reduced_plugin_isolation(monk
             )
         ).json()
         assert body["security_notices"] == ["trusted_admin_reduced_plugin_isolation"]
+        # The global pause does not lift it: the risk is back on resume (MSHL-341).
+        fields["plugins_disabled_source"] = "paused"
+        notices = (await client.get("/api/auth/settings")).json()["security_notices"]
+        assert notices == ["trusted_admin_reduced_plugin_isolation"]
+        # The host lock does: no plugin can run until the server restarts.
+        fields["plugins_disabled_source"] = "env"
+        assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
+        fields["plugins_disabled_source"] = None
         fields["plugins_isolation"] = "bwrap"
         assert (await client.get("/api/auth/settings")).json()["security_notices"] == []
 

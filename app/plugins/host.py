@@ -1316,6 +1316,11 @@ class PluginManager:
             if running >= cap:
                 raise PluginCapacityError(cap)
             instance = PluginInstance(self, row, self.code_dir(row))
+            # The pause may have been set during the awaits above (MSHL-341):
+            # `pause_all()` only stops what is in `_instances`, so check again with
+            # no await between this check and the registration below.
+            if self.paused:
+                return
             self._instances[instance_id] = instance
             instance.launch()
 

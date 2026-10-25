@@ -119,6 +119,7 @@ Every change an administrator makes is written to the audit log (**Settings → 
 - Nothing is lost: each copy keeps its on/off switch, its settings and its data. You can still install, configure or turn copies on; they start when you resume.
 - A banner says since when and by whom the extensions are paused, and copies show the **Paused** status. **Resume** starts again exactly the copies that are switched on.
 - The pause survives a restart of Meshloom. Python bots are paused at the same time.
+- If Meshloom cannot read the pause switch when it starts, it plays safe: extensions and bots stay paused, without a date or a name in the banner, until an administrator chooses **Resume**.
 
 It differs from the other two ways to stop extensions:
 

@@ -153,6 +153,9 @@ class HealthResponse(BaseModel):
     plugins_disabled_source: Literal["env", "platform", "isolation", "paused"] | None = None
     # When the global pause started (unix seconds); None when not paused.
     plugins_paused_since: int | None = None
+    # The pause state could not be read at boot: held as paused (fail closed) until
+    # an admin resumes; `plugins_paused_since` is then None.
+    plugins_pause_unreadable: bool = False
     plugin_statuses: dict[str, PluginStatusResponse] = Field(default_factory=dict)
     radio_proxy: RadioProxyStatus | None = None
 

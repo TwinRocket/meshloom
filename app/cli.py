@@ -138,6 +138,17 @@ async def _open_database(path: str) -> aiosqlite.Connection:
 # ---------------------------------------------------------------------------
 
 
+def _getpass(prompt: str) -> str:
+    """``getpass.getpass``, ending the prompt line on Ctrl-C or SIGTERM: getpass leaves
+    the cursor after the prompt (no echo, no newline), so "interrupted" would follow it
+    on the same line."""
+    try:
+        return getpass.getpass(prompt)
+    except KeyboardInterrupt:
+        print(file=sys.stderr, flush=True)
+        raise
+
+
 def _read_password(from_stdin: bool, username: str) -> str:
     if from_stdin:
         line = sys.stdin.readline()
@@ -145,8 +156,8 @@ def _read_password(from_stdin: bool, username: str) -> str:
     else:
         if not sys.stdin.isatty():
             raise CliError("no terminal to prompt on: pipe the password and pass --stdin")
-        password = getpass.getpass(f"New password for {username}: ")
-        if getpass.getpass("Repeat the password: ") != password:
+        password = _getpass(f"New password for {username}: ")
+        if _getpass("Repeat the password: ") != password:
             raise CliError("the two passwords differ")
     if len(password) < MIN_PASSWORD_LENGTH:
         raise CliError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
