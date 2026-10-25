@@ -824,7 +824,8 @@ be wrong, because historical decryption inserts old messages with new ids.
   (`private_network_restored_disabled:<name>`), a fanout secret sent as
   `********` keeping the stored one (`merge_secrets`) unless its destination
   moved (`secret_dropped_destination_changed:<name>`), VAPID keys and
-  subscriptions only on a host with no subscriptions of its own, proxy through
+  subscriptions only on a host with no subscriptions of its own (owners matched by
+  username after the sections, `restore_push_owners`), proxy through
   `services/radio_proxy_settings.py`), then in one companion CLI session: radio
   settings group by group (no clock sync per group, one at the end; a reboot
   then skips the rest; `tx_power` is a signed byte meshcore reads unsigned, so it
@@ -1134,7 +1135,11 @@ the stored one unless the row changes owner. `UserRepository.delete` also delete
 explicitly (no reliance on the cascade alone). Sends go to `PushSubscriptionRepository.deliverable()` only: owner enabled and holding
 `send` in `ROLE_PERMISSIONS` (kiosk and viewer own nothing deliverable; a token acts for its
 user). The rules stay instance-wide. `restore_users` unowns rows before replacing the accounts
-so the cascade keeps them. A push service
+so the cascade keeps them, then gives each back to the account of the same `username_key`
+(unowned when none). The full backup carries each subscription's owner by username
+(`BackupPushSubscription.owner`, MSHL-320, never the id); `_restore_push` and, after the
+sections, `restore_push_owners` match it to an account here; no match, or an older file
+without it, keeps the first-admin fallback. A push service
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
 urllib3 connections); a private endpoint needs the instance setting

@@ -733,8 +733,10 @@ async def export_meshloom_extra() -> MeshloomExtra:
                 auth=sub["auth"],
                 label=sub.get("label") or "",
                 language=sub.get("language") or "fr",
+                owner=sub.get("owner_username"),
             )
-            for sub in await PushSubscriptionRepository.get_all()
+            # The effective owner (an unowned row is the first admin's), by username.
+            for sub in await PushSubscriptionRepository.list_with_owner()
         ],
         radio_proxy=BackupRadioProxy(
             enabled=proxy.enabled, bind=proxy.bind, port=proxy.port, max_clients=proxy.max_clients
@@ -1137,6 +1139,7 @@ async def _restore_push(
         extra.vapid.private_key.get_secret_value(), extra.vapid.public_key
     )
     await ensure_vapid_keys()  # the signing code reads the cached keys
+    owner_ids = await _user_ids_by_username_key()
     for sub in extra.push_subscriptions:
         await PushSubscriptionRepository.create(
             endpoint=sub.endpoint,
@@ -1144,10 +1147,60 @@ async def _restore_push(
             auth=sub.auth,
             label=sub.label,
             language=sub.language,
+            # None: keeps the row's owner, else the first admin (the pre-MSHL-320 rule).
+            user_id=owner_ids.get(_owner_key(sub.owner)),
         )
     if not settings_have_push_opt_in:
         await _regrandfather_private_push(extra)
     return len(extra.push_subscriptions)
+
+
+def _owner_key(owner: str | None) -> str | None:
+    from app.repository.auth import InvalidUsernameError, username_key
+
+    if not owner:
+        return None
+    try:
+        return username_key(owner)
+    except InvalidUsernameError:
+        return None
+
+
+async def _user_ids_by_username_key() -> dict[str | None, int]:
+    from app.database import db
+
+    async with db.readonly() as conn:
+        async with conn.execute("SELECT id, username_key FROM users") as cursor:
+            return {str(row[1]): int(row[0]) for row in await cursor.fetchall()}
+
+
+async def restore_push_owners(extra: MeshloomExtra) -> int:
+    """Give each restored push subscription back to the account of the same username.
+
+    Runs after the sections (MSHL-320): the accounts restore replaces the users, so an
+    owner that exists only in the file's accounts is found only then. A subscription
+    whose owner is absent from the file (older backup) or has no account here keeps
+    what the restore gave it (the first administrator). Only when the file's push data
+    was restored (``push_restore_applies``). Returns the number of rows reassigned."""
+    from app.database import db
+
+    if not any(sub.owner for sub in extra.push_subscriptions):
+        return 0
+    if not await push_restore_applies(extra):
+        return 0
+    owner_ids = await _user_ids_by_username_key()
+    pairs = [
+        (owner_ids[key], sub.endpoint)
+        for sub in extra.push_subscriptions
+        if (key := _owner_key(sub.owner)) in owner_ids
+    ]
+    if not pairs:
+        return 0
+    async with db.tx() as conn:
+        await conn.executemany(
+            "UPDATE push_subscriptions SET user_id = ? WHERE endpoint = ?", pairs
+        )
+    return len(pairs)
 
 
 async def restore_meshloom_extra(

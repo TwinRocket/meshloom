@@ -234,7 +234,9 @@ pruned hourly by the dispatcher.
 Web Push subscriptions: PK `id`, `endpoint` (unique), `p256dh`, `auth`, `label`,
 `language`, `created_at`, `last_success_at`, `failure_count`, `user_id` (migration 118,
 FK `users(id)` `ON DELETE CASCADE`: the owning account; deleting it deletes its devices,
-while an accounts restore unowns them first, `restore_users`). Migration 118 gave the existing rows to the first administrator
+while an accounts restore unowns them first and then gives each back to the account of
+the same username, `restore_users`; the full backup carries the owner's username,
+MSHL-320). Migration 118 gave the existing rows to the first administrator
 (lowest id, an enabled one first); a row left unowned (no account yet, or after an accounts
 restore) counts as that administrator's when read (`_OWNER_SQL`, no write);
 `UserRepository.delete` deletes the account's rows explicitly too.
