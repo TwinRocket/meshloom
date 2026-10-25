@@ -4,9 +4,17 @@
 
 ARG UV_VERSION=0.6.17
 
+# Rust for cbor2 6.x (py_webauthn): a Rust extension with no armv7 wheel and no
+# pure-Python fallback. Trixie's rustc (1.85) is too old for it (let chains, stable
+# in 1.88), so rustup, pinned to the version cbor2's README names, installer pinned
+# by sha256. This stage is never shipped: the final image copies /opt/meshloom only.
 FROM arm32v7/debian:trixie-slim@sha256:e958ee9cb97626ef502ff94a6325e2aeb303366fc2208e7ceb830bc48066b8f4 AS toolchain
 
 ARG UV_VERSION
+ARG RUST_VERSION=1.93.0
+ARG RUSTUP_VERSION=1.28.2
+ARG RUSTUP_INIT_SHA256=3b8daab6cc3135f2cd4b12919559e6adaee73a2fbefb830fadf0405c20231d61
+ENV RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo PATH=/opt/rust/cargo/bin:$PATH
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -18,6 +26,12 @@ RUN apt-get update \
         python3 \
         python3-pip \
     && pip install --break-system-packages --no-cache-dir "uv==${UV_VERSION}" \
+    && curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init \
+        "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/armv7-unknown-linux-gnueabihf/rustup-init" \
+    && echo "${RUSTUP_INIT_SHA256}  /tmp/rustup-init" | sha256sum -c - \
+    && chmod +x /tmp/rustup-init \
+    && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "${RUST_VERSION}" \
+    && rm -f /tmp/rustup-init \
     && rm -rf /var/lib/apt/lists/*
 
 FROM toolchain AS deps

@@ -60,10 +60,30 @@ COPY --from=deps-manifest /manifest/pyproject.toml /manifest/uv.lock ./
 # published wheel for several dependencies — httptools and cffi compile from
 # source there — and the slim image ships neither a compiler nor their headers. On amd64 and arm64 the wheels exist and
 # nothing is built, so this costs those images a little time and no size.
-RUN apt-get update \
+#
+# cbor2 6.x (py_webauthn) is a Rust extension with no pure-Python fallback and no
+# armv7 wheel, so armv7 also needs Rust, and only armv7: the other architectures
+# take the wheel. Debian trixie's rustc (1.85) is too old (cbor2 uses let chains,
+# stable since 1.88), hence rustup, pinned to the version cbor2's README names,
+# with the installer pinned by sha256. Everything lives under /opt/rust and goes
+# away with the layer.
+ARG RUST_VERSION=1.93.0
+ARG RUSTUP_VERSION=1.28.2
+ARG RUSTUP_INIT_SHA256_ARMHF=3b8daab6cc3135f2cd4b12919559e6adaee73a2fbefb830fadf0405c20231d61
+RUN export RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo PATH="/opt/rust/cargo/bin:$PATH" \
+    && apt-get update \
     && apt-get install -y --no-install-recommends build-essential libffi-dev \
+    && if [ "$(dpkg --print-architecture)" = "armhf" ]; then \
+        apt-get install -y --no-install-recommends curl ca-certificates \
+        && curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init \
+            "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/armv7-unknown-linux-gnueabihf/rustup-init" \
+        && echo "${RUSTUP_INIT_SHA256_ARMHF}  /tmp/rustup-init" | sha256sum -c - \
+        && chmod +x /tmp/rustup-init \
+        && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "${RUST_VERSION}"; \
+    fi \
     && uv sync --frozen --no-dev \
-    && apt-get purge -y --auto-remove build-essential libffi-dev \
+    && rm -rf /opt/rust /tmp/rustup-init \
+    && apt-get purge -y --auto-remove build-essential libffi-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
 # The real manifests, once nothing expensive depends on them. The running app
