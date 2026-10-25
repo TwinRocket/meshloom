@@ -829,7 +829,14 @@ def test_purge_fails_when_the_server_still_sees_something(monkeypatch) -> None:
 def _free_instance_uids(count: int) -> list[int]:
     from app.plugins.isolation.setuid import INSTANCE_UIDS, uid_is_free
 
-    found = [uid for uid in INSTANCE_UIDS[-200:] if uid_is_free(uid)][:count]
+    # MSHL-356: pytest-xdist runs these tests in parallel workers of one container, and
+    # a purge removes every System V object and file the uid owns, so two workers
+    # sharing a uid destroy each other's fixtures. Each worker gets its own block.
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    number = worker.removeprefix("gw")
+    block = (int(number) if number.isdigit() else 0) % 20
+    pool = INSTANCE_UIDS[-200 + 10 * block :][:10]
+    found = [uid for uid in pool if uid_is_free(uid)][:count]
     assert len(found) == count
     return found
 
