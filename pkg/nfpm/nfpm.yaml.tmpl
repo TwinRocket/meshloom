@@ -13,12 +13,26 @@ license: MIT
 contents:
   - src: __STAGING__/opt/meshloom
     dst: /opt/meshloom
+  # Recovery command (app/cli.py), next to the interpreter it needs.
+  - src: __PKGDIR__/meshloom-admin
+    dst: /opt/meshloom/.venv/bin/meshloom-admin
+    file_info:
+      mode: 0755
+  - src: /opt/meshloom/.venv/bin/meshloom-admin
+    dst: /usr/bin/meshloom-admin
+    type: symlink
   - src: __PKGDIR__/meshloom.service
     dst: /usr/lib/systemd/system/meshloom.service
     file_info:
       mode: 0644
   - src: __PKGDIR__/apply-update
     dst: /usr/lib/meshloom/apply-update
+    file_info:
+      mode: 0755
+  # Kiosk launcher at the path images flashed before 5.0.0 already use; the
+  # image owns the autostart entry (pkg/rpi/meshloom-kiosk.desktop).
+  - src: __RPIDIR__/meshloom-kiosk
+    dst: /usr/lib/meshloom/meshloom-kiosk
     file_info:
       mode: 0755
   - src: __PKGDIR__/meshloom-update.service
@@ -75,12 +89,19 @@ deb:
     type: origin
 # SIGN-END
 overrides:
+  # bubblewrap isolates the plugin children (app/plugins/isolation/bwrap.py).
+  # Recommended, not required: without it plugins run "hooks only", logged and
+  # shown in /api/health.
   deb:
     depends:
       - libc6
+    recommends:
+      - bubblewrap
   rpm:
     depends:
       - glibc
+    recommends:
+      - bubblewrap
 rpm:
   scripts:
     posttrans: __PKGDIR__/posttrans.sh

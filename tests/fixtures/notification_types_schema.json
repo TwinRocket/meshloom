@@ -1,0 +1,588 @@
+[
+  {
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 600,
+      "per_min": 60
+    },
+    "include_message_text_default": "always",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "description": "Web Push has no settings of its own: the browsers' subscriptions are the targets.",
+      "properties": {},
+      "title": "WebPushConfig",
+      "type": "object"
+    },
+    "singleton": true,
+    "type": "web_push"
+  },
+  {
+    "cloud": false,
+    "default_limits": {
+      "per_day": 200,
+      "per_hour": 60,
+      "per_min": 6
+    },
+    "include_message_text_default": "always",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "cc": {
+          "default": "",
+          "help_key": "notifications.channels.help.email_to",
+          "label_key": "notifications.channels.fields.cc",
+          "maxLength": 2048,
+          "title": "Cc",
+          "type": "string"
+        },
+        "from": {
+          "default": "",
+          "label_key": "notifications.channels.fields.from",
+          "maxLength": 255,
+          "title": "From",
+          "type": "string"
+        },
+        "host": {
+          "default": "",
+          "label_key": "notifications.channels.fields.host",
+          "maxLength": 255,
+          "title": "Host",
+          "type": "string"
+        },
+        "mode": {
+          "default": "starttls",
+          "enum": [
+            "none",
+            "starttls",
+            "ssl"
+          ],
+          "label_key": "notifications.channels.fields.mode",
+          "title": "Mode",
+          "type": "string"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 1024,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "label_key": "notifications.channels.fields.password",
+          "title": "Password",
+          "writeOnly": true
+        },
+        "port": {
+          "default": 587,
+          "label_key": "notifications.channels.fields.port",
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "to": {
+          "default": "",
+          "help_key": "notifications.channels.help.email_to",
+          "label_key": "notifications.channels.fields.to",
+          "maxLength": 2048,
+          "title": "To",
+          "type": "string"
+        },
+        "user": {
+          "default": "",
+          "label_key": "notifications.channels.fields.user",
+          "maxLength": 255,
+          "title": "User",
+          "type": "string"
+        }
+      },
+      "title": "EmailConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "email"
+  },
+  {
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 600,
+      "per_min": 60
+    },
+    "include_message_text_default": "always",
+    "preset": false,
+    "quiet_hours_exempt_default": true,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "hmac_secret": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 1024,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "label_key": "notifications.channels.fields.hmac_secret",
+          "title": "Hmac Secret",
+          "writeOnly": true
+        },
+        "private_network_grandfathered": {
+          "default": false,
+          "hidden": true,
+          "readOnly": true,
+          "title": "Private Network Grandfathered",
+          "type": "boolean"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 2048,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.webhook_url",
+          "label_key": "notifications.channels.fields.url",
+          "title": "Url",
+          "writeOnly": true
+        }
+      },
+      "title": "WebhookConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "webhook"
+  },
+  {
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 600,
+      "per_min": 30
+    },
+    "include_message_text_default": "public_only",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "default": "",
+          "label_key": "notifications.channels.fields.username",
+          "maxLength": 80,
+          "title": "Username",
+          "type": "string"
+        },
+        "webhook_url": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 512,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.discord_webhook",
+          "label_key": "notifications.channels.fields.webhook_url",
+          "title": "Webhook Url",
+          "writeOnly": true
+        }
+      },
+      "title": "DiscordConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "discord"
+  },
+  {
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 300,
+      "per_min": 30
+    },
+    "include_message_text_default": "always",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "default": "text",
+          "enum": [
+            "text",
+            "markdown"
+          ],
+          "label_key": "notifications.channels.fields.format",
+          "title": "Format",
+          "type": "string"
+        },
+        "urls": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 8192,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.apprise_urls",
+          "label_key": "notifications.channels.fields.urls",
+          "title": "Urls",
+          "writeOnly": true
+        }
+      },
+      "title": "AppriseConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "apprise"
+  },
+  {
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 30
+    },
+    "include_message_text_default": "public_only",
+    "preset": false,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "click_url": {
+          "default": "",
+          "help_key": "notifications.channels.help.ntfy_click_url",
+          "label_key": "notifications.channels.fields.click_url",
+          "maxLength": 2048,
+          "title": "Click Url",
+          "type": "string"
+        },
+        "markdown": {
+          "default": false,
+          "label_key": "notifications.channels.fields.markdown",
+          "title": "Markdown",
+          "type": "boolean"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 1024,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "label_key": "notifications.channels.fields.password",
+          "title": "Password",
+          "writeOnly": true
+        },
+        "priority_default": {
+          "default": 3,
+          "label_key": "notifications.channels.fields.priority_default",
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Priority Default",
+          "type": "integer"
+        },
+        "priority_urgent": {
+          "default": 5,
+          "label_key": "notifications.channels.fields.priority_urgent",
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Priority Urgent",
+          "type": "integer"
+        },
+        "server": {
+          "default": "https://ntfy.sh",
+          "help_key": "notifications.channels.help.ntfy_server",
+          "label_key": "notifications.channels.fields.server",
+          "maxLength": 255,
+          "title": "Server",
+          "type": "string"
+        },
+        "tags": {
+          "default": "",
+          "help_key": "notifications.channels.help.ntfy_tags",
+          "label_key": "notifications.channels.fields.tags",
+          "maxLength": 255,
+          "title": "Tags",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.ntfy_token",
+          "label_key": "notifications.channels.fields.token",
+          "title": "Token",
+          "writeOnly": true
+        },
+        "topic": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 64,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.channels.help.ntfy_topic",
+          "label_key": "notifications.channels.fields.topic",
+          "title": "Topic",
+          "writeOnly": true
+        },
+        "username": {
+          "default": "",
+          "label_key": "notifications.channels.fields.username",
+          "maxLength": 255,
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "title": "NtfyConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "ntfy"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 200,
+      "per_min": 15
+    },
+    "help_key": "notifications.presets.telegram.about",
+    "include_message_text_default": "public_only",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "bot_token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 130,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.telegram.help.bot_token",
+          "label_key": "notifications.presets.telegram.fields.bot_token",
+          "title": "Bot Token",
+          "writeOnly": true
+        },
+        "chat_id": {
+          "help_key": "notifications.presets.telegram.help.chat_id",
+          "label_key": "notifications.presets.telegram.fields.chat_id",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:-?[0-9]{1,32}|@[A-Za-z][A-Za-z0-9_]{3,63})$",
+          "title": "Chat Id",
+          "type": "string"
+        },
+        "topic_id": {
+          "default": "",
+          "help_key": "notifications.presets.telegram.help.topic_id",
+          "label_key": "notifications.presets.telegram.fields.topic_id",
+          "maxLength": 12,
+          "pattern": "^(?:|[0-9]{1,12})$",
+          "title": "Topic Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chat_id"
+      ],
+      "title": "TelegramConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "telegram",
+    "wiki_url": "https://core.telegram.org/bots/tutorial"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 60
+    },
+    "help_key": "notifications.presets.gotify.about",
+    "include_message_text_default": "always",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "priority": {
+          "default": "normal",
+          "enum": [
+            "low",
+            "moderate",
+            "normal",
+            "high",
+            "emergency"
+          ],
+          "label_key": "notifications.presets.gotify.fields.priority",
+          "maxLength": 256,
+          "title": "Priority",
+          "type": "string"
+        },
+        "server": {
+          "format": "uri",
+          "help_key": "notifications.presets.gotify.help.server",
+          "label_key": "notifications.presets.gotify.fields.server",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Server",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.gotify.help.token",
+          "label_key": "notifications.presets.gotify.fields.token",
+          "title": "Token",
+          "writeOnly": true
+        }
+      },
+      "required": [
+        "server"
+      ],
+      "title": "GotifyConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "gotify",
+    "wiki_url": "https://gotify.net/docs/pushmsg"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 60
+    },
+    "help_key": "notifications.presets.home_assistant.about",
+    "include_message_text_default": "always",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "help_key": "notifications.presets.home_assistant.help.service",
+          "label_key": "notifications.presets.home_assistant.fields.service",
+          "maxLength": 130,
+          "minLength": 1,
+          "pattern": "^(?:[a-z0-9_]{1,64}(\\.[a-z0-9_]{1,64})?)$",
+          "title": "Service",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 2048,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.home_assistant.help.token",
+          "label_key": "notifications.presets.home_assistant.fields.token",
+          "title": "Token",
+          "writeOnly": true
+        },
+        "url": {
+          "format": "uri",
+          "help_key": "notifications.presets.home_assistant.help.url",
+          "label_key": "notifications.presets.home_assistant.fields.url",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "service"
+      ],
+      "title": "HomeAssistantConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "home_assistant",
+    "wiki_url": "https://www.home-assistant.io/integrations/notify/"
+  }
+]

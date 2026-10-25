@@ -1,0 +1,6 @@
+{
+  "errors": {
+    "verify_tls_requires_private_destination": "Certificate checks can only be turned off for a destination on a private network (LAN, this machine). Turn them back on for this address.",
+    "smtp_plaintext_auth_refused": "A login and password are never sent without encryption to a mail server outside your private network. Choose STARTTLS or SSL, or remove the login."
+  }
+}

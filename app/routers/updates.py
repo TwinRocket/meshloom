@@ -5,9 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, TypedDict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from app.auth import audit
+from app.auth.permissions import require
 from app.repository import AppSettingsRepository
 from app.services.install_kind import detect_install_kind
 from app.services.oss_updates import get_update_status, refresh_oss_update_cache
@@ -155,20 +157,37 @@ async def build_update_status() -> UpdateStatusResponse:
     )
 
 
-@router.get("/updates", response_model=UpdateStatusResponse)
+@router.get(
+    "/updates", response_model=UpdateStatusResponse, dependencies=[Depends(require("admin"))]
+)
 async def get_updates() -> UpdateStatusResponse:
     return await build_update_status()
 
 
-@router.post("/updates/refresh", response_model=UpdateStatusResponse)
+@router.post(
+    "/updates/refresh",
+    response_model=UpdateStatusResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def refresh_updates() -> UpdateStatusResponse:
     await refresh_oss_update_cache()
     return await build_update_status()
 
 
-@router.post("/updates/apply", response_model=UpdateStatusResponse, status_code=202)
-async def apply_updates() -> UpdateStatusResponse:
+@router.post(
+    "/updates/apply",
+    response_model=UpdateStatusResponse,
+    status_code=202,
+    dependencies=[Depends(require("admin"))],
+)
+async def apply_updates(actor: audit.RequestActor = audit.SYSTEM_ACTOR) -> UpdateStatusResponse:
+    async with audit.audited(actor, "update.triggered", details={"trigger": "manual"}) as scope:
+        return await _apply_updates(scope.details)
+
+
+async def _apply_updates(details: dict) -> UpdateStatusResponse:
     status = await build_update_status()
+    details["target"] = status.latest
     if not status.apply_supported:
         raise HTTPException(status_code=409, detail="apply_not_supported")
     if not status.update_available:
@@ -182,7 +201,11 @@ async def apply_updates() -> UpdateStatusResponse:
     return await build_update_status()
 
 
-@router.patch("/updates/settings", response_model=UpdateStatusResponse)
+@router.patch(
+    "/updates/settings",
+    response_model=UpdateStatusResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def patch_update_settings(body: UpdateSettingsPatch) -> UpdateStatusResponse:
     kwargs: _UpdateSettingsFields = {}
     if body.auto_update is not None:

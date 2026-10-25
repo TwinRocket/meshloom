@@ -6,6 +6,59 @@ set -eu
 
 URL="${MESHLOOM_KIOSK_URL:-http://127.0.0.1:8000}"
 CHROMIUM="${MESHLOOM_KIOSK_BROWSER:-}"
+# Written by the server on a kiosk host (app/services/kiosk.py), readable by
+# the meshloom-kiosk group that pkg/nfpm/postinstall.sh puts the session user in.
+TOKEN_FILE="${MESHLOOM_KIOSK_TOKEN_FILE:-/var/lib/meshloom-kiosk/kiosk.token}"
+
+# Device-token sign-in (docs/dev/auth.md, "Kiosk device token"). Prints the
+# one-time URL that signs Chromium in as the kiosk account, or nothing (the
+# screen then shows the setup or sign-in page: fail closed). The token reaches
+# curl through its config on stdin (printf is a shell builtin), never argv, so
+# `ps` never shows it; only the one-time code, valid 60 s, is on Chromium's.
+read_token() {
+    token=
+    if [ -r "$TOKEN_FILE" ]; then
+        IFS= read -r token <"$TOKEN_FILE" || true
+    elif command -v sg >/dev/null 2>&1; then
+        # Added to the group after this session started (first boot, upgrade).
+        token=$(sg meshloom-kiosk -c "cat '$TOKEN_FILE'" 2>/dev/null | head -n 1) || token=
+    fi
+    case "$token" in
+        mlt_*) ;;
+        *) return 1 ;;
+    esac
+    case "$token" in
+        *[!A-Za-z0-9_-]*) return 1 ;;
+    esac
+    printf '%s' "$token"
+}
+
+bootstrap_url() {
+    base="$1"
+    command -v curl >/dev/null 2>&1 || return 0
+    token=$(read_token) || return 0
+    answer=$(printf 'header = "Authorization: Bearer %s"\n' "$token" \
+        | curl -sf --max-time 10 -X POST -K - "$base/api/auth/kiosk-bootstrap" 2>/dev/null) \
+        || return 0
+    token=
+    path=$(printf '%s' "$answer" | sed -n 's/.*"path":[[:space:]]*"\([^"]*\)".*/\1/p')
+    case "$path" in
+        /api/auth/kiosk-session\?code=*) ;;
+        *) return 0 ;;
+    esac
+    case "${path#/api/auth/kiosk-session?code=}" in
+        "" | *[!A-Za-z0-9_-]*) return 0 ;;
+    esac
+    printf '%s%s\n' "$base" "$path"
+}
+
+# A fingerprint of the token file (CRC on stdin: nothing in argv), empty when
+# unreadable. A change means a rotation: the server signed the old sessions out.
+token_stamp() {
+    cksum <"$TOKEN_FILE" 2>/dev/null || true
+}
+
+# --- main: everything above is functions (tests/test_kiosk_token.py sources them).
 
 if [ -z "$CHROMIUM" ]; then
     for candidate in /usr/bin/chromium /usr/bin/chromium-browser; do
@@ -34,14 +87,24 @@ if command -v flock >/dev/null 2>&1; then
     flock -n 9 || exit 0
 fi
 
+# GET /api/auth/session is public on 5.x and answers 200 whether or not an
+# account exists; /api/health is only {"ok": true} there. The fallback keeps a
+# 4.x server (no /api/auth) working.
+probe() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -sf -o /dev/null "$URL$1"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O /dev/null "$URL$1"
+    else
+        return 1
+    fi
+}
+
 wait_ready() {
     i=0
     while [ "$i" -lt 180 ]; do
-        if command -v curl >/dev/null 2>&1; then
-            curl -sf -o /dev/null "$URL/api/health" && return 0
-        elif command -v wget >/dev/null 2>&1; then
-            wget -q -O /dev/null "$URL/api/health" && return 0
-        fi
+        probe /api/auth/session && return 0
+        probe /api/health && return 0
         i=$((i + 1))
         sleep 1
     done
@@ -51,8 +114,19 @@ wait_ready() {
 wait_ready
 
 # Official Pi kiosk flags, plus --password-store=basic so the keyring
-# dialog does not block the first launch.
+# dialog does not block the first launch. Each start asks a fresh one-time URL:
+# a code is good once. Without one, the plain URL (setup or sign-in page); the
+# session cookie of an earlier start may still sign it in. When the token
+# file changes (an administrator revoked the token), Chromium is restarted so
+# the screen signs in again with the new one.
 while true; do
+    target=""
+    i=0
+    while [ -z "$target" ] && [ "$i" -lt 5 ]; do
+        target=$(bootstrap_url "$URL")
+        [ -n "$target" ] || sleep 2
+        i=$((i + 1))
+    done
     "$CHROMIUM" \
         --kiosk \
         --noerrdialogs \
@@ -61,6 +135,16 @@ while true; do
         --password-store=basic \
         --enable-features=OverlayScrollbar \
         --start-maximized \
-        "$URL" || true
+        "${target:-$URL}" &
+    browser=$!
+    stamp=$(token_stamp)
+    while kill -0 "$browser" 2>/dev/null; do
+        sleep 10
+        if [ "$(token_stamp)" != "$stamp" ]; then
+            kill "$browser" 2>/dev/null || true
+            break
+        fi
+    done
+    wait "$browser" || true
     sleep 2
 done

@@ -5,7 +5,8 @@
  * for deep linking to conversations.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { makeFeedConversation } from '../components/feed/feedConversation';
 import {
   parseHashConversation,
   parseHashSettingsAnchor,
@@ -68,12 +69,18 @@ describe('parseHashConversation', () => {
     expect(result).toEqual({ type: 'raw', name: 'raw' });
   });
 
-  it('parses #control as control type', () => {
+  it('parses #feed as feed type', () => {
+    window.location.hash = '#feed';
+
+    expect(parseHashConversation()).toEqual({ type: 'feed', name: 'feed' });
+  });
+
+  it('parses #control as the feed with the Control preset', () => {
     window.location.hash = '#control';
 
     const result = parseHashConversation();
 
-    expect(result).toEqual({ type: 'control', name: 'control' });
+    expect(result).toEqual({ type: 'feed', name: 'feed', feedPreset: 'control' });
   });
 
   it('parses #map as map type', () => {
@@ -453,13 +460,17 @@ describe('getLocateHash', () => {
 
 describe('getConversationHash', () => {
   it('encodes live conversations', () => {
+    expect(getConversationHash(makeFeedConversation('Feed'))).toBe('#feed');
+    expect(getConversationHash(makeFeedConversation('Control', 'control'))).toBe('#control');
     expect(getConversationHash({ type: 'live', id: 'live', name: 'Live' })).toBe('#live');
   });
 
-  it('encodes control conversations', () => {
-    expect(getConversationHash({ type: 'control', id: 'control', name: 'Control journal' })).toBe(
-      '#control'
-    );
+  it('does not rewrite #control into #feed', () => {
+    window.location.hash = '#control';
+    const replace = vi.spyOn(window.history, 'replaceState');
+    updateUrlHash(makeFeedConversation('Feed', 'control'));
+    expect(replace).not.toHaveBeenCalled();
+    replace.mockRestore();
   });
 
   it('encodes discovered conversations', () => {
@@ -515,5 +526,28 @@ describe('getMapFocusHash', () => {
     const result = getMapFocusHash('AB CD/12');
 
     expect(result).toBe('#map/focus/AB%20CD%2F12');
+  });
+});
+
+describe('feed filters in the hash', () => {
+  it('parses #control?display=1 as the Control preset with display', () => {
+    expect(parseHashConversation('control?display=1')).toEqual({
+      type: 'feed',
+      name: 'feed',
+      feedPreset: 'control',
+      feedQuery: 'display=1',
+    });
+  });
+
+  it('round-trips #feed?... and ignores unknown keys and malformed values', () => {
+    const hash = 'feed?src=messages,control&types=chan&dir=in,out&muted=1&pending=0';
+    const parsed = parseHashConversation(hash)!;
+    expect(
+      getConversationHash(makeFeedConversation('Feed', parsed.feedPreset, parsed.feedQuery))
+    ).toBe(`#${hash}`);
+    expect(parseHashConversation('feed?bogus=1&muted=maybe')).toEqual({
+      type: 'feed',
+      name: 'feed',
+    });
   });
 });

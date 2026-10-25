@@ -13,6 +13,19 @@ http://127.0.0.1:8000
 
 Depuis un autre appareil du même réseau, utilisez l’adresse IP de la machine avec le port `8000`.
 
+## Créer votre compte
+
+À la première ouverture de Meshloom, avant toute chose, une page demande de créer le compte administrateur. Choisissez un nom d’utilisateur et un mot de passe d’au moins 12 caractères (quelques mots à la suite en font un bon ; il doit différer du nom d’utilisateur et ne pas être un mot de passe courant), et si vous le souhaitez un nom affiché. Les boutons de langue sous le formulaire changent la langue de l’interface.
+
+Si ce Meshloom contenait déjà des données avant d’exiger des comptes (une mise à jour), la page demande aussi le **code d’installation** : 8 chiffres que Meshloom écrit dans son journal à chaque démarrage tant qu’aucun compte n’existe. Les espaces et les tirets du code sont sans importance. Pour le trouver :
+
+- **Docker :** `docker logs <conteneur>` et cherchez « installation code ».
+- **Installation par paquet :** `journalctl -u meshloom`.
+- **Module Home Assistant :** l’onglet **Journal** du module.
+- **Toute installation :** `meshloom-admin setup-code` sur l’hôte affiche un nouveau code.
+
+Ensuite, Meshloom affiche une page de connexion à toute personne non connectée. Si une session se termine alors que la page est ouverte, une fenêtre redemande le mot de passe et vous reprenez où vous en étiez. Votre nom figure dans le bouton de compte (bas de la barre latérale, ou haut des **Réglages** sur téléphone), qui propose aussi **Se déconnecter**. En simple `http://`, votre mot de passe circule en clair sur le réseau, ce que la page de connexion signale : utilisez HTTPS ou un réseau de confiance.
+
 ## Langue de l’interface
 
 L’interface s’ouvre en français par défaut. Pour passer à l’anglais, ouvrez **Réglages > Configuration locale** et changez **Langue**. Ce choix ne vaut que pour ce navigateur. Ce guide utilise les noms français des boutons et des menus.
@@ -82,7 +95,7 @@ La liste des conversations est découpée en sections : **Favoris**, **Canaux**,
 L’écran **Outils** (ou la barre d’icônes) ouvre :
 
 - **Flux de paquets** : tous les paquets que la radio entend, qu’ils soient déchiffrables ou non.
-- **Journal de contrôle** : requêtes, réponses et données de groupe, à part des conversations.
+- **Fil** : tous les messages et le trafic de contrôle (requêtes, réponses, données de groupe) dans une seule chronologie. Le préréglage **Contrôle** (`#control`) n’affiche que le trafic de contrôle.
 - **Live** : les paquets apparaissent sur une carte au fur et à mesure qu’ils sont entendus.
 - **Visualiseur mesh** : les chemins réellement empruntés par les paquets.
 - **Trace** : un test de route à travers des répéteurs choisis.
@@ -97,6 +110,6 @@ Le bouton **Ajouter canal/contact** crée une conversation : un contact à parti
 
 Autres pages utiles dans **Réglages** : **Notifications** (ci-dessous), **Mises à jour**, **MQTT et automatisation** (sorties et bots), **Alertes** (seuils de télémétrie), **Base de données** (taille et nettoyage du stockage), **Statistiques** et **À propos**.
 
-**Réglages > Notifications** sert à choisir ce dont Meshloom vous prévient (nouveaux contacts, messages directs, nouveaux répéteurs ou capteurs, canaux trouvés, alertes télémétrie, mises à jour), et par quel moyen : Web Push sur ce navigateur, e-mail ou webhook. Le push fonctionne aussi navigateur fermé, mais il exige HTTPS. Meshloom n’affiche aucune alerte contextuelle dans l’onglet ouvert. Voir [Notifications push](/docs/deep/push/).
+**Réglages > Notifications** sert à choisir ce dont Meshloom vous prévient (nouveaux contacts, messages directs, nouveaux répéteurs ou capteurs, canaux trouvés, alertes télémétrie, mises à jour), et par quel moyen. Chaque moyen est un **canal** : Web Push sur ce navigateur, e-mail, un webhook, ntfy, Discord, Telegram, Gotify, Home Assistant ou tout service [Apprise](https://appriseit.com/). Web Push fonctionne aussi navigateur fermé, mais il exige HTTPS ; ntfy, Gotify ou Home Assistant sur votre réseau, non. Meshloom n’affiche aucune alerte contextuelle dans l’onglet ouvert. Voir [Notifications](/docs/deep/notifications/) et, pour les navigateurs, [Notifications push](/docs/deep/push/).
 
 Pour envoyer votre premier message : [Messages](/docs/messages/).

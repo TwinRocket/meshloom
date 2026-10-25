@@ -1,4 +1,6 @@
-"""First-seen contact push (out-of-band, not a WebSocket event)."""
+"""First-seen contact notification (out-of-band, not a WebSocket event).
+
+The rules (``contact_types``) choose the channels by the contact's type."""
 
 from __future__ import annotations
 
@@ -8,7 +10,6 @@ from typing import Any, Literal
 
 from app.models import Contact
 from app.repository.contacts import ContactRepository
-from app.repository.settings import AppSettingsRepository
 from app.services.radio_runtime import radio_runtime
 
 logger = logging.getLogger(__name__)
@@ -71,35 +72,13 @@ async def _maybe_notify_contact_first_seen(
     if existing_prefixes:
         return
 
-    from app.repository.settings import any_media_enabled, or_notification_media
+    from app.notifications.producers import emit_payload
 
-    defaults = await AppSettingsRepository.get_push_defaults()
-    if contact_type == _TYPE_COMPANION:
-        if not (
-            any_media_enabled(defaults, "new_contact")
-            or any_media_enabled(defaults, "advert_companion")
-        ):
-            return
-        flags = or_notification_media(defaults["new_contact"], defaults["advert_companion"])
-    elif contact_type == _TYPE_REPEATER:
-        if not any_media_enabled(defaults, "advert_repeater"):
-            return
-        flags = defaults["advert_repeater"]
-    elif contact_type == _TYPE_SENSOR:
-        if not any_media_enabled(defaults, "advert_sensor"):
-            return
-        flags = defaults["advert_sensor"]
-    else:
-        return
-
-    from app.notify import dispatch_system_event
-
-    await dispatch_system_event(
+    await emit_payload(
         {
             "event": "first_seen",
             "public_key": public_key,
             "name": payload.get("name") or "",
             "contact_type": contact_type,
-        },
-        flags,
+        }
     )

@@ -1,0 +1,21 @@
+{
+  "description": "Write a file with a native-module suffix into the work dir, directly or by renaming.",
+  "events": [
+    {
+      "params": {
+        "how": "open"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "rename"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

@@ -10,6 +10,8 @@ import {
 } from './meshcoreOpenPayloads';
 import { parseSenderFromText } from './messageParser';
 import i18n from '../i18n';
+import { getShareStatusSnapshot } from '../stores/shareMetaStore';
+import { DEFAULT_SHARE_HOSTS, splitShareLinkBody } from './shareLinks';
 
 const EXCERPT_MAX = 40;
 
@@ -66,6 +68,16 @@ export function describeMessagePreview(text: string, context: MessagePreviewCont
 
   const reaction = parseReaction(payload) ?? parseMeshCoreOneReaction(payload);
   if (reaction) return describeReactionPreview(reaction, sender, context);
+
+  // From the text only: no network, no request for the link's meta.
+  const shared = splitShareLinkBody(
+    payload,
+    getShareStatusSnapshot()?.hosts ?? DEFAULT_SHARE_HOSTS
+  );
+  if (shared) {
+    const line = `🔗 ${shared.caption || i18n.t('messagePreview.shareLink')}`;
+    return sender ? `${sender}: ${line}` : line;
+  }
 
   return text;
 }

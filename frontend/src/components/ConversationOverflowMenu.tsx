@@ -2,16 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bell, ChevronDown, ChevronLeft, Globe2, Pin, Star, Trash2, VolumeX } from 'lucide-react';
 
-import { Checkbox } from './ui/checkbox';
+import { ConversationNotifyPanel, type ConversationNotifyTarget } from './ConversationNotifyPanel';
 import { MUTE_DURATIONS } from './ChannelMuteMenu';
 import { cn } from '../lib/utils';
-import type { NotificationMediaChannel, NotificationMediaFlags } from '../types';
-
-const MEDIA: { channel: NotificationMediaChannel; label: string }[] = [
-  { channel: 'push', label: 'chatHeader.notifyPush' },
-  { channel: 'email', label: 'chatHeader.notifyEmail' },
-  { channel: 'webhook', label: 'chatHeader.notifyWebhook' },
-];
 
 type Panel = 'main' | 'notify' | 'mute';
 
@@ -21,9 +14,7 @@ interface ConversationOverflowMenuProps {
   pinned: boolean;
   favorite: boolean;
   canNotify: boolean;
-  notifyMediaEnabled?: NotificationMediaFlags;
-  emailReady?: boolean;
-  webhookReady?: boolean;
+  notifyTarget?: ConversationNotifyTarget;
   canMute: boolean;
   muted?: boolean;
   mutedUntil?: number | null;
@@ -32,7 +23,6 @@ interface ConversationOverflowMenuProps {
   isChannel: boolean;
   onTogglePin: () => void;
   onToggleFavorite: () => void;
-  onSetMedia?: (channel: NotificationMediaChannel, enabled: boolean) => void;
   onOpenNotifySettings?: () => void;
   onMute?: (durationSeconds: number) => void;
   onEditRegion?: () => void;
@@ -72,9 +62,7 @@ export function ConversationOverflowMenu({
   pinned,
   favorite,
   canNotify,
-  notifyMediaEnabled,
-  emailReady = false,
-  webhookReady = false,
+  notifyTarget,
   canMute,
   muted = false,
   mutedUntil,
@@ -83,7 +71,6 @@ export function ConversationOverflowMenu({
   isChannel,
   onTogglePin,
   onToggleFavorite,
-  onSetMedia,
   onOpenNotifySettings,
   onMute,
   onEditRegion,
@@ -127,9 +114,6 @@ export function ConversationOverflowMenu({
         ? t('chatHeader.mutedIndefinite')
         : null;
 
-  const ready = (channel: NotificationMediaChannel) =>
-    channel === 'push' || (channel === 'email' ? emailReady : webhookReady);
-
   return (
     <div ref={rootRef} className="relative shrink-0">
       <button
@@ -169,7 +153,7 @@ export function ConversationOverflowMenu({
               >
                 {pinned ? t('chatHeader.unpin') : t('chatHeader.pin')}
               </MenuRow>
-              {canNotify && notifyMediaEnabled && onSetMedia && (
+              {canNotify && notifyTarget && (
                 <MenuRow
                   icon={<Bell className="h-4 w-4" aria-hidden="true" />}
                   onClick={() => setPanel('notify')}
@@ -227,7 +211,7 @@ export function ConversationOverflowMenu({
               )}
             </>
           )}
-          {panel === 'notify' && notifyMediaEnabled && onSetMedia && (
+          {panel === 'notify' && notifyTarget && (
             <>
               <button
                 type="button"
@@ -237,42 +221,20 @@ export function ConversationOverflowMenu({
                 <ChevronLeft className="h-4 w-4" aria-hidden="true" />
                 {t('chatHeader.notifyMenu')}
               </button>
-              <div className="space-y-1 px-2 pb-1">
-                {MEDIA.map(({ channel, label }) => {
-                  const enabled = ready(channel);
-                  const id = `overflow-notify-${channel}`;
-                  return (
-                    <label
-                      key={channel}
-                      htmlFor={id}
-                      className={cn(
-                        'flex items-center gap-2 rounded px-1 py-1 text-sm',
-                        enabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
-                      )}
-                    >
-                      <Checkbox
-                        id={id}
-                        checked={notifyMediaEnabled[channel]}
-                        disabled={!enabled}
-                        onCheckedChange={(checked) => onSetMedia(channel, checked === true)}
-                      />
-                      <span>{t(label)}</span>
-                    </label>
-                  );
-                })}
+              <div className="px-2 pb-2">
+                <ConversationNotifyPanel
+                  target={notifyTarget}
+                  idPrefix="overflow-notify"
+                  onOpenSettings={
+                    onOpenNotifySettings
+                      ? () => {
+                          onOpenChange(false);
+                          onOpenNotifySettings();
+                        }
+                      : undefined
+                  }
+                />
               </div>
-              {(!emailReady || !webhookReady) && onOpenNotifySettings && (
-                <button
-                  type="button"
-                  className="w-full px-3 py-1.5 text-left text-[0.6875rem] text-muted-foreground hover:text-foreground"
-                  onClick={() => {
-                    onOpenChange(false);
-                    onOpenNotifySettings();
-                  }}
-                >
-                  {t('chatHeader.notifyConfigureDestinations')}
-                </button>
-              )}
             </>
           )}
           {panel === 'mute' && onMute && (

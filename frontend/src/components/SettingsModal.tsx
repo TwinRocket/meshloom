@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { lazy, Suspense, useState, useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AppSettings,
@@ -27,6 +27,8 @@ import { SettingsProxySection } from './settings/SettingsProxySection';
 import { SettingsLocalSection } from './settings/SettingsLocalSection';
 import { SettingsNotificationsSection } from './settings/SettingsNotificationsSection';
 import { SettingsCommunitySection } from './settings/SettingsCommunitySection';
+import { SettingsExtensionsSection } from './settings/SettingsExtensionsSection';
+import { SettingsShareSection } from './settings/SettingsShareSection';
 import { SettingsRadioAppSection } from './settings/SettingsRadioAppSection';
 import { SettingsAlertsSection } from './settings/SettingsAlertsSection';
 import { SettingsFanoutSection } from './settings/SettingsFanoutSection';
@@ -36,6 +38,11 @@ import { SettingsStatisticsSection } from './settings/SettingsStatisticsSection'
 import { SettingsAboutSection } from './settings/SettingsAboutSection';
 import { SettingsUpdatesSection } from './settings/SettingsUpdatesSection';
 import { getSettingsHash } from '../utils/urlHash';
+import { useCapabilities } from '../auth/SessionProvider';
+
+const SettingsAccessSection = lazy(() =>
+  import('./settings/SettingsAccessSection').then((m) => ({ default: m.SettingsAccessSection }))
+);
 
 interface SettingsModalBaseProps {
   open: boolean;
@@ -138,6 +145,7 @@ export function SettingsModal(props: SettingsModalProps) {
     onOpenManualHelp,
   } = props;
   const { t } = useTranslation();
+  const capabilities = useCapabilities();
   const externalSidebarNav = props.externalSidebarNav === true;
   const desktopSection = props.externalSidebarNav ? props.desktopSection : undefined;
 
@@ -151,12 +159,15 @@ export function SettingsModal(props: SettingsModalProps) {
     radio: false,
     proxy: false,
     local: false,
+    access: false,
     notifications: false,
     updates: false,
     community: false,
+    share: false,
     'radio-app': false,
     alerts: false,
     fanout: false,
+    extensions: false,
     database: false,
     navigation: false,
     statistics: false,
@@ -178,11 +189,13 @@ export function SettingsModal(props: SettingsModalProps) {
   };
 
   const isSectionVisible = (section: SettingsSection) =>
-    externalDesktopSidebarMode ? desktopSection === section : expandedSections[section];
+    capabilities.canOpenSettingsSection(section) &&
+    (externalDesktopSidebarMode ? desktopSection === section : expandedSections[section]);
 
   const showSectionButton = !externalDesktopSidebarMode;
   const shouldRenderSection = (section: SettingsSection) =>
-    !externalDesktopSidebarMode || desktopSection === section;
+    capabilities.canOpenSettingsSection(section) &&
+    (!externalDesktopSidebarMode || desktopSection === section);
 
   const sectionWrapperClass = '';
 
@@ -272,27 +285,54 @@ export function SettingsModal(props: SettingsModalProps) {
               serverLabel={appSettings?.ui_preferences?.server_label}
               // Spread rather than rebuilt: listing the fields meant every theme
               // change quietly dropped whatever else lived in there.
-              onPersistServerLabel={(server_label) =>
-                void onSaveAppSettings({
-                  ui_preferences: {
-                    ...appSettings?.ui_preferences,
-                    nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
-                    theme: appSettings?.ui_preferences?.theme ?? '',
-                    server_label,
-                  },
-                })
+              // The instance-wide choices (label, theme, allowed origins) are written with
+              // the app settings, which only an administrator may change: the others keep
+              // their per-device preferences and do not get the controls.
+              onPersistServerLabel={
+                capabilities.isAdmin
+                  ? (server_label) =>
+                      void onSaveAppSettings({
+                        ui_preferences: {
+                          ...appSettings?.ui_preferences,
+                          nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                          theme: appSettings?.ui_preferences?.theme ?? '',
+                          server_label,
+                        },
+                      })
+                  : undefined
               }
-              onPersistTheme={(theme) =>
-                void onSaveAppSettings({
-                  ui_preferences: {
-                    ...appSettings?.ui_preferences,
-                    nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
-                    theme,
-                  },
-                })
+              onPersistTheme={
+                capabilities.isAdmin
+                  ? (theme) =>
+                      void onSaveAppSettings({
+                        ui_preferences: {
+                          ...appSettings?.ui_preferences,
+                          nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                          theme,
+                        },
+                      })
+                  : undefined
+              }
+              instanceReadOnly={!capabilities.isAdmin}
+              allowedOrigins={appSettings?.auth_allowed_origins}
+              onSaveAllowedOrigins={
+                capabilities.isAdmin
+                  ? (auth_allowed_origins) => onSaveAppSettings({ auth_allowed_origins })
+                  : undefined
               }
               className={sectionContentClass}
             />
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('access') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('access')}
+          {isSectionVisible('access') && (
+            <Suspense fallback={null}>
+              <SettingsAccessSection className={sectionContentClass} />
+            </Suspense>
           )}
         </section>
       )}
@@ -340,6 +380,27 @@ export function SettingsModal(props: SettingsModalProps) {
           {renderSectionHeader('community')}
           {isSectionVisible('community') && (
             <SettingsCommunitySection className={sectionContentClass} />
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('share') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('share')}
+          {isSectionVisible('share') && (
+            <SettingsShareSection
+              className={sectionContentClass}
+              onSaveAppSettings={onSaveAppSettings}
+            />
+          )}
+        </section>
+      )}
+
+      {shouldRenderSection('extensions') && (
+        <section className={sectionWrapperClass}>
+          {renderSectionHeader('extensions')}
+          {isSectionVisible('extensions') && (
+            <SettingsExtensionsSection className={sectionContentClass} health={health} />
           )}
         </section>
       )}
@@ -440,11 +501,26 @@ export function SettingsModal(props: SettingsModalProps) {
             <div className={sectionContentClass}>
               <SettingsNavigationSection
                 order={appSettings?.ui_preferences?.nav_rail ?? []}
+                // Spread: the preferences live in one object, and rebuilding it from a
+                // few fields dropped the others (the start page, the server label).
                 onChange={(nav_rail) =>
                   void onSaveAppSettings({
                     ui_preferences: {
+                      ...appSettings?.ui_preferences,
                       nav_rail,
                       theme: appSettings?.ui_preferences?.theme ?? '',
+                    },
+                  })
+                }
+                startView={appSettings?.ui_preferences?.start_view ?? ''}
+                startViewReadOnly={!capabilities.isAdmin}
+                onStartViewChange={(start_view) =>
+                  void onSaveAppSettings({
+                    ui_preferences: {
+                      ...appSettings?.ui_preferences,
+                      nav_rail: appSettings?.ui_preferences?.nav_rail ?? [],
+                      theme: appSettings?.ui_preferences?.theme ?? '',
+                      start_view,
                     },
                   })
                 }

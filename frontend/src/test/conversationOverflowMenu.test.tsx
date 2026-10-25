@@ -19,16 +19,13 @@ function renderMenu(
       pinned={false}
       favorite={false}
       canNotify
-      notifyMediaEnabled={{ push: true, email: false, webhook: false }}
-      emailReady
-      webhookReady
+      notifyTarget={{ stateKey: 'channel-AA', messageType: 'CHAN', isHashtag: true }}
       canMute
       canRegion
       canDelete
       isChannel
       onTogglePin={onTogglePin}
       onToggleFavorite={onToggleFavorite}
-      onSetMedia={vi.fn()}
       onMute={vi.fn()}
       onEditRegion={vi.fn()}
       onDelete={onDelete}

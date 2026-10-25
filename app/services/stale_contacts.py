@@ -3,6 +3,12 @@
 - Stale-contact purge: off unless ``stale_contact_days`` > 0.
 - Raw-packet retention: off unless ``raw_packet_retention_days`` > 0; prunes
   undecrypted raw packets older than that many days, in short batches.
+- Session purge: deletes expired and revoked login sessions
+  (``app/auth/sessions.py``, ``purge_sessions``); always on.
+- Audit purge: deletes audit rows older than ``auth_settings.audit_retention_days``
+  (``app/auth/audit.py``, ``purge_audit``); always on.
+- Pairing purge: deletes device pairing codes that hold no token and can no
+  longer give one (``app/auth/pairing.py``, ``purge_pairings``); always on.
 - Bounded ``PRAGMA incremental_vacuum`` so freed pages go back to the OS.
 """
 
@@ -10,6 +16,10 @@ import asyncio
 import logging
 import time
 
+from app.auth.audit import purge_audit
+from app.auth.pairing import purge_pairings
+from app.auth.sessions import purge_sessions
+from app.auth.ws_events import WsEvent
 from app.repository import AppSettingsRepository, ContactRepository, RawPacketRepository
 
 logger = logging.getLogger(__name__)
@@ -51,7 +61,7 @@ async def delete_contacts_best_effort(public_keys: list[str]) -> int:
     deleted = 0
     for contact in contacts:
         await ContactRepository.delete(contact.public_key)
-        broadcast_event("contact_deleted", {"public_key": contact.public_key})
+        broadcast_event(WsEvent.CONTACT_DELETED, {"public_key": contact.public_key})
         deleted += 1
     return deleted
 
@@ -100,6 +110,9 @@ async def _stale_purge_loop() -> None:
         for step, label in (
             (purge_stale_contacts, "Stale contact purge"),
             (prune_raw_packets, "Raw packet retention"),
+            (purge_sessions, "Session purge"),
+            (purge_audit, "Audit purge"),
+            (purge_pairings, "Pairing purge"),
             (reclaim_free_pages, "Incremental vacuum"),
         ):
             try:

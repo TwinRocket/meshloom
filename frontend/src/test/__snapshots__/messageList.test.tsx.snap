@@ -1,0 +1,35 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`MessageList rendering snapshots > #channel reference, clickable and not 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>join <button type="button" class="rounded font-medium text-primary underline underline-offset-2 transition-colors inline border-0 bg-transparent p-0 align-baseline hover:text-primary/80 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">#mesh-room</button> now</span></div>"`;
+
+exports[`MessageList rendering snapshots > #channel reference, clickable and not 2`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>join <span class="rounded px-0.5 font-medium text-primary underline underline-offset-2 transition-colors">#mesh-room</span> now</span></div>"`;
+
+exports[`MessageList rendering snapshots > @mention of someone else and of the radio 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>hi <span class="rounded px-0.5 bg-muted-foreground/20">@[Bob]</span> and <span class="rounded px-0.5 bg-primary/30 text-primary font-medium">@[Me]</span></span></div>"`;
+
+exports[`MessageList rendering snapshots > GIF 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><a href="https://media.giphy.com/media/abc123/giphy.gif" target="_blank" rel="noopener noreferrer" class="inline-block" title="Ouvrir le GIF sur Giphy"><img alt="GIF" data-testid="message-gif" loading="lazy" class="max-w-[240px] max-h-[240px] rounded-md" src="https://media.giphy.com/media/abc123/giphy.gif"></a></div>"`;
+
+exports[`MessageList rendering snapshots > GIF still renders when rich reactions are off 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><a href="https://media.giphy.com/media/abc123/giphy.gif" target="_blank" rel="noopener noreferrer" class="inline-block" title="Ouvrir le GIF sur Giphy"><img alt="GIF" data-testid="message-gif" loading="lazy" class="max-w-[240px] max-h-[240px] rounded-md" src="https://media.giphy.com/media/abc123/giphy.gif"></a></div>"`;
+
+exports[`MessageList rendering snapshots > MeshCore One reaction 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span class="inline-flex items-center gap-1.5"><span class="text-xl leading-none">👍</span><span class="text-xs text-muted-foreground italic">a réagi à Alice</span></span></div>"`;
+
+exports[`MessageList rendering snapshots > Open reaction 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span class="inline-flex items-center gap-1.5"><span class="text-xl leading-none">👍</span><span class="text-xs text-muted-foreground italic">a réagi</span></span></div>"`;
+
+exports[`MessageList rendering snapshots > control characters 1`] = `"<div class="text-[0.8125rem] font-semibold text-foreground mb-0.5"><bdi>&lt;Sans nom — paquet corrompu ?&gt;</bdi></div>"`;
+
+exports[`MessageList rendering snapshots > control characters 2`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>Nvkɩ'g:</span></div>"`;
+
+exports[`MessageList rendering snapshots > link 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>see <a href="https://example.com/a?b=1" target="_blank" rel="noopener noreferrer" class="text-primary underline hover:text-primary/80">https://example.com/a?b=1</a> now</span></div>"`;
+
+exports[`MessageList rendering snapshots > location 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><a href="https://www.openstreetmap.org/?mlat=43.58&amp;mlon=7.12#map=16/43.58/7.12" target="_blank" rel="noopener noreferrer" data-testid="message-location" class="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 hover:bg-muted/70" title="Ouvrir la position sur la carte"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-map-pin h-4 w-4 shrink-0 text-primary" aria-hidden="true"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"></path><circle cx="12" cy="10" r="3"></circle></svg><span class="min-w-0"><span class="block text-sm font-medium leading-tight">FR-06-PSCL-Base</span><span class="block text-[0.6875rem] text-muted-foreground tabular-nums">43.58000, 7.12000</span></span></a></div>"`;
+
+exports[`MessageList rendering snapshots > multi-line text 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>first<br></span><span>second</span></div>"`;
+
+exports[`MessageList rendering snapshots > plain text 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>hello world</span></div>"`;
+
+exports[`MessageList rendering snapshots > reactions render as raw text when rich reactions are off 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>r:ffff:00</span></div>"`;
+
+exports[`MessageList rendering snapshots > region badge 1`] = `"<span class="align-middle text-[0.625rem] uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground ml-0" title="Portée régionale : nl-gr">nl-gr</span>"`;
+
+exports[`MessageList rendering snapshots > reply-prefixed GIF 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span class="inline-flex flex-wrap items-center gap-1.5"><span class="rounded px-0.5 bg-muted-foreground/20">@[Bob]</span><a href="https://media.giphy.com/media/abc123/giphy.gif" target="_blank" rel="noopener noreferrer" class="inline-block" title="Ouvrir le GIF sur Giphy"><img alt="GIF" data-testid="message-gif" loading="lazy" class="max-w-[240px] max-h-[240px] rounded-md" src="https://media.giphy.com/media/abc123/giphy.gif"></a></span></div>"`;
+
+exports[`MessageList rendering snapshots > text that looks like a link but has no scheme or TLD stays plain 1`] = `"<div class="wrap-break-word whitespace-pre-wrap"><span>example.com and http://localhost/x</span></div>"`;

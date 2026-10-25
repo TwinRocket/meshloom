@@ -1,0 +1,33 @@
+{
+  "settings": {
+    "access": {
+      "trustedNetworks": {
+        "title": "Trusted networks",
+        "help": "A device on one of these networks is signed in as the chosen account without a login. Empty by default: only add a network you control, such as a kiosk's own address.",
+        "proxyClosed": "A rule never applies to a request that came through a reverse proxy, a tunnel, Meshloom Remote or Home Assistant ingress, nor from this machine's loopback outside the Home Assistant add-on, and only when the address in the browser is a local name or an IP address.",
+        "none": "No trusted network: every device signs in.",
+        "cidr": "Network (CIDR)",
+        "user": "Signed in as",
+        "pickUser": "Choose an account",
+        "add": "Add a network",
+        "remove": "Remove",
+        "save": "Save networks",
+        "saving": "Saving…",
+        "saved": "Trusted networks saved",
+        "adminWarning": "Anyone on {{networks}} gets administrator rights without a password: they can change every setting, account and plugin. Prefer a member, viewer or kiosk account."
+      },
+      "securityNotice": {
+        "title": "Access security notice",
+        "trusted_admin_reduced_plugin_isolation": "A trusted network signs in an administrator while plugins run with reduced isolation (hooks only): anyone on that network can install or configure code that runs on this machine.",
+        "trusted_loopback_or_gateway_public": "A trusted network covers loopback or the Docker gateway while a public address is configured: visitors arriving through a proxy or a published port could be signed in."
+      }
+    }
+  },
+  "errors": {
+    "auth_trusted_networks_invalid": "Not a network, a network wider than /8 (IPv4) or /16 (IPv6), the same network twice, or more than 32 trusted networks: {{cidr}}",
+    "auth_trusted_network_user_invalid": "The network {{cidr}} names an account that does not exist or is disabled.",
+    "auth_trusted_network_overlaps_proxy": "The network {{cidr}} overlaps the trusted proxy {{proxy}}: requests from a proxy are never signed in automatically.",
+    "auth_trusted_network_loopback": "The network {{cidr}} covers loopback: a local proxy or tunnel would bring every visitor from there.",
+    "auth_trusted_network_overlaps_gateway": "The network {{cidr}} covers the Docker gateway {{gateway}} while a public address is configured."
+  }
+}

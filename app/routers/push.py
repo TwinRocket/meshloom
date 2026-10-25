@@ -5,10 +5,12 @@ import json
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from pywebpush import WebPushException
 
+from app.auth.permissions import require
+from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.push.send import send_push
 from app.push.vapid import (
     get_vapid_claims,
@@ -50,12 +52,14 @@ class NotificationMediaModel(BaseModel):
     push: bool = True
     email: bool = False
     webhook: bool = False
+    apprise: bool = False
 
 
 class NotificationMediaPatch(BaseModel):
     push: bool | None = None
     email: bool | None = None
     webhook: bool | None = None
+    apprise: bool | None = None
 
 
 class PushDefaultsModel(BaseModel):
@@ -67,6 +71,9 @@ class PushDefaultsModel(BaseModel):
     channel_found: NotificationMediaModel
     telemetry_alert: NotificationMediaModel
     oss_update: NotificationMediaModel
+    radio_offline: NotificationMediaModel
+    radio_online: NotificationMediaModel
+    app_started: NotificationMediaModel
 
 
 class PushDefaultsPatch(BaseModel):
@@ -78,6 +85,9 @@ class PushDefaultsPatch(BaseModel):
     channel_found: NotificationMediaPatch | bool | None = None
     telemetry_alert: NotificationMediaPatch | bool | None = None
     oss_update: NotificationMediaPatch | bool | None = None
+    radio_offline: NotificationMediaPatch | bool | None = None
+    radio_online: NotificationMediaPatch | bool | None = None
+    app_started: NotificationMediaPatch | bool | None = None
 
 
 class PushPreferencesResponse(BaseModel):
@@ -112,7 +122,11 @@ def _validate_vapid_subject(subject: str) -> str:
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
-@router.get("/vapid-public-key", response_model=VapidPublicKeyResponse)
+@router.get(
+    "/vapid-public-key",
+    response_model=VapidPublicKeyResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def vapid_public_key() -> VapidPublicKeyResponse:
     """Return the VAPID public key for browser PushManager.subscribe()."""
     key = get_vapid_public_key()
@@ -121,9 +135,19 @@ async def vapid_public_key() -> VapidPublicKeyResponse:
     return VapidPublicKeyResponse(public_key=key)
 
 
-@router.post("/subscribe")
+@router.post("/subscribe", dependencies=[Depends(require("send"))])
 async def subscribe(body: PushSubscribeRequest) -> dict:
-    """Register or update a push subscription (device). Upserts by endpoint."""
+    """Register or update a push subscription (device). Upserts by endpoint.
+
+    The endpoint must pass the egress guard: a private-network endpoint (a
+    self-hosted UnifiedPush distributor) needs ``push_allow_private_endpoints``.
+    """
+    allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
+    try:
+        await validate_destination(body.endpoint, allow_private_network=allow_private)
+    except EgressBlocked as exc:
+        logger.info("Push subscribe refused by the egress guard: %s", exc.code)
+        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
     sub = await PushSubscriptionRepository.create(
         endpoint=body.endpoint,
         p256dh=body.p256dh,
@@ -134,13 +158,13 @@ async def subscribe(body: PushSubscribeRequest) -> dict:
     return sub
 
 
-@router.get("/subscriptions")
+@router.get("/subscriptions", dependencies=[Depends(require("send"))])
 async def list_subscriptions() -> list[dict]:
     """List all push subscriptions (devices)."""
     return await PushSubscriptionRepository.get_all()
 
 
-@router.patch("/subscriptions/{subscription_id}")
+@router.patch("/subscriptions/{subscription_id}", dependencies=[Depends(require("send"))])
 async def update_subscription(subscription_id: str, body: PushSubscriptionUpdate) -> dict:
     """Update a subscription's label."""
     existing = await PushSubscriptionRepository.get(subscription_id)
@@ -157,7 +181,7 @@ async def update_subscription(subscription_id: str, body: PushSubscriptionUpdate
     return result or existing
 
 
-@router.delete("/subscriptions/{subscription_id}")
+@router.delete("/subscriptions/{subscription_id}", dependencies=[Depends(require("send"))])
 async def unsubscribe(subscription_id: str) -> dict:
     """Delete a push subscription (device)."""
     deleted = await PushSubscriptionRepository.delete(subscription_id)
@@ -166,7 +190,26 @@ async def unsubscribe(subscription_id: str) -> dict:
     return {"deleted": True}
 
 
-@router.post("/subscriptions/{subscription_id}/test")
+# The test route answers a fixed code, never the exception text: the endpoint
+# is client-supplied, so a network error would reveal what lives on the LAN.
+# The egress guard refuses a private endpoint before any connection (unless
+# push_allow_private_endpoints), so neither the status code nor the answer time
+# says anything about the LAN: every delivery failure, timeout included, is a
+# 422, and push_stale (410) only follows an answer from a guarded endpoint.
+# The cause goes to the server log only. Translated by the UI under errors.<code>.
+_TEST_PUSH_MESSAGES = {
+    "push_timeout": "Push delivery timed out",
+    "push_stale": "Subscription is stale (VAPID key mismatch or expired). "
+    "Re-enable push from a conversation header.",
+    "push_delivery_failed": "Push delivery failed",
+}
+
+
+def _coded(code: str) -> dict:
+    return {"code": code, "message": _TEST_PUSH_MESSAGES[code]}
+
+
+@router.post("/subscriptions/{subscription_id}/test", dependencies=[Depends(require("send"))])
 async def test_push(subscription_id: str) -> dict:
     """Send a test notification to a subscription."""
     sub = await PushSubscriptionRepository.get(subscription_id)
@@ -191,6 +234,7 @@ async def test_push(subscription_id: str) -> dict:
             "url_hash": "",
         }
     )
+    allow_private = (await AppSettingsRepository.get()).push_allow_private_endpoints
 
     try:
         async with asyncio.timeout(15):
@@ -202,10 +246,14 @@ async def test_push(subscription_id: str) -> dict:
                 payload=payload,
                 vapid_private_key=vapid_key,
                 vapid_claims=get_vapid_claims(),
+                allow_private_network=allow_private,
             )
         return {"status": "sent"}
+    except EgressBlocked as e:
+        logger.info("Test push refused by the egress guard: %s", e.code)
+        raise HTTPException(status_code=422, detail=egress_detail(e.code)) from None
     except TimeoutError:
-        raise HTTPException(status_code=408, detail="Push delivery timed out") from None
+        raise HTTPException(status_code=422, detail=_coded("push_timeout")) from None
     except WebPushException as e:
         status_code = getattr(getattr(e, "response", None), "status_code", 0)
         if status_code in (403, 404, 410):
@@ -215,22 +263,62 @@ async def test_push(subscription_id: str) -> dict:
                 subscription_id,
             )
             await PushSubscriptionRepository.delete(subscription_id)
-            raise HTTPException(
-                status_code=410,
-                detail="Subscription is stale (VAPID key mismatch or expired). "
-                "Re-enable push from a conversation header.",
-            ) from None
-        logger.warning("Test push failed: %s", e)
-        raise HTTPException(status_code=422, detail=f"Push delivery failed: {e}") from None
+            raise HTTPException(status_code=410, detail=_coded("push_stale")) from None
+        # The type only: a WebPushException carries the push service's body.
+        logger.warning("Test push failed: %s", type(e).__name__)
+        raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
     except Exception as e:
-        logger.warning("Test push failed: %s", e)
-        raise HTTPException(status_code=422, detail=f"Push delivery failed: {e}") from None
+        logger.warning("Test push failed: %s", type(e).__name__)
+        raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
 
 
-# ── Preferences ──────────────────────────────────────────────────────────
+# ── Preferences (deprecated shims) ───────────────────────────────────────
+#
+# Removed in 5.2.0 (MSHL-111): the data is read and written through
+# /api/notifications/rules now. Until the producers read the rules (MSHL-112) these
+# routes keep writing the 4.18.x columns that still drive delivery, and the repository
+# mirrors every write into the rules and the ``legacy:*`` channels
+# (``app/notifications/legacy_sync.py``). Channels other than ``builtin:push`` and the
+# ``legacy:*`` ones are invisible here.
 
 
-@router.get("/preferences", response_model=PushPreferencesResponse)
+DEPRECATED_SINCE = "@1792368000"
+
+
+def deprecated_route(response: Response) -> None:
+    """Mark a response of a 4.18.x route that is kept for one release."""
+    # RFC 9745: the date the route was deprecated (2026-10-19, 5.0.0); removal is in 5.2.0.
+    response.headers["Deprecation"] = DEPRECATED_SINCE
+    response.headers["Link"] = '</api/notifications/rules>; rel="successor-version"'
+
+
+async def _require_legacy_channels(raw: bool | dict[str, bool] | None) -> None:
+    """400 ``channel_missing`` when an override turns on a medium whose legacy channel
+    does not exist (no SMTP host, no URL: it could not deliver)."""
+    from app.migrations._113_notification_channels import MEDIUM_CHANNEL
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    if not isinstance(raw, dict):
+        return
+    for medium, on in raw.items():
+        channel_id = MEDIUM_CHANNEL.get(medium)
+        if (
+            on is True
+            and channel_id
+            and await NotificationChannelRepository.get(channel_id) is None
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "channel_missing", "params": {"medium": medium}},
+            )
+
+
+@router.get(
+    "/preferences",
+    response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
+)
 async def get_push_preferences() -> PushPreferencesResponse:
     """Return global push defaults, per-conversation overrides, and VAPID subject."""
     defaults = await AppSettingsRepository.get_push_defaults()
@@ -243,7 +331,12 @@ async def get_push_preferences() -> PushPreferencesResponse:
     )
 
 
-@router.patch("/preferences", response_model=PushPreferencesResponse)
+@router.patch(
+    "/preferences",
+    response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
+)
 async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesResponse:
     """Partially update push defaults and/or the stored VAPID subject."""
     if body.defaults is not None:
@@ -260,6 +353,8 @@ async def patch_push_preferences(body: PushPreferencesPatch) -> PushPreferencesR
 @router.put(
     "/preferences/conversations/{key}",
     response_model=PushPreferencesResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
 )
 async def put_push_conversation_override(
     key: str, body: PushConversationOverrideBody
@@ -273,17 +368,28 @@ async def put_push_conversation_override(
         raw = override.model_dump(exclude_none=True)
     else:
         raw = override
+    await _require_legacy_channels(raw if isinstance(raw, dict) else None)
     await AppSettingsRepository.set_push_conversation_override(key, raw)
     return await get_push_preferences()
 
 
-@router.api_route("/conversations", methods=["GET", "POST"], include_in_schema=False)
+@router.api_route(
+    "/conversations",
+    methods=["GET", "POST"],
+    include_in_schema=False,
+    dependencies=[Depends(require("admin"))],
+)
 async def removed_push_conversations() -> None:
     """Removed in favor of GET/PATCH /push/preferences."""
     raise HTTPException(status_code=404, detail="Use /api/push/preferences")
 
 
-@router.api_route("/conversations/toggle", methods=["GET", "POST"], include_in_schema=False)
+@router.api_route(
+    "/conversations/toggle",
+    methods=["GET", "POST"],
+    include_in_schema=False,
+    dependencies=[Depends(require("admin"))],
+)
 async def removed_push_conversation_toggle() -> None:
     """Removed in favor of PUT /push/preferences/conversations/{key}."""
     raise HTTPException(status_code=404, detail="Use /api/push/preferences")

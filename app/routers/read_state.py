@@ -3,8 +3,9 @@
 import logging
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 
+from app.auth.permissions import can_read_private, require
 from app.models import UnreadCounts
 from app.repository import (
     AppSettingsRepository,
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/read-state", tags=["read-state"])
 
 
-@router.get("/unreads", response_model=UnreadCounts)
-async def get_unreads() -> UnreadCounts:
+@router.get("/unreads", response_model=UnreadCounts, dependencies=[Depends(require("read"))])
+async def get_unreads(request: Request) -> UnreadCounts:
     """Get unread counts, mention flags, and last message times for all conversations.
 
     Computes unread counts server-side using last_read_at timestamps on
@@ -37,10 +38,16 @@ async def get_unreads() -> UnreadCounts:
     data = await MessageRepository.get_unread_counts(
         name, blocked_keys=blocked_keys, blocked_names=blocked_names
     )
+    if not can_read_private(request):
+        # Without ``read_private``: channels only, no DM conversation or count.
+        data = {
+            field: {key: value for key, value in values.items() if key.startswith("channel-")}
+            for field, values in data.items()
+        }
     return UnreadCounts(**data)
 
 
-@router.post("/mark-all-read")
+@router.post("/mark-all-read", dependencies=[Depends(require("read_private"))])
 async def mark_all_read() -> dict:
     """Mark all contacts and channels as read.
 

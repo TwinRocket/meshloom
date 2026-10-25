@@ -1,0 +1,62 @@
+{
+  "plugins": {
+    "permissions": {
+      "messages_read": {
+        "title": "Read messages",
+        "description": "Receives the messages Meshloom hears, as allowed below and by the conversations you pick for this plugin.",
+        "channels_public": "Public channels only: the Public channel and the # channels anyone can join.",
+        "channels_all": "Every channel, private ones included.",
+        "direct": "Your direct messages.",
+        "outgoing": "The messages you send, including the ones this plugin sends."
+      },
+      "messages_send": {
+        "title": "Send messages",
+        "description": "Sends messages from your radio, under your name.",
+        "targets_reply": "Only replies, in the conversation of the message it is answering.",
+        "targets_scope": "To the channels and contacts it may read.",
+        "targets_any": "To any channel or contact, without being asked. Only allow this for a plugin you trust.",
+        "quota": "At most {{per_hour, number}} messages per hour and {{per_day, number}} per day."
+      },
+      "raw_packets_read": {
+        "title": "Read radio packets",
+        "description": "Receives the raw packets the radio hears. It sees what they decrypt to only for the messages it may read."
+      },
+      "contacts_read": {
+        "title": "Read contacts",
+        "description": "Sees the names, public keys, last activity and positions of the nodes you know."
+      },
+      "channels_read": {
+        "title": "List channels",
+        "description": "Sees the names and keys of the public channels, and of private ones when it may read every channel. A channel key lets anyone read that channel."
+      },
+      "telemetry_read": {
+        "title": "Read telemetry",
+        "description": "Receives the telemetry of your nodes and the health of Meshloom."
+      },
+      "storage": {
+        "title": "Store data",
+        "description": "Keeps up to 5 MB of its own data in Meshloom."
+      },
+      "http": {
+        "title": "Connect to the internet",
+        "description": "Connects only to the servers listed here, through Meshloom: {{hosts}}.",
+        "private_messages_warning": "This plugin can send your private messages to {{hosts}}."
+      },
+      "timer": {
+        "title": "Run on a schedule",
+        "description": "Wakes itself up later, no sooner than 10 seconds after asking."
+      }
+    },
+    "capabilityErrors": {
+      "permission_denied": "The plugin asked for something it is not allowed to do.",
+      "quota_exceeded": "The plugin reached one of its limits.",
+      "target_not_allowed": "The plugin tried to send a message somewhere it may not send.",
+      "target_unknown": "The plugin tried to send to a channel or contact that does not exist.",
+      "region_unknown": "The plugin asked for a region Meshloom does not know.",
+      "message_too_long": "The plugin's message was too long for the radio.",
+      "send_failed": "The radio did not send the plugin's message.",
+      "quota_unavailable": "Meshloom could not check the sending limits, so the plugin's message was not sent.",
+      "invalid_params": "The plugin made an invalid request."
+    }
+  }
+}

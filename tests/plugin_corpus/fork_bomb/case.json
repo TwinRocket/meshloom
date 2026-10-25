@@ -1,0 +1,11 @@
+{
+  "description": "A fork bomb: the first os.fork() is refused, so nothing multiplies.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

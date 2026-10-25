@@ -1,0 +1,33 @@
+{
+  "settings": {
+    "access": {
+      "trustedNetworks": {
+        "title": "Réseaux de confiance",
+        "help": "Un appareil sur l'un de ces réseaux est connecté avec le compte choisi, sans identification. Vide par défaut : n'ajoutez qu'un réseau que vous maîtrisez, comme l'adresse d'un kiosque.",
+        "proxyClosed": "Une règle ne s'applique jamais à une requête passée par un proxy inverse, un tunnel, Meshloom Remote ou l'ingress de Home Assistant, ni depuis le loopback de cette machine hors de l'add-on Home Assistant, et seulement quand l'adresse dans le navigateur est un nom local ou une adresse IP.",
+        "none": "Aucun réseau de confiance : chaque appareil s'identifie.",
+        "cidr": "Réseau (CIDR)",
+        "user": "Connecté en tant que",
+        "pickUser": "Choisir un compte",
+        "add": "Ajouter un réseau",
+        "remove": "Retirer",
+        "save": "Enregistrer les réseaux",
+        "saving": "Enregistrement…",
+        "saved": "Réseaux de confiance enregistrés",
+        "adminWarning": "Toute personne sur {{networks}} obtient les droits d'administrateur sans mot de passe : elle peut changer chaque réglage, compte et plugin. Préférez un compte membre, lecteur ou kiosque."
+      },
+      "securityNotice": {
+        "title": "Avertissement de sécurité de l'accès",
+        "trusted_admin_reduced_plugin_isolation": "Un réseau de confiance connecte un administrateur alors que les plugins tournent avec une isolation réduite (hooks seulement) : toute personne sur ce réseau peut installer ou configurer du code qui s'exécute sur cette machine.",
+        "trusted_loopback_or_gateway_public": "Un réseau de confiance couvre le loopback ou la passerelle Docker alors qu'une adresse publique est configurée : des visiteurs arrivant par un proxy ou un port publié pourraient être connectés."
+      }
+    }
+  },
+  "errors": {
+    "auth_trusted_networks_invalid": "Ce n'est pas un réseau, c'est un réseau plus large que /8 (IPv4) ou /16 (IPv6), le même réseau deux fois, ou plus de 32 réseaux de confiance : {{cidr}}",
+    "auth_trusted_network_user_invalid": "Le réseau {{cidr}} désigne un compte qui n'existe pas ou qui est désactivé.",
+    "auth_trusted_network_overlaps_proxy": "Le réseau {{cidr}} recoupe le proxy de confiance {{proxy}} : les requêtes d'un proxy ne sont jamais connectées automatiquement.",
+    "auth_trusted_network_loopback": "Le réseau {{cidr}} couvre le loopback : un proxy ou un tunnel local y ferait arriver chaque visiteur.",
+    "auth_trusted_network_overlaps_gateway": "Le réseau {{cidr}} couvre la passerelle Docker {{gateway}} alors qu'une adresse publique est configurée."
+  }
+}

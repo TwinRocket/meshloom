@@ -1,19 +1,17 @@
 ---
 title: Notifications push
-description: Des notifications même quand l’onglet est fermé. HTTPS requis.
+description: Des notifications dans le navigateur même quand l’onglet est fermé. HTTPS requis.
 level: deep
 order: 18
 ---
 
-Web Push peut prévenir votre navigateur d’un message entrant alors que l’onglet de Meshloom est fermé. C’est distinct du [fanout](/docs/deep/fanout/) : chaque navigateur a son propre abonnement, alors que les règles (quoi notifier, et pour quelles conversations) sont communes à toute l’installation.
+Web Push peut prévenir votre navigateur d’un message entrant alors que l’onglet de Meshloom est fermé. Cette page couvre ce qui est propre aux navigateurs : HTTPS, l’adresse de contact (VAPID), l’abonnement et la liste des appareils. Tout le reste, c’est-à-dire les canaux, les événements, le tableau des règles, Ne pas déranger, les mentions, la cloche, les sauvegardes et les autres façons d’être prévenu (e-mail, webhook, ntfy, Discord, Telegram, Gotify, Home Assistant, Apprise), est sur [Notifications](/docs/deep/notifications/).
 
-Il n’y a pas de fenêtres contextuelles venant de l’onglet ouvert lui-même. Web Push est la seule manière dont Meshloom notifie un navigateur.
-
-Les mêmes règles peuvent aussi envoyer un **e-mail** ou appeler un **webhook**. Le push est activé par défaut. L’e-mail et le webhook sont désactivés par défaut, et ne fonctionnent qu’une fois une destination configurée. Voir « Choisir ce qui notifie » plus bas.
+Web Push est un canal parmi d’autres (le canal intégré **Web Push**). Chaque navigateur a son propre abonnement, alors que les règles (quoi notifier, et pour quelles conversations) sont communes à toute l’installation et à tous les canaux. C’est distinct du [fanout](/docs/deep/fanout/). Il n’y a pas de fenêtre contextuelle depuis l’onglet ouvert : Web Push est la seule façon dont Meshloom notifie un navigateur. En HTTP simple, ntfy, Gotify ou Home Assistant sur votre réseau sont la réponse.
 
 ## Ce qu’il vous faut
 
-**HTTPS.** Les navigateurs n’autorisent le composant d’arrière-plan qui reçoit les notifications (le service worker) que sur une page sécurisée. Un certificat fabriqué par vous peut convenir ; voir [HTTPS](/docs/deep/https/).
+**HTTPS.** Les navigateurs n’autorisent le composant d’arrière-plan qui reçoit les notifications (le service worker) que sur une page sécurisée. Un certificat fabriqué par vous peut convenir ; voir [HTTPS](/docs/deep/https/). Pour joindre Meshloom de l’extérieur avec un nom et un certificat que vous contrôlez, voir [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/).
 
 **Un accès à Internet depuis le serveur.** Les notifications passent par des services tenus par les éditeurs de navigateurs : Google (FCM), Mozilla ou Apple (APNs).
 
@@ -21,7 +19,7 @@ Les mêmes règles peuvent aussi envoyer un **e-mail** ou appeler un **webhook**
 
 Meshloom signe chaque notification avec une paire de clés créée au premier démarrage. La signature porte aussi une adresse de contact, appelée sujet VAPID.
 
-Réglez-la dans **Réglages → Notifications**, champ **Sujet VAPID**. Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise `mailto:noreply@meshcore.local`.
+Réglez-la dans **Réglages → Notifications → Canaux**, champ **Sujet VAPID** de la carte Web Push (**Appareils et réglages Web Push**). Elle doit être `mailto:vous@domaine.tld` (recommandé) ou `https://votre-hote` sans chemin. Quand le champ est vide, Meshloom utilise `mailto:noreply@meshcore.local`.
 
 **Apple exige une vraie adresse.** APNs rejette un sujet qui n’est pas un vrai contact, ainsi que le `.local` par défaut, avec `403 BadJwtToken`. Saisissez une vraie adresse dans ce champ.
 
@@ -31,63 +29,15 @@ Voir la [documentation Apple](https://developer.apple.com/documentation/usernoti
 
 ## Abonner un navigateur
 
-Dans **Réglages → Notifications**, choisissez **Abonner ce navigateur**. La liste des appareils enregistrés montre alors chaque navigateur, avec un bouton **Tester** et un moyen de le désabonner.
+Dans **Réglages → Notifications → Canaux**, ouvrez **Appareils et réglages Web Push** sur la carte Web Push et choisissez **Abonner ce navigateur**. La liste des appareils enregistrés montre alors chaque navigateur, avec un bouton **Tester** et un moyen de le désabonner.
 
-L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les règles sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés.
+L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les règles sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés. Ce qu’il faut notifier se choisit dans [Notifications](/docs/deep/notifications/#le-tableau-des-règles), cloche et Ne pas déranger compris.
 
-## Choisir ce qui notifie
-
-### Les événements
-
-**Réglages → Notifications → Notifications par défaut** a une ligne par événement, avec trois colonnes : **Push**, **E-mail** et **Webhook**. Le push est activé pour chaque événement au départ.
-
-| Événement | Quand il se déclenche |
-|-----------|-----------------------|
-| Nouveaux contacts | Un compagnon (la radio d’une personne) est vu pour la première fois |
-| Messages directs | Un message direct arrive, y compris les messages de serveurs de salon |
-| Publicités répéteur | Un répéteur est vu pour la première fois |
-| Publicités compagnon | Un compagnon est vu pour la première fois |
-| Publicités capteur | Un capteur est vu pour la première fois |
-| Canaux trouvés | Meshloom trouve un nouveau canal hashtag |
-| Alertes télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils se règlent sur la page **Alertes** |
-| Mises à jour Meshloom | Une nouvelle version de Meshloom est disponible |
-
-Pour un compagnon, **Nouveaux contacts** ou **Publicités compagnon** suffit.
-
-Les alertes « vu pour la première fois » ne se déclenchent que lorsqu’un **nouveau contact** est ajouté, après la fin du démarrage de la radio. Un nœud déjà connu, un nœud de type inconnu ou un serveur de salon ne les déclenchent jamais.
-
-### Les conversations
-
-Pour les messages de salon, sans exception :
-
-- les salons publics et les salons `#` (hashtag) notifient par push ;
-- les salons à clé privée ne notifient pas.
-
-Les messages directs suivent la ligne **Messages directs**. Les notifications par e-mail ou webhook pour un salon n’existent que si vous les activez pour ce salon.
-
-### La cloche, pour une conversation
-
-Dans l’en-tête d’une conversation, la cloche ouvre un menu avec trois cases : **Push**, **E-mail** et **Webhook**. En cocher une crée une **exception** aux valeurs par défaut, pour cette conversation seulement. Si votre navigateur n’est pas encore abonné, cocher **Push** l’abonne. **E-mail** et **Webhook** sont grisés tant qu’aucune destination n’existe ; un lien mène aux réglages.
-
-Les exceptions sont listées dans **Réglages → Notifications → Exceptions par conversation**, où on peut les retirer.
-
-### Mettre un salon en sourdine
-
-Sur un salon, le bouton de sourdine fait taire tout pendant la durée choisie (de 15 minutes à 24 heures, ou indéfiniment). Il masque aussi le compteur de non lus. Il l’emporte sur les valeurs par défaut et les exceptions, et ce n’est pas le même contrôle que la cloche.
-
-### Destinations e-mail et webhook
-
-Dans **Réglages → Notifications → Destinations de livraison**, saisissez un serveur SMTP (hôte, port, chiffrement, utilisateur, mot de passe, expéditeur et destinataire) et/ou l’adresse d’un webhook avec un secret HMAC facultatif. Les secrets ne sont plus affichés après l’enregistrement. Chaque destination a un bouton de test. Ce webhook sert aux notifications de Meshloom. Ce n’est pas le webhook de messages du fanout.
-
-L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage dans le message (image intégrée) : ouvrir l’e-mail ne charge rien depuis Internet, et il ne contient aucun lien.
-
-## En coulisses
-
-### Service worker et nettoyage
+## Service worker et nettoyage
 
 `sw.js` affiche les notifications reçues et, au clic, met au premier plan ou ouvre la bonne conversation. Si un service de push répond `403`, `404` ou `410` pour un abonnement, Meshloom le supprime. Il faut alors réabonner le navigateur.
 
-### Points d’accès
+## Points d’accès
 
 | Méthode | Point d’accès | Effet |
 |---------|---------------|-------|
@@ -97,19 +47,33 @@ L’e-mail est en HTML, avec une copie en texte brut. Le logo de Meshloom voyage
 | PATCH | `/api/push/subscriptions/{id}` | Change l’étiquette ou la langue |
 | DELETE | `/api/push/subscriptions/{id}` | Supprime un abonnement |
 | POST | `/api/push/subscriptions/{id}/test` | Envoie une notification de test |
-| GET | `/api/push/preferences` | Valeurs par défaut, exceptions et sujet VAPID |
-| PATCH | `/api/push/preferences` | Modifie les valeurs par défaut et/ou le sujet VAPID |
-| PUT | `/api/push/preferences/conversations/{key}` | Crée ou efface une exception pour une conversation |
+| GET | `/api/push/preferences` | **Déprécié.** Valeurs par défaut, exceptions et sujet VAPID |
+| PATCH | `/api/push/preferences` | **Déprécié.** Modifie les valeurs par défaut et/ou le sujet VAPID |
+| PUT | `/api/push/preferences/conversations/{key}` | **Déprécié.** Crée ou efface une exception pour une conversation |
 
 Un abonnement est unique par son adresse : enregistrer à nouveau met à jour l’existant. Les anciennes routes `/api/push/conversations` n’existent plus.
+
+Les trois routes `preferences` sont **dépréciées** : elles répondent un en-tête `Deprecation` et seront retirées en 5.2.0. Utilisez plutôt `/api/notifications` ; le détail, et ce que veut dire la réponse `409 legacy_managed`, sont dans [Mise à jour et retour en arrière](/docs/deep/notifications/#mise-à-jour-et-retour-en-arrière) et [Points d’accès](/docs/deep/notifications/#points-daccès).
+
+## Services push sur un réseau privé
+
+Les services push des navigateurs (Google, Mozilla, Apple) sont sur Internet. `POST /api/push/subscribe` refuse une adresse sur un réseau privé (réponse `400`, code `egress_private_address`), et Meshloom n’y envoie jamais rien, sauf si **Accepter les points de terminaison push sur un réseau privé** est coché dans **Réglages → Notifications** (réglage `push_allow_private_endpoints` de `/api/settings`). Cochez-le uniquement pour un distributeur UnifiedPush auto-hébergé sur votre réseau local ou sur cette machine. Comme pour le webhook, chaque push part uniquement vers l’adresse vérifiée par Meshloom (le certificat du service push reste contrôlé pour son nom), et une redirection n’est jamais suivie.
+
+La vérification a lieu de nouveau avant chaque push. Un appareil dont l’adresse est mal formée, ou pointe désormais vers une adresse refusée quels que soient les réglages (métadonnées cloud comme `169.254.169.254`, plages de documentation), est ignoré et supprimé (quand seule la réponse DNS pointe là, il n’est supprimé que si un push au moins une heure plus tard la retrouve, un résolveur pouvant se tromper une fois) ; le journal du serveur indique `Push endpoint refused for good by the egress guard` avec le code du motif et l’identifiant de l’appareil, jamais son adresse (elle contient un jeton). Un appareil refusé seulement parce que la case est décochée, ou dont le nom est introuvable pour l’instant, est conservé et le journal le signale une fois.
+
+Lors d’une mise à jour, si un appareil enregistré avant cette vérification n’est pas un service push de navigateur (un distributeur UnifiedPush, peut-être sur votre réseau local), la case est cochée d’office pour que l’appareil continue de recevoir, et un avis dans **Réglages → Notifications** le signale jusqu’à ce que vous le fermiez. Décochez la case si aucun de vos appareils n’est sur votre réseau. Avec uniquement des services push de navigateur, ou un distributeur public comme ntfy.sh, elle reste décochée. Seul un appareil dont l’adresse est une IP privée, un nom sans point ou un nom en `.local`, `.lan`, `.home.arpa`, `.internal` ou `.localdomain` compte comme étant sur votre réseau (Meshloom ne fait aucune résolution DNS pour cela).
+
+Un distributeur auto-hébergé joint par un nom d’apparence publique mais qui pointe vers votre réseau (DNS interne, nom Tailscale `*.ts.net`) ne peut pas être reconnu ainsi. Si la mise à jour décoche la case pour un tel appareil, **Réglages → Notifications** affiche un avis avec un bouton **Autoriser les réseaux privés** qui la coche en un clic ; rien n’est supprimé, et un push refusé parce que la case est décochée n’est jamais compté comme un échec : l’appareil reste enregistré. Pour un tel distributeur sur une installation neuve, cochez la case à la main.
+
+Restaurer une sauvegarde d’avant cette vérification suit la même règle : si un appareil restauré est sur votre réseau, la case est cochée et le même avis apparaît.
 
 ## Quand rien n’arrive
 
 1. Vérifiez que la page est servie en HTTPS (ou depuis `localhost`).
 2. Vérifiez l’autorisation de notifications dans votre navigateur et votre système.
-3. Envoyez un test depuis **Réglages → Notifications**.
-4. Vérifiez les valeurs par défaut et les exceptions, visibles aussi sur `/api/push/preferences`. Un salon à clé privée reste muet sans exception qui l’active. Un salon en sourdine reste muet quels que soient les réglages.
-5. Sur Apple, vérifiez le sujet VAPID (voir plus haut) et cherchez `403 BadJwtToken` dans le journal du serveur.
-6. Vérifiez que le serveur peut joindre Internet.
+3. Appuyez sur **Test** sur l’appareil dans la liste : un échec dit seulement de quel type il est (injoignable, pas de réponse à temps, échec TLS, ou abonnement que le service push n’accepte plus), jamais un nom d’hôte ni une adresse. Le journal du serveur indique le type d’erreur sous `Test push failed`.
+4. Sur Apple, vérifiez le sujet VAPID (voir plus haut) et cherchez `403 BadJwtToken` dans le journal du serveur.
+5. Vérifiez que le serveur peut joindre Internet.
+6. Pour les règles (l’événement est-il coché, une sourdine, Ne pas déranger, une exception de conversation), voir [Quand rien n’arrive](/docs/deep/notifications/#quand-rien-narrive) sur la page Notifications.
 
 Au niveau de journal `DEBUG`, les réponses des services de push sont écrites dans le journal. Voir [Dépannage](/docs/deep/troubleshooting/).

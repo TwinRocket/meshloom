@@ -12,8 +12,8 @@ dependencies = [
     "aiosqlite>=0.19.0",
     "httpx>=0.28.1",
     "websockets>=14.0",
-    # 4.0 is a new major of a crypto dependency; held back until it is evaluated.
-    "pycryptodome>=3.20.0,<4",
+    # 4.x: only AES (ECB, GCM) and scrypt are used, unaffected by the 4.0 breaking changes (#285).
+    "pycryptodome>=4.0.1,<5",
     "pynacl>=1.5.0",
     "meshcore==2.3.17",
     # meshcore declares bleak=* (unpinned). Meshloom imports bleak only for the
@@ -22,19 +22,34 @@ dependencies = [
     "bleak>=2.1,<4",
     "aiomqtt>=2.0",
     "apprise>=2.0.1",  # inline cid: attachments (alert email logo)
+    # Notification sends: retry policy and the per-medium send interval.
+    "tenacity>=9.2.1",
+    "aiolimiter>=1.3.0",
     "boto3>=1.38.0",
     "pywebpush>=0.14.0",
     "packaging>=26.3",
     # BLE PIN pairing talks to BlueZ directly (app/services/ble_pairing.py).
     # Upper bound: [tool.uv] constraint-dependencies.
     "dbus-fast>=3.1; sys_platform == 'linux'",
+    # Plugin config.schema.json validation (app/plugins/config_schema.py); pulls rpds-py.
+    "jsonschema>=4.26,<5",
+    # TOTP second factor, RFC 6238 (app/auth/totp.py).
+    "pyotp>=2.9,<3",
+    # Passkeys, WebAuthn ceremonies (py_webauthn; app/auth/webauthn.py).
+    "webauthn>=3.0.1,<4",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-n auto --dist worksteal"
+addopts = "-n auto --dist worksteal -m 'not slow'"
+markers = [
+    "radio: opt-in bench against a live instance and its radio (docs/dev/radio-bench.md)",
+    "slow: large-fixture timing tests, outside the quality gate (run with -m slow)",
+    "real_auth: keep the real auth gate (tests/conftest.py signs app requests in as an admin otherwise)",
+    "async_notifications: keep the dispatcher asynchronous (tests/conftest.py waits for its queues after each emit otherwise)",
+]
 
 [tool.ruff]
 target-version = "py311"
@@ -59,12 +74,12 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["app", "meshloom_plugin"]
 
 [tool.pyright]
 pythonVersion = "3.11"
 typeCheckingMode = "basic"
-include = ["app"]
+include = ["app", "meshloom_plugin"]
 exclude = ["references", ".venv", "tests"]
 reportMissingImports = true
 reportMissingTypeStubs = false
@@ -79,6 +94,7 @@ dev = [
     "pytest-xdist>=3.0",
     "ruff>=0.8.0",
     "pyright>=1.1.390",
+    "hypothesis>=6.170",
 ]
 
 [tool.uv]

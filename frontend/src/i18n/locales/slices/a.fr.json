@@ -53,11 +53,11 @@
   },
   "security": {
     "title": "L’exécution non protégée de bots est activée",
-    "intro": "Les bots ne sont pas désactivés, et l’authentification Basic de l’application n’est pas configurée.",
-    "networkRisk": "Sans l’une de ces protections, ou une autre couche de contrôle d’accès devant Meshloom, quiconque sur votre réseau local pouvant atteindre cette application peut exécuter du code Python sur l’ordinateur qui héberge cette instance via le système de bots.",
+    "intro": "Les bots ne sont pas désactivés, et aucun compte ne protège cette instance.",
+    "networkRisk": "Sans compte connecté, ou une autre couche de contrôle d’accès devant Meshloom, quiconque sur votre réseau local pouvant atteindre cette application peut exécuter du code Python sur l’ordinateur qui héberge cette instance via le système de bots.",
     "onlySafe": "Ceci n’est sûr que sur des réseaux protégés ou isolés, avec un contrôle d’accès approprié. Si votre réseau n’est pas de confiance ou est compromis plus tard, cette configuration peut exposer le système hôte à l’exécution de code arbitraire.",
-    "envHint": "Pour réduire ce risque, lancez le serveur avec des variables d’environnement pour soit désactiver les bots avec <bots>MESHCORE_DISABLE_BOTS=true</bots>, soit activer la connexion intégrée avec <user>MESHCORE_BASIC_AUTH_USERNAME</user> / <pass>MESHCORE_BASIC_AUTH_PASSWORD</pass>. Un autre système d’authentification ou de contrôle d’accès externe est également acceptable.",
-    "temporary": "Si vous voulez seulement une mesure temporaire le temps de découvrir le système, vous pouvez utiliser le bouton ci-dessous pour désactiver les bots jusqu’au redémarrage du serveur. Ce n’est qu’une protection temporaire ; une protection permanente via Basic Auth ou la désactivation des bots par variable d’environnement reste recommandée.",
+    "envHint": "Pour réduire ce risque, créez un compte administrateur (Meshloom en demande un à la première connexion), ou désactivez les bots avec <bots>MESHCORE_DISABLE_BOTS=true</bots>. Un autre système d’authentification ou de contrôle d’accès externe est également acceptable.",
+    "temporary": "Si vous voulez seulement une mesure temporaire le temps de découvrir le système, vous pouvez utiliser le bouton ci-dessous pour désactiver les bots jusqu’au redémarrage du serveur. Ce n’est qu’une protection temporaire ; une protection permanente via les comptes ou la désactivation des bots par variable d’environnement reste recommandée.",
     "disableBots": "Désactiver les bots jusqu’au redémarrage du serveur",
     "disablingBots": "Désactivation des bots…",
     "botsDisabledToast": "Bots désactivés jusqu’au redémarrage",
@@ -120,7 +120,7 @@
     "noMatches": "Aucune correspondance",
     "markAllRead": "Tout marquer comme lu",
     "packetFeed": "Flux de paquets",
-    "controlJournal": "Journal de contrôle",
+    "controlJournal": "Contrôle",
     "rawPacketFeed": "Flux de paquets bruts",
     "nodeMap": "Carte des nœuds",
     "meshVisualizer": "Visualiseur mesh",
@@ -164,7 +164,6 @@
     "loadingChannelFinder": "Chargement du chercheur de canaux…"
   },
   "toolsView": {
-    "controlDescription": "Paquets de contrôle décodés, affichés comme une conversation",
     "discoveredDescription": "Salons hashtag ouverts automatiquement, à garder ou à refuser",
     "meshTestDescription": "Envoyer un flood de test et voir qui l’entend"
   },

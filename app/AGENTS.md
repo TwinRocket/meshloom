@@ -14,6 +14,104 @@ and the OpenAPI page (`/docs`), not a table here.
 - `radio_workarounds.py` holds an in-memory copy of the workaround settings
   (Settings → Radio → Advanced): loaded at startup, refreshed by
   `AppSettingsRepository.update()`. Write through the repository, never around it.
+- `origin_policy.py` is the one origin policy for CORS and the WebSocket
+  upgrade: it keeps the allowlist (`app_settings.auth_allowed_origins`, Settings
+  → Local Configuration → Allowed origins) the same way, and parses stored
+  entries and request `Origin`/`Host` headers alike (pydantic `AnyHttpUrl`:
+  lowercase, punycode, default port dropped). `normalize_origin()` refuses `*`,
+  paths and credentials (typed trailing slashes are dropped); a request `Origin`
+  with a path, even `/`, or `null` matches nothing. `cors.py` feeds the list to
+  Starlette's `CORSMiddleware` (rebuilt when the list changes, `is_allowed_origin`
+  overridden by the policy). Empty means same-origin only.
+- `auth/middleware.py` (`AuthMiddleware`) is the one gate for HTTP and the
+  WebSocket upgrade: it resolves the `Principal` (the Home Assistant ingress
+  identity, `auth/providers/ingress.py`, only from the Supervisor address on
+  the add-on; the Basic compatibility credential; then the session cookie,
+  never under ingress; last a trusted network rule, `auth/providers/trusted_network.py`,
+  never through any proxy, the relay, ingress or (outside the add-on) loopback,
+  with a strict `Host` guard; `Authorization: Bearer` API and device tokens,
+  `auth/providers/token.py`, header only, refused under ingress), applies the CSRF
+  rule to unsafe methods (`origin_policy.unsafe_request_allowed`) and refuses
+  every `/api` route outside `PUBLIC_ROUTES` without a principal (401 coded;
+  a WebSocket is closed 1008 before `accept()`). A new public route goes in
+  `PUBLIC_ROUTES` and its route decides what an anonymous caller sees (see
+  `/api/health`). Read the principal with `app.auth.principal.get_principal`.
+  Route tests are signed in as an admin by `tests/conftest.py` (`sign_in_as`
+  for another role); gate tests use `@pytest.mark.real_auth`. Details:
+  `docs/dev/auth.md`.
+- **Every new route declares a permission** (`auth/permissions.py`):
+  `dependencies=[Depends(require("read"))]` (`read`, `read_private`, `send`,
+  `repeater_admin`, `admin`), `Depends(public())` for a `PUBLIC_ROUTES` entry
+  or `Depends(own_account())` for the caller's own profile. An undeclared
+  `/api` route is admin-only, and `tests/test_auth_route_coverage.py` fails on
+  it; a path outside `/api` goes in `NON_API_ACCESS`. A route that returns
+  messages, conversations or DM activity must also honour `read_private`
+  (`can_read_private(request)`): the `kiosk` role never gets a direct message.
+- `auth/ratelimit.py` (login delays) runs on `POST /api/auth/login` (and on the
+  second-factor code checks of `routers/auth_totp.py`, which count a wrong code as a
+  failed login) before any argon2id check: progressive delay per (address, username), one attempt a second
+  per slowed username, hard refusal per address past 100 failures in 15 minutes.
+  Addresses are keyed IPv4 /32, IPv6 /64; on a shared address (`compose`/`container`
+  without a trusted proxy: configuration only, never a request header) only the
+  username rule applies. A signed known-device cookie (`auth/device_cookie.py`,
+  set on a successful login) skips the rules with a per-device failure budget.
+  No lockout by name. 429
+  `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
+  every table bounded (`docs/dev/auth.md`, "Login delays").
+- `auth/totp.py` is the TOTP second factor (pyotp; replay refused through
+  `users.totp_last_counter`; argon2id recovery codes, single use; in-memory pending
+  logins between `POST /api/auth/login` and `POST /api/auth/login/2fa`). Sessions are
+  issued only after the second factor; Basic never signs in an account that has one;
+  `require_2fa_for_admins` confines an admin without one to the enrolment routes (the
+  gate, fail closed). Details: `docs/dev/auth.md`, "Second factor (TOTP)".
+- `auth/webauthn.py` is passkeys on **py_webauthn** (the `webauthn` dependency, with
+  `cbor2`, `pyasn1`, `pyOpenSSL`; `cryptography` was already there): the RP id is the
+  request's host only for `localhost`, a declared public address over https, or the
+  Remote hostname (relay or https), else 400 `auth_passkey_unsupported`; challenges in
+  memory, single use, 5 min, bound to the session, the pending login or the client;
+  user verification required for the passwordless sign-in; counter checked and stored
+  conditionally. Routes `routers/auth_webauthn.py`; a passkey is also a second factor
+  at `POST /api/auth/login/2fa` when TOTP is on. Details: `docs/dev/auth.md`, "Passkeys".
+- `auth/pairing.py` is device pairing (MSHL-71; contract `docs/dev/device-pairing.md`):
+  an `admin` session creates a single-use `mlp_` code (SHA-256 at rest, at most
+  10 minutes) whose QR payload carries the public, Remote and LAN addresses (the creator's
+  address only when it is a private, link-local, ULA or `.local`/`.lan`/`.home.arpa` one:
+  `is_lan_host`; never a public host over http); `POST /api/auth/pair` (public) spends it and inserts the device token in one
+  transaction (`PairingCodeRepository.redeem`), checking the creator again (fail closed).
+  Every bad code is one 410 `auth_pairing_expired` and a failure for the login delays
+  (key `LIMIT_KEY`, `name_rule=False`: per client only, no global slow-down); refused under ingress before any lookup. Routes `routers/auth_pairing.py`.
+- `middleware/host_guard.py` is the `Host` guard (docs/dev/auth.md, "Host guard"):
+  `host_allowed` is the one rule (trusted-network auto-login calls it directly and
+  stays strict in both modes); `HostGuardMiddleware` (inside the proxy-headers
+  middleware) follows `auth_settings.host_guard_mode`: `observe` (5.0.0 default)
+  records unknown names in a bounded in-memory list (`rejected_hosts`, in `GET
+  /api/auth/settings`) and logs each once, `enforce` answers 421
+  `auth_host_rejected` (with the static security headers). Ingress and relay-tagged
+  requests are exempt. Only LDH names are recorded, and the first-sighting warning is
+  rate limited. `public_urls` and `host_guard_mode` are changed through `PATCH
+  /api/auth/settings` (`normalize_public_urls`, 400 `auth_public_urls_invalid`; 400
+  `auth_host_guard_would_lock_out` when the result would reject the current request).
+  Both modes record the refused names; `meshloom-admin host-guard-observe` is the
+  recovery path that needs no UI.
+- `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
+  middleware): HSTS only over direct https (never ingress or relay), `no-store` on
+  `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).
+- `middleware/proxy_headers.py` (`TrustedProxyHeadersMiddleware`, outside the auth
+  gate and CORS) is the only interpreter of `X-Forwarded-For` and
+  `X-Forwarded-Proto`: uvicorn's own `ProxyHeadersMiddleware`, rebuilt from
+  `auth_settings.trusted_proxies` (Settings → Local Configuration → Trusted
+  proxies, `GET/PATCH /api/auth/settings`, admin; empty by default, loopback not
+  implied, wider than `/8`/`/16` refused; recommend the proxy's own address,
+  never a Docker network or gateway). It rewrites `scope["client"]` (rightmost untrusted
+  `X-Forwarded-For` entry) and `scope["scheme"]` for a listed peer only;
+  everything else (`client_ip()`, `request_is_secure()`, audit, sessions) reads
+  the scope. `peer_address(scope)` keeps the TCP peer (the ingress check uses it).
+  **Launchers rule:** every uvicorn command line (the four launchers, the
+  snake-oil compose, every documented command) carries `--no-proxy-headers`, so
+  uvicorn never rewrites the scope itself (`tests/test_auth_ingress.py` parses the
+  launchers, `tests/test_proxy_headers.py` greps the repository). `origin_policy.py`
+  still reads `X-Forwarded-Host`, for same-origin only. Do not parse any of these
+  headers anywhere else.
 - `routers/server_control.py` holds the repeater/room CLI helpers shared by the
   repeater and room routers.
 - `push/` is Web Push, separate from the fanout bus (`fanout/`, see `fanout/AGENTS.md`).
@@ -21,8 +119,210 @@ and the OpenAPI page (`/docs`), not a table here.
   from meshloom-community's snapshot: regenerate it, never edit it by hand.
 - `services/test_channel.py` (`#meshloom-testing`, radio self-test and
   `POST /tools/mesh-test`) stores no channel and no message.
+- `plugins/` is the plugin package format: manifest model, permission registry, config
+  schema subset and archive validator, with the exported contract (`docs/dev/plugins.md`),
+  plus the static attention scan of local sources (`plugins/attention.py`, whose import
+  lists are `meshloom_plugin/policy.py`'s). The data model is `repository/plugins.py`
+  (instances, KV, write-only secrets: only `config_for_init()` returns a secret in
+  clear). Change the contract only through `scripts/build/export_plugin_contract.py`.
+  `plugins/launch.py` builds the launch contract of the plugin child, which runs
+  the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
+  `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
+  `plugins/isolation/` is the OS boundary around each child (MSHL-180): one
+  backend per process, detected once and logged (`selection.py`: `setuid` as root
+  with the `meshloom-plugin` account, else `bwrap` if its self-test passes, else
+  `none`, "hooks only", with a warning); `startup()` applies the file model of
+  `permissions.py` under `setuid` (data dir `0711`, files `0600`, server umask
+  `077`); if it fails, `lifecycle.start()` fails closed (`fail_closed()`, health
+  `plugins_disabled_source: "isolation"`). The account is uid/gid 10002. bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  source and Docker data dirs live under it). Stdlib only, so
+  `tests/test_plugin_isolation.py` runs with `--noconftest` in the root container
+  job; details in `docs/dev/plugins-security.md`, "OS isolation".
+  `plugins/host.py` supervises the children (one per enabled instance: budgets,
+  bounded inbox, restarts, `crash_loop`, statuses); the app reaches it only
+  through `plugins/lifecycle.py` (lifespan `start()`, the bounded `stop()`
+  shutdown step, `health_fields()`) and `plugin_manager.dispatch()` from the
+  fanout bus. Its long-lived tasks (one per instance and per child) are kept in
+  attributes and cancelled at stop, per the background-work rule. What a child
+  may ask and read is `plugins/capabilities/` (one module per capability, every
+  method checked against the instance's effective permissions before any side
+  effect, typed refusals) and `plugins/quotas.py` (per-instance send quotas in
+  `plugin_send_quota`, the host-side send guards in `plugin_send_guard` and
+  `plugin_send_limits` (`send_guard`), and `send_spacer`, the 2 s spacing of every automatic
+  send, which `fanout/bot_exec.py` shares); `docs/dev/plugins.md`, "Capabilities". Host lock:
+  `MESHCORE_DISABLE_PLUGINS`, a user variable (`docs/user/*/deep/environment.md`).
+  Every artefact that copies `app/` copies
+  `meshloom_plugin/` too (`Dockerfile`, `copy_project_files` in
+  `scripts/build/build_nfpm_packages.sh`, `Dockerfile.nfpm-armhf` and the armhf
+  tag overlay, the upgrade-matrix image); `tests/test_plugin_packaging.py` checks them.
 - `frontend_static.py` serves `frontend/dist`, else `frontend/prebuilt` (the release
   zip ships that one), else answers `/` with a 404 JSON explaining how to build.
+
+## Instance identities (`services/instance_identity.py`)
+
+- One Ed25519 key per service, owned by the instance, never the radio key and never
+  derived from it (owner decision Q-T5): `share` (links and files) today, `remote`
+  (Access) later. Each has its own column `app_settings.<service>_instance_seed`
+  (32 random bytes from `secrets.token_bytes`, hex), so two services' public keys
+  cannot be linked. A new service adds its name to `INSTANCE_SEED_SERVICES`
+  (`repository/settings.py`) and its column in a migration; the repository's
+  `get/set/claim_instance_seed(service)` refuse any other name.
+- `ensure_instance_key(service)` creates the seed on first use (a conditional
+  `UPDATE` plus a per-service lock: concurrent first uses end with one key) and
+  reuses it afterwards; `identity_ready`, `instance_public_key` and `fingerprint`
+  never create it. `regenerate(service)` replaces it. The `on_restore` hook
+  `instance_identity` regenerates every seed that exists after any restore (JSON
+  or SQLite); an empty one stays empty until its first use. `services/backup.py`
+  imports the module so the hook is registered before the lifespan runs them.
+- `mint_instance_jwt(service, audience, *, lifetime, jti=True, extra_claims=None)`
+  mints in the Community wire format through `_generate_jwt_token`
+  (`fanout/community_mqtt.py`) with a PyNaCl signer, `client = meshloom/<version>`
+  and no `owner`. `mint_share_jwt(binding)` is the share wrapper: `aud`
+  `meshloom-share`, 110 s (the links-files contract allows 120), `jti`, `bh` =
+  sha256 hex of the binding string. One token per request, never cached.
+- `_generate_jwt_token`'s keywords `sign`, `lifetime`, `extra_claims`, `owner`,
+  `client` and `jti` exist for these helpers only: the Community call sites pass
+  none, and `tests/test_community_jwt_golden.py` pins their tokens byte for byte.
+  An extra claim that names a registered claim (`iss`, `sub`, `aud`, `exp`, `iat`,
+  `nbf`, `jti`) or one the function sets is a `ValueError`, never an override.
+- **Never log, return or export a seed or a token.** The seed is not in
+  `AppSettings`; the backup rules are in `docs/dev/backup.md` (rule 4). Tests:
+  `tests/test_share_identity.py` (a local re-implementation of the Worker's checks,
+  proved on the links-files vectors copied in `tests/fixtures/links_files_vectors.json`).
+
+## Share service client (`services/share.py`)
+
+Contract: `meshloom-community/docs/contracts/links-files.md`. A distinct opt-in
+from Community, with its own hosts and switch, never an exception to the
+Community guard.
+
+- **Hosts.** `SHARE_HOST` (write host, `meshl.ink`) and `SHARE_HOSTS` (every
+  recognised host, current and former; `is_share_host()`) are module constants
+  read at call time; tests monkeypatch them. No environment variable.
+- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled`;
+  `share_request()` checks it first and answers 403 `share_disabled` with no
+  DNS lookup and no connection.
+- **Turning it off cuts at once** (as Community does). `AppSettingsRepository.update`
+  calls `note_share_settings_changed(enabled=...)`; with sharing now off it bumps
+  `_state.generation` and cancels every send in `_state.inflight`, whose caller
+  gets `share_disabled` (a caller's own cancellation stays a `CancelledError`;
+  neither counts against the breaker). `share_request` checks the generation
+  after the opt-in read, again after minting the token (right before the send)
+  and once the answer arrived: an answer from before the cut is never used.
+- **Egress.** Every request goes through `follow_checked_redirects`
+  (`app/net/egress_guard.py`) with `HostAllowlist.of(SHARE_HOST)`, HTTPS only, no
+  redirect followed, the answer capped (64 KiB JSON, 11 MiB bytes) and pinned to
+  a validated public IP (a fresh pinned client per request). Timeouts
+  (`SHARE_TIMEOUT`): connect 5 s, read 30 s, upload (write) 60 s, plus
+  `SHARE_TOTAL_TIMEOUT_S` on the whole call.
+- **Auth.** A write passes its contract binding string as `binding` and gets
+  `Authorization: Bearer <mint_share_jwt(binding)>`, minted per request; a read
+  (`binding=None`) carries none. `User-Agent: Meshloom/<version>`.
+- **Errors.** `ShareError` is an `HTTPException` with `{code, message, params}`
+  (`SHARE_ERRORS`, translated as `errors.<code>` in the `ah` i18n slice). The
+  service's codes map one to one (`banned`, `quota_exceeded` with
+  `params.retry_after` and `params.scope`, `rate_limited` with
+  `params.retry_after`, `too_large`, `type_refused`, `not_found`, `gone`,
+  `target_blocked`, `invalid_url`); everything else (network, timeout, a guard
+  refusal, 5xx, `kill_switch`, the `token_*` family, `invalid_request`, a
+  redirect, an unexpected body) is 502 `share_unavailable`. **Any answer that is
+  not `application/json`** (a Cloudflare 1027 page, a challenge, an HTML 404) is
+  `share_unavailable`, whatever its status. An id outside the grammar is a local
+  404 `share_not_found`. `fetch_object` accepts only `OBJECT_CONTENT_TYPES`
+  (`image/jpeg`, `image/png`, `image/gif`, `image/webp`,
+  `application/octet-stream`); a 2xx of any other type (`text/html`, SVG) is
+  `share_unavailable`. A service code is logged only when it matches
+  `^[a-z_]{1,32}$` ("unknown" otherwise).
+- **Banned.** A 403 `banned` holds a banned state in memory for 12 h
+  (`BANNED_HOLD_S`): later writes are refused locally (403 `share_banned`) with
+  no request; reads stay open, as on the service. A restart or any change of a
+  share setting (`AppSettingsRepository.update` calls
+  `note_share_settings_changed(enabled=...)`) ends it.
+- **Read protections.** Order in `share_request`: opt-in, ban (writes), negative
+  cache, breaker cooling, read bucket, breaker trial, then the request.
+  - Buckets: `aiolimiter.AsyncLimiter` per instance, `meta` 60 and `bytes` 20 per
+    minute (`READ_LIMITS`). They refuse, never queue (`has_capacity()` then
+    `acquire()`): 429 `share_rate_limited` with `params.scope = "local"`.
+    Writes are not limited here (the service has its own quotas).
+  - Negative cache: a JSON `not_found` 404 or `gone` 410 answer to a read is
+    replayed for 10 min (`NEGATIVE_CACHE_S`, keyed by method and path, 1024
+    entries). A non-JSON error page is never cached (the contract never answers
+    404/410 for a storage failure; an edge page proves nothing).
+  - Breaker (`app/net/breaker.py`, shared with the Community client, separate
+    instance): three consecutive failures (transport error, timeout, guard
+    refusal, 5xx, a non-JSON 4xx) open it for 5 min (`BREAKER_OPEN_SECONDS`);
+    while open every call answers `share_unavailable` locally; then one trial
+    decides. A contract 4xx closes it.
+- **Functions.** `create_link`, `get_meta`, `fetch_object`, `report_object` (and
+  `share_request` underneath). Every new network function must be added to
+  `SERVICE_CALLS` in `tests/test_share_off_no_egress.py` (the test finds them
+  from the module and fails otherwise); `/api/share/*` routes are found from
+  `app.routes` and swept too.
+- **Meta cache.** `get_meta` replays a good answer for `META_CACHE_S` (10 min,
+  256 ids), after the opt-in check; turning sharing off clears it.
+- **Routes (`routers/share.py`, prefix `/api/share`).** `GET /status` (`read`; no
+  egress: `enabled`, `host`, `hosts`, `identity_ready`, `dm_encryption_available`
+  = `keystore.has_private_key()`, `banned`, `unreachable` (share breaker open), `shorten_mode`, `preview_policy`),
+  `POST /links` (`send`, i.e. member+; off answers `share_disabled` before
+  anything; the URL is checked locally: http/https, host, 2048 characters, no
+  whitespace), `GET /{id}/meta` (`read`, so a viewer or kiosk reads it; the id
+  is checked against the grammar before any call). Every write route depends on
+  `refuse_cross_site`: 403 `share_cross_site` when `Sec-Fetch-Site` is
+  `cross-site` (defence in depth: the auth gate already refuses unsafe
+  cross-origin requests that are not bearer-token ones). Tests:
+  `tests/test_share_routes.py`.
+- **Never log** a token, a request body or a response body: log lines carry the
+  status, the service code (truncated) or `error_code(exc)` only.
+- Tests: `tests/test_share_service.py` (errors, ban, breaker with an injected
+  clock, buckets, negative cache, hanging server), `tests/test_share_off_no_egress.py`
+  (off: no request, no DNS lookup; on: only `SHARE_HOST`, no seed, channel key
+  or radio private key in any request). Fakes: `tests/share_fakes.py`. User docs:
+  `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans and what is
+  not implemented yet must follow this section).
+
+## Recovery CLI (`app/cli.py`)
+
+- `meshloom-admin` is `python -m app.cli` behind the wrapper `pkg/nfpm/meshloom-admin`:
+  `pyproject.toml` has no build backend, so the venv never gets a console script.
+  The wrapper is shipped at `/opt/meshloom/.venv/bin/meshloom-admin` (`nfpm.yaml.tmpl`)
+  and `/usr/local/bin/meshloom-admin` (`Dockerfile`; the add-on is `FROM` that image).
+  On the package it must run as root (also linked as `/usr/bin/meshloom-admin`): it parses
+  `/etc/meshloom/meshloom.env` (root:root 0640) as data, never sources it, then drops to
+  `meshloom` with `runuser`. It runs python with `-P` so a local `app/` cannot shadow the
+  install. It finds the database the way the service does (that env file, `/config` for the
+  add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
+- It opens the file itself (`mode=rw`, never created, no schema script, no migration:
+  the server owns those) and attaches `app.database.db` to that connection, then uses the
+  repositories of `app/repository/auth.py`. Changes are WAL commits, seen by a running
+  server on its next read. Every command writes one `auth_audit` row through `app/auth/audit.py` (`via = "cli"`,
+  the action shared with the API, such as `password.changed`; outcome `refused` for a refusal).
+- `disable-2fa <user>` removes a lost TOTP factor and its recovery codes (`totp.disabled`
+  row); it refuses a database the server has not migrated to 109 yet.
+- `remove-passkeys <user>` removes every passkey of the account (`passkey.removed` row);
+  it refuses a database the server has not migrated to 110 yet.
+- Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
+  new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
+- Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
+  policy belongs to the login routes, which should share it with this file.
+- Tests: `tests/test_cli.py`. User docs: `docs/user/{en,fr}/deep/access.md`.
+
+## Process hardening
+
+`services/hardening.py` `set_not_dumpable()` calls `prctl(PR_SET_DUMPABLE, 0)`
+through `ctypes`; it is the first line of the lifespan, before the database
+opens. Linux only: elsewhere it does nothing, and a failure is logged at
+warning and never stops startup. With the flag at 0, `/proc/<pid>/environ` and
+`/proc/<pid>/mem` are unreadable by every non-root process (the retired Basic auth
+credentials, the radio private key held by `keystore.py`), and no core dump is
+written. Side effects: `py-spy dump`, `gdb -p` and `strace -p` on the server
+need root (`sudo`); a same-uid debugger gets "permission denied". There is no
+switch to turn it off (no environment variable on purpose): to debug, start the
+server under the debugger (`py-spy record -- uv run uvicorn ...`) or run the
+tool as root. It is inherited by child processes (`fork`) but reset by `execve`
+of any normal program, so the bots' `exec` and the other helpers the server
+launches are not hardened. The flag protects against other non-root programs
+only: it does nothing against root (the default Docker image and the HA add-on
+run as root).
 
 ## Migrations
 
@@ -35,6 +335,70 @@ and the OpenAPI page (`/docs`), not a table here.
   in a transaction (`VACUUM`, `journal_mode`) sets `TRANSACTIONAL = False` and must
   be idempotent.
 - New indexes go in both `database.py` (fresh DBs) and a migration (existing DBs).
+- Migration 101 adds the local accounts tables (`users`, `sessions`, `auth_audit`,
+  `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
+  (`tests/test_migrations/test_migration_101.py` compares the two schemas).
+  Model, repository and rules: `docs/dev/auth.md`.
+- Migration 102 adds the share settings to `app_settings` (`share_enabled`,
+  `share_shorten_mode`, `share_preview_policy`, `share_instance_seed`). Fresh databases get
+  them from the migration, not from `SCHEMA_TABLES` (later columns are all added that
+  way). `share_instance_seed` is outside `AppSettings`, read and written only through
+  `services/instance_identity.py` (see "Instance identities"); the `*_seed` rule of
+  `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
+  the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
+  behaviours are restored.
+- Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
+  also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
+  and `app_settings.store_online` (Store consent, off, outside `AppSettings`, excluded
+  from backups and reset to 0 in a database copy). Additive: bots in `fanout_configs`
+  are untouched until the switch. One `plugin_id` can have several instances, each
+  with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
+  never exported (`plugin_secrets` emptied in the database download). Rules:
+  `docs/dev/plugins.md`, "Data model".
+- Migration 105 adds `plugin_send_quota` (the per-instance send counters of the
+  plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
+  `tests/test_migrations/test_migration_105.py`), excluded from backups.
+- Migration 106 adds `plugin_send_guard` and `plugin_send_limits` (the Meshloom-wide
+  budget, per-destination counters, loop-guard stamps and the user's lowered limits of
+  the plugin `messages.send` capability; DDL also in `SCHEMA_TABLES`, compared by
+  `tests/test_migrations/test_migration_106.py`), excluded from backups.
+- Migration 107 adds `auth_settings.ingress_admin_granted` (set once the first Home
+  Assistant identity was made admin, never cleared; backfilled from existing ingress
+  identities; `docs/dev/auth.md`, "Ingress"). Like every later column, fresh databases
+  get it from the migration, not from `SCHEMA_TABLES`.
+- Migration 108 adds `api_tokens` (API and device tokens: SHA-256 of the secret, scopes,
+  expiry, last use, revocation, origin; DDL and `idx_api_tokens_user` also in
+  `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by `tests/test_migrations/test_migration_108.py`).
+  Rules: `docs/dev/auth.md`, "API and device tokens". It travels in the `api_tokens`
+  backup section with the accounts.
+- Migration 109 adds `recovery_codes` (TOTP recovery code hashes, DDL also in
+  `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_109.py`) and
+  `auth_settings.require_2fa_for_admins` (off; a later column, so from the migration
+  only). The TOTP columns of `users` came with 101. Rules: `docs/dev/auth.md`,
+  "Second factor (TOTP)".
+- Migration 110 adds `webauthn_credentials` (passkeys: credential id, COSE public key,
+  counter, transports, AAGUID, name, backup flags; DDL and `idx_webauthn_credentials_user`
+  also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by
+  `tests/test_migrations/test_migration_110.py`). It travels inside the `users` backup
+  section (version 3). Rules: `docs/dev/auth.md`, "Passkeys".
+- Migration 114 fills `push_defaults.telemetry_alert` from the old `telemetry_alert_rules.channels`
+  when that key is missing (4.18.x read it as a fallback) and sets the legacy media of
+  `telemetry.alert` in the rules; it is idempotent.
+- Migration 113 adds the notification channels (`notification_channels`,
+  `notification_deliveries`, `notification_counters`, `notification_state`, DDL also in
+  `SCHEMA_TABLES`/`SCHEMA_INDEXES`, compared by `tests/test_migrations/test_migration_113.py`)
+  and `app_settings.notification_rules`, then imports the 4.18.x preferences once
+  (`builtin:push`, `legacy:email|webhook|apprise`, `push_defaults` and
+  `push_conversation_overrides` as rules). The legacy columns stay and are no longer written.
+  The pure transform (`build_channels`, `build_rules`) lives in the migration module so the
+  restore of a 4.18 backup can reuse it. Model, registry and deletion rule:
+  `app/notifications/AGENTS.md`.
+- Migration 112 adds `pairing_codes` (device pairing codes: SHA-256 of the code, creator,
+  scopes, QR addresses, expiry, use, revocation, the token it gave and the device's opaque
+  `extensions`; DDL and `idx_pairing_codes_user` also in `SCHEMA_TABLES`/`SCHEMA_INDEXES`,
+  compared by `tests/test_migrations/test_migration_112.py`). Never exported, emptied in the
+  database download, purged hourly once it can no longer give a token. Rules:
+  `docs/dev/device-pairing.md`.
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
@@ -118,6 +482,29 @@ and the OpenAPI page (`/docs`), not a table here.
   `radio_reboot_timeout` (`params.reason`) on that pass, then reconnect errors
   surface again. Monitor logs name the reason; the debug snapshot shows it
   (`runtime.expected_reboot_reason`).
+- **Radio offline / online watch** (`notifications/radio_watch.py`): the monitor
+  loop calls `radio_watch.observe(radio_manager)` once per pass (no second poll,
+  never raises). A lost transport starts a pending loss; `radio_offline` is sent
+  once per outage when it has lasted `app_settings.radio_offline_grace_s`
+  (default 60, 0 = at once) **and** that much time has passed since the process
+  started, judged on a monotonic clock at each pass (no timer to lose at
+  shutdown). Granularity: one pass per loop iteration, and an iteration can
+  block in `reconnect_and_prepare_radio` (setup timeout), so the offline
+  notification can be late and the loss is stamped at the first pass that sees
+  it. A transport that is up with setup incomplete does not clear a pending loss
+  (only a completed setup does), so a connect/setup-failure loop cannot reset the
+  grace forever. It never starts for an expected reboot (`expected_reboot_reason`),
+  with the connection paused (`connection_desired` false: closes a notified
+  outage silently), before the first completed setup since start, or while the
+  transport is up (setup still running counts as up). Only a *notified* outage is
+  persisted (`radio_outage_started_at`, not in `AppSettings`, excluded from
+  backups) so `radio_online` carries the right downtime after a restart; a pending
+  loss does not survive one. `app_started` comes from
+  `_startup_radio_connect_and_setup` (`main.py`) once, after the first connect
+  attempt (connected or not; not when shutdown cancels it). Events go through
+  `app/notifications/producers.py` (`emit_payload`), from a `spawn()`ed task, and the
+  rules choose the channels; `radio_offline` carries `urgent` (e-mail subject prefix `[URGENT]`).
+  Tests: `tests/test_radio_watch.py` (fake clock).
 - A broadcast `error` with a `code` is translated by the frontend from
   `errors.<code>`; its details from `errors.<code>Detail` when that key exists,
   else the backend's `details` are shown as sent.
@@ -198,6 +585,16 @@ and the OpenAPI page (`/docs`), not a table here.
 ## Sending
 
 - Routers validate, then delegate to `services/message_send.py`.
+- **Byte limit, one helper.** `app/message_limits.py` holds the limits (DM 156 bytes;
+  channel `max(1, 156 - len(sender name) - 2)`, 10-byte name fallback when the radio
+  name is unknown; UTF-8 bytes). The three services in `message_send.py`
+  (`send_direct_message_to_contact`, `send_channel_message_to_channel`,
+  `resend_channel_message_record`) call it, so REST, bots, the radio proxy and both
+  resends are covered; a new send path must call it too. Refusal: coded 400
+  `message_too_long` with `params.limit` and `params.bytes` (`errors.message_too_long`
+  in the UI). The constants are "empirically determined" from the firmware's packet
+  budget; `tests/test_message_limits.py` reads the composer's TSX constants and fails
+  when they drift or are not found.
 - Channel slots are reused through a session LRU cache, except on TCP or with
   `force_channel_slot_reconfigure`, where every send calls `set_channel(...)`.
 - Path hash modes `0`/`1`/`2` mean 1-, 2- and 3-byte hop IDs. `path_len` in the
@@ -270,7 +667,12 @@ and the OpenAPI page (`/docs`), not a table here.
   0x1D/0x0E in, plus `secret_scope()` literals), a redacting formatter on the
   app's handlers (tracebacks included), `bleak`/`dbus_fast` clamped to INFO
   (their DEBUG output dumps every BLE frame: `bluezdbus/client.py` write on
-  Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`), and
+  Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`),
+  `aiosqlite` clamped to INFO too (its DEBUG output prints every statement with
+  its parameters: password and token hashes, VAPID and fanout secrets),
+  `urllib3` clamped to INFO (its DEBUG output prints each request line: the
+  Web Push endpoint path is the subscription's token;
+  `tests/test_push_send_egress.py` checks the records and `/api/debug`), and
   an app-wide 422 handler that drops each error's `input` and `ctx`.
   `tests/test_meshcore_log_sites.py` pins the meshcore log calls: on a meshcore
   or bleak bump, review the rules, then refresh its fixture.
@@ -295,13 +697,53 @@ be wrong, because historical decryption inserts old messages with new ids.
 - **Three kinds.** `GET /settings/backup/database` (a SQLite snapshot, never
   restored from the UI, no private key); `meshloom-backup-v1` (`export_json` /
   `restore_json`, Meshloom data only; `GET /settings/backup/json` stays v1 for
-  scripts); and the full backup `meshloom-backup-v2` (`POST
+  scripts and leaves out the notification secrets: they read `********`,
+  `secret_omitted` lists their paths, and a restore of that file keeps the
+  stored ones; only the full backup calls `export_json(include_secrets=True)`); and the full backup `meshloom-backup-v2` (`POST
   /settings/backup/export`): the v1 fields unchanged plus `identity`, `radio`
   (`RadioNodeSettings`), `wifi` and `meshloom_extra`. Code:
   `services/backup.py` (formats, coverage, export, Meshloom restore),
   `services/backup_radio.py` (radio reads and writes),
   `services/backup_restore.py` (identity decision, inspect, restore job),
-  `services/backup_crypto.py` (envelope).
+  `services/backup_crypto.py` (envelope), `services/backup_sections.py` (sections, hooks).
+- **Sections and restore hooks** (`services/backup_sections.py`, contract in
+  `docs/dev/backup.md`). Other features add a named entry to the v2 file's
+  optional `sections` with `register_backup_section(name, export_fn,
+  restore_fn, *, description=..., sensitive=..., version=..., requires=..., restore_with=...)`,
+  never a new top-level field or a second v2 format; the job restores them in
+  its `meshloom` step after `meshloom_extra`, each in its own `db.tx()`
+  (`restore_fn(section, conn)` writes through `conn` only; a failure rolls that
+  section back and the others go on; a restore that keeps the current data on
+  purpose raises `SectionKept`, so what requires it is skipped; a
+  `restore_with` section, such as `api_tokens` with `users`, runs in its
+  owner's transaction only when the owner was written), skips a section newer than its owner
+  (`section_too_new`) and ignores unknown ones with a log line. Inspect lists
+  them (`sections[]`: description, sensitive, known, too_new); a sensitive
+  section exported without a passphrase adds
+  `section_sensitive_unencrypted:<name>`. `register_on_restore(name, hook)`
+  runs once per restore: a flat v1 restore, a job that wrote something (the
+  job passes `run_hooks=False` to `restore_json` and runs them at its end), or
+  a SQLite snapshot put back in place (the download carries a
+  `meshloom_backup_snapshot` table; the lifespan runs the hooks after
+  `db.connect()` and drops it). The JSON export refuses (500
+  `backup_identity_seed_leak`, coded on both routes) any document holding an
+  `app_settings.*_seed` value, and the SQLite copy has every `*_seed` column,
+  the BLE PIN, the previous-transport snapshot, `users.password_hash`,
+  `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
+  `sessions`, `recovery_codes`, `pairing_codes` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
+  login secrets are never exported. The accounts travel in the JSON full
+  backup's `users` section, the API tokens in its `api_tokens` section
+  (`services/backup_accounts.py`, `docs/dev/backup.md`,
+  "Accounts"; the export's `include_accounts`, true by default, leaves
+  `ACCOUNT_SECTIONS` out): its restore replaces the accounts, deletes every
+  session, keeps only trusted network rules whose account is unchanged, and
+  refuses a file without an enabled admin who can sign in here (`accounts_no_admin`: a local admin with a password, or an ingress admin on the add-on), strips password material the API forbids and closes the accounts' sockets at once.
+  The `notifications` section (`services/backup_notifications.py`) holds the channels
+  without their write-only fields and the rules; a channel restored without its secret is
+  disabled with `last_error = "secret_missing"` (`docs/dev/backup.md`, "Notifications").
+  `NEVER_EXPORTED_SECTIONS` (sessions, pairing codes, audit, Remote identity)
+  can never be registered and are ignored in a file. Inspect and
+  restore bodies over 64 MiB are a 413 `backup_too_large`.
 - **Coverage.** `BACKUP_COVERAGE` gives every `app_settings` column and every
   table a decision with a reason; `tests/test_backup_coverage.py` fails on a new
   column or table until it is listed (one direction: extra entries are fine).
@@ -356,7 +798,13 @@ be wrong, because historical decryption inserts old messages with new ids.
 - **Restore order** (owner decision): identity, Meshloom data (only the settings
   present in the file; `meshloom_extra` through the route code paths: fanout
   validation shared with the create route, `system:*` ids refused, bots
-  restored disabled and skipped while bots are disabled, VAPID keys and
+  restored disabled and skipped while bots are disabled, an Apprise row whose
+  URLs the allowlist refuses restored disabled (`apprise_restored_disabled`), a
+  row with a private-network opt-in (`allow_private_network`, a legacy row the
+  restore grandfathers included) restored disabled
+  (`private_network_restored_disabled:<name>`), a fanout secret sent as
+  `********` keeping the stored one (`merge_secrets`) unless its destination
+  moved (`secret_dropped_destination_changed:<name>`), VAPID keys and
   subscriptions only on a host with no subscriptions of its own, proxy through
   `services/radio_proxy_settings.py`), then in one companion CLI session: radio
   settings group by group (no clock sync per group, one at the end; a reboot
@@ -424,6 +872,47 @@ floor, never the percentage alone, and do not remove the floor.
 
 ## WebSocket (server side)
 
+- **Account before accept.** `AuthMiddleware` closes an upgrade with no
+  principal (1008, HTTP 403) before the route runs; `/api/ws` needs `read`.
+- **Events per principal.** `WsEvent` (`auth/ws_events.py`) is the only list
+  of event types; each member declares its permission (`radio_wifi`,
+  `plugin_status` and `notification_channel_changed` `admin`, the rest `read`). Every emit call takes a member,
+  never a string (pyright, plus an AST scan in
+  `tests/test_auth_route_coverage.py`); a new type needs a member, a payload
+  model in `app/events.py` and `scripts/build/export_ws_events.py` run for
+  the frontend. `ws_manager` keeps each socket's principal and skips clients
+  without the type's permission; a type that is not a member reaches no one
+  (fail closed). A `message` that is not `CHAN` (live, historical or outgoing;
+  no `type` counts as private) needs `read_private`, a `raw_packet`
+  decrypted from a DM goes to the others without its decryption, `contact`
+  frames lose `last_contacted`/`last_read_at` (as on REST) and a
+  `message_acked` reaches them only for a channel message
+  (`audience="read"`). Below `admin`, `health` has every `last_error` emptied
+  (`without_admin_details`, also on REST). Toasts are admin-only unless the
+  caller passes a lower `audience`. `send_raw` is for the `pong` reply only
+  (the AST scan allows no other frame).
+- **Origin before accept.** `routers/ws.py` calls `reject_foreign_origin()`
+  (`app/websocket.py`) before `ws_manager.connect()`: an `Origin` whose host
+  and port (missing port = the scheme's default) differ from both `Host` and
+  the first `X-Forwarded-Host`, and that is not in the allowlist
+  (`origin_policy.websocket_origin_allowed()`), is closed with 1008, which uvicorn sends as an
+  HTTP 403 (no frame). No `Origin` is accepted (scripts, meshenger);
+  `Origin: null` is refused. Trusting `X-Forwarded-Host` is safe against
+  CSWSH because a browser page cannot set it; DNS rebinding is the `Host`
+  guard's job, not this one. The scheme is not compared (a TLS
+  terminator). Keep a new WebSocket
+  route behind the same call. `tests/test_origin_policy.py` runs one table of
+  origins through CORS and the WebSocket.
+- **Revocation closes sockets.** `ws_manager` indexes clients by session id
+  and token id; revoking through `app/auth/sessions.py` or
+  `app/auth/providers/token.py` closes them at once (1008), and a 30 s recheck
+  of sessions and tokens catches revocations from `meshloom-admin`,
+  expiries and disabled accounts (`docs/dev/auth.md`, "Sessions and the cookie").
+  Client frames slide the session once a minute (`note_activity`), so a
+  socket-only kiosk stays signed in. A socket keeps its opening role: a change of
+  the account (role, disable, deletion, password) goes through
+  `sessions.sign_out_user()`, which also closes its Basic and ingress sockets
+  (`ws_manager.close_user()`).
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
   `broadcast_event()` never awaits socket I/O. A slow client first loses
@@ -435,7 +924,12 @@ floor, never the percentage alone, and do not remove the floor.
   socket: use `ws_manager.send_raw`.
 - When `realtime=True`, `broadcast_event()` also notifies the radio proxy and
   dispatches to fanout and Web Push; `realtime=False` (historical decryption)
-  skips all three.
+  skips all three. `broadcast_message()` (`services/messages.py`) adds
+  `historical: true` to the WS `message` payload in that case; the field is
+  `exclude_if` None on `Message`, so live frames, REST rows and the dict handed
+  to fanout never carry the key. The single-room historical toasts use
+  `code="historical_decrypt_complete"` (`name` param); the bulk run uses
+  `historical_decrypt_complete_rooms` (`count` param, i18n plural).
 - When a change touches an API or WS payload, update `frontend/src/types.ts`
   and the frontend tests in the same PR.
 
@@ -526,8 +1020,73 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 
 ## Telemetry alerts and notifications
 
-- Secrets (SMTP password, webhook secret in `notification_destinations`) are
-  returned as `********`; a PATCH that sends `********` back keeps the stored value.
+- **User guide: `docs/user/{en,fr}/deep/notifications.md`** (channels, privacy, rules, backups, upgrading); `push.md` keeps only the browser side (HTTPS, VAPID, devices). Same headings in both languages. A change to a channel type, an event, an error code or a default (text policy, limits) updates them in the same PR.
+- **Catalogue and renderer: `app/notifications/AGENTS.md`.** Every notification
+  text (push payload, e-mail subject and bodies, Apprise text, webhook enrichment) is
+  rendered in `app/notifications/render.py`; `push/manager.py` and `email_template.py`
+  only re-export it. `app_settings.notification_language` (`auto`|`fr`|`en`) picks the
+  e-mail and Apprise language (`resolve_instance_language()`).
+- Four **legacy** media: `push`, `email`, `webhook`, `apprise` (`NOTIFICATION_MEDIA_KEYS`,
+  `app/repository/settings.py`; the deprecated push router models and
+  the frontend legacy forms list them). They are the 4.18.x fixed media, kept for the shims
+  until 5.2.0; the engine itself has N typed channels (`app/notifications/AGENTS.md`). A missing key reads as off
+  (`coerce_notification_media`), so adding one needs no migration. A channel
+  reaches a medium other than push only through its conversation exception.
+- Secrets (SMTP password, webhook `url` and secret, Apprise `urls` in
+  `notification_destinations`, `NOTIFICATION_SECRET_KEYS` in
+  `app/secret_fields.py`) are returned as `********`; a PATCH that sends
+  `********` back keeps the stored value. The settings API adds
+  `webhook.url_redacted` (scheme and host, `present_notification_destinations`;
+  never stored, not in the JSON backup). A
+  kept secret never follows a destination change (`NOTIFICATION_DESTINATION_KEYS`:
+  email `host`/`port`/`mode`, webhook `url`): the PATCH answers 400
+  `secret_required`, and a v1 restore drops it with the warning
+  `secret_dropped_destination_changed:email.password` (or
+  `webhook.hmac_secret`). Apprise `urls` and the webhook `url` are the secret
+  and the destination at once: `********` keeps them, `""` clears them. The fanout configs follow
+  the same rules (`app/fanout/AGENTS.md`, "Secrets").
+- Any change of `notification_destinations` (`AppSettingsRepository.update`,
+  so a restore too) pushes `notify.destination_changed` to every subscription
+  (`notify_destination_changed`): the proof of modification, not configurable.
+- **Apprise medium** (`app/notifications/apprise_medium.py`, `send_apprise_alert`
+  in `app/notify.py`). URLs checked at save (`_check_webhook_destination` in
+  the settings router, coded 400) and again before each send; one Apprise
+  object per URL, one result per URL. Retries (tenacity, `RETRY_WAITS` 0/5/30 s)
+  on a network error, a 5xx or a 429 (`Retry-After`, capped at 120 s), never
+  another 4xx, and only for a URL with one target (`len(server) <= 1`: a retry
+  resends to every target of the URL, so ntfy topics, Telegram chats or e-mail
+  recipients already reached would get duplicates); the HTTP status comes from a `requests.Session.send` wrapper
+  that records only inside `_send_sync` (a context variable, carried into
+  Apprise 2's own pool by `submit_with_context`). Blocking sends run in
+  `app/notifications/executor.py` (4 threads, with e-mail and pywebpush).
+  The producers never send directly: they emit the event to the
+  dispatcher (`app/notifications/producers.py`, `app/notifications/AGENTS.md`, "Dispatcher"), whose `legacy:apprise`
+  worker is the limiter (one send at a time, 2 s apart; the channel's token buckets, daily
+  quota and the global cap of `app/notifications/limits.py`, a full bucket held one minute
+  then one `notifications_grouped` summary of counts; `first_seen` capped at 10 an hour, the
+  rest one `first_seen_grouped`). The text policy (`include_message_text`:
+  `public_only` default, `always`, `never`) and the format apply once, in
+  `event_notification_text` (`app/notifications/render.py`, re-exported by `app/push/manager.py`); room-wide mentions
+  (`@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@…>`, `<!…>`, `<#…>`) are
+  always neutralised (the Apprise text format too), Markdown escapes the text. Every Apprise parse and send
+  (the medium, save-time validation, the fanout) runs inside `secret_scope()`
+  with the URLs' secret parts, so Apprise's DEBUG lines (request URLs) reach
+  the ring buffer and `/api/debug` masked. Blocked senders and muted channels
+  never reach it (the rules cut them for every channel, `app/notifications/rules.py`;
+  `app/services/message_filters.py` is the shared block-list rule, also used by the Apprise
+  fanout). Its status (a code with the line, never the URL) is in the
+  health payload as `notification_statuses["legacy:apprise"]`.
+- Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
+  fixed-host callers (Store client, plugin `http` capability: host allowlist,
+  redirects re-validated hop by hop, streaming size caps).
+- The system webhook goes through the egress guard (`app/net/AGENTS.md`): checked
+  at save and before each send, then sent pinned to a validated IP. Its LAN
+  opt-in is `notification_destinations.webhook.allow_private_network`; a
+  webhook stored before the guard reads as allowed and grandfathered (one-time
+  banner, cleared by a PATCH or a URL change). A dispatch failure is logged at
+  WARNING (code, type, host, HTTP status); the dispatcher retries a 5xx, a 429, a
+  timeout or a network error (0/5/30 s) and shows the channel status in the health
+  payload (`notification_statuses["legacy:webhook"]`).
 - The email transport builds an Apprise `mailto` URL on the fly from the SMTP
   settings; the URL is never stored. The HTML email references no remote content
   (inline `cid:` logo, no remote image, no link).
@@ -540,11 +1099,96 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
 ## Web Push (`app/push/`)
 
 VAPID subject: `app_settings.vapid_subject`, falling back to `DEFAULT_VAPID_SUBJECT`;
-Apple rejects `.local`. `policy.conversation_is_enabled` (mirrored by
-`frontend/src/utils/pushPolicy.ts`) decides per conversation. A push service
-answering 403, 404 or 410 deletes the subscription.
+Apple rejects `.local`. Which events reach Web Push is the notification rules' decision
+(`app/notifications/rules.py`, `conversation_channel_enabled`; `app/push/policy.py` is a
+deprecated adapter kept for one release; `frontend/src/utils/notificationPolicy.ts` mirrors it
+over the same fixture, `pushPolicy.ts` only re-exports it for one release). `PushManager` only sends
+(`dispatch_event`) and keeps the subscriptions healthy. A push service
+answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
+egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
+urllib3 connections); a private endpoint needs the instance setting
+`push_allow_private_endpoints`. The send connects to the validated IPs only
+(`PinnedHTTPAdapter`; SNI, `Host` and certificate check keep the host name;
+no redirect; connect 3 s, then 10 s on the IPv4 retry, read 10 s), resolving
+once: `tests/test_push_send_egress.py` drives a fake resolver and a local TLS
+push server. A send refused by the guard for good deletes the subscription
+lazily (`_SendResult.invalid`, one WARNING with the id and code): at once for
+`EgressBlocked.permanent` (bad URL or scheme, a metadata or documentation IP
+literal or host name), and for a name whose DNS answer holds such an address
+(`always_refused`) only when a send at least `FORBIDDEN_ANSWER_CONFIRM_SECONDS`
+(1 h) after the first such answer meets it again, with no other outcome in
+between (a resolver can be wrong once). The bookkeeping (`_forbidden_since`,
+`_refusals_logged`) is in memory, bounded to 1024 entries (least recently
+touched dropped) and forgotten when the subscription delivers or is removed.
+Any other refusal (private address while the setting is off,
+`egress_unresolvable`) keeps the subscription, is logged at WARNING once per
+subscription and code, and does not count toward `MAX_CONSECUTIVE_FAILURES`
+(`_SendResult.refused`): it is a configuration state. A send error is logged
+with its type only (a requests error names the endpoint URL, whose path is a
+secret). The
+migration that adds it turns it on, with `push_private_endpoints_grandfathered`
+(one-time notice, cleared by a PATCH of either field), when a stored
+subscription is not a browser push service (FCM, Mozilla, WNS, Apple). Migration
+104 refines it (097 is shipped, never edited): while the notice is pending it withdraws
+both flags unless an endpoint visibly targets a private network (non-global IP literal,
+dotless name, `.local`/`.lan`/`.home.arpa`/`.internal`/`.localdomain`; no DNS), so a public
+distributor such as ntfy.sh is not opted in. A restore of a backup whose settings lack
+`push_allow_private_endpoints` (pre-guard) applies the same rule to the restored
+subscriptions (`endpoint_looks_private`, `_regrandfather_private_push` in
+`app/services/backup.py`, which also clears `push_private_endpoints_review`; migration 104 keeps a frozen copy, both with a listed set of
+networks, not `is_global`). When 104 withdraws the opt-in and a stored endpoint is a
+hostname it cannot place (split DNS, Tailscale `*.ts.net`), it sets
+`push_private_endpoints_review`: a persistent notice (excluded from backups) with a
+one-click re-enable, cleared by a PATCH of `push_allow_private_endpoints` or
+`push_private_endpoints_review: false`.
+
+The test routes (`POST /push/subscriptions/{id}/test`,
+`POST /notifications/channels/test` and `.../{id}/test`, and the deprecated
+`POST /settings/notification-destinations/test` over them) send to a destination
+the client chose: they answer coded details only (`push_delivery_failed`,
+`push_stale`, `push_timeout` for a subscription; for a channel the guard's
+`egress_*`, `invalid_config`, `auth_failed`, `timeout`, `tls_error`,
+`rate_limited`, `service_error`, no `params`), never
+the exception text, which would be a LAN-scanning oracle. The guard refuses a
+private destination before any connection, so neither the answer time nor the
+status says anything about the LAN: every push delivery failure, timeout
+included, is a 422, and `push_stale` (410) only follows an answer from a
+guarded endpoint. The log gets the exception type only (plus the
+webhook's host and HTTP status), never its text: an `httpx.HTTPStatusError`
+carries the full webhook URL and its token, a `WebPushException` the push
+service's body (`tests/test_test_route_error_oracles.py`).
+
+## Messages listing (`GET /messages`)
+
+- Without `conversation_key` it is the global timeline, ordered `received_at DESC, id DESC`
+  (`before`/`before_id`, `after`/`after_id` cursors). `outgoing=true|false` filters sent or
+  received messages and combines with `type`, `q` and the cursors; absent means both.
+- `since_id=N` (integer in 1..2**63-1; 400 otherwise) returns `id > N` ordered by `id ASC`, up to
+  `limit`, with the same blocked-list, `type` and `outgoing` predicates. It is the
+  reconnect reconciliation cursor: historical decryption inserts old `received_at` with new
+  ids, which `after`/`after_id` on `(received_at, id)` never returns. It answers 400 when
+  combined with `before`, `after` (or their ids) or a non-zero `offset`. `get_around` takes none of these.
+- The app never runs `ANALYZE`, so SQLite plans without statistics: each filter form needs an
+  index that starts with its equality columns and ends in `received_at` (`id` is the rowid,
+  implicit). `idx_messages_feed_*` (migration 98) cover no filter, `type`, `outgoing` and
+  `type`+`outgoing`; `tests/test_messages_feed_filters.py` asserts no temp B-tree sort. With `since_id`, `type`/`outgoing` are written `+col` so the planner walks the rowid range instead of sorting.
+  A conversation prefix in `conversation_key` is LIKE-escaped.
 
 ## Route behaviours that are easy to break
+
+- `ui_preferences` (`UiPreferences`, one JSON column, no migration per field): `nav_rail`,
+  `theme`, `start_view`, `server_label`. `start_view` is the tool hash fragment the app
+  opens on when the URL has no hash (empty = conversations). `PATCH /settings` answers 400
+  for a value outside `START_VIEW_IDS` (models.py); the model itself does not validate, and
+  the repository reads an unknown stored value as "" so a stale id (restored backup) never
+  resets the other preferences or makes a later save fail. The frontend router applies it
+  (`useConversationRouter`) after hash and reopen-last; the kiosk role reads it through
+  `AppSettingsView` (pinned in `tests/test_settings_view.py`). `start_view` also accepts
+  `feed?...` / `control?...` in the feed hash grammar (`parseFeedQuery`,
+  `frontend/src/utils/feedFilters.ts`): `is_valid_start_view` (models.py) is the allowlist
+  (keys `src`, `types`, `dir`, `muted`, `pending`, `node` = 64 hex, `display`; no repeated key,
+  no unknown token, 512 chars). Stricter than the browser, which ignores what it does not know.
+  Change the grammar in both places (`tests/test_settings_router.py`, `feedHash.test.tsx`).
 
 - `GET /radio/private-key` is ungated (404 when the keystore is empty);
   `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` is retired (`RETIRED_ENV`).
@@ -561,6 +1205,22 @@ answering 403, 404 or 410 deletes the subscription.
 - `DELETE /channels/{key}`: the canonical Public channel cannot be deleted (400).
 - `DELETE /messages/{id}` is local only.
 - Bots: create/patch answer 403 while bots are disabled (`MESHCORE_DISABLE_BOTS`).
+- `/api/plugins` (`routers/plugins.py`, `docs/dev/plugins.md`, "API"): reads `send`, everything
+  else `admin`; a write is 403 `plugins_disabled` under the host lock. **Plugin secrets are
+  write-only**: never return `config_for_init()`; logs, diagnostic and `test` output go through
+  `_clean_line` (instance secrets, `redact_text`, 1000 characters). `test` is captured by the
+  host and must never reach `send_channel_message`/`send_direct_message`; `check` never runs
+  plugin code. `PATCH config` replaces the plain fields. A route that starts a process must go
+  through `plugin_manager` and `announce()` its status.
+
+## Host flags (files)
+
+Provisioned by the host (image build, package scripts), never user settings and
+never in `docs/user/**` or the environment docs.
+
+| Flag | Effect |
+|---|---|
+| `/var/lib/meshloom/kiosk` | Raspberry Pi kiosk host (`services/kiosk.py`). Written by `scripts/build/build_rpi_kiosk_image.sh` and, on an image flashed before 5.0.0, by `pkg/nfpm/postinstall.sh` (it finds `/etc/xdg/autostart/meshloom-kiosk.desktop` or `/usr/lib/meshloom/meshloom-kiosk-setup`, installed by the image; the launcher is not a signal, the deb ships it). With it, `prepare_first_run` creates the `kiosk` account (role `kiosk`, provider `system`, no password, **no trusted-network rule**) when absent, issues the installation code even on a fresh database, and `GET /auth/session` returns it as `kiosk_setup_code` to a direct loopback request (no proxy header) while setup is open and the code is still the stored one. `UserRepository.any_exist()` ignores `kiosk` accounts so this account never closes setup. The same start keeps one live `read` device token of that account in `/var/lib/meshloom-kiosk/kiosk.token` (`ensure_kiosk_token`; directory `meshloom:meshloom-kiosk` `2750` from `postinstall.sh`, file `0640`; rotated when the file does not hold it or an admin revokes it, which signs the account out and voids pending codes; the directory must be of group `meshloom-kiosk` with setgid; the token is refused on every route but the bootstrap). The launcher (`pkg/rpi/meshloom-kiosk`, shipped by the deb at `/usr/lib/meshloom/meshloom-kiosk`) probes `GET /api/auth/session`, then trades the token (header through curl's stdin config, never argv) at `POST /api/auth/kiosk-bootstrap` for a one-time `GET /api/auth/kiosk-session?code=` that Chromium opens to get the session cookie; both routes answer a direct loopback request on a kiosk host only (`routers/auth_kiosk.py`, `docs/dev/auth.md`, "Kiosk device token"). |
 
 ## Developer-only variables
 

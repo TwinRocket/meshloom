@@ -1,0 +1,14 @@
+{
+  "feed": {
+    "row": {
+      "actions": "Actions du message",
+      "openInConversation": "Ouvrir dans la conversation",
+      "copy": "Copier le texte",
+      "contactDetails": "Détails du contact",
+      "copied": "Message copié",
+      "copyFailed": "Impossible de copier le message",
+      "openConversationAria": "Ouvrir {{name}} à son dernier message",
+      "contactAria": "Détails du contact : {{name}}"
+    }
+  }
+}

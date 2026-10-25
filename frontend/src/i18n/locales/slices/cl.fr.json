@@ -1,0 +1,74 @@
+{
+  "notifications": {
+    "presets": {
+      "telegram": {
+        "about": "Les messages viennent de votre propre bot Telegram. Créez-le avec @BotFather (envoyez /newbot), copiez son jeton, puis trouvez l'identifiant de votre conversation (écrivez au bot et ouvrez https://api.telegram.org/bot<jeton>/getUpdates, ou demandez à @userinfobot).",
+        "fields": {
+          "bot_token": "Jeton du bot",
+          "chat_id": "Identifiant de conversation",
+          "topic_id": "Identifiant de sujet (facultatif)"
+        },
+        "help": {
+          "bot_token": "Donné par @BotFather, de la forme 123456789:AAH… En écriture seule : il n'est jamais réaffiché.",
+          "chat_id": "Un identifiant d'utilisateur (123456789), de groupe (-1001234567890) ou un canal public (@nom). Ajoutez d'abord le bot au groupe ou au canal.",
+          "topic_id": "Seulement pour un groupe à sujets : le numéro du sujet qui reçoit les messages."
+        }
+      },
+      "gotify": {
+        "about": "Gotify est un serveur de notifications que vous hébergez. Créez une application dans sa page web et copiez le jeton de l'application.",
+        "fields": {
+          "server": "Serveur Gotify",
+          "token": "Jeton de l'application",
+          "priority": "Priorité"
+        },
+        "help": {
+          "server": "L'adresse de votre serveur, par exemple https://gotify.exemple.org. Sur votre réseau local, cochez « Autoriser une destination sur réseau privé » plus bas.",
+          "token": "Le jeton de l'application (pas celui d'un client). En écriture seule : il n'est jamais réaffiché."
+        }
+      },
+      "home_assistant": {
+        "about": "Publie vers un service notify de Home Assistant, par exemple l'application Companion d'un téléphone. Créez un jeton d'accès longue durée dans votre profil Home Assistant.",
+        "fields": {
+          "url": "Adresse de Home Assistant",
+          "token": "Jeton d'accès longue durée",
+          "service": "Service notify"
+        },
+        "help": {
+          "url": "Par exemple http://homeassistant.local:8123. Home Assistant est le plus souvent sur votre réseau local : cochez « Autoriser une destination sur réseau privé » plus bas. Uniquement l’adresse : un chemin comme /ha (Home Assistant derrière un proxy inverse sur un sous-chemin) est refusé.",
+          "token": "Profil, Sécurité, Jetons d'accès longue durée. En écriture seule : il n'est jamais réaffiché.",
+          "service": "Le nom du service sans « notify. » : mobile_app_votre_telephone (Outils de développement, Actions). Un nom complet comme notify.alertes fonctionne aussi."
+        }
+      }
+    }
+  },
+  "settings": {
+    "notifications": {
+      "types": {
+        "telegram": {
+          "name": "Telegram",
+          "description": "Un message de votre bot Telegram vers une conversation, un groupe ou un canal."
+        },
+        "gotify": {
+          "name": "Gotify",
+          "description": "Notifier votre propre serveur Gotify.",
+          "priority": {
+            "options": {
+              "low": "Basse",
+              "moderate": "Modérée",
+              "normal": "Normale",
+              "high": "Haute",
+              "emergency": "Urgence"
+            }
+          }
+        },
+        "home_assistant": {
+          "name": "Home Assistant",
+          "description": "Un service notify de Home Assistant, comme l'application Companion d'un téléphone."
+        }
+      },
+      "channels": {
+        "presetDocs": "Documentation du service"
+      }
+    }
+  }
+}

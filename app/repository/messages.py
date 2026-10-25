@@ -27,8 +27,12 @@ class MessageRepository:
     )
 
     @staticmethod
-    def _contact_activity_filter(public_key: str) -> tuple[str, list[Any]]:
+    def _contact_activity_filter(
+        public_key: str, *, include_direct_messages: bool = True
+    ) -> tuple[str, list[Any]]:
         lower_key = public_key.lower()
+        if not include_direct_messages:
+            return "type = 'CHAN' AND sender_key = ?", [lower_key]
         return (
             "((type = 'PRIV' AND conversation_key = ?) OR (type = 'CHAN' AND sender_key = ?))",
             [lower_key, lower_key],
@@ -257,7 +261,8 @@ class MessageRepository:
         elif len(conversation_key) == 32:
             return "AND conversation_key = ?", conversation_key.upper()
         else:
-            return "AND conversation_key LIKE ?", f"{conversation_key}%"
+            escaped = MessageRepository._escape_like(conversation_key)
+            return "AND conversation_key LIKE ? ESCAPE '\\'", f"{escaped}%"
 
     @staticmethod
     def _unescape_search_quoted_value(value: str) -> str:
@@ -462,6 +467,8 @@ class MessageRepository:
         q: str | None = None,
         blocked_keys: list[str] | None = None,
         blocked_names: list[str] | None = None,
+        outgoing: bool | None = None,
+        since_id: int | None = None,
     ) -> list[Message]:
         search_query = MessageRepository._parse_search_query(q) if q else None
         query = (
@@ -481,9 +488,15 @@ class MessageRepository:
             query += f" AND {blocked_clause}"
             params.extend(blocked_params)
 
+        # With since_id the rowid range is the access path: the unary plus keeps the planner
+        # off the type/outgoing indexes, which would force a temp sort by id.
+        plus = "+" if since_id is not None else ""
         if msg_type:
-            query += " AND messages.type = ?"
+            query += f" AND {plus}messages.type = ?"
             params.append(msg_type)
+        if outgoing is not None:
+            query += f" AND {plus}messages.outgoing = ?"
+            params.append(1 if outgoing else 0)
         if conversation_key:
             clause, norm_key = MessageRepository._normalize_conversation_key(conversation_key)
             query += f" {clause.replace('conversation_key', 'messages.conversation_key')}"
@@ -510,8 +523,13 @@ class MessageRepository:
             query += " AND messages.text LIKE ? ESCAPE '\\' COLLATE NOCASE"
             params.append(f"%{escaped_q}%")
 
+        # Reconciliation cursor on the primary key: historical decryption inserts old
+        # received_at with new ids, which the (received_at, id) cursors never return.
+        if since_id is not None:
+            query += " AND messages.id > ? ORDER BY messages.id ASC LIMIT ?"
+            params.extend([since_id, limit])
         # Forward cursor (after/after_id) — mutually exclusive with before/before_id
-        if after is not None and after_id is not None:
+        elif after is not None and after_id is not None:
             query += (
                 " AND (messages.received_at > ? OR (messages.received_at = ? AND messages.id > ?))"
             )
@@ -1307,10 +1325,15 @@ class MessageRepository:
     async def get_contact_activity_series(
         public_key: str,
         now: int | None = None,
+        *,
+        include_direct_messages: bool = True,
     ) -> tuple[list[ContactAnalyticsHourlyBucket], list[ContactAnalyticsWeeklyBucket]]:
-        """Get combined DM + channel activity series for a keyed contact."""
+        """Get combined DM + channel activity series for a keyed contact (channel
+        only with ``include_direct_messages=False``)."""
         ts = now if now is not None else int(time.time())
-        where_sql, params = MessageRepository._contact_activity_filter(public_key)
+        where_sql, params = MessageRepository._contact_activity_filter(
+            public_key, include_direct_messages=include_direct_messages
+        )
         hour_counts = await MessageRepository._get_activity_hour_buckets(where_sql, params)
         hourly = MessageRepository._build_hourly_activity(hour_counts, ts)
         weekly = await MessageRepository._get_weekly_activity(where_sql, params, ts)

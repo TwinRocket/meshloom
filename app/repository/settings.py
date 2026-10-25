@@ -3,12 +3,12 @@ import logging
 import re
 import time
 from collections.abc import Mapping
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict, TypeVar
 
 import aiosqlite
 from pydantic import ValidationError
 
-from app import radio_workarounds
+from app import origin_policy, radio_workarounds
 from app.database import db
 from app.models import (
     AppSettings,
@@ -17,6 +17,7 @@ from app.models import (
     RejectedChannel,
     TelemetryAlertRules,
     UiPreferences,
+    is_valid_start_view,
 )
 from app.path_utils import bucket_path_hash_widths, bucket_region_scope, parse_packet_envelope
 from app.services.update_window import (
@@ -43,15 +44,19 @@ PUSH_DEFAULT_KEYS = (
     "channel_found",
     "telemetry_alert",
     "oss_update",
+    "radio_offline",
+    "radio_online",
+    "app_started",
 )
 
-NOTIFICATION_MEDIA_KEYS = ("push", "email", "webhook")
+NOTIFICATION_MEDIA_KEYS = ("push", "email", "webhook", "apprise")
 
 
 class NotificationMediaFlags(TypedDict):
     push: bool
     email: bool
     webhook: bool
+    apprise: bool
 
 
 class PushDefaults(TypedDict):
@@ -63,10 +68,13 @@ class PushDefaults(TypedDict):
     channel_found: NotificationMediaFlags
     telemetry_alert: NotificationMediaFlags
     oss_update: NotificationMediaFlags
+    radio_offline: NotificationMediaFlags
+    radio_online: NotificationMediaFlags
+    app_started: NotificationMediaFlags
 
 
 def _default_media() -> NotificationMediaFlags:
-    return NotificationMediaFlags(push=True, email=False, webhook=False)
+    return NotificationMediaFlags(push=True, email=False, webhook=False, apprise=False)
 
 
 DEFAULT_PUSH_DEFAULTS: PushDefaults = PushDefaults(
@@ -78,7 +86,7 @@ def coerce_notification_media(
     raw: object,
     fallback: NotificationMediaFlags | None = None,
 ) -> NotificationMediaFlags:
-    """Accept a legacy bool (push only) or ``{push,email,webhook}``."""
+    """Accept a legacy bool (push only) or ``{push,email,webhook,apprise}``."""
     base = NotificationMediaFlags(**(fallback or _default_media()))
     if isinstance(raw, bool):
         base["push"] = raw
@@ -101,14 +109,14 @@ def media_enabled(
 
 def any_media_enabled(defaults: Mapping[str, Any], key: str) -> bool:
     flags = coerce_notification_media(defaults.get(key, True))
-    return flags["push"] or flags["email"] or flags["webhook"]
+    return any(flags[key] for key in NOTIFICATION_MEDIA_KEYS)
 
 
 def or_notification_media(*raws: object) -> NotificationMediaFlags:
-    result = NotificationMediaFlags(push=False, email=False, webhook=False)
+    result = NotificationMediaFlags(push=False, email=False, webhook=False, apprise=False)
     for raw in raws:
         flags = coerce_notification_media(
-            raw, NotificationMediaFlags(push=False, email=False, webhook=False)
+            raw, NotificationMediaFlags(push=False, email=False, webhook=False, apprise=False)
         )
         for key in NOTIFICATION_MEDIA_KEYS:
             result[key] = result[key] or flags[key]
@@ -169,6 +177,41 @@ def _parse_auto_update_hhmm(raw: object, default: str = "00:00") -> str:
         return default
 
 
+_ChoiceT = TypeVar("_ChoiceT", bound=str)
+ShareShortenMode = Literal["auto", "always", "never"]
+SharePreviewPolicy = Literal["always", "private", "never"]
+SHARE_SHORTEN_MODES: tuple[ShareShortenMode, ...] = ("auto", "always", "never")
+SHARE_PREVIEW_POLICIES: tuple[SharePreviewPolicy, ...] = ("always", "private", "never")
+NotificationLanguage = Literal["auto", "fr", "en"]
+NOTIFICATION_LANGUAGES: tuple[NotificationLanguage, ...] = ("auto", "fr", "en")
+
+# Services with an instance identity, each its own ``app_settings.<service>_instance_seed``
+# column (app/services/instance_identity.py). Access adds "remote" with its migration.
+INSTANCE_SEED_SERVICES: tuple[str, ...] = ("share",)
+
+
+def _share_choice(
+    row: Any, column: str, allowed: tuple[_ChoiceT, ...], default: _ChoiceT
+) -> _ChoiceT:
+    """A stored share choice, or ``default`` when it is missing or not a known value."""
+    try:
+        value = row[column]
+    except (KeyError, TypeError, IndexError):
+        return default
+    return value if value in allowed else default
+
+
+def _parse_allowed_origins(raw: object) -> list[str]:
+    """The stored CORS allowlist; anything unreadable is same-origin only."""
+    try:
+        loaded = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(loaded, list):
+        return []
+    return [origin for origin in loaded if isinstance(origin, str) and origin]
+
+
 def _parse_auto_update_weekdays(raw: object) -> list[int]:
     loaded: object = raw
     if isinstance(raw, str):
@@ -188,7 +231,7 @@ ConversationOverride = dict[str, bool]
 
 
 def coerce_conversation_override(raw: object) -> ConversationOverride:
-    """Accept a legacy bool (push only) or a partial ``{push,email,webhook}``."""
+    """Accept a legacy bool (push only) or a partial ``{push,email,webhook,apprise}``."""
     if isinstance(raw, bool):
         return {"push": raw}
     if not isinstance(raw, Mapping):
@@ -228,6 +271,21 @@ def _store_push_overrides(overrides: Mapping[str, object]) -> dict[str, Conversa
     return stored
 
 
+async def _mirror_legacy_rules() -> None:
+    """The notification rules are the delivery source, the 4.18.x preference columns the view
+    the deprecated routes read: mirror each write of the columns into the rules."""
+    from app.notifications.legacy_sync import sync_rules
+
+    await sync_rules()
+
+
+def _invalidate_block_lists() -> None:
+    """After the commit of a block-list write, so a reader never caches the old lists."""
+    from app.services.message_filters import invalidate_block_lists
+
+    invalidate_block_lists()
+
+
 class AppSettingsRepository:
     """Repository for app_settings table (single-row pattern).
 
@@ -260,7 +318,12 @@ class AppSettingsRepository:
                    auto_update_window_start, auto_update_window_end,
                    auto_update_weekdays, enable_message_poll_fallback,
                    force_channel_slot_reconfigure, load_with_autoevict,
-                   auto_clock_wraparound
+                   auto_clock_wraparound, auth_allowed_origins,
+                   push_allow_private_endpoints, push_private_endpoints_grandfathered,
+                   push_private_endpoints_review,
+                   radio_offline_grace_s,
+                   share_enabled, share_shorten_mode, share_preview_policy,
+                   notification_language
             FROM app_settings WHERE id = 1
             """
         ) as cursor:
@@ -293,6 +356,10 @@ class AppSettingsRepository:
         except (json.JSONDecodeError, TypeError, KeyError, ValidationError) as e:
             logger.warning("Failed to parse ui_preferences, using defaults: %s", e)
             ui_preferences = UiPreferences()
+        # A start page that is no longer a known tool (restored backup, id removed later)
+        # reads as the default, so saving other preferences never sends it back.
+        if ui_preferences.start_view and not is_valid_start_view(ui_preferences.start_view):
+            ui_preferences = ui_preferences.model_copy(update={"start_view": ""})
 
         # Parse blocked_keys JSON
         blocked_keys: list[str] = []
@@ -422,6 +489,17 @@ class AppSettingsRepository:
         except (KeyError, TypeError):
             auto_update_weekdays = list(DEFAULT_AUTO_UPDATE_WEEKDAYS)
 
+        try:
+            auth_allowed_origins = _parse_allowed_origins(row["auth_allowed_origins"])
+        except (KeyError, TypeError, IndexError):
+            auth_allowed_origins = []
+
+        try:
+            _grace = int(row["radio_offline_grace_s"])
+        except (KeyError, TypeError, ValueError, IndexError):
+            _grace = 60
+        _grace = min(max(_grace, 0), 3600)
+
         def _flag(column: str, default: bool = False) -> bool:
             try:
                 value = row[column]
@@ -459,6 +537,21 @@ class AppSettingsRepository:
             force_channel_slot_reconfigure=_flag("force_channel_slot_reconfigure"),
             load_with_autoevict=_flag("load_with_autoevict"),
             auto_clock_wraparound=_flag("auto_clock_wraparound", default=True),
+            auth_allowed_origins=auth_allowed_origins,
+            push_allow_private_endpoints=_flag("push_allow_private_endpoints"),
+            push_private_endpoints_grandfathered=_flag("push_private_endpoints_grandfathered"),
+            push_private_endpoints_review=_flag("push_private_endpoints_review"),
+            radio_offline_grace_s=_grace,
+            share_enabled=_flag("share_enabled"),
+            share_shorten_mode=_share_choice(
+                row, "share_shorten_mode", SHARE_SHORTEN_MODES, "auto"
+            ),
+            share_preview_policy=_share_choice(
+                row, "share_preview_policy", SHARE_PREVIEW_POLICIES, "private"
+            ),
+            notification_language=_share_choice(
+                row, "notification_language", NOTIFICATION_LANGUAGES, "auto"
+            ),
         )
 
     @staticmethod
@@ -496,6 +589,15 @@ class AppSettingsRepository:
         force_channel_slot_reconfigure: bool | None = None,
         load_with_autoevict: bool | None = None,
         auto_clock_wraparound: bool | None = None,
+        auth_allowed_origins: list[str] | None = None,
+        push_allow_private_endpoints: bool | None = None,
+        push_private_endpoints_grandfathered: bool | None = None,
+        push_private_endpoints_review: bool | None = None,
+        radio_offline_grace_s: int | None = None,
+        share_enabled: bool | None = None,
+        share_shorten_mode: str | None = None,
+        share_preview_policy: str | None = None,
+        notification_language: str | None = None,
     ) -> None:
         """Apply field updates using an already-acquired connection.
 
@@ -635,10 +737,33 @@ class AppSettingsRepository:
             ("force_channel_slot_reconfigure", force_channel_slot_reconfigure),
             ("load_with_autoevict", load_with_autoevict),
             ("auto_clock_wraparound", auto_clock_wraparound),
+            ("push_allow_private_endpoints", push_allow_private_endpoints),
+            ("push_private_endpoints_grandfathered", push_private_endpoints_grandfathered),
+            ("push_private_endpoints_review", push_private_endpoints_review),
+            ("share_enabled", share_enabled),
         ):
             if flag is not None:
                 updates.append(f"{column} = ?")
                 params.append(1 if flag else 0)
+
+        if radio_offline_grace_s is not None:
+            updates.append("radio_offline_grace_s = ?")
+            params.append(min(max(int(radio_offline_grace_s), 0), 3600))
+
+        for column, choice, allowed in (
+            ("share_shorten_mode", share_shorten_mode, SHARE_SHORTEN_MODES),
+            ("share_preview_policy", share_preview_policy, SHARE_PREVIEW_POLICIES),
+            ("notification_language", notification_language, NOTIFICATION_LANGUAGES),
+        ):
+            if choice is not None:
+                if choice not in allowed:
+                    raise ValueError(f"{column} must be one of {', '.join(allowed)}")
+                updates.append(f"{column} = ?")
+                params.append(choice)
+
+        if auth_allowed_origins is not None:
+            updates.append("auth_allowed_origins = ?")
+            params.append(json.dumps(auth_allowed_origins))
 
         if updates:
             query = f"UPDATE app_settings SET {', '.join(updates)} WHERE id = 1"
@@ -687,9 +812,27 @@ class AppSettingsRepository:
         force_channel_slot_reconfigure: bool | None = None,
         load_with_autoevict: bool | None = None,
         auto_clock_wraparound: bool | None = None,
+        auth_allowed_origins: list[str] | None = None,
+        push_allow_private_endpoints: bool | None = None,
+        push_private_endpoints_grandfathered: bool | None = None,
+        push_private_endpoints_review: bool | None = None,
+        radio_offline_grace_s: int | None = None,
+        share_enabled: bool | None = None,
+        share_shorten_mode: str | None = None,
+        share_preview_policy: str | None = None,
+        notification_language: str | None = None,
     ) -> AppSettings:
-        """Update app settings. Only provided fields are updated."""
+        """Update app settings. Only provided fields are updated.
+
+        A change of ``notification_destinations`` sends the push proof of
+        modification (``notify_destination_changed``).
+        """
         async with db.tx() as conn:
+            destinations_before = (
+                (await AppSettingsRepository._get_in_conn(conn)).notification_destinations
+                if notification_destinations is not None
+                else None
+            )
             await AppSettingsRepository._apply_updates(
                 conn,
                 max_radio_contacts=max_radio_contacts,
@@ -721,9 +864,36 @@ class AppSettingsRepository:
                 force_channel_slot_reconfigure=force_channel_slot_reconfigure,
                 load_with_autoevict=load_with_autoevict,
                 auto_clock_wraparound=auto_clock_wraparound,
+                auth_allowed_origins=auth_allowed_origins,
+                push_allow_private_endpoints=push_allow_private_endpoints,
+                push_private_endpoints_grandfathered=push_private_endpoints_grandfathered,
+                push_private_endpoints_review=push_private_endpoints_review,
+                radio_offline_grace_s=radio_offline_grace_s,
+                share_enabled=share_enabled,
+                share_shorten_mode=share_shorten_mode,
+                share_preview_policy=share_preview_policy,
+                notification_language=notification_language,
             )
             result = await AppSettingsRepository._get_in_conn(conn)
         radio_workarounds.apply(result)
+        origin_policy.apply(result)
+        if blocked_keys is not None or blocked_names is not None:
+            _invalidate_block_lists()
+        if (
+            share_enabled is not None
+            or share_shorten_mode is not None
+            or share_preview_policy is not None
+        ):
+            from app.services.share import note_share_settings_changed
+
+            note_share_settings_changed(enabled=result.share_enabled)
+        if destinations_before is not None:
+            from app.notify import notify_destination_changed
+
+            notify_destination_changed(destinations_before, result.notification_destinations)
+            from app.notifications.legacy_sync import sync_destinations
+
+            await sync_destinations()
         return result
 
     @staticmethod
@@ -794,7 +964,9 @@ class AppSettingsRepository:
             else:
                 new_keys = settings.blocked_keys + [normalized]
             await AppSettingsRepository._apply_updates(conn, blocked_keys=new_keys)
-            return await AppSettingsRepository._get_in_conn(conn)
+            result = await AppSettingsRepository._get_in_conn(conn)
+        _invalidate_block_lists()
+        return result
 
     @staticmethod
     async def toggle_blocked_name(name: str) -> AppSettings:
@@ -809,7 +981,9 @@ class AppSettingsRepository:
             else:
                 new_names = settings.blocked_names + [name]
             await AppSettingsRepository._apply_updates(conn, blocked_names=new_names)
-            return await AppSettingsRepository._get_in_conn(conn)
+            result = await AppSettingsRepository._get_in_conn(conn)
+        _invalidate_block_lists()
+        return result
 
     @staticmethod
     async def get_rejected_channels() -> list[RejectedChannel]:
@@ -853,6 +1027,72 @@ class AppSettingsRepository:
             if len(items) == len(settings.rejected_channels):
                 return
             await AppSettingsRepository._apply_updates(conn, rejected_channels=items)
+
+    @staticmethod
+    async def get_identity_seed_values() -> list[str]:
+        """Every non-empty ``app_settings`` column named ``*_seed`` (the
+        per-service instance identity seeds), as text, bytes in hex.
+
+        The backup export refuses a file holding any of them.
+        """
+        async with db.readonly() as conn:
+            async with conn.execute("PRAGMA table_info(app_settings)") as cursor:
+                columns = [row[1] for row in await cursor.fetchall() if row[1].endswith("_seed")]
+            if not columns:
+                return []
+            quoted = ", ".join(f'"{column}"' for column in columns)
+            async with conn.execute(f"SELECT {quoted} FROM app_settings WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+        values: list[str] = []
+        for value in tuple(row) if row else ():
+            if isinstance(value, bytes):
+                value = value.hex()
+            if value not in (None, ""):
+                values.append(str(value))
+        return values
+
+    @staticmethod
+    def _instance_seed_column(service: str) -> str:
+        if service not in INSTANCE_SEED_SERVICES:
+            raise ValueError(f"unknown instance identity service {service!r}")
+        return f"{service}_instance_seed"
+
+    @staticmethod
+    async def get_instance_seed(service: str) -> str:
+        """The hex seed of a service's instance identity ("" until it is created).
+
+        Internal-only ``app_settings.<service>_instance_seed`` column, not in
+        ``AppSettings`` and never in a backup (``*_seed`` columns are refused by
+        the export and scrubbed from the database copy). Read it through
+        ``app/services/instance_identity.py``, never directly.
+        """
+        column = AppSettingsRepository._instance_seed_column(service)
+        async with db.readonly() as conn:
+            async with conn.execute(f"SELECT {column} FROM app_settings WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+        return (row[column] or "") if row else ""
+
+    @staticmethod
+    async def set_instance_seed(service: str, seed: str) -> None:
+        """Store a service's instance identity seed ("" forgets it)."""
+        column = AppSettingsRepository._instance_seed_column(service)
+        async with db.tx() as conn:
+            await conn.execute(f"UPDATE app_settings SET {column} = ? WHERE id = 1", (seed,))
+
+    @staticmethod
+    async def claim_instance_seed(service: str, seed: str) -> str:
+        """Store ``seed`` only when the service has none yet, and return the
+        stored one: two concurrent first uses end with the same identity."""
+        column = AppSettingsRepository._instance_seed_column(service)
+        async with db.tx() as conn:
+            await conn.execute(
+                f"UPDATE app_settings SET {column} = ? "
+                f"WHERE id = 1 AND ({column} IS NULL OR {column} = '')",
+                (seed,),
+            )
+            async with conn.execute(f"SELECT {column} FROM app_settings WHERE id = 1") as cursor:
+                row = await cursor.fetchone()
+        return (row[column] or "") if row else ""
 
     @staticmethod
     async def get_vapid_keys() -> tuple[str, str]:
@@ -911,22 +1151,11 @@ class AppSettingsRepository:
         """Return per-event media flags. Not part of AppSettings."""
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT push_defaults, telemetry_alert_rules FROM app_settings WHERE id = 1"
+                "SELECT push_defaults FROM app_settings WHERE id = 1"
             ) as cursor:
                 row = await cursor.fetchone()
         parsed = _load_json_object(row["push_defaults"] if row else None)
-        defaults = _known_push_defaults(parsed)
-        stored_alert = parsed.get("telemetry_alert")
-        if row is not None and not isinstance(stored_alert, Mapping):
-            from app.telemetry_alerts import coerce_telemetry_alert_rules
-
-            rules = coerce_telemetry_alert_rules(row["telemetry_alert_rules"])
-            defaults["telemetry_alert"] = NotificationMediaFlags(
-                push=bool(rules.channels.push),
-                email=bool(rules.channels.email),
-                webhook=bool(rules.channels.webhook),
-            )
-        return defaults
+        return _known_push_defaults(parsed)
 
     @staticmethod
     async def set_push_defaults(defaults: Mapping[str, Any]) -> PushDefaults:
@@ -938,21 +1167,24 @@ class AppSettingsRepository:
                 "UPDATE app_settings SET push_defaults = ? WHERE id = 1",
                 (json.dumps(merged),),
             )
-            async with conn.execute(
-                "SELECT telemetry_alert_rules FROM app_settings WHERE id = 1"
-            ) as cursor:
-                row = await cursor.fetchone()
-            from app.telemetry_alerts import coerce_telemetry_alert_rules, stored_rules_dict
-
-            rules = coerce_telemetry_alert_rules(row["telemetry_alert_rules"] if row else None)
-            rules.channels.push = merged["telemetry_alert"]["push"]
-            rules.channels.email = merged["telemetry_alert"]["email"]
-            rules.channels.webhook = merged["telemetry_alert"]["webhook"]
-            await conn.execute(
-                "UPDATE app_settings SET telemetry_alert_rules = ? WHERE id = 1",
-                (json.dumps(stored_rules_dict(rules)),),
-            )
+        await _mirror_legacy_rules()
         return merged
+
+    @staticmethod
+    async def write_push_columns(
+        defaults: Mapping[str, Any], overrides: Mapping[str, object]
+    ) -> None:
+        """Store both 4.18.x preference columns as they are, without mirroring them into the
+        rules: ``legacy_sync.sync_columns`` calls it after the rules changed, so the deprecated
+        preference routes keep showing what is delivered."""
+        merged = _coerce_push_defaults(defaults, await AppSettingsRepository.get_push_defaults())
+        stored = _store_push_overrides(overrides)
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET push_defaults = ?, push_conversation_overrides = ?"
+                " WHERE id = 1",
+                (json.dumps(merged), json.dumps(stored)),
+            )
 
     @staticmethod
     async def get_push_conversation_overrides() -> dict[str, ConversationOverride]:
@@ -981,6 +1213,7 @@ class AppSettingsRepository:
                 "UPDATE app_settings SET push_conversation_overrides = ? WHERE id = 1",
                 (json.dumps(stored),),
             )
+        await _mirror_legacy_rules()
         return stored
 
     @staticmethod
@@ -1007,6 +1240,7 @@ class AppSettingsRepository:
                 "UPDATE app_settings SET push_conversation_overrides = ? WHERE id = 1",
                 (json.dumps(current),),
             )
+        await _mirror_legacy_rules()
         return current
 
     @staticmethod
@@ -1257,6 +1491,28 @@ class AppSettingsRepository:
         async with db.tx() as conn:
             await conn.execute(
                 "UPDATE app_settings SET community_opt_out_pending = ? WHERE id = 1", (value,)
+            )
+
+    # -- Radio outage state (migration 099) ------------------------------------
+    # Unix time a *notified* radio outage began, NULL when none. Not part of
+    # AppSettings; written only by app/notifications/radio_watch.py.
+
+    @staticmethod
+    async def get_radio_outage_started_at() -> float | None:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT radio_outage_started_at FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row or row["radio_outage_started_at"] is None:
+            return None
+        return float(row["radio_outage_started_at"])
+
+    @staticmethod
+    async def set_radio_outage_started_at(started_at: float | None) -> None:
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET radio_outage_started_at = ? WHERE id = 1", (started_at,)
             )
 
     # -- Wi-Fi prompt state (migration 095) -----------------------------------

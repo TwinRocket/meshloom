@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 095 (the value of
+- Numbering is contiguous from 001. The current head is 115 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -44,7 +44,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 
 ### Adding a migration
 
-1. Create `app/migrations/_095_what_it_does.py` (next number, no gap) with
+1. Create `app/migrations/_104_what_it_does.py` (next number, no gap) with
    `async def migrate(conn)`. Make it idempotent as above.
 2. New table or column: the migration creates it for existing databases. Recent
    practice (082-084) also adds it to `SCHEMA_TABLES` in `app/database.py` so fresh
@@ -74,8 +74,21 @@ destinations, telemetry alert rules, auto-update window and the one-shot
 "imported legacy env" flags. Many columns hold JSON (blocked lists, push
 defaults and overrides, `ui_preferences`, `notification_destinations`,
 `telemetry_alert_rules`, tracked telemetry repeaters/contacts, `known_regions`,
-`wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
-password, outside `AppSettings`).
+`auth_allowed_origins`: the cross-origin sites CORS lets in, kept in memory by
+`app/origin_policy.py`; `wifi_prompt_state`: the Wi-Fi prompt state per radio public key, never a
+password, outside `AppSettings`; `radio_outage_started_at`: Unix time of the radio outage
+that was notified, NULL when none, written by `notifications/radio_watch.py`, outside
+`AppSettings`; `radio_offline_grace_s`: the delay before `radio_offline`;
+`notification_language`: `auto`, `fr` or `en`, the language of e-mail and Apprise
+notifications (migration 111, `app/notifications/AGENTS.md`);
+`notification_rules`: the JSON rules of the notification channels (migration 113, written by
+the import and, from the dispatcher ticket, by the rules API; outside `AppSettings` for now;
+shape in `app/notifications/AGENTS.md`);
+`share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
+(migration 102); `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
+never exported by a backup; `store_online`: the Store egress consent, off by default,
+migration 103, not in `AppSettings` yet, excluded from backups and reset to 0 in a
+database copy).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
 written through `AppSettingsRepository` (`settings.py`), plus
 `RadioTransportRepository` (`radio_transport.py`) and `RadioProxyRepository`
@@ -183,6 +196,36 @@ PK `id` (text), `type`, `name`, `enabled`, `config` (JSON), `scope` (JSON),
 `sort_order`, `created_at`. `FanoutConfigRepository` (`fanout.py`), used by the fanout
 manager and its router. See `app/fanout/AGENTS.md`.
 
+### `notification_channels`
+
+One row per notification channel (migration 113): PK `id` (`builtin:push`,
+`legacy:email|webhook|apprise` from the import, else `<type>-<8 hex>`; an id is never
+reused), `type` (immutable: `web_push`, `email`, `webhook`, `apprise`), `preset`, `name`,
+`enabled`, `language` (`auto`, `fr`, `en`), `config` (JSON, public fields), `secrets`
+(JSON, plain text in this version, never returned by any read path),
+`allow_private_network`, `include_message_text`, `verify_tls`, `quiet_hours_exempt`,
+`rate_per_min`, `rate_per_hour`, `rate_per_day` (NULL: the type's default), `sort_order`,
+`created_at`, `last_ok_at`, `last_error`, `failure_count`, `paused_until`.
+`NotificationChannelRepository` (`notification_channels.py`).
+
+### `notification_deliveries`
+
+The delivery journal: `id`, `channel_id`, `event`, `dedup_key` (hashed), `status`, `error`,
+`attempts`, `created_at`. Never the text. At most 200 rows per channel (trimmed at each
+insert, and by the daily `prune_deliveries()`, which also drops a deleted channel's rows).
+Index `idx_notification_deliveries_channel`. `NotificationJournalRepository`.
+
+### `notification_counters`
+
+Successful sends per channel and hour: PK `(channel_id, hour)`, `sent`. Written in batches.
+
+### `notification_state`
+
+Small state with an expiry: PK `key`, `value`, `expires_at`. Keys: `dedup:<channel>:<dedup_key>`
+and `dedup:urgent:<channel>:<dedup_key>` (the dispatcher's persisted dedup, 24 h, written in
+batches) and the pending secrets of a restored channel. Expired rows are
+pruned hourly by the dispatcher.
+
 ### `push_subscriptions`
 
 Web Push subscriptions: PK `id`, `endpoint` (unique), `p256dh`, `auth`, `label`,
@@ -190,12 +233,156 @@ Web Push subscriptions: PK `id`, `endpoint` (unique), `p256dh`, `auth`, `label`,
 `PushSubscriptionRepository` (`push_subscriptions.py`), used by `app/push/`.
 A subscription is deleted once `failure_count` reaches 15 consecutive failures.
 
+### `users`
+
+Local accounts (migration 101; model and rules in `docs/dev/auth.md`): PK `id`
+(`AUTOINCREMENT`, never reused, so audit rows never point at a later account),
+`username` (display form), `username_key` (unique: NFKC + case folding, so two
+names that differ only by case clash), `display_name`, `password_hash` (argon2id
+encoded string, NULL for ingress and kiosk identities), `role`
+(`admin`/`member`/`viewer`/`kiosk`, CHECK), `provider` (`local`/`ingress`/`system`,
+CHECK), `external_id` (unique per provider), `disabled`, `must_change_password`,
+`totp_secret` (base32, set at enrolment, kept pending until the first code),
+`totp_enabled_at` (NULL: no second factor), `totp_last_counter` (last accepted
+30 s step: a code for it or an earlier one is refused), `created_at`,
+`updated_at`. `UserRepository`, `TotpRepository` (`auth.py`); TOTP rules in
+`app/auth/totp.py`.
+
+### `sessions`
+
+Login sessions: PK `id` (random, not a secret), `user_id` (FK `users(id)`,
+cascade), `token_hash` (unique, SHA-256 hex of the cookie secret; the secret is
+never stored), `created_at`, `last_seen_at` (written at most once a minute),
+`expires_at`, `ip`, `user_agent`, `via`, `revoked_at`. At most 50 active per user
+(creating one more revokes the oldest). `AuthSessionRepository` (`auth.py`).
+
+### `api_tokens`
+
+API and device tokens (migration 108, `app/auth/providers/token.py`,
+`docs/dev/auth.md`, "API and device tokens"): PK `id` (random, not a secret,
+the `actor_token_id` of audit rows), `user_id` (FK `users(id)`, cascade), `name`,
+`token_hash` (unique, SHA-256 hex of the `mlt_…` secret; the secret is never
+stored), `scopes` (JSON list of permissions, within the owner's role),
+`created_at`, `last_used_at` (written at most once a minute), `expires_at`
+(NULL: never), `revoked_at`, `origin` (`ui`/`pairing`, CHECK). At most 100 live
+per user. Revoked and expired rows stay, so a later use is audited.
+`ApiTokenRepository` (`auth.py`).
+
+### `pairing_codes`
+
+Device pairing codes (migration 112, `app/auth/pairing.py`,
+`docs/dev/device-pairing.md`): PK `id` (random, not a secret), `code_hash`
+(unique, SHA-256 hex of the `mlp_…` code; the code is never stored),
+`created_by` (FK `users(id)`, cascade: the account the device token will
+belong to), `label`, `scopes` (JSON list, within the creator's role), `urls`
+(JSON list, the addresses of the QR payload), `created_at`, `expires_at` (at
+most 10 minutes after creation), `used_at` (NULL until spent; a code works
+once), `revoked_at`, `token_id` (FK `api_tokens(id)`, `SET NULL`: the device
+token it gave), `device_name`, `extensions` (the opaque JSON object the device
+sent, for meshenger E2). At most 10 pending per user. The hourly housekeeping
+deletes rows that hold no token and can no longer give one. Never in the JSON
+backup; emptied in the database download. `PairingCodeRepository` (`auth.py`).
+
+### `recovery_codes`
+
+TOTP recovery codes (migration 109, `app/auth/totp.py`, `docs/dev/auth.md`,
+"Second factor"): PK `id`, `user_id` (FK `users(id)`, cascade), `code_hash`
+(argon2id of the code; the code is never stored), `created_at`, `used_at`
+(NULL until spent; a code works once). Ten per enrolment, replaced together
+by a regeneration, deleted when the factor is removed. In the JSON full backup
+only inside the `users` section; emptied in the database download.
+`TotpRepository` (`auth.py`).
+
+### `webauthn_credentials`
+
+Passkeys (migration 110, `app/auth/webauthn.py`, `docs/dev/auth.md`,
+"Passkeys"): PK `id`, `user_id` (FK `users(id)`, cascade), `credential_id`
+(BLOB, unique across accounts), `public_key` (BLOB, the COSE key; no secret is
+stored), `sign_count` (the authenticator's counter, stored after each use with a
+conditional `UPDATE`), `transports` (JSON list), `aaguid`, `name` (1-64
+characters), `backup_eligible` and `backed_up` (synced passkey flags),
+`created_at`, `last_used_at`. At most 20 per account. In the JSON full backup
+only inside the `users` section; kept in the database download (public keys).
+`PasskeyRepository` (`auth.py`).
+
+### `auth_audit`
+
+Audit trail (`app/auth/audit.py`, `docs/dev/auth.md`, "Audit log"): PK `id`, `ts`, `actor_user_id`, `actor_token_id`
+(no foreign keys: a row outlives its actor), `action`, `target`, `ip`, `via`,
+`outcome`, `details` (JSON; the repository refuses keys that name a secret).
+Retention `auth_settings.audit_retention_days` (366 by default).
+`AuthAuditRepository` (`auth.py`).
+
+### `auth_settings`
+
+Single row (`id = 1`) of access settings, kept out of `app_settings` so no auth
+secret reaches `AppSettings`: `trusted_networks` (JSON `[{cidr, user_id}]`),
+`trusted_proxies` (JSON CIDR list), `public_urls` (JSON), `host_guard_mode`
+(`observe`/`enforce`), `ingress_default_role` (`member`), `session_lifetime_days`
+(30), `audit_retention_days` (366), `basic_imported`, `setup_code_hash` (SHA-256 of
+the installation code), `ingress_admin_granted` (migration 107: the first Home
+Assistant identity was made admin; never cleared), `require_2fa_for_admins`
+(migration 109, off: admins with a password and no second factor reach only the
+enrolment routes). The CORS list stays `app_settings.auth_allowed_origins`.
+`AuthSettingsRepository` (`auth.py`).
+
+### `plugins`
+
+Plugin instances (migration 103; model and rules in `docs/dev/plugins.md`, "Data
+model"): PK `instance_id` (uuid), `plugin_id` (the manifest id; several instances
+share one), `label`, `kind` (`bundled`/`store`/`custom`/`local`, CHECK), `version`,
+`enabled`, `manifest`, `config_schema` (the plugin's `config.schema.json`: its
+`writeOnly` fields are the secrets), `config` (never a secret), `scope`, `granted_permissions`,
+`quotas` (JSON), `auto_update`, `source` (a local plugin's code), `archive_sha256`,
+`repository`, `installed_at`, `updated_at`, `status`, `last_error`, `attention`
+(JSON, NULL when nothing to review), `sort_order`. `PluginRepository` (`plugins.py`).
+Nothing reads it yet: the bots stay in `fanout_configs` until the switch (Store T9).
+
+### `plugin_kv`
+
+Per-instance key-value store: PK `(instance_id, key)`, `value` (JSON), `updated_at`.
+No foreign key: uninstalling with "keep data" leaves the rows. `PluginKvRepository`
+(`plugins.py`).
+
+### `plugin_secrets`
+
+Values of the config schema's `writeOnly` fields: PK `(instance_id, field)`, `value`,
+`updated_at`. Stored in clear until the Notifications key file exists; never returned
+by the repository except `config_for_init()`, never exported, emptied in the database
+download. `PluginRepository` (`plugins.py`).
+
+### `plugin_send_quota`
+
+Send counters of the plugin `messages.send` capability (migration 105): PK
+`(instance_id, period)`, `period` (`hour` or `day`, CHECK), `period_start` (Unix
+seconds of the fixed window), `count`. A row whose `period_start` is not the current
+window reads as zero. Runtime state: excluded from every backup, removed with the
+instance. `PluginSendQuotaRepository` (`plugins.py`), rules in `app/plugins/quotas.py`.
+
+### `plugin_send_guard`
+
+Send guards of the plugin `messages.send` capability, for all instances together
+(migration 106): PK `(scope, subject)`. `instance` (subject `""`) and `destination`
+(`channel:<KEY>` or `contact:<key>`) hold an hourly window in `period_start` (Unix
+seconds) and `count`; a row of another window reads as zero. `cooldown` (subject
+`<instance_id>|<sender>`) and `quiet` (`<instance_id>|<destination>`) hold the time of
+the last reply or send in `period_start`; stamps older than their window are deleted at
+the next send. Runtime state: excluded from every backup; an instance's stamps go with it.
+
+### `plugin_send_limits`
+
+The limits the user lowered (migration 106): PK `name` (`instance_per_hour`,
+`channel_per_hour`, `contact_per_hour`, CHECK), `value` (at least 1). A missing row is the
+default; a value above the default reads as the default. `PluginSendGuardRepository`
+(`plugins.py`), rules in `app/plugins/quotas.py`.
+
 ## Relationships
 
 All foreign keys point at `contacts(public_key)` (children: advert paths, name
 history, both telemetry histories, pane cache, alert state, group members, all
 `ON DELETE CASCADE`), at `contact_groups(id)` (members, cascade) or at
-`messages(id)` (`raw_packets.message_id`, `SET NULL`). `messages.conversation_key`
+`messages(id)` (`raw_packets.message_id`, `SET NULL`), plus `sessions.user_id`,
+`api_tokens.user_id`, `recovery_codes.user_id`, `webauthn_credentials.user_id` and `pairing_codes.created_by` on `users(id)` (cascade), and `pairing_codes.token_id` on `api_tokens(id)` (`SET NULL`). `messages.conversation_key`
 and `messages.sender_key` are plain text, not foreign keys: a message outlives its
 contact or channel. Enforcement requires `PRAGMA foreign_keys = ON`, which
 `Database` sets after migrations (migration 049 rebuilt the tables with cascades).
@@ -207,10 +394,15 @@ databases). The current set:
 
 | Index | On |
 |---|---|
+| `idx_api_tokens_user` | `api_tokens(user_id, created_at)` |
 | `idx_contact_advert_paths_recent` | `contact_advert_paths(public_key, last_seen DESC)` |
 | `idx_contact_group_members_key` | `contact_group_members(public_key)` |
 | `idx_contact_name_history_key` | `contact_name_history(public_key, last_seen DESC)` |
 | `idx_contact_telemetry_pk_ts` | `contact_telemetry_history(public_key, timestamp)` |
+| `idx_auth_audit_ts` | `auth_audit(ts)` |
+| `idx_pairing_codes_user` | `pairing_codes(created_by, created_at)` |
+| `idx_recovery_codes_user` | `recovery_codes(user_id)` |
+| `idx_webauthn_credentials_user` | `webauthn_credentials(user_id)` |
 | `idx_contacts_type_last_seen` | `contacts(type, last_seen)` |
 | `idx_messages_chan_unattributed_sender` | `messages(sender_name)` where `CHAN` and `sender_key IS NULL` |
 | `idx_messages_dedup_null_safe` | unique, `messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))` where `CHAN` |
@@ -220,12 +412,19 @@ databases). The current set:
 | `idx_messages_received` | `messages(received_at)` |
 | `idx_messages_sender_key` | `messages(sender_key)` |
 | `idx_messages_type_received_conversation` | `messages(type, received_at, conversation_key)` |
+| `idx_messages_feed_type` | `messages(type, received_at)` |
+| `idx_messages_feed_outgoing` | `messages(outgoing, received_at)` |
+| `idx_messages_feed_type_outgoing` | `messages(type, outgoing, received_at)` |
 | `idx_messages_unread_covering` | `messages(type, conversation_key, outgoing, received_at)` |
+| `idx_notification_deliveries_channel` | `notification_deliveries(channel_id, created_at)` |
+| `idx_plugins_plugin_id` | `plugins(plugin_id)` |
 | `idx_raw_packets_message_id` | `raw_packets(message_id)` |
 | `idx_raw_packets_payload_hash` | unique, `raw_packets(payload_hash)` |
 | `idx_raw_packets_timestamp` | `raw_packets(timestamp)` |
 | `idx_repeater_pane_cache_pk` | `repeater_pane_cache(public_key)` |
 | `idx_repeater_telemetry_pk_ts` | `repeater_telemetry_history(public_key, timestamp)` |
+| `idx_sessions_expires` | `sessions(expires_at)` |
+| `idx_sessions_user` | `sessions(user_id, created_at)` |
 
 ## Retention and maintenance
 
@@ -233,6 +432,8 @@ databases). The current set:
   contacts not heard for `stale_contact_days` (off at 0); prune undecrypted raw
   packets older than `raw_packet_retention_days` (off at 0); then a bounded
   `PRAGMA incremental_vacuum` (2048 pages) so freed pages return to the OS.
+  The same pass deletes expired and revoked `sessions`
+  (`app/auth/sessions.py`, `purge_sessions`), always.
 - Inline caps: telemetry histories (30 days, 1000 rows per key), advert paths (10
   per contact), push subscriptions (15 failures), pane cache (7 days on read),
   hop cache (`expires_at` on read).
@@ -244,6 +445,9 @@ databases). The current set:
   `tracked_telemetry_repeaters` and `tracked_telemetry_contacts`, and strips the
   `contact-*` entries from `push_conversations` and `push_conversation_overrides`.
   A new setting keyed by contact must be added to that reset.
+- `auth_audit` rows past `auth_settings.audit_retention_days` (366 by default) are
+  deleted by `purge_audit()` (`app/auth/audit.py`) in the hourly housekeeping loop
+  (`app/services/stale_contacts.py`).
 - Everything else (messages, channels, fanout configs) is kept until the user
   deletes it.
 
@@ -254,7 +458,14 @@ order in `app/AGENTS.md`, "## Backups"):
 
 - An SQLite file snapshot via the SQLite backup API (`write_sqlite_backup`,
   `GET /settings/backup/database`), never restored from the UI. The private key
-  is not in the database, so not in the snapshot.
+  is not in the database, so not in the snapshot. In the copy (never the live
+  database) every `app_settings.*_seed` column, the BLE PIN, the
+  previous-transport snapshot, the password and TOTP secrets of `users` and
+  `auth_settings.setup_code_hash` are set to NULL, `sessions` and `plugin_secrets` are
+  emptied, the consents `share_enabled` and `store_online` are set to 0, and a one-row
+  `meshloom_backup_snapshot` marker table is added: a database
+  that starts with it is a restored snapshot, so startup runs the restore hooks
+  and drops it (`docs/dev/backup.md`). A fresh database never has it.
 - `meshloom-backup-v1` (`export_json` / `restore_json`, `GET
   /settings/backup/json`): contacts, channels, settings and groups, Meshloom
   data only. It never holds the radio private key.
@@ -265,7 +476,8 @@ order in `app/AGENTS.md`, "## Backups"):
   and push subscriptions, the radio proxy, settings outside v1). It may be wrapped in a passphrase envelope
   (`services/backup_crypto.py`). Radio reads and writes live in
   `services/backup_radio.py`, the identity decision, inspect and the restore job
-  in `services/backup_restore.py`.
+  in `services/backup_restore.py`. Optional named `sections` added by other
+  features, and the restore hooks: `docs/dev/backup.md`.
 
 ## Keeping this file honest
 

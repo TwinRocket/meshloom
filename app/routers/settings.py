@@ -2,17 +2,22 @@ import logging
 import os
 import tempfile
 import time
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from app.auth import audit
+from app.auth.permissions import can_read_private, require
+from app.auth.ws_events import WsEvent
 from app.background_tasks import spawn
+from app.cors import normalize_origins
 from app.database import db
 from app.models import (
     CONTACT_TYPE_REPEATER,
     AppSettings,
+    AppSettingsView,
     BackupExport,
     BackupExportRequest,
     BackupInspectRequest,
@@ -24,9 +29,13 @@ from app.models import (
     NotificationDestinationsUpdate,
     TelemetryAlertRules,
     UiPreferences,
+    is_valid_start_view,
 )
+from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.region_scope import normalize_region_scope
 from app.repository import AppSettingsRepository, ChannelRepository, ContactRepository
+from app.repository.notification_channels import NotificationChannelRepository
+from app.routers.push import deprecated_route
 from app.services.backup import (
     PRIVATE_KEY_WARNING,
     BackupError,
@@ -36,6 +45,7 @@ from app.services.backup import (
     export_json,
     normalize_backup_request,
     parse_backup_model,
+    read_backup_body,
     restore_json,
     write_sqlite_backup,
 )
@@ -138,6 +148,47 @@ class AppSettingsUpdate(BaseModel):
             "it over (0xFFFFFFFF, then the current time). Applies at the next connection"
         ),
     )
+    auth_allowed_origins: list[str] | None = Field(
+        default=None,
+        description=(
+            "Other sites (scheme://host[:port]) allowed to call this API from a browser "
+            "with credentials (CORS). Replaces the whole list; empty means same-origin "
+            "only. No wildcard, no path"
+        ),
+    )
+    push_allow_private_endpoints: bool | None = Field(
+        default=None,
+        description="Accept Web Push endpoints on a private network (self-hosted UnifiedPush)",
+    )
+    radio_offline_grace_s: int | None = Field(
+        default=None,
+        ge=0,
+        le=3600,
+        description=(
+            "Seconds the radio may stay unreachable before radio_offline is sent (0 = at once)"
+        ),
+    )
+    share_enabled: bool | None = Field(
+        default=None,
+        description="Consent to the link and file sharing service (off by default)",
+    )
+    share_shorten_mode: Literal["auto", "always", "never"] | None = Field(
+        default=None, description="When the composer shortens a link"
+    )
+    share_preview_policy: Literal["always", "private", "never"] | None = Field(
+        default=None, description="When a shared image or link preview is fetched automatically"
+    )
+    notification_language: Literal["auto", "fr", "en"] | None = Field(
+        default=None, description="Language of the e-mail and Apprise notifications"
+    )
+    push_private_endpoints_grandfathered: bool | None = Field(
+        default=None,
+        description="Set to false to dismiss the upgrade notice (setting it also clears it)",
+    )
+    push_private_endpoints_review: bool | None = Field(
+        default=None,
+        description="Set to false to dismiss the push review notice (saving the opt-in also clears it)",
+    )
     telemetry_interval_hours: int | None = Field(
         default=None,
         description=(
@@ -175,8 +226,13 @@ class AppSettingsUpdate(BaseModel):
     )
     notification_destinations: NotificationDestinationsUpdate | None = Field(
         default=None,
-        description="SMTP and webhook destinations; omit/null secrets keep stored values",
+        description="SMTP, webhook and Apprise destinations; omit/null secrets keep stored values",
     )
+
+    @field_validator("auth_allowed_origins")
+    @classmethod
+    def _normalize_allowed_origins(cls, value: list[str] | None) -> list[str] | None:
+        return None if value is None else normalize_origins(value)
 
 
 class BlockKeyRequest(BaseModel):
@@ -300,11 +356,11 @@ def _build_schedule(
 
 async def _present_settings(settings: AppSettings) -> AppSettings:
     from app.services.directory import annotate_directory_available
-    from app.telemetry_alerts import redact_notification_destinations
+    from app.telemetry_alerts import present_notification_destinations
 
     redacted = settings.model_copy(
         update={
-            "notification_destinations": redact_notification_destinations(
+            "notification_destinations": present_notification_destinations(
                 settings.notification_destinations
             )
         }
@@ -316,20 +372,51 @@ async def _settings_response() -> AppSettings:
     return await _present_settings(await AppSettingsRepository.get())
 
 
-@router.get("", response_model=AppSettings)
+@router.get("", response_model=AppSettings, dependencies=[Depends(require("admin"))])
 async def get_settings() -> AppSettings:
     """Get current application settings."""
     return await _settings_response()
 
 
-@router.patch("", response_model=AppSettings)
-async def update_settings(update: AppSettingsUpdate) -> AppSettings:
+@router.get("/view", response_model=AppSettingsView, dependencies=[Depends(require("read"))])
+async def get_settings_view(request: Request) -> AppSettingsView:
+    """The non-sensitive settings the interface loads at startup, for every role.
+
+    ``GET /api/settings`` stays administrator-only; this is its allowlisted slice
+    (``AppSettingsView``). A caller without ``read_private`` (the kiosk) gets only
+    ``channel-`` keys in ``last_message_times`` (the others name direct conversations).
+    """
+    settings = await _settings_response()
+    last_message_times = settings.last_message_times
+    if not can_read_private(request):
+        last_message_times = {
+            key: ts for key, ts in last_message_times.items() if key.startswith("channel-")
+        }
+    return AppSettingsView(
+        ui_preferences=settings.ui_preferences,
+        last_message_times=last_message_times,
+        flood_scope=settings.flood_scope,
+        known_regions=settings.known_regions,
+        blocked_keys=settings.blocked_keys,
+        blocked_names=settings.blocked_names,
+        directory_available=settings.directory_available,
+    )
+
+
+@router.patch("", response_model=AppSettings, dependencies=[Depends(require("admin"))])
+async def update_settings(
+    update: AppSettingsUpdate,
+    response: Response = None,  # type: ignore[assignment]  # injected by FastAPI
+) -> AppSettings:
     """Update application settings.
 
     Settings are persisted to the database and survive restarts.
     """
     kwargs = {}
     if update.ui_preferences is not None:
+        start_view = update.ui_preferences.start_view
+        if start_view and not is_valid_start_view(start_view):
+            raise HTTPException(status_code=400, detail="Unknown start page")
         kwargs["ui_preferences"] = update.ui_preferences
 
     if update.max_radio_contacts is not None:
@@ -394,6 +481,12 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         if value is not None:
             logger.info("Updating %s to %s", field, value)
             kwargs[field] = value
+    # CORS allowlist (already normalized by the model). The repository refreshes
+    # the in-memory copy the CORS middleware reads (app/cors.py).
+    if update.auth_allowed_origins is not None:
+        logger.info("Updating auth_allowed_origins to %s", update.auth_allowed_origins)
+        kwargs["auth_allowed_origins"] = update.auth_allowed_origins
+
     if update.enable_message_poll_fallback is not None:
         current_settings = await AppSettingsRepository.get()
         poll_fallback_changed = (
@@ -431,7 +524,42 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
         kwargs["telemetry_alert_rules"] = update.telemetry_alert_rules
 
     if update.notification_destinations is not None:
+        # Deprecated, removed in 5.2.0: the destinations are the channels of /api/notifications.
+        if response is not None:  # a direct call (tests) has none
+            deprecated_route(response)
+        from app.secret_fields import SecretRequiredError
+
+        try:
+            await _check_webhook_destination(update.notification_destinations)
+        except SecretRequiredError as exc:
+            # A kept secret never follows a destination change: 400 secret_required.
+            raise HTTPException(status_code=400, detail=exc.detail()) from None
         kwargs["notification_destinations"] = update.notification_destinations
+
+    if update.push_allow_private_endpoints is not None:
+        logger.info(
+            "Updating push_allow_private_endpoints to %s", update.push_allow_private_endpoints
+        )
+        kwargs["push_allow_private_endpoints"] = update.push_allow_private_endpoints
+        # An explicit choice replaces the upgrade default and its notice.
+        kwargs["push_private_endpoints_grandfathered"] = False
+        kwargs["push_private_endpoints_review"] = False
+    if update.radio_offline_grace_s is not None:
+        logger.info("Updating radio_offline_grace_s to %s", update.radio_offline_grace_s)
+        kwargs["radio_offline_grace_s"] = update.radio_offline_grace_s
+    if update.share_enabled is not None:
+        logger.info("Updating share_enabled to %s", update.share_enabled)
+        kwargs["share_enabled"] = update.share_enabled
+    if update.share_shorten_mode is not None:
+        kwargs["share_shorten_mode"] = update.share_shorten_mode
+    if update.notification_language is not None:
+        kwargs["notification_language"] = update.notification_language
+    if update.share_preview_policy is not None:
+        kwargs["share_preview_policy"] = update.share_preview_policy
+    if update.push_private_endpoints_grandfathered is False:
+        kwargs["push_private_endpoints_grandfathered"] = False
+    if update.push_private_endpoints_review is False:
+        kwargs["push_private_endpoints_review"] = False
 
     # Flood scope
     flood_scope_changed = False
@@ -479,7 +607,11 @@ async def update_settings(update: AppSettingsUpdate) -> AppSettings:
     return await _settings_response()
 
 
-@router.post("/favorites/toggle", response_model=FavoriteToggleResponse)
+@router.post(
+    "/favorites/toggle",
+    response_model=FavoriteToggleResponse,
+    dependencies=[Depends(require("send"))],
+)
 async def toggle_favorite(request: FavoriteRequest) -> FavoriteToggleResponse:
     """Toggle a conversation's favorite status."""
     if request.type == "contact":
@@ -505,7 +637,9 @@ async def toggle_favorite(request: FavoriteRequest) -> FavoriteToggleResponse:
     return FavoriteToggleResponse(type=request.type, id=request.id, favorite=new_value)
 
 
-@router.post("/pins/toggle", response_model=PinToggleResponse)
+@router.post(
+    "/pins/toggle", response_model=PinToggleResponse, dependencies=[Depends(require("send"))]
+)
 async def toggle_pin(request: PinRequest) -> PinToggleResponse:
     """Toggle a conversation's pinned status."""
     if request.type == "contact":
@@ -526,7 +660,11 @@ async def toggle_pin(request: PinRequest) -> PinToggleResponse:
     return PinToggleResponse(type=request.type, id=request.id, pinned=new_value)
 
 
-@router.post("/muted-channels/toggle", response_model=MuteChannelToggleResponse)
+@router.post(
+    "/muted-channels/toggle",
+    response_model=MuteChannelToggleResponse,
+    dependencies=[Depends(require("send"))],
+)
 async def toggle_muted_channel(request: MuteChannelRequest) -> MuteChannelToggleResponse:
     """Set or toggle a channel's muted status, optionally with an expiry."""
     channel = await ChannelRepository.get_by_key(request.key)
@@ -557,7 +695,7 @@ async def toggle_muted_channel(request: MuteChannelRequest) -> MuteChannelToggle
     if refreshed:
         from app.websocket import broadcast_event
 
-        broadcast_event("channel", refreshed.model_dump())
+        broadcast_event(WsEvent.CHANNEL, refreshed.model_dump())
         return MuteChannelToggleResponse(
             key=request.key, muted=refreshed.muted, muted_until=refreshed.muted_until
         )
@@ -565,21 +703,29 @@ async def toggle_muted_channel(request: MuteChannelRequest) -> MuteChannelToggle
     return MuteChannelToggleResponse(key=request.key, muted=muted, muted_until=muted_until)
 
 
-@router.post("/blocked-keys/toggle", response_model=AppSettings)
+@router.post(
+    "/blocked-keys/toggle", response_model=AppSettings, dependencies=[Depends(require("admin"))]
+)
 async def toggle_blocked_key(request: BlockKeyRequest) -> AppSettings:
     """Toggle a public key's blocked status."""
     logger.info("Toggling blocked key: %s", request.key[:12])
     return await _present_settings(await AppSettingsRepository.toggle_blocked_key(request.key))
 
 
-@router.post("/blocked-names/toggle", response_model=AppSettings)
+@router.post(
+    "/blocked-names/toggle", response_model=AppSettings, dependencies=[Depends(require("admin"))]
+)
 async def toggle_blocked_name(request: BlockNameRequest) -> AppSettings:
     """Toggle a display name's blocked status."""
     logger.info("Toggling blocked name: %s", request.name)
     return await _present_settings(await AppSettingsRepository.toggle_blocked_name(request.name))
 
 
-@router.post("/tracked-telemetry/toggle", response_model=TrackedTelemetryResponse)
+@router.post(
+    "/tracked-telemetry/toggle",
+    response_model=TrackedTelemetryResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def toggle_tracked_telemetry(request: TrackedTelemetryRequest) -> TrackedTelemetryResponse:
     """Toggle periodic telemetry collection for a repeater.
 
@@ -649,7 +795,11 @@ async def toggle_tracked_telemetry(request: TrackedTelemetryRequest) -> TrackedT
     )
 
 
-@router.get("/tracked-telemetry/schedule", response_model=TelemetrySchedule)
+@router.get(
+    "/tracked-telemetry/schedule",
+    response_model=TelemetrySchedule,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_telemetry_schedule() -> TelemetrySchedule:
     """Return the current telemetry scheduling derivation.
 
@@ -681,7 +831,11 @@ class TrackedTelemetryContactsResponse(BaseModel):
     schedule: TelemetrySchedule = Field(description="Current scheduling state")
 
 
-@router.post("/tracked-telemetry-contacts/toggle", response_model=TrackedTelemetryContactsResponse)
+@router.post(
+    "/tracked-telemetry-contacts/toggle",
+    response_model=TrackedTelemetryContactsResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def toggle_tracked_telemetry_contact(
     request: TrackedTelemetryRequest,
 ) -> TrackedTelemetryContactsResponse:
@@ -777,15 +931,19 @@ class TelemetryAlertCatalog(BaseModel):
 
 
 class NotificationDestTestRequest(BaseModel):
-    channel: Literal["email", "webhook"]
+    channel: Literal["email", "webhook", "apprise"]
 
 
 class NotificationDestTestResponse(BaseModel):
     status: str
-    channel: Literal["email", "webhook"]
+    channel: Literal["email", "webhook", "apprise"]
 
 
-@router.get("/telemetry-alert-catalog", response_model=TelemetryAlertCatalog)
+@router.get(
+    "/telemetry-alert-catalog",
+    response_model=TelemetryAlertCatalog,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_telemetry_alert_catalog() -> TelemetryAlertCatalog:
     """Available metrics from last tracked snapshots, plus current latches."""
     from app.repository.contact_telemetry import ContactTelemetryRepository
@@ -822,30 +980,76 @@ async def get_telemetry_alert_catalog() -> TelemetryAlertCatalog:
     )
 
 
+async def _check_webhook_destination(patch: NotificationDestinationsUpdate) -> None:
+    """Refuse at save a webhook or Apprise URL the guard would refuse at send
+    (400, coded), and a kept secret that would follow a destination change
+    (``SecretRequiredError``).
+
+    Checked only when the URLs or their private-network flag change, so saving an
+    unrelated field never depends on the destination hosts' DNS.
+    """
+    from app.net.apprise_urls import AppriseUrlRefused, split_apprise_urls, validate_apprise_urls
+    from app.telemetry_alerts import merge_notification_destinations
+
+    current = (await AppSettingsRepository.get()).notification_destinations
+    # Raises SecretRequiredError when a kept secret would follow a new destination.
+    merged_all = merge_notification_destinations(current, patch)
+    apprise = merged_all.apprise
+    if apprise.urls.strip() and (
+        apprise.urls != current.apprise.urls
+        or apprise.allow_private_network != current.apprise.allow_private_network
+    ):
+        try:
+            await validate_apprise_urls(
+                split_apprise_urls(apprise.urls),
+                allow_private_network=apprise.allow_private_network,
+            )
+        except AppriseUrlRefused as exc:
+            raise HTTPException(status_code=400, detail=exc.detail()) from None
+    if patch.webhook is None:
+        return
+    merged = merged_all.webhook
+    url = merged.url.strip()
+    if not url or (
+        url == current.webhook.url.strip()
+        and merged.allow_private_network == current.webhook.allow_private_network
+    ):
+        return
+    try:
+        await validate_destination(url, allow_private_network=merged.allow_private_network)
+    except EgressBlocked as exc:
+        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
+
+
 @router.post(
     "/notification-destinations/test",
     response_model=NotificationDestTestResponse,
+    dependencies=[Depends(require("admin")), Depends(deprecated_route)],
+    deprecated=True,
 )
 async def test_notification_destinations(
     request: NotificationDestTestRequest,
 ) -> NotificationDestTestResponse:
-    """Send a fixed test payload on one channel. Does not create a latch."""
-    from app.notify import TEST_ALERT_PAYLOAD, send_email_alert, send_webhook_alert
+    """Deprecated (removed in 5.2.0): ``POST /api/notifications/channels/{id}/test`` on
+    ``legacy:email``, ``legacy:webhook`` or ``legacy:apprise``, which this calls (same
+    dispatcher, egress guard, rate limit and coded errors)."""
+    from app.routers.notifications import test_channel
 
-    dest = (await AppSettingsRepository.get()).notification_destinations
-    try:
-        if request.channel == "email":
-            await send_email_alert(dest, TEST_ALERT_PAYLOAD)
-        else:
-            await send_webhook_alert(dest, TEST_ALERT_PAYLOAD)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    channel_id = f"legacy:{request.channel}"
+    if await NotificationChannelRepository.get(channel_id) is None:
+        # Not configured: there is no channel to test (the old 400, now coded).
+        raise HTTPException(
+            status_code=400, detail={"code": "invalid_config", "params": {"fields": []}}
+        )
+    await test_channel(channel_id)
     return NotificationDestTestResponse(status="ok", channel=request.channel)
 
 
-@router.get("/tracked-telemetry-contacts/schedule", response_model=TelemetrySchedule)
+@router.get(
+    "/tracked-telemetry-contacts/schedule",
+    response_model=TelemetrySchedule,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_contact_telemetry_schedule() -> TelemetrySchedule:
     """Return the current telemetry scheduling derivation for contacts."""
     app_settings = await AppSettingsRepository.get()
@@ -856,7 +1060,7 @@ async def get_contact_telemetry_schedule() -> TelemetrySchedule:
     )
 
 
-@router.get("/backup/database")
+@router.get("/backup/database", dependencies=[Depends(require("admin"))])
 async def download_database_backup(background_tasks: BackgroundTasks) -> FileResponse:
     """Download a consistent snapshot of meshcore.db.
 
@@ -882,18 +1086,21 @@ async def download_database_backup(background_tasks: BackgroundTasks) -> FileRes
     )
 
 
-@router.get("/backup/json", response_model=BackupExport)
+@router.get("/backup/json", response_model=BackupExport, dependencies=[Depends(require("admin"))])
 async def download_json_backup() -> BackupExport:
     """Meshloom data only (``meshloom-backup-v1``): contacts, channels, settings,
     groups. No radio identity or radio settings: the full backup has them."""
-    return await export_json()
+    try:
+        return await export_json()
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
 
 
 def _backup_http_error(exc: BackupError) -> HTTPException:
     return HTTPException(status_code=exc.status, detail=exc.detail())
 
 
-@router.post("/backup/export")
+@router.post("/backup/export", dependencies=[Depends(require("admin"))])
 async def export_full_backup(request: BackupExportRequest | None = None) -> JSONResponse:
     """The full backup (``meshloom-backup-v2``), optionally encrypted.
 
@@ -910,7 +1117,13 @@ async def export_full_backup(request: BackupExportRequest | None = None) -> JSON
                 message=f"The passphrase needs at least {PASSPHRASE_MIN_CHARS} characters",
             )
         )
-    doc = await export_backup_v2()
+    try:
+        doc = await export_backup_v2(
+            encrypted=bool(passphrase),
+            include_accounts=request.include_accounts if request else True,
+        )
+    except BackupError as exc:
+        raise _backup_http_error(exc) from None
     body = export_document(doc)
     if passphrase:
         try:
@@ -939,14 +1152,28 @@ async def export_full_backup(request: BackupExportRequest | None = None) -> JSON
     )
 
 
-@router.post("/backup/inspect", response_model=BackupInspectResult)
-async def inspect_full_backup(body: Annotated[dict[str, Any], Body()]) -> BackupInspectResult:
+_BACKUP_BODY_OPENAPI = {
+    "requestBody": {
+        "required": True,
+        "content": {"application/json": {"schema": {"type": "object"}}},
+    }
+}
+
+
+@router.post(
+    "/backup/inspect",
+    response_model=BackupInspectResult,
+    openapi_extra=_BACKUP_BODY_OPENAPI,
+    dependencies=[Depends(require("admin"))],
+)
+async def inspect_full_backup(http_request: Request) -> BackupInspectResult:
     """Summarise a backup file and what restoring it would do; writes nothing.
 
     Body ``{"backup": <file>, "passphrase": "..."}``. A file without ``format``
-    is a ``meshloom-backup-v1`` file.
+    is a ``meshloom-backup-v1`` file. Over 64 MiB: 413 ``backup_too_large``.
     """
     try:
+        body = await read_backup_body(http_request)
         request = parse_backup_model(BackupInspectRequest, normalize_backup_request(body))
         from app.services.backup_restore import inspect_backup
 
@@ -975,9 +1202,14 @@ async def restore_json_backup(request: BackupRestoreRequest) -> BackupRestoreRes
     responses={
         200: {"model": BackupRestoreResult, "description": "Flat v1 body: merged now"},
         202: {"description": "Body with `backup`: the restore job started, `{job_id}`"},
+        413: {"description": "Body over 64 MiB: `backup_too_large`"},
     },
+    openapi_extra=_BACKUP_BODY_OPENAPI,
+    dependencies=[Depends(require("admin"))],
 )
-async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
+async def restore_backup(
+    http_request: Request, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> Any:
     """Restore a backup.
 
     - Flat body (no ``backup`` key): the v1 request, ``{"confirm": true, ...v1
@@ -987,6 +1219,11 @@ async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
       file (v1, v2, encrypted) through the restore job: 202 ``{"job_id"}``, then
       ``GET /backup/restore/jobs/{job_id}``. Identity refusals are 409, before
       anything is written.
+
+    A body over 64 MiB is refused with 413 ``backup_too_large`` before parsing.
+
+    Each call writes one ``backup.restored`` audit row: here for a refusal and
+    for the v1 merge, at the end of the job otherwise.
     """
     from app.services.backup import V1_FORMATS, open_backup_document
     from app.services.backup_restore import (
@@ -996,13 +1233,26 @@ async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
     )
 
     try:
+        body = await read_backup_body(http_request)
         if "backup" not in body:
             if body.get("format") is not None and body.get("format") not in V1_FORMATS:
                 raise BackupError(
                     "backup_use_full_restore",
                     message="This file is a full backup: restore it with the backup field",
                 )
-            return await restore_json_backup(parse_backup_model(BackupRestoreRequest, body))
+            v1_request = parse_backup_model(BackupRestoreRequest, body)
+            try:
+                result = await restore_json_backup(v1_request)
+            except HTTPException as exc:
+                await audit.record(
+                    "backup.restored",
+                    "failure",
+                    actor=actor,
+                    details={"format": "v1", "status": exc.status_code},
+                )
+                raise
+            await audit.record("backup.restored", "success", actor=actor, details={"format": "v1"})
+            return result
         request = parse_backup_model(BackupRestoreV2Request, normalize_backup_request(body))
         if not request.confirm:
             raise BackupError("backup_confirm_required", message="Restore requires confirm=true")
@@ -1023,9 +1273,11 @@ async def restore_backup(body: Annotated[dict[str, Any], Body()]) -> Any:
                 replace_live_identity=request.replace_live_identity,
                 wipe_history=request.wipe_history,
                 expected_live_public_key=request.expected_live_public_key,
+                actor=actor,
             ),
         )
     except BackupError as exc:
+        await audit.record("backup.restored", "failure", actor=actor, details={"error": exc.code})
         raise _backup_http_error(exc) from None
     return JSONResponse({"job_id": job_id}, status_code=202)
 
@@ -1036,7 +1288,11 @@ def _job_not_found() -> HTTPException:
     )
 
 
-@router.get("/backup/restore/jobs/latest", response_model=BackupRestoreJob)
+@router.get(
+    "/backup/restore/jobs/latest",
+    response_model=BackupRestoreJob,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_latest_backup_restore_job() -> BackupRestoreJob:
     """The most recent restore job, running or finished (lets the UI find it
     again after a reload). Holds step statuses, counts and warnings only."""
@@ -1048,7 +1304,11 @@ async def get_latest_backup_restore_job() -> BackupRestoreJob:
     return job
 
 
-@router.get("/backup/restore/jobs/{job_id}", response_model=BackupRestoreJob)
+@router.get(
+    "/backup/restore/jobs/{job_id}",
+    response_model=BackupRestoreJob,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_backup_restore_job(job_id: str) -> BackupRestoreJob:
     from app.services.backup_restore import get_restore_job
 

@@ -64,10 +64,9 @@ See [Meshloom Community](/en/docs/deep/community/).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MESHCORE_DISABLE_BOTS` | `false` | Turns the bot system off at startup. Bots run Python code with full access to the machine. The Linux package sets it to `true` in `meshloom.env` |
-| `MESHCORE_BASIC_AUTH_USERNAME` | *(empty)* | User name asked by the browser for the whole application, the live connection (WebSocket) included. Use it with [HTTPS](/en/docs/deep/https/) |
-| `MESHCORE_BASIC_AUTH_PASSWORD` | *(empty)* | Matching password |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Host lock of the plugin system: when `true`, no plugin is started, whatever the settings say. It is separate from `MESHCORE_DISABLE_BOTS` |
 
-The two password variables must be set together. Setting only one stops Meshloom at startup. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
+From 5.0 `MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` are retired (also listed under **Retired variables**): when both are set and Meshloom has no account yet, the first start creates the administrator account from them, then they are no longer read and a warning is logged at every start while they are set (remove them; accounts are managed in **Settings → Users & Access**). Setting only one imports nothing and no longer stops Meshloom. `Authorization: Basic` with an account's user name and password is still accepted until 5.2, then removed. A user name longer than 64 characters cannot become an account: the import is skipped with an error in the log, and you create the administrator with the installation code printed in the log. What each option does and does not protect is explained in [Security](/en/docs/deep/security/).
 
 ## Installation and updates
 
@@ -79,6 +78,17 @@ The installer sets these for you. You rarely edit them by hand.
 | `MESHLOOM_UPDATE_HELPER` | `compose` for a Docker stack managed by the update helper, `none` to turn installing from the interface off |
 | `MESHLOOM_RUN_AS_USER` | Docker only. A number such as `10001` runs Meshloom as that user instead of root. See [Other install paths](/en/docs/deep/install-paths/) |
 | `MESHLOOM_IMAGE` | Docker only. The image Compose starts, ideally pinned by digest |
+
+## Notifications
+
+Notifications are set in **Settings → Notifications** and stored in the database, not in variables (see [Notifications](/en/docs/deep/notifications/)). The channels (their settings, secrets and limits) live in their own tables; the settings below are in the settings table:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `notification_language` | `auto` | `auto`, `fr` or `en`. The language of the instance for notifications (a channel can set its own); `auto` follows the browsers subscribed to push (English only with a strict majority of English browsers, a tie is French) |
+| `notification_rules` | `{}` | The notification rules (which channel receives which event, per-conversation exceptions). Written by the 4.18 to 5.0 import, the rules table, the bell, **Do not disturb** and the channels' deletion; `paused_until` (the pause) and the options of the table (`mention_whole_word`) are in it |
+| `radio_offline_grace_s` | `60` | Seconds the radio may stay unreachable before **Radio offline** is sent (0 to 3600; 0 notifies at once). Set under the **Radio offline** row of the rules table |
+| `push_allow_private_endpoints` | `false` | Accept Web Push endpoints on a private network, for a self-hosted UnifiedPush distributor. See [Push](/en/docs/deep/push/#push-services-on-a-private-network) |
 
 ## Retired variables
 
@@ -106,6 +116,7 @@ Meshloom writes the same warning at each start while one of them is still set.
 
 | Retired variable | What happens to it |
 |----------|---------|
+| `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Read only at the first start with no account, to create the administrator; compatibility until 5.2: `Authorization: Basic` is still accepted, then removed. Accounts are managed in **Settings → Users & Access**. Same warning at each start |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignored, with the same warning. The radio's private key can always be read back: through `GET /api/radio/private-key` and in the full backup (**Settings → Database**, see [Back up your radio](/en/docs/backup/)). See [Security](/en/docs/deep/security/#the-nodes-private-key) |
 
 ## Settings stored in the database
@@ -118,9 +129,10 @@ You change these in the web interface. Nothing here is set through the environme
 | **Database** | `auto_decrypt_dm_on_advert` |
 | **Radio-App Management** | `blocked_keys`, `blocked_names`, `discovery_blocked_types`, `tracked_telemetry_repeaters`, `tracked_telemetry_contacts` (8 of each at most), `telemetry_interval_hours`, `telemetry_routed_hourly`, `stale_contact_days` |
 | **Alerts** | `telemetry_alert_rules` |
-| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (email and webhook) |
+| **Notifications** | `push_defaults`, `push_conversation_overrides`, `vapid_subject`, `notification_destinations` (e-mail, webhook and Apprise, the 4.18.x destinations), `notification_language`, `notification_rules`, `radio_offline_grace_s`, `push_allow_private_endpoints`; the new tables `notification_channels`, `notification_deliveries`, `notification_counters` and `notification_state` |
 | **Updates** | `auto_update`, `auto_update_window_start`, `auto_update_window_end`, `auto_update_weekdays` |
-| **Local Configuration** and **Navigation** | `ui_preferences`: theme, label of the instance, left rail |
+| **Users & Access** | `public_urls` (**Public addresses**: the names Meshloom answers to from outside, declared by an administrator; no environment variable exists for them), `host_guard_mode` (observe or enforce) |
+| **Local Configuration** and **Navigation** | `ui_preferences`: theme, label of the instance, left rail; `auth_allowed_origins`: the other sites allowed to call the API (**Allowed origins**) |
 | Discovered channels | `rejected_channels`: the channels you refused |
 | Not in the interface | `raw_packet_retention_days`: automatically deletes unreadable packets older than this many days (`0` keeps everything). Set it through `PATCH /api/settings` |
 

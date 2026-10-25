@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './eSlices';
 import { ConversationPane } from '../components/ConversationPane';
+import { makeFeedConversation } from '../components/feed/feedConversation';
 import i18n from '../i18n';
 import sliceEn from '../i18n/locales/slices/b.en.json';
 import sliceFr from '../i18n/locales/slices/b.fr.json';
@@ -81,6 +82,12 @@ vi.mock('../components/MapView', () => ({
 
 vi.mock('../components/VisualizerView', () => ({
   VisualizerView: () => <div data-testid="visualizer-view" />,
+}));
+
+vi.mock('../components/feed/FeedView', () => ({
+  FeedView: ({ preset }: { preset?: string }) => (
+    <div data-testid="feed-view" data-preset={preset ?? ''} />
+  ),
 }));
 
 vi.mock('../components/LiveView', () => ({
@@ -681,6 +688,15 @@ describe('ConversationPane', () => {
     expect(onRefuseChannel).toHaveBeenCalledWith(channel.key);
   });
 
+  it('renders the feed destination through the lazy FeedView', async () => {
+    render(
+      <ConversationPane {...createProps({ activeConversation: makeFeedConversation('Feed') })} />
+    );
+
+    expect(await screen.findByTestId('feed-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
+  });
+
   it('passes optional nav callbacks into the raw feed without subscribing to packets', async () => {
     const onOpenContactInfo = vi.fn();
     const onSelectConversation = vi.fn();
@@ -700,23 +716,17 @@ describe('ConversationPane', () => {
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
   });
 
-  it('renders ControlJournalView without a pane-level packet subscription', () => {
-    const onOpenContactInfo = vi.fn();
-    const onSelectConversation = vi.fn();
+  it('renders the feed with the Control preset for a feed conversation carrying it', async () => {
     render(
       <ConversationPane
         {...createProps({
-          activeConversation: { type: 'control', id: 'control', name: 'Control journal' },
-          onOpenContactInfo,
-          onSelectConversation,
+          activeConversation: makeFeedConversation('Control', 'control'),
         })}
       />
     );
 
-    expect(screen.getByTestId('control-journal')).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('controlJournal.title'))).toBeInTheDocument();
+    expect(await screen.findByTestId('feed-view')).toHaveAttribute('data-preset', 'control');
     expect(screen.queryByTestId('message-list')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('raw-packet-list')).not.toBeInTheDocument();
     expect(screen.queryByTestId('message-input')).not.toBeInTheDocument();
   });
 });

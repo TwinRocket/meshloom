@@ -1,0 +1,21 @@
+{
+  "description": "Walk every live object with gc.get_objects (to find the server's secrets or the hook): by import, then by rebuilding the builtin module from its spec.",
+  "events": [
+    {
+      "params": {
+        "how": "import"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    },
+    {
+      "params": {
+        "how": "spec"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

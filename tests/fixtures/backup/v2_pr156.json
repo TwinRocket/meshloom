@@ -1,0 +1,361 @@
+{
+  "channels": [
+    {
+      "favorite": false,
+      "flood_scope_override": null,
+      "is_hashtag": true,
+      "key": "1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F1F",
+      "membership": "adopted",
+      "muted": false,
+      "muted_until": null,
+      "name": "#lyon",
+      "path_hash_mode_override": null,
+      "pinned": false
+    },
+    {
+      "favorite": false,
+      "flood_scope_override": null,
+      "is_hashtag": true,
+      "key": "D8F3E005453E56988DE0A853348640F7",
+      "membership": "adopted",
+      "muted": false,
+      "muted_until": null,
+      "name": "#meshloom",
+      "path_hash_mode_override": null,
+      "pinned": false
+    },
+    {
+      "favorite": false,
+      "flood_scope_override": null,
+      "is_hashtag": false,
+      "key": "C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0C0",
+      "membership": "adopted",
+      "muted": true,
+      "muted_until": null,
+      "name": "Family",
+      "path_hash_mode_override": null,
+      "pinned": false
+    }
+  ],
+  "contacts": [
+    {
+      "direct_path": "aabb",
+      "direct_path_hash_mode": 0,
+      "direct_path_len": 2,
+      "direct_path_updated_at": null,
+      "favorite": true,
+      "first_seen": 1759000000,
+      "flags": 0,
+      "last_advert": 1760000000,
+      "last_contacted": null,
+      "last_seen": 1760000100,
+      "lat": 45.75,
+      "lon": 4.85,
+      "name": "Alice",
+      "pinned": false,
+      "public_key": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      "route_override_hash_mode": null,
+      "route_override_len": null,
+      "route_override_path": null,
+      "type": 1
+    },
+    {
+      "direct_path": null,
+      "direct_path_hash_mode": null,
+      "direct_path_len": null,
+      "direct_path_updated_at": null,
+      "favorite": false,
+      "first_seen": null,
+      "flags": 0,
+      "last_advert": null,
+      "last_contacted": null,
+      "last_seen": null,
+      "lat": null,
+      "lon": null,
+      "name": "Rpt Lyon",
+      "pinned": false,
+      "public_key": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      "route_override_hash_mode": null,
+      "route_override_len": null,
+      "route_override_path": null,
+      "type": 2
+    }
+  ],
+  "exported_at": 1760600000,
+  "format": "meshloom-backup-v2",
+  "groups": [
+    {
+      "created_at": 1792269234,
+      "id": 1,
+      "name": "Friends",
+      "public_keys": [
+        "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+      ],
+      "sort_order": 0
+    }
+  ],
+  "identity": {
+    "private_key": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
+    "private_key_status": "included",
+    "public_key": "ce92350b547b6cf028df0618bf9aba55f949930059308d83ebd727e13472ed99"
+  },
+  "meshloom_extra": {
+    "fanout_configs": [
+      {
+        "config": {
+          "headers": {},
+          "method": "POST",
+          "url": "https://hooks.example.org/x"
+        },
+        "enabled": true,
+        "id": "hook-1",
+        "name": "Hook",
+        "scope": {
+          "messages": "all",
+          "raw_packets": "none"
+        },
+        "sort_order": 0,
+        "type": "webhook"
+      }
+    ],
+    "path_hash_one_byte_opt_in": false,
+    "push_subscriptions": [],
+    "radio_proxy": {
+      "bind": "0.0.0.0",
+      "enabled": false,
+      "max_clients": 8,
+      "port": 5001
+    },
+    "vapid": null
+  },
+  "meshloom_version": "5.0.0-dev+pr156",
+  "push_conversation_overrides": {},
+  "push_defaults": {
+    "advert_companion": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "advert_repeater": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "advert_sensor": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "channel_found": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "new_contact": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "new_dm": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "oss_update": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    },
+    "telemetry_alert": {
+      "email": false,
+      "push": true,
+      "webhook": false
+    }
+  },
+  "radio": {
+    "autoadd": {
+      "config": 0,
+      "max_hops": 0
+    },
+    "ble_pin": 123456,
+    "cli_prefs": {
+      "cad": "off",
+      "int.thresh": "14",
+      "txdelay": "0.5",
+      "tz.offset": "0"
+    },
+    "client_repeat": false,
+    "custom_vars": {
+      "gps": "0"
+    },
+    "default_flood_scope": null,
+    "default_flood_scope_read": true,
+    "firmware": {
+      "build": "01 Jan 2026",
+      "max_channels": 8,
+      "max_contacts": 100,
+      "model": "Heltec V3",
+      "ver_code": 14,
+      "version": "v1.18.0"
+    },
+    "lat": 48.85,
+    "lon": 2.35,
+    "max_tx_power": 22,
+    "name": "Base",
+    "other": {
+      "adv_loc_policy": 0,
+      "manual_add_contacts": 0,
+      "multi_acks": 0,
+      "telemetry_mode_base": 0,
+      "telemetry_mode_env": 0,
+      "telemetry_mode_loc": 0
+    },
+    "path_hash_mode": 0,
+    "radio": {
+      "bw": 250.0,
+      "cr": 5,
+      "freq": 869.525,
+      "sf": 11
+    },
+    "tuning": {
+      "airtime_factor_raw": 1000,
+      "rx_delay_raw": 1000
+    },
+    "tx_power": 20
+  },
+  "settings": {
+    "advert_interval": 7200,
+    "auto_clock_wraparound": true,
+    "auto_decrypt_dm_on_advert": true,
+    "auto_resend_channel": false,
+    "auto_update": false,
+    "auto_update_weekdays": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "auto_update_window_end": "00:00",
+    "auto_update_window_start": "00:00",
+    "blocked_keys": [],
+    "blocked_names": [
+      "spam"
+    ],
+    "directory_available": false,
+    "discovery_blocked_types": [],
+    "enable_message_poll_fallback": false,
+    "flood_scope": "",
+    "force_channel_slot_reconfigure": false,
+    "known_regions": [],
+    "last_advert_time": 0,
+    "last_message_times": {},
+    "load_with_autoevict": false,
+    "max_radio_contacts": 200,
+    "notification_destinations": {
+      "email": {
+        "from_address": "",
+        "host": "",
+        "mode": "starttls",
+        "password": "",
+        "port": 587,
+        "to": "",
+        "user": ""
+      },
+      "webhook": {
+        "hmac_secret": "",
+        "url": ""
+      }
+    },
+    "raw_packet_retention_days": 0,
+    "rejected_channels": [],
+    "stale_contact_days": 30,
+    "telemetry_alert_rules": {
+      "battery_volts_min": 3.5,
+      "channels": {
+        "email": false,
+        "push": true,
+        "webhook": false
+      },
+      "misses_before_alert": 2,
+      "noise_floor_max_dbm": -90.0,
+      "overrides": {},
+      "rules": {
+        "battery": {
+          "enabled": true,
+          "hysteresis": 0.2,
+          "op": "lt",
+          "threshold": 3.5
+        },
+        "gps_lost": {
+          "enabled": true,
+          "hysteresis": null,
+          "op": null,
+          "threshold": null
+        },
+        "lpp:temperature": {
+          "enabled": false,
+          "hysteresis": 1.0,
+          "op": "gt",
+          "threshold": 50.0
+        },
+        "noise": {
+          "enabled": true,
+          "hysteresis": 3.0,
+          "op": "gt",
+          "threshold": -90.0
+        },
+        "rssi": {
+          "enabled": false,
+          "hysteresis": 5.0,
+          "op": "lt",
+          "threshold": -120.0
+        },
+        "silence": {
+          "enabled": true,
+          "hysteresis": null,
+          "op": null,
+          "threshold": 2.0
+        },
+        "snr": {
+          "enabled": false,
+          "hysteresis": 2.0,
+          "op": "lt",
+          "threshold": 0.0
+        },
+        "tx_queue": {
+          "enabled": false,
+          "hysteresis": 2.0,
+          "op": "gt",
+          "threshold": 10.0
+        }
+      }
+    },
+    "telemetry_interval_hours": 8,
+    "telemetry_routed_hourly": false,
+    "tracked_telemetry_contacts": [],
+    "tracked_telemetry_repeaters": [],
+    "ui_preferences": {
+      "nav_rail": [],
+      "server_label": {
+        "bold": false,
+        "color": "#062d60",
+        "font": "system",
+        "italic": false,
+        "size_px": 14,
+        "text": ""
+      },
+      "theme": ""
+    }
+  },
+  "vapid_subject": "mailto:ops@example.org",
+  "warnings": [],
+  "wifi": {
+    "enabled": true,
+    "open_network": false,
+    "password": "wifi-pass-1",
+    "ssid": "Home Net"
+  }
+}

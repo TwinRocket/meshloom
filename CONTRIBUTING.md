@@ -19,7 +19,7 @@ You need [uv](https://docs.astral.sh/uv/) with Python 3.11 or later (CI tests 3.
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --no-proxy-headers
 ```
 
 Radio transport is configured in the web UI after startup (`app_settings.radio_transport`). An empty serial port means auto-detect. Do not set `MESHCORE_SERIAL_PORT` / `MESHCORE_TCP_HOST` / `MESHCORE_BLE_ADDRESS` to choose a transport: an existing database with no stored transport imports them once (upgrade path); a new database ignores them (`app/services/radio_transport.py`).
@@ -48,9 +48,9 @@ If you need targeted commands while iterating:
 
 ```bash
 # backend
-uv run ruff check app/ tests/ --fix
-uv run ruff format app/ tests/
-uv run pyright app/
+uv run ruff check app/ meshloom_plugin/ tests/ --fix
+uv run ruff format app/ meshloom_plugin/ tests/
+uv run pyright app/ meshloom_plugin/
 PYTHONPATH=. uv run pytest tests/ -v
 
 # frontend
@@ -62,6 +62,27 @@ npm run typecheck
 npm run build
 ```
 
+## Checking a plugin locally
+
+```bash
+uv run python -m meshloom_plugin.dev check path/to/plugin          # add --json for CI
+```
+
+It applies the server's manifest and package rules, a static review and a sandbox
+dry run. Details: `docs/dev/plugins.md`, "Checking a plugin".
+
+## Adding a hostile plugin corpus case
+
+A change to the plugin sandbox (runner, isolation, supervisor, capabilities or
+archive validation) comes with a case in `tests/plugin_corpus/`: one directory,
+a `case.json` saying what the plugin tries and what must happen, plus a minimal
+`manifest.json` and `plugin.py` (format: `tests/plugin_corpus/README.md`). List it
+in the case table of `docs/dev/plugins-security.md`, "Tests" (a test fails
+otherwise), run `uv run pytest tests/test_plugin_corpus.py -k <name>`, then remove
+the guard it pins and check the case fails. Linux with bubblewrap covers `bwrap`;
+the `setuid` level needs root and the `meshloom-plugin` account (CI's
+`plugin-isolation-root` job runs it).
+
 ## Quality + Publishing Scripts
 
 <details>
@@ -72,7 +93,8 @@ npm run build
 | `all_quality.sh` | Repo-standard gate: autofix (ruff, eslint, prettier), then pyright, pytest, vitest, and frontend build. Run before finishing any code change. |
 | `extended_quality.sh` | `all_quality.sh`, then `e2e.sh` (needs a radio), then `docker_ci.sh`. Manual; no workflow calls it. |
 | `e2e.sh` | Thin wrapper that runs Playwright e2e tests from `tests/e2e/`. |
-| `docker_ci.sh` | Builds the frontend (`npm ci && npm run build`) in `node:*-slim` containers across a Node/npm version matrix. It does not build the Meshloom image. |
+| `docker_ci.sh` | Builds the frontend (`npm ci && npm run build`) in `node:*-slim` containers across a Node/npm version matrix. It does not build the Meshloom image. `docker_ci.sh --ntfy` runs `ntfy_integration.sh` instead. |
+| `ntfy_integration.sh` | Starts a pinned `binwiederhier/ntfy` container and runs `tests/integration/test_ntfy_e2e.py` against it (needs Docker). CI runs it as the `ntfy-integration` job, part of `all-quality`. |
 
 </details>
 
@@ -171,6 +193,26 @@ E2E_PARTNER_RADIO_PUBKEY="abcd1234...full64charhexkey..." \
 E2E_PARTNER_RADIO_NAME="MyTestNode" \
 npx playwright test
 ```
+
+## Radio Bench
+
+`tests/radio_bench/` is an opt-in pytest suite (marker `radio`) that drives a
+running Meshloom instance and its radio over the API, the WebSocket and the
+radio proxy: channel round trips, a radio settings round trip and reconnection.
+It is skipped unless `MESHLOOM_RADIO_BENCH_URL` is set, so the gate never runs
+it, and it must run with `-n 0`:
+
+```bash
+MESHLOOM_RADIO_BENCH_URL=http://host:8010 \
+MESHLOOM_RADIO_BENCH_PROXY=host:5011 \
+uv run pytest tests/radio_bench -m radio -n 0 -v
+```
+
+It never factory-resets the radio or touches its identity, restores every
+setting it changes and fails the run if any differs afterwards. What it
+touches and how to add a test (it runs from your own machine on the LAN,
+there is no CI workflow for it):
+[`docs/dev/radio-bench.md`](docs/dev/radio-bench.md).
 
 ## Pull Request Expectations
 

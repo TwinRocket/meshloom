@@ -59,7 +59,7 @@ In the app, go to **Settings → About → "Open debug support snapshot"** (or n
 Restart the backend with debug logging enabled to capture detailed radio
 communication and packet processing:
 ```bash
-MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 On a package install, set `MESHCORE_LOG_LEVEL=DEBUG` in `/etc/meshloom/meshloom.env` and restart the service; with Docker, add it under `environment:`; in the Home Assistant add-on, set the `log_level` option. Then reproduce the issue and paste the relevant log output.
 

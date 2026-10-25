@@ -91,4 +91,5 @@ def test_install_sh_never_writes_its_own_package_helper() -> None:
 
 def test_service_cannot_write_etc_meshloom() -> None:
     service = (PKG / "meshloom.service").read_text(encoding="utf-8")
-    assert "ReadWritePaths=/opt/meshloom /var/lib/meshloom\n" in service
+    # The kiosk device token directory is optional ("-"): kiosk hosts only.
+    assert "ReadWritePaths=/opt/meshloom /var/lib/meshloom -/var/lib/meshloom-kiosk\n" in service

@@ -105,6 +105,30 @@ async def test_reserved_and_invalid_entries_are_refused(backup_db, reload_spy, p
 
 
 @pytest.mark.asyncio
+async def test_apprise_row_with_a_refused_scheme_comes_back_disabled(
+    backup_db, reload_spy, proxy_spy
+):
+    """A 4.18 backup may hold an Apprise URL the allowlist now refuses: the row
+    is kept, disabled, with a coded notice, never dropped or enabled."""
+    old_row = webhook(
+        "ap-1",
+        type="apprise",
+        name="Desktop",
+        enabled=True,
+        config={"urls": "dbus://\ntgram://123:ABC/456"},
+    )
+    warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[old_row]))
+    assert "apprise_restored_disabled:Desktop" in warnings
+    assert not any(w.startswith("fanout_invalid") for w in warnings)
+    [stored] = await FanoutConfigRepository.get_all()
+    assert stored["id"] == "ap-1"
+    assert stored["enabled"] is False
+    assert stored["config"]["urls"] == "dbus://\ntgram://123:ABC/456"
+    assert stored["config"]["allow_private_network"] is True
+    assert stored["config"]["private_network_grandfathered"] is True
+
+
+@pytest.mark.asyncio
 async def test_bots_skipped_while_disabled(backup_db, reload_spy, proxy_spy, monkeypatch):
     monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", True)
     warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot()]))
@@ -117,9 +141,10 @@ async def test_bots_come_back_disabled(backup_db, proxy_spy, monkeypatch):
     monkeypatch.setattr(fanout_manager, "_bots_disabled_until_restart", False)
     started = AsyncMock()
     monkeypatch.setattr(fanout_manager, "_start_module", started)
-    warnings = await restore_meshloom_extra(
-        MeshloomExtra(fanout_configs=[bot(), webhook(enabled=True)])
+    public_hook = webhook(
+        enabled=True, config={"url": "https://example.org/hook", "allow_private_network": False}
     )
+    warnings = await restore_meshloom_extra(MeshloomExtra(fanout_configs=[bot(), public_hook]))
     assert "bots_restored_disabled:Greeter" in warnings
     stored = {cfg["id"]: cfg for cfg in await FanoutConfigRepository.get_all()}
     assert stored["bot-1"]["enabled"] is False
@@ -144,6 +169,52 @@ async def test_vapid_restored_on_a_host_without_subscriptions(backup_db, reload_
     assert vapid.get_vapid_private_key() == "backup-priv"
     assert vapid.get_vapid_public_key() == "backup-pub"
     assert len(await PushSubscriptionRepository.get_all()) == 1
+
+
+def _push_extra(endpoint: str) -> MeshloomExtra:
+    return MeshloomExtra(
+        vapid=BackupVapid(private_key="backup-priv", public_key="backup-pub"),  # type: ignore[arg-type]
+        push_subscriptions=[BackupPushSubscription(endpoint=endpoint, p256dh="k", auth="a")],
+    )
+
+
+@pytest.mark.asyncio
+async def test_pre_guard_backup_regrandfathers_a_lan_subscription(backup_db, reload_spy, proxy_spy):
+    await restore_meshloom_extra(
+        _push_extra("http://192.168.1.20:8080/UP"), settings_have_push_opt_in=False
+    )
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is True
+    assert settings.push_private_endpoints_grandfathered is True
+
+
+@pytest.mark.asyncio
+async def test_regrandfather_clears_a_pending_review_notice(backup_db, reload_spy, proxy_spy):
+    await AppSettingsRepository.update(push_private_endpoints_review=True)
+    await restore_meshloom_extra(
+        _push_extra("http://192.168.1.20:8080/UP"), settings_have_push_opt_in=False
+    )
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is True
+    assert settings.push_private_endpoints_review is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["https://ntfy.sh/up", "https://fcm.googleapis.com/x"])
+async def test_pre_guard_backup_leaves_public_endpoints_refused_by_default(
+    backup_db, reload_spy, proxy_spy, endpoint
+):
+    await restore_meshloom_extra(_push_extra(endpoint), settings_have_push_opt_in=False)
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is False
+    assert settings.push_private_endpoints_grandfathered is False
+
+
+@pytest.mark.asyncio
+async def test_backup_with_the_opt_in_is_not_regrandfathered(backup_db, reload_spy, proxy_spy):
+    await restore_meshloom_extra(_push_extra("http://192.168.1.20:8080/UP"))
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is False
 
 
 @pytest.mark.asyncio
@@ -305,3 +376,66 @@ async def test_inspect_shows_where_restored_push_notifications_go(backup_db):
     )
     await PushSubscriptionRepository.delete(own["id"])
     assert (await inspect_backup(no_vapid, None)).push_targets == []
+
+
+def _restore_run(doc):
+    """The few attributes `_meshloom_step` reads, without the job machinery."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    return MagicMock(
+        options=SimpleNamespace(steps=SimpleNamespace(meshloom=True)),
+        doc=doc,
+        result=SimpleNamespace(warnings=[]),
+    )
+
+
+def _v2_doc(settings: dict):
+    from app.models import AppSettings, BackupExportV2
+
+    dumped = AppSettings().model_dump(mode="json")
+    dumped = {k: v for k, v in dumped.items() if k in settings or k not in _PUSH_KEYS}
+    dumped.update(settings)
+    return BackupExportV2.model_validate(
+        {
+            "settings": dumped,
+            "meshloom_extra": MeshloomExtra(
+                vapid=BackupVapid(private_key="backup-priv", public_key="backup-pub"),  # type: ignore[arg-type]
+                push_subscriptions=[
+                    BackupPushSubscription(
+                        endpoint="http://192.168.1.20:8080/UP", p256dh="k", auth="a"
+                    )
+                ],
+            ),
+        }
+    )
+
+
+_PUSH_KEYS = {"push_allow_private_endpoints", "push_private_endpoints_grandfathered"}
+
+
+@pytest.mark.asyncio
+async def test_restore_step_regrandfathers_a_backup_without_the_opt_in_key(
+    backup_db, reload_spy, proxy_spy
+):
+    from app.services.backup_restore import _meshloom_step
+
+    doc = _v2_doc({})
+    assert "push_allow_private_endpoints" not in doc.settings.model_fields_set  # type: ignore[union-attr]
+    await _meshloom_step(_restore_run(doc))
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is True
+    assert settings.push_private_endpoints_grandfathered is True
+
+
+@pytest.mark.asyncio
+async def test_restore_step_keeps_the_choice_of_a_backup_with_the_opt_in_key(
+    backup_db, reload_spy, proxy_spy
+):
+    from app.services.backup_restore import _meshloom_step
+
+    doc = _v2_doc({"push_allow_private_endpoints": False})
+    await _meshloom_step(_restore_run(doc))
+    settings = await AppSettingsRepository.get()
+    assert settings.push_allow_private_endpoints is False
+    assert settings.push_private_endpoints_grandfathered is False

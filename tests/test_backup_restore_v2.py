@@ -194,9 +194,9 @@ async def test_owner_order_key_db_settings_channels_contacts_wifi(
 
     real_restore_json = backup_module.restore_json
 
-    async def recording_restore_json(request):
+    async def recording_restore_json(request, **kwargs):
         node.log.append(("db_merge", None))
-        return await real_restore_json(request)
+        return await real_restore_json(request, **kwargs)
 
     monkeypatch.setattr(backup_module, "restore_json", recording_restore_json)
     async with connected_node(node):

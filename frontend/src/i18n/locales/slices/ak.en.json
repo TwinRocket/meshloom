@@ -1,0 +1,25 @@
+{
+  "settings": {
+    "trustedProxies": {
+      "title": "Trusted proxies",
+      "label": "Reverse proxies in front of this instance",
+      "help": "One address per line: the address your reverse proxy (nginx, Caddy, Traefik, cloudflared) connects to Meshloom from, such as 127.0.0.1 when it runs on the same machine, or the fixed address you gave the proxy container (172.20.0.10). From these addresses only, Meshloom believes X-Forwarded-For (the visitor's address, used for sign-in delays, the audit log and sessions) and X-Forwarded-Proto (https: secure cookie). List the proxy itself, never a Docker network or its gateway (172.17.0.1): visitors reaching a published port can arrive from the gateway, and a listed address can claim to be anyone.",
+      "none": "Empty: no proxy is trusted. Forwarded headers are ignored and the visitor's address is the one of the connection.",
+      "invalid": "Not an IP address or network (an address, or address/prefix; at most /8 for IPv4, /16 for IPv6; no ::ffff: form): {{entries}}",
+      "save": "Save proxies",
+      "saving": "Saving…",
+      "saved": "Trusted proxies saved",
+      "saveFailed": "Could not save the trusted proxies",
+      "broadEntry": "Risky entry: {{entries}}. A network or a Docker gateway also covers clients that reach a published port through it, and they could forge their address. List only the proxy's own address.",
+      "httpsNotTrusted": "Your browser uses HTTPS, but Meshloom received this page over plain HTTP: the HTTPS proxy in front of it is not trusted. Until you list it here, the session cookie is not marked Secure and the visitor's address is the proxy's."
+    }
+  },
+  "errors": {
+    "auth_trusted_proxies_invalid": "Not an IP address or network, a network wider than /8 (IPv4) or /16 (IPv6), or more than 32 trusted proxies"
+  },
+  "auth": {
+    "login": {
+      "untrustedProxy": "This page uses HTTPS, but the proxy in front of Meshloom is not trusted yet: your session cookie will not be marked Secure. An administrator can fix it in Settings → Local Configuration → Trusted proxies."
+    }
+  }
+}

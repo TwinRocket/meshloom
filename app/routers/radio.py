@@ -6,10 +6,13 @@ import time
 from contextlib import suppress
 from typing import Literal, TypeAlias
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from meshcore import EventType
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from app.auth import audit
+from app.auth.permissions import require
+from app.auth.ws_events import WsEvent
 from app.models import (
     CONTACT_TYPE_REPEATER,
     AdvertLocationSource,
@@ -307,10 +310,10 @@ async def _persist_new_discovery_contacts(results: list[RadioDiscoveryResult]) -
         )
         created = await ContactRepository.get_by_key(result.public_key)
         if created is not None:
-            broadcast_event("contact", created.model_dump())
+            broadcast_event(WsEvent.CONTACT, created.model_dump())
             for old_key in promoted_keys:
                 broadcast_event(
-                    "contact_resolved",
+                    WsEvent.CONTACT_RESOLVED,
                     {"previous_public_key": old_key, "contact": created.model_dump()},
                 )
 
@@ -418,7 +421,7 @@ async def _resolve_trace_hops(
     return trace_nodes, requested_hashes
 
 
-@router.get("/config", response_model=RadioConfigResponse)
+@router.get("/config", response_model=RadioConfigResponse, dependencies=[Depends(require("admin"))])
 async def get_radio_config() -> RadioConfigResponse:
     """Get the current radio configuration."""
     mc = radio_manager.require_connected()
@@ -455,7 +458,9 @@ async def get_radio_config() -> RadioConfigResponse:
     )
 
 
-@router.patch("/config", response_model=RadioConfigResponse)
+@router.patch(
+    "/config", response_model=RadioConfigResponse, dependencies=[Depends(require("admin"))]
+)
 async def update_radio_config(update: RadioConfigUpdate) -> RadioConfigResponse:
     """Update radio configuration. Only provided fields will be updated."""
     radio_manager.require_connected()
@@ -503,7 +508,9 @@ async def _read_custom_vars(mc) -> RadioCustomVarsResponse:
     )
 
 
-@router.get("/custom-vars", response_model=RadioCustomVarsResponse)
+@router.get(
+    "/custom-vars", response_model=RadioCustomVarsResponse, dependencies=[Depends(require("admin"))]
+)
 async def get_radio_custom_vars() -> RadioCustomVarsResponse:
     """Read the firmware custom variables (e.g. `gps`)."""
     radio_manager.require_connected()
@@ -512,7 +519,11 @@ async def get_radio_custom_vars() -> RadioCustomVarsResponse:
         return await _read_custom_vars(mc)
 
 
-@router.put("/custom-vars/{name}", response_model=RadioCustomVarsResponse)
+@router.put(
+    "/custom-vars/{name}",
+    response_model=RadioCustomVarsResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def set_radio_custom_var(name: str, update: RadioCustomVarUpdate) -> RadioCustomVarsResponse:
     """Set one firmware custom variable, then return the re-read variables."""
     if not _CUSTOM_VAR_NAME_RE.fullmatch(name):
@@ -530,7 +541,11 @@ def _int_or_none(value) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
-@router.get("/self-telemetry", response_model=RadioSelfTelemetryResponse)
+@router.get(
+    "/self-telemetry",
+    response_model=RadioSelfTelemetryResponse,
+    dependencies=[Depends(require("read"))],
+)
 async def get_radio_self_telemetry() -> RadioSelfTelemetryResponse:
     """Read the radio's own telemetry (LPP sensors) and battery/storage."""
     radio_manager.require_connected()
@@ -566,9 +581,16 @@ async def get_radio_self_telemetry() -> RadioSelfTelemetryResponse:
     )
 
 
-@router.post("/factory-reset")
-async def factory_reset_radio(request: RadioFactoryResetRequest) -> dict:
+@router.post("/factory-reset", dependencies=[Depends(require("admin"))])
+async def factory_reset_radio(
+    request: RadioFactoryResetRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> dict:
     """Erase the radio (identity, contacts, channels, settings) after name confirmation."""
+    async with audit.audited(actor, "factory_reset") as scope:
+        return await _factory_reset_radio(request, scope.details)
+
+
+async def _factory_reset_radio(request: RadioFactoryResetRequest, details: dict) -> dict:
     mc = radio_manager.require_connected()
     self_info = getattr(mc, "self_info", None)
     name = self_info.get("name") if isinstance(self_info, dict) else None
@@ -576,6 +598,7 @@ async def factory_reset_radio(request: RadioFactoryResetRequest) -> dict:
         raise HTTPException(status_code=400, detail="Confirmation does not match the radio name")
 
     public_key = str((self_info or {}).get("public_key") or "")
+    details["identity"] = public_key[:12]
     async with radio_manager.radio_operation("factory_reset_radio") as mc:
         logger.warning("Sending factory reset to radio %s", public_key[:12])
         try:
@@ -595,7 +618,7 @@ async def factory_reset_radio(request: RadioFactoryResetRequest) -> dict:
     }
 
 
-@router.get("/private-key")
+@router.get("/private-key", dependencies=[Depends(require("admin"))])
 async def get_private_key() -> dict:
     """Return the in-memory private key (exported from the radio on connect).
 
@@ -614,9 +637,16 @@ async def get_private_key() -> dict:
     return {"private_key": key.hex()}
 
 
-@router.put("/private-key")
-async def set_private_key(update: PrivateKeyUpdate) -> dict:
+@router.put("/private-key", dependencies=[Depends(require("admin"))])
+async def set_private_key(
+    update: PrivateKeyUpdate, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> dict:
     """Set the radio's private key. This is write-only."""
+    async with audit.audited(actor, "private_key.imported") as scope:
+        return await _set_private_key(update, scope.details)
+
+
+async def _set_private_key(update: PrivateKeyUpdate, details: dict) -> dict:
     radio_manager.require_connected()
 
     try:
@@ -635,6 +665,8 @@ async def set_private_key(update: PrivateKeyUpdate) -> dict:
         derived = derive_public_key(key_bytes).hex().lower()
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid private key") from exc
+    # The public half only: it names the identity, never the key.
+    details["identity"] = derived[:12]
 
     current_pub = get_public_key()
     current_hex = current_pub.hex().lower() if current_pub else None
@@ -666,7 +698,7 @@ async def set_private_key(update: PrivateKeyUpdate) -> dict:
     return {"status": "ok"}
 
 
-@router.post("/advertise")
+@router.post("/advertise", dependencies=[Depends(require("send"))])
 async def send_advertisement(request: RadioAdvertiseRequest | None = None) -> dict:
     """Send an advertisement to announce presence on the mesh.
 
@@ -690,7 +722,9 @@ async def send_advertisement(request: RadioAdvertiseRequest | None = None) -> di
     return {"status": "ok"}
 
 
-@router.post("/discover", response_model=RadioDiscoveryResponse)
+@router.post(
+    "/discover", response_model=RadioDiscoveryResponse, dependencies=[Depends(require("send"))]
+)
 async def discover_mesh(request: RadioDiscoveryRequest) -> RadioDiscoveryResponse:
     """Run a short node-discovery sweep from the local radio."""
     radio_manager.require_connected()
@@ -799,7 +833,11 @@ async def _resolve_region_discovery_targets(request: RadioRegionDiscoveryRequest
     return await ContactRepository.get_repeaters_by_recent(limit=request.max_repeaters)
 
 
-@router.post("/regions/verify", response_model=RadioRegionVerifyResponse)
+@router.post(
+    "/regions/verify",
+    response_model=RadioRegionVerifyResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def verify_regions(request: RadioRegionVerifyRequest) -> RadioRegionVerifyResponse:
     """Check candidate region names against packets already stored.
 
@@ -851,7 +889,11 @@ async def verify_regions(request: RadioRegionVerifyRequest) -> RadioRegionVerify
     )
 
 
-@router.post("/discover-regions", response_model=RadioRegionDiscoveryResponse)
+@router.post(
+    "/discover-regions",
+    response_model=RadioRegionDiscoveryResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def discover_regions(
     request: RadioRegionDiscoveryRequest,
 ) -> RadioRegionDiscoveryResponse:
@@ -901,7 +943,7 @@ async def discover_regions(
     )
 
 
-@router.post("/trace", response_model=RadioTraceResponse)
+@router.post("/trace", response_model=RadioTraceResponse, dependencies=[Depends(require("send"))])
 async def trace_path(request: RadioTraceRequest) -> RadioTraceResponse:
     """Send a multi-hop trace loop through known repeaters and back to the local radio."""
     radio_manager.require_connected()
@@ -1076,7 +1118,9 @@ async def _attempt_reconnect() -> dict:
     return {"status": "ok", "message": "Reconnected successfully", "connected": True}
 
 
-@router.get("/transport", response_model=RadioTransportResponse)
+@router.get(
+    "/transport", response_model=RadioTransportResponse, dependencies=[Depends(require("admin"))]
+)
 async def get_radio_transport() -> RadioTransportResponse:
     return await build_transport_response()
 
@@ -1093,7 +1137,9 @@ def _transport_fields_equal(left, right) -> bool:
     )
 
 
-@router.put("/transport", response_model=RadioTransportResponse)
+@router.put(
+    "/transport", response_model=RadioTransportResponse, dependencies=[Depends(require("admin"))]
+)
 async def put_radio_transport(update: RadioTransportUpdate) -> RadioTransportResponse:
     current = await get_transport()
     try:
@@ -1179,7 +1225,11 @@ def _snapshot_from_previous(
     return restored
 
 
-@router.post("/transport/revert", response_model=RadioTransportResponse)
+@router.post(
+    "/transport/revert",
+    response_model=RadioTransportResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def revert_radio_transport() -> RadioTransportResponse:
     """Go back to the transport saved before the last change, on the server.
 
@@ -1246,14 +1296,14 @@ async def revert_radio_transport() -> RadioTransportResponse:
     return await build_transport_response()
 
 
-@router.get("/proxy", response_model=RadioProxyStatus)
+@router.get("/proxy", response_model=RadioProxyStatus, dependencies=[Depends(require("admin"))])
 async def get_radio_proxy() -> RadioProxyStatus:
     from app.radio_proxy.manager import radio_proxy_manager
 
     return RadioProxyStatus(**radio_proxy_manager.status_dict())
 
 
-@router.patch("/proxy", response_model=RadioProxyStatus)
+@router.patch("/proxy", response_model=RadioProxyStatus, dependencies=[Depends(require("admin"))])
 async def patch_radio_proxy(update: RadioProxyUpdate) -> RadioProxyStatus:
     # The host decides the port when it maps one itself: accepting a different value
     # would leave the proxy listening where nothing is forwarded, which looks like a
@@ -1276,7 +1326,11 @@ async def patch_radio_proxy(update: RadioProxyUpdate) -> RadioProxyStatus:
     return RadioProxyStatus(**status)
 
 
-@router.post("/transport/ble-scan", response_model=RadioBleScanResponse)
+@router.post(
+    "/transport/ble-scan",
+    response_model=RadioBleScanResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def post_radio_ble_scan() -> RadioBleScanResponse:
     if ble_pairing.in_progress():
         raise _ble_pairing_http_error(BlePairingError("ble_pair_in_progress"))
@@ -1328,13 +1382,21 @@ async def _ble_pairing_status() -> RadioBlePairingStatus:
     )
 
 
-@router.get("/transport/ble-pairing", response_model=RadioBlePairingStatus)
+@router.get(
+    "/transport/ble-pairing",
+    response_model=RadioBlePairingStatus,
+    dependencies=[Depends(require("admin"))],
+)
 async def get_radio_ble_pairing() -> RadioBlePairingStatus:
     """BlueZ pairing state of the saved BLE radio. Problems are in the state, not HTTP errors."""
     return await _ble_pairing_status()
 
 
-@router.post("/transport/ble-pairing", response_model=RadioBlePairingStatus)
+@router.post(
+    "/transport/ble-pairing",
+    response_model=RadioBlePairingStatus,
+    dependencies=[Depends(require("admin"))],
+)
 async def post_radio_ble_pairing() -> RadioBlePairingStatus:
     """Pair the saved BLE radio now with the saved PIN (lifts a paused automatic pairing).
 
@@ -1379,7 +1441,11 @@ async def post_radio_ble_pairing() -> RadioBlePairingStatus:
     return await _ble_pairing_status()
 
 
-@router.delete("/transport/ble-pairing", response_model=RadioBlePairingStatus)
+@router.delete(
+    "/transport/ble-pairing",
+    response_model=RadioBlePairingStatus,
+    dependencies=[Depends(require("admin"))],
+)
 async def delete_radio_ble_pairing() -> RadioBlePairingStatus:
     """Forget the saved BLE radio's pairing on every adapter of this machine.
 
@@ -1402,7 +1468,11 @@ async def delete_radio_ble_pairing() -> RadioBlePairingStatus:
     return await _ble_pairing_status()
 
 
-@router.post("/identity/adopt", response_model=RadioIdentityActionResponse)
+@router.post(
+    "/identity/adopt",
+    response_model=RadioIdentityActionResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def adopt_radio_identity(
     request: RadioIdentityAdoptRequest | None = None,
 ) -> RadioIdentityActionResponse:
@@ -1452,7 +1522,11 @@ async def adopt_radio_identity(
     )
 
 
-@router.post("/identity/reject", response_model=RadioIdentityActionResponse)
+@router.post(
+    "/identity/reject",
+    response_model=RadioIdentityActionResponse,
+    dependencies=[Depends(require("admin"))],
+)
 async def reject_radio_identity() -> RadioIdentityActionResponse:
     snapshot = await get_transport()
     if snapshot.identity_state not in ("identity_mismatch", "identity_unbound_legacy"):
@@ -1482,7 +1556,7 @@ async def reject_radio_identity() -> RadioIdentityActionResponse:
     )
 
 
-@router.post("/disconnect")
+@router.post("/disconnect", dependencies=[Depends(require("admin"))])
 async def disconnect_radio() -> dict:
     """Disconnect from the radio and pause automatic reconnect attempts."""
     logger.info("Manual radio disconnect requested")
@@ -1496,7 +1570,7 @@ async def disconnect_radio() -> dict:
     }
 
 
-@router.post("/reboot")
+@router.post("/reboot", dependencies=[Depends(require("admin"))])
 async def reboot_radio() -> dict:
     """Reboot the radio, or reconnect if not currently connected.
 
@@ -1516,7 +1590,7 @@ async def reboot_radio() -> dict:
     return await _attempt_reconnect()
 
 
-@router.post("/reconnect")
+@router.post("/reconnect", dependencies=[Depends(require("admin"))])
 async def reconnect_radio() -> dict:
     """Attempt to reconnect to the radio.
 

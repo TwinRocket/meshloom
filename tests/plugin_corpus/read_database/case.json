@@ -1,0 +1,13 @@
+{
+  "description": "Read the server's database file (a 0600 file in a 0711 data directory, like the setuid file model).",
+  "events": [
+    {
+      "params": {
+        "path": "$DB"
+      },
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

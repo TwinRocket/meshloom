@@ -1,0 +1,4 @@
+{
+  "description": "No descriptor of the parent other than 0, 1 and 2 reaches the child, even one passed on purpose.",
+  "events": [{"params": {}, "expect": {"check": "inherited_fds"}}]
+}

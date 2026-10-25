@@ -10,6 +10,8 @@
     "radio_no_response_after_send": "La commande d'envoi a été transmise à la radio, mais aucune réponse n'a été reçue. Le message a peut-être été envoyé, ou non.",
     "cannot_decrypt_historical_dms": "Impossible de déchiffrer les messages privés historiques",
     "historical_decrypt_complete": "Déchiffrement historique terminé pour {{name}}",
+    "historical_decrypt_complete_rooms_one": "Déchiffrement historique terminé pour {{count}} salon",
+    "historical_decrypt_complete_rooms_other": "Déchiffrement historique terminé pour {{count}} salons",
     "radio_contacts_enum_failed": "Impossible d'énumérer les contacts de la radio",
     "radio_inconsistency_found": "Une tâche périodique a détecté des incohérences radio.",
     "mqtt_connected": "MQTT connecté",

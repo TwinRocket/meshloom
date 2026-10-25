@@ -1,0 +1,11 @@
+{
+  "description": "Load native code written to the work dir through the import machinery kept in sys.modules. The audit hook's import event carries the file of every extension module: only the interpreter's own standard-library directories may provide one, at every level.",
+  "events": [
+    {
+      "params": {},
+      "expect": {
+        "error_type": "PermissionError"
+      }
+    }
+  ]
+}

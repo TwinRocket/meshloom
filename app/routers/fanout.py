@@ -5,13 +5,24 @@ import inspect
 import logging
 import re
 import string
+from contextlib import AbstractAsyncContextManager, nullcontext
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.auth import audit
+from app.auth.permissions import require
 from app.fanout.bot_exec import _analyze_bot_signature
 from app.fanout.manager import fanout_manager, is_reserved_fanout_id
+from app.net.apprise_urls import (
+    AppriseUrlRefused,
+    parse_apprise_urls,
+    split_apprise_urls,
+    validate_apprise_urls,
+)
+from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.repository.fanout import FanoutConfigRepository
+from app.secret_fields import SecretRequiredError, merge_secrets, redact_config
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/fanout", tags=["fanout"])
@@ -39,6 +50,15 @@ _COMMUNITY_MQTT_TEMPLATE_FIELD_CANONICAL = {
 }
 _ALLOWED_COMMUNITY_MQTT_TRANSPORTS = {"tcp", "websockets"}
 _ALLOWED_COMMUNITY_MQTT_AUTH_MODES = {"token", "password", "none"}
+
+# Types whose destination is a user-chosen URL, checked by the egress guard
+# (app/net/AGENTS.md), and the config fields that name it.
+_GUARDED_TYPES: dict[str, tuple[str, ...]] = {
+    "webhook": ("url",),
+    "apprise": ("urls",),
+    "sqs": ("endpoint_url",),
+    "map_upload": ("api_url",),
+}
 
 
 def _normalize_community_topic_template(topic_template: str) -> str:
@@ -88,8 +108,13 @@ class FanoutConfigUpdate(BaseModel):
 
 
 def _validate_and_normalize_config(config_type: str, config: dict) -> dict:
-    """Validate a config blob and return the canonical persisted form."""
+    """Validate a config blob and return the canonical persisted form.
+
+    No network access: the egress guard's DNS check is ``_check_destinations``.
+    """
     normalized = dict(config)
+    if config_type in _GUARDED_TYPES:
+        normalized["allow_private_network"] = bool(normalized.get("allow_private_network", False))
 
     if config_type == "mqtt_private":
         _validate_mqtt_private_config(normalized)
@@ -278,8 +303,12 @@ def _validate_bot_config(config: dict) -> None:
 def _validate_apprise_config(config: dict) -> None:
     """Validate apprise config blob."""
     urls = config.get("urls", "")
-    if not urls or not urls.strip():
+    if not isinstance(urls, str) or not urls.strip():
         raise HTTPException(status_code=400, detail="At least one Apprise URL is required")
+    try:
+        parse_apprise_urls(split_apprise_urls(urls))
+    except AppriseUrlRefused as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
 
     from app.fanout.apprise_mod import FORMAT_VARIABLES, _apply_format
 
@@ -382,6 +411,76 @@ def _validate_mqtt_ha_config(config: dict) -> None:
             raise HTTPException(status_code=400, detail=f"{field} must be a list of public keys")
 
 
+async def _check_destinations(config_type: str, config: dict) -> None:
+    """Run the egress guard on the user-chosen destinations of a normalized config.
+
+    Resolves the host names: 400 ``egress_*`` (Apprise: with ``params.line``)
+    before anything is stored. The modules check again before each send.
+    """
+    allow_private = bool(config.get("allow_private_network", False))
+    try:
+        if config_type == "webhook":
+            await validate_destination(str(config["url"]), allow_private_network=allow_private)
+        elif config_type == "sqs":
+            endpoint_url = str(config.get("endpoint_url", "")).strip()
+            if endpoint_url:
+                await validate_destination(endpoint_url, allow_private_network=allow_private)
+        elif config_type == "map_upload":
+            api_url = str(config.get("api_url", "")).strip()
+            if api_url:
+                await validate_destination(api_url, allow_private_network=allow_private)
+        elif config_type == "apprise":
+            await validate_apprise_urls(
+                split_apprise_urls(str(config.get("urls", ""))),
+                allow_private_network=allow_private,
+            )
+    except EgressBlocked as exc:
+        raise HTTPException(status_code=400, detail=egress_detail(exc.code)) from None
+    except AppriseUrlRefused as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
+
+
+def allows_private_network(config_type: str, config: dict) -> bool:
+    """A guarded row whose LAN opt-in (``allow_private_network``) is on."""
+    return config_type in _GUARDED_TYPES and config.get("allow_private_network") is True
+
+
+def _carry_grandfathered_flag(config_type: str, config: dict, previous: dict | None) -> None:
+    """Keep ``private_network_grandfathered`` (set by migration 100 or a restore of
+    an older backup) only while the destination and its opt-in are unchanged.
+
+    The UI shows a one-time banner while it is set; its "Got it" sends false.
+    The grandfathered opt-in covers the destination it was granted for: a new
+    destination sent with the flag still true (the opt-in echoed back, never
+    confirmed) drops ``allow_private_network``. Ticking the box again in the UI
+    sends the flag as false, which keeps the opt-in. Only that echo drops it:
+    an API client that omits the flag while it changes the destination keeps
+    its explicit ``allow_private_network`` (and the flag is cleared).
+    """
+    if config_type not in _GUARDED_TYPES:
+        return
+    grandfathered = previous is not None and bool(previous.get("private_network_grandfathered"))
+    same_destination = previous is not None and all(
+        config.get(f) == previous.get(f) for f in _GUARDED_TYPES[config_type]
+    )
+    if (
+        grandfathered
+        and not same_destination
+        and config.get("private_network_grandfathered") is True
+    ):
+        config["allow_private_network"] = False
+    keep = (
+        grandfathered
+        and same_destination
+        and config.get("private_network_grandfathered") is not False
+        and config.get("allow_private_network") is True
+    )
+    if keep:
+        config["private_network_grandfathered"] = True
+    else:
+        config.pop("private_network_grandfathered", None)
+
+
 def _enforce_scope(config_type: str, scope: dict) -> dict:
     """Enforce type-specific scope constraints. Returns normalized scope."""
     if config_type == "mqtt_community":
@@ -423,31 +522,105 @@ def _bot_system_disabled_detail() -> str | None:
     return None
 
 
-@router.get("")
+def present_fanout_config(cfg: dict) -> dict:
+    """The API form of a stored row: its secrets write-only (``app/secret_fields.py``)."""
+    return {**cfg, "config": redact_config(cfg["type"], cfg.get("config") or {})}
+
+
+@router.get("", dependencies=[Depends(require("admin"))])
 async def list_fanout_configs() -> list[dict]:
     """List all fanout configs."""
     configs = await FanoutConfigRepository.get_all()
-    return [cfg for cfg in configs if not is_reserved_fanout_id(cfg["id"])]
+    return [present_fanout_config(cfg) for cfg in configs if not is_reserved_fanout_id(cfg["id"])]
 
 
-def prepare_fanout_config(config_type: str, config: dict, scope: dict) -> tuple[dict, dict]:
+@router.get("/{config_id}", dependencies=[Depends(require("admin"))])
+async def get_fanout_config(config_id: str) -> dict:
+    """One fanout config."""
+    existing = (
+        None if is_reserved_fanout_id(config_id) else await FanoutConfigRepository.get(config_id)
+    )
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Fanout config not found")
+    return present_fanout_config(existing)
+
+
+def prepare_fanout_config(
+    config_type: str, config: dict, scope: dict, *, restored: bool = False
+) -> tuple[dict, dict]:
     """Type check, config validation/normalisation and scope enforcement.
 
     Shared by the create route and the backup restore (``services/backup.py``).
     Raises ``HTTPException(400)``. The bot gate (403 while bots are disabled)
-    stays with each caller.
+    stays with each caller. No DNS lookup: the create route adds
+    ``_check_destinations``; a restored row is checked by its module before
+    each send. ``restored``: a row from a backup made before the egress guard
+    (no ``allow_private_network`` key) keeps working, grandfathered like
+    migration 100 does.
     """
     if config_type not in _VALID_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid type '{config_type}'. Must be one of: {', '.join(sorted(_VALID_TYPES))}",
         )
-    return _validate_and_normalize_config(config_type, config), _enforce_scope(config_type, scope)
+    legacy = restored and config_type in _GUARDED_TYPES and "allow_private_network" not in config
+    normalized = _validate_and_normalize_config(
+        config_type, {**config, "allow_private_network": True} if legacy else config
+    )
+    if legacy:
+        normalized["private_network_grandfathered"] = True
+    # A restore keeps the file's flag (the row was grandfathered where it came
+    # from); a new row never is.
+    _carry_grandfathered_flag(config_type, normalized, normalized if restored else None)
+    return normalized, _enforce_scope(config_type, scope)
 
 
-@router.post("")
-async def create_fanout_config(body: FanoutConfigCreate) -> dict:
+def prepare_refused_apprise_config(config: dict, scope: dict) -> tuple[dict, dict]:
+    """The stored form of a restored Apprise row whose URLs are refused here.
+
+    A backup made before the Apprise allowlist may hold a URL Meshloom no
+    longer sends to (``egress_scheme``), or a Telegram URL with no chat id.
+    Migration 100 keeps such rows; a restore keeps them too, and the caller
+    stores them disabled. No URL is parsed: enabling or editing the row runs
+    the full check (``prepare_fanout_config`` and ``_check_destinations``).
+    """
+    normalized = dict(config)
+    if "allow_private_network" not in normalized:
+        normalized["allow_private_network"] = True
+        normalized["private_network_grandfathered"] = True
+    normalized["allow_private_network"] = bool(normalized["allow_private_network"])
+    normalized["markdown_format"] = bool(normalized.get("markdown_format", True))
+    normalized["include_outgoing"] = bool(normalized.get("include_outgoing", False))
+    _carry_grandfathered_flag("apprise", normalized, normalized)
+    return normalized, _enforce_scope("apprise", scope)
+
+
+@router.post("", dependencies=[Depends(require("admin"))])
+async def create_fanout_config(
+    body: FanoutConfigCreate, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> dict:
     """Create a new fanout config."""
+    async with _bot_audited(
+        body.type == "bot", actor, "bot.created", details={"name": body.name}
+    ) as audit_scope:
+        return await _create_fanout_config(body, audit_scope)
+
+
+def _bot_audited(
+    is_bot: bool,
+    actor: audit.AuditActor,
+    action: audit.AuditAction,
+    *,
+    target: str | None = None,
+    details: dict | None = None,
+) -> AbstractAsyncContextManager[audit.AuditScope]:
+    """One audit row for a bot edit, refusals included; nothing for other types."""
+    if is_bot:
+        return audit.audited(actor, action, target=target, details=details)
+    return nullcontext(audit.AuditScope(target=target, details={}))
+
+
+async def _create_fanout_config(body: FanoutConfigCreate, audit_scope: audit.AuditScope) -> dict:
     if body.type not in _VALID_TYPES:
         raise HTTPException(
             status_code=400,
@@ -459,7 +632,11 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
         if disabled_detail:
             raise HTTPException(status_code=403, detail=disabled_detail)
 
-    normalized_config, scope = prepare_fanout_config(body.type, body.config, body.scope)
+    # A new row has no stored secret: a sentinel sent back reads as unset.
+    config = merge_secrets(body.type, None, body.config)
+    normalized_config, scope = prepare_fanout_config(body.type, config, body.scope)
+    if body.enabled:
+        await _check_destinations(body.type, normalized_config)
 
     cfg = await FanoutConfigRepository.create(
         config_type=body.type,
@@ -474,18 +651,36 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
         await fanout_manager.reload_config(cfg["id"])
 
     logger.info("Created fanout config %s (type=%s, name=%s)", cfg["id"], body.type, body.name)
-    return cfg
+    audit_scope.target = f"bot:{cfg['id']}"
+    audit_scope.details["enabled"] = bool(cfg["enabled"])
+    return present_fanout_config(cfg)
 
 
-@router.patch("/{config_id}")
-async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict:
+@router.patch("/{config_id}", dependencies=[Depends(require("admin"))])
+async def update_fanout_config(
+    config_id: str,
+    body: FanoutConfigUpdate,
+    actor: audit.RequestActor = audit.SYSTEM_ACTOR,
+) -> dict:
     """Update a fanout config. Triggers module reload."""
     if is_reserved_fanout_id(config_id):
         raise HTTPException(status_code=403, detail="Reserved system module")
     existing = await FanoutConfigRepository.get(config_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Fanout config not found")
+    async with _bot_audited(
+        existing["type"] == "bot",
+        actor,
+        "bot.changed",
+        target=f"bot:{config_id}",
+        details={"name": existing["name"], "fields": sorted(body.model_dump(exclude_none=True))},
+    ) as audit_scope:
+        return await _update_fanout_config(config_id, existing, body, audit_scope)
 
+
+async def _update_fanout_config(
+    config_id: str, existing: dict, body: FanoutConfigUpdate, audit_scope: audit.AuditScope
+) -> dict:
     if existing["type"] == "bot":
         disabled_detail = _bot_system_disabled_detail()
         if disabled_detail:
@@ -499,8 +694,26 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     if body.scope is not None:
         kwargs["scope"] = _enforce_scope(existing["type"], body.scope)
 
-    config_to_validate = body.config if body.config is not None else existing["config"]
-    kwargs["config"] = _validate_and_normalize_config(existing["type"], config_to_validate)
+    # Secrets are write-only: ``********`` or an omitted key keeps the stored
+    # value, ``""`` clears it. Merged before validation, so the grandfathered
+    # same-destination check compares the real URLs.
+    # A kept secret never follows a destination change: 400 secret_required.
+    try:
+        config_to_validate = (
+            merge_secrets(existing["type"], existing["config"], body.config)
+            if body.config is not None
+            else existing["config"]
+        )
+    except SecretRequiredError as exc:
+        raise HTTPException(status_code=400, detail=exc.detail()) from None
+    normalized_config = _validate_and_normalize_config(existing["type"], config_to_validate)
+    _carry_grandfathered_flag(existing["type"], normalized_config, existing["config"])
+    # A disabled row sends nothing: it can be saved (or turned off) while its
+    # host does not resolve. Enabling it runs the check.
+    will_be_enabled = body.enabled if body.enabled is not None else bool(existing["enabled"])
+    if will_be_enabled:
+        await _check_destinations(existing["type"], normalized_config)
+    kwargs["config"] = normalized_config
 
     updated = await FanoutConfigRepository.update(config_id, **kwargs)
     if updated is None:
@@ -510,11 +723,15 @@ async def update_fanout_config(config_id: str, body: FanoutConfigUpdate) -> dict
     await fanout_manager.reload_config(config_id)
 
     logger.info("Updated fanout config %s", config_id)
-    return updated
+    audit_scope.details["name"] = updated["name"]
+    audit_scope.details["enabled"] = bool(updated["enabled"])
+    return present_fanout_config(updated)
 
 
-@router.delete("/{config_id}")
-async def delete_fanout_config(config_id: str) -> dict:
+@router.delete("/{config_id}", dependencies=[Depends(require("admin"))])
+async def delete_fanout_config(
+    config_id: str, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> dict:
     """Delete a fanout config."""
     if is_reserved_fanout_id(config_id):
         raise HTTPException(status_code=403, detail="Reserved system module")
@@ -522,18 +739,28 @@ async def delete_fanout_config(config_id: str) -> dict:
     if existing is None:
         raise HTTPException(status_code=404, detail="Fanout config not found")
 
-    # Stop the module first
-    await fanout_manager.remove_config(config_id)
-    await FanoutConfigRepository.delete(config_id)
+    async with _bot_audited(
+        existing["type"] == "bot",
+        actor,
+        "bot.deleted",
+        target=f"bot:{config_id}",
+        details={"name": existing["name"]},
+    ):
+        # Stop the module first
+        await fanout_manager.remove_config(config_id)
+        await FanoutConfigRepository.delete(config_id)
 
     logger.info("Deleted fanout config %s", config_id)
     return {"deleted": True}
 
 
-@router.post("/bots/disable-until-restart")
-async def disable_bots_until_restart() -> dict:
+@router.post("/bots/disable-until-restart", dependencies=[Depends(require("admin"))])
+async def disable_bots_until_restart(actor: audit.RequestActor = audit.SYSTEM_ACTOR) -> dict:
     """Stop active bot modules and prevent them from running again until restart."""
     source = await fanout_manager.disable_bots_until_restart()
+    await audit.record(
+        "bots.disabled", "success", actor=actor, details={"until": "restart", "source": source}
+    )
 
     from app.services.radio_runtime import radio_runtime as radio_manager
     from app.websocket import broadcast_health

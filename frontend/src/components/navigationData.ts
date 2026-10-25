@@ -1,11 +1,4 @@
-import type {
-  Channel,
-  Contact,
-  Conversation,
-  Message,
-  NotificationMediaChannel,
-  NotificationMediaFlags,
-} from '../types';
+import type { Channel, Contact, Conversation, Message } from '../types';
 import type { ConversationTimes } from '../utils/conversationState';
 
 /**
@@ -47,13 +40,5 @@ export interface NavigationData {
   onDeleteChannel?: (key: string) => void;
   onDeleteContact?: (publicKey: string) => void;
   onSetChannelFloodScopeOverride?: (key: string, floodScopeOverride: string) => void;
-  getNotifyMediaEnabled?: (conversation: Conversation) => NotificationMediaFlags;
-  onSetConversationMediaFor?: (
-    conversation: Conversation,
-    channel: NotificationMediaChannel,
-    enabled: boolean
-  ) => void;
   onOpenNotifySettings?: () => void;
-  emailReady?: boolean;
-  webhookReady?: boolean;
 }

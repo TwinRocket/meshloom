@@ -28,16 +28,29 @@ function renderPalette() {
 }
 
 describe('CommandPalette', () => {
-  it('opens the control journal as its own conversation', () => {
+  it('finds the feed by its French and English names', () => {
+    const { onSelectConversation } = renderPalette();
+
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
+    fireEvent.click(screen.getByText(i18n.t('sidebar.feed')));
+    expect(onSelectConversation).toHaveBeenCalledWith({
+      type: 'feed',
+      id: 'feed',
+      name: i18n.t('sidebar.feed'),
+    });
+  });
+
+  it('opens the Control preset of the feed', () => {
     const { onSelectConversation } = renderPalette();
 
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true });
 
-    fireEvent.click(screen.getByText(i18n.t('sidebar.controlJournal')));
+    fireEvent.click(screen.getByText(i18n.t('commandPalette.controlPreset')));
     expect(onSelectConversation).toHaveBeenCalledWith({
-      type: 'control',
-      id: 'control',
-      name: i18n.t('sidebar.controlJournal'),
+      type: 'feed',
+      id: 'feed',
+      name: i18n.t('commandPalette.controlPreset'),
+      feedPreset: 'control',
     });
   });
 });

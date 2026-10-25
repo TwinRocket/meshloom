@@ -1,6 +1,7 @@
 """Tests for Web Push delivery transport behavior."""
 
 import json
+import socket
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -11,15 +12,40 @@ from app.push.send import (
     DEFAULT_PUSH_CONNECT_TIMEOUT_SECONDS,
     DEFAULT_PUSH_READ_TIMEOUT_SECONDS,
     IPV4_FALLBACK_CONNECT_TIMEOUT_SECONDS,
-    IPv4HTTPAdapter,
+    PinnedHTTPAdapter,
     send_push,
 )
 from app.push.vapid import get_vapid_claims, set_cached_vapid_subject
 
+V6 = "2606:4700:4700::1111"
+V4 = "93.184.215.14"
+
+
+@pytest.fixture
+def dual_stack_dns(monkeypatch):
+    """push.example.test resolves to one public IPv6 and one public IPv4 address."""
+    real = socket.getaddrinfo
+
+    def fake(host, port, family=0, type=0, proto=0, flags=0):
+        if host != "push.example.test":
+            return real(host, port, family, type, proto, flags)
+        return [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", (V6, port, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (V4, port)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+
+
+def _pinned(session: requests.Session) -> tuple[str, ...]:
+    adapter = session.adapters["https://"]
+    assert isinstance(adapter, PinnedHTTPAdapter)
+    return adapter.pinned_addresses
+
 
 @pytest.mark.asyncio
-async def test_send_push_prefers_default_dual_stack_session_before_any_ipv4_fallback():
-    """Successful sends should use the normal requests transport without forcing IPv4."""
+async def test_send_push_uses_every_validated_address_first(dual_stack_dns):
+    """Successful sends go through the pinned session on every validated address."""
     captured_kwargs: dict = {}
 
     def fake_webpush(**kwargs):
@@ -36,7 +62,9 @@ async def test_send_push_prefers_default_dual_stack_session_before_any_ipv4_fall
 
     assert status == 201
     session = captured_kwargs["requests_session"]
-    assert not isinstance(session.adapters["https://"], IPv4HTTPAdapter)
+    assert _pinned(session) == (V6, V4)
+    assert session.trust_env is False
+    assert session.max_redirects == 0
     assert captured_kwargs["timeout"] == (
         DEFAULT_PUSH_CONNECT_TIMEOUT_SECONDS,
         DEFAULT_PUSH_READ_TIMEOUT_SECONDS,
@@ -44,8 +72,8 @@ async def test_send_push_prefers_default_dual_stack_session_before_any_ipv4_fall
 
 
 @pytest.mark.asyncio
-async def test_send_push_retries_with_ipv4_session_after_connect_timeout():
-    """Connect failures should retry through the isolated IPv4-only transport."""
+async def test_send_push_retries_with_ipv4_addresses_after_connect_timeout(dual_stack_dns):
+    """Connect failures retry on the validated IPv4 addresses only."""
     calls: list[dict] = []
 
     def fake_webpush(**kwargs):
@@ -64,8 +92,8 @@ async def test_send_push_retries_with_ipv4_session_after_connect_timeout():
 
     assert status == 201
     assert len(calls) == 2
-    assert not isinstance(calls[0]["requests_session"].adapters["https://"], IPv4HTTPAdapter)
-    assert isinstance(calls[1]["requests_session"].adapters["https://"], IPv4HTTPAdapter)
+    assert _pinned(calls[0]["requests_session"]) == (V6, V4)
+    assert _pinned(calls[1]["requests_session"]) == (V4,)
     assert calls[0]["timeout"] == (
         DEFAULT_PUSH_CONNECT_TIMEOUT_SECONDS,
         DEFAULT_PUSH_READ_TIMEOUT_SECONDS,
@@ -74,6 +102,27 @@ async def test_send_push_retries_with_ipv4_session_after_connect_timeout():
         IPV4_FALLBACK_CONNECT_TIMEOUT_SECONDS,
         DEFAULT_PUSH_READ_TIMEOUT_SECONDS,
     )
+
+
+@pytest.mark.asyncio
+async def test_send_push_without_ipv4_does_not_retry():
+    calls: list[dict] = []
+
+    def fake_webpush(**kwargs):
+        calls.append(kwargs)
+        raise requests.exceptions.ConnectTimeout("timed out")
+
+    with (
+        patch("app.push.send.webpush", side_effect=fake_webpush),
+        pytest.raises(requests.exceptions.ConnectTimeout),
+    ):
+        await send_push(
+            subscription_info={"endpoint": f"https://[{V6}]/push", "keys": {}},
+            payload="{}",
+            vapid_private_key="private-key",
+            vapid_claims={"sub": "mailto:test@example.com"},
+        )
+    assert len(calls) == 1
 
 
 @pytest.fixture(autouse=True)
@@ -359,11 +408,11 @@ def _patch_push_send(monkeypatch) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_dispatch_message_sends_for_default_dm(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
 
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "PRIV",
             "outgoing": False,
@@ -379,14 +428,14 @@ async def test_dispatch_message_sends_for_default_dm(test_db, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dispatch_message_override_false_skips_dm(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository.settings import AppSettingsRepository
 
     key = "aa" * 32
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
     await AppSettingsRepository.set_push_conversation_override(f"contact-{key}", False)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "PRIV",
             "outgoing": False,
@@ -401,7 +450,7 @@ async def test_dispatch_message_override_false_skips_dm(test_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_dispatch_message_muted_channel_skips_even_with_override(test_db, monkeypatch):
     from app.channel_constants import PUBLIC_CHANNEL_KEY
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository import ChannelRepository
     from app.repository.settings import AppSettingsRepository
 
@@ -412,7 +461,7 @@ async def test_dispatch_message_muted_channel_skips_even_with_override(test_db, 
     await AppSettingsRepository.set_push_conversation_override(
         f"channel-{PUBLIC_CHANNEL_KEY}", True
     )
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "CHAN",
             "outgoing": False,
@@ -427,11 +476,11 @@ async def test_dispatch_message_muted_channel_skips_even_with_override(test_db, 
 @pytest.mark.asyncio
 async def test_dispatch_message_public_without_override_sends(test_db, monkeypatch):
     from app.channel_constants import PUBLIC_CHANNEL_KEY
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
 
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "CHAN",
             "outgoing": False,
@@ -445,14 +494,14 @@ async def test_dispatch_message_public_without_override_sends(test_db, monkeypat
 
 @pytest.mark.asyncio
 async def test_dispatch_message_hashtag_without_override_sends(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository import ChannelRepository
 
     hashtag_key = "cc" * 16
     await ChannelRepository.upsert(key=hashtag_key, name="#ops", is_hashtag=True)
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "CHAN",
             "outgoing": False,
@@ -466,14 +515,14 @@ async def test_dispatch_message_hashtag_without_override_sends(test_db, monkeypa
 
 @pytest.mark.asyncio
 async def test_dispatch_message_private_channel_without_override_skips(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository import ChannelRepository
 
     private_key = "dd" * 16
     await ChannelRepository.upsert(key=private_key, name="secret", is_hashtag=False)
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "CHAN",
             "outgoing": False,
@@ -490,7 +539,7 @@ async def test_dispatch_message_override_does_not_email_when_matrix_off(test_db,
     from unittest.mock import AsyncMock
 
     from app.models import NotificationDestinations, NotificationEmailDest
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository.settings import AppSettingsRepository
 
     key = "aa" * 32
@@ -498,13 +547,15 @@ async def test_dispatch_message_override_does_not_email_when_matrix_off(test_db,
     sent = _patch_push_send(monkeypatch)
     email = AsyncMock()
     monkeypatch.setattr("app.notify.send_email_alert", email)
+    # Only the message push is counted, not the destination-changed notice.
+    monkeypatch.setattr("app.notify.notify_destination_changed", lambda *_: None)
     await AppSettingsRepository.update(
         notification_destinations=NotificationDestinations(
             email=NotificationEmailDest(host="smtp.example", to="ops@example.com")
         )
     )
     await AppSettingsRepository.set_push_conversation_override(f"contact-{key}", True)
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "PRIV",
             "outgoing": False,
@@ -522,7 +573,7 @@ async def test_dispatch_message_emails_dm_only_when_matrix_enables_email(test_db
     from unittest.mock import AsyncMock
 
     from app.models import NotificationDestinations, NotificationEmailDest
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_message
     from app.repository.settings import AppSettingsRepository
 
     key = "aa" * 32
@@ -534,7 +585,7 @@ async def test_dispatch_message_emails_dm_only_when_matrix_enables_email(test_db
         )
     )
     await AppSettingsRepository.set_push_defaults({"new_dm": {"email": True}})
-    await push_manager.dispatch_message(
+    await emit_message(
         {
             "type": "PRIV",
             "outgoing": False,
@@ -549,6 +600,7 @@ async def test_dispatch_message_emails_dm_only_when_matrix_enables_email(test_db
 @pytest.mark.asyncio
 async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
     from app.models import Contact
+    from app.notifications.dispatcher import notification_dispatcher
     from app.push.first_seen import maybe_notify_contact_first_seen
     from app.radio import radio_manager
     from app.repository.settings import AppSettingsRepository
@@ -570,6 +622,7 @@ async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
     assert len(sent) == 1
 
     sent.clear()
+    notification_dispatcher()._dedup._seen.clear()  # the same contact again: a new test case
     await AppSettingsRepository.set_push_defaults(
         {
             "new_contact": False,
@@ -582,6 +635,7 @@ async def test_first_seen_type1_notifies_if_either_toggle(test_db, monkeypatch):
     assert len(sent) == 1
 
     sent.clear()
+    notification_dispatcher()._dedup._seen.clear()  # the same contact again: a new test case
     await AppSettingsRepository.set_push_defaults(
         {
             "new_contact": False,
@@ -903,12 +957,79 @@ async def test_dispatch_oss_update_skips_if_already_notified(test_db, monkeypatc
 
 @pytest.mark.asyncio
 async def test_dispatch_oss_update_skips_when_default_off(test_db, monkeypatch):
-    from app.push.manager import push_manager
+    from app.notifications.producers import emit_oss_update
     from app.repository.settings import AppSettingsRepository
 
     await _add_push_sub()
     sent = _patch_push_send(monkeypatch)
     await AppSettingsRepository.set_push_defaults({"oss_update": False})
-    sent_flag = await push_manager.dispatch_oss_update("1.0.0", "9.9.9")
+    sent_flag = await emit_oss_update("1.0.0", "9.9.9")
     assert sent_flag is False
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_keeps_a_subscription_the_guard_refuses(test_db, monkeypatch):
+    from app.push.manager import push_manager
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+    from app.repository.settings import AppSettingsRepository
+
+    sub = await PushSubscriptionRepository.create(
+        endpoint="http://192.168.1.10/up", p256dh="p256", auth="auth"
+    )
+    monkeypatch.setattr("app.push.manager.get_vapid_private_key", lambda: "test-vapid-key")
+    sent: list[dict] = []
+    monkeypatch.setattr(
+        "app.push.send.webpush", lambda **kw: sent.append(kw) or SimpleNamespace(status_code=201)
+    )
+    await push_manager.dispatch_event({"event": "oss_update", "title": "t", "body": "b"})
+    assert sent == []
+    stored = await PushSubscriptionRepository.get(sub["id"])
+    assert stored is not None
+    assert stored["failure_count"] == 0  # a guard refusal is not a delivery failure
+
+    await AppSettingsRepository.update(push_allow_private_endpoints=True)
+    await push_manager.dispatch_event({"event": "oss_update", "title": "t", "body": "b"})
+    assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_guard_refused_sends_never_evict_a_subscription(test_db, monkeypatch):
+    """A Tailscale/split-DNS name resolving to a private address is refused while the
+    opt-in is off. That is a configuration state: after far more refusals than
+    MAX_CONSECUTIVE_FAILURES the subscription is still there, with no failure counted."""
+    from app.push.manager import push_manager
+    from app.repository.push_subscriptions import (
+        MAX_CONSECUTIVE_FAILURES,
+        PushSubscriptionRepository,
+    )
+
+    real = socket.getaddrinfo
+
+    def fake(host, port, family=0, type=0, proto=0, flags=0):
+        if host != "ntfy.tail1234.ts.net":
+            return real(host, port, family, type, proto, flags)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.101.102.103", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake)
+    sub = await PushSubscriptionRepository.create("https://ntfy.tail1234.ts.net/up", "k", "a")
+    row = (await PushSubscriptionRepository.get_all())[0]
+    sub_id = row["id"]
+    assert sub_id
+
+    with patch("app.push.send.webpush") as sent:
+        for _ in range(MAX_CONSECUTIVE_FAILURES + 5):
+            result = await push_manager._send_one(row, "{}", "private-key", allow_private=False)
+            assert result.refused and not result.success and not result.expired
+            await push_manager._record_outcomes([result])
+        sent.assert_not_called()
+
+    rows = await PushSubscriptionRepository.get_all()
+    assert [r["id"] for r in rows] == [sub_id]
+    assert rows[0]["failure_count"] == 0
+    del sub
+
+    # Ticking the box makes the same subscription deliver.
+    with patch("app.push.send.webpush", return_value=SimpleNamespace(status_code=201)):
+        result = await push_manager._send_one(row, "{}", "private-key", allow_private=True)
+    assert result.success and not result.refused

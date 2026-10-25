@@ -37,7 +37,7 @@ Sur un système qui n’est pas Linux (macOS, par exemple), le choix du service 
 
 Pour un service, le script installe un paquet depuis le dépôt Meshloom signé (`apt` sur Debian et Ubuntu, `dnf` sur Fedora). Si le dépôt n’a rien pour votre machine, il se rabat sur le paquet joint à la version GitHub, puis, en dernier recours, sur une installation depuis le code source. Sur une carte ARMv6 (Raspberry Pi 1, Zero et Zero W d’origine), il s’arrête aussitôt : Meshloom n’y fonctionne pas. Voir [Image Raspberry Pi](/docs/rpi/).
 
-**La sécurité.** Le script ne pose aucune question de sécurité, et le choix compte. Les bots exécutent du code sur la machine et sont **activés par défaut**, sauf dans le paquet Linux (donc l’image Raspberry Pi), qui les coupe dans `/etc/meshloom/meshloom.env`. Avec Docker ou depuis les sources, ajoutez `MESHCORE_DISABLE_BOTS=true` pour les désactiver (dans l’add-on Home Assistant, activez son option `disable_bots`), et `MESHCORE_BASIC_AUTH_USERNAME` avec `MESHCORE_BASIC_AUTH_PASSWORD` pour imposer un identifiant partagé. Voir [Un réseau de confiance](/docs/trust/).
+**La sécurité.** Le script ne pose aucune question de sécurité, et le choix compte. Les bots exécutent du code sur la machine et sont **activés par défaut**, sauf dans le paquet Linux (donc l’image Raspberry Pi), qui les coupe dans `/etc/meshloom/meshloom.env`. Avec Docker ou depuis les sources, ajoutez `MESHCORE_DISABLE_BOTS=true` pour les désactiver (dans l’add-on Home Assistant, activez son option `disable_bots`). La connexion est toujours obligatoire : la première fois que vous ouvrez Meshloom, il vous demande de créer le compte administrateur (voir [Premier lancement](/docs/first-run/) et [Comptes et accès](/docs/deep/access/)). Voir [Un réseau de confiance](/docs/trust/).
 
 ## Ouvrir l’interface
 
@@ -90,11 +90,13 @@ Si Home Assistant tourne déjà sur la machine qui hébergera Meshloom, installe
 
 Le bouton ouvre la bonne fenêtre sur votre propre Home Assistant, avec l’adresse déjà remplie. C’est une simple redirection, qui n’apprend rien sur vous. À la main, allez dans **Paramètres > Modules complémentaires > Boutique > ⋮ > Dépôts**, ajoutez l’adresse du dépôt, puis installez **Meshloom** depuis la boutique.
 
-Deux choses fonctionnent différemment :
+Quelques choses fonctionnent différemment :
+
+**Home Assistant vous connecte.** Ouvert depuis la barre latérale, Meshloom ne demande aucun mot de passe et n’affiche pas de page de création de compte : le premier utilisateur Home Assistant qui l’ouvre en devient l’administrateur, les suivants reçoivent le rôle **Membre**. C’est aussi le cas d’un add-on mis à jour depuis la 4.18. Les options `basic_auth_username` et `basic_auth_password` sont dépréciées : si vous les aviez remplies, elles deviennent une fois un compte Meshloom (pour le port publié, plus bas), puis vous pouvez les vider ; elles seront retirées à la prochaine version.
 
 **Le port de partage de la radio se règle dans Home Assistant, pas dans Meshloom.** L’interface s’atteint par la barre latérale et ne publie rien : le proxy radio (voir [Transports radio](/docs/deep/transports/)) est donc la seule chose visible sur le réseau. Changez son port dans le panneau **Réseau** de l’add-on. Le champ dans Meshloom ne fait que l’afficher, car une valeur saisie là ferait écouter Meshloom à un endroit où rien n’est redirigé.
 
-**Les notifications demandent une adresse à elles.** La barre latérale n’a pas d’adresse publique stable, donc Web Push ne peut pas fonctionner à travers elle seule. Donnez à Meshloom un vrai nom d’hôte (l’add-on Cloudflared peut le faire sans ouvrir de port sur votre box) et ouvrez Meshloom à cette adresse.
+**Les notifications demandent une adresse à elles.** La barre latérale n’a pas d’adresse publique stable, donc Web Push ne peut pas fonctionner à travers elle seule. Donnez à Meshloom un vrai nom d’hôte (l’add-on Cloudflared peut le faire sans ouvrir de port sur votre box) et ouvrez Meshloom à cette adresse ([Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/#add-on-home-assistant)).
 
 Ce n’est pas la même chose que [publier le mesh vers Home Assistant par MQTT](/docs/deep/home-assistant/), qui marche depuis n’importe quelle installation et ne demande aucun add-on.
 

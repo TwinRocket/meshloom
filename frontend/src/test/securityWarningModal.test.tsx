@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  session: { current: null as unknown },
   disableBotsUntilRestart: vi.fn(),
   toast: {
     success: vi.fn(),
@@ -20,6 +21,10 @@ vi.mock('../components/ui/sonner', () => ({
   toast: mocks.toast,
 }));
 
+vi.mock('../auth/SessionProvider', () => ({
+  useSession: () => ({ session: mocks.session.current }),
+}));
+
 import { SecurityWarningModal } from '../components/SecurityWarningModal';
 import i18n from '../i18n';
 import type { HealthStatus } from '../types';
@@ -33,12 +38,12 @@ const baseHealth: HealthStatus = {
   oldest_undecrypted_timestamp: null,
   fanout_statuses: {},
   bots_disabled: false,
-  basic_auth_enabled: false,
 };
 
 describe('SecurityWarningModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.session.current = null;
     window.localStorage.clear();
     mocks.disableBotsUntilRestart.mockResolvedValue({
       status: 'ok',
@@ -47,7 +52,7 @@ describe('SecurityWarningModal', () => {
     });
   });
 
-  it('shows the warning when bots are enabled and basic auth is off', () => {
+  it('shows the warning when bots are enabled and no account session exists', () => {
     render(<SecurityWarningModal health={baseHealth} />);
 
     expect(screen.getByText(i18n.t('security.title'))).toBeInTheDocument();
@@ -60,8 +65,28 @@ describe('SecurityWarningModal', () => {
     expect(screen.queryByText(i18n.t('security.title'))).not.toBeInTheDocument();
   });
 
-  it('does not show when basic auth is enabled', () => {
-    render(<SecurityWarningModal health={{ ...baseHealth, basic_auth_enabled: true }} />);
+  it('still shows when the session is not authenticated', () => {
+    mocks.session.current = {
+      authenticated: false,
+      setup_required: true,
+      setup_code_required: false,
+      methods: { password: true, ingress: false },
+      auth_compat: { basic: false },
+    };
+    render(<SecurityWarningModal health={baseHealth} />);
+
+    expect(screen.getByText(i18n.t('security.title'))).toBeInTheDocument();
+  });
+
+  it('does not show for a signed-in account even with Basic compat off', () => {
+    mocks.session.current = {
+      authenticated: true,
+      setup_required: false,
+      setup_code_required: false,
+      methods: { password: true, ingress: false },
+      auth_compat: { basic: false },
+    };
+    render(<SecurityWarningModal health={baseHealth} />);
 
     expect(screen.queryByText(i18n.t('security.title'))).not.toBeInTheDocument();
   });

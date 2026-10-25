@@ -1,0 +1,11 @@
+{
+  "errors": {
+    "auth_passkey_unsupported": "Passkeys need https on a declared public address, Meshloom Remote or localhost.",
+    "auth_passkey_not_applicable": "Passkeys are for accounts with a password, signed in from a browser.",
+    "auth_passkey_invalid": "The passkey could not be verified. Try again.",
+    "auth_passkey_not_found": "Passkey not found.",
+    "auth_passkey_exists": "This passkey is already registered.",
+    "auth_passkey_limit": "This account has too many passkeys. Remove one first.",
+    "auth_2fa_required": "Enter a code from your authenticator app or a recovery code."
+  }
+}

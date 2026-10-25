@@ -731,6 +731,9 @@ describe('BackupRestoreFlow', () => {
       'bots_disabled:B',
       'fanout_invalid:id:webhook',
       'bots_restored_disabled:B',
+      'apprise_restored_disabled:A',
+      'private_network_restored_disabled:L',
+      'secret_dropped_destination_changed:L',
       'push_kept_existing',
       'proxy_port_managed',
       'proxy_targets_transport',
@@ -743,6 +746,18 @@ describe('BackupRestoreFlow', () => {
       'channels_over_radio_limit',
       'radio_contacts_unreadable',
       'contact_load_failed',
+      'section_failed:plugins',
+      'section_skipped:api_tokens',
+      'section_too_new:plugins',
+      'accounts_restored',
+      'accounts_no_admin',
+      'trusted_network_dropped:192.168.1.0/24',
+      'api_token_dropped:0123456789abcdef0123456789abcdef',
+      'notification_secrets_missing:2',
+      'notification_channel_dropped:webhook-1a2b3c4d',
+      'notification_rules_dropped',
+      'notification_rules_sanitized',
+      'notification_destination_secrets_missing',
     ];
     for (const language of ['en', 'fr']) {
       const t = i18n.getFixedT(language);
@@ -790,7 +805,11 @@ describe('BackupRestoreFlow', () => {
       inspectResult({
         integrations: [{ name: 'Hook', type: 'webhook', enabled: true }],
         radio_proxy_enabled: true,
-        warnings: ['radio_read_failed:tuning', 'radio_read_failed:autoadd'],
+        warnings: [
+          'radio_read_failed:tuning',
+          'radio_read_failed:autoadd',
+          'section_export_failed:plugins',
+        ],
       })
     );
     render(<BackupRestoreFlow />);
@@ -803,6 +822,49 @@ describe('BackupRestoreFlow', () => {
     expect(
       screen.getAllByText(i18n.t('settings.fullRestore.fileWarnings.radio_read_failed'))
     ).toHaveLength(1);
+    expect(
+      screen.getByText(
+        i18n.t('settings.fullRestore.fileWarnings.section_export_failed', { value: 'plugins' })
+      )
+    ).toBeVisible();
+  });
+
+  it('describes the file sections and flags the ones holding secrets', async () => {
+    mocks.inspectBackup.mockResolvedValue(
+      inspectResult({
+        sections: [
+          {
+            name: 'accounts',
+            known: true,
+            too_new: false,
+            sensitive: true,
+            description: { en: 'User accounts', fr: 'Comptes utilisateurs' },
+          },
+          {
+            name: 'plugins',
+            known: true,
+            too_new: true,
+            sensitive: false,
+            description: { en: 'Plugins', fr: 'Extensions' },
+          },
+          { name: 'future', known: false, too_new: false, sensitive: false, description: null },
+        ],
+      })
+    );
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    const accounts = i18n.t('settings.fullRestore.sectionSensitive', {
+      name: 'Comptes utilisateurs',
+    });
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.sections', { list: accounts }))
+    ).toBeVisible();
+    expect(
+      screen.getByText(i18n.t('settings.fullRestore.sectionsTooNew', { list: 'Extensions' }))
+    ).toBeVisible();
+    expect(
+      screen.getByText(i18n.t('settings.fullRestore.sectionsUnknown', { list: 'future' }))
+    ).toBeVisible();
   });
 
   it('names the hosts restored push notifications go to', async () => {

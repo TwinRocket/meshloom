@@ -68,11 +68,15 @@ If the radio's contact table is already full (from contacts added by advertiseme
 
 ## Sub-Path Reverse Proxy
 
-Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix. No `X-Forwarded-*` header is needed.
+Meshloom works behind a reverse proxy that serves it under a sub-path (e.g. `/meshcore/` or Home Assistant ingress). All frontend asset and API paths are relative, and the web manifest uses relative `start_url` / `scope` (`./`), so they resolve under any prefix. No `X-Forwarded-*` header is needed for the paths (see below for the client address and HTTPS).
 
 The proxy must ensure the sub-path URL has a **trailing slash**. If a user visits `/meshcore` (no slash), relative paths break. For Nginx, a `location /meshcore/ { ... }` block (note the trailing slash) does the right thing.
 
-CORS currently allows every origin with credentials (`allow_origins=["*"]`, `allow_credentials=True`). Do not expose the interface beyond a trusted network on the strength of Basic auth alone.
+Browser calls from other sites are refused unless listed in **Allowed origins** (same-origin by default).
+
+## Reverse proxy and trusted proxies
+
+Meshloom believes `X-Forwarded-For` and `X-Forwarded-Proto` only from the addresses in **Settings → Local Configuration → Trusted proxies** (empty by default; uvicorn always runs with `--no-proxy-headers`). List the proxy's own address only: `127.0.0.1` for a proxy on the same host, or a fixed `ipv4_address` you give the proxy container on a dedicated network. Never list a Docker network or its gateway (`172.17.0.1`): with port 8000 also published, clients can reach Meshloom through the gateway and would then forge their address. Examples for Caddy, nginx and Traefik: [`docs/user/en/deep/https.md`](docs/user/en/deep/https.md#trusted-proxies).
 
 ## HTTPS
 
@@ -84,7 +88,7 @@ Generate a local cert and start the backend with TLS:
 
 ```bash
 openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes -subj '/CN=localhost'
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 ```
 
 For Docker Compose, generate the cert, mount it into the container, and override the launch command:
@@ -96,7 +100,7 @@ services:
       - ./data:/app/data
       - ./cert.pem:/app/cert.pem:ro
       - ./key.pem:/app/key.pem:ro
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers --ssl-keyfile=/app/key.pem --ssl-certfile=/app/cert.pem
 ```
 
 Accept the browser warning, or use [mkcert](https://github.com/FiloSottile/mkcert) for locally-trusted certs.
@@ -109,7 +113,11 @@ The file runs `ghcr.io/twinrocket/meshloom:edge`, the image CI publishes for eve
 
 `:edge` is published a few minutes after the commit lands. Portainer redeploys a Git stack only when it sees a new commit, so a stack that polls Git usually redeploys before the new image exists. It keeps the previous `:edge` until the next commit. **Force redeployment**, which would redeploy on every check, is only in Portainer Business Edition. On Community Edition, either accept that lag, or redeploy the stack by hand a few minutes after a change: `pull_policy: always` fetches the newest `:edge`.
 
-The maintainers' own stacks do not poll. Their Portainer webhooks are stored in the repository secret `EDGE_DEPLOY_WEBHOOKS`, one URL per line. The `Deploy` job of `docker.yml` calls them once the new `:edge` manifest is pushed, so the redeploy never runs ahead of the image. Set those stacks' GitOps update mechanism to **Webhook**, with no polling, so that the webhook is the only thing that moves the stack to a new commit. The webhook call then always sees a new commit, and the redeploy pulls the image just published. A failed call only raises a warning on the run, and the stack keeps the previous image. When Portainer sits behind Cloudflare Access, store an Access service token in the repository secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, and accept it in the Access application with a Service Auth policy: the job sends it with every call. Without it, Access answers GitHub-hosted runners with a redirect to its login page (HTTP 302). The 5.0.0 integration branch `preversion-5` works the same way: CI publishes `ghcr.io/twinrocket/meshloom:next` for each of its commits, and the same `Deploy` job calls the webhooks in `NEXT_DEPLOY_WEBHOOKS` with the same Access token. A stack runs it by setting `MESHLOOM_IMAGE` to that image.
+The maintainers' own stacks do not poll. Their Portainer webhooks are stored in the repository secret `EDGE_DEPLOY_WEBHOOKS`, one URL per line. The `Deploy` job of `docker.yml` calls them once the new `:edge` manifest is pushed, so the redeploy never runs ahead of the image. Set those stacks' GitOps update mechanism to **Webhook**, with no polling, so that the webhook is the only thing that moves the stack to a new commit. The webhook call then always sees a new commit, and the redeploy pulls the image just published. A failed call only raises a warning on the run, and the stack keeps the previous image. When Portainer sits behind Cloudflare Access, store an Access service token in the repository secrets `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, and accept it in the Access application with a Service Auth policy: the job sends it with every call. Without it, Access answers GitHub-hosted runners with a redirect to its login page (HTTP 302). The 5.0.0 integration branch `preversion-5` publishes `ghcr.io/twinrocket/meshloom:next` for each of its commits, but the `Deploy` job calls no webhook for it. A stack runs it by setting `MESHLOOM_IMAGE` to that image.
+
+### The `meshloom-next` test instance
+
+The 5.0.0 integration branch has its own instance: the Portainer stack `meshloom-next` on mininode1 (a Git stack on `docker-compose.dev.yaml`, `main`). It runs `ghcr.io/twinrocket/meshloom:next` (`MESHLOOM_IMAGE`), and is LAN only: web UI on `http://192.168.42.226:8010` (`MESHLOOM_HTTP_PORT`), radio proxy on `192.168.42.226:5011` (`MESHLOOM_PROXY_PORT`). Its data lives in the host folder `/opt/docker/meshloom-next/data` (`MESHLOOM_DATA_PATH`), never shared with the edge instance. Its radio is the dedicated test radio over TCP (`192.168.42.46:5000`), set in the web UI, as is the proxy. A `preversion-5` build redeploys it through its Portainer webhook (secret `NEXT_DEPLOY_WEBHOOKS`, reached through Cloudflare Access; see `docs/dev/releasing.md`). The webhook cannot force an image pull, so the stack must have "Re-pull image" enabled in the Portainer UI to run the new `:next`; otherwise redeploy it by hand. To reset it, stop the stack, empty `/opt/docker/meshloom-next/data` on mininode1, start the stack, then set the radio transport and the proxy again in the UI. Never factory-reset the test radio.
 
 A stack created before this change that is stuck on that build error picks up the new file at its next update. If it still fails, delete the stack and create it again with the same variables and data folder (the database is not touched).
 
@@ -125,7 +133,7 @@ From an existing clone, you can still run the checkout installer. It runs as you
 bash scripts/setup/install_service.sh
 ```
 
-It asks only how to get the frontend (build locally with Node.js 22.12+ and npm 10+, or download the prebuilt one); the radio transport is chosen in the web UI. Re-running it stops the service, rewrites the unit file, reloads systemd, and starts it again. Set other environment variables (bots, Basic auth) as `Environment=` lines in the unit.
+It asks only how to get the frontend (build locally with Node.js 22.12+ and npm 10+, or download the prebuilt one); the radio transport is chosen in the web UI. Re-running it stops the service, rewrites the unit file, reloads systemd, and starts it again. Set other environment variables (bots) as `Environment=` lines in the unit.
 
 A package install is different: the unit is `meshloom.service`, runs as the `meshloom` user, keeps its data in `/var/lib/meshloom` and reads `/etc/meshloom/meshloom.env`.
 
@@ -134,7 +142,7 @@ A package install is different: the unit is `meshloom.service`, runs as the `mes
 If you're experiencing issues or opening a bug report, please start the backend with debug logging enabled. Debug mode provides a much more detailed breakdown of radio communication, packet processing, and other internal operations, which makes it significantly easier to diagnose problems.
 
 ```bash
-MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+MESHCORE_LOG_LEVEL=DEBUG uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 On a package install, add `MESHCORE_LOG_LEVEL=DEBUG` to `/etc/meshloom/meshloom.env`, restart the service and read the logs with `journalctl -u meshloom`. With Docker, add it to `environment:` and use `docker compose logs meshloom`. The add-on has a `log_level` option.

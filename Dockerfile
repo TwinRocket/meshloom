@@ -60,10 +60,30 @@ COPY --from=deps-manifest /manifest/pyproject.toml /manifest/uv.lock ./
 # published wheel for several dependencies — httptools and cffi compile from
 # source there — and the slim image ships neither a compiler nor their headers. On amd64 and arm64 the wheels exist and
 # nothing is built, so this costs those images a little time and no size.
-RUN apt-get update \
+#
+# cbor2 6.x (py_webauthn) is a Rust extension with no pure-Python fallback and no
+# armv7 wheel, so armv7 also needs Rust, and only armv7: the other architectures
+# take the wheel. Debian trixie's rustc (1.85) is too old (cbor2 uses let chains,
+# stable since 1.88), hence rustup, pinned to the version cbor2's README names,
+# with the installer pinned by sha256. Everything lives under /opt/rust and goes
+# away with the layer.
+ARG RUST_VERSION=1.93.0
+ARG RUSTUP_VERSION=1.28.2
+ARG RUSTUP_INIT_SHA256_ARMHF=3b8daab6cc3135f2cd4b12919559e6adaee73a2fbefb830fadf0405c20231d61
+RUN export RUSTUP_HOME=/opt/rust/rustup CARGO_HOME=/opt/rust/cargo PATH="/opt/rust/cargo/bin:$PATH" \
+    && apt-get update \
     && apt-get install -y --no-install-recommends build-essential libffi-dev \
+    && if [ "$(dpkg --print-architecture)" = "armhf" ]; then \
+        apt-get install -y --no-install-recommends curl ca-certificates \
+        && curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init \
+            "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/armv7-unknown-linux-gnueabihf/rustup-init" \
+        && echo "${RUSTUP_INIT_SHA256_ARMHF}  /tmp/rustup-init" | sha256sum -c - \
+        && chmod +x /tmp/rustup-init \
+        && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "${RUST_VERSION}"; \
+    fi \
     && uv sync --frozen --no-dev \
-    && apt-get purge -y --auto-remove build-essential libffi-dev \
+    && rm -rf /opt/rust /tmp/rustup-init \
+    && apt-get purge -y --auto-remove build-essential libffi-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
 # The real manifests, once nothing expensive depends on them. The running app
@@ -72,6 +92,8 @@ COPY pyproject.toml uv.lock ./
 
 # Copy application code
 COPY app/ ./app/
+# Plugin child runtime, a top-level package next to app/ (app/plugins/launch.py)
+COPY meshloom_plugin/ ./meshloom_plugin/
 
 # Layer-2 bundled hashtag names: same CC0 snapshot the backend loads
 # (repo path first, then this packaged copy next to meshcore_channels.py).
@@ -86,10 +108,29 @@ COPY --from=frontend-builder /build/dist ./frontend/dist
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
 
+# The account plugin children drop to when the server runs as root (the default
+# here and in the Home Assistant add-on): app/plugins/isolation/setuid.py. No
+# shell, no home, no password; Docker's seccomp profile refuses the user
+# namespaces bubblewrap needs, so this is the isolation of the image.
+# uid/gid pinned to 10002 (next to MESHLOOM_RUN_AS_USER's 10001): Docker does not
+# remap users, so this is that uid on the host too, and the first system uid
+# (999) is often a real host account. An existing account is kept as it is.
+ARG PLUGIN_UID=10002
+RUN if ! getent passwd meshloom-plugin >/dev/null; then \
+        getent group meshloom-plugin >/dev/null \
+            || groupadd --system --gid "${PLUGIN_UID}" meshloom-plugin; \
+        useradd --system --uid "${PLUGIN_UID}" --gid meshloom-plugin --no-create-home \
+            --home-dir /nonexistent --shell /usr/sbin/nologin meshloom-plugin; \
+    fi
+
 # Root by default, like every image before it. MESHLOOM_RUN_AS_USER=10001 opts
 # in to running as that uid (see docker-entrypoint.sh). setpriv comes with
 # util-linux in the base image.
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+# Recovery command (app/cli.py): `docker compose exec meshloom meshloom-admin ...`.
+# The same wrapper the deb/rpm package ships; it finds /app/.venv by itself.
+COPY --chmod=0755 pkg/nfpm/meshloom-admin /usr/local/bin/meshloom-admin
 
 # Last, because its value changes with every commit and an ENV layer invalidates
 # everything built after it. Declared any earlier, it rebuilt the dependency
@@ -103,4 +144,4 @@ EXPOSE 8000
 # Run the application. The entrypoint only execs CMD unless
 # MESHLOOM_RUN_AS_USER is set, so the Home Assistant add-on's CMD is unchanged.
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]

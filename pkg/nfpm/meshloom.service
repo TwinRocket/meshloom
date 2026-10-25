@@ -10,7 +10,7 @@ User=meshloom
 Group=meshloom
 WorkingDirectory=/opt/meshloom
 EnvironmentFile=/etc/meshloom/meshloom.env
-ExecStart=/opt/meshloom/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+ExecStart=/opt/meshloom/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 Restart=on-failure
 RestartSec=5s
 
@@ -20,7 +20,8 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
-ReadWritePaths=/opt/meshloom /var/lib/meshloom
+# The kiosk device token directory exists on kiosk hosts only ("-": optional).
+ReadWritePaths=/opt/meshloom /var/lib/meshloom -/var/lib/meshloom-kiosk
 SupplementaryGroups=dialout
 
 [Install]

@@ -7,7 +7,12 @@ import {
   getSavedDesktopSidebarCollapsed,
   setSavedDesktopSidebarCollapsed,
 } from '../utils/sidebarRailPreference';
-import type { SettingsSection } from '../components/settings/settingsConstants';
+import { useCapabilities } from '../auth/SessionProvider';
+import {
+  SETTINGS_SECTION_ORDER,
+  type SettingsSection,
+} from '../components/settings/settingsConstants';
+import { visibleSettingsSections } from '../auth/capabilities';
 import {
   parseHashSettingsSection,
   pushSettingsHash,
@@ -42,6 +47,7 @@ interface UseAppShellResult {
 }
 
 export function useAppShell(): UseAppShellResult {
+  const capabilities = useCapabilities();
   // Read once: the hash is rewritten to `#settings/<section>` by the first
   // commit, and App re-renders long before a lazy section mounts to take the anchor.
   const [initialSettingsSection] = useState<SettingsSection | null>(() => {
@@ -50,10 +56,18 @@ export function useAppShell(): UseAppShellResult {
     return section;
   });
   const [showNewMessage, setShowNewMessage] = useState(false);
-  const [showSettings, setShowSettings] = useState(() => initialSettingsSection !== null);
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>(
+  const [showSettingsState, setShowSettings] = useState(() => initialSettingsSection !== null);
+  const [settingsSectionState, setSettingsSection] = useState<SettingsSection>(
     () => initialSettingsSection ?? 'radio'
   );
+  // The interface never opens a page the role cannot use (the server refuses it anyway):
+  // a hash or a stored section outside the role lands on its first section, and a role
+  // with no settings (the kiosk) never shows them.
+  const allowedSections = visibleSettingsSections(capabilities, SETTINGS_SECTION_ORDER);
+  const showSettings = showSettingsState && allowedSections.length > 0;
+  const settingsSection = allowedSections.includes(settingsSectionState)
+    ? settingsSectionState
+    : (allowedSections[0] ?? settingsSectionState);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(
     getSavedDesktopSidebarCollapsed
@@ -66,6 +80,14 @@ export function useAppShell(): UseAppShellResult {
   const previousHashRef = useRef('');
   const isOpeningSettingsRef = useRef(false);
   const pushedSettingsEntryRef = useRef(false);
+
+  // A role with no settings (the kiosk) opened on `#settings/...`: drop the hash.
+  const settingsRefused = showSettingsState && !showSettings;
+  useEffect(() => {
+    if (settingsRefused && parseHashSettingsSection() !== null) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [settingsRefused]);
 
   useEffect(() => {
     if (showSettings) {
@@ -111,6 +133,7 @@ export function useAppShell(): UseAppShellResult {
       handleCloseSettingsView();
       return;
     }
+    if (!capabilities.canOpenSettings) return;
 
     if (typeof window !== 'undefined') {
       previousHashRef.current =
@@ -122,7 +145,7 @@ export function useAppShell(): UseAppShellResult {
       setShowSettings(true);
     });
     setSidebarOpen(false);
-  }, [handleCloseSettingsView, showSettings]);
+  }, [capabilities.canOpenSettings, handleCloseSettingsView, showSettings]);
 
   // Respond to browser back/forward navigating into or out of settings
   useEffect(() => {

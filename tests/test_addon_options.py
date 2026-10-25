@@ -117,3 +117,10 @@ def test_the_addon_allows_home_assistant_to_frame_it() -> None:
     """
     env = addon.build_environment({})
     assert env["MESHCORE_EMBEDDABLE_SAME_ORIGIN"] == "true"
+
+
+def test_uvicorn_never_reads_proxy_headers() -> None:
+    """A loopback caller's X-Forwarded-For must not make it the Supervisor (ingress)."""
+    assert addon.UVICORN_ARGV[:4] == ["uv", "run", "uvicorn", "app.main:app"]
+    assert "--no-proxy-headers" in addon.UVICORN_ARGV
+    assert "--proxy-headers" not in addon.UVICORN_ARGV

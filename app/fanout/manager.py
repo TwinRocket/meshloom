@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from app.fanout.base import FanoutModule
+from app.secret_fields import config_secret_values, scrub_error
 
 logger = logging.getLogger(__name__)
 _DISPATCH_TIMEOUT_SECONDS = 30.0
@@ -92,6 +93,16 @@ def _scope_matches_message(scope: dict, data: dict) -> bool:
 def _scope_matches_raw(scope: dict, _data: dict) -> bool:
     """Check whether a raw packet event matches the given scope."""
     return scope.get("raw_packets", "none") == "all"
+
+
+def _dispatch_to_plugins(hook: str, data: dict) -> None:
+    """Hand the event to the plugin host too (it queues, never blocks)."""
+    from app.plugins.host import plugin_manager
+
+    try:
+        plugin_manager.dispatch(hook, data)
+    except Exception:
+        logger.exception("Plugin dispatch of %s failed", hook)
 
 
 def _always_match(_scope: dict, _data: dict) -> bool:
@@ -362,6 +373,7 @@ class FanoutManager:
                     channel = None
                 if is_pending_channel(channel):
                     return
+        _dispatch_to_plugins("message", data)
         await self._dispatch_matching(
             data,
             matcher=_scope_matches_message,
@@ -371,6 +383,7 @@ class FanoutManager:
 
     async def broadcast_raw(self, data: dict) -> None:
         """Dispatch a raw packet to modules whose scope matches."""
+        _dispatch_to_plugins("raw_packet", data)
         await self._dispatch_matching(
             data,
             matcher=_scope_matches_raw,
@@ -380,6 +393,7 @@ class FanoutManager:
 
     async def broadcast_contact(self, data: dict) -> None:
         """Dispatch a contact upsert to all modules."""
+        _dispatch_to_plugins("contact", data)
         await self._dispatch_matching(
             data,
             matcher=_always_match,
@@ -389,6 +403,7 @@ class FanoutManager:
 
     async def broadcast_telemetry(self, data: dict) -> None:
         """Dispatch a repeater telemetry snapshot to all modules."""
+        _dispatch_to_plugins("telemetry", data)
         await self._dispatch_matching(
             data,
             matcher=_always_match,
@@ -398,6 +413,7 @@ class FanoutManager:
 
     async def broadcast_health_fanout(self, data: dict) -> None:
         """Dispatch a radio health snapshot to all modules."""
+        _dispatch_to_plugins("health", data)
         await self._dispatch_matching(
             data,
             matcher=_always_match,
@@ -444,11 +460,15 @@ class FanoutManager:
             if module is None and last_error is None:
                 continue
 
+            # Health and /api/debug read this: an error may quote a secret
+            # (an Apprise URL token, a password), so it never leaves unscrubbed.
+            config_type = info.get("type", "unknown")
+            config = info.get("config") or (module.config if module is not None else {})
             result[config_id] = {
                 "name": info.get("name", config_id),
-                "type": info.get("type", "unknown"),
+                "type": config_type,
                 "status": status,
-                "last_error": last_error,
+                "last_error": scrub_error(last_error, config_secret_values(config_type, config)),
             }
         return result
 

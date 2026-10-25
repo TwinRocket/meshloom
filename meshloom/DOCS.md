@@ -27,7 +27,10 @@ anywhere else.
    machine.
 2. Install and start the add-on, then open it from the sidebar. The first install
    builds one small layer on top of the published Meshloom image, so it takes a
-   little longer than starting it again later does.
+   little longer than starting it again later does. Home Assistant signs you in
+   there. Port 8000 is not published by default: to reach Meshloom, or create its
+   first account, without the sidebar, give `8000/tcp` a host port in the
+   add-on's **Network** panel first (see *Reaching it from outside*).
 3. Go to **Settings → Radio** and choose the transport — the serial device, the
    host and port of a radio reachable over the network, or a Bluetooth radio
    (**Scan**, then its PIN).
@@ -59,17 +62,42 @@ to act as root on the Home Assistant machine, not only inside the add-on. Bots
 are such code (see `disable_bots` below): if Meshloom is reachable from outside
 Home Assistant, or if anyone you do not fully trust can sign in, turn bots off.
 
+## Signing in
+
+Opened from the sidebar, Meshloom signs you in with your Home Assistant user:
+no Meshloom password and no account creation page, also after an update from
+4.18. The first Home Assistant user to open it becomes its administrator, even
+if a Meshloom administrator already exists (one made from `basic_auth_*` or with
+`meshloom-admin`): the sidebar is the add-on's way in and must always reach an
+administrator. The next ones get the **Member** role, which can read and send
+but not change settings. Only Home Assistant administrators see the Meshloom
+panel (the add-on keeps it admin-only), so these are always people who
+already administer your Home Assistant. Meshloom keeps one account per Home Assistant user (its display name
+follows Home Assistant's), and sets no cookie of its own under ingress: Home
+Assistant's address is shared by every add-on.
+
+Meshloom trusts these identities only when the request comes from Home
+Assistant's Supervisor (`172.30.32.2`). The same headers sent to a published
+port 8000 are ignored there, and that address asks for a Meshloom account and
+password. Like every add-on under ingress, Meshloom trusts Home Assistant and
+its other add-ons: do not run an add-on you would not trust with Home Assistant
+itself.
+
 ## Options
 
 | Option | What it does |
 |---|---|
 | `log_level` | How much the add-on writes to its log: `DEBUG`, `INFO` (default), `WARNING` or `ERROR`. The private key and Wi-Fi passwords are redacted even at `DEBUG`. Channel names and channel keys may appear at any level; repeater and room login passwords and the Bluetooth PIN may also appear at `DEBUG`. |
 | `proxy_port` | Container-side port of the radio proxy, `5051` by default. Applied at every start, and it has to match the port the add-on forwards: leave it alone. See below. |
-| `basic_auth_username` / `basic_auth_password` | Asks for a username and password on the whole web interface and API. Both or neither. The check has no exception for ingress: if you set them, open the sidebar entry afterwards to make sure it still loads. |
+| `basic_auth_username` / `basic_auth_password` | **Deprecated, removed in the next release.** Home Assistant now signs you in through the sidebar (see *Signing in* below). If both are set, Meshloom turns them into an administrator account once, at its first start while it has no account, for the published port; it never reads them again. Empty them afterwards. |
 | `vapid_subject` | **Deprecated, removed in the next release.** The contact address for Web Push now lives in Meshloom's **Settings → Notifications**, VAPID subject field. If you set it here, Meshloom copies it there once, at its first start, when that field is empty, and never reads this option again: change the address in Settings from now on. |
 | `disable_bots` | Turns off the bot system. Bots run Python code you write, with full access to the add-on, and through the host's D-Bus (needed for Bluetooth) with root access to the Home Assistant machine. Turn them off if the instance is reachable from outside Home Assistant or shared with people you do not fully trust. |
 
 Everything else (radio, notifications, integrations) is set in Meshloom's own **Settings**.
+
+### Notifications
+
+Meshloom notifies you through **channels** that you add in its own **Settings → Notifications**, nothing in this panel: Web Push (browsers), a **Home Assistant** channel for the Companion app on your phone, ntfy, Telegram, Discord, Gotify, e-mail, a webhook, or any Apprise service. The Home Assistant channel needs a long-lived access token from your Home Assistant profile and the address of Home Assistant on your network, with **Allow a private-network destination** ticked (a destination on your network is refused until you do). Channels and rules are in the full backup, but their secrets (tokens, passwords, addresses that carry a token) never are: after a restore, a channel comes back switched off until you type them again. Web Push needs HTTPS on a name of your own and does not work through ingress alone (see below); the other channels do not. The full guide is Meshloom's *Notifications* page (`docs/user/en/deep/notifications.md` in the repository).
 
 
 ## The radio proxy port
@@ -105,12 +133,19 @@ provide one:
    **Cloudflared** add-on does this without opening a port on your router.
 3. Open Meshloom through that hostname (over HTTPS) to subscribe to Web Push.
 
+Tunnels, VPNs and reverse proxies are covered step by step in
+*Remote access on your own* (published on meshloom.app, in the Go deeper section).
+
 The hostname does not have to resemble Home Assistant's: the tunnel connects to an
-address and a port, and Meshloom answers to whatever name it is asked for. Ingress
-keeps working meanwhile; the two ways in are independent. A published port is
-reachable by anything that can route to that machine, so set
-`basic_auth_username` / `basic_auth_password` unless the tunnel authenticates for
-you.
+address and a port. Meshloom looks at the name in the browser's address (DNS
+rebinding): in 5.0.0 an unknown name is only logged, and from 5.1 it is refused
+unless declared in **Settings → Users & Access → Public addresses**, so declare
+yours (and list the tunnel or proxy in **Trusted proxies**, so Meshloom sees
+HTTPS and the real visitor). Ingress is never refused for its name and keeps
+working meanwhile; the two ways in are independent. A published port is
+reachable by anything that can route to that machine: it asks for a Meshloom
+account and password (the one made from `basic_auth_*`, or one created with
+`meshloom-admin`, see *Recovering access*).
 
 ## Meshloom Community
 
@@ -133,6 +168,21 @@ The database, keys and settings are kept in the add-on's own configuration
 folder (`addon_config`), which survives updates and is included in Home Assistant
 backups. Updating Meshloom is done from Home Assistant's add-on page: the
 in-app updater only tells you a new version exists.
+
+## Recovering access
+
+Home Assistant signs you in, so a lost Meshloom password does not lock you out of
+the add-on (it matters only for the published port, where the lost password of
+an account is reset with `meshloom-admin reset-password <user>`). The image still carries `meshloom-admin` for the rare case where you
+need to list, disable or reset accounts. With the *Advanced SSH & Web Terminal*
+add-on (Protection mode off):
+
+```
+docker exec -it $(docker ps --format '{{.Names}}' | grep meshloom) meshloom-admin list-users
+```
+
+It finds the add-on's database (`/config/meshcore.db`) by itself. Details:
+<https://meshloom.app/en/docs/deep/access/>.
 
 ## The radio identity
 

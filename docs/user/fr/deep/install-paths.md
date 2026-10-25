@@ -117,7 +117,7 @@ Le contact des notifications push se règle dans **Réglages → Notifications**
 
 ```bash
 uv sync
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --no-proxy-headers
 ```
 
 `uv sync` crée le `.venv` propre au projet. N’installez pas ces dépendances avec `apt` ni `dnf`. Si `uv run uvicorn` s’arrête sur `ModuleNotFoundError: No module named 'meshcore'`, commencez ici. Voir [Dépannage](/docs/deep/troubleshooting/).
@@ -134,7 +134,7 @@ Le serveur de développement écoute sur `http://localhost:5173` et transmet les
 
 ```bash
 cd frontend && npm install && npm run build && cd ..
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une interface toute prête que `scripts/setup/fetch_prebuilt_frontend.py` télécharge). Si aucun des deux n’existe, il ne sert que l’API. Lancez les contrôles de qualité du dépôt depuis sa racine :
@@ -152,6 +152,8 @@ Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une in
 | Copie du code | `data/meshcore.db` dans le dossier |
 
 `MESHCORE_DATABASE_PATH` la déplace. Une mise à jour ne remplace jamais votre base : sa structure est mise à niveau au démarrage, étape par étape.
+
+La commande de récupération `meshloom-admin` lit le même fichier ; la façon de la lancer pour chaque installation est dans [Comptes et accès](/docs/deep/access/).
 
 **Réglages → Mises à jour** affiche l’état des mises à jour et peut chercher une nouvelle version (**Vérifier maintenant**). Là où c’est pris en charge, il installe la mise à jour depuis une source signée, soit à la demande (**Installer maintenant**), soit tout seul dans une plage horaire et les jours que vous choisissez. Cela fonctionne pour un paquet Linux et pour une pile Docker gérée par l’assistant. Une copie du code se met à jour comme décrit plus haut. Ailleurs, mettez à jour à la main :
 
