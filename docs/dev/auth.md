@@ -662,12 +662,13 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
   the cookie. Lifetime: `auth_settings.session_lifetime_days` (30; no route or screen changes it).
 - **Remember me.** `POST /auth/login` and `POST /auth/webauthn/login/verify` take
   `remember` (default `false`; the TOTP step reuses the value of its pending login,
-  `PendingLogin.remember`). It is stored in `sessions.remember` (migration 116; 1 for
+  `PendingLogin.remember`). It is stored in `sessions.remember` (migration 117; 1 for
   every older row). `remember=true`: the lifetime above and a cookie with `Max-Age`.
   `remember=false`: a browser-session cookie (no `Max-Age`, no `Expires`) and a
   server-side sliding lifetime of `min(session_lifetime_days, 12 h)`
-  (`sessions.BROWSER_SESSION_LIFETIME_S`), so the stolen cookie of such a session
-  does not outlive that either. Setup and the kiosk sign-in stay long
+  (`sessions.BROWSER_SESSION_LIFETIME_S`), so an abandoned session ends within that
+  time. It still slides while used and has no absolute cap: a stolen cookie that
+  keeps being used stays valid. Setup and the kiosk sign-in stay long
   (`_start_session` and `issue_session` default to `remember=True`).
 - **Sliding expiry.** A request whose session was last seen more than a
   minute ago moves `expires_at` to now + the lifetime of its kind (`touch()`, one

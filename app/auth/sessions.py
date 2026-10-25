@@ -10,7 +10,9 @@ sends the cookie again with the same Max-Age.
 "Remember me" (``sessions.remember``): a login without it gets a browser-session
 cookie (no ``Max-Age``, so the browser drops it on exit) and a short server-side
 sliding lifetime, ``min(session_lifetime_days, BROWSER_SESSION_LIFETIME_S)``,
-so a stolen cookie of such a session does not outlive the day either.
+so an abandoned session ends within that time. The lifetime slides while the
+session is used (requests, WebSocket frames) and there is no absolute cap, so a
+cookie that is stolen and kept in use stays valid.
 
 Cookie (cadrage §4.4): ``HttpOnly``, ``SameSite=Lax``, ``Path=/``. Over https
 it is ``__Host-meshloom_session`` with ``Secure`` (the prefix forbids a

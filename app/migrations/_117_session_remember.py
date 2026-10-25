@@ -1,4 +1,4 @@
-"""Migration 116: ``sessions.remember``, the "remember me" choice of a login.
+"""Migration 117: ``sessions.remember``, the "remember me" choice of a login.
 
 1 (the default, so every existing session keeps its long, cookie-with-Max-Age
 lifetime) or 0, a browser-session login: cookie without ``Max-Age``, and a short
