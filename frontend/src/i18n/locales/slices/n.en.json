@@ -10,6 +10,7 @@
     "egress_response_encoding": "The answer is compressed, which is not allowed here.",
     "egress_lan_address": "This local-network device did not resolve to an address of your local network.",
     "egress_self_address": "This local-network device is the machine Meshloom runs on, which a plugin may not reach.",
+    "egress_supervisor_address": "This address is on the Home Assistant Supervisor’s internal network (the Supervisor, other add-ons), which a plugin may not reach.",
     "timeout": "The destination did not answer in time.",
     "tls_error": "The secure (TLS) connection failed: check the certificate, or use http:// if the destination has no TLS.",
     "service_error": "The destination answered with HTTP error {{status}}."

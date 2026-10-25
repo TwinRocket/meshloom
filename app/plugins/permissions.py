@@ -4,7 +4,8 @@ Reserved names are refused with a clear error until implemented (M4). The `http`
 host rules live here: `hosts` are public hosts (HTTPS only), `lan_hosts` the devices
 of the user's local network the plugin may reach (MSHL-282; local names and LAN IP
 literals only, MSHL-330; plain HTTP allowed; the egress guard checks that each one
-resolves to a LAN address that is not the Meshloom host itself). The
+resolves to a LAN address that is not the Meshloom host itself; in the Home Assistant
+add-on the supervisor network is refused too, here and in the guard, MSHL-350). The
 `*.meshloom.app` rule depends on the plugin id and is applied by the manifest model.
 """
 
@@ -28,6 +29,7 @@ from app.net.egress_guard import (
     is_lan_address,
     is_metadata_address,
     is_private_address,
+    is_supervisor_network_address,
 )
 
 MESSAGES_SEND_MAX_PER_HOUR = 60
@@ -131,7 +133,11 @@ def check_lan_host(value: str) -> str:
     fc00::/7), optionally with `:port` (`[v6]:port` for IPv6: a bare `fd00::1:80` is
     the address `fd00::1:80`, no port). Never a public DNS name (its owner would choose
     the LAN address), a wildcard, a range, a URL, `localhost` (the Meshloom machine
-    itself), a loopback, link-local, metadata or public address."""
+    itself), a loopback, link-local, metadata or public address. In the Home Assistant
+    add-on, never an address of the supervisor network (172.30.32.0/23,
+    fd0c:ac1e:2100::/48: the Supervisor, the other add-ons), so this check depends on
+    the install there (MSHL-350); a name that resolves into it is refused by the egress
+    guard at fetch time."""
     if len(value) > 260:
         raise PydanticCustomError("lan_host_invalid", "host is too long")
     if "*" in value:
@@ -158,6 +164,12 @@ def check_lan_host(value: str) -> str:
                 "lan_host_not_lan",
                 "a LAN IP literal is in 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, "
                 "100.64.0.0/10 or fc00::/7",
+            )
+        if is_supervisor_network_address(ip):
+            raise PydanticCustomError(
+                "lan_host_supervisor",
+                "the Home Assistant Supervisor's internal network (Supervisor, other "
+                "add-ons) is not a LAN device",
             )
         return value
     if (

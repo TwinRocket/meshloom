@@ -260,3 +260,73 @@ def test_a_failing_bind_probe_refuses(monkeypatch):
 
     monkeypatch.setattr(socket, "socket", Sock)
     assert egress_guard._binds_locally(ipaddress.ip_address("192.168.1.30"))
+
+
+# --- the Home Assistant supervisor network (MSHL-350) ----------------------------------
+
+SUPERVISOR_NET = ["172.30.32.2", "172.30.32.1", "172.30.33.254", "fd0c:ac1e:2100::2"]
+
+
+def _addon(monkeypatch, on: bool = True) -> None:
+    if on:
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    else:
+        monkeypatch.delenv("MESHLOOM_INSTALL_KIND", raising=False)
+
+
+@pytest.mark.parametrize("ip", SUPERVISOR_NET)
+async def test_in_the_addon_a_name_resolving_into_the_supervisor_network_is_refused(
+    monkeypatch, ip
+):
+    _addon(monkeypatch)
+    FakeDns(monkeypatch, [ip])
+    with pytest.raises(EgressBlocked) as info:
+        await _check(f"http://{HOST}/")
+    assert info.value.code == "egress_supervisor_address"
+    # One answer in it among LAN ones taints the name too.
+    FakeDns(monkeypatch, ["192.168.1.30", ip])
+    with pytest.raises(EgressBlocked) as info:
+        await _check(f"http://{HOST}/")
+    assert info.value.code == "egress_supervisor_address"
+
+
+async def test_in_the_addon_a_declared_supervisor_literal_is_refused(monkeypatch):
+    _addon(monkeypatch)
+    lan = HostAllowlist.of("172.30.32.2")
+    with pytest.raises(EgressBlocked) as info:
+        await validate_destination("http://172.30.32.2/", lan_hosts=lan)
+    assert info.value.code == "egress_supervisor_address"
+
+
+@pytest.mark.parametrize("ip", ["172.30.31.255", "172.30.34.0", "fd0c:ac1e:2101::1"])
+async def test_in_the_addon_the_neighbouring_lan_stays_reachable(monkeypatch, ip):
+    _addon(monkeypatch)
+    FakeDns(monkeypatch, [ip])
+    dest = await _check(f"http://{HOST}/")
+    assert dest.ips == (ipaddress.ip_address(ip),)
+
+
+@pytest.mark.parametrize("kind", [None, "package", "compose", "container", "source"])
+@pytest.mark.parametrize("ip", SUPERVISOR_NET)
+async def test_outside_the_addon_a_lan_numbered_like_the_supervisor_network_works(
+    monkeypatch, kind, ip
+):
+    """A deb, Docker or source install whose LAN is 172.30.32.0/23 is not the add-on."""
+    _addon(monkeypatch, on=False)
+    if kind:
+        monkeypatch.setenv("MESHLOOM_INSTALL_KIND", kind)
+    monkeypatch.setenv("SUPERVISOR_TOKEN", "not-a-signal")
+    FakeDns(monkeypatch, [ip])
+    dest = await _check(f"http://{HOST}/")
+    assert dest.ips == (ipaddress.ip_address(ip),)
+
+
+def test_the_supervisor_network_check(monkeypatch):
+    _addon(monkeypatch)
+    assert egress_guard.is_supervisor_network_address(ipaddress.ip_address("172.30.32.2"))
+    # The IPv4-mapped spelling is unwrapped.
+    assert egress_guard.is_supervisor_network_address(ipaddress.ip_address("::ffff:172.30.32.2"))
+    assert not egress_guard.is_supervisor_network_address(ipaddress.ip_address("172.30.34.1"))
+    _addon(monkeypatch, on=False)
+    assert not egress_guard.is_supervisor_network_address(ipaddress.ip_address("172.30.32.2"))
+    assert "egress_supervisor_address" in EGRESS_MESSAGES

@@ -137,7 +137,13 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   inside a bridged container, MSHL-330; with host networking only the Home Assistant
   supervisor gateway, MSHL-336; host networking needs the engine's interfaces and
   default routes through interfaces that are their own link, so Docker-in-Docker
-  stays bridged, MSHL-340) raises `egress_self_address`. A host in neither
+  stays bridged, MSHL-340) raises `egress_self_address`. In the Home Assistant
+  add-on only (`MESHLOOM_INSTALL_KIND=addon`, declared by `meshloom/run.py`,
+  never inferred from addresses, so a deb/Docker/source install whose LAN is
+  numbered from `172.30.32.0/23` is unaffected), any address of the supervisor
+  network (`172.30.32.0/23`, `fd0c:ac1e:2100::/48`: the Supervisor, the other
+  add-ons; `is_supervisor_network_address`, mapped spellings unwrapped) raises
+  `egress_supervisor_address` (MSHL-350). A host in neither
   list raises `egress_host_not_allowed` before the scheme check and the lookup.
   `follow_checked_redirects(..., lan_verify_tls=False)` turns the certificate
   check off only on the hops that reach a `lan_hosts` host (self-signed LAN

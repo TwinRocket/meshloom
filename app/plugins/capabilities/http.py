@@ -108,6 +108,7 @@ _HOST_REFUSALS = frozenset(
         "egress_private_address",
         "egress_lan_address",
         "egress_self_address",
+        "egress_supervisor_address",
     }
 )
 

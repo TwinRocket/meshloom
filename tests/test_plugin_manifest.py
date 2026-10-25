@@ -380,3 +380,24 @@ def test_lan_host_overlap_check_is_defence_in_depth():
     with pytest.raises(PydanticCustomError) as exc:
         params._unique()
     assert exc.value.type == "lan_host_overlap"
+
+
+@pytest.mark.parametrize("entry", ["172.30.32.2", "172.30.33.10:8080", "[fd0c:ac1e:2100::2]:80"])
+def test_lan_hosts_refuse_the_supervisor_network_in_the_addon_only(monkeypatch, entry):
+    """MSHL-350: in the Home Assistant add-on the supervisor network (Supervisor, other
+    add-ons) is never a LAN device; elsewhere a LAN numbered like it stays accepted."""
+    from pydantic_core import PydanticCustomError
+
+    from app.plugins.permissions import check_lan_host
+
+    monkeypatch.delenv("MESHLOOM_INSTALL_KIND", raising=False)
+    assert check_lan_host(entry) == entry
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
+    assert check_lan_host(entry) == entry
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    with pytest.raises(PydanticCustomError) as exc:
+        check_lan_host(entry)
+    assert exc.value.type == "lan_host_supervisor"
+    # Its neighbours, and local names (checked after resolution by the guard), pass.
+    assert check_lan_host("172.30.34.1") == "172.30.34.1"
+    assert check_lan_host("printer.local") == "printer.local"
