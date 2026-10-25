@@ -53,14 +53,23 @@ export function attentionFields(instance: Pick<PluginInstance, 'attention'>): st
 }
 
 /**
+ * An instance restored from a backup without its code (`attention.type = "reinstall"`):
+ * it never starts until reinstalled (the API answers 409 `plugin_reinstall_required`).
+ */
+export function needsReinstall(instance: Pick<PluginInstance, 'status' | 'attention'>): boolean {
+  return instance.status === 'needs_attention' && attentionType(instance) === 'reinstall';
+}
+
+/**
  * Why the toggle cannot enable the instance from the list, or null when it can.
  * `review` means the drawer's explicit acknowledgement is needed first.
  */
 export function enableBlock(
   instance: PluginInstance
-): 'frozen' | 'config_required' | 'review' | null {
+): 'frozen' | 'config_required' | 'reinstall' | 'review' | null {
   if (isFrozen(instance)) return 'frozen';
   if (instance.status !== 'needs_attention') return null;
+  if (needsReinstall(instance)) return 'reinstall';
   return attentionType(instance) === 'config_required' ? 'config_required' : 'review';
 }
 

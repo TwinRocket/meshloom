@@ -226,8 +226,9 @@ and never sits in `plugins.config`. They follow the write-only pattern of
   exist, the repository encrypts through that helper, never a cipher of its own.
 - Never exported: no JSON backup section carries them (`BACKUP_COVERAGE` marks
   `plugin_secrets` excluded), and the SQLite download empties the table
-  (`SNAPSHOT_EMPTIED_TABLES`). `plugins` and `plugin_kv` are excluded from the JSON
-  backup until the plugins API adds a section for them.
+  (`SNAPSHOT_EMPTIED_TABLES`). The JSON backup's `plugins` section
+  (`app/services/backup_plugins.py`, `docs/dev/backup.md`, "Plugins") carries the
+  instances with `secret_omitted` names only; `plugin_kv` is never exported.
 
 ### Attention scan
 

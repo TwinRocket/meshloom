@@ -457,6 +457,29 @@ describe('re-consent, reorder and admin gate', () => {
     expect(screen.queryByTestId('plugin-exfiltration-warning')).not.toBeInTheDocument();
   });
 
+  it('offers no "Accept and enable" for a restored instance that must be reinstalled', async () => {
+    const row = instance({
+      enabled: false,
+      status: 'needs_attention',
+      attention: { type: 'reinstall', was_enabled: true, secrets_missing: false },
+    });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([row]);
+    vi.spyOn(api, 'getPluginLogs').mockResolvedValue({ lines: [], truncated: false });
+    render(<SettingsExtensionsSection health={health()} />);
+    expect(await screen.findByRole('switch')).toBeDisabled();
+    expect(screen.getByText(t('settings.extensions.attention.reinstall.badge'))).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: t('settings.extensions.openDetails', { name: 'Weather' }),
+      })
+    );
+    await screen.findByText(t('settings.extensions.attention.reinstall.text'));
+    expect(
+      screen.queryByRole('button', { name: t('settings.extensions.drawer.acceptAndEnable') })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('plugin-exfiltration-warning')).not.toBeInTheDocument();
+  });
+
   it('reloads the list when a reorder fails half-way', async () => {
     const a = instance({ label: 'A', sort_order: 0 });
     const b = instance({

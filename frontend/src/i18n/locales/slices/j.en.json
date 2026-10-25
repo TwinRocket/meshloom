@@ -147,6 +147,8 @@
       "proxyEnabled": "The radio proxy is enabled in this backup: it starts right after the restore and accepts connections without authentication.",
       "pushTargets": "This backup holds push subscriptions: your message notifications go to {{list}} right after the restore.",
       "pushTarget": "{{label}} ({{host}})",
+      "pushTargetOwner": "{{target}}, for the account {{owner}}",
+      "pushTargetFirstAdmin": "{{target}}, for the first administrator",
       "fileWarningsTitle": "About this file",
       "fileWarnings": {
         "private_key_export_disabled": "The radio firmware did not allow exporting its private key: this backup has no identity.",

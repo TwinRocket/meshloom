@@ -38,7 +38,12 @@ from app.models import (
     RadioTransportSnapshot,
 )
 from app.radio import RadioOperationBusyError, RadioOperationError
-from app.services.backup import BackupError, open_backup_document, push_restore_applies
+from app.services.backup import (
+    BackupError,
+    open_backup_document,
+    preview_push_owners,
+    push_restore_applies,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -357,9 +362,10 @@ async def inspect_backup(
             result.radio_proxy_enabled = extra.radio_proxy.enabled
         if extra.push_subscriptions and await push_restore_applies(extra):
             # The file chooses where message notifications go: show it.
+            owners = await preview_push_owners(extra, opened.sections)
             result.push_targets = [
-                BackupPushSummary(label=sub.label, host=_endpoint_host(sub.endpoint))
-                for sub in extra.push_subscriptions
+                BackupPushSummary(label=sub.label, host=_endpoint_host(sub.endpoint), owner=owner)
+                for sub, owner in zip(extra.push_subscriptions, owners, strict=True)
             ]
 
     transport = inputs.transport

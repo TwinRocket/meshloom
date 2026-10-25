@@ -152,3 +152,35 @@ async def test_accounts_restore_keeps_device_owners_by_username(backup_db, setup
     # carol is not in the file: unowned, the first administrator's.
     assert owners[carol_endpoint] is None
     assert (await _effective_owners())[carol_endpoint] == "Alice"
+
+
+async def _previewed_owners(exported: dict) -> dict[str, str | None]:
+    from app.services.backup_restore import inspect_backup
+
+    result = await inspect_backup(BackupExportV2.model_validate(exported), None)
+    hosts = {ALICE_ENDPOINT.split("/")[2]: ALICE_ENDPOINT, BOB_ENDPOINT.split("/")[2]: BOB_ENDPOINT}
+    return {hosts[target.host]: target.owner for target in result.push_targets}
+
+
+@pytest.mark.asyncio
+async def test_the_preview_names_the_owner_the_restore_will_pick(backup_db, setup_stub):
+    """MSHL-328: inspect says whose account each restored subscription goes to, by the
+    same rule as the restore (file accounts when written, else the current ones)."""
+    await _seed(backup_db)
+    with_accounts = await _export()
+    without_accounts = await _export(include_accounts=False)
+    older = json.loads(json.dumps(with_accounts))
+    for sub in older["meshloom_extra"]["push_subscriptions"]:
+        del sub["owner"]
+
+    await _fresh_instance(backup_db, "root", "carol", "BOB")
+    # The accounts section is restored: both owners exist afterwards.
+    assert await _previewed_owners(with_accounts) == {ALICE_ENDPOINT: "Alice", BOB_ENDPOINT: "bob"}
+    # No accounts in the file: only bob matches here; Alice falls back to the first admin.
+    assert await _previewed_owners(without_accounts) == {ALICE_ENDPOINT: None, BOB_ENDPOINT: "bob"}
+    assert await _previewed_owners(older) == {ALICE_ENDPOINT: None, BOB_ENDPOINT: None}
+
+    # The preview matches what the restore then does.
+    job = await run(BackupExportV2.model_validate(without_accounts), steps=_meshloom_only())
+    assert statuses(job)["meshloom"] == ("done", None)
+    assert await _owners(backup_db) == {ALICE_ENDPOINT: "root", BOB_ENDPOINT: "BOB"}

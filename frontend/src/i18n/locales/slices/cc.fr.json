@@ -56,6 +56,14 @@
           "badge": "Migrée",
           "text": "Cette extension vient d'un bot converti. Relisez ce qu'elle peut faire ci-dessous, puis acceptez pour la démarrer."
         },
+        "restored": {
+          "badge": "Restaurée",
+          "text": "Cette extension a été restaurée depuis une sauvegarde, désactivée. Vérifiez ses réglages et ce qu'elle peut faire ci-dessous, puis acceptez pour la démarrer."
+        },
+        "reinstall": {
+          "badge": "À réinstaller",
+          "text": "Cette extension a été restaurée depuis une sauvegarde sans son code. Elle ne peut pas démarrer tant qu'elle n'est pas réinstallée ; vous pouvez aussi la désinstaller."
+        },
         "other": {
           "badge": "À examiner",
           "text": "Cette extension attend votre examen avant de pouvoir démarrer."
@@ -68,7 +76,8 @@
       "enableBlocked": {
         "frozen": "Ne peut pas être activée",
         "config_required": "Réglages requis d'abord",
-        "review": "Ouvrez-la pour l'examiner et l'accepter"
+        "review": "Ouvrez-la pour l'examiner et l'accepter",
+        "reinstall": "À réinstaller d'abord"
       },
       "isolation": {
         "title": "Niveau d'isolation",
@@ -165,6 +174,15 @@
         "text": "Examinez chaque extension convertie avant de la démarrer : elle ne tourne qu'une fois que vous avez accepté ce qu'elle peut faire.",
         "acknowledge": "Compris"
       }
+    },
+    "fullRestore": {
+      "warnings": {
+        "plugins_restored": "{{value}} extension(s) ont été restaurées désactivées : ouvrez chacune dans Réglages > Extensions, vérifiez ce qu'elle peut faire, puis acceptez pour l'activer.",
+        "plugins_to_reinstall": "{{value}} extension(s) de la sauvegarde n'y sont pas incluses : elles apparaissent dans Réglages > Extensions, à réinstaller, et ne peuvent pas démarrer d'ici là.",
+        "plugin_secrets_missing": "{{value}} extension(s) ont besoin de leurs secrets : ils ne quittent jamais Meshloom, saisissez-les à nouveau dans les réglages de l'extension.",
+        "plugin_dropped": "Une extension de la sauvegarde ({{value}}) n'a pas pu être restaurée et a été laissée de côté.",
+        "plugin_kept": "L'extension {{value}} est déjà installée ici : elle a été conservée telle quelle."
+      }
     }
   },
   "errors": {
@@ -187,6 +205,7 @@
     "instance_not_running": "Cette extension ne tourne pas.",
     "quota_invalid": "Une limite d'envoi est hors plage. Elle ne peut que baisser.",
     "scope_invalid": "La sélection de conversations n'est pas valide.",
-    "secret_required": "Une valeur secrète est manquante."
+    "secret_required": "Une valeur secrète est manquante.",
+    "plugin_reinstall_required": "Cette extension a été restaurée sans son code : réinstallez-la avant de la démarrer."
   }
 }
