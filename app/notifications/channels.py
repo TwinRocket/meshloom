@@ -274,12 +274,14 @@ class ChannelType:
 
     @property
     def include_message_text_default(self) -> IncludeMessageText:
-        return "public_only" if self.cloud else "always"
+        forced = self.preset.text_policy if self.preset is not None else None
+        return forced or ("public_only" if self.cloud else "always")
 
     def include_message_text_for(self, public: dict[str, Any]) -> IncludeMessageText:
         """The default text policy of a new channel with this public config."""
-        cloud = self.cloud_check(public) if self.cloud_check else self.cloud
-        return "public_only" if cloud else "always"
+        if self.cloud_check is None:
+            return self.include_message_text_default
+        return "public_only" if self.cloud_check(public) else "always"
 
     def json_schema(self) -> dict[str, Any]:
         """The JSON Schema served to the form: secret fields are ``writeOnly``."""

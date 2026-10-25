@@ -54,7 +54,7 @@ function TextFilter({
         placeholder={t('feed.facets.textPlaceholder')}
         value={draft}
         onChange={(event) => onDraft(event.target.value)}
-        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+        className="h-10 w-full rounded-md border border-input bg-background px-2 text-base md:h-8 md:text-sm"
       />
       {query.trim() !== '' && (
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -94,7 +94,7 @@ function Section({
   const { t } = useTranslation();
   if (items.length === 0) return null;
   return (
-    <fieldset className="px-3 py-2">
+    <fieldset className="min-w-0 px-3 py-2">
       <legend className="px-1 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
         {title}
       </legend>

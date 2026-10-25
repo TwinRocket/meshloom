@@ -77,6 +77,9 @@ class Preset:
     min_interval_s: float = 0.0
     wiki_url: str = ""
     base_type: str = "apprise"
+    # The starting text policy of a new channel; ``None``: ``public_only`` when ``cloud``,
+    # else ``always``. SMS presets start on ``never`` (a title fits one SMS).
+    text_policy: Literal["always", "public_only", "never"] | None = None
 
     @property
     def help_key(self) -> str:
@@ -181,6 +184,298 @@ PRESETS: tuple[Preset, ...] = (
         ),
         Limits(60, None, None),
         wiki_url="https://www.home-assistant.io/integrations/notify/",
+    ),
+)
+
+_PHONE = r"\+[0-9]{6,15}"
+_DEVICE = r"[A-Za-z0-9_-]{1,25}"
+_PRIORITIES = ("low", "moderate", "normal", "high", "emergency")
+_SLACK_PART = r"[A-Za-z0-9]{6,64}"
+
+PRESETS = PRESETS + (
+    Preset(
+        "pushover",
+        "pover://{user_key}@{app_token}[/{devices}]?priority={priority}&sound={sound}",
+        (
+            PresetField(
+                "user_key",
+                secret=True,
+                required=True,
+                pattern=r"[A-Za-z0-9]{30}",
+                help=True,
+                example="uQiRzpo4DXghDmr9QzzfQu27cmVRsG",
+            ),
+            PresetField(
+                "app_token",
+                secret=True,
+                required=True,
+                pattern=r"[A-Za-z0-9]{30}",
+                help=True,
+                example="azGDORePK8gMaC0QOYAMyEEuzJnyUi",
+            ),
+            PresetField(
+                "devices",
+                pattern=rf"{_DEVICE}(,{_DEVICE}){{0,9}}",
+                max_length=260,
+                help=True,
+                example="phone,tablet",
+            ),
+            PresetField("priority", kind="choice", choices=_PRIORITIES, default="normal"),
+            PresetField("sound", pattern=r"[A-Za-z]{1,12}", max_length=12, default="pushover"),
+        ),
+        # 10 a minute and 100 an hour keep a busy mesh well under the application's monthly
+        # quota (10 000 messages on the free plan, see the help text).
+        Limits(10, 100, None),
+        cloud=True,
+        min_interval_s=1.0,
+        wiki_url="https://pushover.net/api",
+    ),
+    Preset(
+        "matrix",
+        "{server.scheme}://[{username}:]{credential}@{server.netloc}/{room}",
+        (
+            PresetField(
+                "server",
+                kind="url",
+                required=True,
+                max_length=255,
+                scheme_map={"http": "matrix", "https": "matrixs"},
+                no_path=True,
+                destination=True,
+                help=True,
+                example="https://matrix.example.org",
+            ),
+            PresetField("username", max_length=255, destination=True, help=True, example="bot"),
+            # An access token alone, or the password of ``username``.
+            PresetField(
+                "credential",
+                secret=True,
+                required=True,
+                max_length=2048,
+                help=True,
+                example="syt_dummy_access_token",
+            ),
+            PresetField(
+                "room",
+                required=True,
+                pattern=r"[!#][A-Za-z0-9._=/+-]{1,128}:[A-Za-z0-9.:-]{1,255}",
+                max_length=400,
+                destination=True,
+                help=True,
+                example="!AbCdEfGh:matrix.example.org",
+            ),
+        ),
+        Limits(30, None, None),
+        format="markdown",
+        cloud=True,
+        wiki_url="https://spec.matrix.org/latest/client-server-api/",
+    ),
+    Preset(
+        "signal",
+        "{server.scheme}://[{username}:{password}@]{server.netloc}/{from_number}/{to}",
+        (
+            PresetField(
+                "server",
+                kind="url",
+                required=True,
+                max_length=255,
+                scheme_map={"http": "signal", "https": "signals"},
+                no_path=True,
+                destination=True,
+                help=True,
+                example="http://signal-api.lan:8080",
+            ),
+            # Only when a reverse proxy in front of the REST server asks for basic auth.
+            PresetField("username", max_length=128, destination=True, example="meshloom"),
+            PresetField(
+                "password",
+                secret=True,
+                max_length=256,
+                help=True,
+                example="dummy-password",
+            ),
+            PresetField(
+                "from_number",
+                required=True,
+                pattern=_PHONE,
+                max_length=16,
+                destination=True,
+                help=True,
+                example="+33600000000",
+            ),
+            PresetField(
+                "to",
+                required=True,
+                pattern=rf"{_PHONE}(,{_PHONE}){{0,9}}",
+                max_length=170,
+                help=True,
+                example="+33611111111",
+            ),
+        ),
+        Limits(20, 200, None),
+        wiki_url="https://bbernhard.github.io/signal-cli-rest-api/",
+    ),
+    Preset(
+        "slack",
+        "slack://{token_a}/{token_b}/{token_c}",
+        (
+            # The workspace and the webhook ids are identifiers; the last part is the secret.
+            PresetField(
+                "token_a",
+                required=True,
+                pattern=_SLACK_PART,
+                max_length=64,
+                help=True,
+                example="T0AAAAAAA",
+            ),
+            PresetField(
+                "token_b",
+                required=True,
+                pattern=_SLACK_PART,
+                max_length=64,
+                example="B0BBBBBBB",
+            ),
+            PresetField(
+                "token_c",
+                secret=True,
+                required=True,
+                pattern=_SLACK_PART,
+                help=True,
+                example="Xx1Yy2Zz3Aa4Bb5Cc6Dd7Ee8",
+            ),
+        ),
+        # Slack accepts about one message a second on an incoming webhook.
+        Limits(30, None, None),
+        cloud=True,
+        min_interval_s=1.0,
+        wiki_url="https://api.slack.com/messaging/webhooks",
+    ),
+    Preset(
+        "mattermost",
+        "{server.scheme}://{server.netloc}{server.path}/{token}",
+        (
+            PresetField(
+                "server",
+                kind="url",
+                required=True,
+                max_length=255,
+                scheme_map={"http": "mmost", "https": "mmosts"},
+                destination=True,
+                help=True,
+                example="https://mattermost.example.org",
+            ),
+            PresetField(
+                "token",
+                secret=True,
+                required=True,
+                pattern=r"[A-Za-z0-9]{6,64}",
+                help=True,
+                example="abcdefghijklmnopqrstuvwxyz",
+            ),
+        ),
+        Limits(30, None, None),
+        format="markdown",
+        wiki_url="https://developers.mattermost.com/integrate/webhooks/incoming/",
+    ),
+    Preset(
+        "rocketchat",
+        "{server.scheme}://{username}:{password}@{server.netloc}/{room}?mode={auth}",
+        (
+            PresetField(
+                "server",
+                kind="url",
+                required=True,
+                max_length=255,
+                scheme_map={"http": "rocket", "https": "rockets"},
+                no_path=True,
+                destination=True,
+                help=True,
+                example="https://chat.example.org",
+            ),
+            PresetField(
+                "username", required=True, max_length=128, destination=True, example="meshloom"
+            ),
+            # The account's password, or a personal access token (``auth`` = token).
+            PresetField(
+                "password",
+                secret=True,
+                required=True,
+                max_length=256,
+                help=True,
+                example="dummy-password",
+            ),
+            PresetField(
+                "room",
+                required=True,
+                pattern=r"[#@]?[A-Za-z0-9._-]{1,128}",
+                max_length=130,
+                help=True,
+                example="#general",
+            ),
+            PresetField("auth", kind="choice", choices=("basic", "token"), default="basic"),
+        ),
+        Limits(30, None, None),
+        wiki_url="https://developer.rocket.chat/apidocs/",
+    ),
+    Preset(
+        "sms_free",
+        "freemobile://{user}@{api_key}",
+        (
+            PresetField(
+                "user",
+                required=True,
+                pattern=r"[0-9]{8}",
+                max_length=8,
+                help=True,
+                example="12345678",
+            ),
+            PresetField(
+                "api_key",
+                secret=True,
+                required=True,
+                pattern=r"[A-Za-z0-9]{8,64}",
+                help=True,
+                example="AbCdEf1234567",
+            ),
+        ),
+        # Free Mobile refuses a burst: keep to a few SMS a minute and a few dozen a day.
+        Limits(2, 20, 100),
+        cloud=True,
+        min_interval_s=10.0,
+        text_policy="never",
+        wiki_url="https://mobile.free.fr/account/mes-options/notifications-sms",
+    ),
+    Preset(
+        "sms_sfr",
+        "sfr://{username}:{password}@{space_id}/{to}",
+        (
+            PresetField("username", required=True, max_length=128, help=True, example="meshloom"),
+            PresetField(
+                "password", secret=True, required=True, max_length=256, example="dummy-password"
+            ),
+            PresetField(
+                "space_id",
+                required=True,
+                pattern=r"[A-Za-z0-9_-]{1,64}",
+                max_length=64,
+                destination=True,
+                help=True,
+                example="space-1",
+            ),
+            PresetField(
+                "to",
+                required=True,
+                pattern=rf"{_PHONE}(,{_PHONE}){{0,9}}",
+                max_length=170,
+                help=True,
+                example="+33600000000",
+            ),
+        ),
+        Limits(2, 20, 100),
+        cloud=True,
+        min_interval_s=10.0,
+        text_policy="never",
+        wiki_url="https://www.sfr.fr/",
     ),
 )
 

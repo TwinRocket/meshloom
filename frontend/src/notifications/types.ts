@@ -164,10 +164,21 @@ export interface MyPushRuleState {
 export interface MyPushRules {
   events: Record<string, MyPushRuleState>;
   contact_types: Record<string, MyPushRuleState>;
+  /** The account's own exception per conversation (`channel-<key>`, `contact-<pubkey>`), MSHL-362. */
+  conversations: Record<string, boolean>;
+  /** The account's own pause (MSHL-363): `until` is epoch seconds, null until it resumes. */
+  pause: MyPushPause;
+}
+
+export interface MyPushPause {
+  active: boolean;
+  until: number | null;
 }
 
 export interface MyPushRulesPatch {
   /** `null` goes back to the default. */
   events?: Record<string, boolean | null>;
   contact_types?: Record<string, boolean | null>;
+  /** `null` removes the exception. */
+  conversations?: Record<string, boolean | null>;
 }

@@ -584,5 +584,567 @@
     "singleton": false,
     "type": "home_assistant",
     "wiki_url": "https://www.home-assistant.io/integrations/notify/"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 100,
+      "per_min": 10
+    },
+    "help_key": "notifications.presets.pushover.about",
+    "include_message_text_default": "public_only",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "app_token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.pushover.help.app_token",
+          "label_key": "notifications.presets.pushover.fields.app_token",
+          "title": "App Token",
+          "writeOnly": true
+        },
+        "devices": {
+          "default": "",
+          "help_key": "notifications.presets.pushover.help.devices",
+          "label_key": "notifications.presets.pushover.fields.devices",
+          "maxLength": 260,
+          "pattern": "^(?:|[A-Za-z0-9_-]{1,25}(,[A-Za-z0-9_-]{1,25}){0,9})$",
+          "title": "Devices",
+          "type": "string"
+        },
+        "priority": {
+          "default": "normal",
+          "enum": [
+            "low",
+            "moderate",
+            "normal",
+            "high",
+            "emergency"
+          ],
+          "label_key": "notifications.presets.pushover.fields.priority",
+          "maxLength": 256,
+          "title": "Priority",
+          "type": "string"
+        },
+        "sound": {
+          "default": "pushover",
+          "label_key": "notifications.presets.pushover.fields.sound",
+          "maxLength": 12,
+          "pattern": "^(?:|[A-Za-z]{1,12})$",
+          "title": "Sound",
+          "type": "string"
+        },
+        "user_key": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.pushover.help.user_key",
+          "label_key": "notifications.presets.pushover.fields.user_key",
+          "title": "User Key",
+          "writeOnly": true
+        }
+      },
+      "title": "PushoverConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "pushover",
+    "wiki_url": "https://pushover.net/api"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 30
+    },
+    "help_key": "notifications.presets.matrix.about",
+    "include_message_text_default": "public_only",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "credential": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 2048,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.matrix.help.credential",
+          "label_key": "notifications.presets.matrix.fields.credential",
+          "title": "Credential",
+          "writeOnly": true
+        },
+        "room": {
+          "help_key": "notifications.presets.matrix.help.room",
+          "label_key": "notifications.presets.matrix.fields.room",
+          "maxLength": 400,
+          "minLength": 1,
+          "pattern": "^(?:[!#][A-Za-z0-9._=/+-]{1,128}:[A-Za-z0-9.:-]{1,255})$",
+          "title": "Room",
+          "type": "string"
+        },
+        "server": {
+          "format": "uri",
+          "help_key": "notifications.presets.matrix.help.server",
+          "label_key": "notifications.presets.matrix.fields.server",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Server",
+          "type": "string"
+        },
+        "username": {
+          "default": "",
+          "help_key": "notifications.presets.matrix.help.username",
+          "label_key": "notifications.presets.matrix.fields.username",
+          "maxLength": 255,
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server",
+        "room"
+      ],
+      "title": "MatrixConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "matrix",
+    "wiki_url": "https://spec.matrix.org/latest/client-server-api/"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": 200,
+      "per_min": 20
+    },
+    "help_key": "notifications.presets.signal.about",
+    "include_message_text_default": "always",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "from_number": {
+          "help_key": "notifications.presets.signal.help.from_number",
+          "label_key": "notifications.presets.signal.fields.from_number",
+          "maxLength": 16,
+          "minLength": 1,
+          "pattern": "^(?:\\+[0-9]{6,15})$",
+          "title": "From Number",
+          "type": "string"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.signal.help.password",
+          "label_key": "notifications.presets.signal.fields.password",
+          "title": "Password",
+          "writeOnly": true
+        },
+        "server": {
+          "format": "uri",
+          "help_key": "notifications.presets.signal.help.server",
+          "label_key": "notifications.presets.signal.fields.server",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Server",
+          "type": "string"
+        },
+        "to": {
+          "help_key": "notifications.presets.signal.help.to",
+          "label_key": "notifications.presets.signal.fields.to",
+          "maxLength": 170,
+          "minLength": 1,
+          "pattern": "^(?:\\+[0-9]{6,15}(,\\+[0-9]{6,15}){0,9})$",
+          "title": "To",
+          "type": "string"
+        },
+        "username": {
+          "default": "",
+          "label_key": "notifications.presets.signal.fields.username",
+          "maxLength": 128,
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server",
+        "from_number",
+        "to"
+      ],
+      "title": "SignalConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "signal",
+    "wiki_url": "https://bbernhard.github.io/signal-cli-rest-api/"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": true,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 30
+    },
+    "help_key": "notifications.presets.slack.about",
+    "include_message_text_default": "public_only",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "token_a": {
+          "help_key": "notifications.presets.slack.help.token_a",
+          "label_key": "notifications.presets.slack.fields.token_a",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9]{6,64})$",
+          "title": "Token A",
+          "type": "string"
+        },
+        "token_b": {
+          "label_key": "notifications.presets.slack.fields.token_b",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9]{6,64})$",
+          "title": "Token B",
+          "type": "string"
+        },
+        "token_c": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.slack.help.token_c",
+          "label_key": "notifications.presets.slack.fields.token_c",
+          "title": "Token C",
+          "writeOnly": true
+        }
+      },
+      "required": [
+        "token_a",
+        "token_b"
+      ],
+      "title": "SlackConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "slack",
+    "wiki_url": "https://api.slack.com/messaging/webhooks"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 30
+    },
+    "help_key": "notifications.presets.mattermost.about",
+    "include_message_text_default": "always",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "server": {
+          "format": "uri",
+          "help_key": "notifications.presets.mattermost.help.server",
+          "label_key": "notifications.presets.mattermost.fields.server",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Server",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.mattermost.help.token",
+          "label_key": "notifications.presets.mattermost.fields.token",
+          "title": "Token",
+          "writeOnly": true
+        }
+      },
+      "required": [
+        "server"
+      ],
+      "title": "MattermostConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "mattermost",
+    "wiki_url": "https://developers.mattermost.com/integrate/webhooks/incoming/"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": false,
+    "default_limits": {
+      "per_day": null,
+      "per_hour": null,
+      "per_min": 30
+    },
+    "help_key": "notifications.presets.rocketchat.about",
+    "include_message_text_default": "always",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "default": "basic",
+          "enum": [
+            "basic",
+            "token"
+          ],
+          "label_key": "notifications.presets.rocketchat.fields.auth",
+          "maxLength": 256,
+          "title": "Auth",
+          "type": "string"
+        },
+        "password": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.rocketchat.help.password",
+          "label_key": "notifications.presets.rocketchat.fields.password",
+          "title": "Password",
+          "writeOnly": true
+        },
+        "room": {
+          "help_key": "notifications.presets.rocketchat.help.room",
+          "label_key": "notifications.presets.rocketchat.fields.room",
+          "maxLength": 130,
+          "minLength": 1,
+          "pattern": "^(?:[#@]?[A-Za-z0-9._-]{1,128})$",
+          "title": "Room",
+          "type": "string"
+        },
+        "server": {
+          "format": "uri",
+          "help_key": "notifications.presets.rocketchat.help.server",
+          "label_key": "notifications.presets.rocketchat.fields.server",
+          "maxLength": 255,
+          "minLength": 1,
+          "title": "Server",
+          "type": "string"
+        },
+        "username": {
+          "label_key": "notifications.presets.rocketchat.fields.username",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server",
+        "username",
+        "room"
+      ],
+      "title": "RocketchatConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "rocketchat",
+    "wiki_url": "https://developer.rocket.chat/apidocs/"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": true,
+    "default_limits": {
+      "per_day": 100,
+      "per_hour": 20,
+      "per_min": 2
+    },
+    "help_key": "notifications.presets.sms_free.about",
+    "include_message_text_default": "never",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "help_key": "notifications.presets.sms_free.help.api_key",
+          "label_key": "notifications.presets.sms_free.fields.api_key",
+          "title": "Api Key",
+          "writeOnly": true
+        },
+        "user": {
+          "help_key": "notifications.presets.sms_free.help.user",
+          "label_key": "notifications.presets.sms_free.fields.user",
+          "maxLength": 8,
+          "minLength": 1,
+          "pattern": "^(?:[0-9]{8})$",
+          "title": "User",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user"
+      ],
+      "title": "SmsFreeConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "sms_free",
+    "wiki_url": "https://mobile.free.fr/account/mes-options/notifications-sms"
+  },
+  {
+    "base_type": "apprise",
+    "cloud": true,
+    "default_limits": {
+      "per_day": 100,
+      "per_hour": 20,
+      "per_min": 2
+    },
+    "help_key": "notifications.presets.sms_sfr.about",
+    "include_message_text_default": "never",
+    "preset": true,
+    "quiet_hours_exempt_default": false,
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "password": {
+          "anyOf": [
+            {
+              "format": "password",
+              "maxLength": 256,
+              "type": "string",
+              "writeOnly": true
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "label_key": "notifications.presets.sms_sfr.fields.password",
+          "title": "Password",
+          "writeOnly": true
+        },
+        "space_id": {
+          "help_key": "notifications.presets.sms_sfr.help.space_id",
+          "label_key": "notifications.presets.sms_sfr.fields.space_id",
+          "maxLength": 64,
+          "minLength": 1,
+          "pattern": "^(?:[A-Za-z0-9_-]{1,64})$",
+          "title": "Space Id",
+          "type": "string"
+        },
+        "to": {
+          "help_key": "notifications.presets.sms_sfr.help.to",
+          "label_key": "notifications.presets.sms_sfr.fields.to",
+          "maxLength": 170,
+          "minLength": 1,
+          "pattern": "^(?:\\+[0-9]{6,15}(,\\+[0-9]{6,15}){0,9})$",
+          "title": "To",
+          "type": "string"
+        },
+        "username": {
+          "help_key": "notifications.presets.sms_sfr.help.username",
+          "label_key": "notifications.presets.sms_sfr.fields.username",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Username",
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "space_id",
+        "to"
+      ],
+      "title": "SmsSfrConfig",
+      "type": "object"
+    },
+    "singleton": false,
+    "type": "sms_sfr",
+    "wiki_url": "https://www.sfr.fr/"
   }
 ]

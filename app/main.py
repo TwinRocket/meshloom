@@ -99,6 +99,7 @@ from app.routers import (
     settings,
     share,
     statistics,
+    store,
     tools,
     updates,
     ws,
@@ -272,6 +273,13 @@ async def lifespan(app: FastAPI):
     await start_oss_update_polling()
     start_hashtag_catalogue_polling()
     start_stale_contact_purge()
+    # The Store refresh loop runs only while store_online is on (MSHL-194).
+    from app.plugins.store_egress import start_store_refresh
+
+    try:
+        await start_store_refresh()
+    except Exception:
+        logger.exception("Failed to start the Store refresh loop")
 
     # Always start connection monitor (even if initial connection failed)
     await radio_manager.start_connection_monitor()
@@ -369,6 +377,7 @@ async def _cancel_task(task: asyncio.Task | None) -> None:
 async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> None:
     from app.background_tasks import drain_background_tasks
     from app.plugins import lifecycle as plugin_lifecycle
+    from app.plugins.store_egress import stop_store_refresh
     from app.services.community_live import shutdown_community_live
     from app.services.community_status_clear import stop_status_clear_worker
 
@@ -386,6 +395,7 @@ async def _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager) -> 
         ("message polling", stop_message_polling),
         ("radio stats sampling", stop_radio_stats_sampling),
         ("OSS update polling", stop_oss_update_polling),
+        ("Store refresh", stop_store_refresh),
         ("hashtag catalogue polling", stop_hashtag_catalogue_polling),
         ("periodic advert", stop_periodic_advert),
         ("periodic sync", stop_periodic_sync),
@@ -524,6 +534,7 @@ app.include_router(read_state.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(share.router, prefix="/api")
 app.include_router(statistics.router, prefix="/api")
+app.include_router(store.router, prefix="/api")
 app.include_router(tools.router, prefix="/api")
 app.include_router(updates.router, prefix="/api")
 app.include_router(push.router, prefix="/api")

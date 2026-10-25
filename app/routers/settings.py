@@ -173,6 +173,13 @@ class AppSettingsUpdate(BaseModel):
         default=None,
         description="Consent to the link and file sharing service (off by default)",
     )
+    store_online: bool | None = Field(
+        default=None,
+        description=(
+            "Consent to the Store egress (off by default). True starts the background refresh "
+            "and allows the Store requests; false stops both at once"
+        ),
+    )
     share_terms_accepted: bool | None = Field(
         default=None,
         description=(
@@ -561,6 +568,9 @@ async def update_settings(
     if update.share_enabled is not None:
         logger.info("Updating share_enabled to %s", update.share_enabled)
         kwargs["share_enabled"] = update.share_enabled
+    if update.store_online is not None:
+        logger.info("Updating store_online to %s", update.store_online)
+        kwargs["store_online"] = update.store_online
     if update.share_terms_accepted is True:
         if update.share_enabled is not True:
             raise HTTPException(status_code=422, detail="share_terms_accepted needs share_enabled")

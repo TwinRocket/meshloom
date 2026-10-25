@@ -197,6 +197,11 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   acks made while the socket was down (reload the page). Control rows are outside this
   policy: they come from the live packet stream, are kept
   across the reconnect, and are neither reconciled nor emptied by `resetFeedForRefetch()`.
+- **Phone layout.** The two chip groups are single swipeable lines below `md` (wrapped from `md`).
+  The text input is 16 px below `md` (iOS zooms smaller ones). `FeedFacets` sections are
+  `min-w-0` (a `fieldset` otherwise refuses to shrink and pushes the counts out). The Follow
+  button carries `data-above-bottom-nav` so `styles.css` lifts it over the bottom bar. Checklist:
+  `docs/dev/feed.md`.
 - **Display mode** (`#feed?display=1`, the Display button in the header; `feed/feedDisplay.ts`,
   `FeedDisplayBar.tsx`, slice `ca`). A layer over the reader's filters, never an edit:
   `displayFilters(filters)` forces channels only and no node, and `FeedView` evaluates and queries `shown`
@@ -806,7 +811,7 @@ from `label_key`/`help_key`, then `settings.notifications.types.<type>.<field>.l
 renders no field itself. `AddChannelDialog` is pick, settings (the **Test** calls
 `POST /channels/test` before any save) and "What to receive here?" (`receivePatch` in
 `notificationsShared.ts` adds the new id to the events of the preset through `PATCH /rules`).
-A preset entry (`preset: true`, MSHL-116: Telegram, Gotify, Home Assistant; data in `app/notifications/presets.py`) is created as `{type: base_type ?? 'apprise', preset: <id>}`; its texts are in slice `cl` (`settings.notifications.types.<id>.name|description|<field>.options`, `notifications.presets.<id>.about|fields|help`, referenced by the schema's `label_key`/`help_key`), `ChannelForm` shows the entry's `help_key` paragraph and `wiki_url` link above the form, and `TYPE_ICONS` gives the icon.
+A preset entry (`preset: true`, MSHL-116 and MSHL-132: Telegram, Gotify, Home Assistant, Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat, SMS Free Mobile, SMS SFR; data in `app/notifications/presets.py`) is created as `{type: base_type ?? 'apprise', preset: <id>}`; its texts are in slice `cl` (`settings.notifications.types.<id>.name|description|<field>.options`, `notifications.presets.<id>.about|fields|help`, referenced by the schema's `label_key`/`help_key`), `ChannelForm` shows the entry's `help_key` paragraph and `wiki_url` link above the form, and `TYPE_ICONS` gives the icon.
 The server answers `409 legacy_managed` for the `legacy:*` channels' config/deletion and legacy event rows
 (kept by MSHL-112): a `legacy:*` card's Edit opens `LegacyDestinationForm` (the 4.18.x forms, saving
 `notification_destinations` through `PATCH /api/settings`, remove = empty it), never the generic edit

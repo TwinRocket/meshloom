@@ -30,7 +30,7 @@ function Chip({ label, pressed, onToggle, disabled, title, hint }: ChipProps) {
       title={title}
       onClick={onToggle}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors',
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border min-h-9 px-3 py-1.5 text-xs transition-colors md:min-h-0 md:px-2.5 md:py-1',
         'focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
         pressed
           ? 'border-primary bg-primary/10 text-foreground'
@@ -43,6 +43,13 @@ function Chip({ label, pressed, onToggle, disabled, title, hint }: ChipProps) {
     </button>
   );
 }
+
+/**
+ * One chip row: a single swipeable line on a phone, so the two groups cost two rows of
+ * the screen instead of five (the timeline keeps the room); wrapped from `md`.
+ */
+const ROW_CLASS =
+  'flex gap-1.5 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mx-4 px-4 md:mx-0 md:flex-wrap md:overflow-visible md:px-0';
 
 /** The Sources and Show chip rows above the timeline. */
 export function FeedFilterChips({
@@ -58,7 +65,7 @@ export function FeedFilterChips({
 
   return (
     <div className="flex flex-col gap-1.5 border-b border-border px-4 py-2">
-      <div role="group" aria-label={t('feed.filters.sources')} className="flex flex-wrap gap-1.5">
+      <div role="group" aria-label={t('feed.filters.sources')} className={ROW_CLASS}>
         <Chip
           label={t('feed.filters.messages')}
           pressed={filters.sources.messages}
@@ -82,7 +89,7 @@ export function FeedFilterChips({
       {filters.sources.events && (
         <p className="text-xs text-muted-foreground">{t('feed.events.sessionOnly')}</p>
       )}
-      <div role="group" aria-label={t('feed.filters.show')} className="flex flex-wrap gap-1.5">
+      <div role="group" aria-label={t('feed.filters.show')} className={ROW_CLASS}>
         <Chip
           label={t('feed.filters.channels')}
           pressed={filters.chan}

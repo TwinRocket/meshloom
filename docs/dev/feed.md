@@ -41,3 +41,35 @@ Measured on a development laptop (not the Pi), jsdom:
 
 The store itself was already cheap; what cost was the rows re-rendering on every emit, because
 `labels` and `time` were new objects at each render and defeated the memo.
+
+## Device checklist (phone, Home Assistant webview, Pi kiosk)
+
+Run it after any change to the Feed's layout, to `AppShell` / `BottomNav`, and for the React
+Compiler visual review (same surfaces). Without hardware, probe with Playwright device
+emulation against a local build: start the backend with no radio (`MESHCORE_DATABASE_PATH` on a
+temp file, `uv run uvicorn app.main:app --no-proxy-headers`), create a test administrator on the setup page, and
+seed `messages` / `channels` with long unbroken words, long URLs, long sender and channel names,
+RTL and emoji text, a few hundred rows. Emulate `iPhone 13` / `Pixel 7` at 360 x 740 and
+360 x 640, inject `--safe-area-top: 47px; --safe-area-bottom: 34px; --safe-area-bottom-capped: 12px`
+(Chromium reports no insets), and throttle the CPU through CDP (`Emulation.setCPUThrottlingRate`,
+6 for a Pi-like run). Items that need real hardware are marked **hardware**.
+
+| Area | Check | Expected |
+|---|---|---|
+| Phone | No horizontal scroll at 360 px (`scrollWidth <= innerWidth`) | none; long words and URLs wrap |
+| Phone | Exactly one vertical scroller (the list); the page itself never scrolls | `tests/e2e/specs/feed-layout.spec.ts` |
+| Phone | Filter chips: two single-line swipeable rows, 36 px touch height | the list keeps the room |
+| Phone | Filters sheet: opens, safe-area padding, names truncate but the counts stay visible | no clipped count |
+| Phone | Text filter focused with the keyboard up (viewport shrunk to 420 px) | field and list reachable; 16 px font so iOS does not zoom |
+| Phone | Long press on a row (500 ms), then release | row menu opens, no iOS callout, the release does not navigate |
+| Phone | Follow button when scrolled up | fully above the bottom bar (`data-above-bottom-nav`) |
+| Phone | Back to Tools (header arrow, browser back) | the Tools list, hash updated |
+| Phone | Copy text without `navigator.clipboard` (HTTP on the LAN) | the item is absent, in the Feed and in conversations |
+| HA ingress | Serve under `/api/hassio_ingress/<token>/` (proxy that strips the prefix, WebSocket included) | assets, `/api`, WebSocket and `#feed` hash routing work; `localStorage` keys keep their `meshloom-` prefix (HA's origin is shared) |
+| HA ingress | Display mode inside an `<iframe>` without `allowfullscreen` | mode works, chrome hidden, "Quit" visible; no console error |
+| HA companion apps | iOS and Android webview: safe areas, keyboard, long press, display mode, fullscreen fallback | **hardware** |
+| Pi 4 kiosk | `#feed?display=1`, Control on, 30 min of live traffic; note CPU and memory | **hardware**; DOM cap (`FEED_DOM_MAX` 300) holds, no layout jank on inserts |
+| Pi-like CPU | CPU throttled 6x, 900 rows, 40 fast scrolls | at most 25 rows mounted, three long tasks at startup, about 13 MB heap |
+
+Known limit: the shell banners (no radio, Community off) stack above the Feed and can leave a
+360 x 640 screen with a short list; they are the shell's, not the Feed's.

@@ -38,6 +38,115 @@
           "token": "Profil, Sécurité, Jetons d'accès longue durée. En écriture seule : il n'est jamais réaffiché.",
           "service": "Le nom du service sans « notify. » : mobile_app_votre_telephone (Outils de développement, Actions). Un nom complet comme notify.alertes fonctionne aussi."
         }
+      },
+      "pushover": {
+        "about": "Pushover livre les notifications à son application Android et iOS. Créez une application sur pushover.net (Create an Application/API Token) et copiez son jeton d'API, ainsi que votre clé utilisateur affichée sur le tableau de bord. Une application gratuite peut envoyer 10 000 messages par mois : les limites par défaut de Meshloom (10 par minute, 100 par heure) laissent une marge large, mais le quota mensuel reste à surveiller.",
+        "fields": {
+          "user_key": "Clé utilisateur",
+          "app_token": "Jeton d'API de l'application",
+          "devices": "Appareils (facultatif)",
+          "priority": "Priorité",
+          "sound": "Son"
+        },
+        "help": {
+          "user_key": "Affichée sur votre tableau de bord Pushover (30 caractères). En écriture seule : elle n'est jamais réaffichée.",
+          "app_token": "Le jeton d'API de l'application créée (30 caractères). En écriture seule : il n'est jamais réaffiché.",
+          "devices": "Noms d'appareils séparés par des virgules (10 au plus). Vide : tous les appareils de votre compte."
+        }
+      },
+      "matrix": {
+        "about": "Publie dans un salon Matrix. Utilisez un compte dédié (ou un bot) qui a rejoint le salon ; les messages sont envoyés en Markdown.",
+        "fields": {
+          "server": "Serveur d'accueil",
+          "username": "Nom d'utilisateur (facultatif)",
+          "credential": "Jeton d'accès ou mot de passe",
+          "room": "Salon"
+        },
+        "help": {
+          "server": "L'adresse de votre serveur d'accueil, par exemple https://matrix.example.org. Uniquement l'adresse, sans chemin. Un serveur sur votre réseau local demande de cocher « Autoriser une destination sur réseau privé » plus bas.",
+          "username": "Laissez vide avec un jeton d'accès. Avec un nom d'utilisateur, le champ suivant est le mot de passe de ce compte.",
+          "credential": "Un jeton d'accès (nom d'utilisateur vide) ou le mot de passe du compte. En écriture seule : il n'est jamais réaffiché.",
+          "room": "L'identifiant du salon (!abcdef:example.org, dans les paramètres du salon, Avancé) ou son alias (#salon:example.org). Le compte doit déjà être dans le salon."
+        }
+      },
+      "signal": {
+        "about": "Envoie des messages Signal par un serveur signal-cli REST API (bbernhard/signal-cli-rest-api) que vous hébergez, le plus souvent sur votre réseau local, avec un numéro enregistré.",
+        "fields": {
+          "server": "Serveur REST API",
+          "from_number": "Numéro émetteur",
+          "to": "Destinataires",
+          "username": "Nom d'utilisateur du proxy (facultatif)",
+          "password": "Mot de passe du proxy (facultatif)"
+        },
+        "help": {
+          "server": "L'adresse du serveur REST, par exemple http://signal-api.lan:8080. Sur votre réseau local, cochez « Autoriser une destination sur réseau privé » plus bas. Uniquement l'adresse, sans chemin.",
+          "from_number": "Le numéro enregistré dans signal-cli, avec son indicatif pays : +33600000000.",
+          "to": "Un ou plusieurs numéros avec leur indicatif pays, séparés par des virgules (10 au plus) : +33611111111,+33622222222.",
+          "password": "Seulement si un proxy inverse devant le serveur REST demande un nom d'utilisateur et un mot de passe. En écriture seule : il n'est jamais réaffiché."
+        }
+      },
+      "slack": {
+        "about": "Publie dans le canal Slack auquel un webhook entrant est rattaché. Créez le webhook dans votre application Slack (Incoming Webhooks), puis collez les trois parties de son adresse https://hooks.slack.com/services/AAA/BBB/CCC.",
+        "fields": {
+          "token_a": "Webhook, partie 1 (T…)",
+          "token_b": "Webhook, partie 2 (B…)",
+          "token_c": "Webhook, partie 3"
+        },
+        "help": {
+          "token_a": "La première partie après /services/ dans l'adresse du webhook.",
+          "token_c": "La troisième partie est le secret : en écriture seule, jamais réaffichée."
+        }
+      },
+      "mattermost": {
+        "about": "Publie dans le canal Mattermost auquel un webhook entrant est rattaché (Intégrations, Webhooks entrants). Les messages sont envoyés en Markdown.",
+        "fields": {
+          "server": "Serveur Mattermost",
+          "token": "Clé du webhook"
+        },
+        "help": {
+          "server": "L'adresse de votre serveur, par exemple https://mattermost.example.org (un préfixe de chemin est conservé). Sur votre réseau local, cochez « Autoriser une destination sur réseau privé » plus bas.",
+          "token": "La dernière partie de l'adresse du webhook (…/hooks/<clé>). En écriture seule : elle n'est jamais réaffichée."
+        }
+      },
+      "rocketchat": {
+        "about": "Publie dans un salon Rocket.Chat avec un compte dédié qui l'a rejoint.",
+        "fields": {
+          "server": "Serveur Rocket.Chat",
+          "username": "Nom d'utilisateur",
+          "password": "Mot de passe ou jeton d'accès",
+          "room": "Salon",
+          "auth": "Type d'identifiant"
+        },
+        "help": {
+          "server": "L'adresse de votre serveur, par exemple https://chat.example.org. Uniquement l'adresse, sans chemin. Sur votre réseau local, cochez « Autoriser une destination sur réseau privé » plus bas.",
+          "password": "Le mot de passe du compte, ou un jeton d'accès personnel (réglez alors le type d'identifiant sur jeton). En écriture seule : il n'est jamais réaffiché.",
+          "room": "Un canal (#general), un utilisateur (@nom) ou un identifiant de salon."
+        }
+      },
+      "sms_free": {
+        "about": "Free Mobile envoie un SMS à la ligne du compte qui a activé l'option, et à personne d'autre. Activez « Notifications par SMS » dans votre compte Free Mobile pour obtenir la clé. Un SMS tient environ 160 caractères : la politique de texte démarre sur « jamais », seul un titre court est envoyé.",
+        "fields": {
+          "user": "Identifiant Free Mobile",
+          "api_key": "Clé d'API SMS"
+        },
+        "help": {
+          "user": "Votre identifiant d'abonné Free Mobile à 8 chiffres.",
+          "api_key": "La clé affichée à l'activation de l'option. En écriture seule : elle n'est jamais réaffichée."
+        }
+      },
+      "sms_sfr": {
+        "about": "Envoie des SMS par le service de messagerie SFR (un compte SFR avec l'API SMS activée). Un SMS tient environ 160 caractères : la politique de texte démarre sur « jamais », seul un titre court est envoyé.",
+        "fields": {
+          "username": "Nom du compte",
+          "password": "Mot de passe",
+          "space_id": "Identifiant d'espace",
+          "to": "Destinataires"
+        },
+        "help": {
+          "username": "L'identifiant de votre compte de messagerie SFR.",
+          "space_id": "L'identifiant d'espace (service) donné par SFR pour votre compte.",
+          "to": "Un ou plusieurs numéros avec leur indicatif pays, séparés par des virgules (10 au plus) : +33600000000."
+        }
       }
     }
   },
@@ -64,6 +173,53 @@
         "home_assistant": {
           "name": "Home Assistant",
           "description": "Un service notify de Home Assistant, comme l'application Companion d'un téléphone."
+        },
+        "pushover": {
+          "name": "Pushover",
+          "description": "Une notification sur l'application Pushover de votre téléphone.",
+          "priority": {
+            "options": {
+              "low": "Basse",
+              "moderate": "Modérée",
+              "normal": "Normale",
+              "high": "Haute",
+              "emergency": "Urgence"
+            }
+          }
+        },
+        "matrix": {
+          "name": "Matrix",
+          "description": "Un message dans un salon Matrix, comme bot ou compte."
+        },
+        "signal": {
+          "name": "Signal",
+          "description": "Des messages Signal via votre propre serveur signal-cli REST API."
+        },
+        "slack": {
+          "name": "Slack",
+          "description": "Un message dans un canal Slack via un webhook entrant."
+        },
+        "mattermost": {
+          "name": "Mattermost",
+          "description": "Un message dans un canal Mattermost via un webhook entrant."
+        },
+        "rocketchat": {
+          "name": "Rocket.Chat",
+          "description": "Un message dans un salon Rocket.Chat, avec un compte.",
+          "auth": {
+            "options": {
+              "basic": "Mot de passe",
+              "token": "Jeton d'accès personnel"
+            }
+          }
+        },
+        "sms_free": {
+          "name": "SMS Free Mobile",
+          "description": "Un SMS sur votre propre ligne Free Mobile."
+        },
+        "sms_sfr": {
+          "name": "SMS SFR",
+          "description": "Des SMS vers des numéros via le service de messagerie SFR."
         }
       },
       "channels": {

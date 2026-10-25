@@ -21,6 +21,13 @@ connection carries only the empty retained payload. Nothing else connects,
 and nothing at all once it succeeded or gave up. ``TestOrphanedStatusAtStartup``
 uses the same clear for a topic left behind while the app was stopped.
 
+``TestStoreEgressIsSeparate``: the Store (MSHL-194) is its own egress class. With
+Community off and ``store_online`` on, exactly ``store.meshloom.app`` (plus the GitHub
+hosts of the Store allowlist) may be reached, through ``store_fetch``; every other
+``*.meshloom.app`` host is refused by the Store allowlist before any lookup. With
+``store_online`` off, nothing goes there. The recorder reads the ``Host`` header, so a
+request sent through a pinned client (connected to the IP) is still seen by name.
+
 ``TestPositionRebindOff``: the automatic re-bind on a radio position or policy
 change sends nothing while Community is off.
 
@@ -63,6 +70,8 @@ from app.decoder import encrypt_group_text
 from app.fanout.manager import SYSTEM_MESHLOOM_STATS_ID, fanout_manager
 from app.fanout.meshloom_stats import MeshloomStatsPublisher
 from app.packet_processor import process_raw_packet
+from app.plugins import store_egress
+from app.plugins.store_egress import STORE_HOSTS, STORE_INDEX_HOST, StoreOffline, store_fetch
 from app.services import community_status_clear, meshloom_community
 from app.services.community_live import (
     get_live_relay,
@@ -97,8 +106,10 @@ PUBKEY_HEX = PUBKEY.hex().upper()
 FX_PORT_HOST = "api.fx-port.com"
 
 
-def _forbidden(host: str | None) -> bool:
+def _forbidden(host: str | None, *, store_online: bool = False) -> bool:
     host = (host or "").lower()
+    if store_online and host == STORE_INDEX_HOST:
+        return False  # The Store's own egress class, opted into separately.
     return (
         host == "meshloom.app"
         or host.endswith(".meshloom.app")
@@ -131,11 +142,13 @@ class EgressRecorder:
                 out.append(event[1])
         return out
 
-    def forbidden(self, since: int = 0) -> list[str]:
-        return [h for h in self.hosts(since) if _forbidden(h)]
+    def forbidden(self, since: int = 0, *, store_online: bool = False) -> list[str]:
+        return [h for h in self.hosts(since) if _forbidden(h, store_online=store_online)]
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
-        self.events.append(("http", request.url.host, request.url.path))
+        # A pinned client connects to the IP and names the host in ``Host``.
+        host = urlsplit("//" + request.headers.get("host", "")).hostname or request.url.host
+        self.events.append(("http", host, request.url.path))
         if request.url.host == "github.com":
             return httpx.Response(503)
         if request.content:
@@ -369,6 +382,7 @@ _SWEPT_PREFIXES = (
     "/api/channels",
     "/api/settings",
     "/api/updates",
+    "/api/store",
 )
 
 
@@ -2622,3 +2636,64 @@ class TestIataSuggestion:
             await asyncio.sleep(0.05)
         assert [e for e in egress.events if e[0] == "http" and e[2] == "/v1/iata/suggest"] == []
         assert egress.forbidden() == []
+
+
+class TestStoreEgressIsSeparate:
+    """Community off: ``store.meshloom.app`` is reachable exactly when ``store_online``."""
+
+    @pytest.fixture(autouse=True)
+    async def _store_state(self):
+        await store_egress.reset_store_egress_for_tests()
+        yield
+        await store_egress.reset_store_egress_for_tests()
+
+    @pytest.fixture
+    def store_dns(self, monkeypatch):
+        from tests.share_fakes import PUBLIC_IP, Dns
+
+        hosts = (*STORE_HOSTS, "api.meshloom.app", "get.meshloom.app")
+        return Dns(monkeypatch, {host: [PUBLIC_IP] for host in hosts})
+
+    @pytest.mark.asyncio
+    async def test_store_host_allowed_only_with_store_online(
+        self, test_db, egress, cleanup_community, store_dns
+    ):
+        from app.net.egress_guard import EgressBlocked
+        from app.repository import AppSettingsRepository
+        from tests.share_fakes import _Stream
+
+        record = egress.handle
+
+        async def streamed(request: httpx.Request) -> httpx.Response:
+            # The egress guard reads the body raw: stream it like a socket would.
+            response = await record(request)
+            return httpx.Response(response.status_code, stream=_Stream(response.content))
+
+        egress.handle = streamed
+        await update_community(enabled=False, iata="CDG")
+        url = f"https://{STORE_INDEX_HOST}/v1/index.json"
+
+        # Off (the default): refused before any lookup, nothing recorded.
+        with pytest.raises(StoreOffline):
+            await store_fetch("GET", url, max_response_bytes=4096)
+        assert egress.hosts() == [] and store_dns.lookups == []
+
+        await AppSettingsRepository.update(store_online=True)
+        await store_fetch("GET", url, max_response_bytes=4096)
+        assert egress.hosts() == [STORE_INDEX_HOST]
+        assert egress.forbidden() == [STORE_INDEX_HOST]
+        assert egress.forbidden(store_online=True) == []
+
+        # Any other meshloom.app host stays out of the Store allowlist.
+        for other in ("api.meshloom.app", "get.meshloom.app"):
+            with pytest.raises(EgressBlocked) as info:
+                await store_fetch("GET", f"https://{other}/", max_response_bytes=4096)
+            assert info.value.code == "egress_host_not_allowed"
+        assert egress.hosts() == [STORE_INDEX_HOST]
+
+        # Off again: nothing more leaves.
+        await AppSettingsRepository.update(store_online=False)
+        with pytest.raises(StoreOffline):
+            await store_fetch("GET", url, max_response_bytes=4096)
+        assert egress.hosts() == [STORE_INDEX_HOST]
+        assert (await get_community_effective()).enabled is False

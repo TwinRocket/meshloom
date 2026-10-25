@@ -196,9 +196,9 @@ These hold for every section; a restore function must keep them:
 
    The sharing consent (`app_settings.share_enabled`, with its recorded terms acceptance
    `share_terms_version` and `share_terms_accepted_at`) and the Store consent
-   (`app_settings.store_online`, not in `AppSettings` yet) are not seeds but follow the
+   (`app_settings.store_online`) are not seeds but follow the
    same rule: they are left out of the JSON export (`BackupExport` serializes
-   `settings` without those three columns; `store_online` is not in `AppSettings`),
+   `settings` without those four columns, `_CONSENT_FIELDS` in `app/models.py`),
    never restored, and set to 0 in the SQLite snapshot
    copy (`SNAPSHOT_RESET_COLUMNS`), so a copy put back elsewhere cannot enable the
    sharing or Store egress.
@@ -280,8 +280,9 @@ imported by `services/backup.py`.
 - **Notification choices.** The `notification_user_rules` section (MSHL-321,
   registered in `services/backup_notifications.py`, not `sensitive`,
   `restore_with="users"`, in `ACCOUNT_SECTIONS`) holds `{"accounts": [{user_id,
-  rules}]}`: what each account forced on or off for its own devices
-  (`app/notifications/user_rules.py`, `sanitize_override`). Its restore replaces
+  rules}]}`: what each account forced on or off for its own devices, its conversation
+  exceptions (MSHL-362) and its pause (MSHL-363, an end time or "until resumed"), all in
+  the one `rules` document (`app/notifications/user_rules.py`, `sanitize_override`). Its restore replaces
   every row in the accounts' transaction, right after them, and drops a row whose
   account does not exist (`notification_user_rules_dropped:<id>`); with the accounts
   kept it is not touched, and a `users` restore without this section leaves every

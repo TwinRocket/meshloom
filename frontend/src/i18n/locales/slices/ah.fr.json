@@ -7,7 +7,7 @@
     "share_quota_ip": "Trop de partages depuis ce réseau aujourd’hui. Réessayez plus tard.",
     "share_quota_global": "Le service de partage a atteint sa limite quotidienne. Réessayez plus tard.",
     "share_rate_limited": "Trop de demandes de partage à la fois. Patientez un instant puis réessayez.",
-    "share_banned": "Le service de partage a banni ce Meshloom. L’envoi est refusé ; les liens existants s’ouvrent toujours.",
+    "share_banned": "Le service de partage a banni ce Meshloom. L’envoi est refusé pendant 12 heures ; les liens existants s’ouvrent toujours. Cela vaut pour cette instance et tous ceux qui l’utilisent : écrivez à ban@meshloom.app si vous pensez à une erreur.",
     "share_too_large": "Ce fichier est trop volumineux pour être partagé.",
     "share_type_refused": "Ce type de fichier ne peut pas être partagé.",
     "share_not_found": "Ce lien ou ce fichier n’existe pas.",

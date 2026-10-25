@@ -95,6 +95,36 @@ const TYPES: NotificationTypeInfo[] = [
       required: ['bot_token', 'chat_id'],
     },
   }),
+  typeInfo({
+    type: 'matrix',
+    preset: true,
+    base_type: 'apprise',
+    help_key: 'notifications.presets.matrix.about',
+    wiki_url: 'https://spec.matrix.org/latest/client-server-api/',
+    cloud: true,
+    include_message_text_default: 'public_only',
+    schema: {
+      properties: {
+        server: {
+          type: 'string',
+          label_key: 'notifications.presets.matrix.fields.server',
+          help_key: 'notifications.presets.matrix.help.server',
+        },
+        credential: {
+          anyOf: [{ type: 'string', writeOnly: true }, { type: 'null' }],
+          writeOnly: true,
+          label_key: 'notifications.presets.matrix.fields.credential',
+          help_key: 'notifications.presets.matrix.help.credential',
+        },
+        room: {
+          type: 'string',
+          label_key: 'notifications.presets.matrix.fields.room',
+          help_key: 'notifications.presets.matrix.help.room',
+        },
+      },
+      required: ['server', 'room'],
+    },
+  }),
 ];
 
 function channel(overrides: Partial<NotificationChannel>): NotificationChannel {
@@ -353,6 +383,19 @@ describe('add dialog', () => {
       'notify.channel_changed',
       'radio.offline',
     ]);
+  });
+});
+
+describe('added presets (MSHL-132)', () => {
+  it('renders the fields and the help of the matrix preset', async () => {
+    mockApi();
+    const picker = await openAdd();
+    fireEvent.click(within(picker).getByText('Matrix'));
+    expect(screen.getByTestId('preset-about')).toHaveTextContent(/Matrix room/);
+    expect(screen.getByLabelText(/Homeserver/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Access token or password/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Room/)).toBeInTheDocument();
+    expect(screen.getByText(/room id/)).toBeInTheDocument();
   });
 });
 

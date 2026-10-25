@@ -91,7 +91,7 @@ terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS
 `services/share.py`) and the Unix time of the acceptance, written by the server only, `excluded`
 from backups and reset to 0 in a database copy; `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
 never exported by a backup; `store_online`: the Store egress consent, off by default,
-migration 103, not in `AppSettings` yet, excluded from backups and reset to 0 in a
+migration 103, in `AppSettings` since MSHL-194 (`app/plugins/store_egress.py`), excluded from backups and reset to 0 in a
 database copy; `plugins_paused`, `plugins_paused_at`, `plugins_paused_by`: the global plugin
 pause, its Unix time and the user name of who set it (migration 120, `app/plugins/pause.py`,
 written only by `PUT /api/plugins/pause`, outside `AppSettings`, excluded from backups).
@@ -250,7 +250,9 @@ A subscription is deleted once `failure_count` reaches 15 consecutive failures.
 
 One account's notification choices for its own Web Push devices (migration 123, MSHL-321):
 PK `user_id` (FK `users(id)` `ON DELETE CASCADE`), `rules` (JSON, `{"version": 1, "events":
-{id: bool}, "contact_types": {kind: bool}}`, `app/notifications/user_rules.py`), `updated_at`.
+{id: bool}, "contact_types": {kind: bool}, "conversations": {state_key: bool}, "pause":
+{"until": int | null}}`, `app/notifications/user_rules.py`; the last two keys, MSHL-362 and 363,
+need no migration), `updated_at`.
 An account with no row follows `app_settings.notification_rules`, which are the admin defaults;
 migration 123 writes no row, so an upgrade changes nothing. `UserNotificationRulesRepository`
 (`user_notification_rules.py`) keeps the non-empty rows in memory (dropped by every write and
