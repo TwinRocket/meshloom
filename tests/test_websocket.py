@@ -137,11 +137,17 @@ class TestWebSocketBroadcast:
     @pytest.mark.asyncio
     async def test_per_client_order_is_preserved(self, ws_manager: WebSocketManager):
         received: list[str] = []
+        first_gate = asyncio.Event()
+        all_received = asyncio.Event()
 
         async def jittery_send(message):
-            # Earlier frames take longer; order must still hold.
-            await asyncio.sleep(0.01 if "first" in message else 0)
+            # The first frame is held until the later ones are queued behind it
+            # (event-driven, no wall-clock sleep); order must still hold.
+            if "first" in message:
+                await first_gate.wait()
             received.append(json.loads(message)["type"])
+            if len(received) == 3:
+                all_received.set()
 
         ws = _client_ws()
         ws.send_text.side_effect = jittery_send
@@ -150,7 +156,9 @@ class TestWebSocketBroadcast:
         await ws_manager.send_personal(ws, WsEvent.SUCCESS, {"message": "first"})
         ws_manager.broadcast_nowait(WsEvent.ERROR, {"message": "second"})
         ws_manager.broadcast_nowait(WsEvent.CONTACT_DELETED, {"public_key": "third"})
-        await asyncio.sleep(0.05)
+        first_gate.set()
+        # The bound only matters if the code is broken; a healthy run returns at once.
+        await asyncio.wait_for(all_received.wait(), timeout=10)
 
         assert received == ["success", "error", "contact_deleted"]
 

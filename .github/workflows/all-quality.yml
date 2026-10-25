@@ -50,10 +50,10 @@ jobs:
         run: uv sync --dev
 
       - name: Backend lint
-        run: uv run ruff check app/ meshloom_plugin/ tests/
+        run: uv run ruff check
 
       - name: Backend format check
-        run: uv run ruff format --check app/ meshloom_plugin/ tests/
+        run: uv run ruff format --check app/ meshloom_plugin/ tests/ scripts/
 
       - name: Backend typecheck
         run: uv run pyright app/ meshloom_plugin/
@@ -71,7 +71,30 @@ jobs:
           PYTHONPATH=. uv run python -c "from app.plugins.isolation.bwrap import self_test; e = self_test(); assert e is None, e"
 
       - name: Backend tests
-        run: PYTHONPATH=. uv run pytest tests/ -v
+        # Quiet per-test output: with xdist the -v lines interleave and a log
+        # that stops early shows no verdict. -rfE prints a FAILED/ERROR line per
+        # failure in the final summary, --tb=short keeps tracebacks readable, the
+        # JUnit XML feeds the step summary and the artifact below, and
+        # faulthandler_timeout dumps every thread's stack if a test hangs.
+        run: >-
+          PYTHONPATH=. uv run pytest tests/ -q -rfE --tb=short
+          -o faulthandler_timeout=300
+          --junitxml=pytest-report.xml
+
+      # always(): this is the step that matters when the tests step failed or
+      # was killed.
+      - name: Failed tests summary
+        if: ${{ always() }}
+        run: python3 scripts/ci/junit_summary.py pytest-report.xml >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the pytest report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pytest-report-py${{ matrix.python-version }}
+          path: pytest-report.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The dedicated-uid isolation level (app/plugins/isolation/setuid.py) needs a
   # root server and the meshloom-plugin account, as in the Docker image: a root

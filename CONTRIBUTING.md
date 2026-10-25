@@ -48,8 +48,8 @@ If you need targeted commands while iterating:
 
 ```bash
 # backend
-uv run ruff check app/ meshloom_plugin/ tests/ --fix
-uv run ruff format app/ meshloom_plugin/ tests/
+uv run ruff check --fix
+uv run ruff format app/ meshloom_plugin/ tests/ scripts/
 uv run pyright app/ meshloom_plugin/
 PYTHONPATH=. uv run pytest tests/ -v
 

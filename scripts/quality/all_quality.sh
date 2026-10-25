@@ -25,8 +25,8 @@ echo -e "${YELLOW}=== Phase 1: Lint & Format ===${NC}"
 
 echo -ne "${BLUE}[backend lint]${NC} "
 cd "$REPO_ROOT"
-uv run ruff check app/ meshloom_plugin/ tests/ --fix --quiet
-uv run ruff format app/ meshloom_plugin/ tests/ --quiet
+uv run ruff check --fix --quiet
+uv run ruff format app/ meshloom_plugin/ tests/ scripts/ --quiet
 echo -e "${GREEN}Passed!${NC}"
 
 echo -ne "${BLUE}[frontend lint]${NC} "
