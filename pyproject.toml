@@ -95,6 +95,9 @@ dev = [
     "ruff>=0.8.0",
     "pyright>=1.1.390",
     "hypothesis>=6.170",
+    # Linux-only at runtime (see dependencies); installed on every platform in
+    # dev so pyright resolves the BlueZ imports on macOS too.
+    "dbus-fast>=3.1,<4",
 ]
 
 [tool.uv]

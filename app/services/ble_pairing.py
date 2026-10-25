@@ -478,7 +478,10 @@ def reset_for_tests() -> None:
 def _authenticator() -> Any:
     """Let bleak decide (it honours BLEAK_DBUS_AUTH_UID); no Meshloom variable."""
     try:
-        from bleak.backends.bluezdbus.utils import get_dbus_authenticator
+        # bleak < 3 lacks it; pyright on non-Linux hosts cannot see the symbol.
+        from bleak.backends.bluezdbus.utils import (
+            get_dbus_authenticator,  # pyright: ignore[reportAttributeAccessIssue]
+        )
     except ImportError:
         return None
     try:
