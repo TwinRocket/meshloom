@@ -25,7 +25,7 @@ values `bwrap`, `setuid`, `none` (`policy.ISOLATION_LEVELS`), in `/api/health`
 |---|---|---|
 | Linux, root, account `meshloom-plugin` exists (Docker image, add-on) | `setuid` | — |
 | Linux, root, no such account | `bwrap` if its self-test passes | `none` |
-| Linux, not root, holds `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` and the account exists (Docker with `MESHLOOM_RUN_AS_USER`) | `setuid` | — |
+| Linux, not root, holds `CAP_SETUID` and `CAP_SETGID` and the account exists (Docker with `MESHLOOM_RUN_AS_USER`) | `setuid` | — |
 | Linux, not root (deb/rpm, RPi image, source) | `bwrap` if its self-test passes | `none` |
 | not Linux (macOS, development) | `none` | — |
 
@@ -66,20 +66,31 @@ without the setuid bit.
 
 ### `setuid` (`setuid.py`, `permissions.py`)
 
-`subprocess.Popen(user=, group=, extra_groups=[], umask=0o077)` with the
-`meshloom-plugin` account (uid and gid pinned to 10002, `PLUGIN_UID` in the
-`Dockerfile`, next to `MESHLOOM_RUN_AS_USER`'s 10001: Docker does not remap
-users, so it is that uid on the host too, and the first system uid, 999, is
-often a real host account; no shell, no home; an account that already exists is
-kept; the add-on is `FROM` that image). A root server creates the work dir and
-hands it to the uid (`chown`, `0700`). A non-root server holding only
-`CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` (docker-entrypoint.sh under
-`MESHLOOM_RUN_AS_USER` keeps exactly those three, ambient: the uid switch, and
-the group kill of another uid) cannot `chown`: a
-short helper started as the plugin uid creates it (`0711`, the server must still
-`chdir` into it before the uid switch) and removes it at the end
-(`remove_work_dir`). The runner clears those inherited capabilities before any
-plugin code. The runner refuses to start when told `setuid` while still root.
+`subprocess.Popen(user=, group=, extra_groups=[], umask=0o077)` with a uid of
+its own per plugin instance (MSHL-339). The `meshloom-plugin` account (uid and
+gid pinned to 10002, `PLUGIN_UID` in the `Dockerfile`, next to
+`MESHLOOM_RUN_AS_USER`'s 10001: Docker does not remap users, so it is that uid
+on the host too, and the first system uid, 999, is often a real host account;
+no shell, no home; an account that already exists is kept; the add-on is `FROM`
+that image) only opts the server into this level; no child runs under it any
+more. Each instance gets the lowest free uid in 40000-49999 (gid = uid, no
+passwd entry needed), stored in the `plugin_uids` table (migration 121) so it
+keeps it across restarts: a uid with a passwd or group entry, the server's own
+uid, 10002, or one already held is skipped; none left is `uid_exhausted`.
+Deleting the instance purges what its uid left in the shared temporary
+directories (`/tmp`, `/var/tmp`, `/dev/shm`, `tempfile.gettempdir()`: top-level
+entries it owns), then frees the uid; a failed purge keeps the row, and the
+startup (`PluginManager.reap_uids`) retries orphans, purges the uids of stopped
+instances, and once purges what the shared 10002 uid of earlier releases left.
+A root server creates the work dir and hands it to the uid (`chown`, `0700`).
+A non-root server holding only `CAP_SETUID` and `CAP_SETGID`
+(docker-entrypoint.sh under `MESHLOOM_RUN_AS_USER` keeps exactly those two,
+ambient) cannot `chown` nor signal another uid: a short helper started as the
+instance uid, capabilities dropped, creates the work dir (`0711`, the server
+must still `chdir` into it before the uid switch), removes it at the end
+(`remove_work_dir`), sends the group signals (`killpg` of a group the uid owns,
+no `CAP_KILL`) and runs the purge. A root server signals directly. The runner
+clears the inherited capabilities before any plugin code. The runner refuses to start when told `setuid` while still root.
 At startup (`isolation.startup()`) the
 file model is applied to the data directory: `0711` on the directory, `0600` on
 each file in it, `0700` on each subdirectory but `plugins/`, whose tree is
@@ -90,12 +101,12 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 
 ### Known limits of the OS layer
 
-- Under `setuid`, every instance shares the uid: one plugin can read another
-  one's work dir and signal its process. It
-  cannot read or write another child's memory: the runner sets
-  `PR_SET_DUMPABLE` 0 (every level), so `/proc/<pid>/mem` and `ptrace` of a
-  sibling are refused (`test_a_sibling_under_the_same_uid_cannot_open_the_child_memory`).
-  A uid per instance is a follow-up.
+- Under `setuid`, each instance has its own uid (MSHL-339): one plugin can
+  neither read another one's work dir nor signal its processes
+  (`test_two_instance_uids_cannot_read_or_signal_each_other`). The runner still
+  sets `PR_SET_DUMPABLE` 0 (every level), which keeps `/proc/<pid>/mem` and
+  `ptrace` refused to the server's other processes and, under `none`, to a
+  sibling (`test_a_sibling_under_the_same_uid_cannot_open_the_child_memory`).
 - Under `setuid` the network is open to an exec'd program (only the hooks
   refuse sockets in-process), **loopback included**: that reaches the radio
   proxy, which has no authentication and accepts SEND commands
@@ -108,13 +119,18 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 - Without a pid namespace (`setuid`, `none`), a process that left the session
   survives the group kill; the service's cgroup (`KillMode=control-group`) or
   the container's end still stops it.
-- Docker with `MESHLOOM_RUN_AS_USER`: the server keeps `CAP_SETUID`,
-  `CAP_SETGID` and `CAP_KILL` (ambient), so `setuid`; the startup file model applies the same
+- Docker with `MESHLOOM_RUN_AS_USER`: the server keeps `CAP_SETUID` and
+  `CAP_SETGID` (ambient), so `setuid`; the startup file model applies the same
   way, the data directory and its `0600` files belonging to uid 10001.
 - The seccomp filter (`meshloom_plugin/seccomp.py`, no `pyseccomp`) knows
-  x86_64, i386, aarch64, arm and riscv64. On another architecture a non-root
-  child runs without it (`RLIMIT_NPROC` 0 still holds) and a root child refuses
-  to start.
+  x86_64, i386, aarch64, arm and riscv64, which covers every architecture
+  Meshloom ships (amd64, arm64 and armhf packages; amd64, arm64 and armv7
+  images and add-on; `test_every_shipped_architecture_has_a_seccomp_table`
+  fails when one is added without a table). On another architecture (a source
+  install on s390x, say) it is best effort, by decision (MSHL-339): a non-root
+  child runs without it, still held by `RLIMIT_NPROC` 0 (no thread, no process)
+  and with every capability dropped, while a root child, which `RLIMIT_NPROC`
+  does not bind, refuses to start.
 
 ## What the runner does
 
@@ -125,9 +141,9 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 | `os.environ` cleared but `LANG` and `PYTHONHASHSEED` (and the supervisor passes only those) | no server secret in the environment |
 | Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` 0 (Linux, every level); small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap; no thread and no process can be created, whatever path the hook does not see (the kernel counts the uid's tasks against the limit; root, `CAP_SYS_RESOURCE` and `CAP_SYS_ADMIN` ignore it) |
 | `PR_SET_NO_NEW_PRIVS` (Linux) | no privilege gain through a setuid binary, even if a process were spawned |
-| Inherited capabilities dropped (Linux, non-root child): ambient cleared, effective, permitted and inheritable emptied, checked in `/proc/self/status` | `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` kept by a `MESHLOOM_RUN_AS_USER` server do not reach plugin code |
+| Inherited capabilities dropped (Linux, non-root child): ambient cleared, effective, permitted and inheritable emptied, checked in `/proc/self/status` | `CAP_SETUID`/`CAP_SETGID` kept by a `MESHLOOM_RUN_AS_USER` server do not reach plugin code |
 | seccomp filter (Linux, `meshloom_plugin/seccomp.py`): `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat` and any syscall of a foreign ABI answer `EPERM` | no thread, no process, no exec, **root included** (MSHL-323); required for a root child, best effort otherwise |
-| `PR_SET_DUMPABLE` 0 (Linux, before any plugin code) | `execve` (and the uid drop) made the child dumpable again; now no process of the same uid, another instance included, can open its `/proc/<pid>/mem` or `ptrace` it |
+| `PR_SET_DUMPABLE` 0 (Linux, before any plugin code) | `execve` (and the uid drop) made the child dumpable again; now no other process of the same uid can open its `/proc/<pid>/mem` or `ptrace` it |
 | Audit hook (PEP 578) | refuses the events below |
 | Purge of `sys.modules`, references replaced by stubs, import guard | network, process and native modules are not reachable by name |
 | Event loop self-pipe on `os.pipe()` | the child holds no socket object at all |
@@ -267,15 +283,17 @@ covered by `tests/test_egress_guard_lan_hosts.py` and `tests/test_plugin_http_la
   signals required: the container lists the engine's `docker0`, `hassio`,
   `br-*` or `veth*` interfaces in `/proc/net/dev`, and every default route
   leaves through an interface that is its own link, `iflink == ifindex` in
-  `/sys/class/net`) the gateway is the LAN router and is allowed; only the Home
+  `/sys/class/net`, or a VLAN or macvlan stacked on one in the same namespace,
+  which the kernel shows as a `lower_<parent>` entry) the gateway is the LAN router and is allowed; only the Home
   Assistant supervisor gateway (`172.30.32.0/23`) stays refused there, and the
   host's own addresses are caught by the bind probe. The second signal rules out
   a bridged container that runs its own engine (Docker-in-Docker lists
   `docker0` but routes through its veth `eth0`, whose peer is on the real host;
   MSHL-340). Comparing network namespace inodes with PID 1 does not work: a
   container's PID 1 shares its network namespace in both modes. Host networking
-  that shows none of those interfaces, routes through a VLAN, macvlan or veth
-  uplink, or whose `/sys` cannot be read is not recognised and fails closed (the
+  that shows none of those interfaces, routes through a veth uplink or through
+  a macvlan whose parent is in another namespace (Docker's macvlan driver: no
+  `lower_` entry), or whose `/sys` cannot be read is not recognised and fails closed (the
   router stays refused). This keeps
   plugins away from the radio proxy (5051, `0.0.0.0`, no authentication) and the
   app's own port.
@@ -350,7 +368,7 @@ The root container job (`plugin-isolation-root`, Python 3.11 and 3.14) creates
 the account, runs the isolation, runner and seccomp tests with `--noconftest`,
 then installs the dependencies and runs the corpus, the fuzz and the host tests
 as root, where all three levels are available, then all of them again as uid
-10001 holding only `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` ambient (`setpriv` as
+10001 holding only `CAP_SETUID`/`CAP_SETGID` ambient (`setpriv` as
 docker-entrypoint.sh calls it), where `none` and `setuid` are.
 
 | Case | Stage | Tries | Expected, every level unless noted |

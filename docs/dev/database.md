@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 120 (the value of
+- Numbering is contiguous from 001. The current head is 121 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -374,6 +374,14 @@ Send counters of the plugin `messages.send` capability (migration 105): PK
 seconds of the fixed window), `count`. A row whose `period_start` is not the current
 window reads as zero. Runtime state: excluded from every backup, removed with the
 instance. `PluginSendQuotaRepository` (`plugins.py`), rules in `app/plugins/quotas.py`.
+
+### `plugin_uids`
+
+The uid of each plugin instance under the `setuid` isolation level (migration 121,
+MSHL-339): PK `instance_id`, `uid` (UNIQUE, CHECK `> 0`, from 40000-49999), `allocated_at`
+(Unix seconds). No foreign key: a row outlives its instance until the files its uid left
+in the shared temporary directories are purged, then it is deleted
+(`PluginUidRepository`, `app/plugins/host.py`). Host state: excluded from every backup.
 
 ### `plugin_send_guard`
 

@@ -400,8 +400,12 @@ class PluginProcess:
         on_request: RequestHandler,
         write_timeout: float = 30.0,
         on_notify: NotificationHandler | None = None,
+        backend: isolation.IsolationBackend | None = None,
     ):
         self._plugin_dir = plugin_dir
+        # The instance's backend (bound to its uid under `setuid`); the process-wide
+        # one when None, resolved at `start()`.
+        self._backend = backend
         self._write_timeout = write_timeout
         self._log = log
         self._on_request = on_request
@@ -431,7 +435,8 @@ class PluginProcess:
         return self._proc.returncode if self._proc is not None else None
 
     async def start(self, params_line: Callable[[Path], bytes]) -> None:
-        backend = isolation.current().backend
+        backend = self._backend or isolation.current().backend
+        self._backend = backend
         self._wrapped = backend.level == "bwrap"
         backend.prepare_plugin_dir(self._plugin_dir)
         self.work_dir = backend.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-plugin-")))
@@ -456,8 +461,15 @@ class PluginProcess:
             return
         if self.kill_reason is None:
             self.kill_reason = reason
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(self._proc.pid, sig)
+        self._signal_group(sig)
+
+    def _signal_group(self, sig: int) -> None:
+        """Through the backend: without `CAP_KILL`, the `setuid` level signals the
+        group from a helper running as the instance uid."""
+        if self._proc is None:
+            return
+        backend = self._backend or isolation.current().backend
+        backend.signal_group(self._proc.pid, sig)
 
     def exit_reason(self) -> str:
         if self.kill_reason is not None:
@@ -607,8 +619,7 @@ class PluginProcess:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(asyncio.shield(waiter), PIPE_CLOSE_SECONDS)
             if not waiter.done():
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(self._proc.pid, signal.SIGKILL)
+                self._signal_group(signal.SIGKILL)
                 self._close_pipes(0, 1, 2)
                 waiter.cancel()
                 break
@@ -696,9 +707,9 @@ class PluginProcess:
         if self._proc is not None:
             if self._proc.returncode is None:
                 # SIGKILL even when an earlier SIGTERM set the reason.
-                self.kill(reason)
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(self._proc.pid, signal.SIGKILL)
+                if self.kill_reason is None:
+                    self.kill_reason = reason
+                self._signal_group(signal.SIGKILL)
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._proc.wait(), reap_timeout)
         for task in [*self._readers, *self._tasks]:
@@ -709,7 +720,7 @@ class PluginProcess:
             if not future.done():
                 future.set_exception(ProcessEnded())
         if self.work_dir is not None:
-            isolation.current().backend.remove_work_dir(self.work_dir)
+            (self._backend or isolation.current().backend).remove_work_dir(self.work_dir)
 
 
 # --- one instance -----------------------------------------------------------------
@@ -729,8 +740,15 @@ class _Event:
 class PluginInstance:
     """Supervises one instance: its current child, inbox, status and counters."""
 
-    def __init__(self, manager: PluginManager, row: dict[str, Any], plugin_dir: Path):
+    def __init__(
+        self,
+        manager: PluginManager,
+        row: dict[str, Any],
+        plugin_dir: Path,
+        backend: isolation.IsolationBackend | None = None,
+    ):
         self._manager = manager
+        self.backend = backend
         self.budgets = manager.budgets
         self.instance_id: str = row["instance_id"]
         self.plugin_id: str = row["plugin_id"]
@@ -924,6 +942,7 @@ class PluginInstance:
             self._on_child_request,
             write_timeout=self.budgets.event_timeout,
             on_notify=self._on_child_notification,
+            backend=self.backend,
         )
         self._process = process
         cpu_task: asyncio.Task[None] | None = None
@@ -1315,7 +1334,8 @@ class PluginManager:
             cap = self.instance_cap()
             if running >= cap:
                 raise PluginCapacityError(cap)
-            instance = PluginInstance(self, row, self.code_dir(row))
+            backend = await self._instance_backend(instance_id)
+            instance = PluginInstance(self, row, self.code_dir(row), backend)
             # The pause may have been set during the awaits above (MSHL-341):
             # `pause_all()` only stops what is in `_instances`, so check again with
             # no await between this check and the registration below.
@@ -1351,12 +1371,87 @@ class PluginManager:
         else:
             await self.stop(instance_id)
 
-    async def remove(self, instance_id: str) -> None:
+    async def remove(self, instance_id: str, *, purge: bool = False) -> None:
+        """Stop and forget an instance; `purge` (an uninstall) also cleans and frees
+        its uid under `setuid`."""
         async with self._lock(instance_id):
             instance = self._instances.pop(instance_id, None)
             if instance is not None:
                 await instance.stop(self.budgets.stop_timeout)
+            if purge:
+                await self._purge_uid(instance_id)
         self._locks.pop(instance_id, None)
+
+    # Per-instance uids (`setuid`, MSHL-339).
+
+    async def _instance_backend(self, instance_id: str) -> isolation.IsolationBackend:
+        """The process-wide backend, bound to the instance's own uid under `setuid`
+        (allocated on the first start, then kept)."""
+        backend = isolation.current().backend
+        if not backend.per_instance_uid:
+            return backend
+        from app.plugins.isolation import setuid
+        from app.repository.plugins import PluginUidError, PluginUidRepository
+
+        try:
+            uid = await PluginUidRepository.allocate(
+                instance_id, setuid.INSTANCE_UIDS, setuid.uid_is_free
+            )
+        except PluginUidError:
+            raise PluginHostError(
+                "uid_exhausted", "no free uid left for a plugin instance"
+            ) from None
+        return backend.for_uid(uid)
+
+    async def _purge_uid(self, instance_id: str, uid: int | None = None) -> bool:
+        """Remove what the instance's uid left, then free the uid. A failed purge
+        keeps the uid taken (startup tries again); True when freed."""
+        backend = isolation.current().backend
+        if not backend.per_instance_uid:
+            return True
+        from app.repository.plugins import PluginUidRepository
+
+        if uid is None:
+            uid = await PluginUidRepository.get(instance_id)
+        if uid is None:
+            return True
+        try:
+            await asyncio.to_thread(backend.for_uid(uid).purge)
+        except (OSError, ValueError) as exc:
+            logger.warning("Plugin uid %s of %s kept: purge failed: %s", uid, instance_id, exc)
+            return False
+        await PluginUidRepository.release(instance_id)
+        return True
+
+    async def reap_uids(self) -> None:
+        """Before the first start under `setuid`: purge and free the uids of deleted
+        instances, purge the uids of the others that left files (a crash) and the
+        shared uid of the releases before per-instance uids."""
+        backend = isolation.current().backend
+        if not backend.per_instance_uid:
+            return
+        from app.plugins.isolation import setuid
+        from app.repository.plugins import PluginUidRepository
+
+        running = {i for i, instance in self._instances.items() if instance.active}
+        orphans = await PluginUidRepository.orphans()
+        for instance_id, uid in orphans.items():
+            if instance_id not in running:
+                await self._purge_uid(instance_id, uid)
+        kept = {
+            uid
+            for instance_id, uid in (await PluginUidRepository.all()).items()
+            if instance_id not in orphans and instance_id not in running
+        }
+        # The account's own uid: every instance ran under it before MSHL-339.
+        legacy = getattr(backend, "uid", None)
+        for uid in sorted(kept | ({legacy} if legacy else set())):
+            if not await asyncio.to_thread(setuid.owns_something, uid):
+                continue
+            try:
+                await asyncio.to_thread(backend.for_uid(uid).purge)
+            except (OSError, ValueError) as exc:
+                logger.warning("Plugin uid %s: leftover files not removed: %s", uid, exc)
 
     async def start_all(self) -> None:
         """Start every enabled instance not held by a sticky status, staggered."""

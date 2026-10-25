@@ -105,7 +105,7 @@ jobs:
   # filter that keeps a root child from forking or exec'ing), then the hostile
   # corpus, the RPC fuzz and the host tests with the app's dependencies (the
   # corpus drives the real supervisor), at `none` and `setuid`. The same tests
-  # then run as a non-root server holding only CAP_SETUID, CAP_SETGID and CAP_KILL ambient,
+  # then run as a non-root server holding only CAP_SETUID and CAP_SETGID ambient,
   # as docker-entrypoint.sh starts it under MESHLOOM_RUN_AS_USER. The container
   # is unprivileged, so the bwrap cases skip here; the backend job runs them.
   plugin-isolation-root:
@@ -151,17 +151,17 @@ jobs:
           PYTHONPATH=. uv run --frozen pytest -p no:cacheprovider -o addopts= -v tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py
 
       # setpriv as docker-entrypoint.sh calls it: uid 10001 keeps exactly
-      # CAP_SETUID, CAP_SETGID and CAP_KILL ambient, enough for the setuid level.
-      - name: Plugin tests as a non-root server with CAP_SETUID/CAP_SETGID/CAP_KILL
+      # CAP_SETUID and CAP_SETGID ambient, enough for the setuid level.
+      - name: Plugin tests as a non-root server with CAP_SETUID/CAP_SETGID
         run: |
           chmod -R a+rX "$GITHUB_WORKSPACE"
           install -d -o 10001 -g 10001 -m 0700 /tmp/caps-home
           setpriv --reuid=10001 --regid=10001 --clear-groups \
-            --inh-caps=-all,+kill,+setgid,+setuid --ambient-caps=+kill,+setgid,+setuid -- \
+            --inh-caps=-all,+setgid,+setuid --ambient-caps=+setgid,+setuid -- \
             env HOME=/tmp/caps-home PYTHONPATH=. .venv/bin/python -c \
             "from tests.plugin_isolation_support import available_backends as a; assert 'setuid' in a(), a()"
           setpriv --reuid=10001 --regid=10001 --clear-groups \
-            --inh-caps=-all,+kill,+setgid,+setuid --ambient-caps=+kill,+setgid,+setuid -- \
+            --inh-caps=-all,+setgid,+setuid --ambient-caps=+setgid,+setuid -- \
             env HOME=/tmp/caps-home PYTHONPATH=. .venv/bin/python -m pytest -p no:cacheprovider -o addopts= -v \
             tests/test_plugin_isolation.py tests/test_plugin_runner.py tests/test_plugin_seccomp.py \
             tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py

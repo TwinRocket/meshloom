@@ -130,15 +130,17 @@ and the OpenAPI page (`/docs`), not a table here.
   `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
   `plugins/isolation/` is the OS boundary around each child (MSHL-180): one
   backend per process, detected once and logged (`selection.py`: `setuid` as root
-  with the `meshloom-plugin` account, or not root but holding `CAP_SETUID`,
-  `CAP_SETGID` and `CAP_KILL` (docker-entrypoint.sh keeps exactly those three
-  ambient under `MESHLOOM_RUN_AS_USER`: keep it so, the uid drop needs the first
-  two and `killpg` of the plugin uid the third; the work dir is then made by a
-  helper running as the plugin uid), else `bwrap` if its self-test passes, else
+  with the `meshloom-plugin` account, or not root but holding `CAP_SETUID` and
+  `CAP_SETGID` (docker-entrypoint.sh keeps exactly those two ambient under
+  `MESHLOOM_RUN_AS_USER`; no `CAP_KILL`: the work dir, the group signals and the
+  temp purge then go through a helper running as the instance uid), else `bwrap` if its self-test passes, else
   `none`, "hooks only", with a warning); `startup()` applies the file model of
   `permissions.py` under `setuid` (data dir `0711`, files `0600`, server umask
   `077`); if it fails, `lifecycle.start()` fails closed (`fail_closed()`, health
-  `plugins_disabled_source: "isolation"`). The account is uid/gid 10002. bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  `plugins_disabled_source: "isolation"`). The account (uid/gid 10002) only opts into `setuid`: each instance runs under
+  its own uid from 40000-49999 (`setuid.INSTANCE_UIDS`, table `plugin_uids`,
+  `PluginUidRepository`; `PluginManager` allocates at start, purges and frees it
+  on delete, `reap_uids()` at startup; MSHL-339). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). The child's own kernel guards
   (dropped capabilities, a seccomp filter refusing clone/fork/exec, required for
   a root child) are `meshloom_plugin/seccomp.py`. Stdlib only, so

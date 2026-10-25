@@ -309,6 +309,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "limits the user lowered for the plugin send guards: instance tuning",
     ),
+    "plugin_uids": (
+        "excluded",
+        "uid of each plugin instance under setuid: host state, reallocated at start",
+    ),
 }
 
 

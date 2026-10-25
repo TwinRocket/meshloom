@@ -247,7 +247,7 @@ def _apply_limits(params: dict[str, Any]) -> None:
         if prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
             raise RunnerStartError("limits_failed", f"PR_SET_DUMPABLE: errno {ctypes.get_errno()}")
         # Capabilities inherited from a non-root server (MESHLOOM_RUN_AS_USER keeps
-        # CAP_SETUID/CAP_SETGID/CAP_KILL ambient) go, and a seccomp filter refuses clone,
+        # CAP_SETUID/CAP_SETGID ambient) go, and a seccomp filter refuses clone,
         # fork and exec: the guard that holds for a root child, which RLIMIT_NPROC
         # does not bind (MSHL-323). Fatal where nothing else would hold.
         from meshloom_plugin import seccomp

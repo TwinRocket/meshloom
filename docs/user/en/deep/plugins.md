@@ -71,7 +71,7 @@ The Linux package, the Raspberry Pi image and a source install on Linux use [bub
 
 ### Dedicated user (`setuid`)
 
-The Docker image and the Home Assistant add-on run Meshloom as root, and Docker does not allow bubblewrap. Plugins run as a separate account, `meshloom-plugin`, that cannot open the database or read the server's memory. To make that true, Meshloom tightens the permissions of its data folder at startup: the folder becomes `0711` and the files in it `0600` (readable by root only); the plugin folders stay readable. If you open the database from the host with another account, do it as root. At this level a plugin that breaks out of Meshloom's own guards could still reach the network, including Meshloom's radio proxy on the same machine, through which it could send more messages than its limits allow. The account has the fixed uid and gid 10002. With `MESHLOOM_RUN_AS_USER`, Meshloom keeps only the three rights it needs to run plugins under that account, so plugins stay at this level; the data folder then belongs to the account you chose.
+The Docker image and the Home Assistant add-on run Meshloom as root, and Docker does not allow bubblewrap. Each copy of a plugin runs under an account of its own (a number between 40000 and 49999, kept for as long as the copy exists), which cannot open the database, read the server's memory, or see or stop another copy. To make that true, Meshloom tightens the permissions of its data folder at startup: the folder becomes `0711` and the files in it `0600` (readable by root only); the plugin folders stay readable. If you open the database from the host with another account, do it as root. At this level a plugin that breaks out of Meshloom's own guards could still reach the network, including Meshloom's radio proxy on the same machine, through which it could send more messages than its limits allow. This level needs the `meshloom-plugin` account (fixed uid and gid 10002), which the image creates; no plugin runs under it. When you delete a copy, Meshloom removes the temporary files its account left and frees the number. With `MESHLOOM_RUN_AS_USER`, Meshloom keeps only the two rights it needs to run plugins under their own accounts, so plugins stay at this level; the data folder then belongs to the account you chose.
 
 ### Hooks only (`none`)
 
@@ -127,7 +127,7 @@ It differs from the other two ways to stop extensions:
 |---|---|---|---|
 | The switch of one copy | An administrator, in the interface | That copy only | Turn it back on |
 | **Pause all extensions** | An administrator, in the interface | Every copy; switches and settings are kept | **Resume** |
-| Host lock (`MESHCORE_DISABLE_PLUGINS=true`, see [Environment](/en/docs/deep/environment/)) | Whoever runs the server | The whole plugin system; nothing can start | Remove the variable and restart |
+| Host lock (`MESHCORE_DISABLE_PLUGINS=true`, see [Environment](/en/docs/deep/environment/)) | Whoever runs the server | The whole plugin system: nothing can be installed, changed or started; you can still view and delete copies, and pause all extensions. Copies restored from a backup come back turned off and stay so | Remove the variable and restart |
 
 When the host lock is set, it wins: the page shows the extensions as turned off by the server, whatever the pause says.
 

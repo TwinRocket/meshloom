@@ -8,8 +8,11 @@ can hand them to `asyncio.create_subprocess_exec` and the tests to
 `subprocess.Popen` (`spawn()`).
 """
 
+import contextlib
+import os
 import shutil
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -27,10 +30,27 @@ class IsolationBackend:
     """The `none` behaviour; the other backends override what they change."""
 
     level: ClassVar[str] = "none"
+    # True when each instance runs under a uid of its own (`for_uid`, `setuid`).
+    per_instance_uid: ClassVar[bool] = False
 
     @property
     def label(self) -> str:
         return LEVEL_LABELS[self.level]
+
+    def for_uid(self, uid: int) -> "IsolationBackend":
+        """This backend bound to one instance's uid (`per_instance_uid` only)."""
+        return self
+
+    def purge(self, dirs: Iterable[Path] | None = None) -> None:
+        """Remove what this backend's uid left in the shared temporary directories
+        (`per_instance_uid` only); nothing to do elsewhere."""
+
+    def signal_group(self, pgid: int, sig: int, *, wait: bool = False) -> None:
+        """Signal a child's process group; a group already gone is not an error.
+
+        `wait` only matters to a backend that signals through a helper process."""
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pgid, sig)
 
     def prepare_work_dir(self, work_dir: Path) -> Path:
         """Create the child's private work directory, owned by whoever the child runs as."""

@@ -30,8 +30,8 @@ patched: update to the latest release (see [Update](README.md#update)).
 ## Plugin isolation
 
 Plugins (Meshloom 5) run in a child process behind an operating-system
-boundary: a bubblewrap sandbox on Linux, a dedicated `meshloom-plugin`
-account in the Docker image and the Home Assistant add-on
+boundary: a bubblewrap sandbox on Linux, a dedicated uid per plugin
+instance in the Docker image and the Home Assistant add-on
 (`docs/dev/plugins-security.md`, "OS isolation"). **A plugin that escapes that
 boundary is a vulnerability**: reading the database, the server's environment
 or memory, another plugin's memory, writing Meshloom's files, reaching the network under bubblewrap, or

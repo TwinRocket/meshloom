@@ -39,6 +39,11 @@ async def start() -> None:
         plugin_manager.fail_closed()
         return
     try:
+        # Under `setuid`: what deleted or crashed instances left, before any start.
+        await plugin_manager.reap_uids()
+    except Exception:
+        logger.exception("Plugin uid cleanup failed")
+    try:
         await plugin_manager.load_from_db()
     except Exception:
         logger.exception("Failed to start plugins")
