@@ -9,6 +9,9 @@
   (``app/auth/audit.py``, ``purge_audit``); always on.
 - Pairing purge: deletes device pairing codes that hold no token and can no
   longer give one (``app/auth/pairing.py``, ``purge_pairings``); always on.
+- Plugin kept-data purge: deletes the KV and secrets an uninstall with
+  ``keep_data`` left once nothing took them back for ``KEPT_DATA_RETENTION_S``
+  (``app/repository/plugins.py``, ``PluginKeptDataRepository.prune``); always on.
 - Bounded ``PRAGMA incremental_vacuum`` so freed pages go back to the OS.
 """
 
@@ -21,6 +24,7 @@ from app.auth.pairing import purge_pairings
 from app.auth.sessions import purge_sessions
 from app.auth.ws_events import WsEvent
 from app.repository import AppSettingsRepository, ContactRepository, RawPacketRepository
+from app.repository.plugins import PluginKeptDataRepository
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +117,7 @@ async def _stale_purge_loop() -> None:
             (purge_sessions, "Session purge"),
             (purge_audit, "Audit purge"),
             (purge_pairings, "Pairing purge"),
+            (PluginKeptDataRepository.prune, "Plugin kept-data purge"),
             (reclaim_free_pages, "Incremental vacuum"),
         ):
             try:

@@ -161,6 +161,63 @@ class TestOffNothingLeaves:
         assert recorder.requests == []
         assert dns.lookups == []
 
+    async def test_plugin_install_and_reinstall_make_no_request(
+        self, test_db, dns, recorder, community
+    ):
+        """MSHL-366 review: installing (custom, store) or reinstalling a remote plugin
+        while the Store is off resolves nothing and downloads nothing."""
+        from app.net.egress_guard import HostAllowlist
+        from app.plugins import installer
+
+        resolved: list[str] = []
+
+        async def resolver(plugin_id, version, repository):
+            resolved.append(plugin_id)
+            return installer.RemoteArchiveSource(
+                tier="custom",
+                entry={"id": plugin_id, "version": "1.0.0", "permissions": {}},
+                archive_url="https://github.com/example/weather/releases/download/x.zip",
+                expected_sha256="0" * 64,
+                allowed_hosts=HostAllowlist.of("github.com"),
+            )
+
+        for kind in ("custom", "store"):
+            installer.register_resolver(kind, resolver)
+        try:
+            await PluginRepository.create(
+                plugin_id="com.example.restored",
+                label="Restored",
+                kind="custom",
+                version="1.0.0",
+                manifest={},
+                repository="example/restored",
+                attention={"type": "reinstall"},
+            )
+            restored = (await PluginRepository.get_by_plugin_id("com.example.restored"))[0]
+            async with await _client() as client:
+                for kind in ("custom", "store"):
+                    response = await client.post(
+                        "/api/plugins/install",
+                        json={
+                            "kind": kind,
+                            "plugin_id": "example.weather",
+                            "repository": "example/weather",
+                            "granted_permissions": {},
+                        },
+                    )
+                    assert response.status_code == 409, response.text
+                    assert "store_offline" in response.text
+                response = await client.post(f"/api/plugins/{restored['instance_id']}/reinstall")
+                assert response.status_code == 409, response.text
+                assert "store_offline" in response.text
+        finally:
+            for kind in ("custom", "store"):
+                installer.register_resolver(kind, None)
+        await asyncio.sleep(0.05)
+        assert resolved == []
+        assert recorder.requests == []
+        assert dns.lookups == []
+
     async def test_background_loop_never_starts_and_never_runs(
         self, test_db, dns, recorder, community
     ):
@@ -311,3 +368,165 @@ class TestRefreshLoop:
         await AppSettingsRepository.update(store_online=False)
         with pytest.raises(StoreOffline):
             await asyncio.wait_for(pending, 3)
+
+
+class TestReviewFollowUps:
+    """MSHL-366: user info refused, refresh spacing, restore hook, narrowing only."""
+
+    async def test_a_url_with_user_info_is_refused_before_any_lookup(self, test_db, dns, recorder):
+        await AppSettingsRepository.update(store_online=True)
+        for url in (
+            "https://user:pw@github.com/o/r",
+            "https://user@github.com/o/r",
+            "https://:pw@raw.githubusercontent.com/o/r",
+        ):
+            with pytest.raises(EgressBlocked) as info:
+                await store_fetch("GET", url, max_response_bytes=MAX)
+            assert info.value.code == "egress_userinfo"
+            assert info.value.permanent is True
+        assert recorder.requests == []
+        assert dns.lookups == []
+
+    async def test_user_info_is_refused_even_before_the_consent_check_passes(
+        self, test_db, dns, recorder
+    ):
+        with pytest.raises(StoreOffline):
+            await store_fetch("GET", "https://user:pw@github.com/o/r", max_response_bytes=MAX)
+        assert recorder.requests == []
+
+    async def test_allowed_hosts_only_narrow_the_store_allowlist(self, test_db, dns, recorder):
+        from app.net.egress_guard import HostAllowlist
+
+        await AppSettingsRepository.update(store_online=True)
+        wider = HostAllowlist.of("evil.example", "github.com")
+        with pytest.raises(EgressBlocked) as info:
+            await store_fetch(
+                "GET", "https://evil.example/x", max_response_bytes=MAX, allowed_hosts=wider
+            )
+        assert info.value.code == "egress_host_not_allowed"
+        narrow = HostAllowlist.of("github.com")
+        with pytest.raises(EgressBlocked):
+            await store_fetch(
+                "GET",
+                "https://raw.githubusercontent.com/x",
+                max_response_bytes=MAX,
+                allowed_hosts=narrow,
+            )
+        ok = await store_fetch(
+            "GET", "https://github.com/x", max_response_bytes=MAX, allowed_hosts=wider
+        )
+        assert ok.status_code == 200
+        assert _hosts(recorder) == ["github.com"]
+
+    async def test_ticks_are_never_closer_than_the_minimum_gap(self, test_db, monkeypatch):
+        await _online_instance()
+        await AppSettingsRepository.update(store_online=True)
+        await store_egress.stop_store_refresh()
+        now = [1_000_000.0]
+        monkeypatch.setattr(store_egress._state, "clock", lambda: now[0])
+        calls: list[int] = []
+
+        async def refresher() -> None:
+            calls.append(1)
+
+        register_store_refresher(refresher)
+        assert await store_egress.run_store_refresh() is True
+        now[0] += store_egress.MIN_REFRESH_GAP_S - 1
+        assert await store_egress.run_store_refresh() is False
+        now[0] += 1
+        assert await store_egress.run_store_refresh() is True
+        assert calls == [1, 1]
+
+    async def test_off_then_on_within_the_gap_waits_only_the_rest_of_it(self, test_db, monkeypatch):
+        """Review of MSHL-366: a tick skipped by the minimum gap must not push the next
+        refresh 6 h away."""
+        await _online_instance()
+        now = [1_000_000.0]
+        monkeypatch.setattr(store_egress._state, "clock", lambda: now[0])
+        calls: list[int] = []
+
+        async def refresher() -> None:
+            calls.append(1)
+
+        register_store_refresher(refresher)
+        delays: list[float] = []
+        real_sleep = asyncio.sleep
+
+        async def fake_sleep(delay: float) -> None:
+            delays.append(delay)
+            await real_sleep(3600)
+
+        monkeypatch.setattr(
+            store_egress,
+            "asyncio",
+            SimpleNamespace(
+                sleep=fake_sleep,
+                CancelledError=asyncio.CancelledError,
+                create_task=asyncio.create_task,
+            ),
+        )
+        await AppSettingsRepository.update(store_online=True)
+        for _ in range(50):
+            if delays:
+                break
+            await real_sleep(0.01)
+        assert calls == [1]
+        assert delays == [store_egress.REFRESH_INTERVAL_S]
+
+        await AppSettingsRepository.update(store_online=False)
+        now[0] += 120
+        await AppSettingsRepository.update(store_online=True)
+        for _ in range(50):
+            if len(delays) == 2:
+                break
+            await real_sleep(0.01)
+        assert calls == [1]
+        assert delays[1] == store_egress.MIN_REFRESH_GAP_S - 120
+        await store_egress.stop_store_refresh()
+
+    async def test_writing_true_again_does_not_trigger_a_refresh(self, test_db, dns, recorder):
+        await _online_instance()
+        calls: list[int] = []
+
+        async def refresher() -> None:
+            calls.append(1)
+
+        register_store_refresher(refresher)
+        await AppSettingsRepository.update(store_online=True)
+        task = store_egress._state.task
+        for _ in range(20):
+            if calls:
+                break
+            await asyncio.sleep(0.01)
+        assert calls == [1]
+        for _ in range(3):
+            await AppSettingsRepository.update(store_online=True)
+            await note_store_online_changed(True)
+        await asyncio.sleep(0.05)
+        assert calls == [1]
+        assert store_egress._state.task is task
+
+    async def test_a_restore_reapplies_the_consent_and_cancels_in_flight(
+        self, test_db, monkeypatch
+    ):
+        from app.services.backup_sections import run_on_restore_hooks
+
+        started = asyncio.Event()
+
+        async def hanging(*_args, **_kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(store_egress, "follow_checked_redirects", hanging)
+        await AppSettingsRepository.update(store_online=True)
+        pending = asyncio.create_task(
+            store_fetch("GET", "https://github.com/o/r", max_response_bytes=MAX)
+        )
+        await asyncio.wait_for(started.wait(), 3)
+        # What a SQLite snapshot does: the column comes back off without the settings route.
+        async with test_db.tx() as conn:
+            await conn.execute("UPDATE app_settings SET store_online = 0 WHERE id = 1")
+        await run_on_restore_hooks("sqlite")
+        with pytest.raises(StoreOffline):
+            await asyncio.wait_for(pending, 3)
+        assert not store_egress.store_refresh_running()

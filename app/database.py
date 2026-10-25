@@ -370,6 +370,16 @@ CREATE TABLE IF NOT EXISTS plugin_secrets (
     PRIMARY KEY (instance_id, field)
 );
 
+-- What an uninstall with keep_data kept (migration 125, MSHL-366). Keep identical to
+-- the migration.
+CREATE TABLE IF NOT EXISTS plugin_kept_data (
+    instance_id TEXT PRIMARY KEY,
+    plugin_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    repository TEXT,
+    kept_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS plugin_send_quota (
     instance_id TEXT NOT NULL,
     period TEXT NOT NULL CHECK (period IN ('hour', 'day')),

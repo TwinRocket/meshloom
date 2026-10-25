@@ -51,7 +51,11 @@ from app.plugins.permissions import (
     MESSAGES_SEND_MAX_PER_HOUR,
     split_lan_host,
 )
-from app.repository.plugins import PluginRepository, PluginStoreError
+from app.repository.plugins import (
+    PluginKeptDataRepository,
+    PluginRepository,
+    PluginStoreError,
+)
 from app.secret_fields import REDACTED, scrub_error
 from app.version_info import get_app_build_info
 
@@ -691,12 +695,14 @@ async def install_plugin(
     source's entry: 400 ``archive_mismatch``) before it is extracted; a ``compat`` range
     this meshloom is outside of is 409 ``incompatible``; a required config field that is
     missing creates the instance disabled with ``attention.type = "config_required"``. A
-    second instance of an installed plugin reuses its code, without a download. While
-    the global pause holds, the instance is created but does not start."""
+    second instance of an installed plugin reuses its code, without a download. The data
+    an uninstall with ``keep_data`` kept for the same plugin and source (``kind`` and
+    ``repository``) goes to the new instance (audit ``reattached_data``). While the
+    global pause holds, the instance is created but does not start."""
     async with audit.audited(
         actor, "plugin.installed", details={"plugin_id": body.plugin_id, "kind": body.kind}
     ) as scope:
-        view = await _install(body)
+        view = await _install(body, scope.details)
         scope.target = _target(view.instance_id)
         scope.details["enabled"] = view.enabled
     return view
@@ -756,12 +762,12 @@ def _consent(manifest: dict[str, Any], granted: dict[str, Any]) -> None:
         )
 
 
-async def _install(body: InstallRequest) -> PluginInstanceView:
+async def _install(body: InstallRequest, details: dict[str, Any]) -> PluginInstanceView:
     async with installer.plugin_lock(body.plugin_id):
-        return await _install_locked(body)
+        return await _install_locked(body, details)
 
 
-async def _install_locked(body: InstallRequest) -> PluginInstanceView:
+async def _install_locked(body: InstallRequest, details: dict[str, Any]) -> PluginInstanceView:
     siblings = await PluginRepository.get_by_plugin_id(body.plugin_id)
     if any(row["kind"] != body.kind for row in siblings):
         raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
@@ -788,6 +794,10 @@ async def _install_locked(body: InstallRequest) -> PluginInstanceView:
         archive_sha256 = prepared.archive_sha256 if body.kind != "bundled" else None
         repository = prepared.repository
     fresh = shared is None
+    # Data an uninstall kept for this plugin and source (MSHL-366): its secrets count as
+    # stored, and create() moves them and the KV to the new instance.
+    kept = await PluginKeptDataRepository.find(body.plugin_id, body.kind, repository)
+    stored = kept.secret_fields & secret_fields(schema) if kept is not None else frozenset()
     try:
         _consent(manifest, body.granted_permissions)
         if body.kind != "bundled" and not installer.compatible(manifest):
@@ -797,7 +807,7 @@ async def _install_locked(body: InstallRequest) -> PluginInstanceView:
                 "This plugin does not support this version of Meshloom",
                 compat=(manifest.get("compat") or {}).get("meshloom"),
             )
-        invalid, missing = _check_config(schema, body.config, frozenset())
+        invalid, missing = _check_config(schema, body.config, stored)
         if invalid:
             raise _config_invalid(invalid)
         if prepared is not None:
@@ -824,16 +834,20 @@ async def _install_locked(body: InstallRequest) -> PluginInstanceView:
             attention={"type": "config_required", "fields": missing} if needs_config else None,
             archive_sha256=archive_sha256,
             repository=repository,
+            kept=kept,
         )
     except PluginStoreError as exc:
         await _drop_code_if_unused(body.plugin_id, fresh)
         raise _store_error(exc) from None
     instance_id = row["instance_id"]
+    if kept is not None:
+        details["reattached_data"] = True
     if not needs_config:
         try:
             await plugin_manager.start(instance_id)
         except (PluginCapacityError, PluginHostError) as exc:
-            await PluginRepository.delete(instance_id)
+            # Data taken back from an uninstall stays kept (under the new id).
+            await PluginRepository.delete(instance_id, keep_data=kept is not None)
             await _drop_code_if_unused(body.plugin_id, fresh)
             if isinstance(exc, PluginCapacityError):
                 raise _capacity_error(exc) from None

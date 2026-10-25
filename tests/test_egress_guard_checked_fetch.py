@@ -232,6 +232,9 @@ class TestRedirects:
             ("http://objects.githubusercontent.com/x", "egress_scheme"),
             ("file:///etc/passwd", "egress_scheme"),
             ("https://lan.example.org/x", "egress_private_address"),
+            # MSHL-366: a server never makes us send credentials, even to an allowed host.
+            ("https://user:pw@objects.githubusercontent.com/x", "egress_userinfo"),
+            ("https://token@github.com/x", "egress_userinfo"),
         ],
     )
     async def test_a_refused_hop_stops_the_chain(self, monkeypatch, location, code):

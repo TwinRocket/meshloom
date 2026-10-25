@@ -273,9 +273,12 @@ async def lifespan(app: FastAPI):
     await start_oss_update_polling()
     start_hashtag_catalogue_polling()
     start_stale_contact_purge()
-    # The Store refresh loop runs only while store_online is on (MSHL-194).
-    from app.plugins.store_egress import start_store_refresh
+    # The Store refresh loop runs only while store_online is on (MSHL-194), and plugin
+    # archives are downloaded only then (MSHL-366: the installer's gate is the consent).
+    from app.plugins.installer import set_download_gate
+    from app.plugins.store_egress import start_store_refresh, store_egress_allowed
 
+    set_download_gate(store_egress_allowed)
     try:
         await start_store_refresh()
     except Exception:

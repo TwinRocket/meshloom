@@ -78,6 +78,7 @@ EgressCode = Literal[
     "egress_lan_address",
     "egress_self_address",
     "egress_supervisor_address",
+    "egress_userinfo",
 ]
 
 DEFAULT_SCHEMES = frozenset({"http", "https"})
@@ -177,6 +178,7 @@ EGRESS_MESSAGES: dict[str, str] = {
     "a plugin may not reach",
     "egress_supervisor_address": "This address is on the Home Assistant Supervisor's internal "
     "network (Supervisor, other add-ons), which a plugin may not reach",
+    "egress_userinfo": "The address must not contain a user name or password",
 }
 
 
@@ -852,7 +854,8 @@ async def follow_checked_redirects(
     The request always asks for ``Accept-Encoding: identity`` (a caller's own
     value is replaced) and a compressed answer is refused
     (``egress_response_encoding``), so the cap counts the bytes on the wire.
-    Cookies are never stored nor sent. When a hop leaves the origin, only
+    Cookies are never stored nor sent. A redirect to a URL with user info is refused
+    (``egress_userinfo``). When a hop leaves the origin, only
     ``CROSS_ORIGIN_HEADERS`` and the names in ``cross_origin_headers`` follow
     it. ``lan_verify_tls=False`` skips the certificate check on the hops to a
     ``lan_hosts`` device only (a self-signed device, MSHL-331); every other hop
@@ -917,6 +920,9 @@ async def follow_checked_redirects(
                 next_url = httpx.URL(dest.url).join(location).copy_with(fragment=None)
             except Exception:
                 raise EgressBlocked("egress_scheme") from None
+            if next_url.userinfo:
+                # A server never gets to make us send credentials (MSHL-366).
+                raise EgressBlocked("egress_userinfo", permanent=True)
             if (status == 303 and method != "HEAD") or (status in (301, 302) and method == "POST"):
                 method, content = "GET", None
                 sent_headers = {

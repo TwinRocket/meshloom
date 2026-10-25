@@ -336,6 +336,7 @@ _PATH_PARAMS = {
     "packet_hash": "AB" * 8,
     "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
     "job_id": "unknown-job",
+    "instance_id": "00000000-0000-4000-8000-000000000000",
 }
 _QUERY = {
     "/api/community/airports": {"q": "LYS"},
@@ -354,6 +355,16 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("POST", "/api/channels/{key}/flood-scope-override"): {"flood_scope_override": ""},
     ("POST", "/api/channels/{key}/path-hash-mode-override"): {"path_hash_mode_override": None},
     ("PATCH", "/api/settings"): {},
+    ("PUT", "/api/plugins/pause"): {"paused": False},
+    ("POST", "/api/plugins/install"): {
+        "kind": "store",
+        "plugin_id": "example.weather",
+        "granted_permissions": {},
+    },
+    ("POST", "/api/plugins"): {"label": "Sweep", "template": "blank"},
+    ("PATCH", "/api/plugins/{instance_id}"): {},
+    ("PUT", "/api/plugins/{instance_id}/source"): {"source": "x = 1\n"},
+    ("POST", "/api/plugins/{instance_id}/test"): {"text": "hello"},
     ("POST", "/api/settings/favorites/toggle"): {"type": "contact", "id": "ab" * 32},
     ("POST", "/api/settings/pins/toggle"): {"type": "contact", "id": "ab" * 32},
     ("POST", "/api/settings/muted-channels/toggle"): {"key": _PATH_PARAMS["key"]},
@@ -383,6 +394,7 @@ _SWEPT_PREFIXES = (
     "/api/settings",
     "/api/updates",
     "/api/store",
+    "/api/plugins",
 )
 
 
