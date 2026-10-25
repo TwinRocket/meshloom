@@ -262,7 +262,7 @@ def _open_ended_ids(nodes: list[ast.AST]) -> set[int]:
     ids: set[int] = set()
     for node in nodes:
         if isinstance(node, joined):
-            values = node.values
+            values: list[ast.expr] = getattr(node, "values", [])
             for part, after in zip(values, values[1:], strict=False):
                 if isinstance(part, ast.Constant) and isinstance(after, holes):
                     ids.add(id(part))
