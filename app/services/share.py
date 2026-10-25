@@ -8,7 +8,8 @@ the Community guard.
 - **Hosts.** ``SHARE_HOST`` is the write host, ``SHARE_HOSTS`` every host a
   link may carry (the current one and the former ones). Module constants read
   at call time (tests monkeypatch them), never an environment variable.
-- **Opt-in.** ``share_egress_state()`` is None unless ``app_settings.share_enabled``;
+- **Opt-in.** ``share_egress_state()`` is None unless ``app_settings.share_enabled`` and the
+  recorded ``share_terms_version`` is ``SHARE_TERMS_VERSION`` (re-consent when the terms change);
   ``share_request()`` checks it before anything else and answers 403
   ``share_disabled`` without any connection.
 - **Egress.** Every request goes through the egress guard
@@ -71,6 +72,10 @@ from app.version_info import get_app_build_info
 logger = logging.getLogger(__name__)
 
 # Write host, and every host a link may carry (current first, then former ones).
+# Version of the share terms the consent dialog shows. Raise it when the terms change in a
+# way that needs a new acceptance: sharing then stays off until the owner accepts again
+# (MSHL-292). ``app_settings.share_terms_version`` records the accepted one.
+SHARE_TERMS_VERSION = 1
 SHARE_HOST = "meshl.ink"
 SHARE_HOSTS: tuple[str, ...] = ("meshl.ink",)
 
@@ -227,7 +232,7 @@ def is_share_host(host: str) -> bool:
 async def share_egress_state() -> ShareEgress | None:
     """The share egress config when sharing is on, else None (no connection)."""
     settings = await AppSettingsRepository.get()
-    if not settings.share_enabled:
+    if not settings.share_enabled or settings.share_terms_version != SHARE_TERMS_VERSION:
         return None
     return ShareEgress(host=SHARE_HOST)
 

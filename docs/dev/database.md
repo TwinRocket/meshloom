@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 115 (the value of
+- Numbering is contiguous from 001. The current head is 116 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -85,7 +85,10 @@ notifications (migration 111, `app/notifications/AGENTS.md`);
 the import and, from the dispatcher ticket, by the rules API; outside `AppSettings` for now;
 shape in `app/notifications/AGENTS.md`);
 `share_enabled`, `share_shorten_mode`, `share_preview_policy`: link and file sharing
-(migration 102); `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
+(migration 102); `share_terms_version`, `share_terms_accepted_at` (migration 116): the version of the share
+terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS_VERSION` in
+`services/share.py`) and the Unix time of the acceptance, written by the server only, `excluded`
+from backups and reset to 0 in a database copy; `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
 never exported by a backup; `store_online`: the Store egress consent, off by default,
 migration 103, not in `AppSettings` yet, excluded from backups and reset to 0 in a
 database copy).
@@ -462,7 +465,7 @@ order in `app/AGENTS.md`, "## Backups"):
   database) every `app_settings.*_seed` column, the BLE PIN, the
   previous-transport snapshot, the password and TOTP secrets of `users` and
   `auth_settings.setup_code_hash` are set to NULL, `sessions` and `plugin_secrets` are
-  emptied, the consents `share_enabled` and `store_online` are set to 0, and a one-row
+  emptied, the consents `share_enabled` and `store_online` and the share terms acceptance (`share_terms_version`, `share_terms_accepted_at`) are set to 0, and a one-row
   `meshloom_backup_snapshot` marker table is added: a database
   that starts with it is a restored snapshot, so startup runs the restore hooks
   and drops it (`docs/dev/backup.md`). A fresh database never has it.

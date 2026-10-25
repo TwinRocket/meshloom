@@ -104,7 +104,7 @@ class TestShareOff:
     async def test_turning_it_off_stops_requests(self, test_db, monkeypatch):
         Dns(monkeypatch)
         recorder = Recorder(monkeypatch, _answer)
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         await share.get_meta("AbCdEfG")
         await AppSettingsRepository.update(share_enabled=False)
         for call in SERVICE_CALLS.values():
@@ -115,7 +115,7 @@ class TestShareOff:
 
 class TestShareOn:
     async def test_only_share_host_and_no_secret(self, test_db, monkeypatch):
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         await ensure_instance_key("share")
         seed = await AppSettingsRepository.get_instance_seed("share")
         assert seed
@@ -169,7 +169,7 @@ class SlowServer:
 class TestTurningOffCutsInFlight:
     @pytest.mark.parametrize("name", ["create_link", "get_meta", "fetch_object"])
     async def test_request_in_flight_is_cut(self, test_db, monkeypatch, name):
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch)
         server = SlowServer(monkeypatch)
         call = asyncio.ensure_future(SERVICE_CALLS[name]())
@@ -187,7 +187,7 @@ class TestTurningOffCutsInFlight:
         assert len(server.requests) == 1
 
     async def test_other_settings_do_not_cut(self, test_db, monkeypatch):
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch)
         server = SlowServer(monkeypatch)
         call = asyncio.ensure_future(share.get_meta("AbCdEfG"))
@@ -200,7 +200,7 @@ class TestTurningOffCutsInFlight:
             await call
 
     async def test_caller_cancellation_stays_a_cancellation(self, test_db, monkeypatch):
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch)
         server = SlowServer(monkeypatch)
         call = asyncio.ensure_future(share.get_meta("AbCdEfG"))
@@ -212,7 +212,7 @@ class TestTurningOffCutsInFlight:
 
     async def test_off_and_on_during_minting_sends_nothing(self, test_db, monkeypatch):
         """Turned off (then on again) while the token is minted: the old request never leaves."""
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch)
         recorder = Recorder(monkeypatch, _answer)
         real_mint = share.mint_share_jwt
@@ -220,7 +220,7 @@ class TestTurningOffCutsInFlight:
         async def mint_then_toggle(binding: str) -> str:
             token = await real_mint(binding)
             await AppSettingsRepository.update(share_enabled=False)
-            await AppSettingsRepository.update(share_enabled=True)
+            await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
             return token
 
         monkeypatch.setattr(share, "mint_share_jwt", mint_then_toggle)
@@ -231,7 +231,7 @@ class TestTurningOffCutsInFlight:
 
     async def test_answer_from_before_the_cut_is_never_used(self, test_db, monkeypatch):
         """The answer arrives, but sharing was turned off while it was on its way."""
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch)
         real_follow = share.follow_checked_redirects
 
