@@ -42,7 +42,6 @@
         "neverUsed": "jamais utilisé",
         "expires": "expire {{when}}",
         "noExpiry": "sans expiration",
-        "expired": "Expiré",
         "revoke": "Révoquer",
         "revokeNamed": "Révoquer le jeton {{name}}",
         "revoked": "Jeton révoqué.",

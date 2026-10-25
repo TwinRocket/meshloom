@@ -391,8 +391,14 @@ purpose.
   (`forbiddenIsToasted`). Tests: `src/test/capabilities.test.tsx` (four roles).
 - **Sign out** with Basic credentials ends nothing; `signOut()` reports whether the
   session ended and the menu explains when it did not.
-- **Not done on purpose.** No "remember me" (the backend has one session lifetime),
-  no capabilities (the permission registry is a later ticket).
+- **Remember me.** `LoginForm` has a "Keep me signed in on this device" checkbox (unchecked,
+  not persisted); `AuthLoginRequest.remember` goes to `POST /auth/login` (the second step of a
+  2FA login inherits it server side) and to `passkeyLoginVerify(credential, remember)`. The
+  re-login dialog shares the form. `LoginPage` also shows `auth.passkey.unavailableHint` when the
+  server answers `methods.passkey === false` to a passkey-capable browser on a secure page
+  (`passkeyUnavailableHere`). Entry chunk: passkey wrappers and strings stay in it (the login
+  page needs them at once); only the library and the Settings panel are lazy.
+- **Not done on purpose.** No capabilities (the permission registry is a later ticket).
 - Strings: slice `aa` (`auth.*`, plus the error codes slice `x` lacks), slice `ai`
   (`auth.ingress.*`, `errors.auth_ingress_only`).
   Tests: `src/test/auth.test.tsx`.

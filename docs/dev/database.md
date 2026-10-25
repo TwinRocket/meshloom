@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 115 (the value of
+- Numbering is contiguous from 001. The current head is 116 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -253,7 +253,8 @@ CHECK), `external_id` (unique per provider), `disabled`, `must_change_password`,
 Login sessions: PK `id` (random, not a secret), `user_id` (FK `users(id)`,
 cascade), `token_hash` (unique, SHA-256 hex of the cookie secret; the secret is
 never stored), `created_at`, `last_seen_at` (written at most once a minute),
-`expires_at`, `ip`, `user_agent`, `via`, `revoked_at`. At most 50 active per user
+`expires_at`, `ip`, `user_agent`, `via`, `revoked_at`, `remember` (migration 116: 1 for a long
+session, 0 for a browser-session login with a short sliding expiry; default 1). At most 50 active per user
 (creating one more revokes the oldest). `AuthSessionRepository` (`auth.py`).
 
 ### `api_tokens`

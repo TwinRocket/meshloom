@@ -25,6 +25,8 @@
       "title": "Connexion",
       "description": "Connectez-vous pour utiliser ce Meshloom.",
       "submit": "Se connecter",
+      "remember": "Rester connecté sur cet appareil",
+      "rememberHint": "Décoché, vous êtes déconnecté à la fermeture du navigateur, et après 12 heures sans activité.",
       "insecureContext": "Cette page n'est pas servie en HTTPS : votre mot de passe circule en clair sur le réseau. Ne l'utilisez que sur un réseau de confiance."
     },
     "relogin": {

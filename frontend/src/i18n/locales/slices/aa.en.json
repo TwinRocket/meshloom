@@ -25,6 +25,8 @@
       "title": "Sign in",
       "description": "Sign in to use this Meshloom.",
       "submit": "Sign in",
+      "remember": "Keep me signed in on this device",
+      "rememberHint": "Unchecked, you are signed out when you close the browser, and after 12 hours without activity.",
       "insecureContext": "This page is not served over HTTPS: your password travels unencrypted on the network. Use it only on a network you trust."
     },
     "relogin": {

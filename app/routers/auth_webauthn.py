@@ -132,6 +132,8 @@ class LoginVerifyRequest(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True)
 
     credential: dict[str, Any]
+    # "Remember me", as on ``POST /auth/login``.
+    remember: bool = False
 
     _credential_size = field_validator("credential")(_bounded_credential)
 
@@ -476,7 +478,7 @@ async def login_verify(
         raise _error(401, "auth_passkey_invalid") from None
     except ratelimit.LoginDelayed as delayed:
         raise _rate_limited(delayed.retry_after_s) from None
-    principal = await _start_session(request, response, user)
+    principal = await _start_session(request, response, user, remember=body.remember)
     await audit.record_request(
         request,
         "login",

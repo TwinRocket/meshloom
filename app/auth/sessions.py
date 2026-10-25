@@ -7,6 +7,11 @@ seen again moves ``expires_at`` to now + ``auth_settings.session_lifetime_days``
 at most once a minute (``AuthSessionRepository.touch``), and the middleware
 sends the cookie again with the same Max-Age.
 
+"Remember me" (``sessions.remember``): a login without it gets a browser-session
+cookie (no ``Max-Age``, so the browser drops it on exit) and a short server-side
+sliding lifetime, ``min(session_lifetime_days, BROWSER_SESSION_LIFETIME_S)``,
+so a stolen cookie of such a session does not outlive the day either.
+
 Cookie (cadrage §4.4): ``HttpOnly``, ``SameSite=Lax``, ``Path=/``. Over https
 it is ``__Host-meshloom_session`` with ``Secure`` (the prefix forbids a
 ``Domain`` and requires ``Secure`` and ``Path=/``, so a sibling host cannot
@@ -49,21 +54,21 @@ SECURE_COOKIE_NAME = "__Host-meshloom_session"
 PLAIN_COOKIE_NAME = "meshloom_session"
 
 DAY_S = 86400
+# Server-side sliding lifetime of a login without "remember me".
+BROWSER_SESSION_LIFETIME_S = 12 * 3600
 
 
 def cookie_name(secure: bool) -> str:
     return SECURE_COOKIE_NAME if secure else PLAIN_COOKIE_NAME
 
 
-def session_cookie_header(token: str, *, secure: bool, max_age: int) -> str:
-    """The ``Set-Cookie`` value for a session secret."""
-    parts = [
-        f"{cookie_name(secure)}={token}",
-        "Path=/",
-        f"Max-Age={max_age}",
-        "HttpOnly",
-        "SameSite=Lax",
-    ]
+def session_cookie_header(token: str, *, secure: bool, max_age: int | None) -> str:
+    """The ``Set-Cookie`` value for a session secret. ``max_age=None``: a
+    browser-session cookie (no ``Max-Age``, no ``Expires``)."""
+    parts = [f"{cookie_name(secure)}={token}", "Path=/"]
+    if max_age is not None:
+        parts.append(f"Max-Age={max_age}")
+    parts += ["HttpOnly", "SameSite=Lax"]
     if secure:
         parts.append("Secure")
     return "; ".join(parts)
@@ -89,29 +94,40 @@ def read_session_cookie(cookie_header: str | None, *, secure: bool) -> str | Non
     return value
 
 
-async def lifetime_seconds() -> int:
+async def lifetime_seconds(remember: bool = True) -> int:
+    """The sliding server-side lifetime: the setting, or for a login without
+    "remember me" at most ``BROWSER_SESSION_LIFETIME_S``."""
     settings = await AuthSettingsRepository.get()
-    return int(settings.session_lifetime_days) * DAY_S
+    lifetime = int(settings.session_lifetime_days) * DAY_S
+    return lifetime if remember else min(lifetime, BROWSER_SESSION_LIFETIME_S)
 
 
 @dataclass(frozen=True)
 class IssuedSession:
     session: AuthSession
     token: str
-    max_age: int
+    # None: a browser-session cookie (no "remember me").
+    max_age: int | None
 
 
 async def issue_session(
-    user: User, *, ip: str | None, user_agent: str | None, via: Via
+    user: User, *, ip: str | None, user_agent: str | None, via: Via, remember: bool = True
 ) -> IssuedSession:
-    """Create a session for ``user`` and return its secret, shown only to the cookie."""
-    lifetime = await lifetime_seconds()
+    """Create a session for ``user`` and return its secret, shown only to the cookie.
+    ``remember=False`` is a browser-session login (see the module docstring)."""
+    lifetime = await lifetime_seconds(remember)
     token = new_token()
     session, evicted = await AuthSessionRepository.create_capped(
-        user.id, hash_token(token), lifetime_s=lifetime, ip=ip, user_agent=user_agent, via=via
+        user.id,
+        hash_token(token),
+        lifetime_s=lifetime,
+        ip=ip,
+        user_agent=user_agent,
+        via=via,
+        remember=remember,
     )
     close_session_sockets(evicted)
-    return IssuedSession(session=session, token=token, max_age=lifetime)
+    return IssuedSession(session=session, token=token, max_age=lifetime if remember else None)
 
 
 def close_session_sockets(session_ids: Iterable[str]) -> int:
@@ -180,9 +196,10 @@ async def resolve_session(token: str, *, now: int | None = None) -> ResolvedSess
         return None
     refreshed = None
     if session.last_seen_at <= ts - LAST_SEEN_WRITE_INTERVAL_S:
-        lifetime = await lifetime_seconds()
+        lifetime = await lifetime_seconds(session.remember)
+        # A browser-session cookie has no Max-Age to send again.
         if await AuthSessionRepository.touch(session.id, now=ts, expires_at=ts + lifetime):
-            refreshed = lifetime
+            refreshed = lifetime if session.remember else None
     return ResolvedSession(session=session, user=user, refreshed_max_age=refreshed)
 
 
@@ -194,5 +211,6 @@ async def slide_session(session_id: str, *, now: int | None = None) -> bool:
     next HTTP request (which slides too) sends it again. There is no absolute
     lifetime (cadrage §4.4 defines only ``session_lifetime_days``, sliding)."""
     ts = int(time.time()) if now is None else now
-    lifetime = await lifetime_seconds()
+    remember = await AuthSessionRepository.remember_of(session_id)
+    lifetime = await lifetime_seconds(remember)
     return await AuthSessionRepository.touch(session_id, now=ts, expires_at=ts + lifetime)

@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.auth import sessions
 from app.repository.auth import AuthSessionRepository, UserRepository
 from tests.auth_helpers import ADMIN, PASSWORD, basic, create_user, login, make_client
 
@@ -108,3 +109,72 @@ async def test_kiosk_accounts_have_no_profile_and_no_sessions():
             response = await client.request(method, path, json={"display_name": "x"})
             assert response.status_code == 403, path
             assert response.json()["detail"]["code"] == "auth_forbidden", path
+
+
+def _session_cookies(response) -> list[str]:
+    return [c for c in response.headers.get_list("set-cookie") if "meshloom_session=" in c]
+
+
+async def test_remember_me_sets_a_max_age_and_the_configured_lifetime():
+    await create_user()
+    async with make_client() as client:
+        response = await client.post(
+            "/api/auth/login",
+            json={"username": ADMIN, "password": PASSWORD, "remember": True},
+        )
+        [cookie] = _session_cookies(response)
+        assert f"Max-Age={30 * 86400}" in cookie
+        [session] = await AuthSessionRepository.list_for_user(1)
+        assert session.remember is True
+        assert session.expires_at - session.created_at == 30 * 86400
+
+
+async def test_login_without_remember_is_a_browser_session_bounded_server_side():
+    await create_user()
+    async with make_client() as client:
+        # No "remember" field at all: the route's default is a browser session.
+        response = await client.post(
+            "/api/auth/login", json={"username": ADMIN, "password": PASSWORD}
+        )
+        [cookie] = _session_cookies(response)
+        assert "Max-Age" not in cookie and "Expires" not in cookie
+        assert "HttpOnly" in cookie
+        [session] = await AuthSessionRepository.list_for_user(1)
+        assert session.remember is False
+        assert session.expires_at - session.created_at == sessions.BROWSER_SESSION_LIFETIME_S
+        assert (await client.get("/api/auth/me")).status_code == 200
+
+
+async def test_browser_session_slides_without_a_cookie_and_stays_short(test_db):
+    await create_user()
+    async with make_client() as client:
+        await login(client, remember=False)
+        [session] = await AuthSessionRepository.list_for_user(1)
+        async with test_db.tx() as conn:
+            await conn.execute(
+                "UPDATE sessions SET last_seen_at = last_seen_at - 120 WHERE id = ?",
+                (session.id,),
+            )
+        response = await client.get("/api/auth/me")
+        assert response.status_code == 200
+        assert _session_cookies(response) == []
+        [after] = await AuthSessionRepository.list_for_user(1)
+        assert after.expires_at - after.last_seen_at == sessions.BROWSER_SESSION_LIFETIME_S
+        # A WebSocket slide keeps the same short lifetime.
+        async with test_db.tx() as conn:
+            await conn.execute(
+                "UPDATE sessions SET last_seen_at = last_seen_at - 120 WHERE id = ?",
+                (session.id,),
+            )
+        assert await sessions.slide_session(session.id)
+        [again] = await AuthSessionRepository.list_for_user(1)
+        assert again.expires_at - again.last_seen_at == sessions.BROWSER_SESSION_LIFETIME_S
+
+
+async def test_browser_session_lifetime_never_exceeds_a_shorter_setting():
+    from app.repository.auth import AuthSettingsRepository
+
+    await create_user()
+    await AuthSettingsRepository.update(session_lifetime_days=1)
+    assert await sessions.lifetime_seconds(False) == min(86400, sessions.BROWSER_SESSION_LIFETIME_S)
+    assert await sessions.lifetime_seconds(True) == 86400
