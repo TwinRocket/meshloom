@@ -576,7 +576,7 @@ class SetuidBackend(IsolationBackend):
                 ][-2:]
                 # No exception line (ExceptionGroup output, a bare "Traceback"): fall
                 # back to the last stderr line that says something, else the exit code.
-                final = final or [line for line in lines if line.strip()][-1:]
+                final = final or [line.strip() for line in lines if line.strip()][-1:]
                 tail = (
                     "; ".join(_escape_capped(line) for line in final) or f"exit {proc.returncode}"
                 )
