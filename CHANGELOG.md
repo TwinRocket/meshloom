@@ -4,7 +4,7 @@ The server now enforces the radio's message size limit for every way of sending.
 
 ### Before you upgrade
 
-Release 5.0.0 changes your database in ways an older version cannot undo. **Before upgrading, download a full copy of the database** (**Settings → Database → Download meshcore.db**) and keep it: there is no way back to 4.18 without it. A backup file made on 5.0.0 is not fully understood by 4.18 either (see below).
+Release 5.0.0 changes your database in ways an older version cannot undo. **Before upgrading, download a full copy of the database** (**Settings → Database → Download meshcore.db**) and keep it: there is no way back to 4.18 without it. A backup file made on 5.0.0 is not fully understood by 4.18 either (see below). The download is scrubbed: no account password or two-factor secret, no extension secret, no sign-in session, and the sharing and Store consents are reset. Restoring it on 5.0.0 keeps the accounts but nobody can sign in with a password until you run `meshloom-admin`, and extensions ask for their secrets again. For a complete restore, also keep a full backup (**Settings → Database → Backup & Restore**), which carries the accounts and the extensions (secrets still excluded).
 
 ### Breaking
 
@@ -174,7 +174,7 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 
 #### Avant de mettre à jour
 
-La version 5.0.0 modifie votre base de données d’une façon qu’une version plus ancienne ne sait pas défaire. **Avant de mettre à jour, téléchargez une copie complète de la base** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la : sans elle, il n’y a pas de retour possible vers la 4.18. Une sauvegarde faite en 5.0.0 n’est pas non plus comprise en entier par la 4.18 (voir plus bas).
+La version 5.0.0 modifie votre base de données d’une façon qu’une version plus ancienne ne sait pas défaire. **Avant de mettre à jour, téléchargez une copie complète de la base** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la : sans elle, il n’y a pas de retour possible vers la 4.18. Une sauvegarde faite en 5.0.0 n’est pas non plus comprise en entier par la 4.18 (voir plus bas). Le téléchargement est épuré : ni mot de passe ni secret à deux facteurs de compte, ni secret d’extension, ni session ouverte, et les consentements de partage et du Store sont remis à zéro. Le restaurer en 5.0.0 conserve les comptes mais personne ne peut se connecter par mot de passe tant que vous n’avez pas lancé `meshloom-admin`, et les extensions redemandent leurs secrets. Pour une restauration complète, gardez aussi une sauvegarde complète (**Réglages → Base de données → Sauvegarde et restauration**), qui porte les comptes et les extensions (secrets toujours exclus).
 
 #### Ruptures
 

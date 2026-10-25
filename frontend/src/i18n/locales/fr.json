@@ -213,7 +213,7 @@
     "backupTitle": "Sauvegarde et restauration",
     "backupKeyWarning": "Le téléchargement de la base ne contient <strong>pas</strong> la clé privée de la radio (Meshloom la garde en mémoire uniquement). La sauvegarde complète la contient, avec les réglages de la radio : utilisez-la pour garder l’identité du nœud d’un flashage à l’autre.",
     "backupDbTitle": "Télécharger la base SQLite",
-    "backupDbHelp": "Instantané intégral de meshcore.db : historique mesh, clés de canaux, clés VAPID, configs fanout (MQTT, webhooks, SQS), extensions avec leurs secrets et abonnements push. Traitez ce fichier comme un secret. Seule la clé privée radio en est absente (elle reste en mémoire). Restauration manuelle : arrêter le serveur et remplacer le fichier. L’application n’écrasera pas la base en cours.",
+    "backupDbHelp": "Instantané intégral de meshcore.db : historique mesh, clés de canaux, clés VAPID, configs fanout (MQTT, webhooks, SQS), extensions sans leurs secrets et abonnements push. Traitez ce fichier comme un secret. Seule la clé privée radio en est absente (elle reste en mémoire). Restauration manuelle : arrêter le serveur et remplacer le fichier. L’application n’écrasera pas la base en cours.",
     "backupDbDownload": "Télécharger meshcore.db",
     "backupDbDownloading": "Téléchargement…",
     "backupDbFailed": "Échec du téléchargement de la base",

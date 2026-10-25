@@ -213,7 +213,7 @@
     "backupTitle": "Backup & Restore",
     "backupKeyWarning": "The database download holds <strong>no</strong> radio private key (Meshloom keeps it in memory only). The full backup includes it, with the radio settings: use it to keep the node's identity across a reflash.",
     "backupDbTitle": "Download SQLite database",
-    "backupDbHelp": "Full snapshot of meshcore.db: mesh history, channel keys, VAPID keys, fanout configs (MQTT, webhooks, SQS), extensions with their secrets, and push subscriptions. Treat this file as a secret. The radio private key is the only thing missing (it lives in memory). Restore is operator-level: stop the server and replace the file yourself. This app will not overwrite the live database.",
+    "backupDbHelp": "Full snapshot of meshcore.db: mesh history, channel keys, VAPID keys, fanout configs (MQTT, webhooks, SQS), extensions without their secrets, and push subscriptions. Treat this file as a secret. The radio private key is the only thing missing (it lives in memory). Restore is operator-level: stop the server and replace the file yourself. This app will not overwrite the live database.",
     "backupDbDownload": "Download meshcore.db",
     "backupDbDownloading": "Downloading…",
     "backupDbFailed": "Database download failed",
