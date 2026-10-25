@@ -429,6 +429,24 @@ def uid_is_free(uid: int) -> bool:
         return True
 
 
+_CRASH_LINE_MAX = 300  # Characters shown per crash line, after escaping.
+
+
+def _escape_capped(line: str) -> str:
+    """Escape non-printable characters, then cap the result. The cut falls between
+    escaped characters, so an escape sequence is never truncated into another form."""
+    out: list[str] = []
+    size = 0
+    for c in line:
+        piece = c if c.isprintable() else ascii(c)[1:-1]
+        if size + len(piece) > _CRASH_LINE_MAX:
+            out.append("...")
+            break
+        out.append(piece)
+        size += len(piece)
+    return "".join(out)
+
+
 class SetuidBackend(IsolationBackend):
     level = "setuid"
     per_instance_uid = True
@@ -556,9 +574,11 @@ class SetuidBackend(IsolationBackend):
                     for line in lines
                     if line and not line[0].isspace() and not line.startswith("Traceback (")
                 ][-2:]
-                tail = "; ".join(
-                    "".join(c if c.isprintable() else ascii(c)[1:-1] for c in line)
-                    for line in final
+                # No exception line (ExceptionGroup output, a bare "Traceback"): fall
+                # back to the last stderr line that says something, else the exit code.
+                final = final or [line for line in lines if line.strip()][-1:]
+                tail = (
+                    "; ".join(_escape_capped(line) for line in final) or f"exit {proc.returncode}"
                 )
             message = f"plugin helper ({op}) failed: {tail}"
             blocked = [

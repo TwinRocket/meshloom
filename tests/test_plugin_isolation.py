@@ -709,6 +709,29 @@ def test_a_crashing_purge_helper_reports_the_exception_not_the_header(monkeypatc
     assert not isinstance(exc.value, setuid_module.PurgeBlockedError)
 
 
+def test_a_crashing_purge_helper_message_falls_back_and_is_capped(monkeypatch) -> None:
+    """MSHL-353: no exception line -> last stderr line or exit code; long lines capped."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    def fail(stderr: str) -> str:
+        monkeypatch.setattr(setuid_module.subprocess, "run", lambda *a, **k: _completed(1, stderr))
+        with pytest.raises(ValueError) as exc:
+            SetuidBackend(40010, 40010).purge([Path("/tmp")])
+        return str(exc.value)
+
+    group = 'Traceback (most recent call last):\n  File "<string>", line 1\n  | boom\n'
+    assert fail(group).endswith("failed: | boom")
+    bare = fail("Traceback (most recent call last):\n")
+    assert bare.endswith("failed: Traceback (most recent call last):")
+    long = "OSError: " + "\x1b" * 5000
+    message = fail("Traceback (most recent call last):\n" + long + "\n")
+    assert len(message) < 400
+    assert message.endswith("...")
+    assert "\x1b" not in message
+    body = message.removesuffix("...").rsplit("OSError: ", 1)[1]
+    assert body and set(body.split("\\x1b")) == {""}  # whole escapes only, no stray cut
+
+
 def test_purge_blocked_paths_are_capped(monkeypatch) -> None:
     from app.plugins.isolation import setuid as setuid_module
 
