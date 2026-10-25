@@ -4,10 +4,16 @@ import { KeyRound, TriangleAlert } from 'lucide-react';
 
 import { api, formatApiError } from '../api';
 import { Button } from '../components/ui/button';
+import { Checkbox } from '../components/ui/checkbox';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
-import { formatPasskeyError, passkeyLoginAvailable, signInWithPasskey } from './passkeys';
+import {
+  formatPasskeyError,
+  passkeyLoginAvailable,
+  passkeyUnavailableHere,
+  signInWithPasskey,
+} from './passkeys';
 import { SecondFactorStep } from './SecondFactorStep';
 import {
   behindUntrustedHttpsProxy,
@@ -32,6 +38,7 @@ export function LoginForm({
   const { t } = useTranslation();
   const [username, setUsername] = useState(initialUsername);
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The password checked and the account owes a code: the second step replaces the form.
@@ -49,7 +56,7 @@ export function LoginForm({
     setBusy(true);
     setError(null);
     try {
-      const session = await api.authLogin({ username: username.trim(), password });
+      const session = await api.authLogin({ username: username.trim(), password, remember });
       if (!session.authenticated && session.second_factor) {
         setChallenge(session.second_factor);
         setPassword('');
@@ -76,7 +83,7 @@ export function LoginForm({
     setBusy(true);
     setError(null);
     try {
-      const session = await signInWithPasskey();
+      const session = await signInWithPasskey(remember);
       const reason = noSessionReason(session);
       if (reason) {
         setError(t(`errors.${reason}`));
@@ -121,6 +128,23 @@ export function LoginForm({
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
+      </div>
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id="auth-remember"
+          className="mt-0.5"
+          checked={remember}
+          onCheckedChange={(value) => setRemember(value === true)}
+          aria-describedby="auth-remember-hint"
+        />
+        <div className="space-y-0.5">
+          <Label htmlFor="auth-remember" className="font-normal">
+            {t('auth.login.remember')}
+          </Label>
+          <p id="auth-remember-hint" className="text-xs text-muted-foreground">
+            {t('auth.login.rememberHint')}
+          </p>
+        </div>
       </div>
       {error && (
         <p role="alert" className="text-sm text-destructive">
@@ -186,6 +210,11 @@ export function LoginPage({
         </div>
       )}
       <LoginForm onDone={onDone} passkey={passkeyLoginAvailable(session)} />
+      {passkeyUnavailableHere(session) && (
+        <p role="note" className="text-xs text-muted-foreground">
+          {t('auth.passkey.unavailableHint')}
+        </p>
+      )}
     </AuthLayout>
   );
 }

@@ -66,7 +66,7 @@ present decides. Details are in the sections named in the last column.
 |---|---|---|---|---|
 | Bearer token `mlt_…` | the token's account, narrowed by its scopes | HTTP and WebSocket, direct only (never ingress) | never from a query string or cookie; exempt from the CSRF rule once resolved | "API and device tokens" |
 | `Authorization: Basic` | any account with a password and no second factor | HTTP and WebSocket | compatibility until 5.2; ambient, so the CSRF rule applies | "`Authorization: Basic`…" |
-| Session cookie | the session's account | HTTP and WebSocket, never under ingress | `__Host-meshloom_session` (https) or `meshloom_session`; sliding 30 days | "Sessions and the cookie" |
+| Session cookie | the session's account | HTTP and WebSocket, never under ingress | `__Host-meshloom_session` (https) or `meshloom_session`; sliding 30 days, or a browser-session cookie | "Sessions and the cookie" |
 | Ingress headers | the Home Assistant user (`provider = ingress`) | add-on only, peer `172.30.32.2` | no password, no cookie, no 2FA | "Ingress" |
 | Trusted network rule | the rule's account | direct LAN only, tried last | closed behind any proxy; strict `Host` | "Trusted networks" |
 | Kiosk device token | the system `kiosk` account | `POST /api/auth/kiosk-bootstrap` from loopback only | opens a one-time session code | "Kiosk device token" |
@@ -127,7 +127,8 @@ them aligned, so check both when you edit one).
   `touch()` never writes a revoked or expired session, so it can never revive
   one, and a new session never evicts itself (a clock that went backwards).
   User agents are capped at 512 characters. The
-  lifetime comes from `auth_settings.session_lifetime_days` (30 by default).
+  lifetime comes from `auth_settings.session_lifetime_days` (30 by default), capped
+  at 12 hours for a session created without `remember`.
   Revoking sessions on a role change or a disable is the caller's decision;
   server code revokes through `app/auth/sessions.py` (below), never the
   repository directly, so the sockets close too.
@@ -658,11 +659,23 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
 
 - A login or a setup creates a new session row (never reuses one: no
   fixation) holding the SHA-256 of a 256-bit secret; the secret goes only in
-  the cookie. Lifetime: `auth_settings.session_lifetime_days` (30).
+  the cookie. Lifetime: `auth_settings.session_lifetime_days` (30; no route or screen changes it).
+- **Remember me.** `POST /auth/login` and `POST /auth/webauthn/login/verify` take
+  `remember` (default `false`; the TOTP step reuses the value of its pending login,
+  `PendingLogin.remember`). It is stored in `sessions.remember` (migration 117; 1 for
+  every older row). `remember=true`: the lifetime above and a cookie with `Max-Age`.
+  `remember=false`: a browser-session cookie (no `Max-Age`, no `Expires`) and a
+  server-side sliding lifetime of `min(session_lifetime_days, 12 h)`
+  (`sessions.BROWSER_SESSION_LIFETIME_S`), so an abandoned session ends within that
+  time. It still slides while used and has no absolute cap: a stolen cookie that
+  keeps being used stays valid. Setup and the kiosk sign-in stay long
+  (`_start_session` and `issue_session` default to `remember=True`).
 - **Sliding expiry.** A request whose session was last seen more than a
-  minute ago moves `expires_at` to now + lifetime (`touch()`, one write a
-  minute at most) and gets the cookie again with the same `Max-Age`.
-- **Cookie.** `HttpOnly`, `SameSite=Lax`, `Path=/`, `Max-Age` = lifetime.
+  minute ago moves `expires_at` to now + the lifetime of its kind (`touch()`, one
+  write a minute at most) and, for a remembered session, gets the cookie again with
+  the same `Max-Age`; a browser-session cookie has none to send again.
+- **Cookie.** `HttpOnly`, `SameSite=Lax`, `Path=/`, `Max-Age` = lifetime (absent
+  without "remember me").
   Over https (`scope["scheme"]`, set from `X-Forwarded-Proto` only for a trusted
   proxy, see "Proxy headers") its name is
   `__Host-meshloom_session` with `Secure`; over http `meshloom_session`
@@ -680,8 +693,8 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
   `sessions.slide_session()`, at most one attempt a minute per socket), so a
   page that only keeps its socket open, such as a kiosk display, is not signed
   out at expiry; no cookie goes out on that path, the next HTTP request sends
-  it again. There is no absolute lifetime: only the sliding
-  `session_lifetime_days`.
+  it again. There is no absolute lifetime: only the sliding lifetime
+  (`session_lifetime_days`, or 12 h at most without "remember me").
 - **Revocation closes the WebSockets.** `ws_manager` (`app/websocket.py`)
   indexes every socket by the session id and token id of its principal.
   `sessions.revoke_session()` (logout, `DELETE /auth/sessions/{id}`),

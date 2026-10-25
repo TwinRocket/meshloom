@@ -278,6 +278,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     user_agent TEXT,
     via TEXT,
     revoked_at INTEGER,
+    remember INTEGER NOT NULL DEFAULT 1,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 

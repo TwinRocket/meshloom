@@ -204,6 +204,7 @@ def _row_to_session(row: Any) -> AuthSession:
         user_agent=row["user_agent"],
         via=row["via"],
         revoked_at=row["revoked_at"],
+        remember=bool(row["remember"]),
     )
 
 
@@ -813,6 +814,7 @@ class AuthSessionRepository:
         ip: str | None = None,
         user_agent: str | None = None,
         via: str | None = None,
+        remember: bool = True,
         now: int | None = None,
     ) -> AuthSession:
         """Store a session under the hash of its secret (``app/auth/tokens.py``).
@@ -826,6 +828,7 @@ class AuthSessionRepository:
             ip=ip,
             user_agent=user_agent,
             via=via,
+            remember=remember,
             now=now,
         )
         return session
@@ -839,6 +842,7 @@ class AuthSessionRepository:
         ip: str | None = None,
         user_agent: str | None = None,
         via: str | None = None,
+        remember: bool = True,
         now: int | None = None,
     ) -> tuple[AuthSession, list[str]]:
         """``create()``, plus the ids of the sessions the cap revoked (oldest
@@ -851,10 +855,21 @@ class AuthSessionRepository:
             await conn.execute(
                 """
                 INSERT INTO sessions (id, user_id, token_hash, created_at, last_seen_at,
-                    expires_at, ip, user_agent, via)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    expires_at, ip, user_agent, via, remember)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, user_id, token_hash, ts, ts, ts + lifetime_s, ip, user_agent, via),
+                (
+                    session_id,
+                    user_id,
+                    token_hash,
+                    ts,
+                    ts,
+                    ts + lifetime_s,
+                    ip,
+                    user_agent,
+                    via,
+                    int(remember),
+                ),
             )
             async with conn.execute(
                 """
@@ -891,6 +906,16 @@ class AuthSessionRepository:
         if row is None or not hmac.compare_digest(row["token_hash"], token_hash):
             return None
         return _row_to_session(row)
+
+    @staticmethod
+    async def remember_of(session_id: str) -> bool:
+        """The "remember me" flag of a session (True when the row is gone)."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT remember FROM sessions WHERE id = ?", (session_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+        return True if row is None else bool(row["remember"])
 
     @staticmethod
     async def touch(

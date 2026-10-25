@@ -86,7 +86,7 @@ describe('sign in with a passkey', () => {
     expect(await screen.findByTestId('app')).toBeInTheDocument();
     expect(api.passkeyLoginOptions).toHaveBeenCalledWith();
     expect(library.startAuthentication).toHaveBeenCalledWith({ optionsJSON: OPTIONS });
-    expect(verify).toHaveBeenCalledWith(CREDENTIAL);
+    expect(verify).toHaveBeenCalledWith(CREDENTIAL, false);
   });
 
   it('is hidden when the server does not offer passkeys here', async () => {
@@ -95,6 +95,48 @@ describe('sign in with a passkey', () => {
       methods: { password: true, ingress: false, passkey: false },
     });
     expect(screen.queryByRole('button', { name: t('auth.passkey.signIn') })).toBeNull();
+    // On https the silence would be a mystery: the page says why.
+    expect(screen.getByRole('note')).toHaveTextContent(t('auth.passkey.unavailableHint'));
+  });
+
+  it('carries "keep me signed in" to the server', async () => {
+    vi.spyOn(api, 'passkeyLoginOptions').mockResolvedValue(OPTIONS);
+    library.startAuthentication.mockResolvedValue(CREDENTIAL);
+    const verify = vi.spyOn(api, 'passkeyLoginVerify').mockResolvedValue(signedIn());
+    const user = await renderLogin();
+    await user.click(screen.getByRole('checkbox', { name: t('auth.login.remember') }));
+    await user.click(screen.getByRole('button', { name: t('auth.passkey.signIn') }));
+    await screen.findByTestId('app');
+    expect(verify).toHaveBeenCalledWith(CREDENTIAL, true);
+  });
+
+  it('shows the rate limit when the ceremony table is full', async () => {
+    vi.spyOn(api, 'passkeyLoginOptions').mockRejectedValue(
+      new ApiError('Too Many Requests', 429, {
+        code: 'auth_rate_limited',
+        message: 'x',
+        params: { retry_after: 30 },
+      })
+    );
+    const user = await renderLogin();
+    await user.click(screen.getByRole('button', { name: t('auth.passkey.signIn') }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      t('errors.auth_rate_limited', { retry_after: 30 })
+    );
+    expect(library.startAuthentication).not.toHaveBeenCalled();
+    // The form stays usable.
+    expect(screen.getByLabelText(t('auth.password'))).toBeInTheDocument();
+  });
+
+  it('shows the generic rate limit when a proxy answers 429 without a code', async () => {
+    vi.spyOn(api, 'passkeyLoginOptions').mockRejectedValue(
+      new ApiError('Too Many Requests', 429, 'slow down', 30)
+    );
+    const user = await renderLogin();
+    await user.click(screen.getByRole('button', { name: t('auth.passkey.signIn') }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      t('errors.access_rate_limited', { retry_after: 30 })
+    );
   });
 
   it('is hidden on an insecure context, with an explanation', async () => {

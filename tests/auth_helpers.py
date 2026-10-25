@@ -32,9 +32,16 @@ async def create_user(username: str = ADMIN, password: str | None = PASSWORD, ro
     return await UserRepository.create(username, role, password_hash=password_hash)  # type: ignore[arg-type]
 
 
-async def login(client: httpx.AsyncClient, username: str = ADMIN, password: str = PASSWORD):
+async def login(
+    client: httpx.AsyncClient,
+    username: str = ADMIN,
+    password: str = PASSWORD,
+    remember: bool = True,
+):
+    """Sign in. ``remember`` defaults to True here (long session), unlike the route."""
     response = await client.post(
-        "/api/auth/login", json={"username": username, "password": password}
+        "/api/auth/login",
+        json={"username": username, "password": password, "remember": remember},
     )
     assert response.status_code == 200, response.text
     return response

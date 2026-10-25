@@ -414,7 +414,9 @@ describe('api.ts 401 and 429 handling', () => {
       'POST /auth/login': () =>
         jsonResponse({ detail: { code: 'auth_invalid_credentials', message: 'x' } }, 401),
     });
-    await expect(api.authLogin({ username: 'a', password: 'b' })).rejects.toBeInstanceOf(ApiError);
+    await expect(
+      api.authLogin({ username: 'a', password: 'b', remember: false })
+    ).rejects.toBeInstanceOf(ApiError);
     expect(seen).not.toHaveBeenCalled();
     off();
   });

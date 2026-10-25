@@ -193,6 +193,8 @@ class PendingLogin:
     client: str
     expires_at: float
     attempts: int = 0
+    # "Remember me" of the password step, applied to the session the code opens.
+    remember: bool = False
 
 
 def client_binding(ip: str | None, user_agent: str | None) -> str:
@@ -210,7 +212,7 @@ class PendingLogins:
         self._clock = clock
         self._entries: dict[str, PendingLogin] = {}
 
-    def issue(self, user_id: int, generation: int, client: str) -> str:
+    def issue(self, user_id: int, generation: int, client: str, remember: bool = False) -> str:
         now = self._clock()
         self._sweep(now)
         while len(self._entries) >= PENDING_MAX_ENTRIES:
@@ -220,6 +222,7 @@ class PendingLogins:
             user_id=user_id,
             generation=generation,
             client=client,
+            remember=remember,
             expires_at=now + PENDING_TTL_S,
         )
         return token

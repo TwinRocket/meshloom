@@ -261,6 +261,10 @@ class LoginRequest(BaseModel):
 
     username: str = Field(min_length=1, max_length=256)
     password: SecretStr = Field(min_length=1, max_length=MAX_PASSWORD_LENGTH)
+    # "Remember me": True keeps the session for ``session_lifetime_days`` (cookie with
+    # Max-Age); False (the default) is a browser-session cookie with a short server-side
+    # lifetime (``app/auth/sessions.py``).
+    remember: bool = False
 
 
 class SessionInfo(BaseModel):
@@ -365,7 +369,9 @@ def _refuse_under_ingress(request: Request) -> None:
         raise _error(403, "auth_ingress_only")
 
 
-async def _start_session(request: Request, response: Response, user: User) -> Principal:
+async def _start_session(
+    request: Request, response: Response, user: User, *, remember: bool = True
+) -> Principal:
     """Create a session and set its cookie (never under ingress: refused before)."""
     via = _via(request)
     issued = await sessions.issue_session(
@@ -373,6 +379,7 @@ async def _start_session(request: Request, response: Response, user: User) -> Pr
         ip=client_ip(request.scope),
         user_agent=request.headers.get("user-agent"),
         via=via,
+        remember=remember,
     )
     response.headers.append(
         "set-cookie",
@@ -595,9 +602,9 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
         )
         raise _error(401, "auth_invalid_credentials")
     if user.totp_enabled_at is not None:
-        return await _second_factor_challenge(request, user)
+        return await _second_factor_challenge(request, user, body.remember)
     limiter.record_success(address, body.username, device)
-    principal = await _start_session(request, response, user)
+    principal = await _start_session(request, response, user, remember=body.remember)
     await _remember_device(
         response, user, device or (presented.device_id if presented else None), secure
     )
@@ -607,7 +614,9 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     return await _session_payload(principal, _via(request), request)
 
 
-async def _second_factor_challenge(request: Request, user: User) -> AuthSessionResponse:
+async def _second_factor_challenge(
+    request: Request, user: User, remember: bool
+) -> AuthSessionResponse:
     """A password that checked for an account with a second factor: no session
     and no limiter success yet (a wrong code counts as a failed login), only a
     pending-login token for ``POST /auth/login/2fa`` (``app/auth/totp.py``)."""
@@ -619,6 +628,7 @@ async def _second_factor_challenge(request: Request, user: User) -> AuthSessionR
         current.id,
         current.updated_at,
         totp.client_binding(client_ip(request.scope), request.headers.get("user-agent")),
+        remember,
     )
     await audit.record_request(
         request, "login", "pending", target=audit.user_target(user.id), details={"factor": "totp"}

@@ -61,6 +61,8 @@ class AuthSession(BaseModel):
     user_agent: str | None = None
     via: str | None = None
     revoked_at: int | None = None
+    # False: a browser-session login (no "remember me"), short sliding lifetime.
+    remember: bool = True
 
 
 TokenOrigin = Literal["ui", "pairing"]
