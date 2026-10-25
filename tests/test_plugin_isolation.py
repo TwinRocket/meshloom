@@ -611,7 +611,12 @@ def test_purge_asks_the_helper_for_every_depth_and_sysv_ipc(monkeypatch) -> None
     monkeypatch.setattr(backend, "_helper", lambda op, *args: calls.append((op, *args)))
     backend.purge([])
     assert calls == [
-        ("purge", str(setuid_module.PURGE_MAX_ENTRIES), "shm:shmid,msg:msqid,sem:semid")
+        (
+            "purge",
+            str(setuid_module.PURGE_MAX_ENTRIES),
+            "shm:shmid,msg:msqid,sem:semid",
+            "40000-50000,10002",  # the plugin uids whose 0711 work dirs it may skip
+        )
     ]
 
 
@@ -828,7 +833,7 @@ def test_purge_skips_other_work_dirs_and_dirs_it_cannot_enter() -> None:
     shared = shared_tmp_dir("meshloom-purge-skip-")
     os.chmod(shared, 0o1777)
     plugin_dir = shared_tmp_dir("meshloom-purge-skip-plugin-")
-    work = shared / "meshloom-plugin-abc123"
+    work = shared / "meshloom-plugin-abc123_x"
     closed = shared / "closed"
     make = "for path, mode in zip(sys.argv[1::2], sys.argv[2::2]):\n    os.mkdir(path); os.chmod(path, int(mode, 8))"
     try:
@@ -843,4 +848,89 @@ def test_purge_skips_other_work_dirs_and_dirs_it_cannot_enter() -> None:
             mine.purge([shared])
     finally:
         theirs.purge([shared])
+        shutil.rmtree(shared, ignore_errors=True)
+
+
+@pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
+def test_purge_and_rmtree_remove_dirs_the_uid_made_unlistable() -> None:
+    """MSHL-348: a plugin leaving its own directories 0300 or 0000 (its work dir or
+    anything in the temp dirs) does not keep its uid forever: the helper gives the
+    owner rwx back first, without following a symlink."""
+    base = _backend("setuid")
+    (mine,) = (base.for_uid(uid) for uid in _free_instance_uids(1))
+    shared = shared_tmp_dir("meshloom-purge-locked-")
+    os.chmod(shared, 0o1777)
+    outside = shared_tmp_dir("meshloom-purge-locked-outside-")
+    os.chmod(outside, 0o1777)
+    target = outside / "target"
+    plugin_dir = shared_tmp_dir("meshloom-purge-locked-plugin-")
+    # No chown: the tests also run as a non-root server holding only CAP_SETUID.
+    _run_as(mine, plugin_dir, "os.mkdir(sys.argv[1]); os.chmod(sys.argv[1], 0o500)", str(target))
+    # top 0300 > sub 0000, sub2 0300 > deep 0000 holding a file; a symlink to a
+    # directory of the uid outside the purged tree must keep its mode.
+    lock = (
+        "top = sys.argv[1]\n"
+        "os.makedirs(os.path.join(top, 'sub2', 'deep'))\n"
+        "open(os.path.join(top, 'sub2', 'deep', 'f'), 'w').close()\n"
+        "os.mkdir(os.path.join(top, 'sub'))\n"
+        "os.symlink(sys.argv[2], os.path.join(top, 'link'))\n"
+        "os.chmod(os.path.join(top, 'sub'), 0o000)\n"
+        "os.chmod(os.path.join(top, 'sub2', 'deep'), 0o000)\n"
+        "os.chmod(os.path.join(top, 'sub2'), 0o300)\n"
+        "os.chmod(top, int(sys.argv[3], 8))\n"
+    )
+    try:
+        for mode in ("300", "000"):
+            top = shared / f"locked-{mode}"
+            _run_as(mine, plugin_dir, lock, str(top), str(target), mode)
+            mine.purge([shared])
+            assert not top.exists()
+            assert stat.S_IMODE(os.lstat(target).st_mode) == 0o500
+        # The work-dir removal (the helper's `rmtree`, used without root) too.
+        work = shared / "work"
+        _run_as(mine, plugin_dir, lock, str(work), str(target), "300")
+        mine._helper("rmtree", str(work))
+        assert not work.exists()
+        assert stat.S_IMODE(os.lstat(target).st_mode) == 0o500
+    finally:
+        mine.purge([shared, outside])
+        shutil.rmtree(shared, ignore_errors=True)
+        shutil.rmtree(outside, ignore_errors=True)
+
+
+@pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
+def test_purge_skips_a_work_dir_only_when_a_plugin_uid_owns_it() -> None:
+    """MSHL-348: a 0711 `meshloom-plugin-*` directory of a uid outside the plugin
+    uids (one that could hide files for the instance) fails the purge, as does one
+    whose name mkdtemp would not make."""
+    from app.plugins.isolation.setuid import ACCOUNT_UID, INSTANCE_UIDS, uid_is_free
+
+    base = _backend("setuid")
+    (mine,) = (base.for_uid(uid) for uid in _free_instance_uids(1))
+    stranger = next(u for u in range(30000, 39999) if uid_is_free(u))
+    assert stranger not in INSTANCE_UIDS and stranger != ACCOUNT_UID
+    other = next(u for u in reversed(INSTANCE_UIDS) if u != mine.uid and uid_is_free(u))
+    shared = shared_tmp_dir("meshloom-purge-stranger-")
+    os.chmod(shared, 0o1777)
+    plugin_dir = shared_tmp_dir("meshloom-purge-stranger-plugin-")
+    make = "os.mkdir(sys.argv[1]); os.chmod(sys.argv[1], 0o711)"
+    try:
+        # Made by each owner (no chown: also runs as a non-root server).
+        for name, owner, fails in (
+            ("meshloom-plugin-abcd1234", other, False),
+            ("meshloom-plugin-abcd1235", ACCOUNT_UID, False),
+            ("meshloom-plugin-abcd1236", stranger, True),
+            ("meshloom-plugin-abc", other, True),
+        ):
+            owner_backend = base.for_uid(owner)
+            work = shared / name
+            _run_as(owner_backend, plugin_dir, make, str(work))
+            assert os.lstat(work).st_uid == owner
+            if fails:
+                with pytest.raises(ValueError, match="not listable"):
+                    mine.purge([shared])
+            else:
+                mine.purge([shared])
+            _run_as(owner_backend, plugin_dir, "os.rmdir(sys.argv[1])", str(work))
+    finally:
         shutil.rmtree(shared, ignore_errors=True)

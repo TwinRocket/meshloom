@@ -32,10 +32,12 @@ the next instance given the uid finds nothing of the previous one. Startup
 purges the uids that left something behind (a crash, the shared uid of the
 releases before per-instance uids) and releases the rows of deleted instances.
 A walk that meets more than `PURGE_MAX_ENTRIES` entries fails: the uid is then
-kept rather than handed over half-cleaned. So does a directory the uid may enter
-but not list (such as `0733` owned by someone else: the uid could have left
-entries there that it cannot see; another instance's `0711` work directory is
-the one exception), and so does anything `owns_something` still finds when the
+kept rather than handed over half-cleaned. A tree the uid owns gets owner rwx back
+on each of its directories before removal (no symlink followed), so a plugin cannot
+lock its own leftovers with `0300` or `0000`. A directory the uid may enter
+but not list fails the walk too (such as `0733` owned by someone else: the uid could
+have left entries there that it cannot see; the one exception is another instance's
+`0711` work directory, named as `mkdtemp` makes it and owned by another plugin uid), and so does anything `owns_something` still finds when the
 server checks again after the helper (as root it lists every directory). The
 walk never crosses into another file system: a temp dir mounted below another
 is purged only when it is itself one of the walked roots
@@ -81,22 +83,87 @@ logger = logging.getLogger(__name__)
 
 # Runs as the plugin uid, capabilities dropped first:
 #   mkdir <path> | rmtree <path> | kill <pgid> <signal>
-#   | purge <max entries> <kind:id column,...> <dir>...  (IPC_RMID is 0 on Linux)
+#   | purge <max entries> <kind:id column,...> <plugin uids> <dir>...
+# (IPC_RMID is 0 on Linux; <plugin uids> is `<first>-<last + 1>,<uid>,...`).
+# Before removing a tree the uid owns, `unlock` gives the owner rwx back on each of
+# its directories (the plugin may have left them 0300 or 0000: `rmtree` could not
+# list them and the uid would never be freed). It opens each directory with
+# O_PATH | O_NOFOLLOW relative to its parent and changes the mode through that
+# descriptor, so no symlink is followed, and only a directory the uid owns (which
+# it could chmod anyway) is touched.
 _HELPER_SOURCE = """
-import os, shutil, stat, sys
+import os, re, shutil, stat, sys
 sys.path.insert(0, sys.argv[1])
 from meshloom_plugin import seccomp
 seccomp.drop_capabilities(seccomp.libc_prctl())
 if os.getuid() == 0 or os.geteuid() == 0:
     sys.exit(3)
 op, args = sys.argv[2], sys.argv[3:]
-WORK_DIR_PREFIX = "meshloom-plugin-"
+# `tempfile.mkdtemp(prefix="meshloom-plugin-")`: 8 characters of [a-z0-9_].
+WORK_DIR_NAME = re.compile(r"meshloom-plugin-[a-z0-9_]{8}")
+uid = os.getuid()
+O_DIR_PATH = os.O_PATH | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
+
+
+def unlock_one(parent_fd, name):
+    # True when `name` (in `parent_fd`) is a directory of this uid, now owner rwx.
+    try:
+        fd = os.open(name, O_DIR_PATH, dir_fd=parent_fd)
+    except OSError:
+        return False
+    try:
+        st = os.fstat(fd)
+        if st.st_uid != uid:
+            return False
+        mode = stat.S_IMODE(st.st_mode)
+        if mode & 0o700 != 0o700:
+            try:
+                os.chmod(f"/proc/self/fd/{fd}", mode | 0o700)
+            except FileNotFoundError:
+                os.chmod(name, mode | 0o700, dir_fd=parent_fd, follow_symlinks=False)
+        return True
+    finally:
+        os.close(fd)
+
+
+def unlock(top):
+    # Owner rwx on `top` and every directory of this uid below it, before rmtree.
+    parent = os.open(os.path.dirname(top) or ".", O_DIR_PATH)
+    try:
+        if not unlock_one(parent, os.path.basename(top)):
+            return
+    finally:
+        os.close(parent)
+    stack = [top]
+    while stack:
+        path = stack.pop()
+        try:
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC)
+        except OSError:
+            continue
+        try:
+            with os.scandir(fd) as entries:
+                names = [e.name for e in entries if e.is_dir(follow_symlinks=False)]
+            for name in names:
+                if unlock_one(fd, name):
+                    stack.append(os.path.join(path, name))
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+
+
+def remove_tree(path):
+    unlock(path)
+    shutil.rmtree(path)
+
+
 if op == "mkdir":
     os.mkdir(args[0], 0o700)
     os.chmod(args[0], 0o711)
 elif op == "rmtree":
     try:
-        shutil.rmtree(args[0])
+        remove_tree(args[0])
     except FileNotFoundError:
         pass
 elif op == "kill":
@@ -106,22 +173,31 @@ elif op == "kill":
         pass
 elif op == "purge":
     import ctypes, errno
-    uid = os.getuid()
+
+    def plugin_uid(owner):
+        for item in args[2].split(","):
+            first, _, end = item.partition("-")
+            if int(first) <= owner < (int(end) if end else int(first) + 1):
+                return True
+        return False
 
     def other_work_dir(path, base):
+        # Another instance's work directory: named by mkdtemp, 0711, owned by
+        # another plugin uid (not any uid that could hide files for this one).
         try:
             st = os.lstat(path)
         except OSError:
             return False
         return (
             os.path.dirname(path) == base
-            and os.path.basename(path).startswith(WORK_DIR_PREFIX)
+            and WORK_DIR_NAME.fullmatch(os.path.basename(path)) is not None
             and stat.S_ISDIR(st.st_mode)
             and stat.S_IMODE(st.st_mode) == 0o711
             and st.st_uid != uid
+            and plugin_uid(st.st_uid)
         )
     limit, kinds = int(args[0]), args[1].split(",")
-    for base in args[2:]:
+    for base in args[3:]:
         try:
             dev = os.lstat(base).st_dev
         except OSError:
@@ -153,7 +229,7 @@ elif op == "purge":
                     st = entry.stat(follow_symlinks=False)
                     if st.st_uid == uid:
                         if stat.S_ISDIR(st.st_mode):
-                            shutil.rmtree(entry.path)
+                            remove_tree(entry.path)
                         else:
                             os.unlink(entry.path)
                     elif stat.S_ISDIR(st.st_mode) and st.st_dev == dev:
@@ -189,6 +265,11 @@ elif op == "purge":
 else:
     sys.exit(2)
 """
+
+
+def plugin_uid_spec() -> str:
+    """The plugin uids for the purge helper: whose `0711` work dirs it may skip."""
+    return f"{INSTANCE_UIDS.start}-{INSTANCE_UIDS.stop},{ACCOUNT_UID}"
 
 
 def shared_temp_dirs() -> list[Path]:
@@ -339,7 +420,9 @@ class SetuidBackend(IsolationBackend):
         lists every directory): the uid is then kept."""
         paths = list(shared_temp_dirs() if dirs is None else dirs)
         kinds = ",".join(f"{kind}:{column}" for kind, column in SYSV_IPC_KINDS)
-        self._helper("purge", str(PURGE_MAX_ENTRIES), kinds, *(str(p) for p in paths))
+        self._helper(
+            "purge", str(PURGE_MAX_ENTRIES), kinds, plugin_uid_spec(), *(str(p) for p in paths)
+        )
         if owns_something(self.uid, None if dirs is None else paths):
             raise ValueError(f"uid {self.uid} still owns something after the purge")
 

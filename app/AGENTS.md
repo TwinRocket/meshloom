@@ -150,7 +150,9 @@ and the OpenAPI page (`/docs`), not a table here.
   its own uid from 40000-49999 (`setuid.INSTANCE_UIDS`, table `plugin_uids`,
   `PluginUidRepository`; `PluginManager` allocates at start, purges and frees it
   on delete, `reap_uids()` at startup; MSHL-339; the purge fails closed on a directory
-  the uid may enter but not list, then `owns_something` re-checks; MSHL-347). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  the uid may enter but not list, then `owns_something` re-checks; MSHL-347; it restores owner
+  rwx on the uid's own dirs before removing them and skips only `0711` work dirs of other plugin
+  uids; MSHL-348). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). The child's own kernel guards
   (dropped capabilities, a seccomp filter refusing clone/fork/exec, required for
   a root child) are `meshloom_plugin/seccomp.py`. Stdlib only, so

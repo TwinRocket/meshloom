@@ -85,12 +85,22 @@ directories (`/tmp`, `/var/tmp`, `/dev/shm`, `/dev/mqueue`, `tempfile.gettempdir
 every entry it owns at any depth, also under a directory another uid owns such as
 `/tmp/.X11-unix`, without leaving each directory's file system; past 100 000 entries
 the purge fails) and its System V IPC objects (owner or creator, `IPC_RMID`), then
-frees the uid. The walk fails closed (MSHL-347): a directory the uid may enter but not
-list (`0733` owned by another uid, where it could have hidden files) fails the purge;
-only a work dir of another instance (`meshloom-plugin-*`, `0711`, directly under a
-scanned dir) and a directory the uid cannot enter are skipped, since it could not have
-written there unless another uid opened a subdirectory to it (collusion between two
-plugins, out of scope). After the helper, the server re-walks the same dirs
+frees the uid. Before removing a directory tree the uid owns (in the temp dirs, or its
+work dir without root), the helper gives the owner `rwx` back on each of its
+directories, so a plugin leaving them `0300` or `0000` cannot make the removal fail and
+keep its uid forever (MSHL-348); it opens each one `O_PATH | O_NOFOLLOW` relative to its
+parent and changes the mode through that descriptor, so no symlink is followed and only
+a directory the uid owns is touched. The walk fails closed (MSHL-347): a directory the
+uid may enter but not list (`0733` owned by another uid, where it could have hidden
+files) fails the purge; only a work dir of another instance (named as `mkdtemp` makes
+it, `meshloom-plugin-` and 8 characters of `[a-z0-9_]`, `0711`, owned by another plugin
+uid: 40000-49999 or 10002, directly under a scanned dir; MSHL-348) and a directory the
+uid cannot enter are skipped, since it could not have written there unless another
+plugin uid opened a subdirectory to it (collusion between two plugins, out of scope).
+A `0711` directory that is none of these, even a harmless one another program left in
+`/tmp`, blocks every purge that walks past it: the uids then stay taken (fail closed)
+and the server logs the path ("not listable") at each attempt, until an administrator
+removes the directory or opens it (`chmod o+r`); startup retries the purge. After the helper, the server re-walks the same dirs
 (`owns_something`, which a root server can list fully) and fails if anything is left.
 The walk does not cross file systems: what the uid left on another mount under `/tmp`
 (a bind mount, a tmpfs mounted inside `/tmp`) is not purged; the uid is still freed only

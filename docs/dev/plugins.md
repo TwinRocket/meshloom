@@ -886,6 +886,10 @@ that is a short identifier; it is scrubbed of the instance's secret values, then
 `sanitize_error()` drops control characters and filesystem paths and caps it at
 `LAST_ERROR_MAX_CHARS` (200). Details (exception messages, the runner's message,
 `OSError` texts with paths) go to the server log only, capped at 2000 characters.
+The UI translates a `last_error` only when it is one of the bare host codes in
+`HOST_LAST_ERROR_CODES` (`frontend/src/components/settings/extensions/pluginsShared.ts`,
+today `plugin_code_mismatch`); any other value, snake_case or not, is shown as written,
+so text from a plugin can never pass for a host message (MSHL-348).
 
 ### Statuses
 
