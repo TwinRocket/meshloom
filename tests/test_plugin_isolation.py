@@ -688,6 +688,27 @@ def test_a_purge_blocked_by_unlistable_dirs_names_them(monkeypatch) -> None:
     assert not isinstance(other_op.value, setuid_module.PurgeBlockedError)
 
 
+def test_a_crashing_purge_helper_reports_the_exception_not_the_header(monkeypatch) -> None:
+    """MSHL-352: a traceback is summed up by its last lines, escaped, still failing."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    stderr = (
+        "Traceback (most recent call last):\n"
+        '  File "<string>", line 200, in <module>\n'
+        '  File "<string>", line 241, in walk\n'
+        "    raise OSError(path)\n"
+        "OSError: /tmp/a\x1b[31mb\n"
+    )
+    monkeypatch.setattr(setuid_module.subprocess, "run", lambda *a, **k: _completed(1, stderr))
+    with pytest.raises(ValueError) as exc:
+        SetuidBackend(40010, 40010).purge([Path("/tmp")])
+    message = str(exc.value)
+    assert "Traceback" not in message
+    assert message.endswith("OSError: /tmp/a\\x1b[31mb")
+    assert "\x1b" not in message
+    assert not isinstance(exc.value, setuid_module.PurgeBlockedError)
+
+
 def test_purge_blocked_paths_are_capped(monkeypatch) -> None:
     from app.plugins.isolation import setuid as setuid_module
 

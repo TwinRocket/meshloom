@@ -547,6 +547,19 @@ class SetuidBackend(IsolationBackend):
             if op == "purge" and lines:
                 # One line per problem: the first ones (the walk's), then a count.
                 tail = "; ".join(lines[:3]) + (f" (+{len(lines) - 3} more)" if lines[3:] else "")
+            if proc.returncode != 0 and any(line.startswith("Traceback (") for line in lines):
+                # A crash, not a walk report: the first lines are the traceback's header
+                # and frames; the exception is at the end. The helper had no chance to
+                # escape it, so do it here (same rule as the helper's `shown`).
+                final = [
+                    line
+                    for line in lines
+                    if line and not line[0].isspace() and not line.startswith("Traceback (")
+                ][-2:]
+                tail = "; ".join(
+                    "".join(c if c.isprintable() else ascii(c)[1:-1] for c in line)
+                    for line in final
+                )
             message = f"plugin helper ({op}) failed: {tail}"
             blocked = [
                 line.removesuffix(NOT_LISTABLE) for line in lines if line.endswith(NOT_LISTABLE)
