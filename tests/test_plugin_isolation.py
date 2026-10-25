@@ -709,6 +709,93 @@ def test_a_crashing_purge_helper_reports_the_exception_not_the_header(monkeypatc
     assert not isinstance(exc.value, setuid_module.PurgeBlockedError)
 
 
+def test_a_crashing_purge_helper_message_falls_back_and_is_capped(monkeypatch) -> None:
+    """MSHL-353: no exception line -> last stderr line or exit code; long lines capped."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    def fail(stderr: str) -> str:
+        monkeypatch.setattr(setuid_module.subprocess, "run", lambda *a, **k: _completed(1, stderr))
+        with pytest.raises(ValueError) as exc:
+            SetuidBackend(40010, 40010).purge([Path("/tmp")])
+        return str(exc.value)
+
+    group = 'Traceback (most recent call last):\n  File "<string>", line 1\n  | boom\n'
+    assert fail(group).endswith("failed: boom")
+    bare = fail("Traceback (most recent call last):\n")
+    assert bare.endswith("failed: Traceback (most recent call last):")
+    long = "OSError: " + "\x1b" * 5000
+    message = fail("Traceback (most recent call last):\n" + long + "\n")
+    assert len(message) < 400
+    assert message.endswith("...")
+    assert "\x1b" not in message
+    body = message.removesuffix("...").rsplit("OSError: ", 1)[1]
+    assert body and set(body.split("\\x1b")) == {""}  # whole escapes only, no stray cut
+
+
+def test_a_real_exception_group_crash_is_escaped_and_summed_up(monkeypatch) -> None:
+    """MSHL-353: real ExceptionGroup stderr (boxed, indented) is escaped and capped."""
+    import subprocess
+    import sys
+
+    from app.plugins.isolation import setuid as setuid_module
+
+    real_run = subprocess.run  # the module attribute is patched below
+    code = (
+        "raise ExceptionGroup('g', [ValueError('a\\x1b[31mb'), OSError('c' * 5000),"
+        " ExceptionGroup('n', [KeyError('k'), TypeError('t')])])"
+    )
+    stderr = real_run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    ).stderr
+    assert "Exception Group Traceback (" in stderr and "\x1b" in stderr
+    monkeypatch.setattr(setuid_module.subprocess, "run", lambda *a, **k: _completed(1, stderr))
+    with pytest.raises(ValueError) as exc:
+        SetuidBackend(40010, 40010).purge([Path("/tmp")])
+    message = str(exc.value)
+    assert "\x1b" not in message
+    assert "Traceback" not in message
+    assert len(message) < 400
+    assert "----" not in message and "+-" not in message
+    assert message.count(";") == 1  # the last two exception lines, nothing else
+    assert "TypeError: t" in message
+
+    # Nested groups with 2+ sub-exceptions: no separator or counter leaks, whichever
+    # exception comes last.
+    for tail_exc in ("ValueError('v')", "OSError('o')"):
+        code = (
+            "raise ExceptionGroup('g', [ExceptionGroup('n', [KeyError('k'), TypeError('t')]),"
+            f" {tail_exc}])"
+        )
+        err = real_run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=False
+        ).stderr
+        monkeypatch.setattr(
+            setuid_module.subprocess, "run", lambda *a, err=err, **k: _completed(1, err)
+        )
+        with pytest.raises(ValueError) as nested:
+            SetuidBackend(40010, 40010).purge([Path("/tmp")])
+        assert "----" not in str(nested.value) and "Traceback" not in str(nested.value)
+        assert tail_exc.split("(")[0] in str(nested.value)
+
+    # A plugin path that mentions "Traceback (" in a frame is not a crash header.
+    monkeypatch.setattr(
+        setuid_module.subprocess,
+        "run",
+        lambda *a, **k: _completed(0, '/tmp/x File "Traceback (a).py": boom\n'),
+    )
+    with pytest.raises(ValueError, match="boom"):
+        SetuidBackend(40010, 40010).purge([Path("/tmp")])
+    assert not isinstance(exc.value, setuid_module.PurgeBlockedError)
+
+    # A non-crash failure line is escaped too, without re-mangling the helper's backslashes.
+    monkeypatch.setattr(
+        setuid_module.subprocess, "run", lambda *a, **k: _completed(0, "/tmp/a\\nb: x\x1b[31m\n")
+    )
+    with pytest.raises(ValueError) as plain:
+        SetuidBackend(40010, 40010).purge([Path("/tmp")])
+    assert str(plain.value).endswith("/tmp/a\\nb: x\\x1b[31m")
+
+
 def test_purge_blocked_paths_are_capped(monkeypatch) -> None:
     from app.plugins.isolation import setuid as setuid_module
 
