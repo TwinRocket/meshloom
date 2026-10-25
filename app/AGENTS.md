@@ -199,7 +199,9 @@ Community guard.
 - **Hosts.** `SHARE_HOST` (write host, `meshl.ink`) and `SHARE_HOSTS` (every
   recognised host, current and former; `is_share_host()`) are module constants
   read at call time; tests monkeypatch them. No environment variable.
-- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled`;
+- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled` and
+  `app_settings.share_terms_version == SHARE_TERMS_VERSION` (MSHL-292: the owner's acceptance
+  is recorded server-side, and raising the constant asks for a new one);
   `share_request()` checks it first and answers 403 `share_disabled` with no
   DNS lookup and no connection.
 - **Turning it off cuts at once** (as Community does). `AppSettingsRepository.update`
@@ -287,8 +289,11 @@ Community guard.
   The wrapper is shipped at `/opt/meshloom/.venv/bin/meshloom-admin` (`nfpm.yaml.tmpl`)
   and `/usr/local/bin/meshloom-admin` (`Dockerfile`; the add-on is `FROM` that image).
   On the package it must run as root (also linked as `/usr/bin/meshloom-admin`): it parses
-  `/etc/meshloom/meshloom.env` (root:root 0640) as data, never sources it, then drops to
-  `meshloom` with `runuser`. It runs python with `-P` so a local `app/` cannot shadow the
+  `/etc/meshloom/meshloom.env` (root:root 0640, nfpm `file_info`; directory root:meshloom 0750,
+  `postinstall.sh`) as data, never sources it, and refuses
+  it unless it and its directory are root-owned, not group/world-writable and not a link
+  (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with `runuser`
+  (`--pty` when stdin, stdout and stderr are terminals). It runs python with `-P` so a local `app/` cannot shadow the
   install. It finds the database the way the service does (that env file, `/config` for the
   add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
 - It opens the file itself (`mode=rw`, never created, no schema script, no migration:
@@ -347,6 +352,14 @@ run as root).
   `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
   the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
   behaviours are restored.
+- Migration 116 adds `share_terms_version` and `share_terms_accepted_at` (consent state,
+  same backup rule as `share_enabled`). `PATCH /api/settings` takes `share_terms_accepted: true`
+  only together with `share_enabled: true` (else 422): the server stamps its own
+  `SHARE_TERMS_VERSION` and the time. `share_enabled: true` without an acceptance of the
+  current version is a 409 `share_terms_required`. `GET /api/share/status` returns
+  `terms_version`, `terms_accepted_version`, `terms_accepted_at` and `terms_stale`; its
+  `enabled` is the effective state (consent and current terms). No `/api/share/status`
+  contract exists in `meshloom-community/docs/contracts` (checked): no `CONTRACTS:` commit.
 - Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
   also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
   and `app_settings.store_online` (Store consent, off, outside `AppSettings`, excluded

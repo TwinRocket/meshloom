@@ -97,8 +97,8 @@ jobs:
           deb="$(ls dist/meshloom_*_amd64.deb | head -n 1)"
           dpkg-deb -c "$deb" | grep -E -- '^-rwxr-xr-x .* \./usr/lib/meshloom/meshloom-kiosk$'
 
-      - name: shellcheck the kiosk launcher and the maintainer script
-        run: shellcheck -e SC2174 pkg/rpi/meshloom-kiosk pkg/nfpm/postinstall.sh
+      - name: shellcheck the kiosk launcher, meshloom-admin and the maintainer script
+        run: shellcheck -e SC2174 pkg/rpi/meshloom-kiosk pkg/nfpm/meshloom-admin pkg/nfpm/postinstall.sh
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

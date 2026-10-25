@@ -60,7 +60,7 @@ def clock():
 
 @pytest.fixture
 async def share_on(test_db, monkeypatch):
-    await AppSettingsRepository.update(share_enabled=True)
+    await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
     Dns(monkeypatch)
 
 
@@ -179,7 +179,7 @@ class TestErrorMapping:
         assert recorder.requests == []
 
     async def test_guard_refuses_a_private_answer(self, test_db, monkeypatch):
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch, {share.SHARE_HOST: ["10.0.0.7"]})
         recorder = Recorder(monkeypatch)
         error = await _raises(create_link(URL))
@@ -282,7 +282,7 @@ class TestRequestShape:
         assert kwargs["trust_env"] is False
 
     async def test_hosts_are_read_at_call_time(self, test_db, monkeypatch):
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         monkeypatch.setattr(share, "SHARE_HOST", "new.example")
         monkeypatch.setattr(share, "SHARE_HOSTS", ("new.example", "meshl.ink"))
         Dns(monkeypatch, {"new.example": ["93.184.215.14"]})
@@ -470,7 +470,7 @@ class TestNegativeCache:
 class TestTimeouts:
     async def test_hanging_server_times_out(self, test_db, monkeypatch):
         """A server that accepts and never answers: the call ends at the connect timeout."""
-        await AppSettingsRepository.update(share_enabled=True)
+        await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
 
         async def hang(reader, writer):
             await asyncio.sleep(3600)

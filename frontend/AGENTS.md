@@ -488,6 +488,13 @@ pydantic's output by `tests/test_schema_form_fixture.py`).
 
 ### Share API (`api.ts`)
 
+The terms acceptance fields (`terms_version`, `terms_accepted_version`, `terms_accepted_at`,
+`terms_stale` of the status; `share_terms_accepted` of the settings update) are typed in
+`utils/shareTerms.ts`, not yet in `types.ts`. The consent dialog sends
+`{share_enabled: true, share_terms_accepted: true}`; the server records its own terms version
+and the time. When `terms_stale` is true the section shows a notice and the checkbox (off)
+reopens the dialog.
+
 `api.getShareStatus()` (no egress), `api.shortenLink(url)` and
 `api.getShareMeta(id)` call `/api/share/*`; types `ShareStatus`, `ShareLink`,
 `ShareMeta` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a

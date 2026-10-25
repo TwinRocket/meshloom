@@ -13,7 +13,7 @@ This version shortens **web addresses**. Sharing files and images is not in it y
 
 Open **Settings > Share: links and files** (administrators only). The section shows whether sharing is on, whether this Meshloom's sharing identity is ready, and whether encrypted files for direct messages are available (they are not used yet).
 
-Ticking **Turn on link and file sharing** always opens a consent window. It lists what leaves this Meshloom, who runs the service and for how long things are kept, links to the service's terms of use and privacy policy, and asks you to tick that you accept the terms. Cancelling, closing the window or leaving the box unticked changes nothing. Turning sharing off needs no consent and takes effect at once: requests already on their way are stopped.
+Ticking **Turn on link and file sharing** always opens a consent window. It lists what leaves this Meshloom, who runs the service and for how long things are kept, links to the service's terms of use and privacy policy, and asks you to tick that you accept the terms. Cancelling, closing the window or leaving the box unticked changes nothing. Your acceptance is recorded on this Meshloom, with the version of the terms and the date: if the terms change in a later version, sharing stays off and the section tells you, until an administrator reads and accepts the new terms by turning it on again. Turning sharing off needs no consent and takes effect at once: requests already on their way are stopped.
 
 If the service is not answering, its terms cannot be read, so sharing cannot be turned on until it answers again (turning it off always stays possible).
 
@@ -26,7 +26,7 @@ Only this server contacts the service, never your browser, and always over HTTPS
 
 The service itself keeps short links for 365 days. Its terms of use and privacy policy, linked from the consent window and published on the service's own domain, say what it keeps and for whom; the consent window also mentions 30 days for files, which this version does not send.
 
-Meshloom never uses the radio's key for this. See [The sharing key](/en/docs/deep/security/#the-sharing-key): a random key of its own, created the first time you shorten a link, which the service only sees as a pseudonym. Backups never carry the consent nor this key (see [Back up your radio](/en/docs/backup/)).
+Meshloom never uses the radio's key for this. See [The sharing key](/en/docs/deep/security/#the-sharing-key): a random key of its own, created the first time you shorten a link, which the service only sees as a pseudonym. Backups never carry the consent, its recorded acceptance of the terms, nor this key (see [Back up your radio](/en/docs/backup/)).
 
 ## Shortening in the composer
 

@@ -1286,8 +1286,10 @@ in its header), `app/routers/auth_kiosk.py`, `pkg/rpi/meshloom-kiosk`,
   (`ps`), a URL or a log. It accepts only a returned path of the expected form
   and opens Chromium on it, else the plain URL (fail closed: the setup or
   sign-in page). Every 10 s it compares a CRC of the token file (`cksum` on
-  stdin) and restarts Chromium when it changed (a rotation). Tests: `tests/test_kiosk_token.py` (also runs the launcher's
-  functions against fake `curl` and checks shellcheck).
+  stdin, with the same `sg` fallback) and restarts Chromium when it changed (a
+  rotation). Tests: `tests/test_kiosk_token.py` (also runs the launcher's
+  functions against fake `curl`, the restart loop against fake `chromium` and
+  `sg`, and checks shellcheck).
 
 **Images flashed before 5.0.0** (T11 path). The 4.18 image installed the
 launcher, `meshloom-kiosk-setup` and the autostart entry itself; the 5.0 deb

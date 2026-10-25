@@ -274,7 +274,7 @@ Run it with `sudo`:
 sudo meshloom-admin reset-password alice
 ```
 
-The command refuses to run without root. As root it reads the database path from `/etc/meshloom/meshloom.env` (a file only root can read), then switches to the `meshloom` user, which owns the database, so SQLite never leaves files the service cannot write. The same command is `/opt/meshloom/.venv/bin/meshloom-admin`.
+The command refuses to run without root. As root it reads the database path from `/etc/meshloom/meshloom.env` (a file only root can change), then switches to the `meshloom` user, which owns the database, so SQLite never leaves files the service cannot write. The same command is `/opt/meshloom/.venv/bin/meshloom-admin`.
 
 ### Docker and Docker Compose
 
@@ -322,6 +322,7 @@ The database is `data/meshcore.db` in that folder.
 
 - **`database not found`**: the command looked at the wrong file. Give it the path with `--db /path/to/meshcore.db`, or set `MESHCORE_DATABASE_PATH`.
 - **`run it as root`** (package): put `sudo` in front.
-- **`cannot read /etc/meshloom/meshloom.env`**: pass the database with `--db /path/to/meshcore.db` or set `MESHCORE_DATABASE_PATH`.
+- **`cannot read /etc/meshloom/meshloom.env`**: pass the database before the command: `sudo meshloom-admin --db /path/to/meshcore.db reset-password alice`. The file is then not read.
+- **`refusing /etc/meshloom/meshloom.env`**: the file, or its folder, is not owned by root, can be changed by another user, or is a link, so the command does not trust the database path in it. Reinstalling the package restores the folder (`root:meshloom`, `0750`); fix the file with `sudo chown root:root /etc/meshloom/meshloom.env` and `sudo chmod 0640 /etc/meshloom/meshloom.env`. Meanwhile, `--db` works as above.
 - **`cannot read database` or `cannot open database for writing`**: you are not the user that owns the file. Use `sudo meshloom-admin` (package) or `docker compose exec` (Docker).
 - **`start Meshloom once`**: the database is older than the program. Start Meshloom so it upgrades the database, then run the command again.
