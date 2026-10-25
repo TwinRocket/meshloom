@@ -292,8 +292,11 @@ Community guard.
   `/etc/meshloom/meshloom.env` (root:root 0640, nfpm `file_info`; directory root:meshloom 0750,
   `postinstall.sh`) as data, never sources it, and refuses
   it unless it and its directory are root-owned, not group/world-writable and not a link
-  (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with `runuser`
-  (`--pty` when stdin, stdout and stderr are terminals). It runs python with `-P` so a local `app/` cannot shadow the
+  (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with
+  `runuser -s /bin/sh -c 'exec "$0" "$@"'` (never `-u`, which keeps root's session): the child
+  always starts a new session, so it never has root's controlling terminal (TIOCSTI), piped or
+  not, and runuser kills it on Ctrl-C; `--pty` too when stdin, stdout and stderr are all
+  terminals (`scripts/test/meshloom_admin_tty.sh`, run as root in `nfpm.yml`). It runs python with `-P` so a local `app/` cannot shadow the
   install. It finds the database the way the service does (that env file, `/config` for the
   add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
 - It opens the file itself (`mode=rw`, never created, no schema script, no migration:
