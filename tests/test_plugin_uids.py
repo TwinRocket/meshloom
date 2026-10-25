@@ -258,6 +258,54 @@ async def test_a_uid_taken_meanwhile_is_skipped(test_db):
     assert await PluginUidRepository.all() == {a: 40001, b: 40000}
 
 
+async def test_a_pick_lost_to_the_same_instance_is_released(test_db):
+    """MSHL-359: a concurrent call stored another uid for this instance between the
+    pick (which took its lease) and the insert: the pick is given back. A pick
+    another instance stored is not: that row owns it now."""
+    a, b = await _instance("a"), await _instance("b")
+    released: list[int] = []
+    raced = False
+
+    def is_free(uid: int) -> bool:
+        nonlocal raced
+        if not raced:
+            raced = True
+            # The same instance gets 40005 from a concurrent start.
+            asyncio.run_coroutine_threadsafe(
+                PluginUidRepository.allocate(a, [40005], lambda _uid: True), loop
+            ).result(timeout=10)
+        return True
+
+    loop = asyncio.get_running_loop()
+    uid = await PluginUidRepository.allocate(
+        a, range(40000, 40003), is_free, release=released.append
+    )
+    assert uid == 40005
+    assert released == [40000]
+
+    # Lost to another instance: no release (its lease is that row's).
+    raced = False
+
+    def other_takes_it(uid: int) -> bool:
+        nonlocal raced
+        if not raced:
+            raced = True
+            asyncio.run_coroutine_threadsafe(
+                PluginUidRepository.allocate(b, [40000], lambda _uid: True), loop
+            ).result(timeout=10)
+        return True
+
+    c = await _instance("c")
+    released.clear()
+    assert (
+        await PluginUidRepository.allocate(
+            c, range(40000, 40003), other_takes_it, release=released.append
+        )
+        == 40001
+    )
+    assert released == []
+
+
 async def test_concurrent_allocations_never_share_a_uid(test_db):
     ids = [await _instance(f"i{n}") for n in range(6)]
     uids = await asyncio.gather(

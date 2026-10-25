@@ -1461,14 +1461,17 @@ class PluginManager:
             # `claim_uid` holds it again for a stored uid: another Meshloom on this
             # kernel never gets it while this install keeps it.
             uid = await PluginUidRepository.allocate(
-                instance_id, backend.uid_candidates(), backend.uid_available
+                instance_id,
+                backend.uid_candidates(),
+                backend.uid_available,
+                release=backend.release_uid,
             )
             await asyncio.to_thread(backend.claim_uid, uid)
         except PluginUidError:
             raise PluginHostError(
                 "uid_exhausted", "no free uid left for a plugin instance"
             ) from None
-        except ValueError as exc:  # `UidLeaseError`: refused, or not checkable
+        except (ValueError, OSError) as exc:  # `UidLeaseError`: refused, or not checkable
             logger.warning("Plugin uid of %s refused: %s", instance_id, exc)
             raise PluginHostError(
                 "uid_leased", "the plugin uid is held by another Meshloom on this machine"
@@ -1540,7 +1543,7 @@ class PluginManager:
         # then refuses, and health names it.
         try:
             await asyncio.to_thread(backend.prepare_uid_leases)
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             logger.warning("Plugin uid leases not usable: %s", exc)
         running = {i for i, instance in self._instances.items() if instance.active}
         orphans = await PluginUidRepository.orphans()
@@ -1560,7 +1563,7 @@ class PluginManager:
             # crash or a cleared temp dir); another install's lease keeps it blocked.
             try:
                 await asyncio.to_thread(backend.claim_uid, uid)
-            except ValueError as exc:
+            except (ValueError, OSError) as exc:  # one uid refused: the others go on
                 logger.warning("Plugin uid %s: lease refused: %s", uid, exc)
                 self._set_purge_blocked(uid, getattr(exc, "paths", ()))
                 refused.add(uid)

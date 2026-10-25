@@ -126,7 +126,27 @@ at reboot. Rules:
   other: each install then starts its search at an offset derived from its install
   id, so two installs rarely share a uid and its kernel limits. Rows allocated
   before MSHL-357 (both installs at 40000) keep their uid; only shared accounting
-  remains in that case.
+  remains in that case. With `--pid=host` but separate temp dirs the leases still
+  cannot see each other while the pid namespace is shared: on a (rare, offset
+  above) collision, a plugin of one install can signal the other's plugin
+  processes (same uid). Keep the temp dirs shared when sharing the pid namespace.
+- Errors: any `OSError` writing or checking a lease (`ENOSPC` when a plugin filled
+  the shared tmpfs, `EACCES`...) is a `UidLeaseError` (fail closed, MSHL-359): the
+  start is refused (`uid_leased`) and `reap_uids` marks that uid blocked and goes
+  on with the others. A pick that took its lease and then lost the allocation race
+  to another uid stored for the same instance gives the lease back
+  (`PluginUidRepository.allocate(release=...)`, inside the write transaction).
+- A raw copy of the data dir carries `plugin-install-id`: the copy is the same
+  install for the leases (refused while the original runs on a shared temp dir,
+  but free to take, and purge, the original's leases once it stops). Delete
+  `plugin-install-id` on the copy before its first start; it gets a new id, and a
+  stored uid the original still leases is refused (`uid_leased`, shown in
+  Settings → Extensions) until the administrator deletes that lease file or
+  reinstalls the instance on the copy.
+- A root install and a `MESHLOOM_RUN_AS_USER` install sharing a temp dir: the
+  lease directory belongs to whichever started first, so the second finds one that
+  is not its own and refuses every uid allocation and purge (fail closed, by
+  design); give them separate temp dirs.
 Deleting the instance purges what its uid left in the shared temporary
 directories (`/tmp`, `/var/tmp`, `/dev/shm`, `/dev/mqueue`, `tempfile.gettempdir()`:
 every entry it owns at any depth, also under a directory another uid owns such as

@@ -248,7 +248,7 @@ class UidLeases:
     def acquire(self, uid: int) -> None:
         """Hold the uid's lease in every domain (created, or already this install's).
         Raises `UidLeaseTaken` when another install holds it, `UidLeaseError` when a
-        lease directory is not usable. Idempotent; a lease removed meanwhile is
+        lease directory or file is not usable (an `OSError` such as `ENOSPC` included). Idempotent; a lease removed meanwhile is
         written again. On failure, the leases this call created are removed."""
         uid = int(uid)
         name = str(uid)
@@ -263,8 +263,17 @@ class UidLeases:
                         continue
                     if fd is not None:
                         os.close(held.pop(path))
-                    existed = _exists(dir_fd, name)
-                    held[path] = self._take(dir_fd, name, path / name)
+                    try:
+                        existed = _exists(dir_fd, name)
+                        held[path] = self._take(dir_fd, name, path / name)
+                    except OSError as exc:
+                        # ENOSPC (a plugin filled the shared tmpfs), EACCES...: the
+                        # lease cannot be written nor checked, so fail closed with
+                        # the error every caller handles (MSHL-359).
+                        raise UidLeaseError(
+                            f"{path / name}: cannot be leased ({exc.strerror or exc})",
+                            [str(path / name)],
+                        ) from None
                     if not existed:
                         new.append((dir_fd, path))
             except BaseException:
