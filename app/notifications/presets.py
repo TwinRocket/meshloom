@@ -17,6 +17,8 @@ Template syntax:
   (a field left empty takes its ``default``);
 - ``{name.scheme}``, ``{name.netloc}``, ``{name.path}``: the parts of a ``url`` field
   (``scheme`` through the field's ``scheme_map``);
+- ``{name.seg1}``, ``{name.seg2}``...: the n-th ``/``-separated segment of the path of a
+  ``url`` field (a Slack webhook ``/services/T/B/X`` is ``seg2``, ``seg3``, ``seg4``);
 - ``[...]``: an optional group, left out when a placeholder inside it is empty.
 
 To add a service, append a ``Preset`` to ``PRESETS`` and its texts to the
@@ -55,6 +57,8 @@ class PresetField:
     choices: tuple[str, ...] = ()
     # ``url``: the Apprise scheme for each URL scheme (``{"http": "gotify", ...}``).
     scheme_map: Mapping[str, str] = field(default_factory=dict)
+    # ``url``: the host the URL must have (a service with one fixed address).
+    host: str = ""
     # ``url``: the service has no sub-path (a path is refused, not dropped).
     no_path: bool = False
     # A change of this field must not keep a stored secret (``secret_follows``).
@@ -80,6 +84,9 @@ class Preset:
     # The starting text policy of a new channel; ``None``: ``public_only`` when ``cloud``,
     # else ``always``. SMS presets start on ``never`` (a title fits one SMS).
     text_policy: Literal["always", "public_only", "never"] | None = None
+    # The text policy cannot be changed: the service cuts or refuses a long text (an SMS),
+    # so ``Channels.prepare`` and the update refuse anything but ``text_policy``.
+    text_policy_locked: bool = False
 
     @property
     def help_key(self) -> str:
@@ -317,31 +324,20 @@ PRESETS = PRESETS + (
     ),
     Preset(
         "slack",
-        "slack://{token_a}/{token_b}/{token_c}",
+        "slack://{webhook.seg2}/{webhook.seg3}/{webhook.seg4}",
         (
-            # The workspace and the webhook ids are identifiers; the last part is the secret.
+            # One pasted address: the last part is the secret, so the whole URL is.
             PresetField(
-                "token_a",
-                required=True,
-                pattern=_SLACK_PART,
-                max_length=64,
-                help=True,
-                example="T0AAAAAAA",
-            ),
-            PresetField(
-                "token_b",
-                required=True,
-                pattern=_SLACK_PART,
-                max_length=64,
-                example="B0BBBBBBB",
-            ),
-            PresetField(
-                "token_c",
+                "webhook",
+                kind="url",
                 secret=True,
                 required=True,
-                pattern=_SLACK_PART,
+                max_length=255,
+                scheme_map={"https": "slack"},
+                host="hooks.slack.com",
+                pattern=rf"https://hooks\.slack\.com/services/{_SLACK_PART}/{_SLACK_PART}/{_SLACK_PART}/?",
                 help=True,
-                example="Xx1Yy2Zz3Aa4Bb5Cc6Dd7Ee8",
+                example="https://hooks.slack.com/services/TDUMMY1/BDUMMY2/dummysecret",
             ),
         ),
         # Slack accepts about one message a second on an incoming webhook.
@@ -443,6 +439,7 @@ PRESETS = PRESETS + (
         cloud=True,
         min_interval_s=10.0,
         text_policy="never",
+        text_policy_locked=True,
         wiki_url="https://mobile.free.fr/account/mes-options/notifications-sms",
     ),
     Preset(
@@ -475,13 +472,15 @@ PRESETS = PRESETS + (
         cloud=True,
         min_interval_s=10.0,
         text_policy="never",
-        wiki_url="https://www.sfr.fr/",
+        text_policy_locked=True,
+        wiki_url="https://github.com/caronc/apprise/wiki/Notify_sfr",
     ),
 )
 
 PRESETS_BY_ID: dict[str, Preset] = {preset.id: preset for preset in PRESETS}
 
-_PLACEHOLDER = re.compile(r"\{(?P<name>[a-z_]+)(?:\.(?P<part>[a-z]+))?\}")
+_PLACEHOLDER = re.compile(r"\{(?P<name>[a-z_]+)(?:\.(?P<part>[a-z0-9]+))?\}")
+_SEGMENT = re.compile(r"seg([1-9])")
 _OPTIONAL = re.compile(r"\[([^\[\]]*)\]")
 
 
@@ -526,6 +525,10 @@ def _check_url(value: str, spec: PresetField) -> str:
         raise ValueError("must not contain '..' or '%' in its path")
     if spec.no_path and parts.path.rstrip("/"):
         raise ValueError("must not have a path")
+    if spec.host and (parts.hostname or "").lower() != spec.host:
+        raise ValueError("not the expected host")
+    if spec.pattern and not _full(spec.pattern, value):
+        raise ValueError("not a valid value")
     return value.rstrip("/")
 
 
@@ -578,7 +581,9 @@ def build_config_model(preset: Preset) -> type[_ConfigBase]:
         spec = specs[info.field_name]
         if isinstance(value, SecretStr):
             raw = value.get_secret_value()
-            if raw and spec.pattern and not _full(spec.pattern, raw.strip()):
+            if raw and spec.kind == "url":
+                _check_url(raw, spec)
+            elif raw and spec.pattern and not _full(spec.pattern, raw.strip()):
                 raise ValueError("not a valid value")
             return SecretStr(raw.strip()) if raw else value
         return _check_value(value, spec)
@@ -634,9 +639,17 @@ def _render(preset: Preset, text: str, values: Mapping[str, Any]) -> str:
         if part is None:
             # ":" stays: a Telegram token reads ``123:ABC`` in the URL's host position.
             return quote(value, safe=":")
-        if spec.kind != "url" or part not in URL_PARTS:
+        segment = _SEGMENT.fullmatch(part)
+        if spec.kind != "url" or (part not in URL_PARTS and segment is None):
             raise PresetError("preset_template_invalid")
         scheme, netloc, path = split_url(value)
+        if segment is not None:
+            segments = path.split("/")[1:]
+            index = int(segment[1]) - 1
+            if index >= len(segments) or not segments[index]:
+                missing.append(spec.name)
+                return ""
+            return quote(segments[index], safe="")
         if part == "scheme":
             return spec.scheme_map[scheme]
         if part == "netloc":

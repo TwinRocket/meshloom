@@ -86,15 +86,12 @@
         }
       },
       "slack": {
-        "about": "Posts to the Slack channel an incoming webhook is attached to. Create the webhook in your Slack app (Incoming Webhooks), then paste the three parts of its address https://hooks.slack.com/services/AAA/BBB/CCC.",
+        "about": "Posts to the Slack channel an incoming webhook is attached to. Create the webhook in your Slack app (Incoming Webhooks), then paste its address https://hooks.slack.com/services/AAA/BBB/CCC in one piece.",
         "fields": {
-          "token_a": "Webhook part 1 (T…)",
-          "token_b": "Webhook part 2 (B…)",
-          "token_c": "Webhook part 3"
+          "webhook": "Webhook address"
         },
         "help": {
-          "token_a": "The first part after /services/ in the webhook address.",
-          "token_c": "The third part is the secret: write-only, never shown again."
+          "webhook": "The whole address Slack gives you, starting with https://hooks.slack.com/services/. It holds the secret: write-only, never shown again."
         }
       },
       "mattermost": {
@@ -112,7 +109,7 @@
         "about": "Posts to a Rocket.Chat room as a dedicated account that has joined it.",
         "fields": {
           "server": "Rocket.Chat server",
-          "username": "User name",
+          "username": "User ID (or user name)",
           "password": "Password or access token",
           "room": "Room",
           "auth": "Credential type"
@@ -120,11 +117,12 @@
         "help": {
           "server": "The address of your server, for example https://chat.example.org. Only the address, no path. On your home network tick “Allow a private-network destination” below.",
           "password": "The account's password, or a personal access token (then set the credential type to token). Write-only: it is never shown again.",
-          "room": "A channel (#general), a user (@name) or a room id."
+          "room": "A channel (#general), a user (@name) or a room id.",
+          "username": "With a password, the account's user name. With a personal access token, the user ID Rocket.Chat shows next to the token (not the user name)."
         }
       },
       "sms_free": {
-        "about": "Free Mobile sends an SMS to the line of the account that enabled the option, and to nobody else. Enable “Notifications par SMS” in your Free Mobile account to get the key. An SMS holds about 160 characters, so the text policy starts on “never”: only a short title is sent.",
+        "about": "Free Mobile sends an SMS to the line of the account that enabled the option, and to nobody else. Enable “Notifications par SMS” in your Free Mobile account to get the key. An SMS holds about 160 characters, so the text policy is fixed on “never”: only a short title is sent.",
         "fields": {
           "user": "Free Mobile login",
           "api_key": "SMS API key"
@@ -135,7 +133,7 @@
         }
       },
       "sms_sfr": {
-        "about": "Sends SMS through the SFR messaging service (an SFR account with the SMS API enabled). An SMS holds about 160 characters, so the text policy starts on “never”: only a short title is sent.",
+        "about": "Sends SMS through the SFR messaging service (an SFR account with the SMS API enabled). An SMS holds about 160 characters, so the text policy is fixed on “never”: only a short title is sent.",
         "fields": {
           "username": "Account name",
           "password": "Password",
@@ -223,8 +221,12 @@
         }
       },
       "channels": {
-        "presetDocs": "Service documentation"
+        "presetDocs": "Service documentation",
+        "includeTextLocked": "Fixed for this service: an SMS holds about 160 characters, so only a short title is sent."
       }
     }
+  },
+  "errors": {
+    "text_policy_locked": "This service cuts long texts (an SMS), so its message text policy is fixed on “never”."
   }
 }

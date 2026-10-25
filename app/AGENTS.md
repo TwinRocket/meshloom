@@ -457,6 +457,8 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 124 (MSHL-365) rewrites Slack preset channels from `token_a`/`token_b`/`token_c` to one
+  `webhook` secret (`tests/test_migrations/test_migration_124.py`).
 - Migration 102 adds the share settings to `app_settings` (`share_enabled`,
   `share_shorten_mode`, `share_preview_policy`, `share_instance_seed`). Fresh databases get
   them from the migration, not from `SCHEMA_TABLES` (later columns are all added that

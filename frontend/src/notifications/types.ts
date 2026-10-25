@@ -36,6 +36,8 @@ export interface NotificationTypeInfo {
   default_limits: { per_min: number | null; per_hour: number | null; per_day: number | null };
   quiet_hours_exempt_default: boolean;
   include_message_text_default: NotificationIncludeText;
+  /** The text policy cannot be changed (an SMS service cuts a long text). */
+  include_message_text_locked?: boolean;
 }
 
 export interface NotificationChannel {

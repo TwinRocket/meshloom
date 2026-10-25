@@ -403,6 +403,7 @@
     },
     "help_key": "notifications.presets.telegram.about",
     "include_message_text_default": "public_only",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -465,6 +466,7 @@
     },
     "help_key": "notifications.presets.gotify.about",
     "include_message_text_default": "always",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -532,6 +534,7 @@
     },
     "help_key": "notifications.presets.home_assistant.about",
     "include_message_text_default": "always",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -595,6 +598,7 @@
     },
     "help_key": "notifications.presets.pushover.about",
     "include_message_text_default": "public_only",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -685,6 +689,7 @@
     },
     "help_key": "notifications.presets.matrix.about",
     "include_message_text_default": "public_only",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -756,6 +761,7 @@
     },
     "help_key": "notifications.presets.signal.about",
     "include_message_text_default": "always",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -836,33 +842,17 @@
     },
     "help_key": "notifications.presets.slack.about",
     "include_message_text_default": "public_only",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
       "additionalProperties": false,
       "properties": {
-        "token_a": {
-          "help_key": "notifications.presets.slack.help.token_a",
-          "label_key": "notifications.presets.slack.fields.token_a",
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^(?:[A-Za-z0-9]{6,64})$",
-          "title": "Token A",
-          "type": "string"
-        },
-        "token_b": {
-          "label_key": "notifications.presets.slack.fields.token_b",
-          "maxLength": 64,
-          "minLength": 1,
-          "pattern": "^(?:[A-Za-z0-9]{6,64})$",
-          "title": "Token B",
-          "type": "string"
-        },
-        "token_c": {
+        "webhook": {
           "anyOf": [
             {
               "format": "password",
-              "maxLength": 256,
+              "maxLength": 255,
               "type": "string",
               "writeOnly": true
             },
@@ -871,16 +861,12 @@
             }
           ],
           "default": null,
-          "help_key": "notifications.presets.slack.help.token_c",
-          "label_key": "notifications.presets.slack.fields.token_c",
-          "title": "Token C",
+          "help_key": "notifications.presets.slack.help.webhook",
+          "label_key": "notifications.presets.slack.fields.webhook",
+          "title": "Webhook",
           "writeOnly": true
         }
       },
-      "required": [
-        "token_a",
-        "token_b"
-      ],
       "title": "SlackConfig",
       "type": "object"
     },
@@ -898,6 +884,7 @@
     },
     "help_key": "notifications.presets.mattermost.about",
     "include_message_text_default": "always",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -951,6 +938,7 @@
     },
     "help_key": "notifications.presets.rocketchat.about",
     "include_message_text_default": "always",
+    "include_message_text_locked": false,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -1033,6 +1021,7 @@
     },
     "help_key": "notifications.presets.sms_free.about",
     "include_message_text_default": "never",
+    "include_message_text_locked": true,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -1086,6 +1075,7 @@
     },
     "help_key": "notifications.presets.sms_sfr.about",
     "include_message_text_default": "never",
+    "include_message_text_locked": true,
     "preset": true,
     "quiet_hours_exempt_default": false,
     "schema": {
@@ -1145,6 +1135,6 @@
     },
     "singleton": false,
     "type": "sms_sfr",
-    "wiki_url": "https://www.sfr.fr/"
+    "wiki_url": "https://github.com/caronc/apprise/wiki/Notify_sfr"
   }
 ]

@@ -7,7 +7,8 @@
         "notification_user_rules_dropped": "Un choix de notification de la sauvegarde visait un compte inexistant ici et a été ignoré.",
         "notification_rules_dropped": "Les règles de notification de la sauvegarde sont trop volumineuses et n’ont pas été restaurées.",
         "notification_destination_secrets_missing": "Les secrets des destinations e-mail, webhook ou Apprise n’étaient pas dans la sauvegarde : saisissez-les à nouveau dans Réglages > Notifications.",
-        "notification_rules_sanitized": "Certaines règles de notification de la sauvegarde étaient mal formées et ont été laissées de côté."
+        "notification_rules_sanitized": "Certaines règles de notification de la sauvegarde étaient mal formées et ont été laissées de côté.",
+        "notification_text_policy_forced": "La politique de texte d’un canal de notification ({{value}}) a été remise à sa valeur fixe (jamais) : un service SMS coupe les textes longs."
       }
     }
   },
