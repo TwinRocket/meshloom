@@ -569,6 +569,43 @@ describe('FeedView hollow pages', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(mocks.getMessages).toHaveBeenCalledTimes(2);
   });
+
+  it('keeps fetching while the picked conversation shows fewer than 20 rows', async () => {
+    const other = '22222222222222222222222222222222';
+    localStorage.setItem(
+      FEED_FILTERS_STORAGE_KEY,
+      JSON.stringify({ conversations: [`chan:${CHANNEL_KEY.toLowerCase()}`] })
+    );
+    // A full first page of a conversation that is not picked, then a page of the picked one.
+    const first = range(300, 499).map((id) => msg(id, { conversation_key: other }));
+    const second = range(1, 99).map((id) => msg(id));
+    mocks.getMessages
+      .mockResolvedValueOnce([...first].reverse())
+      .mockResolvedValueOnce([...second].reverse());
+    renderFeed([...channels, channel(other, 'Other')]);
+
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(mocks.getMessages).toHaveBeenCalledTimes(2);
+    expect(await screen.findAllByRole('listitem')).not.toHaveLength(0);
+  });
+
+  it('fetches an older page when picking a conversation leaves the list hollow', async () => {
+    const other = '22222222222222222222222222222222';
+    const first = range(100, 299).map((id) =>
+      msg(id, id % 20 === 0 ? { conversation_key: other } : {})
+    );
+    mocks.getMessages.mockResolvedValueOnce([...first].reverse()).mockResolvedValue([]);
+    renderFeed([...channels, channel(other, 'Other')]);
+    const facets = within(await screen.findByRole('complementary'));
+    await waitFor(() => expect(facets.getByText('Other')).toBeInTheDocument());
+    expect(mocks.getMessages).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      within(facets.getByText('Other').closest('label') as HTMLElement).getByRole('checkbox')
+    );
+    await waitFor(() => expect(mocks.getMessages).toHaveBeenCalledTimes(2));
+  });
 });
 
 describe('FeedView message rows', () => {
@@ -1335,5 +1372,100 @@ describe('FeedView radio offline grace', () => {
     renderFeed();
     await screen.findByRole('list').catch(() => {});
     expect(mocks.getNotificationRules).not.toHaveBeenCalled();
+  });
+});
+
+describe('FeedView quick text filter and mentions', () => {
+  const ME = 'Meshloom';
+  const type = (value: string) =>
+    fireEvent.change(screen.getByTestId('feed-text-filter'), { target: { value } });
+  const renderWith = (onSearchHistory = vi.fn()) => {
+    const view = render(
+      <FeedView
+        contacts={[]}
+        channels={channels}
+        radioName={ME}
+        onSearchHistory={onSearchHistory}
+        onBackToTools={vi.fn()}
+      />
+    );
+    return { ...view, onSearchHistory };
+  };
+  const bodies = async () =>
+    (await screen.findAllByRole('listitem')).map((item) => item.textContent ?? '');
+
+  it('matches the body, the sender and the conversation, ignoring case', async () => {
+    mocks.getMessages.mockResolvedValue([
+      msg(3, { text: 'Carol: lunch at noon' }),
+      msg(2, { text: 'Bob: LUNCH?' }),
+      msg(1, { text: 'Alice: hello' }),
+    ]);
+    renderWith();
+    await screen.findAllByRole('listitem');
+    type('lunch');
+    await waitFor(() => expect(screen.getByTestId('feed-text-count')).toHaveTextContent('2'));
+    expect(await bodies()).toHaveLength(2);
+    type('alice');
+    await waitFor(() => expect(screen.getByTestId('feed-text-count')).toHaveTextContent('1'));
+    type('public');
+    await waitFor(() => expect(screen.getByTestId('feed-text-count')).toHaveTextContent('3'));
+  });
+
+  it('does not match the prefix of a structured payload (r: matches no reaction)', async () => {
+    mocks.getMessages.mockResolvedValue([
+      msg(3, { text: 'Bob: r:1a2b:00' }),
+      msg(2, { text: 'Bob: g:abcd' }),
+      msg(1, { text: 'Alice: dear friends' }),
+    ]);
+    renderWith();
+    await screen.findAllByRole('listitem');
+    type('r:');
+    await waitFor(() => expect(screen.getByTestId('feed-text-count')).toHaveTextContent('0'));
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+    // Ordinary text containing the letters still matches.
+    type('dear');
+    await waitFor(() => expect(screen.getByTestId('feed-text-count')).toHaveTextContent('1'));
+  });
+
+  it('hands the exact query to message search and leaves the field as it was', async () => {
+    mocks.getMessages.mockResolvedValue([msg(1, { text: 'Alice: hello' })]);
+    const { onSearchHistory } = renderWith();
+    await screen.findAllByRole('listitem');
+    type('hello  World');
+    const link = await screen.findByTestId('feed-text-search-history');
+    fireEvent.click(link);
+    expect(onSearchHistory).toHaveBeenCalledTimes(1);
+    expect(onSearchHistory).toHaveBeenCalledWith('hello  World');
+    expect(screen.getByTestId('feed-text-filter')).toHaveValue('hello  World');
+  });
+
+  it('marks a row that mentions the radio, never one we sent', async () => {
+    mocks.getMessages.mockResolvedValue([
+      msg(3, { outgoing: true, text: 'Me: ping @[Meshloom]' }),
+      msg(2, { text: 'Bob: hey @[meshloom] look' }),
+      msg(1, { text: 'Alice: nothing' }),
+    ]);
+    renderWith();
+    const items = await screen.findAllByRole('listitem');
+    const marked = items.filter((item) => item.getAttribute('data-mention') === 'true');
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveTextContent('look');
+    expect(marked[0]).toHaveAttribute(
+      'aria-label',
+      i18n.t('feed.row.mentionAria', { name: 'Public' })
+    );
+  });
+
+  it('slow: filters 2 000 loaded rows within 500 ms', async () => {
+    const rows = range(1, 2000).map((id) =>
+      msg(id, { text: `Alice: row ${id} ${id % 10 === 0 ? 'needle' : ''}` })
+    );
+    mocks.getMessages.mockResolvedValue([...rows].reverse());
+    renderWith();
+    await screen.findAllByRole('listitem');
+    const started = performance.now();
+    type('needle');
+    await waitFor(() => expect(screen.getByTestId('feed-text-count')).toHaveTextContent('200'));
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

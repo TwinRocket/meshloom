@@ -17,7 +17,12 @@
       "filtersActive_one": "Filtres ({{formatted}})",
       "filtersActive_other": "Filtres ({{formatted}})",
       "messageCount_one": "{{formatted}} message",
-      "messageCount_other": "{{formatted}} messages"
+      "messageCount_other": "{{formatted}} messages",
+      "textLabel": "Filtrer les lignes chargées",
+      "textPlaceholder": "Filtrer les lignes chargées...",
+      "matchCount_one": "{{formatted}} résultat",
+      "matchCount_other": "{{formatted}} résultats",
+      "searchHistory": "Chercher dans tout l'historique"
     }
   }
 }

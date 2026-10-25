@@ -731,6 +731,7 @@ export function App() {
     onNavigateToMessage: handleNavigateToMessage,
     onOpenContactInfo: handleOpenContactInfo,
     onFeedQueryChange: syncFeedQuery,
+    onSearchHistory: handleOpenSearchWithQuery,
     onOpenChannelInfo: handleOpenChannelInfo,
     onSenderClick: handleSenderClick,
     onChannelReferenceClick: handleChannelReferenceClick,

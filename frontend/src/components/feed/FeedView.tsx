@@ -81,6 +81,7 @@ import {
   loadControlHistory,
   loadFeedPage,
 } from './feedHistory';
+import { normalizeFeedText, rowMatchesText } from '../../utils/feedTextFilter';
 import { FeedMessageRow } from './FeedMessageRow';
 import { createFeedNameResolver } from './feedNames';
 
@@ -105,6 +106,8 @@ interface FeedViewProps {
   onOpenContactInfo?: (publicKey: string, fromChannel?: boolean) => void;
   /** Opens the radio's settings (the radio events' "Radio status" action). */
   onOpenRadioSettings?: () => void;
+  /** Opens message search prefilled with this query (the quick filter's hand-off). */
+  onSearchHistory?: (query: string) => void;
 }
 
 const ESTIMATED_ROW_HEIGHT = 56;
@@ -163,6 +166,7 @@ export function FeedView({
   onSelectConversation,
   onOpenContactInfo,
   onOpenRadioSettings,
+  onSearchHistory,
 }: FeedViewProps) {
   const { t, i18n } = useTranslation();
   const { rows, controlPackets, events, controlHistory, hasOlder, epoch } = useFeedRows();
@@ -358,20 +362,32 @@ export function FeedView({
   const query = useMemo(() => filtersToQuery(shown), [shown]);
   const queryKey = noMessages ? 'none' : JSON.stringify(query);
 
-  const visibleRows = useMemo(
+  const resolveLabels = useMemo(
+    () => createFeedNameResolver(channels, contacts),
+    [channels, contacts]
+  );
+  // The quick text filter (session-only, over the loaded rows). While it is on, only messages
+  // can match: control and event rows are not text a reader typed, so they step aside.
+  const [textQuery, setTextQuery] = useState('');
+  const normalizedText = display ? '' : normalizeFeedText(textQuery.trim());
+  const filteredRows = useMemo(
     () => rows.filter((row) => rowPassesFilters(row, effective, channels, nowSec)),
     [rows, effective, channels, nowSec]
   );
+  const visibleRows = useMemo(() => {
+    if (!normalizedText) return filteredRows;
+    return filteredRows.filter((row) => rowMatchesText(resolveLabels(row), normalizedText));
+  }, [filteredRows, normalizedText, resolveLabels]);
   visibleRowsRef.current = visibleRows;
   const visibleControl = useMemo(
-    () => visibleControlEntries(entries, shown.sources.control, activeNode),
-    [entries, shown.sources.control, activeNode]
+    () => (normalizedText ? [] : visibleControlEntries(entries, shown.sources.control, activeNode)),
+    [entries, shown.sources.control, activeNode, normalizedText]
   );
   visibleControlRef.current = visibleControl;
   // Events follow the Events chip; a picked node narrows them to its own thread like control rows.
   const visibleEvents = useMemo(
-    () => visibleFeedEvents(events, shown.sources.events, activeNode),
-    [events, shown.sources.events, activeNode]
+    () => (normalizedText ? [] : visibleFeedEvents(events, shown.sources.events, activeNode)),
+    [events, shown.sources.events, activeNode, normalizedText]
   );
   const hidden = useMemo(
     () => countHiddenRows(rows, effective, channels, nowSec),
@@ -382,11 +398,6 @@ export function FeedView({
     [visibleRows, newSinceId, visibleControl, visibleEvents]
   );
   const itemCount = items.length;
-  const resolveLabels = useMemo(
-    () => createFeedNameResolver(channels, contacts),
-    [channels, contacts]
-  );
-
   // Channels and Contacts facets: the conversations of the loaded rows, counted on what the
   // filters keep (except the pick itself). A picked conversation absent from the window stays
   // listed with 0 so it can always be unpicked.
@@ -862,15 +873,18 @@ export function FeedView({
         onSelect={(node) => setFilters((prev) => ({ ...prev, node }))}
       />
     ) : null;
-  const facetsNode =
-    !display && facetLists.channels.length + facetLists.contacts.length > 0 ? (
-      <FeedFacets
-        channels={facetLists.channels}
-        contacts={facetLists.contacts}
-        selected={filters.conversations}
-        onChange={(conversations) => setFilters((prev) => ({ ...prev, conversations }))}
-      />
-    ) : null;
+  const facetsNode = !display ? (
+    <FeedFacets
+      query={textQuery}
+      onQueryChange={setTextQuery}
+      matchCount={visibleRows.length}
+      onSearchHistory={onSearchHistory}
+      channels={facetLists.channels}
+      contacts={facetLists.contacts}
+      selected={filters.conversations}
+      onChange={(conversations) => setFilters((prev) => ({ ...prev, conversations }))}
+    />
+  ) : null;
   const inspector = (
     <RawPacketInspectorDialog
       open={inspected !== null}

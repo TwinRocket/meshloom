@@ -3,6 +3,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import type { Message } from '../../types';
+import { messageContainsMention } from '../../utils/messageParser';
 import { RegionBadge } from '../../utils/messageText';
 import { MessageBody } from '../message/MessageBody';
 import { toast } from '../ui/sonner';
@@ -69,6 +70,8 @@ export const FeedMessageRow = memo(function FeedMessageRow({
   }, []);
 
   const contactKey = feedContactKey(row);
+  // The radio's name in the app's `@[name]` form; a message we sent never marks itself.
+  const mentionsUs = !row.outgoing && messageContainsMention(labels.content, radioName ?? null);
   const clearLongPress = useCallback(() => {
     if (longPressRef.current != null) clearTimeout(longPressRef.current);
     longPressRef.current = null;
@@ -94,7 +97,11 @@ export const FeedMessageRow = memo(function FeedMessageRow({
       data-index={index}
       role="listitem"
       tabIndex={readOnly ? undefined : 0}
-      className="absolute left-0 top-0 w-full cursor-pointer border-b border-border/50 py-2 text-sm hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      aria-label={mentionsUs ? t('feed.row.mentionAria', { name: labels.conversation }) : undefined}
+      data-mention={mentionsUs ? 'true' : undefined}
+      className={`absolute left-0 top-0 w-full cursor-pointer border-b border-border/50 py-2 text-sm hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring${
+        mentionsUs ? ' border-l-2 border-l-primary pl-2' : ''
+      }`}
       style={{ transform: `translateY(${offset}px)` }}
       onClick={(event) => {
         if (longPressedRef.current) {

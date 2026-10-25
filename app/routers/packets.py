@@ -221,7 +221,7 @@ def _payload_type_filter(value: str | None) -> frozenset[PayloadType] | None:
     if not parts:
         if "," in value:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Invalid payload_type: {value}",
             )
         return None  # empty or blank: no filter, as before
@@ -239,7 +239,7 @@ def _payload_type_member(value: str) -> PayloadType:
             if member.name.replace("_", "") == compact_nosep:
                 return member
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Invalid payload_type: {value}",
         ) from None
 
@@ -303,7 +303,7 @@ async def get_raw_packet_history(
     """Return a bounded newest-first page of stored raw packets."""
     if since is not None and until is not None and since > until:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="since must be less than or equal to until",
         )
 
