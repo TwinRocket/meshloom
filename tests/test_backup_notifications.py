@@ -637,3 +637,48 @@ async def test_a_fresh_instance_warns_when_the_destination_secrets_are_missing(b
     invalidate_cache()
     warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
     assert "notification_destination_secrets_missing" in warnings
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("preset_id", "config"),
+    [
+        ("sms_free", {"user": "12345678"}),
+        ("sms_sfr", {"username": "u", "space_id": "s1", "to": "+33600000000"}),
+    ],
+)
+async def test_a_restore_cannot_loosen_a_locked_sms_text_policy(backup_db, preset_id, config):
+    section = _section()
+    section.data["channels"].append(
+        {
+            **section.data["channels"][1],
+            "id": f"sms-{preset_id}",
+            "type": "apprise",
+            "preset": preset_id,
+            "config": config,
+            "secret_omitted": {},
+            "include_message_text": "always",
+        }
+    )
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert f"notification_text_policy_forced:sms-{preset_id}" in warnings
+    stored = await Channels.get(f"sms-{preset_id}")
+    assert stored is not None and stored.include_message_text == "never"
+
+
+@pytest.mark.asyncio
+async def test_a_pre_release_slack_channel_is_dropped_by_the_restore(backup_db):
+    section = _section()
+    section.data["channels"].append(
+        {
+            **section.data["channels"][1],
+            "id": "slack-old00001",
+            "type": "apprise",
+            "preset": "slack",
+            "config": {"token_a": "T0AAAAAA", "token_b": "B0BBBBBB"},
+            "secret_omitted": {"token_c": True},
+        }
+    )
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert "notification_channel_dropped:slack-old00001" in warnings
+    assert await Channels.get("slack-old00001") is None

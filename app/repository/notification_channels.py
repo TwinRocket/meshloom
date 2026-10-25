@@ -224,6 +224,12 @@ async def _check_destination(
         raise ChannelError(exc.code, line=exc.line, scheme=exc.scheme) from None
 
 
+def _check_text_policy(entry: ChannelType, wanted: str | None) -> None:
+    """A preset whose service cuts a long text (SMS) keeps its text policy (``never``)."""
+    if entry.text_policy_locked and wanted not in (None, entry.include_message_text_default):
+        raise ChannelError("text_policy_locked", policy=entry.include_message_text_default)
+
+
 def _utf_trim(value: str | None) -> str | None:
     return value[:LAST_ERROR_MAX] if value else value
 
@@ -278,6 +284,7 @@ class NotificationChannelRepository:
         secret parts), the required fields and the destination (egress guard). Also
         what ``POST /channels/test`` runs, so a test and a save refuse the same things."""
         entry = get_type(body.type, body.preset)
+        _check_text_policy(entry, body.include_message_text)
         public, secrets = _split_config(entry, body.config)
         missing = _required_missing(entry, public, secrets)
         if missing:
@@ -356,6 +363,7 @@ class NotificationChannelRepository:
         if patch.type is not None and patch.type != current.type:
             raise ChannelError("type_immutable")
         entry = get_type(current.type, current.preset)
+        _check_text_policy(entry, patch.include_message_text)
 
         public = dict(current.config)
         secrets = dict(stored_secrets)

@@ -277,6 +277,11 @@ class ChannelType:
         forced = self.preset.text_policy if self.preset is not None else None
         return forced or ("public_only" if self.cloud else "always")
 
+    @property
+    def text_policy_locked(self) -> bool:
+        """The text policy cannot be changed (an SMS service cuts a long text)."""
+        return bool(self.preset is not None and self.preset.text_policy_locked)
+
     def include_message_text_for(self, public: dict[str, Any]) -> IncludeMessageText:
         """The default text policy of a new channel with this public config."""
         if self.cloud_check is None:
@@ -444,6 +449,7 @@ def types_schema() -> list[dict[str, Any]]:
             },
             "quiet_hours_exempt_default": entry.quiet_hours_exempt_default,
             "include_message_text_default": entry.include_message_text_default,
+            "include_message_text_locked": entry.text_policy_locked,
             "help_key": entry.preset.help_key,
             "wiki_url": entry.preset.wiki_url,
         }

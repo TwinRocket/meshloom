@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.net.apprise_urls import (
     apprise_url_secret_parts,
@@ -282,10 +283,21 @@ def config_secret_values(kind: str, config: Mapping[str, Any]) -> list[str]:
 
 
 def scrub_error(text: str | None, secrets: Iterable[str]) -> str | None:
-    """``text`` with every secret replaced by ``****``, longest first."""
+    """``text`` with every secret replaced by ``****``, longest first (for a URL secret, its
+    last path segment too)."""
     if not text:
         return text
-    unique = {s for s in secrets if isinstance(s, str) and len(s) >= _MIN_FRAGMENT_LEN}
+    unique = set()
+    for secret in secrets:
+        if not isinstance(secret, str):
+            continue
+        unique.add(secret)
+        if secret.startswith(("http://", "https://")):
+            # A pasted webhook: a compiled address may quote only a slice of it (Slack's
+            # ``slack://T/B/X``), and the last path segment is the part that is secret.
+            last = urlsplit(secret).path.rstrip("/").rsplit("/", 1)[-1]
+            unique.add(last)
+    unique = {s for s in unique if len(s) >= _MIN_FRAGMENT_LEN}
     for secret in sorted(unique, key=len, reverse=True):
         text = text.replace(secret, "****")
     return text
