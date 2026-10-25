@@ -188,7 +188,7 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   `secret_follows` from the fields flags), refusing a preset on another base type
   (`channel_preset_unknown`). `REGISTRY` stays the natives only.
 - **Template.** `{field}` is percent-encoded (`:` kept, a Telegram token needs it), `{url.scheme}` /
-  `{url.netloc}` / `{url.path}` take a `kind="url"` field apart (`scheme_map` turns `http`/`https`
+  `{url.netloc}` / `{url.path}` / `{url.seg1}`..`seg9` (the n-th path segment) take a `kind="url"` field apart (`scheme_map` turns `http`/`https`
   into `gotify`/`gotifys`), `[...]` is left out when a placeholder inside is empty. A field with a
   `default` takes it when empty. `compile_url()` re-validates every value and raises `PresetError`
   (field names only); the URL exists only inside `_check_destination` and `AppriseTransport.send`.
@@ -196,7 +196,7 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   `user_host` plugins, the scheme allowlist, the Telegram chat id rule) and the `verify_tls` rule,
   so a LAN Gotify or Home Assistant answers `egress_private_address` until `allow_private_network`
   is ticked. `required` secrets are `config_required`; a missing or malformed public field is
-  `invalid_config` naming the field (no value). Patterns are ASCII (`[0-9]`, `[A-Za-z0-9_]`, never `\d`/`\w`; `_full` also uses `re.ASCII`); a `url` field refuses `..` and `%` in its path, and `no_path=True` (Home Assistant) refuses any path rather than dropping it. Home Assistant uses `?accesstoken=` so the
+  `invalid_config` naming the field (no value). A Matrix `credential` (token or password, one secret) is a `required` secret: save and `POST /channels/test` refuse its absence with `config_required` before any request, and no preset does a network credential check at save time (egress only on the explicit test, through the transport). Patterns are ASCII (`[0-9]`, `[A-Za-z0-9_]`, never `\d`/`\w`; `_full` also uses `re.ASCII`); a `url` field refuses `..` and `%` in its path, and `no_path=True` (Home Assistant) refuses any path rather than dropping it; `host` pins a fixed host and `pattern` is also checked on a url value. A `url` field may be `secret` (Slack: one pasted webhook, split by `seg2..seg4`; the whole URL is the secret, schema without `format: uri`). Home Assistant uses `?accesstoken=` so the
   service stays the path (Apprise would otherwise take the last path element for the token).
 - **`GET /types`.** A preset is an entry with `preset: true`, `type` its id, `base_type: "apprise"`,
   `help_key`, `wiki_url` and the JSON Schema of its model (`label_key` / `help_key` per field under
@@ -215,7 +215,7 @@ A preset is an Apprise service described as data, no code per service: a `Preset
 - All routes are `admin`. Responses show a channel with `config[secret] = "********"` (or `""`
   when unset) and `secret_fields`; `Channel` itself never holds a value. Errors are
   `{code, params}` (`ChannelError.detail()`, `fail()`): `invalid_config`, `config_required`,
-  `secret_required`, `type_immutable`, `builtin_channel` (403), `channel_missing` (404, 400 for
+  `secret_required`, `text_policy_locked` (a preset with `text_policy_locked`, the SMS ones, only accepts its own `never`: `prepare()` and `update()` refuse another `include_message_text`; `/types` carries `include_message_text_locked`), `type_immutable`, `builtin_channel` (403), `channel_missing` (404, 400 for
   an id inside a body), `channel_exists` (409), `rate_limited`, the guard's `egress_*`, ...
   Never a host, an IP or an exception text.
 - **Tests.** `POST /channels/test` runs `NotificationChannelRepository.prepare()` (the checks of

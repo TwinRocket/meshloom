@@ -96,6 +96,18 @@ const TYPES: NotificationTypeInfo[] = [
     },
   }),
   typeInfo({
+    type: 'sms_free',
+    preset: true,
+    base_type: 'apprise',
+    cloud: true,
+    include_message_text_default: 'never',
+    include_message_text_locked: true,
+    schema: {
+      properties: { user: { type: 'string', title: 'Login' } },
+      required: ['user'],
+    },
+  }),
+  typeInfo({
     type: 'matrix',
     preset: true,
     base_type: 'apprise',
@@ -343,6 +355,18 @@ describe('add dialog', () => {
     expect(screen.getByText(/receives a JSON POST/)).toBeInTheDocument();
     expect(screen.queryByTestId('schema-form-unsupported')).not.toBeInTheDocument();
     expect(screen.queryByText(/grandfathered/i)).not.toBeInTheDocument();
+  });
+
+  it('locks the text policy of an SMS preset on never', async () => {
+    mockApi();
+    const picker = await openAdd();
+    fireEvent.click(within(picker).getByText('SMS Free Mobile'));
+    const select = screen.getByLabelText(
+      t('settings.notifications.channels.includeText')
+    ) as HTMLSelectElement;
+    expect(select.value).toBe('never');
+    expect(select).toBeDisabled();
+    expect(screen.getByTestId('text-policy-locked')).toBeInTheDocument();
   });
 
   it('renders the telegram preset and creates it on the apprise type', async () => {

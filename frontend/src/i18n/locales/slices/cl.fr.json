@@ -86,15 +86,12 @@
         }
       },
       "slack": {
-        "about": "Publie dans le canal Slack auquel un webhook entrant est rattaché. Créez le webhook dans votre application Slack (Incoming Webhooks), puis collez les trois parties de son adresse https://hooks.slack.com/services/AAA/BBB/CCC.",
+        "about": "Publie dans le canal Slack auquel un webhook entrant est rattaché. Créez le webhook dans votre application Slack (Incoming Webhooks), puis collez son adresse https://hooks.slack.com/services/AAA/BBB/CCC d'un seul bloc.",
         "fields": {
-          "token_a": "Webhook, partie 1 (T…)",
-          "token_b": "Webhook, partie 2 (B…)",
-          "token_c": "Webhook, partie 3"
+          "webhook": "Adresse du webhook"
         },
         "help": {
-          "token_a": "La première partie après /services/ dans l'adresse du webhook.",
-          "token_c": "La troisième partie est le secret : en écriture seule, jamais réaffichée."
+          "webhook": "L'adresse complète donnée par Slack, qui commence par https://hooks.slack.com/services/. Elle contient le secret : en écriture seule, jamais réaffichée."
         }
       },
       "mattermost": {
@@ -112,7 +109,7 @@
         "about": "Publie dans un salon Rocket.Chat avec un compte dédié qui l'a rejoint.",
         "fields": {
           "server": "Serveur Rocket.Chat",
-          "username": "Nom d'utilisateur",
+          "username": "Identifiant utilisateur (ou nom d'utilisateur)",
           "password": "Mot de passe ou jeton d'accès",
           "room": "Salon",
           "auth": "Type d'identifiant"
@@ -120,11 +117,12 @@
         "help": {
           "server": "L'adresse de votre serveur, par exemple https://chat.example.org. Uniquement l'adresse, sans chemin. Sur votre réseau local, cochez « Autoriser une destination sur réseau privé » plus bas.",
           "password": "Le mot de passe du compte, ou un jeton d'accès personnel (réglez alors le type d'identifiant sur jeton). En écriture seule : il n'est jamais réaffiché.",
-          "room": "Un canal (#general), un utilisateur (@nom) ou un identifiant de salon."
+          "room": "Un canal (#general), un utilisateur (@nom) ou un identifiant de salon.",
+          "username": "Avec un mot de passe, le nom d'utilisateur du compte. Avec un jeton d'accès personnel, l'identifiant utilisateur (user ID) que Rocket.Chat affiche à côté du jeton (pas le nom d'utilisateur)."
         }
       },
       "sms_free": {
-        "about": "Free Mobile envoie un SMS à la ligne du compte qui a activé l'option, et à personne d'autre. Activez « Notifications par SMS » dans votre compte Free Mobile pour obtenir la clé. Un SMS tient environ 160 caractères : la politique de texte démarre sur « jamais », seul un titre court est envoyé.",
+        "about": "Free Mobile envoie un SMS à la ligne du compte qui a activé l'option, et à personne d'autre. Activez « Notifications par SMS » dans votre compte Free Mobile pour obtenir la clé. Un SMS tient environ 160 caractères : la politique de texte est fixée sur « jamais », seul un titre court est envoyé.",
         "fields": {
           "user": "Identifiant Free Mobile",
           "api_key": "Clé d'API SMS"
@@ -135,7 +133,7 @@
         }
       },
       "sms_sfr": {
-        "about": "Envoie des SMS par le service de messagerie SFR (un compte SFR avec l'API SMS activée). Un SMS tient environ 160 caractères : la politique de texte démarre sur « jamais », seul un titre court est envoyé.",
+        "about": "Envoie des SMS par le service de messagerie SFR (un compte SFR avec l'API SMS activée). Un SMS tient environ 160 caractères : la politique de texte est fixée sur « jamais », seul un titre court est envoyé.",
         "fields": {
           "username": "Nom du compte",
           "password": "Mot de passe",
@@ -223,8 +221,12 @@
         }
       },
       "channels": {
-        "presetDocs": "Documentation du service"
+        "presetDocs": "Documentation du service",
+        "includeTextLocked": "Fixé pour ce service : un SMS tient environ 160 caractères, seul un titre court est envoyé."
       }
     }
+  },
+  "errors": {
+    "text_policy_locked": "Ce service coupe les textes longs (un SMS) : sa politique de texte est fixée sur « jamais »."
   }
 }
