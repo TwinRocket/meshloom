@@ -7,7 +7,7 @@
     "share_quota_ip": "Too many shares from this network today. Try again later.",
     "share_quota_global": "The share service has reached its daily limit. Try again later.",
     "share_rate_limited": "Too many share requests at once. Wait a moment and try again.",
-    "share_banned": "The share service has banned this Meshloom. Writing is refused; existing links still open.",
+    "share_banned": "The share service has banned this Meshloom. Writing is refused for 12 hours; existing links still open. This applies to this instance and everyone using it: write to ban@meshloom.app if you think it is a mistake.",
     "share_too_large": "This file is too large to share.",
     "share_type_refused": "This type of file cannot be shared.",
     "share_not_found": "This link or file does not exist.",

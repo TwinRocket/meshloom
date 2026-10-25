@@ -113,6 +113,27 @@ describe('SettingsShareSection', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
+  it('shows the ban banner with the contact in both languages, and none otherwise', async () => {
+    current = { ...offStatus, enabled: true, banned: true };
+    renderSection();
+    await enableBox();
+    for (const lng of ['fr', 'en']) {
+      await act(async () => {
+        await i18n.changeLanguage(lng);
+      });
+      const banner = screen.getByTestId('share-banned');
+      expect(banner).toHaveTextContent(i18n.t('settings.share.banned.title'));
+      expect(banner.querySelector('a')).toHaveAttribute('href', 'mailto:ban@meshloom.app');
+      expect(banner).toHaveTextContent('ban@meshloom.app');
+    }
+  });
+
+  it('shows no ban banner while not banned', async () => {
+    renderSection();
+    await enableBox();
+    expect(screen.queryByTestId('share-banned')).toBeNull();
+  });
+
   it('lets an already enabled instance turn sharing off while unreachable', async () => {
     current = { ...offStatus, enabled: true, unreachable: true };
     renderSection();
