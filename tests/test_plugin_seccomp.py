@@ -76,6 +76,43 @@ def test_native_abi_follows_the_interpreter_not_the_kernel() -> None:
     assert seccomp.native_abi("mips", 4) is None
 
 
+# Every architecture Meshloom ships (deb/rpm amd64, arm64, armhf; Docker and the
+# Home Assistant add-on amd64, aarch64, armv7), as (uname machine, pointer size).
+# Outside root an unknown architecture runs without the filter (`required` is
+# false): the child still has RLIMIT_NPROC 0 and no capability left. A shipped one
+# must never be in that case (MSHL-339).
+SHIPPED_ARCHES = {
+    "amd64": [("x86_64", 8)],
+    "arm64": [("aarch64", 8)],
+    "aarch64": [("aarch64", 8)],
+    # Raspberry Pi OS 32-bit runs armhf userland on an armv7 or arm64 kernel.
+    "armhf": [("armv7l", 4), ("aarch64", 4)],
+    "armv7": [("armv7l", 4), ("aarch64", 4)],
+}
+
+
+@pytest.mark.parametrize("arch", sorted(SHIPPED_ARCHES))
+def test_every_shipped_architecture_has_a_seccomp_table(arch: str) -> None:
+    for machine, pointer_size in SHIPPED_ARCHES[arch]:
+        abi = seccomp.native_abi(machine, pointer_size)
+        assert abi in seccomp.TABLES, (arch, machine, pointer_size)
+
+
+def test_the_shipped_architecture_list_covers_the_add_on() -> None:
+    """A new add-on architecture must come with a seccomp table and a row above."""
+    root = __import__("pathlib").Path(APP_ROOT)
+    lines = (root / "meshloom" / "config.yaml").read_text().splitlines()
+    start = lines.index("arch:") + 1
+    arches = []
+    for line in lines[start:]:
+        if line.startswith("  - "):
+            arches.append(line[4:].strip())
+        elif line.strip() and not line.lstrip().startswith("#"):
+            break
+    assert arches
+    assert set(arches) <= set(SHIPPED_ARCHES), arches
+
+
 @pytest.mark.parametrize("abi", sorted(seccomp.TABLES))
 def test_filter_denies_exactly_the_listed_syscalls(abi: str) -> None:
     """Interpret the BPF program: denied numbers and foreign arches get EPERM."""
