@@ -388,17 +388,19 @@ class PluginRepository:
 
     @staticmethod
     async def delete(instance_id: str, *, keep_data: bool = False) -> None:
-        """Remove an instance, its secrets and its send counters; its KV too unless
+        """Remove an instance and its send counters; its KV and secrets too unless
         ``keep_data``."""
         async with db.tx() as conn:
             await conn.execute("DELETE FROM plugins WHERE instance_id = ?", (instance_id,))
-            await conn.execute("DELETE FROM plugin_secrets WHERE instance_id = ?", (instance_id,))
             await conn.execute(
                 "DELETE FROM plugin_send_quota WHERE instance_id = ?", (instance_id,)
             )
             await _forget_guard_rows(conn, instance_id)
             if not keep_data:
                 await conn.execute("DELETE FROM plugin_kv WHERE instance_id = ?", (instance_id,))
+                await conn.execute(
+                    "DELETE FROM plugin_secrets WHERE instance_id = ?", (instance_id,)
+                )
         _instances_cache.pop(instance_id, None)
         from app.plugins.quotas import send_guard
 

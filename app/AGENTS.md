@@ -133,7 +133,10 @@ and the OpenAPI page (`/docs`), not a table here.
   refuses to start the instance with `plugin_code_mismatch` until a later start writes
   the rows), a failure is logged and keeps the old version, nothing under the host lock.
   `installer.sweep_staging()` clears `<data>/plugins/_staging` leftovers at start, before
-  the update, without following symlinks.
+  the update, without following symlinks. `plugins/installer.py` is also the generic
+  install pipeline (MSHL-195: sources, fail-closed download gate, egress-guarded streaming
+  download, size and sha256 checks before extraction, manifest equal to the source's entry,
+  atomic move; `docs/dev/plugins.md`, "Installing").
   `plugins/launch.py` builds the launch contract of the plugin child, which runs
   the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
   `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
@@ -349,6 +352,40 @@ Community guard.
   `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans and what is
   not implemented yet must follow this section).
 
+## Store egress (`plugins/store_egress.py`)
+
+The Store's own egress class (MSHL-194): distinct from Community and from the share
+service, with its own consent, `app_settings.store_online` (in `AppSettings`, off by
+default, `PATCH /api/settings`). Community on or off changes nothing here.
+
+- **Hosts.** `STORE_HOSTS`, fixed in code: the GitHub hosts of custom repositories
+  (`github.com` and the release-asset redirect hosts `objects.githubusercontent.com`,
+  `release-assets.githubusercontent.com`) and the one TwinRocket host,
+  `store.meshloom.app` (`STORE_INDEX_HOST`, the signed index, M2b). `STORE_ALLOWLIST` is
+  `HostAllowlist.of(*STORE_HOSTS)`, HTTPS only. No environment variable.
+- **The one gate.** Every Store request goes through `store_fetch()`
+  (`follow_checked_redirects` with `STORE_ALLOWLIST`, redirects re-validated, capped
+  answers, `User-Agent: Meshloom/<version>` set by the module, a caller's one dropped).
+  While `store_egress_allowed()` is false it raises `StoreOffline` (`code
+  "store_offline"`) before any DNS lookup. Installer and refresh code (MSHL-195 on) call
+  it and never open their own client.
+- **Turning it off cuts at once.** `AppSettingsRepository.update` calls
+  `note_store_online_changed()`: off bumps a generation, cancels the requests in flight
+  (they raise `StoreOffline`) and stops the refresh loop; on starts or wakes it.
+- **Refresh loop.** Started at boot only when the consent is on; every
+  `REFRESH_INTERVAL_S` (6 h) it runs the steps registered with
+  `register_store_refresher()`, and only when at least one `custom` or `store` instance
+  is installed. M2a registers none yet (skeleton).
+- **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the
+  consent, `hosts` (read from `STORE_ALLOWLIST`, so it cannot drift from what the client
+  reaches), what is sent (IP address, User-Agent), the cadence, what is missed while off
+  (updates, online revocation alerts) and the last refresh.
+- **Backups.** `store_online` is a consent: left out of the JSON export
+  (`_CONSENT_FIELDS`), never restored, reset to 0 in a database copy.
+- Tests: `tests/test_store_egress.py` (nothing leaves while off, Community on or off,
+  loop included); `tests/test_community_off_no_egress.py` allows exactly
+  `store.meshloom.app` when `store_online` is on.
+
 ## Recovery CLI (`app/cli.py`)
 
 - `meshloom-admin` is `python -m app.cli` behind the wrapper `pkg/nfpm/meshloom-admin`:
@@ -437,8 +474,8 @@ run as root).
   contract exists in `meshloom-community/docs/contracts` (checked): no `CONTRACTS:` commit.
 - Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
   also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
-  and `app_settings.store_online` (Store consent, off, outside `AppSettings`, excluded
-  from backups and reset to 0 in a database copy). Additive: bots in `fanout_configs`
+  and `app_settings.store_online` (Store consent, off; in `AppSettings` since MSHL-194,
+  see "Store egress"; excluded from backups and reset to 0 in a database copy). Additive: bots in `fanout_configs`
   were untouched until migration 122 converted them. One `plugin_id` can have several instances, each
   with its own config, scope, permissions, quotas, KV and secrets; plugin secrets are
   never exported (`plugin_secrets` emptied in the database download, `secret_omitted`
@@ -1175,7 +1212,7 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   fanout). Its status (a code with the line, never the URL) is in the
   health payload as `notification_statuses["legacy:apprise"]`.
 - Egress guard (`app/net/AGENTS.md`): every user-chosen destination, and the
-  fixed-host callers (Store client, plugin `http` capability: host allowlist,
+  fixed-host callers (Store egress `store_fetch()`, plugin `http` capability: host allowlist,
   redirects re-validated hop by hop, streaming size caps).
 - The system webhook goes through the egress guard (`app/net/AGENTS.md`): checked
   at save and before each send, then sent pinned to a validated IP. Its LAN

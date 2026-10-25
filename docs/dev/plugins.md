@@ -7,8 +7,9 @@ UI, the global pause, and the conversion of the 4.18 bots** (MSHL-175 to MSHL-19
 MSHL-216, MSHL-337, MSHL-339; isolation: `docs/dev/plugins-security.md`, "OS
 isolation"). The server starts one supervised child per enabled instance, isolated by
 the OS, and answers its requests (see "Capabilities"). Not in 5.0.0: the online Store
-(index, personalised repositories, updates from a store, `app_settings.store_online`
-stays off and unread) and Windows (no plugins). Two bundled packages ship ("Bundled
+(index, personalised repositories, updates from a store; the consent
+`app_settings.store_online`, off by default, and its egress gate exist since MSHL-194, see
+"Store egress" in `app/AGENTS.md`) and Windows (no plugins). Two bundled packages ship ("Bundled
 plugins"). Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
@@ -164,8 +165,8 @@ manifest can produce.
 ## Data model
 
 Migration 103 adds three tables (columns in `docs/dev/database.md`) and
-`app_settings.store_online` (the Store egress consent, off; not in `AppSettings` until
-the Store client reads it). It was additive; migration 122 (MSHL-192) then converted the bots of
+`app_settings.store_online` (the Store egress consent, off; in `AppSettings` and
+`PATCH /api/settings` since MSHL-194, read by `app/plugins/store_egress.py`). It was additive; migration 122 (MSHL-192) then converted the bots of
 `fanout_configs` into local instances (see "Legacy bots"), so no release has bots without
 a runtime.
 
@@ -190,7 +191,7 @@ can be installed several times ("Weather for #paris", "Weather for #lyon"):
 `app/repository/plugins.py`: `PluginRepository` (CRUD, an in-memory copy of the rows
 like `repository/fanout.py`) and `PluginKvRepository` (`get`, `set`, `delete`, `keys`,
 `usage_bytes`, values stored as JSON). `delete(instance_id, keep_data=True)` keeps the
-KV rows ("uninstall, keep data"); the secrets always go. Refusals are a
+KV rows and the secrets ("uninstall, keep data"; MSHL-195), under the deleted instance id. Refusals are a
 `PluginStoreError` with a stable `code` and the field or key names, never a value.
 
 KV bounds (constants in `app/repository/plugins.py`; the `storage` capability
@@ -625,8 +626,9 @@ Tests: `tests/test_plugin_sdk.py` (the test is the server, over a real child).
 
 `meshloom_plugin/official/<dir>/` holds the packages shipped with the release
 (`meshloom_plugin/official/README.md`), installed offline from Settings → Extensions →
-Installed ("Add a bundled extension") through `POST /plugins/install` and
-`installer.install_bundled`. They are ordinary packages: validated with `origin =
+Installed ("Add a bundled extension") through `POST /plugins/install` (the generic
+pipeline below, with a `BundledSource`; `installer.install_bundled` serves the backup
+restore). They are ordinary packages: validated with `origin =
 "bundled"` (id `meshloom.*`), the same sandbox, quotas and host guards as any third
 party plugin, no special permission, not listed in any index. The directory is copied
 along with the rest of `meshloom_plugin/` by the Dockerfile and the packages. A package's
@@ -692,6 +694,60 @@ two-host simulation.
   The host guards (`SendGuard`) stay the authority: the plugin's own limits only keep it
   below them, and the two-host simulation in the tests shows two auto-responders
   answering each other stop within a few messages.
+
+## Installing (`app/plugins/installer.py`, MSHL-195)
+
+One pipeline for every installed kind: `prepare_install(source, plugins_root, plugin_id=)`
+then `PreparedInstall.commit()` (or `discard()`).
+
+- **Sources.** An `ArchiveSource` has a `tier` (`bundled`, `custom`, `store`),
+  `fetch_manifest()` (the source's entry: at least `id`, `version`, `permissions`),
+  `fetch_archive()`, `expected_sha256` and optionally `expected_size`. `BundledSource`
+  zips a package of `meshloom_plugin/official/`. `RemoteArchiveSource(tier, entry,
+  archive_url, expected_sha256, allowed_hosts, expected_size?, repository?)` downloads.
+  `custom` and `store` sources come from resolvers, `register_resolver(kind,
+  resolver(plugin_id, version, repository))`: none is registered yet (GitHub releases are
+  T22, the index Store M3), so `POST /install` answers 404 `plugin_source_unavailable`.
+- **Download gate.** A remote source is fetched only when `downloads_allowed()` is true:
+  `set_download_gate(async callable)`, fail closed (no gate, or a gate that raises, means
+  409 `store_offline`, and no request leaves). The `store_online` setting (MSHL-194) is to
+  be wired here.
+- **Download.** Through `follow_checked_redirects` (`app/net/egress_guard.py`): https only,
+  the source's host allowlist on every hop (5 redirects), public addresses only, no
+  cookies or proxy, 60 s total. The cap is `min(expected_size, 5 MiB)`: the
+  `Content-Length` is checked before the body and the stream is aborted past the cap
+  (`archive_too_large`; `archive_mismatch` `size` when the entry announced less). A host
+  or address refused is 409 `download_blocked` (`params.reason`, the guard's code); a
+  network error or a non-200 answer is 502 `download_failed`.
+- **Checks before anything is written.** The entry's id must be the requested one, the
+  byte count must equal `expected_size`, the sha256 must equal `expected_sha256`
+  (constant-time compare): otherwise 400 `archive_mismatch` with `params.fields`
+  (`id`, `size`, `sha256`, `entry`).
+- **Extraction.** `validate_package` then `extract_package` (see "Archive rules": zip-slip,
+  symlinks, special files, size and entry caps, no partial tree) into
+  `<data>/plugins/_staging/<uuid>/`, origin `bundled` or `third_party`. The manifest must
+  equal the entry for `id`, `version` and `permissions` (400 `archive_mismatch`). Any
+  failure removes the staging tree.
+- **Commit.** The tree replaces `<data>/plugins/<plugin_id>/` atomically (the old tree is
+  moved aside to `_staging/previous-<hex>` and put back if the move fails; a symlink in
+  its place is unlinked, never followed). A bundled tree already at the same version is
+  kept.
+- **Compatibility.** For `custom` and `store`, `compatible(manifest)`: the running
+  version's release segment against `compat.meshloom` (a pre-release of X.Y.Z counts as
+  X.Y.Z), else 409 `incompatible` (`params.compat`).
+- **Instances and locks.** Install, reinstall and delete of one `plugin_id` are serialized
+  (`plugin_lock`). A second instance of a `custom` or `store` plugin reuses the code
+  directory, no download (409 `plugin_version_conflict` for another `version`, 409
+  `plugin_code_missing` when the tree is not that plugin at that version,
+  `code_installed`). The code goes with the last instance using it (`remove_code`, never
+  follows a symlink); a row restored without its code (`attention.type = reinstall`) does
+  not count.
+- **Reinstall.** `POST /plugins/{id}/reinstall` brings back the code of a non-local
+  instance restored from a backup without it (`attention.type = reinstall`, T12): same
+  source kind and repository, the row's version (any bundled version), then the row takes
+  the installed manifest, version and schema, keeps the config fields the schema still
+  has and the grants the manifest still declares, and reads `attention.type = restored`
+  (the review before it starts, like a bundled restore).
 
 ## Legacy bots (`meshloom_plugin.compat`)
 
@@ -969,7 +1025,7 @@ everywhere. While the host lock or the platform turns the system off, every writ
 Audit (MSHL-215, `app/auth/audit.py`, `docs/dev/auth.md`): every successful or failed admin write
 records the actor, the target `plugin:<instance_id>` and `{plugin_id, kind, fields?}`, where
 `fields` lists the names of the changed fields only: never a config value, a secret or the source.
-`POST /install` is `plugin.installed`, `POST /plugins` `plugin.created`, `PATCH` `plugin.enabled`,
+`POST /install` and `POST /{id}/reinstall` (`details.reinstall`) are `plugin.installed`, `POST /plugins` `plugin.created`, `PATCH` `plugin.enabled`,
 `plugin.disabled`, `plugin.config_changed` (`config`, `scope`, `granted_permissions`, `quotas`,
 `hooks`) and `plugin.changed` (the other fields: `label`), one row per kind, `PUT source` `plugin.updated`
 (plus `source_bytes`, the size of the submitted source, never its text), `DELETE` `plugin.removed`. A
@@ -981,7 +1037,8 @@ non-admin refused by the permission gate writes no row and changes nothing.
 | `GET /plugins/pause` | member | `{paused, since, by}`: the global pause, since when (Unix time) and the user name of who set it. |
 | `PUT /plugins/pause` | admin | `{paused}`, idempotent: pauses or resumes every instance (see "Gates", global pause) and broadcasts `health`. A change of state is audited `plugins.paused` or `plugins.resumed` with the actor only (no target, no details); a repeat writes nothing. Allowed under the host lock. |
 | `GET /plugins/bundled` | member | The valid packages of `meshloom_plugin/official/*` (`app/plugins/installer.py`, `BUNDLED_ROOT`): manifest texts, declared permissions, `privacy` declaration (shown on the consent screen), config schema, instance count: `meshloom.echo` and `meshloom.auto-responder` ("Bundled plugins"). |
-| `POST /plugins/install` | admin | `{kind: "bundled", plugin_id, label?, granted_permissions, config?}`. 404 `plugin_not_bundled`; 400 `consent_required` (`params.missing`: the declared permissions the grant does not cover in full); 400 `package_invalid` (the bundled package fails validation), or 400 `lan_host_supervisor` when a `lan_hosts` entry is on the Home Assistant supervisor network (add-on only; MSHL-355); 400 `config_invalid` (`params.issues`: code and field); a required field missing creates the instance **disabled**, `status: needs_attention`, `attention: {type: "config_required", fields}`, no process. Otherwise it is enabled and started; 409 `instance_cap_reached` deletes it again. The code is copied (validated like an archive, origin `bundled`) to `<data>/plugins/<plugin_id>/` once per version, shared by the instances. Other kinds (`custom`, `store`) are M2. |
+| `POST /plugins/install` | admin | `{kind: "bundled"\|"custom"\|"store", plugin_id, version?, repository?, label?, granted_permissions, config?}` (see "Installing"). 404 `plugin_not_bundled` (or a `version` other than the packaged one), 404 `plugin_source_unavailable` (no source for that kind); 409 `plugin_kind_conflict` (the plugin is installed from another kind); 400 `consent_required` (`params.missing`: the declared permissions the grant does not cover in full), checked against the source's entry before any download; 409 `store_offline`, 409 `download_blocked`, 502 `download_failed`, 400 `archive_too_large`, 400 `archive_mismatch` (`params.fields`), 409 `incompatible` (`custom`/`store`), 409 `plugin_version_conflict`/`plugin_code_missing` (second instance); 400 `package_invalid` (the package fails validation), or 400 `lan_host_supervisor` when a `lan_hosts` entry is on the Home Assistant supervisor network (add-on only; MSHL-355); 400 `config_invalid` (`params.issues`: code and field); a required field missing creates the instance **disabled**, `status: needs_attention`, `attention: {type: "config_required", fields}`, no process. Otherwise it is enabled and started; 409 `instance_cap_reached` deletes it again. The code is copied (validated like an archive) to `<data>/plugins/<plugin_id>/` once per version, shared by the instances; a second `custom`/`store` instance reuses it without a download. A refused install leaves no row and no file. |
+| `POST /plugins/{id}/reinstall` | admin | A non-local instance restored without its code (`attention.type = reinstall`): fetches and installs the code of its kind, repository and version (see "Installing", Reinstall); answers the instance with `attention.type = restored`. 409 `plugin_not_reinstallable` otherwise; the install errors above. Audited `plugin.installed` with `details.reinstall`. |
 | `POST /plugins` | admin | A local plugin: `{label, hooks?, permissions?, template: "echo"\|"blank"}`; the manifest is built and validated (`origin=local`, id `local.<slug>-<hex>`), the permissions are declared and granted together, created disabled. 400 `manifest_invalid`, or 400 `lan_host_supervisor` when a `lan_hosts` entry is on the Home Assistant supervisor network (add-on only; MSHL-354). |
 | `PATCH /plugins/{id}` | admin | `enabled` starts or stops the process (409 `config_required`, 409 `instance_cap_reached`: `enabled` is put back to false); a change of `config`, `scope`, `granted_permissions`, `quotas` or `label` restarts a running instance. `config` **replaces** the plain fields and merges the secrets (omitted, null or `********` keep, `""` clears; 400 `secret_required` for a mask with no stored value), validated against the stored schema (400 `config_invalid`; unknown fields refused; `language` is always allowed). `granted_permissions` must be a subset of the manifest (400 `permission_exceeds_manifest`); `quotas` only `messages.send.per_hour|per_day`, 1 to the caps 60 and 500 (400 `quota_invalid`); `scope` is `{messages: all\|none\|{channels, contacts}}` (400 `scope_invalid`). Completing a `config_required` config clears the attention. The required fields are re-checked from the stored config on every enable and restart (409 `config_required`); clearing one on a stopped instance sets `needs_attention`/`config_required`. A `revoked` or `incompatible` instance never starts (409 `plugin_revoked`/`plugin_incompatible`); `needs_attention` for another reason (`review_permissions`, `consent_required`...) is 409 `attention_required` until the request resends `granted_permissions` (the acknowledgement). For a `local` plugin `granted_permissions` rewrites the manifest's `permissions` and `hooks` its `hooks` (both revalidated, 400 `manifest_invalid`; `hooks` on another kind is 409 `not_local`), and the instance restarts when enabled. |
 | `PUT /plugins/{id}/source` | admin | Local plugins only (409 `not_local`); 400 `source_too_large` (1 MiB), `source_syntax_error` (`params.line`); restarts when enabled. Answers the instance, the `scan_source` reasons (a review aid) and `http_hosts`, the `https://` hosts found in the code (the UI offers them as the `http` permission to accept), plus `lan_hosts` (`{host, line, service_port}`, at most 10) and `lan_hosts_truncated`, the local-network devices found in the code that the editor suggests one by one ("Attention scan"). Nothing is resolved or sent. |
@@ -990,7 +1047,7 @@ non-admin refused by the permission gate writes no row and changes nothing.
 | `POST /plugins/{id}/test` | admin | `{text, channel?\|contact?}`: one `test: true` `event.message` through `dispatch_test` (no scope or `messages.read` filtering). The sends are captured by the host and never reach the radio send path; the answer is `{result, sends, truncated, logs}` with every string scrubbed of the instance's secrets (`last_error` and `summary` too). 409 `plugins_paused`, 409 `instance_not_running`, 404 `channel_not_found`/`contact_not_found`, 504 `test_timeout`. |
 | `GET /plugins/{id}/logs?limit=` | admin | Tail of the stderr ring (default 200, 1 to 500), lines cut at 1000 characters, scrubbed of the instance's secrets and passed through `redact_text`. Not part of `/api/debug` (asserted). |
 | `GET /plugins/{id}/diagnostic` | admin | Plugin id and version, kind, Meshloom and Python versions, isolation level, status, last error, restarts, effective permission names, the last 50 log lines. No config value. |
-| `DELETE /plugins/{id}?keep_data=` | admin | Stops the process, deletes the row and secrets (and the KV unless `keep_data`), and a local plugin's directory; 204. |
+| `DELETE /plugins/{id}?keep_data=` | admin | Stops the process, deletes the row, the KV and the secrets (both kept with `keep_data`, under the old instance id: a new install gets a new id and starts empty), a local plugin's directory, and the shared code of a `bundled`/`custom`/`store` plugin when no other instance uses it; 204. |
 
 There is no "disable until restart" route (the bots' own route was removed in MSHL-192); the global pause (`/plugins/pause`) replaces it. Typed codes are shown by the UI as `errors.<code>` (texts: Store T11a).
 

@@ -194,10 +194,12 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
 - Share service client (`app/services/share.py`, `app/AGENTS.md`, "Share
   service client"): `follow_checked_redirects` with `HostAllowlist.of(SHARE_HOST)`,
   HTTPS only, no redirect, capped answers, only while `share_enabled`.
-- Planned: the Store client (custom GitHub repositories: `github.com` and the
-  exact release-asset redirect hosts `objects.githubusercontent.com` and
-  `release-assets.githubusercontent.com`, both listed, HTTPS only
-  (`schemes=frozenset({"https"})`); later `store.meshloom.app`) and the plugin `http` capability (the
+- Store egress (`app/plugins/store_egress.py`, `app/AGENTS.md`, "Store egress"):
+  `store_fetch()` sends through `follow_checked_redirects` with `STORE_ALLOWLIST`
+  (`github.com`, the exact release-asset redirect hosts `objects.githubusercontent.com`
+  and `release-assets.githubusercontent.com`, and `store.meshloom.app`), HTTPS only,
+  only while `app_settings.store_online`; `StoreOffline` otherwise, before any lookup.
+- The plugin `http` capability (the
   plugin's declared hosts, plus its declared `lan_hosts`, 10 s, 1 MB response, 256 KB body, redirects
   re-validated to a declared host) both send through
   `follow_checked_redirects` with a `HostAllowlist`.

@@ -91,7 +91,7 @@ terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS
 `services/share.py`) and the Unix time of the acceptance, written by the server only, `excluded`
 from backups and reset to 0 in a database copy; `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
 never exported by a backup; `store_online`: the Store egress consent, off by default,
-migration 103, not in `AppSettings` yet, excluded from backups and reset to 0 in a
+migration 103, in `AppSettings` since MSHL-194 (`app/plugins/store_egress.py`), excluded from backups and reset to 0 in a
 database copy; `plugins_paused`, `plugins_paused_at`, `plugins_paused_by`: the global plugin
 pause, its Unix time and the user name of who set it (migration 120, `app/plugins/pause.py`,
 written only by `PUT /api/plugins/pause`, outside `AppSettings`, excluded from backups).
@@ -229,7 +229,9 @@ Successful sends per channel and hour: PK `(channel_id, hour)`, `sent`. Written 
 
 Small state with an expiry: PK `key`, `value`, `expires_at`. Keys: `dedup:<channel>:<dedup_key>`
 and `dedup:urgent:<channel>:<dedup_key>` (the dispatcher's persisted dedup, 24 h, written in
-batches) and the pending secrets of a restored channel. Expired rows are
+batches), the pending secrets of a restored channel, and the quiet-hours counters
+`quiet:<channel>[@<account>]:<event>:<conversation>` (no expiry: the digest takes and deletes them,
+MSHL-124; `builtin:push@<user id>` or `@d` count per wanted account). Expired rows are
 pruned hourly by the dispatcher.
 
 ### `push_subscriptions`

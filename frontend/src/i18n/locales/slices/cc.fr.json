@@ -182,7 +182,7 @@
       "uninstall": {
         "title": "Désinstaller {{name}} ?",
         "text": "L'extension s'arrête et ses réglages et secrets sont supprimés.",
-        "keepData": "Garder les données qu'elle a stockées (une réinstallation les retrouvera).",
+        "keepData": "Garder les données et réglages secrets qu'elle a stockés (conservés sur cet appareil ; une nouvelle installation repart de zéro).",
         "confirm": "Désinstaller"
       },
       "migration": {

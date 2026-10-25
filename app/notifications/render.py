@@ -262,6 +262,56 @@ def _grouped_title(data: dict, count: int, lang: str) -> str:
     return f"{head}: {', '.join(parts)}"
 
 
+def _plural(n: int, one: str, many: str) -> str:
+    return f"{n} {one if n == 1 else many}"
+
+
+def quiet_digest_text(data: Mapping[str, Any], lang: str) -> tuple[str, str]:
+    """Title and body of the digest of what quiet hours (or a pause) held back:
+    "During quiet hours: 14 messages in 3 conversations (#paris 9, Léa 3, #test 2), 1 new
+    contact". Counts and names only, never a message text."""
+    en = lang == "en"
+    pause = data.get("scope") == "pause"
+    messages = int(data.get("count") or 0)
+    conversations = int(data.get("conversations") or 0)
+    contacts = int(data.get("contacts") or 0)
+    others = int(data.get("others") or 0)
+    dms = int(data.get("dms") or 0)
+    private = int(data.get("private") or 0)
+    more = int(data.get("more") or 0)
+    detail = [f"{name} {n}" for name, n in (data.get("items") or [])]
+    if more:
+        detail.append(f"{more} more" if en else f"{more} autres")
+    if dms:
+        detail.append(f"{dms} DMs" if en else f"{dms} MP")
+    if private:
+        detail.append(f"{private} in private channels" if en else f"{private} en canaux privés")
+    parts: list[str] = []
+    if messages:
+        head = _plural(messages, "message", "messages") + (" in " if en else " dans ")
+        head += _plural(conversations, "conversation", "conversations")
+        parts.append(f"{head} ({', '.join(detail)})" if detail else head)
+    if contacts:
+        parts.append(
+            _plural(contacts, "new contact", "new contacts")
+            if en
+            else _plural(contacts, "nouveau contact", "nouveaux contacts")
+        )
+    if others:
+        parts.append(
+            _plural(others, "other event", "other events")
+            if en
+            else _plural(others, "autre évènement", "autres évènements")
+        )
+    if en:
+        title = "Summary of the pause" if pause else "Quiet hours summary"
+        lead = "During the pause: " if pause else "During quiet hours: "
+    else:
+        title = "Résumé de la pause" if pause else "Résumé des heures calmes"
+        lead = "Pendant la pause : " if pause else "Pendant les heures calmes : "
+    return title, lead + ", ".join(parts)
+
+
 def build_push_payload(data: dict, language: str = "fr") -> str:
     """Build the push notification JSON payload from a message or first-seen event."""
     lang = language if language in ("fr", "en") else "fr"
@@ -322,6 +372,12 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
         else:
             title = _grouped_title(data, count, lang)
         return json.dumps({"title": title, "body": title, "tag": "meshcore-grouped"})
+
+    if data.get("event") == "quiet_digest":
+        title, body = quiet_digest_text(data, lang)
+        return json.dumps(
+            {"title": title, "body": body, "tag": "meshcore-quiet-digest", "url_hash": ""}
+        )
 
     if data.get("event") == DESTINATION_CHANGED_EVENT:
         labels = {"email": "e-mail", "webhook": "webhook", "apprise": "Apprise"}

@@ -196,9 +196,9 @@ These hold for every section; a restore function must keep them:
 
    The sharing consent (`app_settings.share_enabled`, with its recorded terms acceptance
    `share_terms_version` and `share_terms_accepted_at`) and the Store consent
-   (`app_settings.store_online`, not in `AppSettings` yet) are not seeds but follow the
+   (`app_settings.store_online`) are not seeds but follow the
    same rule: they are left out of the JSON export (`BackupExport` serializes
-   `settings` without those three columns; `store_online` is not in `AppSettings`),
+   `settings` without those four columns, `_CONSENT_FIELDS` in `app/models.py`),
    never restored, and set to 0 in the SQLite snapshot
    copy (`SNAPSHOT_RESET_COLUMNS`), so a copy put back elsewhere cannot enable the
    sharing or Store egress.
@@ -305,7 +305,9 @@ imported by `services/backup.py`.
   `include_message_text`, `verify_tls`, `quiet_hours_exempt`, the three rates,
   `sort_order` and `secret_omitted` (`{field: true}` for each write-only field that held a
   value; the values are never exported). `rules` is `app_settings.notification_rules`
-  with `paused_until` emptied. The delivery journal, counters and dedup state are runtime
+  with `paused_until` emptied; `quiet_hours` (validated by `quiet_hours.validate_quiet_hours`,
+  a bad value dropped with the `notification_rules_sanitized` warning) travels in it. The delivery
+  journal, counters, dedup state and the quiet-hours counters (`quiet:*` rows) are runtime
   data and stay out; the block lists are `blocked_keys` / `blocked_names` in the v1 settings.
 - **Restore.** Channels merge by id, the rules are replaced minus the ids of channels
   that exist nowhere, after `sanitize_rules` validated them entry by entry (event ids of the

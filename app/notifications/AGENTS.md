@@ -33,6 +33,7 @@ This file is a hypothesis: check it against the code.
   in-memory cache of the public channels, status updates, `get_rules()`) and
   `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).
 - `rules.py`: pure evaluation of `notification_rules` (see "Dispatcher").
+- `quiet_hours.py`: the quiet window, the suppressed-event counters and the digest payload (see "Quiet hours").
 - `user_rules.py`: the per-account layer over those rules, for Web Push only (see "Per-account rules").
 - `limits.py`: the dispatcher's token buckets (`ClockedLimiter`), the daily quota, `effective_limits()` and the persisted dedup keys (see "Dispatcher", "Limits").
 - `dispatcher.py`: `emit()`, the queue and worker per channel, the limiter, the retry
@@ -235,7 +236,8 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   enabled one by default, never to the channel that changed. `notify.destination_changed` stays
   as it was for the legacy settings route (push only).
 - **Rules** (`GET/PATCH /rules`): `events[id]` (`channels`, `always_deliver`, `contact_types`),
-  `paused_until` (epoch seconds, `null` resumes, a past value is a resume), `mention_whole_word`
+  `paused_until` (epoch seconds, `null` resumes, a past value is a resume), `quiet_hours` (partial
+  object, see "Quiet hours"; 400 `invalid_config` with `fields: ["quiet_hours.<field>"]`), `mention_whole_word`
   in the rules; `radio_offline_grace_s` and `push_allow_private_endpoints` are the
   `app_settings` columns (one source), `host_timezone` read-only. The summary of the events
   suppressed during a pause (counts per channel on resume) is not implemented: the journal
@@ -266,6 +268,36 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   keeps in memory (dropped by `AppSettingsRepository.update` and the block toggles, so no database
   read per message; lists that cannot be read fail closed). The Apprise fanout, outside the engine,
   keeps `message_filters.is_filtered` (same rule plus the mute).
+
+## Quiet hours (`quiet_hours.py`, MSHL-124)
+
+`rules.quiet_hours` = `{enabled, start, end, weekdays, digest_at_end}` (absent = disabled; a malformed
+stored value reads as disabled). The window is `services/update_window.in_window` over the dispatcher's
+wall clock in host-local time (an overnight window belongs to its opening weekday); no settings UI yet.
+
+- **Precedence in `Dispatcher._emit`**: (1) the rules, mutes and block lists and, on Web Push, each
+  account's own choices, conversation exceptions and pause decide who wants the event: an event nobody
+  wants is never counted; (2) the global and the channel `paused_until` (`paused` row, dropped, no
+  digest); (3) quiet hours. `urgent` events and `always_deliver` ones skip (2) and (3); a channel with
+  `quiet_hours_exempt` (registry default true for `webhook`, false otherwise; the imported `legacy:*`
+  rows keep 0) skips (3); an account's *Always notify me* does not skip (3). The synthetic
+  catalogue events tied to `targets` follow the same path.
+- **Suppression**: a `suppressed_quiet` journal row and, with `digest_at_end`, one counter in
+  `notification_state`, `quiet:<channel>:<event>:<conversation state key>` (value = count, no expiry; one
+  `UPDATE`, an `INSERT` only for a new key: `NotificationJournalRepository.counter_incr`). A Web Push job
+  that carries a `PushAudience` is counted per wanted account (`builtin:push@<user id>`, `@d` for the
+  accounts without an override). No text, sender or name is stored; deleting a channel deletes its counters;
+  the backup leaves them out.
+- **Digest**: a 60 s task (`_quiet_loop`, started by the first `emit`, so by `app_started` after a restart;
+  `quiet_tick()` is what tests call) runs once the window is closed and no global pause holds:
+  `counters_take` reads and deletes the counters, then each enabled, unpaused channel gets one
+  `quiet_digest` delivery through `_admit` (limits apply). `build_digest` sums counts: Public and `#`
+  channels are named, DMs and private channels only when the channel's `include_message_text` is `always`,
+  else they are `dms` / `private` counts. `render.quiet_digest_text` writes it in FR and EN
+  (`scope: "pause"` has its own wording for the global pause resume, T10, not wired yet). On Web Push the
+  digest audience is the accounts with counters (minus paused ones). A digest that fails to send is not
+  retried beyond the usual policy; counters are already cleared.
+- Tests: `tests/test_quiet_hours.py`.
 
 ## Producers
 
@@ -358,7 +390,7 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
   send); a success after failures resets `failure_count` at once. A failure updates
   `failure_count` and `last_error` (a code, `secret_fields.scrub_error` with the channel's
   secrets). `notification_deliveries` rows only for `failed`, `rate_limited`, `quota_exceeded`, `aggregated`,
-  `paused`, `aborted` (`suppressed_quiet` with the quiet hours), batched in one transaction;
+  `paused`, `suppressed_quiet`, `aborted`, batched in one transaction;
   a row holds the event id, the hashed `dedup_key`, a code and the attempts, never the text.
 - **Status.** `notification_statuses()` is the health payload's `notification_statuses`:
   `{channel id: {status, last_error, last_ok_at}}`, `status` one of `connected`, `error`,

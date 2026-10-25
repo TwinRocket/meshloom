@@ -202,8 +202,12 @@ class BundledPluginView(BaseModel):
 
 
 class InstallRequest(_Body):
-    kind: Literal["bundled"]
-    plugin_id: str = Field(max_length=64)
+    kind: Literal["bundled", "custom", "store"]
+    plugin_id: str = Field(max_length=64, pattern=f"^{installer._PLUGIN_ID_RE}$")
+    version: str | None = Field(default=None, min_length=1, max_length=64)
+    repository: str | None = Field(
+        default=None, min_length=1, max_length=200, description="A custom repository."
+    )
     label: str | None = Field(default=None, min_length=1, max_length=80)
     granted_permissions: dict[str, Any]
     config: dict[str, Any] = Field(default_factory=dict)
@@ -680,12 +684,17 @@ async def acknowledge_converted_bots() -> ConvertedBotsAck:
 async def install_plugin(
     body: InstallRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
 ) -> PluginInstanceView:
-    """Install a bundled plugin. ``granted_permissions`` must cover the manifest
-    (400 ``consent_required`` lists what is missing); a required config field that is
-    missing creates the instance disabled with ``attention.type = "config_required"``.
-    While the global pause holds, the instance is created but does not start."""
+    """Install a plugin from its source (``bundled``; ``custom`` and ``store`` once a
+    resolver provides them, else 404 ``plugin_source_unavailable``).
+    ``granted_permissions`` must cover the manifest (400 ``consent_required`` lists what
+    is missing); a remote archive is checked (size, sha256, manifest equal to the
+    source's entry: 400 ``archive_mismatch``) before it is extracted; a ``compat`` range
+    this meshloom is outside of is 409 ``incompatible``; a required config field that is
+    missing creates the instance disabled with ``attention.type = "config_required"``. A
+    second instance of an installed plugin reuses its code, without a download. While
+    the global pause holds, the instance is created but does not start."""
     async with audit.audited(
-        actor, "plugin.installed", details={"plugin_id": body.plugin_id, "kind": "bundled"}
+        actor, "plugin.installed", details={"plugin_id": body.plugin_id, "kind": body.kind}
     ) as scope:
         view = await _install(body)
         scope.target = _target(view.instance_id)
@@ -693,59 +702,229 @@ async def install_plugin(
     return view
 
 
-async def _install(body: InstallRequest) -> PluginInstanceView:
-    bundled = (await asyncio.to_thread(installer.list_bundled)).get(body.plugin_id)
-    if bundled is None:
-        raise _error(404, "plugin_not_bundled", "No such bundled plugin")
-    manifest = bundled.package.manifest.model_dump(mode="json", by_alias=True, exclude_none=True)
-    manifest["permissions"] = bundled.package.manifest.permissions.declared()
-    missing_consent = installer.consent_missing(manifest, body.granted_permissions)
-    if missing_consent:
-        raise _error(
-            400, "consent_required", "Consent does not cover the manifest", missing=missing_consent
-        )
-    invalid, missing = _check_config(bundled.config_schema, body.config, frozenset())
-    if invalid:
-        raise _config_invalid(invalid)
-    root = plugin_manager.plugins_root()
+def _install_error(exc: installer.InstallError) -> HTTPException:
+    messages = {
+        "archive_mismatch": "The archive is not the one the source announced",
+        "archive_too_large": "The archive is too large",
+        "store_offline": "Downloading plugins is turned off",
+        "download_blocked": "The download was refused",
+        "download_failed": "The archive could not be downloaded",
+    }
+    return _error(
+        exc.status,
+        exc.code,
+        messages.get(exc.code, "The plugin could not be installed"),
+        **exc.params,
+    )
+
+
+async def _source(
+    kind: str, plugin_id: str, version: str | None, repository: str | None
+) -> installer.ArchiveSource:
     try:
-        await asyncio.to_thread(installer.install_bundled, bundled, root)
+        source = await installer.resolve_source(kind, plugin_id, version, repository)  # type: ignore[arg-type]
+    except installer.InstallError as exc:
+        raise _install_error(exc) from None
+    if source is None:
+        if kind == "bundled":
+            raise _error(404, "plugin_not_bundled", "No such bundled plugin")
+        raise _error(404, "plugin_source_unavailable", "No source provides this plugin")
+    return source
+
+
+async def _prepare(source: installer.ArchiveSource, plugin_id: str) -> installer.PreparedInstall:
+    try:
+        return await installer.prepare_install(
+            source, plugin_manager.plugins_root(), plugin_id=plugin_id
+        )
+    except installer.InstallError as exc:
+        raise _install_error(exc) from None
     except PluginValidationError as exc:
         raise _manifest_error(
-            exc, "The bundled package is invalid", default="package_invalid"
+            exc, "The plugin package is invalid", default="package_invalid"
         ) from None
     except OSError:
-        logger.exception("Installing bundled plugin %s failed", body.plugin_id)
+        logger.exception("Preparing plugin %s failed", plugin_id)
         raise _error(500, "install_failed", "The plugin could not be installed") from None
+
+
+def _consent(manifest: dict[str, Any], granted: dict[str, Any]) -> None:
+    missing = installer.consent_missing(manifest, granted)
+    if missing:
+        raise _error(
+            400, "consent_required", "Consent does not cover the manifest", missing=missing
+        )
+
+
+async def _install(body: InstallRequest) -> PluginInstanceView:
+    async with installer.plugin_lock(body.plugin_id):
+        return await _install_locked(body)
+
+
+async def _install_locked(body: InstallRequest) -> PluginInstanceView:
+    siblings = await PluginRepository.get_by_plugin_id(body.plugin_id)
+    if any(row["kind"] != body.kind for row in siblings):
+        raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
+    prepared: installer.PreparedInstall | None = None
+    shared = next((r for r in siblings if (r["attention"] or {}).get("type") != "reinstall"), None)
+    if body.kind != "bundled" and shared is not None:
+        # A second instance: the code directory is shared, nothing is downloaded.
+        if body.version is not None and body.version != shared["version"]:
+            raise _error(
+                409, "plugin_version_conflict", "Another version of this plugin is installed"
+            )
+        if not installer.code_installed(
+            plugin_manager.plugins_root(), body.plugin_id, shared["version"]
+        ):
+            raise _error(409, "plugin_code_missing", "The installed code of this plugin is missing")
+        manifest, schema = shared["manifest"], shared["config_schema"]
+        archive_sha256, repository = shared["archive_sha256"], shared["repository"]
+        _consent(manifest, body.granted_permissions)
+    else:
+        source = await _source(body.kind, body.plugin_id, body.version, body.repository)
+        _consent(await source.fetch_manifest(), body.granted_permissions)
+        prepared = await _prepare(source, body.plugin_id)
+        manifest, schema = prepared.manifest, prepared.config_schema
+        archive_sha256 = prepared.archive_sha256 if body.kind != "bundled" else None
+        repository = prepared.repository
+    fresh = shared is None
+    try:
+        _consent(manifest, body.granted_permissions)
+        if body.kind != "bundled" and not installer.compatible(manifest):
+            raise _error(
+                409,
+                "incompatible",
+                "This plugin does not support this version of Meshloom",
+                compat=(manifest.get("compat") or {}).get("meshloom"),
+            )
+        invalid, missing = _check_config(schema, body.config, frozenset())
+        if invalid:
+            raise _config_invalid(invalid)
+        if prepared is not None:
+            await asyncio.to_thread(prepared.commit)
+    except OSError:
+        logger.exception("Installing plugin %s failed", body.plugin_id)
+        raise _error(500, "install_failed", "The plugin could not be installed") from None
+    finally:
+        if prepared is not None:
+            await asyncio.to_thread(prepared.discard)
     needs_config = bool(missing)
     try:
         row = await PluginRepository.create(
             plugin_id=body.plugin_id,
             label=body.label or manifest["name"]["en"],
-            kind="bundled",
+            kind=body.kind,
             version=manifest["version"],
             manifest=manifest,
-            config_schema=bundled.config_schema,
+            config_schema=schema,
             config=body.config,
             granted_permissions=installer.declared_permissions(manifest),
             enabled=not needs_config,
             status="needs_attention" if needs_config else "installed",
             attention={"type": "config_required", "fields": missing} if needs_config else None,
+            archive_sha256=archive_sha256,
+            repository=repository,
         )
     except PluginStoreError as exc:
+        await _drop_code_if_unused(body.plugin_id, fresh)
         raise _store_error(exc) from None
     instance_id = row["instance_id"]
     if not needs_config:
         try:
             await plugin_manager.start(instance_id)
-        except PluginCapacityError as exc:
+        except (PluginCapacityError, PluginHostError) as exc:
             await PluginRepository.delete(instance_id)
-            raise _capacity_error(exc) from None
-        except PluginHostError as exc:
-            await PluginRepository.delete(instance_id)
+            await _drop_code_if_unused(body.plugin_id, fresh)
+            if isinstance(exc, PluginCapacityError):
+                raise _capacity_error(exc) from None
             raise _error(409, exc.code, "The plugin host refused to start the instance") from None
     plugin_manager.announce(instance_id)
     return await _view(await _row(instance_id), True)
+
+
+async def _drop_code_if_unused(plugin_id: str, fresh: bool = True) -> None:
+    """Remove a plugin's shared code once no instance uses it (caller holds the lock). An
+    instance restored without its code (``reinstall``) does not use it."""
+    if not fresh:
+        return
+    rows = await PluginRepository.get_by_plugin_id(plugin_id)
+    if all((r["attention"] or {}).get("type") == "reinstall" for r in rows):
+        await asyncio.to_thread(installer.remove_code, plugin_manager.plugins_root(), plugin_id)
+
+
+@router.post(
+    "/{instance_id}/reinstall",
+    response_model=PluginInstanceView,
+    dependencies=[Admin, Writable],
+)
+async def reinstall_plugin(
+    instance_id: str, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
+    """Bring back the code of an instance restored from a backup without it
+    (``attention.type = "reinstall"``, 409 ``plugin_not_reinstallable`` otherwise): the
+    same source and version, checked like an install. The instance stays disabled with
+    ``attention.type = "restored"``, its grants kept only when the manifest covers them,
+    for the admin to review before it starts."""
+    row = await _row(instance_id)
+    async with audit.audited(
+        actor,
+        "plugin.installed",
+        target=_target(row["instance_id"]),
+        details=_audit_details(row, reinstall=True),
+    ):
+        async with installer.plugin_lock(row["plugin_id"]):
+            await _reinstall(row["instance_id"])
+    return await _view(await _row(row["instance_id"]), True)
+
+
+async def _reinstall(instance_id: str) -> None:
+    from app.services.backup_plugins import (
+        RESTORED,
+        config_for_schema,
+        granted_within,
+        public_config,
+    )
+
+    row = await _row(instance_id)
+    if row["kind"] == "local" or (row["attention"] or {}).get("type") != "reinstall":
+        raise _error(409, "plugin_not_reinstallable", "The instance has its code")
+    siblings = [
+        r
+        for r in await PluginRepository.get_by_plugin_id(row["plugin_id"])
+        if r["instance_id"] != instance_id
+    ]
+    if any(r["kind"] != row["kind"] for r in siblings):
+        raise _error(409, "plugin_kind_conflict", "This plugin is installed from another source")
+    version = None if row["kind"] == "bundled" else row["version"]
+    source = await _source(row["kind"], row["plugin_id"], version, row["repository"])
+    prepared = await _prepare(source, row["plugin_id"])
+    try:
+        if row["kind"] != "bundled" and not installer.compatible(prepared.manifest):
+            raise _error(
+                409, "incompatible", "This plugin does not support this version of Meshloom"
+            )
+        await asyncio.to_thread(prepared.commit)
+    except OSError:
+        logger.exception("Reinstalling plugin %s failed", row["plugin_id"])
+        raise _error(500, "install_failed", "The plugin could not be installed") from None
+    finally:
+        await asyncio.to_thread(prepared.discard)
+    manifest, schema = prepared.manifest, prepared.config_schema
+    try:
+        await PluginRepository.update(
+            instance_id,
+            manifest=manifest,
+            version=manifest["version"],
+            config_schema=schema,
+            config=config_for_schema(schema, public_config(row)),
+            granted_permissions=granted_within(manifest, row["granted_permissions"]),
+            attention={**(row["attention"] or {}), "type": RESTORED},
+            archive_sha256=prepared.archive_sha256 if row["kind"] != "bundled" else None,
+            repository=prepared.repository,
+        )
+    except PluginStoreError as exc:
+        raise _store_error(exc) from None
+    plugin_manager.announce(instance_id)
 
 
 @router.post("", status_code=201, response_model=PluginInstanceView, dependencies=[Admin, Writable])
@@ -1182,8 +1361,9 @@ async def delete_plugin(
     keep_data: bool = Query(False),
     actor: audit.RequestActor = audit.SYSTEM_ACTOR,
 ) -> Response:
-    """Uninstall an instance. ``keep_data`` keeps its key-value store; its secrets
-    always go. The shared code of a bundled plugin stays for its other instances."""
+    """Uninstall an instance. ``keep_data`` keeps its key-value store and its secrets.
+    The shared code of a plugin stays while another instance uses it and goes with the
+    last one."""
     row = await _row(instance_id)
     instance_id = row["instance_id"]
     async with audit.audited(
@@ -1198,9 +1378,14 @@ async def delete_plugin(
 
 async def _delete(row: dict[str, Any], keep_data: bool) -> None:
     instance_id = row["instance_id"]
-    await plugin_manager.remove(instance_id, purge=True)
-    await PluginRepository.delete(instance_id, keep_data=keep_data)
     if row["kind"] == "local":
+        await plugin_manager.remove(instance_id, purge=True)
+        await PluginRepository.delete(instance_id, keep_data=keep_data)
         shutil.rmtree(
             plugin_manager.plugins_root() / "local" / row["instance_id"], ignore_errors=True
         )
+        return
+    async with installer.plugin_lock(row["plugin_id"]):
+        await plugin_manager.remove(instance_id, purge=True)
+        await PluginRepository.delete(instance_id, keep_data=keep_data)
+        await _drop_code_if_unused(row["plugin_id"])
