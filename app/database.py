@@ -244,7 +244,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
     created_at INTEGER NOT NULL,
     last_success_at INTEGER,
     failure_count INTEGER DEFAULT 0,
-    -- The account that owns the device (migration 116). Keep identical to the migration.
+    -- The account that owns the device (migration 118). Keep identical to the migration.
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE(endpoint)
 );

@@ -1,88 +1,37 @@
-"""Migration 116: push subscriptions gain an owner, existing ones go to the first admin."""
+"""Migration 118: the share terms acceptance columns."""
 
 import aiosqlite
-import pytest
 
-from app.database import Database
-from app.migrations import get_version, run_migrations, set_version
-
-from .conftest import LATEST_SCHEMA_VERSION
-
-_OLD_TABLE = """
-CREATE TABLE push_subscriptions (
-    id TEXT PRIMARY KEY,
-    endpoint TEXT NOT NULL,
-    p256dh TEXT NOT NULL,
-    auth TEXT NOT NULL,
-    label TEXT NOT NULL DEFAULT '',
-    language TEXT NOT NULL DEFAULT 'fr',
-    created_at INTEGER NOT NULL,
-    last_success_at INTEGER,
-    failure_count INTEGER DEFAULT 0,
-    UNIQUE(endpoint)
-)
-"""
+from app.migrations import _116_share_terms_acceptance
 
 
-async def _database_at_115(path, users: list[tuple[str, str, int]]) -> None:
-    database = Database(str(path))
-    await database.connect()
-    await database.disconnect()
-    conn = await aiosqlite.connect(path)
-    try:
-        await conn.execute("DROP INDEX IF EXISTS idx_push_subscriptions_user")
-        await conn.execute("DROP TABLE push_subscriptions")
-        await conn.execute(_OLD_TABLE)
-        for name, role, disabled in users:
-            await conn.execute(
-                "INSERT INTO users (username, username_key, role, disabled, created_at, updated_at)"
-                " VALUES (?, ?, ?, ?, 0, 0)",
-                (name, name, role, disabled),
-            )
-        for n in range(2):
-            await conn.execute(
-                "INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, created_at)"
-                " VALUES (?, ?, 'p', 'a', 0)",
-                (f"sub-{n}", f"https://push.example/{n}"),
-            )
-        await conn.commit()
-        await set_version(conn, 115)
-    finally:
-        await conn.close()
+async def _columns(conn: aiosqlite.Connection) -> dict[str, tuple]:
+    cursor = await conn.execute("PRAGMA table_info(app_settings)")
+    return {row[1]: row for row in await cursor.fetchall()}
 
 
-async def _migrate(path) -> list[tuple]:
-    conn = await aiosqlite.connect(path)
-    try:
-        assert await run_migrations(conn) == LATEST_SCHEMA_VERSION - 115
-        assert await get_version(conn) == LATEST_SCHEMA_VERSION
-        columns = {
-            row[1] for row in await conn.execute_fetchall("PRAGMA table_info(push_subscriptions)")
-        }
-        assert "user_id" in columns
-        indexes = {
-            row[1] for row in await conn.execute_fetchall("PRAGMA index_list(push_subscriptions)")
-        }
-        assert "idx_push_subscriptions_user" in indexes
-        fks = await conn.execute_fetchall("PRAGMA foreign_key_list(push_subscriptions)")
-        assert [(fk[2], fk[3], fk[6]) for fk in fks] == [("users", "user_id", "CASCADE")]
-        return list(
-            await conn.execute_fetchall("SELECT id, user_id FROM push_subscriptions ORDER BY id")
+async def test_adds_both_columns_at_zero_for_an_existing_row():
+    async with aiosqlite.connect(":memory:") as conn:
+        await conn.execute(
+            "CREATE TABLE app_settings (id INTEGER PRIMARY KEY CHECK (id = 1), share_enabled INTEGER)"
         )
-    finally:
-        await conn.close()
+        await conn.execute("INSERT INTO app_settings (id, share_enabled) VALUES (1, 1)")
+        await _116_share_terms_acceptance.migrate(conn)
+        cursor = await conn.execute(
+            "SELECT share_enabled, share_terms_version, share_terms_accepted_at FROM app_settings"
+        )
+        # Sharing was on, but no acceptance was ever recorded: version 0 asks again.
+        assert tuple(await cursor.fetchone()) == (1, 0, 0)
 
 
-@pytest.mark.asyncio
-async def test_existing_devices_go_to_the_first_enabled_admin(tmp_path):
-    path = tmp_path / "a.db"
-    # ids: 1 disabled admin, 2 member, 3 enabled admin
-    await _database_at_115(path, [("old", "admin", 1), ("bob", "member", 0), ("alice", "admin", 0)])
-    assert await _migrate(path) == [("sub-0", 3), ("sub-1", 3)]
+async def test_is_idempotent():
+    async with aiosqlite.connect(":memory:") as conn:
+        await conn.execute("CREATE TABLE app_settings (id INTEGER PRIMARY KEY)")
+        await _116_share_terms_acceptance.migrate(conn)
+        await _116_share_terms_acceptance.migrate(conn)
+        assert {"share_terms_version", "share_terms_accepted_at"} <= set(await _columns(conn))
 
 
-@pytest.mark.asyncio
-async def test_without_an_admin_devices_stay_unowned(tmp_path):
-    path = tmp_path / "b.db"
-    await _database_at_115(path, [("bob", "member", 0)])
-    assert await _migrate(path) == [("sub-0", None), ("sub-1", None)]
+async def test_tolerates_a_database_without_app_settings():
+    async with aiosqlite.connect(":memory:") as conn:
+        await _116_share_terms_acceptance.migrate(conn)

@@ -1551,6 +1551,10 @@ class AppSettingsView(BaseModel):
     directory_available: bool = False
 
 
+# Consent state: never written to a backup file nor restored.
+_CONSENT_FIELDS = {"share_enabled", "share_terms_version", "share_terms_accepted_at"}
+
+
 class AppSettings(BaseModel):
     """Application settings stored in the database."""
 
@@ -1730,6 +1734,17 @@ class AppSettings(BaseModel):
             "links, shared images). Off: nothing is ever sent to it. Never restored "
             "from a backup"
         ),
+    )
+    share_terms_version: int = Field(
+        default=0,
+        description=(
+            "Version of the share terms accepted in the consent dialog (0 = never). Sharing "
+            "is effective only while it equals the current version. Never restored from a backup"
+        ),
+    )
+    share_terms_accepted_at: int = Field(
+        default=0,
+        description="Unix time of that acceptance (0 = never). Never restored from a backup",
     )
     share_shorten_mode: Literal["auto", "always", "never"] = Field(
         default="auto",
@@ -2161,7 +2176,7 @@ class BackupExport(BaseModel):
         """The sharing consent never travels: it is not written to the file."""
         if settings is None:
             return None
-        return settings.model_dump(mode="python", exclude={"share_enabled"})
+        return settings.model_dump(mode="python", exclude=_CONSENT_FIELDS)
 
 
 class BackupRestoreRequest(BackupExport):
@@ -3357,6 +3372,19 @@ class ShareStatus(BaseModel):
     )
     shorten_mode: Literal["auto", "always", "never"]
     preview_policy: Literal["always", "private", "never"]
+    terms_version: int = Field(description="The current version of the share terms (server-side)")
+    terms_accepted_version: int = Field(
+        description="The terms version the owner accepted (0 = never)"
+    )
+    terms_accepted_at: int | None = Field(
+        description="Unix time of the recorded acceptance, null when never accepted"
+    )
+    terms_stale: bool = Field(
+        description=(
+            "Sharing was enabled under an older terms version (or before acceptances were "
+            "recorded): it is off until the owner accepts the current terms again"
+        )
+    )
 
 
 class ShareLinkRequest(BaseModel):

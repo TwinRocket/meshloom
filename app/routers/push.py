@@ -1,6 +1,6 @@
 """Web Push subscription management endpoints.
 
-A subscription belongs to the account that subscribed it (MSHL-290, migration 116). Every
+A subscription belongs to the account that subscribed it (MSHL-290, migration 118). Every
 account holding ``send`` lists, renames, tests and deletes its own devices only; another
 account's device answers 404, as if it did not exist. An administrator also lists every
 device (``GET /push/subscriptions?scope=all``, with the owner's username and the endpoint

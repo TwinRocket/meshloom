@@ -107,7 +107,7 @@ async def test_db():
 async def push_owner(test_db):
     """The account row of the default test admin (id 1), which owns push subscriptions.
 
-    A subscription belongs to an account (migration 116) and a push reaches it only while
+    A subscription belongs to an account (migration 118) and a push reaches it only while
     that account exists; ``PushSubscriptionRepository.create`` without ``user_id`` gives it
     to the first administrator, this one.
     """

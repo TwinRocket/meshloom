@@ -1,4 +1,4 @@
-"""Push subscriptions belong to an account (MSHL-290, migration 116)."""
+"""Push subscriptions belong to an account (MSHL-290, migration 118)."""
 
 import pytest
 
@@ -132,13 +132,65 @@ async def test_only_enabled_owners_holding_send_are_delivered(member):
     assert await PushSubscriptionRepository.get(member_sub["id"]) is None
 
 
+async def _stored_owner(sub_id: str):
+    from app.repository import push_subscriptions
+
+    async with push_subscriptions.db.readonly() as conn:
+        async with conn.execute(
+            "SELECT user_id FROM push_subscriptions WHERE id = ?", (sub_id,)
+        ) as cursor:
+            return (await cursor.fetchone())[0]
+
+
 @pytest.mark.asyncio
-async def test_unowned_devices_go_to_the_first_administrator_once_one_exists(test_db):
+async def test_unowned_devices_count_as_the_first_administrators_without_any_write(test_db):
     sub = await PushSubscriptionRepository.create(ADMIN_ENDPOINT, "p", "a")
     assert sub["user_id"] is None
     assert await PushSubscriptionRepository.deliverable() == []
 
-    await UserRepository.create("first-admin", "admin")
+    admin = await UserRepository.create("first-admin", "admin")
     delivered = await PushSubscriptionRepository.deliverable()
-    assert [s["id"] for s in delivered] == [sub["id"]]
-    assert (await PushSubscriptionRepository.get(sub["id"]))["user_id"] == delivered[0]["user_id"]
+    assert [(s["id"], s["user_id"]) for s in delivered] == [(sub["id"], admin.id)]
+    assert [s["id"] for s in await PushSubscriptionRepository.list_for_user(admin.id)] == [
+        sub["id"]
+    ]
+    assert (await PushSubscriptionRepository.get(sub["id"]))["user_id"] == admin.id
+    # Reading resolved the owner; nothing was written (a GET never opens a write).
+    assert await _stored_owner(sub["id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_listing_never_opens_a_write_transaction(member, monkeypatch):
+    from app.repository import push_subscriptions
+
+    await PushSubscriptionRepository.create(ADMIN_ENDPOINT, "p", "a")
+
+    def _no_write():
+        raise AssertionError("a listing opened a write transaction")
+
+    monkeypatch.setattr(push_subscriptions.db, "tx", _no_write)
+    assert len(await PushSubscriptionRepository.list_for_user(1)) == 1
+    assert len(await PushSubscriptionRepository.list_with_owner()) == 1
+    assert len(await PushSubscriptionRepository.deliverable()) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_empty_label_keeps_the_owners_label_but_is_not_handed_to_a_new_owner(
+    member, client, sign_in_as
+):
+    first = await _subscribe(client, ADMIN_ENDPOINT, "kitchen tablet")
+    again = await _subscribe(client, ADMIN_ENDPOINT, "")
+    assert again["id"] == first["id"]
+    assert again["label"] == "kitchen tablet"
+    assert (await PushSubscriptionRepository.get(first["id"]))["label"] == "kitchen tablet"
+
+    sign_in_as("member")
+    moved = await _subscribe(client, ADMIN_ENDPOINT, "")
+    assert moved["id"] == first["id"]
+    assert moved["mine"] is True
+    assert moved["label"] == ""
+    stored = await PushSubscriptionRepository.get(first["id"])
+    assert (stored["label"], stored["user_id"]) == ("", 2)
+
+    renamed = await _subscribe(client, ADMIN_ENDPOINT, "my phone")
+    assert renamed["label"] == "my phone"

@@ -199,7 +199,9 @@ Community guard.
 - **Hosts.** `SHARE_HOST` (write host, `meshl.ink`) and `SHARE_HOSTS` (every
   recognised host, current and former; `is_share_host()`) are module constants
   read at call time; tests monkeypatch them. No environment variable.
-- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled`;
+- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled` and
+  `app_settings.share_terms_version == SHARE_TERMS_VERSION` (MSHL-292: the owner's acceptance
+  is recorded server-side, and raising the constant asks for a new one);
   `share_request()` checks it first and answers 403 `share_disabled` with no
   DNS lookup and no connection.
 - **Turning it off cuts at once** (as Community does). `AppSettingsRepository.update`
@@ -287,8 +289,11 @@ Community guard.
   The wrapper is shipped at `/opt/meshloom/.venv/bin/meshloom-admin` (`nfpm.yaml.tmpl`)
   and `/usr/local/bin/meshloom-admin` (`Dockerfile`; the add-on is `FROM` that image).
   On the package it must run as root (also linked as `/usr/bin/meshloom-admin`): it parses
-  `/etc/meshloom/meshloom.env` (root:root 0640) as data, never sources it, then drops to
-  `meshloom` with `runuser`. It runs python with `-P` so a local `app/` cannot shadow the
+  `/etc/meshloom/meshloom.env` (root:root 0640, nfpm `file_info`; directory root:meshloom 0750,
+  `postinstall.sh`) as data, never sources it, and refuses
+  it unless it and its directory are root-owned, not group/world-writable and not a link
+  (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with `runuser`
+  (`--pty` when stdin, stdout and stderr are terminals). It runs python with `-P` so a local `app/` cannot shadow the
   install. It finds the database the way the service does (that env file, `/config` for the
   add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
 - It opens the file itself (`mode=rw`, never created, no schema script, no migration:
@@ -347,6 +352,14 @@ run as root).
   `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
   the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
   behaviours are restored.
+- Migration 118 adds `share_terms_version` and `share_terms_accepted_at` (consent state,
+  same backup rule as `share_enabled`). `PATCH /api/settings` takes `share_terms_accepted: true`
+  only together with `share_enabled: true` (else 422): the server stamps its own
+  `SHARE_TERMS_VERSION` and the time. `share_enabled: true` without an acceptance of the
+  current version is a 409 `share_terms_required`. `GET /api/share/status` returns
+  `terms_version`, `terms_accepted_version`, `terms_accepted_at` and `terms_stale`; its
+  `enabled` is the effective state (consent and current terms). No `/api/share/status`
+  contract exists in `meshloom-community/docs/contracts` (checked): no `CONTRACTS:` commit.
 - Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
   also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
   and `app_settings.store_online` (Store consent, off, outside `AppSettings`, excluded
@@ -1104,13 +1117,15 @@ Apple rejects `.local`. Which events reach Web Push is the notification rules' d
 deprecated adapter kept for one release; `frontend/src/utils/notificationPolicy.ts` mirrors it
 over the same fixture, `pushPolicy.ts` only re-exports it for one release). `PushManager` only sends
 (`dispatch_event`) and keeps the subscriptions healthy. Each subscription has an owner
-(`user_id`, migration 116, FK `ON DELETE CASCADE`; MSHL-290): the routes in `app/routers/push.py`
+(`user_id`, migration 118, FK `ON DELETE CASCADE`; MSHL-290): the routes in `app/routers/push.py`
 scope list, PATCH, DELETE and test to the caller's own rows (another account's answers 404);
 an admin also gets `GET /subscriptions?scope=all` (endpoint reduced to its origin, keys blanked,
 `owner_username`) and may DELETE any row, never PATCH or test one. Subscribing upserts by
 endpoint and moves the row to the caller; `create(user_id=None)` (backup restore) keeps the
-owner or falls back to the first admin (`FIRST_ADMIN_SQL`), and unowned rows are adopted
-lazily. Sends go to `PushSubscriptionRepository.deliverable()` only: owner enabled and holding
+owner or falls back to the first admin (`FIRST_ADMIN_SQL`). An unowned row counts as the
+first admin's when read (`_OWNER_SQL`; reads never write). An empty label on subscribe keeps
+the stored one unless the row changes owner. `UserRepository.delete` also deletes the rows
+explicitly (no reliance on the cascade alone). Sends go to `PushSubscriptionRepository.deliverable()` only: owner enabled and holding
 `send` in `ROLE_PERMISSIONS` (kiosk and viewer own nothing deliverable; a token acts for its
 user). The rules stay instance-wide. `restore_users` unowns rows before replacing the accounts
 so the cascade keeps them. A push service

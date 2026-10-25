@@ -1,4 +1,4 @@
-"""Migration 116: a Web Push subscription belongs to an account (``user_id``).
+"""Migration 118: a Web Push subscription belongs to an account (``user_id``).
 
 Before 5.0.0 a subscription had no owner: any account holding ``send`` listed, renamed,
 tested and deleted every device (MSHL-290). The column references ``users(id)`` with
