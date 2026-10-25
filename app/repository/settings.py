@@ -323,6 +323,7 @@ class AppSettingsRepository:
                    push_private_endpoints_review,
                    radio_offline_grace_s,
                    share_enabled, share_shorten_mode, share_preview_policy,
+                   share_terms_version, share_terms_accepted_at,
                    notification_language
             FROM app_settings WHERE id = 1
             """
@@ -507,6 +508,13 @@ class AppSettingsRepository:
                 return default
             return default if value is None else bool(value)
 
+        def _count(column: str) -> int:
+            try:
+                value = row[column]
+            except (KeyError, TypeError, IndexError):
+                return 0
+            return max(int(value), 0) if isinstance(value, int) else 0
+
         return AppSettings(
             max_radio_contacts=row["max_radio_contacts"],
             auto_decrypt_dm_on_advert=bool(row["auto_decrypt_dm_on_advert"]),
@@ -543,6 +551,8 @@ class AppSettingsRepository:
             push_private_endpoints_review=_flag("push_private_endpoints_review"),
             radio_offline_grace_s=_grace,
             share_enabled=_flag("share_enabled"),
+            share_terms_version=_count("share_terms_version"),
+            share_terms_accepted_at=_count("share_terms_accepted_at"),
             share_shorten_mode=_share_choice(
                 row, "share_shorten_mode", SHARE_SHORTEN_MODES, "auto"
             ),
@@ -595,6 +605,7 @@ class AppSettingsRepository:
         push_private_endpoints_review: bool | None = None,
         radio_offline_grace_s: int | None = None,
         share_enabled: bool | None = None,
+        share_terms_accepted: bool | None = None,
         share_shorten_mode: str | None = None,
         share_preview_policy: str | None = None,
         notification_language: str | None = None,
@@ -746,6 +757,15 @@ class AppSettingsRepository:
                 updates.append(f"{column} = ?")
                 params.append(1 if flag else 0)
 
+        if share_terms_accepted:
+            # The current terms version, stamped now: only the server decides both values.
+            from app.services.share import SHARE_TERMS_VERSION
+
+            updates.append("share_terms_version = ?")
+            params.append(SHARE_TERMS_VERSION)
+            updates.append("share_terms_accepted_at = ?")
+            params.append(int(time.time()))
+
         if radio_offline_grace_s is not None:
             updates.append("radio_offline_grace_s = ?")
             params.append(min(max(int(radio_offline_grace_s), 0), 3600))
@@ -818,6 +838,7 @@ class AppSettingsRepository:
         push_private_endpoints_review: bool | None = None,
         radio_offline_grace_s: int | None = None,
         share_enabled: bool | None = None,
+        share_terms_accepted: bool | None = None,
         share_shorten_mode: str | None = None,
         share_preview_policy: str | None = None,
         notification_language: str | None = None,
@@ -870,6 +891,7 @@ class AppSettingsRepository:
                 push_private_endpoints_review=push_private_endpoints_review,
                 radio_offline_grace_s=radio_offline_grace_s,
                 share_enabled=share_enabled,
+                share_terms_accepted=share_terms_accepted,
                 share_shorten_mode=share_shorten_mode,
                 share_preview_policy=share_preview_policy,
                 notification_language=notification_language,
@@ -881,6 +903,7 @@ class AppSettingsRepository:
             _invalidate_block_lists()
         if (
             share_enabled is not None
+            or share_terms_accepted
             or share_shorten_mode is not None
             or share_preview_policy is not None
         ):

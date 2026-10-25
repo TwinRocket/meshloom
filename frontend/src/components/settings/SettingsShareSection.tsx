@@ -7,6 +7,7 @@ import type {
   ShareShortenMode,
   ShareStatus,
 } from '../../types';
+import { shareTermsStale, type ShareSettingsUpdate } from '../../utils/shareTerms';
 import { loadShareStatus, refreshShareStatus, useShareStatus } from '../../stores/shareStatusStore';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
@@ -212,7 +213,7 @@ export function SettingsShareSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const save = async (update: AppSettingsUpdate): Promise<boolean> => {
+  const save = async (update: ShareSettingsUpdate): Promise<boolean> => {
     setBusy(true);
     try {
       await onSaveAppSettings(update);
@@ -248,7 +249,8 @@ export function SettingsShareSection({
   };
 
   const handleConfirm = async () => {
-    const ok = await save({ share_enabled: true });
+    // The server records the terms version and the time of this acceptance.
+    const ok = await save({ share_enabled: true, share_terms_accepted: true });
     if (ok) setConsentOpen(false);
   };
 
@@ -275,6 +277,12 @@ export function SettingsShareSection({
           <p className="text-[0.8125rem] text-muted-foreground">{t('settings.share.enableHelp')}</p>
         </div>
       </div>
+
+      {shareTermsStale(status) && (
+        <p data-testid="share-terms-stale" className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.share.termsStale')}
+        </p>
+      )}
 
       {blockedByService && (
         <p data-testid="share-unreachable" className="text-[0.8125rem] text-muted-foreground">

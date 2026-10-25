@@ -366,7 +366,12 @@ async def run_on_restore_hooks(source: RestoreSource) -> None:
 SNAPSHOT_SCRUBBED_COLUMNS: tuple[str, ...] = ("radio_ble_pin", "radio_previous_transport")
 
 # Consent flags a database copy resets to 0 (the full backup excludes them too).
-SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = ("share_enabled", "store_online")
+SNAPSHOT_RESET_COLUMNS: tuple[str, ...] = (
+    "share_enabled",
+    "share_terms_version",
+    "share_terms_accepted_at",
+    "store_online",
+)
 
 # Local accounts secrets (docs/dev/auth.md): the password and TOTP secrets and
 # the setup code hash are set to NULL, and the sessions, TOTP recovery codes

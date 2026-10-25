@@ -199,7 +199,9 @@ Community guard.
 - **Hosts.** `SHARE_HOST` (write host, `meshl.ink`) and `SHARE_HOSTS` (every
   recognised host, current and former; `is_share_host()`) are module constants
   read at call time; tests monkeypatch them. No environment variable.
-- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled`;
+- **Opt-in.** `share_egress_state()` is None unless `app_settings.share_enabled` and
+  `app_settings.share_terms_version == SHARE_TERMS_VERSION` (MSHL-292: the owner's acceptance
+  is recorded server-side, and raising the constant asks for a new one);
   `share_request()` checks it first and answers 403 `share_disabled` with no
   DNS lookup and no connection.
 - **Turning it off cuts at once** (as Community does). `AppSettingsRepository.update`
@@ -347,6 +349,14 @@ run as root).
   `docs/dev/backup.md` keeps it out of every export. `share_enabled` is `excluded` from
   the backup: not in the JSON export, not restored, reset to 0 in a database copy; the two
   behaviours are restored.
+- Migration 116 adds `share_terms_version` and `share_terms_accepted_at` (consent state,
+  same backup rule as `share_enabled`). `PATCH /api/settings` takes `share_terms_accepted: true`
+  only together with `share_enabled: true` (else 422): the server stamps its own
+  `SHARE_TERMS_VERSION` and the time. `share_enabled: true` without an acceptance of the
+  current version is a 409 `share_terms_required`. `GET /api/share/status` returns
+  `terms_version`, `terms_accepted_version`, `terms_accepted_at` and `terms_stale`; its
+  `enabled` is the effective state (consent and current terms). No `/api/share/status`
+  contract exists in `meshloom-community/docs/contracts` (checked): no `CONTRACTS:` commit.
 - Migration 103 adds the plugin tables (`plugins`, `plugin_kv`, `plugin_secrets`, DDL
   also in `SCHEMA_TABLES`, compared by `tests/test_migrations/test_migration_103.py`)
   and `app_settings.store_online` (Store consent, off, outside `AppSettings`, excluded

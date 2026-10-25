@@ -37,7 +37,7 @@ async def _rules(path) -> dict | None:
 async def _migrate(path) -> None:
     conn = await aiosqlite.connect(path)
     try:
-        assert await run_migrations(conn) == 1
+        assert await run_migrations(conn) == LATEST_SCHEMA_VERSION - 114
         assert await get_version(conn) == LATEST_SCHEMA_VERSION
     finally:
         await conn.close()

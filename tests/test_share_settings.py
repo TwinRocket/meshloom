@@ -1,14 +1,18 @@
 """Share settings: defaults, PATCH /api/settings, the write-only seed, backup rules."""
 
 import json
+import time
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.models import AppSettings, BackupRestoreRequest
 from app.repository import AppSettingsRepository
 from app.routers.settings import AppSettingsUpdate, update_settings
+from app.services import share
 from app.services.backup import BACKUP_COVERAGE, export_json, restore_json
+from app.services.share import SHARE_TERMS_VERSION
 
 SEED = "ab" * 32
 
@@ -26,7 +30,10 @@ async def test_defaults_are_off_auto_private(test_db):
 async def test_update_stores_valid_values(test_db):
     result = await update_settings(
         AppSettingsUpdate(
-            share_enabled=True, share_shorten_mode="always", share_preview_policy="never"
+            share_enabled=True,
+            share_terms_accepted=True,
+            share_shorten_mode="always",
+            share_preview_policy="never",
         )
     )
     assert (result.share_enabled, result.share_shorten_mode, result.share_preview_policy) == (
@@ -86,7 +93,7 @@ async def test_a_bad_stored_value_reads_as_the_default(test_db):
 @pytest.mark.asyncio
 async def test_export_never_holds_the_seed(test_db):
     await AppSettingsRepository.set_instance_seed("share", SEED)
-    await AppSettingsRepository.update(share_enabled=True)
+    await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
     export = await export_json()
     assert SEED not in json.dumps(export.model_dump(mode="json"))
 
@@ -115,7 +122,7 @@ async def test_restore_leaves_consent_rotates_seed_and_restores_the_behaviours(t
     assert len(bytes.fromhex(rotated)) == 32
 
     # And a restore never switches an enabled instance off either.
-    await AppSettingsRepository.update(share_enabled=True)
+    await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
     await restore_json(BackupRestoreRequest(confirm=True, settings=exported))
     assert (await AppSettingsRepository.get()).share_enabled is True
 
@@ -134,15 +141,21 @@ async def test_a_4_18_backup_without_share_fields_restores(test_db):
 def test_backup_decisions():
     assert BACKUP_COVERAGE["app_settings.share_enabled"][0] == "excluded"
     assert BACKUP_COVERAGE["app_settings.share_instance_seed"][0] == "excluded"
+    assert BACKUP_COVERAGE["app_settings.share_terms_version"][0] == "excluded"
+    assert BACKUP_COVERAGE["app_settings.share_terms_accepted_at"][0] == "excluded"
     assert BACKUP_COVERAGE["app_settings.share_shorten_mode"][0] == "included"
     assert BACKUP_COVERAGE["app_settings.share_preview_policy"][0] == "included"
 
 
 @pytest.mark.asyncio
 async def test_json_export_leaves_the_consent_out(test_db):
-    await AppSettingsRepository.update(share_enabled=True, share_shorten_mode="never")
+    await AppSettingsRepository.update(
+        share_enabled=True, share_terms_accepted=True, share_shorten_mode="never"
+    )
     dumped = (await export_json()).model_dump(mode="json")
     assert "share_enabled" not in dumped["settings"]
+    assert "share_terms_version" not in dumped["settings"]
+    assert "share_terms_accepted_at" not in dumped["settings"]
     assert dumped["settings"]["share_shorten_mode"] == "never"
 
 
@@ -152,14 +165,76 @@ async def test_database_copy_resets_the_consent_and_clears_the_seed(test_db, tmp
 
     from app.services.backup import write_sqlite_backup
 
-    await AppSettingsRepository.update(share_enabled=True, share_shorten_mode="never")
+    await AppSettingsRepository.update(
+        share_enabled=True, share_terms_accepted=True, share_shorten_mode="never"
+    )
     await AppSettingsRepository.set_instance_seed("share", SEED)
     path = tmp_path / "copy.db"
     await write_sqlite_backup(test_db, str(path))
     async with aiosqlite.connect(path) as conn:
         async with conn.execute(
-            "SELECT share_enabled, share_instance_seed, share_shorten_mode FROM app_settings"
+            "SELECT share_enabled, share_terms_version, share_terms_accepted_at,"
+            " share_instance_seed, share_shorten_mode FROM app_settings"
         ) as cursor:
-            assert tuple(await cursor.fetchone()) == (0, None, "never")
+            assert tuple(await cursor.fetchone()) == (0, 0, 0, None, "never")
     # The live database keeps the consent.
     assert (await AppSettingsRepository.get()).share_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_defaults_record_no_acceptance(test_db):
+    settings = await AppSettingsRepository.get()
+    assert (settings.share_terms_version, settings.share_terms_accepted_at) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_enabling_without_an_acceptance_is_refused(test_db):
+    with pytest.raises(HTTPException) as refused:
+        await update_settings(AppSettingsUpdate(share_enabled=True))
+    assert (refused.value.status_code, refused.value.detail) == (409, "share_terms_required")
+    assert (await AppSettingsRepository.get()).share_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_acceptance_records_the_current_version_and_time(test_db):
+    before = int(time.time())
+    await update_settings(AppSettingsUpdate(share_enabled=True, share_terms_accepted=True))
+    stored = await AppSettingsRepository.get()
+    assert stored.share_enabled is True
+    assert stored.share_terms_version == SHARE_TERMS_VERSION
+    assert before <= stored.share_terms_accepted_at <= int(time.time())
+
+
+@pytest.mark.asyncio
+async def test_a_current_acceptance_survives_turning_sharing_off_and_on(test_db):
+    await update_settings(AppSettingsUpdate(share_enabled=True, share_terms_accepted=True))
+    accepted_at = (await AppSettingsRepository.get()).share_terms_accepted_at
+    await update_settings(AppSettingsUpdate(share_enabled=False))
+    await update_settings(AppSettingsUpdate(share_enabled=True))
+    stored = await AppSettingsRepository.get()
+    assert stored.share_enabled is True
+    assert stored.share_terms_accepted_at == accepted_at
+
+
+@pytest.mark.asyncio
+async def test_a_new_terms_version_requires_a_new_acceptance(test_db, monkeypatch):
+    await update_settings(AppSettingsUpdate(share_enabled=True, share_terms_accepted=True))
+    assert await share.share_egress_state() is not None
+    monkeypatch.setattr(share, "SHARE_TERMS_VERSION", SHARE_TERMS_VERSION + 1)
+    # Stored consent is stale: no egress, and enabling again needs the dialog.
+    assert await share.share_egress_state() is None
+    await update_settings(AppSettingsUpdate(share_enabled=False))
+    with pytest.raises(HTTPException) as refused:
+        await update_settings(AppSettingsUpdate(share_enabled=True))
+    assert refused.value.status_code == 409
+    await update_settings(AppSettingsUpdate(share_enabled=True, share_terms_accepted=True))
+    assert (await AppSettingsRepository.get()).share_terms_version == SHARE_TERMS_VERSION + 1
+    assert await share.share_egress_state() is not None
+
+
+@pytest.mark.asyncio
+async def test_acceptance_without_enabling_is_refused(test_db):
+    with pytest.raises(HTTPException) as refused:
+        await update_settings(AppSettingsUpdate(share_terms_accepted=True))
+    assert refused.value.status_code == 422
+    assert (await AppSettingsRepository.get()).share_terms_version == 0
