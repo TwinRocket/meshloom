@@ -158,18 +158,123 @@ async def test_accepting_the_grant_starts_the_converted_bot(api, manager):  # no
 # --- no exec/eval of user code ----------------------------------------------------
 
 
-def test_no_exec_or_eval_remains_in_app():
+_DYNAMIC_CODE_BUILTINS = {"exec", "eval", "compile"}
+_DYNAMIC_CODE_MODULES = {"runpy"}
+_IMPORTLIB_CALLS = {"import_module", "__import__", "exec_module", "load_module"}
+
+
+def _dynamic_code_uses(tree: ast.AST) -> list[tuple[int, str]]:
+    """Every way ``app/`` could run or load code built at run time: a call (or a bare
+    reference, which could be called later) to ``exec``/``eval``/``compile`` or through
+    ``builtins``, ``runpy``, ``importlib`` loaders, ``__import__``, or an import of
+    ``runpy``; an alias (``from builtins import exec as run``) is followed."""
+    hits: list[tuple[int, str]] = []
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for item in node.names:
+                root = item.name.split(".")[0]
+                if root in _DYNAMIC_CODE_MODULES:
+                    hits.append((node.lineno, f"import {item.name}"))
+                if root in {"builtins", "importlib"}:
+                    aliases[item.asname or root] = root
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            root = node.module.split(".")[0]
+            if root in _DYNAMIC_CODE_MODULES:
+                hits.append((node.lineno, f"from {node.module} import ..."))
+            for item in node.names:
+                name = item.asname or item.name
+                if root == "builtins" and item.name in _DYNAMIC_CODE_BUILTINS:
+                    aliases[name] = f"builtins.{item.name}"
+                    hits.append((node.lineno, f"from builtins import {item.name}"))
+                if root == "importlib" and item.name in _IMPORTLIB_CALLS | {"util", "machinery"}:
+                    aliases[name] = f"importlib.{item.name}"
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in _DYNAMIC_CODE_BUILTINS | {"__import__"}:
+            hits.append((node.lineno, node.id))
+        elif isinstance(node, ast.Attribute):
+            base = node.value
+            if isinstance(base, ast.Name):
+                module = aliases.get(base.id, base.id)
+                if module == "builtins" and node.attr in _DYNAMIC_CODE_BUILTINS | {"__import__"}:
+                    hits.append((node.lineno, f"builtins.{node.attr}"))
+                elif module in {"importlib", "importlib.util", "importlib.machinery"} and (
+                    node.attr in _IMPORTLIB_CALLS
+                    or node.attr in {"spec_from_file_location", "SourceFileLoader"}
+                ):
+                    hits.append((node.lineno, f"{module}.{node.attr}"))
+            elif isinstance(base, ast.Attribute) and (
+                isinstance(base.value, ast.Name)
+                and aliases.get(base.value.id, base.value.id) == "importlib"
+                and base.attr in {"util", "machinery"}
+                and node.attr in _IMPORTLIB_CALLS | {"spec_from_file_location", "SourceFileLoader"}
+            ):
+                hits.append((node.lineno, f"importlib.{base.attr}.{node.attr}"))
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and aliases.get(node.func.id, "").split(".")[-1]
+            in _DYNAMIC_CODE_BUILTINS | {"import_module"}
+        ):
+            hits.append((node.lineno, node.func.id))
+    return sorted(set(hits))
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "exec(code)",
+        "eval(code)",
+        "compile(code, 'x', 'exec')",
+        "import builtins\nbuiltins.exec(code)",
+        "import builtins as b\nb.eval(code)",
+        "from builtins import exec as run\nrun(code)",
+        "import runpy",
+        "from runpy import run_path",
+        "import importlib\nimportlib.import_module(name)",
+        "import importlib.util\nimportlib.util.spec_from_file_location('m', p)",
+        "from importlib import import_module as load\nload(name)",
+        "__import__(name)",
+        "run = exec",
+    ],
+)
+def test_the_dynamic_code_gate_catches_each_spelling(snippet):
+    assert _dynamic_code_uses(ast.parse(snippet))
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "import ast\nast.parse(source)",
+        "import re\nre.compile('x')",
+        "import importlib.metadata\nimportlib.metadata.version('x')",
+        "def evaluate(x):\n    return x",
+    ],
+)
+def test_the_dynamic_code_gate_leaves_ordinary_code_alone(snippet):
+    # ``re.compile`` is an attribute of ``re``, not the builtin.
+    assert _dynamic_code_uses(ast.parse(snippet)) == []
+
+
+# Reviewed uses, each with a constant module name that no user input reaches: the
+# migration runner loads its own ``_NNN_*`` modules, and a stale-.pyc hint names meshcore.
+_REVIEWED = {
+    "app/migrations/__init__.py": {"importlib.import_module"},
+    "app/services/radio_lifecycle.py": {"__import__"},
+}
+
+
+def test_no_dynamic_code_loading_remains_in_app():
     """The in-process bot runtime (``exec`` of user code) is gone: user code only runs
-    in a plugin child. A new ``exec``/``eval`` call in ``app/`` must be a deliberate
-    decision that updates this test."""
+    in a plugin child. A new ``exec``/``eval``/``compile``/``runpy``/``importlib`` loader
+    in ``app/`` must be a deliberate decision that updates this test."""
     found: list[str] = []
     for path in sorted((ROOT / "app").rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in {"exec", "eval"}
-            ):
-                found.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+        relative = path.relative_to(ROOT).as_posix()
+        found += [
+            f"{relative}:{line} {what}"
+            for line, what in _dynamic_code_uses(tree)
+            if what not in _REVIEWED.get(relative, set())
+        ]
     assert found == []

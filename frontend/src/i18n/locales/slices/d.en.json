@@ -227,9 +227,6 @@
         "brokerSummary": "Broker <code>{{host}}</code> on port <code>{{port}}</code> via <code>{{transport}}</code>, auth <code>{{auth}}</code>, TLS on, certificate verification on, token audience fixed to <code>{{host}}</code>.",
         "email": "Email"
       },
-      "bot": {
-        "editorAria": "Bot code editor"
-      },
       "map": {
         "help": "Automatically upload heard repeater and room server advertisements to <map>map.meshcore.io</map>. Requires the radio's private key to be available (firmware must have <code>ENABLE_PRIVATE_KEY_EXPORT=1</code>). Only raw RF packets are shared — never decrypted messages.",
         "dryRunStatusOn": "<strong>Dry Run is ON.</strong> No uploads will be sent. Check the backend logs to verify the payload looks correct before enabling live sends.",

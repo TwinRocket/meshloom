@@ -95,11 +95,17 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
     }
 
     if "disable_bots" in options:
-        # Retired in 5.0.0: bots became extensions, so the option maps to nothing.
+        # Retired in 5.0.0: bots became extensions. The old lock survives only as the
+        # one-shot input of migration 122, which reads this variable once to store the
+        # converted bots switched off (as the package does); nothing else reads it and
+        # it is not a setting. A value of false maps to nothing.
+        if options["disable_bots"] is True:
+            env["MESHCORE_DISABLE_BOTS"] = "true"
         print(
-            "Warning: the add-on option disable_bots was removed and is ignored. "
-            "Bots are now extensions; set disable_plugins (MESHCORE_DISABLE_PLUGINS) "
-            "to lock every extension.",
+            "Warning: the add-on option disable_bots was removed. Bots are now "
+            "extensions: a leftover true value is only used once, to store the bots "
+            "converted by the 5.0.0 migration switched off. Set disable_plugins "
+            "(MESHCORE_DISABLE_PLUGINS) to lock every extension.",
             file=sys.stderr,
         )
 

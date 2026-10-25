@@ -1354,9 +1354,6 @@
         "brokerSummary": "Broker <code>{{host}}</code> sur le port <code>{{port}}</code> via <code>{{transport}}</code>, auth <code>{{auth}}</code>, TLS activé, vérification des certificats activée, audience du token fixée à <code>{{host}}</code>.",
         "email": "E-mail"
       },
-      "bot": {
-        "editorAria": "Éditeur de code du bot"
-      },
       "map": {
         "help": "Envoyer automatiquement les publicités de répéteurs et de serveurs de salon entendues vers <map>map.meshcore.io</map>. Nécessite que la clé privée de la radio soit disponible (le firmware doit avoir <code>ENABLE_PRIVATE_KEY_EXPORT=1</code>). Seuls les paquets RF bruts sont partagés — jamais les messages déchiffrés.",
         "dryRunStatusOn": "<strong>Le mode simulation est ACTIVÉ.</strong> Aucun envoi ne partira. Vérifiez les journaux backend pour confirmer que la charge est correcte avant d’activer les envois réels.",

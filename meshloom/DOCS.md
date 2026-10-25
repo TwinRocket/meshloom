@@ -93,6 +93,7 @@ itself.
 | `basic_auth_username` / `basic_auth_password` | **Deprecated, removed in the next release.** Home Assistant now signs you in through the sidebar (see *Signing in* below). If both are set, Meshloom turns them into an administrator account once, at its first start while it has no account, for the published port; it never reads them again. Empty them afterwards. |
 | `vapid_subject` | **Deprecated, removed in the next release.** The contact address for Web Push now lives in Meshloom's **Settings → Notifications**, VAPID subject field. If you set it here, Meshloom copies it there once, at its first start, when that field is empty, and never reads this option again: change the address in Settings from now on. |
 | `disable_plugins` | Locks the plugin system off: no plugin can be installed, changed or started, whatever Meshloom's settings say; you can still view and delete them, and pause them all, and plugins restored from a backup come back turned off. Each plugin copy runs under its own unprivileged user, without the add-on's root rights nor its D-Bus access, but if you want no third-party code in the add-on at all, turn this on. `false` by default. |
+| `disable_bots` | Removed in 5.0.0 (bots are extensions). A leftover `true` is only used once, by the migration of the bots at the first 5.0.0 start: the converted extensions arrive switched off. The add-on log says the option is gone. Use `disable_plugins` to lock extensions. |
 
 Everything else (radio, notifications, integrations) is set in Meshloom's own **Settings**.
 

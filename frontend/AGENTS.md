@@ -468,7 +468,7 @@ Uninstall. The consent (`AddBundledDialog`) grants exactly the declared permissi
 `plugins.permissions.http.private_messages_warning` when `messages.read` (direct or all channels)
 meets `http`. `ScopeEditor` is a small own editor (not the fanout `ScopeSelector`, which is private
 to `SettingsFanoutSection.tsx`). Quotas: only `messages.send` per hour/day, lowered only.
-`MigrationBanner` shows the converted-bots notice from `health.converted_bots` (how many bots became extensions, how many await review) with a dismiss button (`POST /plugins/converted-bots/acknowledge`).
+`MigrationBanner` shows the converted-bots notice from `health.converted_bots` (how many bots became extensions, how many await review) with a dismiss button (`POST /plugins/converted-bots/acknowledge`). `ConvertedBotsBanner` (in `AppShell`'s banner band, administrators only, hidden inside Settings > Extensions) shows the same notice on every view until it is acknowledged, with a button to open the section; the acknowledgement stays in `MigrationBanner`.
 Strings: slice `cc` (`settings.extensions.*`, `errors.*` plugin codes), slice `al`
 (permissions in plain words) and slice `ce` (`schemaForm.*`, `settings.extensions.config.*`
 form strings, `settings.extensions.local.*`). Tests: `src/test/pluginsSection.test.tsx`,
