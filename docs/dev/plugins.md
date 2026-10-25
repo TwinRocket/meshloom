@@ -365,8 +365,8 @@ cadrage's first draft) skips `site` too: no site-packages on the path and no
 `.pth` file executed before the runner freezes the process. `<python>` is
 `sys.executable`. The supervisor creates the instance's private work directory
 with the isolation backend's `prepare_work_dir()` (`launch.prepare_work_dir()`:
-0700, owned by the server user, not a symlink; handed to `meshloom-plugin`
-under the `setuid` level) and spawns with the backend's `launch()`, which wraps
+0700, owned by the server user, not a symlink; handed to the instance's own
+uid under the `setuid` level) and spawns with the backend's `launch()`, which wraps
 `subprocess.Popen(runner_command(), stderr=..., **popen_kwargs(work_dir))`
 (bwrap prefixes the command, `setuid` adds `user`, `group`, `extra_groups=[]`
 and `umask`):
@@ -687,7 +687,10 @@ ones.
 
 - **Host lock.** `MESHCORE_DISABLE_PLUGINS=true` (`Settings.disable_plugins`):
   nothing starts, `start()` raises `PluginHostError("plugins_disabled")`, health
-  says `plugins_disabled_source: "env"`. It is not an alias of
+  says `plugins_disabled_source: "env"`. The API refuses install, change and
+  start (403 `plugins_disabled`) and allows reads, `DELETE` and the global pause;
+  a backup restored under the lock brings its instances back disabled, and they
+  stay inert since enabling them is refused (MSHL-339). It is not an alias of
   `MESHCORE_DISABLE_BOTS`, which keeps driving the legacy bots until the switch.
 - **Platform.** No `resource` module (Windows): the system is off,
   `plugins_disabled_source: "platform"`.
