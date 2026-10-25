@@ -171,6 +171,22 @@ def _scrub_environ() -> None:
             del os.environ[key]
 
 
+def _libc_prctl() -> Any:
+    """libc's `prctl` with its prototype declared (Linux only).
+
+    `int prctl(int option, unsigned long arg2, ...)`: without argtypes ctypes passes
+    each Python int as a C `int`, so the width of arg2 to arg5 would depend on the
+    platform's defaults. The four trailing arguments are declared `unsigned long`
+    (every option the runner uses takes them so), the result `int`.
+    """
+    import ctypes
+
+    prctl = ctypes.CDLL(None, use_errno=True).prctl
+    prctl.argtypes = (ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong)
+    prctl.restype = ctypes.c_int
+    return prctl
+
+
 def _apply_limits(params: dict[str, Any]) -> None:
     try:
         import resource
@@ -208,17 +224,17 @@ def _apply_limits(params: dict[str, Any]) -> None:
         try:
             import ctypes
 
-            libc = ctypes.CDLL(None, use_errno=True)
-        except (ImportError, OSError) as exc:
+            prctl = _libc_prctl()
+        except (ImportError, OSError, AttributeError) as exc:
             raise RunnerStartError("limits_failed", f"ctypes unavailable: {exc}") from None
-        if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+        if prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
             raise RunnerStartError(
                 "limits_failed", f"PR_SET_NO_NEW_PRIVS: errno {ctypes.get_errno()}"
             )
         # execve made the child dumpable again (setuid drop included): without this
         # a sibling instance under the same uid could open /proc/<pid>/mem
         # read-write and take over this child's RPC channel.
-        if libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+        if prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
             raise RunnerStartError("limits_failed", f"PR_SET_DUMPABLE: errno {ctypes.get_errno()}")
 
 

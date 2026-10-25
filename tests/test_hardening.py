@@ -23,6 +23,8 @@ def test_calls_prctl_on_linux(monkeypatch):
     monkeypatch.setattr(hardening.ctypes, "CDLL", lambda *a, **k: libc)
     assert hardening.set_not_dumpable() is True
     libc.prctl.assert_called_once_with(hardening.PR_SET_DUMPABLE, 0, 0, 0, 0)
+    assert libc.prctl.argtypes == hardening.PRCTL_ARGTYPES
+    assert libc.prctl.restype is hardening.ctypes.c_int
 
 
 def test_noop_off_linux(monkeypatch):

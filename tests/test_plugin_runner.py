@@ -756,6 +756,24 @@ def test_missing_resource_module_refuses_to_start(monkeypatch: pytest.MonkeyPatc
     assert exc.value.code == "platform_unsupported"
 
 
+@pytest.mark.skipif(not LINUX, reason="prctl is Linux only")
+def test_prctl_prototype_is_declared() -> None:
+    import ctypes
+
+    from meshloom_plugin import runner
+
+    prctl = runner._libc_prctl()
+    assert prctl.argtypes == (
+        ctypes.c_int,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+        ctypes.c_ulong,
+    )
+    assert prctl.restype is ctypes.c_int
+    assert prctl(3, 0, 0, 0, 0) in (0, 1)  # PR_GET_DUMPABLE answers through the prototype
+
+
 def test_audit_hook_failure_refuses_to_start(monkeypatch: pytest.MonkeyPatch) -> None:
     from meshloom_plugin import runner
 
