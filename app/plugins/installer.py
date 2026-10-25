@@ -655,10 +655,24 @@ def _tree_version(target: Path) -> str | None:
     return version if isinstance(version, str) else None
 
 
+def _plugin_dir(plugins_root: Path, plugin_id: str) -> Path | None:
+    """``<plugins_root>/<plugin_id>``, or None when ``plugin_id`` is not a plugin id or the
+    path would leave ``plugins_root``."""
+    if not re.fullmatch(_PLUGIN_ID_RE, plugin_id):
+        return None
+    root = os.path.normpath(plugins_root)
+    target = os.path.normpath(os.path.join(root, plugin_id))
+    if os.path.dirname(target) != root:
+        return None
+    return Path(target)
+
+
 def code_installed(plugins_root: Path, plugin_id: str, version: str) -> bool:
     """Whether ``<plugins_root>/<plugin_id>`` is a real tree (no symlink) of that plugin
     at that version: what a second instance of a custom or store plugin reuses."""
-    target = plugins_root / plugin_id
+    target = _plugin_dir(plugins_root, plugin_id)
+    if target is None:
+        return False
     try:
         if not stat.S_ISDIR(target.lstat().st_mode):
             return False
@@ -730,9 +744,9 @@ def _stage(
 def remove_code(plugins_root: Path, plugin_id: str) -> None:
     """Remove `<plugins_root>/<plugin_id>/` (the last instance went). A symlink is removed
     as a link, never followed; an id that is not a plugin id is ignored."""
-    if not re.fullmatch(_PLUGIN_ID_RE, plugin_id):
-        return
-    _remove_path(plugins_root / plugin_id)
+    target = _plugin_dir(plugins_root, plugin_id)
+    if target is not None:
+        _remove_path(target)
 
 
 def _remove_path(path: Path) -> None:
