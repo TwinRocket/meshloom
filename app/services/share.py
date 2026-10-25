@@ -21,7 +21,10 @@ the Community guard.
   ``mint_share_jwt(binding)``; a read carries none. ``User-Agent`` is
   ``Meshloom/<version>``.
 - **Errors** are coded ``HTTPException`` details ``{code, message, params}``
-  (``SHARE_ERRORS``). Any answer that is not a contract JSON body (a Cloudflare
+  (``SHARE_ERRORS``). A 429 ``quota_exceeded`` with a contract ``scope`` (``key``,
+  ``ip``, ``global``) becomes ``share_quota_key`` / ``_ip`` / ``_global`` (generic
+  ``share_quota_exceeded`` without or with an unknown scope); never a remaining
+  count. Any answer that is not a contract JSON body (a Cloudflare
   1027 page, a challenge, an HTML 404) is ``share_unavailable``.
 - **Banned.** A 403 ``banned`` holds a banned state for ``BANNED_HOLD_S`` (in
   memory): every later write is refused locally (403 ``share_banned``) with no
@@ -113,6 +116,9 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_disabled": (403, "Sharing is turned off on this instance"),
     "share_unavailable": (502, "The share service is unavailable"),
     "share_quota_exceeded": (429, "The share quota of this instance is reached"),
+    "share_quota_key": (429, "The share quota of this instance key is reached"),
+    "share_quota_ip": (429, "The share quota of this network address is reached"),
+    "share_quota_global": (429, "The share service reached its daily budget"),
     "share_rate_limited": (429, "Too many share requests, try again later"),
     "share_banned": (403, "This instance is banned from the share service"),
     "share_too_large": (413, "The file is too large"),
@@ -122,6 +128,14 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_target_blocked": (422, "This link target is refused"),
     "share_invalid_url": (400, "This URL cannot be shortened"),
     "share_cross_site": (403, "Sharing requests from another site are refused"),
+}
+
+# The contract's optional ``scope`` of a 429 ``quota_exceeded`` -> local code. An
+# absent or unknown scope keeps the generic ``share_quota_exceeded``.
+_QUOTA_SCOPE_CODES: dict[str, str] = {
+    "key": "share_quota_key",
+    "ip": "share_quota_ip",
+    "global": "share_quota_global",
 }
 
 # Service error code (contract) -> local code. Every other code (the token_*
@@ -318,6 +332,7 @@ def _service_error(response: CheckedResponse, payload: dict[str, Any] | None) ->
             params["scope"] = (
                 scope if isinstance(scope, str) and _SCOPE_RE.fullmatch(scope) else None
             )
+            code = _QUOTA_SCOPE_CODES.get(params["scope"] or "", code)
         return ShareError(code, **params)
     return ShareError(code)
 
