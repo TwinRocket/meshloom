@@ -65,7 +65,10 @@ async def stop(timeout: float = SHUTDOWN_TIMEOUT_SECONDS) -> None:
 
 
 def without_plugin_errors(health: dict[str, Any]) -> dict[str, Any]:
-    """`health` as a principal without `PLUGIN_ERROR_PERMISSION` gets it."""
+    """`health` as a principal without `PLUGIN_ERROR_PERMISSION` gets it: no
+    `last_error` nor `send_guard`, and no `plugins_purge_blocked` paths."""
+    if health.get("plugins_purge_blocked"):
+        health = {**health, "plugins_purge_blocked": []}
     statuses = health.get("plugin_statuses")
     if not isinstance(statuses, dict) or not statuses:
         return health
@@ -82,8 +85,8 @@ def without_plugin_errors(health: dict[str, Any]) -> dict[str, Any]:
 
 def health_fields() -> dict[str, Any]:
     """`plugins_isolation`, `plugins_disabled`, `plugins_disabled_source`,
-    `plugins_paused_since`, `plugins_pause_unreadable` and `plugin_statuses` for
-    `/api/health`.
+    `plugins_paused_since`, `plugins_pause_unreadable`, `plugins_purge_blocked` and
+    `plugin_statuses` for `/api/health`.
 
     The host lock, the platform and a failed isolation take precedence over the
     global pause (`paused`, `app/plugins/pause.py`)."""
@@ -97,6 +100,10 @@ def health_fields() -> dict[str, Any]:
         statuses = plugin_manager.statuses()
     except Exception:
         statuses = {}
+    try:
+        purge_blocked = plugin_manager.purge_blocked()
+    except Exception:
+        purge_blocked = []
     return {
         "plugins_isolation": None
         if source is not None and source != "paused"
@@ -105,5 +112,8 @@ def health_fields() -> dict[str, Any]:
         "plugins_disabled_source": source,
         "plugins_paused_since": pause_state.since if pause_state.paused else None,
         "plugins_pause_unreadable": pause_state.unreadable,
+        # Under `setuid`: temp directories a uid purge could not list (the uid is
+        # kept until an administrator removes or opens them; MSHL-349).
+        "plugins_purge_blocked": purge_blocked,
         "plugin_statuses": statuses,
     }

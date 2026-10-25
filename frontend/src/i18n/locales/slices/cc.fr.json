@@ -101,6 +101,11 @@
           "setuid": "Chaque extension tourne sous un compte système dédié qui ne peut pas lire les fichiers de Meshloom.",
           "none": "Aucune isolation du système d'exploitation n'est disponible ici : les règles propres à Meshloom arrêtent les erreurs honnêtes mais pas une extension hostile, qui pourrait lire la base de données et les fichiers. N'installez que des extensions de confiance.",
           "unknown": "Le niveau d'isolation est indiqué dès que le serveur a démarré le système d'extensions."
+        },
+        "purgeBlocked": {
+          "title": "Un dossier temporaire garde des comptes d'extension occupés",
+          "text": "Quand une extension est supprimée, Meshloom nettoie ce que son compte a laissé dans les dossiers temporaires avant de confier ce compte à une autre extension. Il n'a pas pu regarder dans ces dossiers, donc les comptes restent occupés (rien n'est perdu, c'est une règle de sécurité) :",
+          "fix": "Sur le serveur, supprimez ces dossiers ou rendez-les lisibles (chmod o+r), puis redémarrez Meshloom."
         }
       },
       "disabled": {

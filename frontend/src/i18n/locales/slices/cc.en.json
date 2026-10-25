@@ -101,6 +101,11 @@
           "setuid": "Each extension runs under a dedicated system account that cannot read Meshloom's files.",
           "none": "No operating-system isolation is available here: Meshloom's own rules stop honest mistakes but do not stop a hostile extension, which could read the database and files. Only install extensions you trust.",
           "unknown": "The isolation level is reported once the server has started the extension system."
+        },
+        "purgeBlocked": {
+          "title": "A temporary folder keeps extension accounts taken",
+          "text": "When an extension is removed, Meshloom cleans up what its account left in the temporary folders before giving the account to another extension. It could not look inside these folders, so the accounts stay taken (nothing is lost, it is a safety rule):",
+          "fix": "On the server, remove these folders or make them readable (chmod o+r), then restart Meshloom."
         }
       },
       "disabled": {

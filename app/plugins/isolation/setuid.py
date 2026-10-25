@@ -37,14 +37,19 @@ on each of its directories before removal (no symlink followed), so a plugin can
 lock its own leftovers with `0300` or `0000`. A directory the uid may enter
 but not list fails the walk too (such as `0733` owned by someone else: the uid could
 have left entries there that it cannot see; the one exception is another instance's
-`0711` work directory, named as `mkdtemp` makes it and owned by another plugin uid), and so does anything `owns_something` still finds when the
-server checks again after the helper (as root it lists every directory). The
+`0711` work directory, named as `mkdtemp` makes it and owned by another plugin uid:
+`INSTANCE_UIDS` or the account's uid, read at runtime), and so does anything
+`owns_something` still finds when the server checks again after the helper (as root
+it lists every directory). The directories that blocked a purge are raised as
+`PurgeBlockedError` and shown in health (`plugins_purge_blocked`). The
 walk never crosses into another file system: a temp dir mounted below another
 is purged only when it is itself one of the walked roots
 (docs/dev/plugins-security.md, "OS isolation").
 """
 
 import contextlib
+import ctypes
+import errno
 import grp
 import logging
 import os
@@ -54,7 +59,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -63,9 +68,11 @@ from app.plugins.isolation import permissions
 from app.plugins.isolation.base import IsolationBackend
 
 ACCOUNT = "meshloom-plugin"
-# The uid and gid the Docker image gives the opt-in account (Dockerfile,
+# The uid and gid the Docker image gives the opt-in account by default (Dockerfile,
 # `PLUGIN_UID`). No child runs under it since per-instance uids (MSHL-339); the
-# releases before ran every instance under it, so startup still purges it.
+# releases before ran every instance under it, so startup still purges it. An image
+# may be built with another `PLUGIN_UID`: what the account really has is read at
+# runtime (`account_uid()`); this default is only kept out of `INSTANCE_UIDS`.
 ACCOUNT_UID = 10002
 # The per-instance uids: below 65536 (a user namespace commonly maps that much),
 # above the regular accounts useradd hands out first. A uid with a passwd or group
@@ -78,6 +85,10 @@ HELPER_TIMEOUT = 30.0
 PURGE_MAX_ENTRIES = 100_000
 # System V IPC tables (`/proc/sysvipc/<kind>`) and the id column of each.
 SYSV_IPC_KINDS = (("shm", "shmid"), ("msg", "msqid"), ("sem", "semid"))
+# What the helper prints after a directory the uid may enter but not list.
+NOT_LISTABLE = ": not listable"
+# Blocking directories one failed purge reports (health `plugins_purge_blocked`).
+PURGE_BLOCKED_MAX = 20
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +103,7 @@ logger = logging.getLogger(__name__)
 # descriptor, so no symlink is followed, and only a directory the uid owns (which
 # it could chmod anyway) is touched.
 _HELPER_SOURCE = """
-import os, re, shutil, stat, sys
+import errno, os, re, shutil, stat, sys
 sys.path.insert(0, sys.argv[1])
 from meshloom_plugin import seccomp
 seccomp.drop_capabilities(seccomp.libc_prctl())
@@ -103,6 +114,14 @@ op, args = sys.argv[2], sys.argv[3:]
 WORK_DIR_NAME = re.compile(r"meshloom-plugin-[a-z0-9_]{8}")
 uid = os.getuid()
 O_DIR_PATH = os.O_PATH | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
+PROC = "/proc"
+IPC_INFO = 3
+
+
+def shown(path):
+    # One printable line per path: control characters, line breaks and undecodable
+    # bytes escaped, any other character (accents, CJK) kept as is.
+    return "".join(c if c.isprintable() else ascii(c)[1:-1] for c in path)
 
 
 def unlock_one(parent_fd, name):
@@ -118,9 +137,14 @@ def unlock_one(parent_fd, name):
         mode = stat.S_IMODE(st.st_mode)
         if mode & 0o700 != 0o700:
             try:
-                os.chmod(f"/proc/self/fd/{fd}", mode | 0o700)
+                os.chmod(f"{PROC}/self/fd/{fd}", mode | 0o700)
             except FileNotFoundError:
-                os.chmod(name, mode | 0o700, dir_fd=parent_fd, follow_symlinks=False)
+                # No /proc: an O_PATH descriptor cannot be chmod-ed any other way,
+                # and chmod(follow_symlinks=False) is not implemented on Linux.
+                # The removal (and so the purge) fails, with this reason.
+                raise OSError(
+                    errno.ENOSYS, f"cannot give owner rwx back to {name}: /proc is not mounted"
+                ) from None
         return True
     finally:
         os.close(fd)
@@ -214,15 +238,15 @@ elif op == "purge":
                 # (or below) that this walk cannot see. Fail closed, except for
                 # another instance's work directory (0711 without root).
                 if os.access(path, os.X_OK) and not other_work_dir(path, base):
-                    print(f"{path}: not listable", file=sys.stderr)
+                    print(f"{shown(path)}: not listable", file=sys.stderr)
                 continue
             except OSError as exc:
-                print(f"{path}: {exc}", file=sys.stderr)
+                print(f"{shown(path)}: {shown(str(exc))}", file=sys.stderr)
                 continue
             for entry in entries:
                 seen += 1
                 if seen > limit:
-                    print(f"{base}: more than {limit} entries", file=sys.stderr)
+                    print(f"{shown(base)}: more than {limit} entries", file=sys.stderr)
                     stack = []
                     break
                 try:
@@ -237,19 +261,31 @@ elif op == "purge":
                 except FileNotFoundError:
                     pass
                 except OSError as exc:
-                    print(f"{entry.path}: {exc}", file=sys.stderr)
+                    print(f"{shown(entry.path)}: {shown(str(exc))}", file=sys.stderr)
     libc = ctypes.CDLL(None, use_errno=True)
     remove = {
         "shm": lambda i: libc.shmctl(i, 0, None),
         "msg": lambda i: libc.msgctl(i, 0, None),
         "sem": lambda i: libc.semctl(i, 0, 0),
     }
+    info = ctypes.create_string_buffer(256)
+    kernel_has = {
+        "shm": lambda: libc.shmctl(0, IPC_INFO, info),
+        "msg": lambda: libc.msgctl(0, IPC_INFO, info),
+        "sem": lambda: libc.semctl(0, 0, IPC_INFO, info),
+    }
     for kind in kinds:
         kind, _, id_column = kind.partition(":")
+        # A table is skipped only when the kernel has no such objects (ENOSYS):
+        # anything else unreadable (no /proc, /proc/sysvipc masked) fails the purge,
+        # or an object this uid owns would reach the next instance given the uid.
+        if kernel_has[kind]() == -1 and ctypes.get_errno() == errno.ENOSYS:
+            continue
         try:
-            with open("/proc/sysvipc/" + kind) as table:
+            with open(PROC + "/sysvipc/" + kind) as table:
                 lines = table.read().splitlines()
-        except OSError:
+        except OSError as exc:
+            print(f"sysvipc {kind}: cannot be listed ({exc.strerror})", file=sys.stderr)
             continue
         head = lines[0].split() if lines else []
         for line in lines[1:]:
@@ -267,9 +303,35 @@ else:
 """
 
 
-def plugin_uid_spec() -> str:
-    """The plugin uids for the purge helper: whose `0711` work dirs it may skip."""
-    return f"{INSTANCE_UIDS.start}-{INSTANCE_UIDS.stop},{ACCOUNT_UID}"
+class PurgeBlockedError(ValueError):
+    """The purge met directories the uid may enter but not list (`paths`, at most
+    `PURGE_BLOCKED_MAX`): it could have hidden files there, so the uid is kept until
+    an administrator removes or opens them."""
+
+    def __init__(self, message: str, paths: Iterable[str]) -> None:
+        super().__init__(message)
+        self.paths = tuple(paths)[:PURGE_BLOCKED_MAX]
+
+
+def account_uid(getpwnam: Any = pwd.getpwnam) -> int | None:
+    """The uid the `meshloom-plugin` account has on this machine (the image may be
+    built with another `PLUGIN_UID` than `ACCOUNT_UID`); None when the account is
+    missing or is root."""
+    try:
+        uid = getpwnam(ACCOUNT).pw_uid
+    except KeyError:
+        return None
+    return uid or None
+
+
+def plugin_uid_spec(getpwnam: Any = pwd.getpwnam) -> str:
+    """The plugin uids for the purge helper: whose `0711` work dirs it may skip.
+    The account's uid is looked up at each purge. Without the account (removed after
+    startup: the level is only selected while it exists) only `INSTANCE_UIDS` are
+    listed, so a work dir the account left still blocks the purge (fail closed)."""
+    spec = f"{INSTANCE_UIDS.start}-{INSTANCE_UIDS.stop}"
+    uid = account_uid(getpwnam)
+    return spec if uid is None else f"{spec},{uid}"
 
 
 def shared_temp_dirs() -> list[Path]:
@@ -312,14 +374,36 @@ def owns_something(uid: int, dirs: Iterable[Path] | None = None) -> bool:
     return dirs is None and owns_sysv_ipc(uid)
 
 
-def owns_sysv_ipc(uid: int, root: Path = Path("/proc/sysvipc")) -> bool:
+def kernel_has_sysv_ipc(kind: str) -> bool:
+    """False only when the kernel has no System V `kind` objects (`IPC_INFO`
+    answers ENOSYS); any other answer counts as present (fail closed)."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    info = ctypes.create_string_buffer(256)
+    ipc_info = 3  # IPC_INFO (Linux)
+    calls = {
+        "shm": lambda: libc.shmctl(0, ipc_info, info),
+        "msg": lambda: libc.msgctl(0, ipc_info, info),
+        "sem": lambda: libc.semctl(0, 0, ipc_info, info),
+    }
+    return not (calls[kind]() == -1 and ctypes.get_errno() == errno.ENOSYS)
+
+
+def owns_sysv_ipc(
+    uid: int,
+    root: Path = Path("/proc/sysvipc"),
+    kernel_has: Callable[[str], bool] = kernel_has_sysv_ipc,
+) -> bool:
     """True when `uid` owns or created a System V shared memory segment, message
-    queue or semaphore set (the tables are world-readable)."""
+    queue or semaphore set (the tables are world-readable). Also True when the
+    kernel has such objects but their table cannot be read (no /proc, or
+    /proc/sysvipc masked): fail closed. Only a kind the kernel lacks is skipped."""
     for kind, _ in SYSV_IPC_KINDS:
+        if not kernel_has(kind):
+            continue
         try:
             lines = (root / kind).read_text().splitlines()
         except OSError:
-            continue
+            return True
         head = lines[0].split() if lines else []
         for line in lines[1:]:
             row = dict(zip(head, line.split(), strict=False))
@@ -415,9 +499,11 @@ class SetuidBackend(IsolationBackend):
     def purge(self, dirs: Iterable[Path] | None = None) -> None:
         """Remove what this uid owns in the shared temp dirs (at any depth) and its
         System V IPC objects. Raises `ValueError` (or `OSError`) when the helper
-        fails, meets a directory it may enter but not list, or leaves something the
+        fails (`subprocess.TimeoutExpired` when it hangs), meets a directory it may
+        enter but not list, or leaves something the
         server still sees (`owns_something`, run as the server afterwards: as root it
-        lists every directory): the uid is then kept."""
+        lists every directory): the uid is then kept. `PurgeBlockedError` (a
+        `ValueError`) names the directories it could not list."""
         paths = list(shared_temp_dirs() if dirs is None else dirs)
         kinds = ",".join(f"{kind}:{column}" for kind, column in SYSV_IPC_KINDS)
         self._helper(
@@ -443,7 +529,8 @@ class SetuidBackend(IsolationBackend):
             ],
             stdin=subprocess.DEVNULL,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="backslashreplace",
             timeout=HELPER_TIMEOUT,
             cwd="/",
             env=launch.runner_env(),
@@ -455,8 +542,18 @@ class SetuidBackend(IsolationBackend):
             check=False,
         )
         if proc.returncode != 0 or (op == "purge" and proc.stderr.strip()):
-            tail = proc.stderr.strip().splitlines()[-1:] or [f"exit {proc.returncode}"]
-            raise ValueError(f"plugin helper ({op}) failed: {tail[0]}")
+            lines = proc.stderr.strip().splitlines()
+            tail = lines[-1] if lines else f"exit {proc.returncode}"
+            if op == "purge" and lines:
+                # One line per problem: the first ones (the walk's), then a count.
+                tail = "; ".join(lines[:3]) + (f" (+{len(lines) - 3} more)" if lines[3:] else "")
+            message = f"plugin helper ({op}) failed: {tail}"
+            blocked = [
+                line.removesuffix(NOT_LISTABLE) for line in lines if line.endswith(NOT_LISTABLE)
+            ]
+            if op == "purge" and blocked:
+                raise PurgeBlockedError(message, blocked)
+            raise ValueError(message)
 
     def prepare_plugin_dir(self, plugin_dir: Path) -> None:
         # `plugins/` and `plugins/local/` may be created after startup, under the

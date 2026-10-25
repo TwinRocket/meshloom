@@ -161,6 +161,9 @@ class HealthResponse(BaseModel):
     # The pause state could not be read at boot: held as paused (fail closed) until
     # an admin resumes; `plugins_paused_since` is then None.
     plugins_pause_unreadable: bool = False
+    # Under `setuid`: directories of the shared temp dirs a uid purge could not list
+    # (the uid stays taken until they are removed or opened). Empty below admin.
+    plugins_purge_blocked: list[str] = Field(default_factory=list)
     plugin_statuses: dict[str, PluginStatusResponse] = Field(default_factory=dict)
     radio_proxy: RadioProxyStatus | None = None
 

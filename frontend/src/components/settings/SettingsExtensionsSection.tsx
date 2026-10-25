@@ -116,6 +116,8 @@ export function SettingsExtensionsSection({
   const since = pause?.since ?? pausedSince;
   // The pause state could not be read at boot: held as paused (fail closed), no date.
   const pauseUnreadable = health?.plugins_pause_unreadable === true;
+  // Temp directories a uid purge could not list: those uids stay taken (MSHL-349).
+  const purgeBlocked = health?.plugins_purge_blocked ?? [];
 
   const applyPause = async (next: boolean) => {
     setPauseBusy(true);
@@ -173,6 +175,29 @@ export function SettingsExtensionsSection({
             : t('settings.extensions.isolation.explain.unknown')}
         </p>
       </div>
+
+      {purgeBlocked.length > 0 && isAdmin && (
+        <div
+          role="status"
+          data-testid="plugins-purge-blocked"
+          className="mb-3 space-y-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm"
+        >
+          <p className="font-medium">{t('settings.extensions.isolation.purgeBlocked.title')}</p>
+          <p className="text-muted-foreground">
+            {t('settings.extensions.isolation.purgeBlocked.text')}
+          </p>
+          <ul className="list-disc pl-5 font-mono text-xs">
+            {purgeBlocked.map((path) => (
+              <li key={path} className="break-all">
+                {path}
+              </li>
+            ))}
+          </ul>
+          <p className="text-muted-foreground">
+            {t('settings.extensions.isolation.purgeBlocked.fix')}
+          </p>
+        </div>
+      )}
 
       {convertedBots && isAdmin && (
         <div className="mb-3">

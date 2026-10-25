@@ -6,6 +6,7 @@ purge helpers run in tests/test_plugin_isolation.py where `setuid` is available.
 """
 
 import asyncio
+import subprocess
 import threading
 from pathlib import Path
 
@@ -30,7 +31,13 @@ class FakeSetuid(SetuidBackend):
         bound.purged, bound.fail = self.purged, self.fail
         return bound
 
+    blocked: dict[int, tuple[str, ...]] = {}
+
     def purge(self, dirs=None) -> None:
+        if self.uid in self.blocked:
+            raise setuid_module.PurgeBlockedError(
+                "plugin helper (purge) failed: not listable", self.blocked[self.uid]
+            )
         if self.uid in self.fail:
             raise ValueError("plugin helper (purge) failed")
         self.purged.append(self.uid)
@@ -40,6 +47,7 @@ class FakeSetuid(SetuidBackend):
 def fake_setuid(monkeypatch):
     backend = FakeSetuid(10002, 10002)
     backend.purged, backend.fail = [], set()
+    monkeypatch.setattr(FakeSetuid, "blocked", {})
     monkeypatch.setattr(isolation, "current", lambda: Selection(backend))
     monkeypatch.setattr(setuid_module, "uid_is_free", lambda uid: uid != 40001)
     return backend
@@ -126,6 +134,62 @@ async def test_startup_purges_leftovers_and_the_shared_uid(
     await manager.reap_uids()
     assert sorted(fake_setuid.purged) == [10002, 40002]
     assert await PluginUidRepository.all() == {a: 40000, b: 40002}
+
+
+async def test_blocking_dirs_reach_health_until_a_purge_succeeds(
+    test_db, fake_setuid, monkeypatch, tmp_path
+):
+    """MSHL-349: a directory the purge cannot list keeps the uid; health names it
+    (admins only) until the uid is purged cleanly."""
+    from app.plugins import lifecycle
+
+    broadcasts: list[bool] = []
+    monkeypatch.setattr(host_module, "_broadcast_health", lambda: broadcasts.append(True))
+    manager = PluginManager(plugins_root=tmp_path)
+    monkeypatch.setattr(lifecycle, "plugin_manager", manager)
+    a, b = await _instance("a"), await _instance("b")
+    await manager._instance_backend(a)
+    await manager._instance_backend(b)
+    FakeSetuid.blocked.update({40000: ("/tmp/x",), 40002: ("/tmp/x", "/tmp/y")})
+    await manager.remove(a, purge=True)
+    await manager.remove(b, purge=True)
+    assert await PluginUidRepository.get(a) == 40000  # kept
+    assert manager.purge_blocked() == ["/tmp/x", "/tmp/y"]
+    assert broadcasts == [True, True]  # once per change
+    health = lifecycle.health_fields()
+    assert health["plugins_purge_blocked"] == ["/tmp/x", "/tmp/y"]
+    assert lifecycle.without_plugin_errors(health)["plugins_purge_blocked"] == []
+
+    # The administrator removed /tmp/y: the next attempt frees b, /tmp/x stays.
+    del FakeSetuid.blocked[40002]
+    await PluginRepository.delete(a)
+    await PluginRepository.delete(b)
+    await manager.reap_uids()
+    assert manager.purge_blocked() == ["/tmp/x"]
+    assert await PluginUidRepository.orphans() == {a: 40000}
+    FakeSetuid.blocked.clear()
+    await manager.reap_uids()
+    assert manager.purge_blocked() == []
+    assert lifecycle.health_fields()["plugins_purge_blocked"] == []
+    assert len(broadcasts) == 4
+
+
+async def test_a_helper_timeout_keeps_the_uid(test_db, fake_setuid, monkeypatch, tmp_path):
+    """MSHL-349: a purge helper that hangs past its timeout keeps the uid taken."""
+
+    def hang(self, dirs=None):
+        raise subprocess.TimeoutExpired(["python"], setuid_module.HELPER_TIMEOUT)
+
+    manager = PluginManager(plugins_root=tmp_path)
+    a = await _instance("a")
+    await manager._instance_backend(a)
+    monkeypatch.setattr(FakeSetuid, "purge", hang)
+    await manager.remove(a, purge=True)
+    assert await PluginUidRepository.get(a) == 40000  # kept
+    await PluginRepository.delete(a)
+    await manager.reap_uids()  # no crash at startup either
+    assert await PluginUidRepository.orphans() == {a: 40000}
+    assert manager.purge_blocked() == []
 
 
 async def test_other_levels_allocate_nothing(test_db, monkeypatch, tmp_path):
