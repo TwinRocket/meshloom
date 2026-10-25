@@ -8,7 +8,8 @@
       "copied": "Message copied",
       "copyFailed": "Could not copy message",
       "openConversationAria": "Open {{name}} at its latest message",
-      "contactAria": "Contact details: {{name}}"
+      "contactAria": "Contact details: {{name}}",
+      "mentionAria": "Mentions you in {{name}}"
     }
   }
 }

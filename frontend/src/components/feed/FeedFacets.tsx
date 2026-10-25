@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListFilter } from 'lucide-react';
 
@@ -14,11 +14,70 @@ export interface FeedFacetItem {
   count: number;
 }
 
+/** Pause after the last keystroke before the quick filter runs. */
+export const FEED_TEXT_DEBOUNCE_MS = 200;
+
 interface FeedFacetsProps {
   channels: FeedFacetItem[];
   contacts: FeedFacetItem[];
   selected: string[];
   onChange: (selected: string[]) => void;
+  /** The quick text filter, as typed. Session-only: not stored, not in the URL. */
+  query: string;
+  onQueryChange: (query: string) => void;
+  /** Rows the quick filter keeps (only shown while a query is active). */
+  matchCount: number;
+  /** "Search the whole history": hands the query to message search. */
+  onSearchHistory?: (query: string) => void;
+}
+
+function TextFilter({
+  draft,
+  onDraft,
+  query,
+  matchCount,
+  onSearchHistory,
+}: {
+  draft: string;
+  onDraft: (value: string) => void;
+  query: string;
+  matchCount: number;
+  onSearchHistory?: (query: string) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-1 px-4 pt-3">
+      <input
+        type="search"
+        data-testid="feed-text-filter"
+        aria-label={t('feed.facets.textLabel')}
+        placeholder={t('feed.facets.textPlaceholder')}
+        value={draft}
+        onChange={(event) => onDraft(event.target.value)}
+        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+      />
+      {query.trim() !== '' && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span role="status" data-testid="feed-text-count">
+            {t('feed.facets.matchCount', {
+              count: matchCount,
+              formatted: formatNumber(matchCount),
+            })}
+          </span>
+          {onSearchHistory && (
+            <button
+              type="button"
+              data-testid="feed-text-search-history"
+              className="text-primary hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onSearchHistory(query)}
+            >
+              {t('feed.facets.searchHistory')}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Section({
@@ -65,13 +124,20 @@ function Section({
   );
 }
 
-function FacetBody({ channels, contacts, selected, onChange }: FeedFacetsProps) {
+function FacetBody({
+  channels,
+  contacts,
+  selected,
+  onChange,
+  text,
+}: FeedFacetsProps & { text: React.ReactNode }) {
   const { t } = useTranslation();
   const picked = new Set(selected);
   const toggle = (id: string) =>
     onChange(picked.has(id) ? selected.filter((s) => s !== id) : [...selected, id]);
   return (
     <>
+      {text}
       <div className="flex items-center justify-between gap-2 px-4 pt-2">
         <p className="text-xs text-muted-foreground">{t('feed.facets.scope')}</p>
         <Button
@@ -109,14 +175,32 @@ function FacetBody({ channels, contacts, selected, onChange }: FeedFacetsProps) 
 export function FeedFacets(props: FeedFacetsProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const active = props.selected.length;
+  // The field answers at once; the filter follows after a pause. A query changed from outside
+  // (never today) would resync the draft.
+  const [draft, setDraft] = useState(props.query);
+  const { query, onQueryChange } = props;
+  useEffect(() => {
+    if (draft === query) return;
+    const timer = setTimeout(() => onQueryChange(draft), FEED_TEXT_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [draft, query, onQueryChange]);
+  const active = props.selected.length + (props.query.trim() !== '' ? 1 : 0);
+  const text = (
+    <TextFilter
+      draft={draft}
+      onDraft={setDraft}
+      query={props.query}
+      matchCount={props.matchCount}
+      onSearchHistory={props.onSearchHistory}
+    />
+  );
   return (
     <>
       <aside
         aria-label={t('feed.facets.title')}
         className="hidden shrink-0 overflow-y-auto border-l border-border pb-2 md:order-last md:block md:w-64"
       >
-        <FacetBody {...props} />
+        <FacetBody {...props} text={text} />
       </aside>
       <div className="flex items-center gap-2 border-b border-border px-4 py-1.5 md:hidden">
         <Button
@@ -140,7 +224,7 @@ export function FeedFacets(props: FeedFacetsProps) {
               </SheetDescription>
             </SheetHeader>
             <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-              <FacetBody {...props} />
+              <FacetBody {...props} text={text} />
             </div>
           </SheetContent>
         </Sheet>

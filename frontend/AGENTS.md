@@ -132,6 +132,16 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   come from `createFeedNameResolver`. Not in the URL grammar (`encodeFeedQuery` ignores it), cleared by
   `displayFilters`, not written for a preset. Control and event rows ignore it. Numbers go through
   `formatNumber`, never `toLocaleString()`.
+- **Quick text filter and mentions.** `FeedFacets` holds a search field (debounced 200 ms,
+  `FEED_TEXT_DEBOUNCE_MS`); `FeedView` keeps the text in state only (not stored, not in the URL,
+  ignored in display mode) and narrows `visibleRows` through `utils/feedTextFilter.ts`: NFKC +
+  `toLocaleLowerCase` substring over conversation name, sender and body; a structured body
+  (`isStructuredBody`: Open/One reactions, GIF, location) never matches by its body, so `r:` hits
+  no reaction. While a query is on, control and event rows are hidden. No server round-trip; the
+  "Search the whole history" link calls `onSearchHistory(query)` (`handleOpenSearchWithQuery`
+  through `ConversationPane`) with the field untouched. `FeedMessageRow` marks a non-outgoing row
+  where `messageContainsMention(content, radioName)` (the app's `@[name]` rule) holds:
+  `data-mention`, an accent left border and an `aria-label`.
 - **Storage.** `localStorage` `meshloom-feed-filters` (the prefix matters under HA ingress,
   where `localStorage` is on HA's origin). Read and written in `try/catch`; absent,
   corrupted or blocked storage means the defaults, silently. Two tabs have two stores and

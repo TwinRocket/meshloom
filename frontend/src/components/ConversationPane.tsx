@@ -134,6 +134,8 @@ interface ConversationPaneProps {
   onOpenDirectorySettings?: () => void;
   onOpenCommunitySettings?: () => void;
   onOpenRadioSettings?: () => void;
+  /** Opens message search prefilled with a query (the Feed's quick filter hand-off). */
+  onSearchHistory?: (query: string) => void;
   onAdvertise?: (mode: RadioAdvertMode) => Promise<void>;
   unreadCounts?: Record<string, number>;
   lastMessageTimes?: Record<string, number>;
@@ -229,6 +231,7 @@ export function ConversationPane({
   onOpenDirectorySettings,
   onOpenCommunitySettings,
   onOpenRadioSettings,
+  onSearchHistory,
   onAdvertise,
   unreadCounts = {},
   lastMessageTimes = {},
@@ -452,6 +455,7 @@ export function ConversationPane({
           onSelectConversation={onSelectConversation}
           onOpenContactInfo={onOpenContactInfo}
           onOpenRadioSettings={onOpenRadioSettings}
+          onSearchHistory={onSearchHistory}
         />
       </LazyBoundary>
     );
