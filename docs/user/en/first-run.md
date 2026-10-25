@@ -108,7 +108,7 @@ The **Add Channel/Contact** button creates a conversation: a contact from its pu
 
 [Meshloom Community](/en/docs/deep/community/) is optional and off on a new install. To join, enter the code of the nearest airport (its three-letter IATA code) in **Settings > Meshloom Community**; until then, a banner offers it (you can dismiss it for good) and nothing is published. Community also needs your radio's position: while the radio has none, a banner asks for it and nothing but the node's status is sent. You can leave Community from that page at any time.
 
-Other useful pages in **Settings**: **Notifications** (below), **Updates**, **MQTT & Automation** (outputs and bots), **Alerts** (telemetry thresholds), **Database** (size and storage cleanup), **Statistics** and **About**.
+Other useful pages in **Settings**: **Notifications** (below), **Updates**, **MQTT & Automation** (outputs), **Alerts** (telemetry thresholds), **Database** (size and storage cleanup), **Statistics** and **About**.
 
 **Settings > Notifications** is where you choose what Meshloom tells you about (new contacts, direct messages, new repeaters or sensors, found channels, telemetry alerts, updates), and where. Each place is a **channel**: Web Push on this browser, e-mail, a webhook, ntfy, Discord, Telegram, Gotify, Home Assistant or any [Apprise](https://appriseit.com/) service. Web Push also works when the browser is closed, but needs HTTPS; ntfy, Gotify or Home Assistant on your network do not. Meshloom shows no pop-up alerts inside the open tab. See [Notifications](/en/docs/deep/notifications/) and, for browsers, [Push notifications](/en/docs/deep/push/).
 

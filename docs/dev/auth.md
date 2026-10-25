@@ -193,7 +193,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   for a login refused while a delay runs ("Login delays"), `error`), `target` (`user:<id>` for a known account, `username:unknown` for a
   typed name that matches no account (`typed_username_target()`: the typed text
   is never stored, so a password typed into the username field never reaches
-  the log), `session:<id>`, `token:<id>`, `bot:<id>`,
+  the log), `session:<id>`, `token:<id>`, `bot:<id>` (old rows only),
   `restore_job:<id>`, `auth_settings.<field>`).
 - **Actions** (`AuditAction`, a `Literal`, so pyright refuses a typo):
 
@@ -215,7 +215,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `setup_code.issued` | `meshloom-admin` |
   | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password; `delayed`/`refused` while a login delay runs; `refused` with `details.reason = password_policy` and `policy`; `refused` with `details.reason = forbidden` when a `kiosk` session or a scoped token sends a `new_password`), `POST /auth/users/{id}/password` (`details.reset`, `must_change`, `sessions_revoked`), `meshloom-admin reset-password` |
   | `settings.changed` | `PATCH /auth/settings`, one row per field changed; `meshloom-admin host-guard-observe` and `rotate-device-key` (target `auth_settings.device_cookie_key`, never the key) |
-  | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only, refusals included (403 while bots are disabled: `refused`; name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
+  | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | No longer written (MSHL-192 removed the bot routes: `type = bot` answers 410 and the until-restart route is gone). Kept in `AuditAction` so rows written by 4.18.x and earlier 5.0 builds still render. The `plugin.*` actions replace them |
   | `plugin.installed`, `plugin.created`, `plugin.enabled`, `plugin.disabled`, `plugin.config_changed`, `plugin.changed`, `plugin.updated`, `plugin.removed` | `/api/plugins` (`app/routers/plugins.py`): install of a bundled plugin, a local plugin created, a PATCH (one row per kind of change: the toggle, `config_changed` for `config`, `scope`, `granted_permissions`, `quotas`, `hooks`, `changed` for the other fields), `PUT /{id}/source` (`updated`), `DELETE /{id}` (`details.keep_data`); target `plugin:<instance_id>`, `details = {plugin_id, kind, fields?}` (plus `source_bytes` for `updated`): field names only, never a value, a secret or the source; outcome `failure` (`refused` for a 403 raised in the route) when the write is refused. A non-admin caller is refused by the permission gate before the route and writes no row |
   | `plugins.paused`, `plugins.resumed` | `PUT /plugins/pause` when the state changes (an idempotent repeat writes nothing): the actor only, no target, no details |
   | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
@@ -574,7 +574,7 @@ prompt inside the Home Assistant panel).
 | `kiosk` | `read` | Channel messages (muted and pending channels included), contacts, channels, packets (control packets included), stats, map, health. Never a direct message; no settings, no profile, no sessions |
 | `viewer` | `read`, `read_private` | `kiosk` plus direct messages and marking read; its own profile and sessions |
 | `member` | `viewer` + `send` | Send, create and edit contacts, channels and contact groups, favourites, pins, mutes, its own push subscriptions (owner `user_id`, MSHL-290), trace and path discovery |
-| `admin` | all, `repeater_admin` included | Settings, radio, repeaters and rooms, fanout and bots, backup and restore, private key, updates, Community, push preferences, every account's push devices (`GET /api/push/subscriptions?scope=all` redacted to the origin, DELETE; never PATCH or test), debug |
+| `admin` | all, `repeater_admin` included | Settings, radio, repeaters and rooms, fanout and plugins, backup and restore, private key, updates, Community, push preferences, every account's push devices (`GET /api/push/subscriptions?scope=all` redacted to the origin, DELETE; never PATCH or test), debug |
 
 `GET /settings/view` (`read`, so every role including `kiosk`) is the one readable
 settings route: `AppSettingsView` in `app/models.py` is an allowlist of display
@@ -1486,7 +1486,7 @@ B. **Upgrade from 4.18.**
 
 | Kind | Where to check | What differs |
 |---|---|---|
-| `package` (apt/dnf, Pi image) | `sudo meshloom-admin list-users`; log in `journalctl -u meshloom`; `/etc/meshloom/meshloom.env` | `sudo` is required, the command switches to `meshloom`; bots are off by default; loopback is not a trusted-network source; `systemctl restart meshloom` keeps sessions |
+| `package` (apt/dnf, Pi image) | `sudo meshloom-admin list-users`; log in `journalctl -u meshloom`; `/etc/meshloom/meshloom.env` | `sudo` is required, the command switches to `meshloom`; extensions are not locked by default (`MESHCORE_DISABLE_PLUGINS` is commented out in `meshloom.env`); loopback is not a trusted-network source; `systemctl restart meshloom` keeps sessions |
 | `compose` | `docker compose exec meshloom meshloom-admin list-users`; `docker compose logs` | behind the Docker bridge every visitor looks like the gateway: with no **Trusted proxies** set, only the per-account delay applies (see user docs); a rule covering the gateway is refused while a public address is set |
 | `container` (plain `docker run`) | `docker exec -it <name> meshloom-admin list-users` | same as compose; `--user 10001` when `MESHLOOM_RUN_AS_USER` is set |
 | `source` | `uv run python -m app.cli list-users` in the checkout | database in `data/`; no root; loopback refused for trusted networks |

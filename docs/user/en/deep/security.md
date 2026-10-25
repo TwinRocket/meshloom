@@ -1,6 +1,6 @@
 ---
 title: Security
-description: What accounts protect and what they do not, the locks that exist (sign-in, roles, HTTPS, turning bots off, an encrypted backup), and the radio proxy that has no login.
+description: What accounts protect and what they do not, the locks that exist (sign-in, roles, HTTPS, locking extensions, an encrypted backup), and the radio proxy that has no login.
 level: deep
 order: 20
 ---
@@ -9,7 +9,7 @@ Meshloom is designed for a network whose users you know. Several design choices 
 
 ## What accounts protect, and what they do not
 
-**Accounts are keys, not walls.** From 5.0 every page and every API route needs a signed-in account, and the server checks its role on each request ([Accounts and access](/en/docs/deep/access/)). That keeps strangers out; it does not limit what a person you let in can do. An administrator can read the whole history, send messages as your node, change the radio's settings and edit bots; a member can send as your node. Give accounts only to people you trust with the node.
+**Accounts are keys, not walls.** From 5.0 every page and every API route needs a signed-in account, and the server checks its role on each request ([Accounts and access](/en/docs/deep/access/)). That keeps strangers out; it does not limit what a person you let in can do. An administrator can read the whole history, send messages as your node, change the radio's settings and write extensions; a member can send as your node. Give accounts only to people you trust with the node.
 
 **Other web pages are kept out.** The interface works from any device that opens Meshloom's own address. Another web site open in the same browser is a different *origin*: the server gives it no CORS access (same-origin only), so it cannot read the API's answers, and it refuses changes (`POST`, `PUT`, `PATCH`, `DELETE`) that a browser sends from another site, with or without a session. The session cookie is also `SameSite=Lax`. If you use a dashboard or a script served from another address, list that address in **Settings > Local Configuration > Allowed origins** (one `scheme://host[:port]` per line, empty by default, no `*`); each listed site can then do everything the signed-in user can, including the live connection below. Scripts and apps that send no `Origin` (curl, a phone app, a Home Assistant sensor) are not browsers: they sign in with a session or an [API token](/en/docs/deep/access/#api-and-device-tokens).
 
@@ -17,18 +17,11 @@ The live connection (`/api/ws`, the WebSocket) needs the same account and is ref
 
 **DNS rebinding.** Meshloom also looks at the name in the browser's address. In 5.0.0 an unknown name is only noted; from 5.1 it will be refused unless you declared it (see [Host names Meshloom answers to](/en/docs/deep/https/#host-names-meshloom-answers-to)). A trusted-network rule always checks it strictly.
 
-**Bots run arbitrary Python.** A bot is a small Python program written in the interface. Meshloom runs it as-is, with full access to the language (`exec()` with the complete `__builtins__`). Any administrator can therefore run code on the host machine. This is intentional.
+**Extensions run Python.** An extension is a small Python program, bundled, installed or written by an administrator in the interface. It runs in a process of its own and can only ask Meshloom for what its accepted permissions allow; how strong the walls around it are depends on the installation ([Isolation](/en/docs/deep/plugins/#isolation)). Where there are none (isolation `none`), an administrator can still get code running on the host machine. This is intentional. The Python bots of 4.18 and earlier, which ran with no limit at all, became extensions in 5.0.0 ([Bots from 4.18](/en/docs/deep/plugins/#bots-from-418-and-earlier)).
 
 **The radio proxy has no login.** See [Radio proxy](#radio-proxy) below.
 
 None of this weakens MeshCore's own encryption over the air: direct messages and channel messages stay encrypted as usual. These points describe who can use the application, not what travels over the air. The node's private key is the exception on the server side: any administrator can read it (see [The node's private key](#the-nodes-private-key)).
-
-## The warning dialog
-
-While bots are enabled and no account protects the instance (from 5.0 every page needs a signed-in account, so you normally never see it), Meshloom opens a full-screen warning titled "Unprotected bot execution is enabled". It offers two ways out:
-
-- **Disable Bots Until Server Restart** turns the bot system off immediately. It comes back at the next restart unless you turn it off for good (see below).
-- Tick the acknowledgement box, then **Do Not Warn Me On This Device Again**. The choice is remembered by this browser only, so another browser or phone sees the warning again.
 
 ## Signing in
 
@@ -36,11 +29,9 @@ Signing in is mandatory and uses accounts: a password of at least 12 characters,
 
 Up to 4.18 the only lock was a shared HTTP Basic login (`MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD`). On the first start of 5.0 it becomes the administrator account, then Meshloom stops reading the variables and warns while they are still set: remove them. Scripts that send it with `Authorization: Basic` keep working until 5.2 ([The 4.x Basic login](/en/docs/deep/access/#the-4x-basic-login)). On the Home Assistant add-on, Home Assistant signs you in through the sidebar; its port 8000 is not published by default, and where you publish it a Meshloom account is asked.
 
-## Disable bots
+## Lock extensions
 
-`MESHCORE_DISABLE_BOTS=true` switches the bot system off at startup. No bot runs, the server answers `403` to any attempt to change bots, and the interface shows the feature as unavailable. The Linux package already sets this in `/etc/meshloom/meshloom.env`.
-
-The **Disable Bots Until Server Restart** button of the warning dialog does the same temporarily, without touching the environment. See [Fanout](/en/docs/deep/fanout/) for bots and the other outputs.
+`MESHCORE_DISABLE_PLUGINS=true` locks the extension system at startup. No extension can be installed, changed or started, whatever the settings say; you can still view and delete them, and pause them all. Extensions restored from a backup come back turned off. The Linux package leaves it unset (commented out in `/etc/meshloom/meshloom.env`). See [Plugins](/en/docs/deep/plugins/) for the other ways to stop extensions.
 
 ## The node's private key
 
@@ -96,7 +87,7 @@ A trusted network rule signs a device in without a password (see [Accounts and a
 
 - Give accounts only to people you trust, each the weakest role that does the job; turn on two-factor authentication for administrators, and **Require two-factor authentication for administrators** when Meshloom can be reached from the Internet.
 - Never expose port 8000 or the radio proxy port directly to the Internet. For remote access, use a VPN, or a reverse proxy with HTTPS that you list in **Trusted proxies**.
-- Set `MESHCORE_DISABLE_BOTS=true` if you do not need bots.
+- Set `MESHCORE_DISABLE_PLUGINS=true` if you do not need extensions.
 - Encrypt a full backup with a passphrase when you store it away from that network.
 - Always serve Meshloom over HTTPS beyond a network you trust: the session cookie and the password travel in clear over plain HTTP.
 

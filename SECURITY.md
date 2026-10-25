@@ -53,7 +53,7 @@ is deliberate. These are documented and are not treated as vulnerabilities:
 - **Accounts are keys, not walls.** Every `/api` route and the WebSocket need a
   signed-in account and declare the role that may call them (`admin`, `member`,
   `viewer`, `kiosk`; `docs/dev/auth.md`). Whoever holds an account has its
-  powers: an `admin` can read all history, send as the node, edit bots and
+  powers: an `admin` can read all history, send as the node, write extensions and
   change every setting, and a `member` can send as the node. A trusted-network
   rule, which an administrator can add, signs a device in without a login, and
   the rule is closed behind any proxy, tunnel, ingress or relay. A Basic
@@ -80,11 +80,15 @@ is deliberate. These are documented and are not treated as vulnerabilities:
 - **Share writes refuse requests marked cross-site.** `POST /api/share/links`
   (and every later write under `/api/share`) answers 403 `share_cross_site` when
   the browser sends `Sec-Fetch-Site: cross-site`. A request without the header
-  (curl, bots) passes; the route's permission (`send`) still applies. Defence in
+  (curl, scripts) passes; the route's permission (`send`) still applies. Defence in
   depth on top of the auth gate.
-- **Bots run Python with no sandbox.** Any administrator can make the host run
-  code while bots are enabled. `MESHCORE_DISABLE_BOTS=true` turns them off; the
-  Linux package does so by default.
+- **Extensions run administrator-approved Python.** Each runs in a process of its
+  own with only the permissions an administrator accepted, behind the walls of the
+  isolation level in force (`bwrap`, `setuid`, or `none`, where a hostile extension
+  could read Meshloom's files; `docs/user/en/deep/plugins.md`). Any administrator can
+  therefore get code running on the host. `MESHCORE_DISABLE_PLUGINS=true` locks the
+  whole extension system. The Python bots of 4.18 and earlier, which ran with no
+  sandbox, became extensions in 5.0.0, switched off until reviewed.
 - **Over plain HTTP the password and the session cookie travel in clear text.**
   Serve Meshloom over HTTPS beyond a network you know. Passkeys are offered only
   where the browser allows them (HTTPS on a declared name, or `localhost`).
@@ -108,6 +112,6 @@ They are described in [A trusted network](docs/user/en/trust.md),
 [Accounts and access](docs/user/en/deep/access.md). A way around one of the
 protections that does exist (for example, reaching a route above the role it
 declares, signing in without a valid credential, getting a trusted-network rule
-to apply through a proxy, running a bot while `MESHCORE_DISABLE_BOTS=true`, or
+to apply through a proxy, starting an extension while `MESHCORE_DISABLE_PLUGINS=true`, or
 getting the updater to install something that is not a signed Meshloom release)
 is a vulnerability: please report it.

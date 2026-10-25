@@ -36,7 +36,7 @@ Meshloom never uses the radio's key for this. See [The sharing key](/en/docs/dee
 - **Always**: pressing Send shortens the long addresses first, then checks the size, then sends. If the message is still too long, it stays in the text box and nothing is sent.
 - **Never**: addresses are sent as you typed them, and no button appears.
 
-Shortening is all or nothing: if the service refuses one address (see below), your text is left untouched. Meshloom leaves alone the short links themselves, addresses already short enough, and the `g:`, `m:` and `r:` messages (GIFs, positions and other special messages). It does not shorten a message that is not sent from the composer, such as a bot's. With sharing off, no button appears and nothing is requested, whatever the mode.
+Shortening is all or nothing: if the service refuses one address (see below), your text is left untouched. Meshloom leaves alone the short links themselves, addresses already short enough, and the `g:`, `m:` and `r:` messages (GIFs, positions and other special messages). It does not shorten a message that is not sent from the composer, such as an extension's. With sharing off, no button appears and nothing is requested, whatever the mode.
 
 Meshloom checks the address before sending it and **never sends** one the service would refuse anyway: an address with a user name or password, an IP address, `localhost`, a name without a dot or ending in `.local`, `.lan`, `.internal` or `.home.arpa`, anything that is not `http` or `https`, or longer than 2048 characters. Such an address is skipped by the button and refused by the API (`share_invalid_url`), so a link to your home network or one that contains credentials never leaves it.
 

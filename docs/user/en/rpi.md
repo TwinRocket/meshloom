@@ -54,7 +54,7 @@ Without a screen, use the `.local` name from another device on the same network,
 
 With no network at all, open `http://127.0.0.1:8000` on the Pi itself. Messaging and the radio work offline. Maps, Meshloom Community, Web Push and in-app updates wait until the Pi can reach the Internet.
 
-Bots, which run code on the machine, are turned off on this image, like in every Linux package. See [A trusted network](/en/docs/trust/).
+Extensions run code on the machine: nothing runs until an administrator adds one, and `MESHCORE_DISABLE_PLUGINS=true` in `/etc/meshloom/meshloom.env` locks them all. See [A trusted network](/en/docs/trust/).
 
 ## Kiosk image (screen on the wall)
 

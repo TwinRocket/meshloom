@@ -5,7 +5,7 @@ level: deep
 order: 22
 ---
 
-> Brouillon. Les extensions arrivent avec Meshloom 5.0.0 et remplacent les bots Python. Cette page décrit leurs permissions et leurs limites ; leur installation et leur configuration seront décrites avec l’interface.
+> Brouillon. Les extensions arrivent avec Meshloom 5.0.0 et ont remplacé les bots Python, retirés en 5.0.0 (voir [Les bots de la 4.18](#les-bots-de-la-418-et-avant)). Cette page décrit leurs permissions et leurs limites ; leur installation et leur configuration seront décrites avec l’interface.
 
 Une extension tourne dans son propre processus, à part de Meshloom. Elle ne peut ouvrir ni votre base de données, ni vos fichiers, ni le réseau par elle-même : elle peut seulement demander à Meshloom, qui vérifie chaque demande d’après les permissions que vous lui avez accordées. Une demande qui ne lui a pas été accordée est refusée avant que quoi que ce soit ne se passe.
 
@@ -51,9 +51,9 @@ Associée à la lecture des canaux privés ou des messages privés, cette permis
 ## Limites
 
 - **Messages envoyés.** Par défaut 30 par heure et 200 par jour pour chaque copie d’une extension. Une extension peut demander plus, jusqu’à 60 par heure et 500 par jour, et vous pouvez toujours baisser ces valeurs. Les compteurs survivent à un redémarrage de Meshloom.
-- **Toutes les extensions ensemble.** Quelles que soient les limites de chaque copie, ensemble les extensions envoient au plus 120 messages par heure depuis votre Meshloom. Chaque canal reçoit au plus 20 messages par heure des extensions et chaque contact 10 par heure, toutes extensions confondues. Ces trois limites pourront être baissées, jamais relevées ; le réglage arrive avec l’écran des réglages des extensions (une version ultérieure). Seules les extensions sont concernées : les bots gardent leur propre espacement de 2 secondes et ne sont pas comptés. Les compteurs survivent à un redémarrage de Meshloom.
+- **Toutes les extensions ensemble.** Quelles que soient les limites de chaque copie, ensemble les extensions envoient au plus 120 messages par heure depuis votre Meshloom. Chaque canal reçoit au plus 20 messages par heure des extensions et chaque contact 10 par heure, toutes extensions confondues. Ces trois limites pourront être baissées, jamais relevées ; le réglage arrive avec l’écran des réglages des extensions (une version ultérieure). Les compteurs survivent à un redémarrage de Meshloom.
 - **Boucles.** Une copie d’extension répond au plus une fois toutes les 30 secondes au même expéditeur, et ne répond pas à un message arrivé moins de 5 secondes après un de ses envois vers le même canal ou contact. Cela empêche deux répondeurs automatiques, même sur deux Meshloom différents, de se répondre sans fin.
-- **Espacement.** Meshloom attend au moins 2 secondes entre deux messages automatiques, quelle que soit l’extension ou le bot qui les envoie, pour laisser aux répéteurs le temps de se remettre à l’écoute.
+- **Espacement.** Meshloom attend au moins 2 secondes entre deux messages automatiques, quelle que soit l’extension qui les envoie, pour laisser aux répéteurs le temps de se remettre à l’écoute.
 - **Taille.** Un message est limité à ce que la radio peut transporter : 156 octets pour un message privé, moins sur un canal, où le nom de votre nœud passe en premier.
 - **Régions.** Une extension ne peut limiter un message de canal qu’à une région que Meshloom connaît déjà.
 - **Stockage.** 5 Mo par copie d’une extension.
@@ -122,8 +122,8 @@ Chaque modification faite par un administrateur est inscrite au journal d’audi
 - Toutes les copies en cours s’arrêtent et aucune ne démarre pendant la pause. Les messages et événements reçus entre-temps ne sont pas transmis aux extensions, et **Tester avec un message** est refusé.
 - Rien n’est perdu : chaque copie garde son interrupteur, ses réglages et ses données. Vous pouvez toujours installer, configurer ou activer des copies ; elles démarrent à la reprise.
 - Un bandeau indique depuis quand et par qui les extensions sont en pause, et les copies affichent l’état **En pause**. **Reprendre** relance exactement les copies dont l’interrupteur est activé.
-- La pause survit à un redémarrage de Meshloom. Les bots Python sont mis en pause en même temps.
-- Si Meshloom ne peut pas lire l’interrupteur de pause au démarrage, il joue la sécurité : extensions et bots restent en pause, sans date ni nom dans le bandeau, jusqu’à ce qu’un administrateur choisisse **Reprendre**.
+- La pause survit à un redémarrage de Meshloom.
+- Si Meshloom ne peut pas lire l’interrupteur de pause au démarrage, il joue la sécurité : les extensions restent en pause, sans date ni nom dans le bandeau, jusqu’à ce qu’un administrateur choisisse **Reprendre**.
 
 Elle se distingue des deux autres façons d’arrêter les extensions :
 
@@ -144,3 +144,14 @@ Quand le verrou de l’hôte est posé, il l’emporte : la page montre les exte
 - **Vérifier** lit le manifeste et analyse le code sans rien exécuter ; erreurs et avertissements viennent avec leur ligne.
 - **Tester avec un message** envoie un faux message à l'extension en cours d'exécution (depuis un canal de test, un de vos canaux ou un contact) et montre sa réponse et son journal. **Rien n'est envoyé à la radio** : les réponses sont interceptées. Enregistrez d'abord le code, et activez l'extension pour la tester.
 - Le journal du tiroir montre ce que l'extension a écrit, pour voir les erreurs sans ligne de commande.
+
+## Les bots de la 4.18 et avant
+
+Meshloom 5.0.0 retire les bots Python de **MQTT & Automation**. Au premier démarrage, il transforme chaque bot en **extension locale** portant son nom. Votre code est conservé tel quel (vous pouvez le lire et le modifier dans l’onglet **Code** de l’extension), ainsi que les conversations auxquelles le bot était limité et son interrupteur. Une petite couche de compatibilité appelle la fonction de votre bot, qui tourne donc désormais dans les mêmes murs que n’importe quelle extension : son propre processus, ses permissions, ses limites, la pause et le verrou ci-dessus.
+
+- **Relecture avant le démarrage.** Une extension convertie ne démarre jamais toute seule, même si le bot était actif. Elle affiche *À examiner* avec *Permissions à revoir* et reste éteinte jusqu’à ce qu’un administrateur l’ouvre, lise ce qu’elle peut faire et choisisse **Accepter et activer**. Les permissions accordées sont celles qu’un bot avait en pratique : lire tous les canaux, vos messages directs et les messages que vous envoyez, et envoyer des réponses dans la conversation du message auquel elle répond. Décochez ce dont le code n’a pas besoin. Le code est aussi analysé une fois, et les lignes à regarder sont listées.
+- **Avis.** **Réglages → Extensions** indique combien de bots ont été convertis et combien attendent encore une relecture, jusqu’à ce qu’un administrateur ferme l’avis.
+- **Archive.** Les bots d’origine sont copiés dans la table `fanout_configs_bots_archive` de la base, puis retirés de la liste des intégrations. L’archive ne fait partie d’aucune sauvegarde ni de l’instantané d’assistance, et sera supprimée dans une version ultérieure (prévu pour la 5.2.0). Créer ou modifier un bot par l’API est refusé avec `410` et le code `bot_type_retired`.
+- **L’ancien verrou.** Si `MESHCORE_DISABLE_BOTS=true` était posé lors de la mise à jour, il est respecté une dernière fois : toutes les extensions converties sont enregistrées éteintes. Ensuite la variable ne fait plus rien (Meshloom journalise un avertissement au démarrage si elle est encore posée). Pour empêcher toute extension de tourner, utilisez `MESHCORE_DISABLE_PLUGINS=true` (l’option `disable_plugins` de l’add-on Home Assistant ; son option `disable_bots` a disparu). Le paquet Linux ne pose plus aucun verrou dans `meshloom.env` : rien ne tourne tant que vous n’ajoutez pas une extension et n’acceptez pas ses permissions.
+- **Sauvegardes.** Une sauvegarde faite avant la 5.0.0 qui contient des bots les restaure comme extensions locales, éteintes et en attente de relecture. Les nouvelles sauvegardes ne contiennent aucun bot.
+- **Tout arrêter.** « Désactiver les bots jusqu’au redémarrage » n’existe plus : utilisez **Mettre en pause toutes les extensions** (plus haut) ou le verrou de l’hôte.

@@ -1,6 +1,6 @@
 ---
 title: A trusted network
-description: Accounts and roles, Python bots, and why Meshloom still belongs on a network you know.
+description: Accounts and roles, extensions that run code, and why Meshloom still belongs on a network you know.
 level: start
 order: 6
 ---
@@ -15,22 +15,20 @@ Accounts do not turn Meshloom into a service you can leave open to strangers. An
 
 Other web sites open in the same browser cannot read Meshloom's answers: the server only talks to its own address, plus any site you list in **Settings > Local Configuration > Allowed origins** (empty by default). Nor can they open the live feed, and Meshloom refuses changes that come from another site (see [Security](/en/docs/deep/security/#what-accounts-protect-and-what-they-do-not)).
 
-## Bots run code
+## Extensions run code
 
-Meshloom can run bots: small programs that react to the messages you receive. They are written in Python, and Meshloom runs them as they are, with no sandbox and no list of allowed instructions.
+Meshloom can run extensions (plugins): small Python programs that react to the messages you receive and may answer them. Each one runs in a process of its own, with only the permissions an administrator accepted when installing it, and, depending on how Meshloom was installed, walls the operating system puts around it (see [Isolation](/en/docs/deep/plugins/#isolation)). That is much stricter than the Python bots of 4.18 and earlier, which ran inside Meshloom with no limit at all; 5.0.0 converted them into extensions that stay off until an administrator reviews them (see [Bots from 4.18](/en/docs/deep/plugins/#bots-from-418-and-earlier)).
 
-The consequence is direct: **any administrator can make the host machine run any code.** Not only inside the application, but on the machine, with the server's permissions. It is an intentional automation feature, and it is also the most sensitive part of an installation.
-
-While bots are enabled and no account protects the instance (from 5.0 every page needs a signed-in account, so you normally never see it), Meshloom opens a warning dialog ("Unprotected bot execution is enabled"). You can disable bots until the next restart from that dialog, or tick the acknowledgement and dismiss it for this browser. It is not decoration.
+It is still code you choose to trust. Where the system offers no walls (isolation `none`, shown in **Settings → Extensions**), a hostile extension could read Meshloom's files, and an administrator can write one. **Any administrator can therefore get code running on the host machine.** It is an intentional automation feature, and it is also a sensitive part of an installation.
 
 Two protections exist:
 
-- Bots are **on by default**, except in the Linux package and the Raspberry Pi image, which turn them off (`MESHCORE_DISABLE_BOTS=true` in `/etc/meshloom/meshloom.env`). The installer asks nothing about this. Docker installs and the Home Assistant add-on keep bots on (the add-on has a `disable_bots` option).
-- Setting `MESHCORE_DISABLE_BOTS=true` turns the whole bot system off at startup. No bot runs, changes to bots are refused, and the interface shows the feature as disabled.
+- Nothing runs by default: an extension has to be added by an administrator, who sees what it may do first. The installer asks nothing about this.
+- Setting `MESHCORE_DISABLE_PLUGINS=true` locks the whole extension system at startup. No extension can be installed, changed or started, and the interface shows them as turned off by the server (the add-on has a `disable_plugins` option).
 
-If people you do not all know can reach the instance, keep bots disabled.
+If people you do not all know can reach the instance, lock extensions.
 
-From 5.0, plugins (**Settings → Extensions**) follow the same rule. Who can install, configure or run one is decided by the account's role, not by being on your network: only an administrator can, a member sees the list read-only, and viewer and kiosk accounts see nothing. Every change is written to the audit log with who made it, so you can tell afterwards who installed what. When one misbehaves, **Pause all extensions** stops them all at once without losing their settings (see [Plugins](/en/docs/deep/plugins/#pause-all-extensions)).
+Who can install, configure or run one is decided by the account's role, not by being on your network: only an administrator can, a member sees the list read-only, and viewer and kiosk accounts see nothing. Every change is written to the audit log with who made it, so you can tell afterwards who installed what. When one misbehaves, **Pause all extensions** stops them all at once without losing their settings (see [Plugins](/en/docs/deep/plugins/#pause-all-extensions)).
 
 ## The password and HTTPS
 
@@ -45,7 +43,7 @@ Under Home Assistant ingress, Meshloom trusts the identity Home Assistant's Supe
 A few rules prevent most problems:
 
 - **Do not expose port `8000` to the Internet.** Do not forward it on your router. For remote access, use a VPN into your home or office network.
-- On a shared network (shared house, office, guest network), give accounts only to people you trust, and keep bots disabled.
+- On a shared network (shared house, office, guest network), give accounts only to people you trust, and lock extensions (`MESHCORE_DISABLE_PLUGINS=true`).
 - Remember that the radio's private key is given to the server so it can decrypt direct messages. It is kept in memory only, but an administrator can read it back, through the API and in the full backup. A compromised machine is a compromised machine.
 - The optional short-link service (**Settings > Share: links and files**) is off by default and never contacted until an administrator turns it on. It uses a key of its own, never the radio's, and backups carry neither that key nor the consent: a restore never turns sharing on and always gives a new key (see [Short links](/en/docs/deep/share/)).
 - If you turn on **Settings > Proxy** to share your radio with other apps, know that it has no login at all: accounts do not cover it, and anyone who can reach its port (5051 by default) can use your radio and send as your node. That is a decision, because the apps that speak this protocol cannot sign in. Keep that port inside your network.

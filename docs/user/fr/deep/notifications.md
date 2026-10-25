@@ -9,7 +9,7 @@ Meshloom peut vous prévenir de ce qu’il entend et de son propre état sans qu
 
 Tout se règle dans **Réglages → Notifications** (administrateurs seulement). Rien ici ne demande de variable d’environnement. Ce qui est propre aux navigateurs (HTTPS, l’adresse de contact VAPID, l’abonnement d’un navigateur) est sur [Notifications push](/docs/deep/push/) ; cette page couvre tout le reste.
 
-Les canaux de notification sont distincts du [fanout](/docs/deep/fanout/), qui transmet chaque message des conversations que vous choisissez à des machines (MQTT, bots, webhooks, SQS). Les notifications s’adressent aux personnes et parlent d’événements.
+Les canaux de notification sont distincts du [fanout](/docs/deep/fanout/), qui transmet chaque message des conversations que vous choisissez à des machines (MQTT, webhooks, SQS). Les notifications s’adressent aux personnes et parlent d’événements.
 
 ## Canaux
 

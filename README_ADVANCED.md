@@ -133,7 +133,7 @@ From an existing clone, you can still run the checkout installer. It runs as you
 bash scripts/setup/install_service.sh
 ```
 
-It asks only how to get the frontend (build locally with Node.js 22.12+ and npm 10+, or download the prebuilt one); the radio transport is chosen in the web UI. Re-running it stops the service, rewrites the unit file, reloads systemd, and starts it again. Set other environment variables (bots) as `Environment=` lines in the unit.
+It asks only how to get the frontend (build locally with Node.js 22.12+ and npm 10+, or download the prebuilt one); the radio transport is chosen in the web UI. Re-running it stops the service, rewrites the unit file, reloads systemd, and starts it again. Set other environment variables as `Environment=` lines in the unit.
 
 A package install is different: the unit is `meshloom.service`, runs as the `meshloom` user, keeps its data in `/var/lib/meshloom` and reads `/etc/meshloom/meshloom.env`.
 

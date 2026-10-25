@@ -19,9 +19,9 @@ configs are validated on every create and update, enabled or not.
   and restarts the module. Modules run concurrently and a failure in one never
   affects the others.
 - `broadcast_message` drops `CHAN` messages for pending channels.
-- Bots are skipped when `MESHCORE_DISABLE_BOTS` is set (`source="env"`) or after
-  `POST /api/fanout/bots/disable-until-restart` (`source="until_restart"`);
-  creating or patching a bot then answers 403.
+- There is no `bot` fanout type any more (migration 122 converted them into local
+  plugins). `POST /api/fanout` with `type: "bot"` and `PATCH` on an archived bot id
+  answer 410 `bot_type_retired`; the old "disable bots until restart" route is gone.
 - `system:*` ids are reserved: hidden from `/api/fanout` and fanout statuses,
   `PATCH`/`DELETE` on them answer 403.
 
@@ -84,8 +84,8 @@ every broadcast_* above (message: after the pending-channel check)
 
 Plugins get the same events through the plugin host, not as fanout modules:
 `message`, `raw_packet`, `contact`, `telemetry`, `health`, each to the running
-instances that subscribe that hook (`docs/dev/plugins.md`, "Supervisor"). The
-legacy `bot` module is unchanged.
+instances that subscribe that hook (`docs/dev/plugins.md`, "Supervisor"). Converted
+bots are plugin instances, not fanout modules.
 
 `realtime=False` (historical decrypt) skips the proxy, fanout and push.
 
@@ -103,14 +103,13 @@ reach every module.
 | type | scope |
 |------|-------|
 | `mqtt_community`, `map_upload` | forced `{"messages":"none","raw_packets":"all"}` |
-| `bot` | forced `{"messages":"all","raw_packets":"none"}` |
 | `webhook`, `apprise`, `mqtt_ha` | `messages` configurable, `raw_packets` forced `none` |
 | `mqtt_private`, `sqs` | both configurable (also the default for a type with no branch) |
 
 ## Payload pitfalls
 
 - `CHAN` message text is stored as `"Sender: body"`: use
-  `base.get_fanout_message_text()` to strip the prefix (bots already get it stripped).
+  `base.get_fanout_message_text()` to strip the prefix (plugins already get it stripped).
 - `on_raw` carries both `id` (storage row, repeats) and `observation_id` (one per
   RF arrival).
 - `on_health` stats fields are `None` when the firmware sends the legacy 26-byte
@@ -128,16 +127,13 @@ reach every module.
   format: `raw` is upper-case hex, and direct-route `path` is the hop identifiers
   joined by commas, so the token width follows the path hash mode. Token auth is an
   Ed25519 JWT signed with the radio key.
-- **`bot`** runs user code through `exec()` with full `__builtins__`, by design
-  (arbitrary code execution; changing it is the out-of-scope Plugins work). Runs
-  are capped in concurrency and time; `_bot_globals` persists between runs. The
-  bot waits 2 s so echoes can dedupe, and bot sends are spaced at least 2 s apart
-  (`send_spacer` of `app/plugins/quotas.py`, shared with the plugin instances).
-  Optional arguments (`region`, `scoped`, …) are passed only to bots whose
-  signature names them (`analyze_bot_signature`, now in `meshloom_plugin/compat.py`, which
-  the plugin shim for migrated bots shares; `bot_exec` re-imports it). `region` is `None` both when
-  unscoped and when unknown: check `scoped` first. In a `BotReply` dict, an absent
-  `region` keeps the channel's `flood_scope_override`, `None` sends unscoped.
+- **Converted bots** (`bot` rows of 4.18, migration 122) live in `plugins` as local
+  instances running `bot.py` through the fixed `compat.py` wrapper
+  (`meshloom_plugin/compat.py`, `legacy_bot`; `analyze_bot_signature` lives there too),
+  inside the plugin sandbox. `region` is `None` both when unscoped and when unknown:
+  check `scoped` first. In a `BotReply` dict, an absent `region` keeps the channel's
+  `flood_scope_override`, `None` sends unscoped. The originals are archived in
+  `fanout_configs_bots_archive` (`docs/dev/plugins.md`, "Legacy bots").
 - **Egress guard.** `webhook`, `apprise`, `sqs` and `map_upload` destinations
   go through `app/net/egress_guard.py` with `config.allow_private_network`
   (default false; migration 100 grandfathered existing rows). The validators

@@ -1,7 +1,7 @@
 # Plugins
 
 Status: **format, validators, data model, the child runtime, the SDK, the legacy
-bot shim, the supervisor, the capability API v1, the OS isolation and `http.fetch`**
+bot shim and conversion, the supervisor, the capability API v1, the OS isolation and `http.fetch`**
 (MSHL-175, MSHL-184, MSHL-176, MSHL-177, MSHL-179, MSHL-181, MSHL-180, MSHL-183;
 isolation: `docs/dev/plugins-security.md`, "OS isolation"). The server starts one
 supervised child per enabled instance, isolated by the OS, and answers its requests
@@ -163,8 +163,8 @@ manifest can produce.
 
 Migration 103 adds three tables (columns in `docs/dev/database.md`) and
 `app_settings.store_online` (the Store egress consent, off; not in `AppSettings` until
-the Store client reads it). It is additive: the bots stay in `fanout_configs`,
-untouched, until the switch (Store T9) converts them, so no release has bots without
+the Store client reads it). It was additive; migration 122 (MSHL-192) then converted the bots of
+`fanout_configs` into local instances (see "Legacy bots"), so no release has bots without
 a runtime.
 
 ### Instances
@@ -347,7 +347,7 @@ hooks block and what they cannot: `docs/dev/plugins-security.md`.
 | `meshloom_plugin/dev.py` | author tooling, not child code: `python -m meshloom_plugin.dev check <dir>` (see "Checking a plugin") |
 | `meshloom_plugin/__init__.py` | `host()`: the RPC channel to the server; lazy exports `Plugin`, `Message`, `HostError` |
 | `meshloom_plugin/sdk.py` | the SDK (below) |
-| `meshloom_plugin/compat.py` | the legacy bot shim and the call plans `app/fanout/bot_exec.py` shares (below) |
+| `meshloom_plugin/compat.py` | the legacy bot shim (`legacy_bot`) that runs converted bots, and their call plans (below) |
 | `meshloom_plugin/errors.py` | exceptions plugin code may catch (`HostError`); never in `runner.py`, which runs as `__main__`, so a plugin importing `meshloom_plugin.runner` would get a second copy whose classes never match |
 
 ### Launch contract
@@ -550,7 +550,7 @@ What the supervisor (MSHL-179) must provide, as the SDK uses it:
   allowance (radio name known, else the 10-byte fallback: 144), not 156; otherwise
   `fit()` output on a channel reply is refused with `message_too_long`. A plugin
   that needs the exact bound reads `params.limit` of that refusal.
-- `event.message` params: the fields of the bots' call (`sender_name`, `sender_key`,
+- `event.message` params: the fields of the 4.18 bots' call (`sender_name`, `sender_key`,
   `message_text` without the `"Name: "` prefix, `is_dm`, `channel_key`,
   `channel_name`, `sender_timestamp`, `path`, `path_bytes_per_hop`, `packet_hash`,
   `region`, `scoped`, `is_outgoing`) plus `conversation_key`, `is_public_channel`,
@@ -628,8 +628,8 @@ returns first), `reinstall`, `revoked` and `incompatible` rows. Each update writ
 two-host simulation.
 
 - `meshloom.echo` (`echo/plugin.py`) is the documented reference: a `Plugin` subclass,
-  `on_message`, `self.reply`. `!pling` answers `Plong!`. It replaces the example that
-  the legacy bot editor (`DEFAULT_BOT_CODE`) still shows until the bots go.
+  `on_message`, `self.reply`. `!pling` answers `Plong!`. It replaced the example
+  of the bot editor (`DEFAULT_BOT_CODE`), which is gone with the bots.
 - `meshloom.auto-responder` (`auto_responder/`) is the no-code option. The config schema
   subset allows arrays of strings only, so each rule is one string,
   `trigger[,option=value]: text => reply`: triggers `keyword` (whole words), `prefix`
@@ -654,19 +654,42 @@ two-host simulation.
 
 ## Legacy bots (`meshloom_plugin.compat`)
 
-`legacy_bot(source)` returns a `Plugin` class that runs a 4.18.x `bot(...)` source,
-the entry point of a migrated bot:
+The Python bot of 4.18.x no longer exists as a fanout type or a runtime: MSHL-192 removed
+`app/fanout/bot.py`, `app/fanout/bot_exec.py` and every bot branch of the fanout router and
+manager, so no user code is `exec`'d inside the server process any more. What remains is
+the shim and the conversion.
+
+`legacy_bot(source)` returns a `Plugin` class that runs a 4.18.x `bot(...)` source:
 
 ```python
 from meshloom_plugin.compat import legacy_bot
-Bot = legacy_bot(open("bot.py", encoding="utf-8").read())   # manifest entry "plugin.py:Bot"
+Bot = legacy_bot(open("bot.py", encoding="utf-8").read())   # manifest entry "compat.py:Bot"
 ```
 
+**Migration 122** (`app/migrations/_122_bots_to_plugins.py`) turns each `fanout_configs` row
+of type `bot` into a `plugins` row: kind `local`, `plugin_id` `local.<uuid4>`, label the bot's
+name, source the bot code unchanged, `enabled` and the `messages` scope copied, and a
+generated manifest (`entry: "compat.py:Bot"`, hook `message`, permissions `messages.read`
+`{channels: all, direct: true, outgoing: true}` and `messages.send` `{targets: reply}`). The
+row starts as `needs_attention` with the attention
+`{"type": "review_permissions", "converted_bot": true, ...}`: it never starts until an
+administrator accepts the permissions, like any `review_permissions` attention. If
+the retired bot-lock environment variable is true when the migration runs (its one and
+only read), every converted instance is stored with `enabled = 0`. The originals are copied
+to `fanout_configs_bots_archive` (excluded from backups and `/api/debug`; purge planned in
+5.2.0) and deleted from `fanout_configs`. At each start the attention scan
+(`app/plugins/attention.py`) runs on the converted sources not scanned yet and adds its
+reasons to the attention JSON. The plugin host writes a converted instance as `bot.py` (the
+user's code, editable as the local source) next to a fixed `compat.py` wrapper around
+`legacy_bot`.
+
+`/api/health` carries `converted_bots` (`{"converted": n, "attention": m}`, `null` once
+acknowledged) and `POST /api/plugins/converted-bots/acknowledge` (admin) clears it. A backup
+entry of type `bot` restores the same way, disabled, with the attention
+`{"type": "restored", "converted_bot": true, "review_permissions": true}` (`docs/dev/backup.md`).
 The call plans (`BotCallPlan`, `analyze_bot_signature`, `call_bot`) and the return
 shapes (`coerce_result`: `None`, `str`, `list[str]`, `{"region", "message"}`) live
-in `compat.py` and `app/fanout/bot_exec.py` uses them, so the shim and the
-in-process executor cannot drift; `tests/test_plugin_compat.py` runs the same
-conventions and shapes through both and compares. A bot's replies are sent with
+in `compat.py`; `tests/test_plugin_compat.py` covers them. A bot's replies are sent with
 `messages.send` to the conversation of the message; a dict's `region` goes to the
 host as given (the host normalises it), an absent one stays absent.
 
@@ -707,7 +730,12 @@ ones.
   start (403 `plugins_disabled`) and allows reads, `DELETE` and the global pause;
   a backup restored under the lock brings its instances back disabled, and they
   stay inert since enabling them is refused (MSHL-339). It is not an alias of
-  `MESHCORE_DISABLE_BOTS`, which keeps driving the legacy bots until the switch.
+  the old bot lock, retired: its setting is gone, a startup warning
+  names `MESHCORE_DISABLE_PLUGINS` when it is still set (`app/services/legacy_env_settings.py`),
+  and migration 122 reads it once.
+  `/api/health` still returns `bots_disabled` and `bots_disabled_source` for one release
+  (deprecated), derived from this lock and the pause (`env` or `paused`; `until_restart`
+  never appears).
 - **Platform.** No `resource` module (Windows): the system is off,
   `plugins_disabled_source: "platform"`.
 - **Global pause.** `app/plugins/pause.py` (MSHL-216, migration 120:
@@ -717,15 +745,15 @@ ones.
   paused nothing starts (boot, install, enable, config change; a manual restart
   is 409 `plugins_paused`), `dispatch()` drops events instead of queueing them
   and `dispatch_test()` raises `plugins_paused`. `resume_all()` starts exactly the
-  enabled instances again, staggered like the start-up. The legacy bots are held
-  too (`fanout_manager.set_bots_paused`, `bots_disabled_source: "paused"`). The
+  enabled instances again, staggered like the start-up. Converted bots are plain
+  instances, so they pause with the rest. The
   pause survives a restart. Health says `plugins_disabled_source: "paused"` and
   `plugins_paused_since` only when no other gate applies: the host lock, the
   platform and the isolation failure take precedence. `start()` checks the pause
   again right before it registers and launches the child, with no await in
   between (MSHL-341): a start or enable in flight when the pause lands never
   launches, since `pause_all()` only stops registered instances. If the stored
-  state cannot be read at boot, the pause fails closed: plugins and bots are held
+  state cannot be read at boot, the pause fails closed: plugins are held
   as paused (`since` and `by` unknown), the log has the error and health adds
   `plugins_pause_unreadable: true`; an admin's resume (or pause) writes the state
   again.
@@ -777,8 +805,8 @@ within 20 s. Then the status is `running`.
   (`message` after the pending-channel check, `raw_packet`, `contact`,
   `telemetry`, `health`). Only running instances whose manifest lists the hook
   get it, after the permission and scope filter ("Capabilities", "Reads").
-  `event.message` keeps the bots' 2 s settle,
-  then carries the fields the SDK reads (`app/plugins/events.py`, the bots'
+  `event.message` keeps the 2 s settle of the old bots,
+  then carries the fields the SDK reads (`app/plugins/events.py`, the 4.18 bots'
   derivation: `message_text` without the `"Name: "` prefix, `is_dm`,
   `channel_key`, `path_bytes_per_hop`, `scoped`... plus `conversation_key`,
   `is_public_channel`, `received_at`); the other hooks get the fanout dict as is.
@@ -875,7 +903,7 @@ run (`finally`), and the supervision task is cancelled if it is still running.
 lifespan); any instance whose stop is still pending or failed is killed, its task
 cancelled and its child reaped. A stopped instance's pending events are dropped.
 
-Tests: `tests/test_plugin_host.py` (real children, granted what a migrated bot
+Tests: `tests/test_plugin_host.py` (real children, granted what a converted bot
 holds; fixture plugins echo, sleep,
 ignore-cancel, crash, cpu-burn, ignore-shutdown, flood, deaf (never reads its
 stdin), spammer, sender; the `/proc` CPU test
@@ -916,8 +944,7 @@ non-admin refused by the permission gate writes no row and changes nothing.
 | `GET /plugins/{id}/diagnostic` | admin | Plugin id and version, kind, Meshloom and Python versions, isolation level, status, last error, restarts, effective permission names, the last 50 log lines. No config value. |
 | `DELETE /plugins/{id}?keep_data=` | admin | Stops the process, deletes the row and secrets (and the KV unless `keep_data`), and a local plugin's directory; 204. |
 
-There is no "disable until restart" route (Store T9 removes the bots' one); the global pause
-(`/plugins/pause`) replaces it. Typed codes are shown by the UI as `errors.<code>` (texts: Store T11a).
+There is no "disable until restart" route (the bots' own route was removed in MSHL-192); the global pause (`/plugins/pause`) replaces it. Typed codes are shown by the UI as `errors.<code>` (texts: Store T11a).
 
 Every change of status the API makes is announced as `plugin_status` (admin-only,
 `PluginManager.announce`); the payload is the supervisor's snapshot plus `attention`.
@@ -1077,13 +1104,12 @@ else: a refusal has no side effect, uses no quota and touches no network.
   `plugin_send_quota` (`PluginSendQuotaRepository`), so a restart keeps them;
   `SendQuota.clock` is injectable. Deleting an instance deletes its counters.
 - Global spacing: `send_spacer` keeps 2 s (`SEND_SPACING_SECONDS`) between two
-  automatic sends, plugins and legacy bots alike (`app/fanout/bot_exec.py` uses
-  it); a failed send does not move it. The quota check runs once before waiting
+  automatic sends of every plugin instance, converted bots included; a failed send does not move it. The quota check runs once before waiting
   (a full quota is refused at once) and again inside the spacing slot.
 
 ### Send guards (`SendGuard`, `send_guard`)
 
-Host-side, for every plugin instance together (legacy bots are not counted), checked after
+Host-side, for every plugin instance together (converted bots are plugin instances and counted like any), checked after
 the per-instance quotas, once before waiting for the spacing and again inside the slot, and
 counted only for a send that went out. A refusal is `quota_exceeded` with `params.scope`:
 

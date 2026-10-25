@@ -10,7 +10,7 @@ you work there:
 
 - `app/AGENTS.md`: backend (radio lifecycle, sending, migrations, Community client, updates, telemetry, push).
 - `app/net/AGENTS.md`: the egress guard for user-chosen destinations (SSRF, IP pinning).
-- `app/fanout/AGENTS.md`: the fanout bus (MQTT, bots, webhooks, Apprise, SQS, map upload).
+- `app/fanout/AGENTS.md`: the fanout bus (MQTT, webhooks, Apprise, SQS, map upload).
 - `frontend/AGENTS.md`: frontend (state, WebSocket client, i18n, layout).
 - `frontend/src/components/visualizer/AGENTS.md`: the 3D packet visualizer.
 
@@ -47,14 +47,14 @@ User docs: `docs/user/` (en, fr). Environment variables for users:
   Refresh copies, never edit them to make a test pass.
 - **Out of scope until explicitly launched.** Do not start these, and do not "fix"
   them on the side:
-  - Plugins: a marketplace that will replace the bots' `exec`.
+  - Plugins: the marketplace (Store). The plugin host and local extensions are in; the bots' `exec` is gone.
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
 
   On `preversion-5` every `/api` route needs a signed-in account
   (`app/auth/middleware.py`, `docs/dev/auth.md`) and declares the permission
   its role must hold (`app/auth/permissions.py`, default deny); CORS is
   same-origin plus the Allowed origins list and unsafe cross-site requests are
-  refused. The rest of the posture (bots running `exec()`, the radio proxy on
+  refused. The rest of the posture (extensions running administrator-approved Python, the radio proxy on
   5051 unauthenticated and bound to `0.0.0.0` by owner decision, the
   `Authorization: Basic` window until 5.2) is described in `SECURITY.md`,
   "Known limits". It is a fact, not a recommendation. The user page is

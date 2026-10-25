@@ -9,7 +9,7 @@ Meshloom can tell you about what it hears and about its own health without you l
 
 Everything is in **Settings → Notifications** (administrators only). Nothing here needs an environment variable. Browser-specific matters (HTTPS, the VAPID contact address, subscribing a browser) are on [Push notifications](/en/docs/deep/push/); this page covers everything else.
 
-The notification channels are separate from [fanout](/en/docs/deep/fanout/), which forwards every message of the conversations you pick to machines (MQTT, bots, webhooks, SQS). Notifications are for people and tell you about events.
+The notification channels are separate from [fanout](/en/docs/deep/fanout/), which forwards every message of the conversations you pick to machines (MQTT, webhooks, SQS). Notifications are for people and tell you about events.
 
 ## Channels
 

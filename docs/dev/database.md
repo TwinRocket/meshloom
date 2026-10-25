@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 121 (the value of
+- Numbering is contiguous from 001. The current head is 122 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -197,7 +197,7 @@ demand and on identity change.
 
 ### `fanout_configs`
 
-One row per fanout integration (MQTT, bots, webhooks, Apprise, SQS, map upload):
+One row per fanout integration (MQTT, webhooks, Apprise, SQS, map upload; no `bot` row since migration 122):
 PK `id` (text), `type`, `name`, `enabled`, `config` (JSON), `scope` (JSON),
 `sort_order`, `created_at`. `FanoutConfigRepository` (`fanout.py`), used by the fanout
 manager and its router. See `app/fanout/AGENTS.md`.
@@ -352,7 +352,7 @@ share one), `label`, `kind` (`bundled`/`store`/`custom`/`local`, CHECK), `versio
 `quotas` (JSON), `auto_update`, `source` (a local plugin's code), `archive_sha256`,
 `repository`, `installed_at`, `updated_at`, `status`, `last_error`, `attention`
 (JSON, NULL when nothing to review), `sort_order`. `PluginRepository` (`plugins.py`).
-Nothing reads it yet: the bots stay in `fanout_configs` until the switch (Store T9).
+Migration 122 fills it with the converted bots (`docs/dev/plugins.md`, "Legacy bots").
 
 ### `plugin_kv`
 
@@ -374,6 +374,14 @@ Send counters of the plugin `messages.send` capability (migration 105): PK
 seconds of the fixed window), `count`. A row whose `period_start` is not the current
 window reads as zero. Runtime state: excluded from every backup, removed with the
 instance. `PluginSendQuotaRepository` (`plugins.py`), rules in `app/plugins/quotas.py`.
+
+### `fanout_configs_bots_archive`
+
+The 4.18.x bots, copied by migration 122 (MSHL-192) from `fanout_configs` before they were
+converted into local `plugins` rows and deleted from `fanout_configs`: the same columns
+(`id`, `type`, `name`, `enabled`, `config`, `scope`, `sort_order`, `created_at`). Nothing
+reads it; it exists to recover a conversion and is purged in 5.2.0. Excluded from every
+backup and from `/api/debug`.
 
 ### `plugin_uids`
 

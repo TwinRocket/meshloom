@@ -1,11 +1,11 @@
 ---
 title: Fanout
-description: MQTT, bots, webhooks, Apprise, SQS — whatever Meshloom hears can leave again.
+description: MQTT, webhooks, Apprise, SQS — whatever Meshloom hears can leave again.
 level: deep
 order: 16
 ---
 
-Fanout sends what Meshloom hears to other systems (to be told about events yourself, on your phone or in a chat, use [Notifications](/en/docs/deep/notifications/) instead): your own MQTT broker, Home Assistant, Python bots, webhooks, chat and e-mail services through Apprise, Amazon SQS, community packet collectors, and the public MeshCore map. In the interface it is called **MQTT & Automation**.
+Fanout sends what Meshloom hears to other systems (to be told about events yourself, on your phone or in a chat, use [Notifications](/en/docs/deep/notifications/) instead): your own MQTT broker, Home Assistant, webhooks, chat and e-mail services through Apprise, Amazon SQS, community packet collectors, and the public MeshCore map. In the interface it is called **MQTT & Automation**.
 
 Each destination is an **integration**. To add one:
 
@@ -24,7 +24,6 @@ The page carries a notice that integrations are an experimental feature in open 
 | Private MQTT | Publishes messages and raw packets to your own MQTT broker |
 | Home Assistant MQTT Discovery | Makes your radio, repeaters and contacts appear as devices in Home Assistant. See [Home Assistant](/en/docs/deep/home-assistant/) |
 | Community MQTT / meshcoretomqtt | Sends raw packets to a community collector. Presets exist for **MeshRank** and **LetsMesh** (US and EU) |
-| Python Bot | Runs Python code you write in response to messages |
 | Webhook | Sends each message as JSON over HTTP, with an optional signature. Not the notification webhook, see [Webhooks](#webhooks) |
 | Apprise | Forwards each message to Discord, Telegram, Slack, e-mail, SMS and a hundred other services. Notifications moved to [channels](/en/docs/deep/notifications/), see [Apprise](#apprise) |
 | Amazon SQS | Drops each event into an Amazon SQS queue |
@@ -64,7 +63,6 @@ Some types have a fixed scope:
 | Type | Scope |
 |------|-------|
 | Community MQTT, Map Upload | Raw packets only, never messages |
-| Python Bot | All messages, no raw packets |
 | Webhook, Apprise, Home Assistant | Messages as you choose, never raw packets |
 
 The scope filters only messages and raw packets. Contacts, repeater telemetry and radio health snapshots (every 60 seconds) go to every integration, and each one keeps what it needs.
@@ -75,25 +73,7 @@ What a message contains: its type (direct or channel), the conversation key, the
 
 ## Bots
 
-A bot is Python code you write in the interface. The server runs it each time a message arrives.
-
-**This is arbitrary code execution, by design.** The code runs on the server with full access to the machine. Anyone who can open the Meshloom page can write and run code. Only enable bots on a network you trust. See [Security](/en/docs/deep/security/) and [A trusted network](/en/docs/trust/). Bots start disabled on installations made from the Linux package.
-
-```python
-def bot(sender_name, sender_key, message_text, is_dm,
-        channel_key, channel_name, sender_timestamp, path):
-    if "!echo" in message_text.lower():
-        return f"[ECHO] {message_text}"
-    return None
-```
-
-The function can also accept `is_outgoing`, `path_bytes_per_hop`, `packet_hash`, and, if you name them or take `**kwargs`, `region` and `scoped`. Bots see every message, including the ones you send, so avoid replies that trigger the bot again. For channel messages, `sender_key` is `None` and the "sender name: " prefix is removed from the text.
-
-A bot returns `None` (no reply), a text, a list of texts sent in order, or `{"region": ..., "message": ...}` to send a channel reply in a given region. Regions only apply to channel replies.
-
-Limits: a bot waits two seconds before it runs (so that echoes can be recognized), each run is stopped after 10 seconds, at most 100 run at once, and the bot's replies are sent at least two seconds apart so that repeaters do not collide.
-
-`MESHCORE_DISABLE_BOTS=true` turns the system off at startup: no bot runs, creating or editing one is refused, and the page says so. `POST /api/fanout/bots/disable-until-restart` stops every bot until the next restart, without touching the environment.
+Python bots no longer exist in 5.0.0: they are **extensions** now. Add, write and manage them in **Settings → Extensions** (the bundled **Echo** extension, which answers `!pling` with `Plong!`, is the example to start from). Bots you already had were converted into local extensions that wait for your review before they start. See [Plugins](/en/docs/deep/plugins/) for permissions and limits, and [Bots from 4.18](/en/docs/deep/plugins/#bots-from-418-and-earlier).
 
 ## Webhooks
 

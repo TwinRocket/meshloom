@@ -54,7 +54,7 @@ Sans écran, utilisez le nom en `.local` depuis un autre appareil du même rése
 
 Sans aucun réseau, ouvrez `http://127.0.0.1:8000` sur le Pi lui-même. La messagerie et la radio fonctionnent hors ligne. Les cartes, Meshloom Community, Web Push et les mises à jour depuis l’application attendent que le Pi puisse joindre Internet.
 
-Les bots, qui exécutent du code sur la machine, sont désactivés sur cette image, comme dans tout paquet Linux. Voir [Un réseau de confiance](/docs/trust/).
+Les extensions exécutent du code sur la machine : rien ne tourne tant qu’un administrateur n’en ajoute pas, et `MESHCORE_DISABLE_PLUGINS=true` dans `/etc/meshloom/meshloom.env` les verrouille toutes. Voir [Un réseau de confiance](/docs/trust/).
 
 ## Image kiosque (écran au mur)
 
