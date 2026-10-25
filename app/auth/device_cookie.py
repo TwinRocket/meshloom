@@ -54,7 +54,6 @@ _VERSION = "v1"
 _MAX_LENGTH = 256
 
 
-
 def cookie_name(secure: bool) -> str:
     return SECURE_COOKIE_NAME if secure else PLAIN_COOKIE_NAME
 

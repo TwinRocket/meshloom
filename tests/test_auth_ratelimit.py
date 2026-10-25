@@ -576,7 +576,9 @@ async def test_device_cookie_refused_when_forged_expired_for_another_user_or_sta
     await UserRepository.set_password_hash(owner.id, await hash_password_async("another long pass"))
     assert await device_cookie.known_device(await device_cookie.parse(value), ADMIN) is None
     # A disabled account.
-    fresh = await device_cookie.issue(owner.id, (await UserRepository.get(owner.id)).updated_at, "dev1")
+    fresh = await device_cookie.issue(
+        owner.id, (await UserRepository.get(owner.id)).updated_at, "dev1"
+    )
     assert await device_cookie.known_device(await device_cookie.parse(fresh), ADMIN) == "dev1"
     device_cookie_clock += 5
     await UserRepository.update(owner.id, disabled=True)

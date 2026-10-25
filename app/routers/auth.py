@@ -73,6 +73,7 @@ from app.repository.auth import (
     AuthSettingsRepository,
     InvalidUsernameError,
     LastAdminError,
+    MustChangeNotApplicableError,
     PasskeyRepository,
     UsernameTakenError,
     UserRepository,
@@ -704,7 +705,40 @@ async def get_me(request: Request) -> MeResponse:
     return _me(_require(request).user)
 
 
-@router.patch("/me", response_model=MeResponse, dependencies=[Depends(own_account())])
+def _own_account_audited() -> Callable[[Request], Awaitable[None]]:
+    """``own_account()`` for ``PATCH /auth/me``: a refused caller (a
+    ``kiosk`` session, a scoped token) that sent a ``new_password`` leaves a
+    ``password.changed`` ``refused`` row (``details.reason = forbidden``), like
+    the other refused password changes. Declares ``account`` like
+    ``own_account()``."""
+    check = own_account()
+
+    async def dependency(request: Request) -> None:
+        try:
+            await check(request)
+        except HTTPException as exc:
+            principal = get_principal(request)
+            if exc.status_code == 403 and principal is not None:
+                try:
+                    payload = await request.json()
+                except ValueError:
+                    payload = None
+                if isinstance(payload, dict) and payload.get("new_password") is not None:
+                    await audit.record_request(
+                        request,
+                        "password.changed",
+                        "refused",
+                        target=audit.user_target(principal.user.id),
+                        details={"reason": "forbidden"},
+                    )
+            raise
+
+    dependency.__name__ = "require_account"
+    setattr(dependency, ACCESS_ATTRIBUTE, "account")
+    return dependency
+
+
+@router.patch("/me", response_model=MeResponse, dependencies=[Depends(_own_account_audited())])
 async def patch_me(body: MePatch, request: Request) -> MeResponse:
     """Change the display name or the password (the current one is required).
 
@@ -1258,6 +1292,8 @@ async def create_user(body: UserCreate, request: Request) -> UserView:
         raise _error(400, "auth_username_invalid") from None
     except UsernameTakenError:
         raise _error(409, "auth_username_taken") from None
+    except MustChangeNotApplicableError:
+        raise _error(400, "auth_password_not_applicable") from None
     await audit.record_request(
         request,
         "user.created",
@@ -1314,6 +1350,9 @@ async def patch_user(user_id: int, body: UserPatch, request: Request) -> UserVie
         )
     except LastAdminError:
         raise _error(409, "auth_last_admin") from None
+    except MustChangeNotApplicableError:
+        # The account changed between the check above and the write.
+        raise _error(400, "auth_password_not_applicable") from None
     if updated is None:
         raise _error(404, "auth_user_not_found")
     revoked = 0
@@ -1405,11 +1444,16 @@ async def set_user_password(user_id: int, body: UserPasswordSet, request: Reques
     password = body.password.get_secret_value()
     if reason := password_policy_violation(password, target.username):
         raise _policy_error(reason)
-    if not await UserRepository.set_password_hash(
-        user_id,
-        await hash_password_async(password),
-        must_change_password=body.must_change_password,
-    ):
+    try:
+        found = await UserRepository.set_password_hash(
+            user_id,
+            await hash_password_async(password),
+            must_change_password=body.must_change_password,
+        )
+    except MustChangeNotApplicableError:
+        # The account changed between the check above and the write.
+        raise _error(400, "auth_password_not_applicable") from None
+    if not found:
         raise _error(404, "auth_user_not_found")
     invalidate_basic_cache(user_id)
     revoked = await sessions.sign_out_user(
