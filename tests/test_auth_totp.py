@@ -123,6 +123,27 @@ def test_the_client_binding_covers_address_and_user_agent():
 # --- Enrolment and login ----------------------------------------------------------
 
 
+@pytest.mark.parametrize("remember", [True, False])
+async def test_remember_me_of_the_password_step_applies_to_the_session_the_code_opens(
+    clock, remember
+):
+    await create_user()
+    async with make_client() as owner:
+        await login(owner)
+        secret, _ = await _enrol(owner)
+    clock["t"] = T0 + 2 * totp.PERIOD_S
+    async with make_client() as client:
+        response = await login(client, remember=remember)
+        token = response.json()["second_factor"]["pending_token"]
+        opened = await client.post(
+            "/api/auth/login/2fa",
+            json={"pending_token": token, "code": _code(secret, clock["t"])},
+        )
+        assert opened.status_code == 200, opened.text
+        [cookie] = [c for c in opened.headers.get_list("set-cookie") if "meshloom_session=" in c]
+        assert ("Max-Age=" in cookie) is remember
+
+
 async def test_login_with_a_second_factor_needs_the_code_and_refuses_a_replay(clock):
     await create_user()
     async with make_client() as owner:

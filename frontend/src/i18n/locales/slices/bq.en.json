@@ -4,6 +4,7 @@
       "or": "or",
       "signIn": "Sign in with a passkey",
       "useAsSecondFactor": "Use a passkey",
+      "unavailableHint": "Passkeys are not offered at this address. To sign in with one, open Meshloom over https on an address declared in Settings, or on localhost.",
       "insecureHint": "Passkeys are not available here: they need https on a declared address or localhost.",
       "errors": {
         "cancelled": "The passkey request was cancelled. Try again.",
