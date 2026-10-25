@@ -379,7 +379,7 @@ async def login_second_factor(
         )
         raise _error(401, "auth_2fa_pending_invalid")
     secure = _secure(request)
-    presented = device_cookie.read(request.headers.get("cookie"), secure=secure)
+    presented = await device_cookie.read(request.headers.get("cookie"), secure=secure)
     device = await device_cookie.known_device(presented, user.username)
     try:
         if body.passkey is not None:

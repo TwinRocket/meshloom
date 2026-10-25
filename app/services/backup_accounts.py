@@ -342,7 +342,8 @@ async def _keep_trusted_networks(
         await conn.execute(
             "UPDATE auth_settings SET trusted_networks = ? WHERE id = 1", (json.dumps(kept),)
         )
-    # Fail closed until the hook reloads them: no rule names an account that changed.
+    # Fail closed until the hook reloads them: no rule names an account that changed,
+    # and no public URL passes the rules' Host check (AuthSettings default).
     rules = []
     for entry in kept:
         try:

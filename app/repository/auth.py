@@ -9,6 +9,7 @@ import asyncio
 import hmac
 import json
 import re
+import secrets
 import sqlite3
 import time
 import unicodedata
@@ -287,9 +288,15 @@ class UserRepository:
         provider: Provider = "local",
         external_id: str | None = None,
         must_change_password: bool = False,
+        grant_ingress_admin: bool = False,
         now: int | None = None,
     ) -> User:
-        """Insert a user. ``password_hash`` is None for ingress and kiosk identities."""
+        """Insert a user. ``password_hash`` is None for ingress and kiosk identities.
+
+        ``grant_ingress_admin`` sets ``auth_settings.ingress_admin_granted`` in the
+        same transaction as the insert (the first Home Assistant admin), so a crash
+        cannot leave an ingress admin without the flag (a second one would follow).
+        """
         _check_role(role)
         if provider not in PROVIDERS:
             raise ValueError(f"unknown provider: {provider}")
@@ -318,6 +325,12 @@ class UserRepository:
                 ) as cursor:
                     user_id = cursor.lastrowid
                 await _enforce_must_change(conn, int(user_id or 0), must_change_password)
+                if grant_ingress_admin:
+                    async with conn.execute(
+                        "UPDATE auth_settings SET ingress_admin_granted = 1 WHERE id = 1"
+                    ) as cursor:
+                        if cursor.rowcount != 1:
+                            raise AuthSettingsMissingError("auth_settings row missing")
                 user = await _fetch_user(conn, int(user_id or 0))
         except sqlite3.IntegrityError as exc:
             if "username_key" in str(exc):
@@ -1531,6 +1544,13 @@ async def _fetch_settings(conn: aiosqlite.Connection) -> AuthSettings:
     )
 
 
+_DEVICE_KEY_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _valid_device_key(value: Any) -> bool:
+    return isinstance(value, str) and _DEVICE_KEY_RE.fullmatch(value) is not None
+
+
 class AuthSettingsRepository:
     """The single ``auth_settings`` row. Kept out of ``app_settings`` so no
     auth secret reaches ``AppSettings`` or the v1 backup settings."""
@@ -1637,10 +1657,43 @@ class AuthSettingsRepository:
         return bool(row[0])
 
     @staticmethod
-    async def mark_ingress_admin_granted() -> None:
+    async def device_cookie_key() -> bytes:
+        """The HMAC key of the known-device cookies (``app/auth/device_cookie.py``,
+        migration 119), created on first use. Read per use, never cached, so a
+        rotation by ``meshloom-admin`` or a restored database applies at once."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT device_cookie_key FROM auth_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            raise AuthSettingsMissingError("auth_settings row missing")
+        if _valid_device_key(row[0]):
+            return bytes.fromhex(row[0])
+        async with db.tx() as conn:
+            # Replaces only the value just read (empty, or hand-edited garbage):
+            # a concurrent first use keeps the winner's key.
+            async with conn.execute(
+                "UPDATE auth_settings SET device_cookie_key = ?"
+                " WHERE id = 1 AND device_cookie_key IS ?",
+                (secrets.token_hex(32), row[0]),
+            ):
+                pass
+            async with conn.execute(
+                "SELECT device_cookie_key FROM auth_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None or not _valid_device_key(row[0]):
+            raise AuthSettingsMissingError("auth_settings row missing")
+        return bytes.fromhex(row[0])
+
+    @staticmethod
+    async def rotate_device_cookie_key() -> None:
+        """A new known-device key: every issued device cookie becomes unknown."""
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE auth_settings SET ingress_admin_granted = 1 WHERE id = 1"
+                "UPDATE auth_settings SET device_cookie_key = ? WHERE id = 1",
+                (secrets.token_hex(32),),
             ) as cursor:
                 if cursor.rowcount != 1:
                     raise AuthSettingsMissingError("auth_settings row missing")

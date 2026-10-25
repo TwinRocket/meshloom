@@ -73,6 +73,7 @@ from app.repository.auth import (
     AuthSettingsRepository,
     InvalidUsernameError,
     LastAdminError,
+    MustChangeNotApplicableError,
     PasskeyRepository,
     UsernameTakenError,
     UserRepository,
@@ -123,6 +124,9 @@ _MESSAGES = {
         "or too many trusted networks"
     ),
     "auth_trusted_network_user_invalid": "A trusted network names no enabled account",
+    "auth_trusted_network_user_must_change": (
+        "A trusted network names an account that must change its password first"
+    ),
     "auth_public_urls_invalid": (
         "Not an address of the form https://host[:port][/prefix], or too many public addresses"
     ),
@@ -398,7 +402,7 @@ async def _remember_device(
     current = await UserRepository.get(user.id)
     if current is None or not current.has_password:
         return
-    value = device_cookie.issue(current.id, current.updated_at, device_id)
+    value = await device_cookie.issue(current.id, current.updated_at, device_id)
     response.headers.append("set-cookie", device_cookie.cookie_header(value, secure=secure))
 
 
@@ -568,7 +572,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
     limiter = ratelimit.login_limiter
     address = limiter.address_key(request.scope)
     secure = _secure(request)
-    presented = device_cookie.read(request.headers.get("cookie"), secure=secure)
+    presented = await device_cookie.read(request.headers.get("cookie"), secure=secure)
     device = await device_cookie.known_device(presented, body.username)
     try:
         limiter.check(address, body.username, device)
@@ -714,7 +718,40 @@ async def get_me(request: Request) -> MeResponse:
     return _me(_require(request).user)
 
 
-@router.patch("/me", response_model=MeResponse, dependencies=[Depends(own_account())])
+def _own_account_audited() -> Callable[[Request], Awaitable[None]]:
+    """``own_account()`` for ``PATCH /auth/me``: a refused caller (a
+    ``kiosk`` session, a scoped token) that sent a ``new_password`` leaves a
+    ``password.changed`` ``refused`` row (``details.reason = forbidden``), like
+    the other refused password changes. Declares ``account`` like
+    ``own_account()``."""
+    check = own_account()
+
+    async def dependency(request: Request) -> None:
+        try:
+            await check(request)
+        except HTTPException as exc:
+            principal = get_principal(request)
+            if exc.status_code == 403 and principal is not None:
+                try:
+                    payload = await request.json()
+                except ValueError:
+                    payload = None
+                if isinstance(payload, dict) and payload.get("new_password") is not None:
+                    await audit.record_request(
+                        request,
+                        "password.changed",
+                        "refused",
+                        target=audit.user_target(principal.user.id),
+                        details={"reason": "forbidden"},
+                    )
+            raise
+
+    dependency.__name__ = "require_account"
+    setattr(dependency, ACCESS_ATTRIBUTE, "account")
+    return dependency
+
+
+@router.patch("/me", response_model=MeResponse, dependencies=[Depends(_own_account_audited())])
 async def patch_me(body: MePatch, request: Request) -> MeResponse:
     """Change the display name or the password (the current one is required).
 
@@ -780,7 +817,9 @@ class TrustedNetworkRuleView(BaseModel):
 
 
 SecurityNotice = Literal[
-    "trusted_admin_reduced_plugin_isolation", "trusted_loopback_or_gateway_public"
+    "trusted_admin_reduced_plugin_isolation",
+    "trusted_loopback_or_gateway_public",
+    "trusted_network_public_or_wide",
 ]
 
 
@@ -829,8 +868,9 @@ class AuthSettingsView(BaseModel):
     security_notices: list[SecurityNotice] = Field(
         description=(
             "The Access security notice: a trusted network signs in an administrator while "
-            "plugins run with reduced isolation, or covers loopback or the Docker gateway "
-            "while a public address is configured."
+            "plugins run with reduced isolation, covers loopback or the Docker gateway "
+            "while a public address is configured, or is public or as wide as allowed "
+            "(/8 IPv4, /16 IPv6)."
         )
     )
     require_2fa_for_admins: bool = Field(
@@ -894,6 +934,8 @@ async def _security_notices(settings: AuthSettings) -> list[SecurityNotice]:
             for rule in rules
         ):
             notices.append("trusted_loopback_or_gateway_public")
+    if any(trusted_network.public_or_wide(rule.cidr) for rule in rules):
+        notices.append("trusted_network_public_or_wide")
     return notices
 
 
@@ -952,6 +994,9 @@ async def _check_rules(
         user = await UserRepository.get(rule.user_id)
         if user is None or user.disabled:
             raise _error(400, "auth_trusted_network_user_invalid", {"cidr": rule.cidr})
+        if user.must_change_password:
+            # The gate never applies such a rule (``resolve_trusted_user``).
+            raise _error(400, "auth_trusted_network_user_must_change", {"cidr": rule.cidr})
 
 
 @router.get("/settings", response_model=AuthSettingsView, dependencies=[Depends(require("admin"))])
@@ -1268,6 +1313,8 @@ async def create_user(body: UserCreate, request: Request) -> UserView:
         raise _error(400, "auth_username_invalid") from None
     except UsernameTakenError:
         raise _error(409, "auth_username_taken") from None
+    except MustChangeNotApplicableError:
+        raise _error(400, "auth_password_not_applicable") from None
     await audit.record_request(
         request,
         "user.created",
@@ -1324,6 +1371,9 @@ async def patch_user(user_id: int, body: UserPatch, request: Request) -> UserVie
         )
     except LastAdminError:
         raise _error(409, "auth_last_admin") from None
+    except MustChangeNotApplicableError:
+        # The account changed between the check above and the write.
+        raise _error(400, "auth_password_not_applicable") from None
     if updated is None:
         raise _error(404, "auth_user_not_found")
     revoked = 0
@@ -1415,11 +1465,16 @@ async def set_user_password(user_id: int, body: UserPasswordSet, request: Reques
     password = body.password.get_secret_value()
     if reason := password_policy_violation(password, target.username):
         raise _policy_error(reason)
-    if not await UserRepository.set_password_hash(
-        user_id,
-        await hash_password_async(password),
-        must_change_password=body.must_change_password,
-    ):
+    try:
+        found = await UserRepository.set_password_hash(
+            user_id,
+            await hash_password_async(password),
+            must_change_password=body.must_change_password,
+        )
+    except MustChangeNotApplicableError:
+        # The account changed between the check above and the write.
+        raise _error(400, "auth_password_not_applicable") from None
+    if not found:
         raise _error(404, "auth_user_not_found")
     invalidate_basic_cache(user_id)
     revoked = await sessions.sign_out_user(

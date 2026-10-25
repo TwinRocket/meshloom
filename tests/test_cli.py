@@ -589,3 +589,35 @@ def test_remove_passkeys_refuses_an_unmigrated_database(dbfile, capsys):
     conn.close()
     assert run(dbfile, "remove-passkeys", "alice") == 1
     assert "webauthn_credentials" in capsys.readouterr().err
+
+
+def test_rotate_device_key_replaces_the_key_and_is_audited(dbfile, capsys):
+    conn = sqlite3.connect(dbfile)
+    conn.execute("UPDATE auth_settings SET device_cookie_key = ?", ("ab" * 32,))
+    conn.commit()
+    conn.close()
+    assert run(dbfile, "rotate-device-key") == 0
+    [(key,)] = _query(dbfile, "SELECT device_cookie_key FROM auth_settings")
+    assert len(key) == 64 and key != "ab" * 32
+    bytes.fromhex(key)
+    out = capsys.readouterr().out
+    assert "rotated" in out and key not in out
+    rows = _query(dbfile, "SELECT action, target, via, details FROM auth_audit")
+    assert [r[:3] for r in rows] == [("settings.changed", "auth_settings.device_cookie_key", "cli")]
+    assert key not in rows[0][3]
+    # A never-used key (NULL) is rotated too.
+    conn = sqlite3.connect(dbfile)
+    conn.execute("UPDATE auth_settings SET device_cookie_key = NULL")
+    conn.commit()
+    conn.close()
+    assert run(dbfile, "rotate-device-key") == 0
+    assert _query(dbfile, "SELECT device_cookie_key FROM auth_settings")[0][0] is not None
+
+
+def test_rotate_device_key_refuses_an_unmigrated_database(dbfile, capsys):
+    conn = sqlite3.connect(dbfile)
+    conn.execute("ALTER TABLE auth_settings DROP COLUMN device_cookie_key")
+    conn.commit()
+    conn.close()
+    assert run(dbfile, "rotate-device-key") == 1
+    assert "device_cookie_key" in capsys.readouterr().err

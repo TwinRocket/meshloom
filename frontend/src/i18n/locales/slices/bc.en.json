@@ -19,13 +19,15 @@
       "securityNotice": {
         "title": "Access security notice",
         "trusted_admin_reduced_plugin_isolation": "A trusted network signs in an administrator while plugins run with reduced isolation (hooks only): anyone on that network can install or configure code that runs on this machine.",
-        "trusted_loopback_or_gateway_public": "A trusted network covers loopback or the Docker gateway while a public address is configured: visitors arriving through a proxy or a published port could be signed in."
+        "trusted_loopback_or_gateway_public": "A trusted network covers loopback or the Docker gateway while a public address is configured: visitors arriving through a proxy or a published port could be signed in.",
+        "trusted_network_public_or_wide": "A trusted network is public or as wide as allowed (a /8 IPv4 or /16 IPv6 range): everyone in it is signed in without a password. List only your own local network or a device's own address."
       }
     }
   },
   "errors": {
     "auth_trusted_networks_invalid": "Not a network, a network wider than /8 (IPv4) or /16 (IPv6), the same network twice, or more than 32 trusted networks: {{cidr}}",
     "auth_trusted_network_user_invalid": "The network {{cidr}} names an account that does not exist or is disabled.",
+    "auth_trusted_network_user_must_change": "The network {{cidr}} names an account that must change its password first: the rule would never apply. Pick another account, or sign in once as that account to change the password.",
     "auth_trusted_network_overlaps_proxy": "The network {{cidr}} overlaps the trusted proxy {{proxy}}: requests from a proxy are never signed in automatically.",
     "auth_trusted_network_loopback": "The network {{cidr}} covers loopback: a local proxy or tunnel would bring every visitor from there.",
     "auth_trusted_network_overlaps_gateway": "The network {{cidr}} covers the Docker gateway {{gateway}} while a public address is configured."

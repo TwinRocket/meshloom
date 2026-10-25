@@ -19,13 +19,15 @@
       "securityNotice": {
         "title": "Avertissement de sécurité de l'accès",
         "trusted_admin_reduced_plugin_isolation": "Un réseau de confiance connecte un administrateur alors que les plugins tournent avec une isolation réduite (hooks seulement) : toute personne sur ce réseau peut installer ou configurer du code qui s'exécute sur cette machine.",
-        "trusted_loopback_or_gateway_public": "Un réseau de confiance couvre le loopback ou la passerelle Docker alors qu'une adresse publique est configurée : des visiteurs arrivant par un proxy ou un port publié pourraient être connectés."
+        "trusted_loopback_or_gateway_public": "Un réseau de confiance couvre le loopback ou la passerelle Docker alors qu'une adresse publique est configurée : des visiteurs arrivant par un proxy ou un port publié pourraient être connectés.",
+        "trusted_network_public_or_wide": "Un réseau de confiance est public ou aussi large que permis (une plage /8 en IPv4 ou /16 en IPv6) : tous ceux qui s'y trouvent sont connectés sans mot de passe. N'indiquez que votre propre réseau local ou l'adresse d'un appareil."
       }
     }
   },
   "errors": {
     "auth_trusted_networks_invalid": "Ce n'est pas un réseau, c'est un réseau plus large que /8 (IPv4) ou /16 (IPv6), le même réseau deux fois, ou plus de 32 réseaux de confiance : {{cidr}}",
     "auth_trusted_network_user_invalid": "Le réseau {{cidr}} désigne un compte qui n'existe pas ou qui est désactivé.",
+    "auth_trusted_network_user_must_change": "Le réseau {{cidr}} désigne un compte qui doit d'abord changer son mot de passe : la règle ne s'appliquerait jamais. Choisissez un autre compte, ou connectez-vous une fois avec ce compte pour changer le mot de passe.",
     "auth_trusted_network_overlaps_proxy": "Le réseau {{cidr}} recoupe le proxy de confiance {{proxy}} : les requêtes d'un proxy ne sont jamais connectées automatiquement.",
     "auth_trusted_network_loopback": "Le réseau {{cidr}} couvre le loopback : un proxy ou un tunnel local y ferait arriver chaque visiteur.",
     "auth_trusted_network_overlaps_gateway": "Le réseau {{cidr}} couvre la passerelle Docker {{gateway}} alors qu'une adresse publique est configurée."

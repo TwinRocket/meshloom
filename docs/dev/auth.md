@@ -213,8 +213,8 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `user.deleted` | `DELETE /auth/users/{id}` (`details.role`, `provider`) |
   | `users.listed` | `GET /auth/users` (`details.count`), `meshloom-admin list-users` |
   | `setup_code.issued` | `meshloom-admin` |
-  | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password; `delayed`/`refused` while a login delay runs; `refused` with `details.reason = password_policy` and `policy`), `POST /auth/users/{id}/password` (`details.reset`, `must_change`, `sessions_revoked`), `meshloom-admin reset-password` |
-  | `settings.changed` | `PATCH /auth/settings`, one row per field changed |
+  | `password.changed` | `PATCH /auth/me` (`failure` for a wrong current password; `delayed`/`refused` while a login delay runs; `refused` with `details.reason = password_policy` and `policy`; `refused` with `details.reason = forbidden` when a `kiosk` session or a scoped token sends a `new_password`), `POST /auth/users/{id}/password` (`details.reset`, `must_change`, `sessions_revoked`), `meshloom-admin reset-password` |
+  | `settings.changed` | `PATCH /auth/settings`, one row per field changed; `meshloom-admin host-guard-observe` and `rotate-device-key` (target `auth_settings.device_cookie_key`, never the key) |
   | `bot.created`, `bot.changed`, `bot.deleted`, `bots.disabled` | `/api/fanout` for `type = bot` only, refusals included (403 while bots are disabled: `refused`; name, enabled, changed field names; never the code), `POST /fanout/bots/disable-until-restart` |
   | `backup.restored` | `POST /settings/backup/restore`: the v1 merge or a refusal in the route, the job's end otherwise (`details.steps`) |
   | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
@@ -399,6 +399,7 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
   by default, must still reach an administrator); the next ones get
   `auth_settings.ingress_default_role` (`member` by default). "First" is
   decided once: creating that admin sets `auth_settings.ingress_admin_granted`
+  in the same transaction as its insert
   (migration 107, backfilled to 1 when an ingress identity already existed),
   never cleared, so deleting the only ingress identity does not hand `admin` to
   the next one (or to the same HA user coming back). This is safe
@@ -466,8 +467,11 @@ MSHL-279).** Not run yet; record the result here.
 
 `app/auth/providers/trusted_network.py`: Home Assistant's `trusted_networks`,
 closed whenever a proxy is in the loop. Rules are `auth_settings.trusted_networks`
-(`[{cidr, user_id}]`, migration 101, empty by default), kept in memory (read on
-first use, replaced by `AuthSettingsRepository.update()`). The gate asks the
+(`[{cidr, user_id}]`, migration 101, empty by default), kept in memory with
+the `public_urls` the `Host` check needs (read on first use, replaced by
+`AuthSettingsRepository.update()`). Every check before the account lookup is
+synchronous and in memory (peer, rule match, `rule_blocker`), so a request from
+an unlisted or proxied peer costs no database read. The gate asks the
 provider **last**: only when the request sent no `Authorization` header and no
 session cookie resolved (an expired cookie still gets the rule; a wrong Basic or
 Bearer credential never does). The principal is `via = "trusted"`, credential
@@ -495,7 +499,9 @@ A rule never applies (`rule_blocker`, fail closed) when:
   page that holds no cookie at all. The rule is `host_allowed` in
   `app/middleware/host_guard.py`, shared with the general guard below.
 
-The account must exist, be enabled and have no pending password change. The
+The account must exist, be enabled and have no pending password change (a
+rule naming such an account is refused at save time, so it never sits there
+doing nothing). The
 longest matching prefix wins, then the first listed. Every auto-login writes one
 `login` row (`via = trusted`, `details = {method: "trusted_network", cidr}`) at
 most once per client address, user and UTC day (in memory, `MAX_AUDITED`
@@ -505,6 +511,8 @@ entries).
 `/8`/`/16`, no IPv4-mapped form, no duplicate network, at most 32, an existing
 enabled account) and refuses, with coded 400s, a rule that overlaps a trusted
 proxy (checked both ways: a new proxy overlapping a saved rule is refused too),
+one whose account is missing or disabled (`auth_trusted_network_user_invalid`) or
+must change its password (`auth_trusted_network_user_must_change`),
 one covering loopback where loopback is refused, and one covering the Docker
 default gateway (`docker_gateways()`, from `/proc/net/route` on a container
 install) while `public_urls` is set. `GET` adds `security_notices`, the Access
@@ -512,7 +520,11 @@ security notice the UI shows at the top of Users & Access:
 `trusted_admin_reduced_plugin_isolation` (a rule maps to an enabled admin while
 plugins run with isolation `none`; an unreadable state counts as reduced) and
 `trusted_loopback_or_gateway_public` (a rule covers loopback or the gateway
-while `public_urls` is set). The Remote conditions come with Remote.
+while `public_urls` is set) and `trusted_network_public_or_wide`
+(`public_or_wide`: a rule is as wide as allowed, `/8` IPv4 or `/16` IPv6, or not
+`is_private`, the shared address space `100.64.0.0/10` counting as private;
+accepted, since Home Assistant allows it too, but almost always a mistake). The
+Remote conditions come with Remote.
 
 ### Proxy headers
 
@@ -872,9 +884,13 @@ and none by IP alone behind Docker:
   all three rules while its device id has fewer than `DEVICE_MAX_FAILURES` (5)
   failures; the count is dropped 15 minutes after the device's last failure
   (not a sliding 15-minute window: failures 14 minutes apart keep adding up)
-  or at its next successful login, and past 5 it follows the ordinary rules. The HMAC key is random per
-  process: after a restart every browser is unknown until its next successful
-  login (persisting the key needs a column: follow-up). One cookie per
+  or at its next successful login, and past 5 it follows the ordinary rules. The HMAC key is 32 random
+  bytes in `auth_settings.device_cookie_key` (migration 119), created on first
+  use and read from the database at each use (no cache), so cookies survive a
+  restart and `meshloom-admin rotate-device-key` (or a restored SQLite
+  download, where the column is cleared) forgets every browser at once. It is
+  never in the JSON backup or `GET /auth/settings`. Without the
+  `auth_settings` row a presented cookie is unknown (fail closed). One cookie per
   browser, for the last user who signed in on it. Never under ingress.
 - **Guarantees.** A known browser of the account always gets in with the
   right password, whatever a guesser does from any address. An unknown
@@ -1149,9 +1165,9 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `PATCH /auth/me` | own account (not `kiosk`) | `display_name`; or `current_password` + `new_password` (403 `auth_invalid_credentials` when the current one is wrong, 400 `auth_password_policy`). The current password is checked like a login: the login delays first (`login_limiter.check` on the client's address key and the account's name, 429 `auth_rate_limited`; a wrong one is `record_failure`), then the bounded argon2id queue (503 `auth_busy`). A change clears `must_change_password`, revokes the user's other sessions and closes their sockets (`sign_out_user`), and moves `updated_at` (known devices forgotten). The one write route open while `must_change_password` is set |
 | `GET /auth/users` | `admin` | Every account by id: `{id, username, display_name, role, provider, disabled, must_change_password, has_password, totp_enabled, created_at, updated_at}`; never `external_id` or a hash |
 | `POST /auth/users` | `admin` | 201. `{username, role, display_name?, password?, must_change_password = true}`. `password` required for every role but `kiosk` (400 `auth_password_required`) and refused for `kiosk` (400 `auth_password_not_applicable`); 400 `auth_password_policy`, `auth_username_invalid`; 409 `auth_username_taken`. Local accounts only (ingress ones come from Home Assistant) |
-| `PATCH /auth/users/{id}` | `admin` | `{display_name?, role?, disabled?, must_change_password?}`; a field equal to the stored value is no change. 409 `auth_last_admin` when no enabled admin would be left (checked in the write's transaction); 404 `auth_user_not_found`; 400 `auth_password_not_applicable` for `must_change_password: true` on an account without a password. A role change or a disable signs the user out everywhere (`sign_out_user`, the admin's own session included); a role of `kiosk` removes the password; raising `must_change_password` closes the user's sockets |
+| `PATCH /auth/users/{id}` | `admin` | `{display_name?, role?, disabled?, must_change_password?}`; a field equal to the stored value is no change. 409 `auth_last_admin` when no enabled admin would be left (checked in the write's transaction); 404 `auth_user_not_found`; 400 `auth_password_not_applicable` for `must_change_password: true` on an account without a password (also when the account changes between that check and the write). A role change or a disable signs the user out everywhere (`sign_out_user`, the admin's own session included); a role of `kiosk` removes the password; raising `must_change_password` closes the user's sockets |
 | `DELETE /auth/users/{id}` | `admin` | Deletes the account and its sessions, closes its sockets. 409 `auth_last_admin`, 404 |
-| `POST /auth/users/{id}/password` | `admin` | `{password, must_change_password = true}`, password policy against the target's name. Local accounts outside `kiosk` only (400 `auth_password_not_applicable`). Signs the user out everywhere (the admin's own session stays when it is their account), forgets its known devices, drops its Basic cache entries |
+| `POST /auth/users/{id}/password` | `admin` | `{password, must_change_password = true}`, password policy against the target's name. Local accounts outside `kiosk` only (400 `auth_password_not_applicable`, also when the account changes before the write). Signs the user out everywhere (the admin's own session stays when it is their account), forgets its known devices, drops its Basic cache entries |
 | `DELETE /auth/users/{id}/sessions` | `admin` | Signs the user out everywhere (sessions and sockets; the admin's own session stays): `{revoked}` |
 | `GET /auth/tokens` | own account, `member` or `admin` (403 `auth_forbidden` otherwise; never a token) | Live tokens, newest first: `{id, name, scopes, created_at, last_used_at, expires_at, origin, user_id, username}`, the caller's own, every user's for an admin. Never the secret or the hash |
 | `POST /auth/tokens` | same | 201. `{name (1-64), scopes (1-5 of read, read_private, send, repeater_admin, admin), expires_at?}` (Unix seconds, null never). Answers the row plus `token` (`mlt_…`), the only time it is shown. 400 `auth_token_scope` (`params.scope`) for a scope the caller's role does not grant, 400 `auth_token_expiry_invalid` for an expiry not in the future, 409 `auth_token_limit` (`params.max`, 100 live tokens per user) |
@@ -1163,7 +1179,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
 | `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, ingress_default_role, security_notices, require_2fa_for_admins}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; `member` by default; the Access security notice codes, read only) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). One `settings.changed` row per field |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). One `settings.changed` row per field |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
 
 Every route above that changes something writes one audit row ("Audit log").

@@ -305,6 +305,9 @@ Community guard.
   row); it refuses a database the server has not migrated to 109 yet.
 - `remove-passkeys <user>` removes every passkey of the account (`passkey.removed` row);
   it refuses a database the server has not migrated to 110 yet.
+- `rotate-device-key` replaces `auth_settings.device_cookie_key` (every known-device
+  cookie becomes unknown; `settings.changed` row, target
+  `auth_settings.device_cookie_key`); it refuses a database not migrated to 119 yet.
 - Only the SHA-256 of the installation code is stored, so `setup-code` always issues a
   new one (same `app/auth/tokens.py` helpers as the check); it refuses once a user exists.
 - Passwords come from a prompt or `--stdin`, never argv, minimum 12 characters. The full
@@ -412,6 +415,9 @@ run as root).
   compared by `tests/test_migrations/test_migration_112.py`). Never exported, emptied in the
   database download, purged hourly once it can no longer give a token. Rules:
   `docs/dev/device-pairing.md`.
+- Migration 119 adds `auth_settings.device_cookie_key` (the HMAC key of the known-device
+  cookies, NULL until first use; cleared in the database download; `docs/dev/auth.md`,
+  "Known devices").
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or

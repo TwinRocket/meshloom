@@ -553,47 +553,94 @@ async def test_device_cookie_refused_when_forged_expired_for_another_user_or_sta
 
     owner = await create_user()
     other = await create_user("someone", PASSWORD, "member")
-    value = device_cookie.issue(owner.id, owner.updated_at, "dev1")
+    value = await device_cookie.issue(owner.id, owner.updated_at, "dev1")
 
-    assert await device_cookie.known_device(device_cookie.parse(value), ADMIN) == "dev1"
+    assert await device_cookie.known_device(await device_cookie.parse(value), ADMIN) == "dev1"
     # Forged: any change to the signed part, or a cookie signed with another key.
     tampered = value.replace(".dev1.", ".dev2.")
-    assert device_cookie.parse(tampered) is None
-    assert device_cookie.parse(value[:-1] + ("0" if value[-1] != "0" else "1")) is None
+    assert await device_cookie.parse(tampered) is None
+    assert await device_cookie.parse(value[:-1] + ("0" if value[-1] != "0" else "1")) is None
     # Another user's name.
-    assert await device_cookie.known_device(device_cookie.parse(value), "someone") is None
+    assert await device_cookie.known_device(await device_cookie.parse(value), "someone") is None
     assert other.id != owner.id
     # Expired.
     real_time = device_cookie.time.time
     monkeypatch.setattr(
         device_cookie.time, "time", lambda: real_time() + device_cookie.DEVICE_COOKIE_TTL_S + 1
     )
-    assert device_cookie.parse(value) is None
+    assert await device_cookie.parse(value) is None
     monkeypatch.setattr(device_cookie.time, "time", real_time)
     # After a password change (the generation moves).
     device_cookie_clock = owner.updated_at + 5
     monkeypatch.setattr("app.repository.auth.time.time", lambda: device_cookie_clock)
     await UserRepository.set_password_hash(owner.id, await hash_password_async("another long pass"))
-    assert await device_cookie.known_device(device_cookie.parse(value), ADMIN) is None
+    assert await device_cookie.known_device(await device_cookie.parse(value), ADMIN) is None
     # A disabled account.
-    fresh = device_cookie.issue(owner.id, (await UserRepository.get(owner.id)).updated_at, "dev1")
-    assert await device_cookie.known_device(device_cookie.parse(fresh), ADMIN) == "dev1"
+    fresh = await device_cookie.issue(
+        owner.id, (await UserRepository.get(owner.id)).updated_at, "dev1"
+    )
+    assert await device_cookie.known_device(await device_cookie.parse(fresh), ADMIN) == "dev1"
     device_cookie_clock += 5
     await UserRepository.update(owner.id, disabled=True)
-    assert await device_cookie.known_device(device_cookie.parse(fresh), ADMIN) is None
+    assert await device_cookie.known_device(await device_cookie.parse(fresh), ADMIN) is None
     # A role change.
     device_cookie_clock += 5
     await UserRepository.update(owner.id, disabled=False)
-    before_role = device_cookie.issue(
+    before_role = await device_cookie.issue(
         owner.id, (await UserRepository.get(owner.id)).updated_at, "dev1"
     )
-    assert await device_cookie.known_device(device_cookie.parse(before_role), ADMIN) == "dev1"
+    assert await device_cookie.known_device(await device_cookie.parse(before_role), ADMIN) == "dev1"
     device_cookie_clock += 5
     await UserRepository.update(owner.id, role="member")
-    assert await device_cookie.known_device(device_cookie.parse(before_role), ADMIN) is None
-    # A restart (new key).
-    device_cookie.reset_device_secret()
-    assert device_cookie.parse(fresh) is None
+    assert await device_cookie.known_device(await device_cookie.parse(before_role), ADMIN) is None
+    # A key rotation (meshloom-admin rotate-device-key).
+    from app.repository.auth import AuthSettingsRepository
+
+    await AuthSettingsRepository.rotate_device_cookie_key()
+    assert await device_cookie.parse(fresh) is None
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("fast_argon2")
+async def test_device_cookie_key_is_persisted_and_survives_a_restart(test_db):
+    """The key lives in ``auth_settings`` (migration 119): a new process (the
+    module state is gone, the database stays) still honours the cookie."""
+    import importlib
+
+    from app.auth import device_cookie
+    from app.repository.auth import AuthSettingsRepository
+
+    async with test_db.readonly() as conn:
+        async with conn.execute("SELECT device_cookie_key FROM auth_settings") as cursor:
+            assert (await cursor.fetchone())[0] is None
+    owner = await create_user()
+    value = await device_cookie.issue(owner.id, owner.updated_at, "dev1")
+    async with test_db.readonly() as conn:
+        async with conn.execute("SELECT device_cookie_key FROM auth_settings") as cursor:
+            stored = (await cursor.fetchone())[0]
+    assert len(stored) == 64 and bytes.fromhex(stored) == (
+        await AuthSettingsRepository.device_cookie_key()
+    )
+    reloaded = importlib.reload(device_cookie)
+    assert await reloaded.known_device(await reloaded.parse(value), ADMIN) == "dev1"
+    # A key that is not 64 hex characters (hand-edited) is replaced, never used.
+    async with test_db.tx() as conn:
+        await conn.execute("UPDATE auth_settings SET device_cookie_key = 'not-hex'")
+    assert await reloaded.parse(value) is None
+    assert len((await AuthSettingsRepository.device_cookie_key()).hex()) == 64
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("fast_argon2")
+async def test_device_cookie_is_unknown_without_the_auth_settings_row(test_db):
+    from app.auth import device_cookie
+
+    owner = await create_user()
+    value = await device_cookie.issue(owner.id, owner.updated_at, "dev1")
+    async with test_db.tx() as conn:
+        await conn.execute("DELETE FROM auth_settings")
+    assert await device_cookie.parse(value) is None
+    assert await device_cookie.parse(value.replace(value[-4:], "é" * 4)) is None
 
 
 @pytest.mark.real_auth
@@ -619,7 +666,7 @@ async def test_route_known_device_with_a_wrong_password_is_refused_and_counted(c
     async with make_client() as owner:
         first = await owner.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
         assert first.status_code == 200
-        cookie = device_cookie.parse(owner.cookies.get(device_cookie.PLAIN_COOKIE_NAME))
+        cookie = await device_cookie.parse(owner.cookies.get(device_cookie.PLAIN_COOKIE_NAME))
         assert cookie is not None
         checks_before = len(hash_calls)
 

@@ -251,7 +251,7 @@ async def test_admin_password_reset_signs_out_forgets_devices_and_forces_a_chang
         signed_in = await login(other, "member1")
         before = await UserRepository.get(member.id)
         assert before is not None
-        cookie = device_cookie.read(
+        cookie = await device_cookie.read(
             "; ".join(c.split(";")[0] for c in signed_in.headers.get_list("set-cookie")),
             secure=False,
         )
@@ -607,3 +607,61 @@ async def test_every_refusal_of_the_users_api_is_audited():
     password_refusals = await _audit("password.changed", "refused")
     assert [r.details["reason"] for r in password_refusals] == ["password_policy"] * 2
     assert all(r.details["policy"] == "too_short" for r in password_refusals)
+
+
+async def test_a_kiosk_password_change_attempt_is_audited():
+    from app.auth import sessions
+
+    kiosk = await create_user("wall", role="kiosk", password=None)
+    async with make_client() as client:
+        issued = await sessions.issue_session(kiosk, ip=None, user_agent=None, via="lan")
+        client.cookies.set("meshloom_session", issued.token)
+        renamed = await client.patch("/api/auth/me", json={"display_name": "Wall"})
+        assert renamed.status_code == 403 and _code(renamed) == "auth_forbidden"
+        assert await _audit("password.changed", "refused") == []
+        changed = await client.patch(
+            "/api/auth/me", json={"current_password": PASSWORD, "new_password": NEW_PASSWORD}
+        )
+        assert changed.status_code == 403 and _code(changed) == "auth_forbidden"
+    [row] = await _audit("password.changed", "refused")
+    assert row.details == {"reason": "forbidden"}
+    assert row.target == f"user:{kiosk.id}"
+
+
+@pytest.mark.parametrize("route", ["create", "patch", "password"])
+async def test_a_must_change_race_is_a_coded_400_not_a_500(monkeypatch, route):
+    """The account can change between the route's check and the repository
+    write (a concurrent demotion to kiosk): the repository's refusal is the
+    same coded 400 as the route's own check, and it is audited."""
+    from app.repository.auth import MustChangeNotApplicableError
+
+    await create_user()
+    member = await create_user("member1", role="member")
+
+    async def refuse(*args, **kwargs):
+        raise MustChangeNotApplicableError("raced")
+
+    method = {"create": "create", "patch": "update", "password": "set_password_hash"}[route]
+    async with make_client() as admin:
+        await login(admin)
+        monkeypatch.setattr(UserRepository, method, staticmethod(refuse))
+        if route == "create":
+            response = await admin.post(
+                "/api/auth/users",
+                json={"username": "late", "role": "member", "password": NEW_PASSWORD},
+            )
+            action = "user.created"
+        elif route == "patch":
+            response = await admin.patch(
+                f"/api/auth/users/{member.id}", json={"must_change_password": True}
+            )
+            action = "user.changed"
+        else:
+            response = await admin.post(
+                f"/api/auth/users/{member.id}/password", json={"password": NEW_PASSWORD}
+            )
+            action = "password.changed"
+    assert response.status_code == 400
+    assert _code(response) == "auth_password_not_applicable"
+    [row] = await _audit(action, "refused")
+    assert row.details == {"reason": "password_not_applicable", "status": 400}

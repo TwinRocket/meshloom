@@ -21,7 +21,8 @@ identity of the instance as ``admin`` even when a local admin exists
 manifest keeps ``panel_admin`` true, so only HA administrators see the
 panel), the next ones with
 ``auth_settings.ingress_default_role`` (``member`` by default). "First" is
-decided once (``auth_settings.ingress_admin_granted``, migration 107): a
+decided once (``auth_settings.ingress_admin_granted``, migration 107, set in
+the same transaction as that admin's insert): a
 deleted ingress identity never brings ``admin`` back. The account
 has no password; its display name follows HA's. No session cookie is ever set
 or read under ingress (the HA origin is shared by every add-on): the identity
@@ -151,6 +152,7 @@ async def _create(
                     display_name=display_name or username,
                     provider="ingress",
                     external_id=external_id,
+                    grant_ingress_admin=first,
                 )
                 break
             except (UsernameTakenError, InvalidUsernameError):
@@ -158,8 +160,6 @@ async def _create(
         if user is None:
             logger.warning("Could not find a free username for a Home Assistant identity")
             return None
-        if first:
-            await AuthSettingsRepository.mark_ingress_admin_granted()
         if no_account:
             # The first account exists now: the installation code has no use left.
             from app.auth.setup_code import clear_setup_code

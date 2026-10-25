@@ -264,7 +264,8 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     "auth_audit": ("excluded", "audit trail: not in the JSON backup, kept in the SQLite download"),
     "auth_settings": (
         "excluded",
-        "access settings of this host (networks, proxies, URLs) and the setup code hash",
+        "access settings of this host (networks, proxies, URLs), the setup code hash and the"
+        " known-device cookie key (both cleared in the SQLite download)",
     ),
     # Notification channels (MSHL-108, MSHL-117): the ``notifications`` backup section
     # (services/backup_notifications.py) holds the channels without their secrets and the
