@@ -1122,7 +1122,19 @@ Apple rejects `.local`. Which events reach Web Push is the notification rules' d
 (`app/notifications/rules.py`, `conversation_channel_enabled`; `app/push/policy.py` is a
 deprecated adapter kept for one release; `frontend/src/utils/notificationPolicy.ts` mirrors it
 over the same fixture, `pushPolicy.ts` only re-exports it for one release). `PushManager` only sends
-(`dispatch_event`) and keeps the subscriptions healthy. A push service
+(`dispatch_event`) and keeps the subscriptions healthy. Each subscription has an owner
+(`user_id`, migration 118, FK `ON DELETE CASCADE`; MSHL-290): the routes in `app/routers/push.py`
+scope list, PATCH, DELETE and test to the caller's own rows (another account's answers 404);
+an admin also gets `GET /subscriptions?scope=all` (endpoint reduced to its origin, keys blanked,
+`owner_username`) and may DELETE any row, never PATCH or test one. Subscribing upserts by
+endpoint and moves the row to the caller; `create(user_id=None)` (backup restore) keeps the
+owner or falls back to the first admin (`FIRST_ADMIN_SQL`). An unowned row counts as the
+first admin's when read (`_OWNER_SQL`; reads never write). An empty label on subscribe keeps
+the stored one unless the row changes owner. `UserRepository.delete` also deletes the rows
+explicitly (no reliance on the cascade alone). Sends go to `PushSubscriptionRepository.deliverable()` only: owner enabled and holding
+`send` in `ROLE_PERMISSIONS` (kiosk and viewer own nothing deliverable; a token acts for its
+user). The rules stay instance-wide. `restore_users` unowns rows before replacing the accounts
+so the cascade keeps them. A push service
 answering 403, 404 or 410 deletes the subscription. Every endpoint passes the
 egress guard, at subscribe (400 coded) and at each send (`send_push`, pinned
 urllib3 connections); a private endpoint needs the instance setting

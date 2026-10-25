@@ -232,7 +232,12 @@ pruned hourly by the dispatcher.
 ### `push_subscriptions`
 
 Web Push subscriptions: PK `id`, `endpoint` (unique), `p256dh`, `auth`, `label`,
-`language`, `created_at`, `last_success_at`, `failure_count`.
+`language`, `created_at`, `last_success_at`, `failure_count`, `user_id` (migration 118,
+FK `users(id)` `ON DELETE CASCADE`: the owning account; deleting it deletes its devices,
+while an accounts restore unowns them first, `restore_users`). Migration 118 gave the existing rows to the first administrator
+(lowest id, an enabled one first); a row left unowned (no account yet, or after an accounts
+restore) counts as that administrator's when read (`_OWNER_SQL`, no write);
+`UserRepository.delete` deletes the account's rows explicitly too.
 `PushSubscriptionRepository` (`push_subscriptions.py`), used by `app/push/`.
 A subscription is deleted once `failure_count` reaches 15 consecutive failures.
 
@@ -424,6 +429,7 @@ databases). The current set:
 | `idx_messages_unread_covering` | `messages(type, conversation_key, outgoing, received_at)` |
 | `idx_notification_deliveries_channel` | `notification_deliveries(channel_id, created_at)` |
 | `idx_plugins_plugin_id` | `plugins(plugin_id)` |
+| `idx_push_subscriptions_user` | `push_subscriptions(user_id)` |
 | `idx_raw_packets_message_id` | `raw_packets(message_id)` |
 | `idx_raw_packets_payload_hash` | unique, `raw_packets(payload_hash)` |
 | `idx_raw_packets_timestamp` | `raw_packets(timestamp)` |

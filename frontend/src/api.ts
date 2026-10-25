@@ -1202,7 +1202,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(subscription),
     }),
-  getPushSubscriptions: () => fetchJson<PushSubscriptionInfo[]>('/push/subscriptions'),
+  getPushSubscriptions: (scope: 'mine' | 'all' = 'mine') =>
+    fetchJson<PushSubscriptionInfo[]>(
+      scope === 'all' ? '/push/subscriptions?scope=all' : '/push/subscriptions'
+    ),
   deletePushSubscription: (id: string) =>
     fetchJson<{ deleted: boolean }>(`/push/subscriptions/${id}`, { method: 'DELETE' }),
   testPushSubscription: (id: string) =>
