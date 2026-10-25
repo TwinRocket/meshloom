@@ -13,7 +13,7 @@
 
 ## Local Development
 
-You need [uv](https://docs.astral.sh/uv/) with Python 3.11 or later (CI tests 3.11, 3.12 and 3.14) and Node.js 26 (`.nvmrc`; CI reads the same file).
+You need [uv](https://docs.astral.sh/uv/) with Python 3.11 or later (CI tests 3.11, 3.12, 3.13 and 3.14) and Node.js 26 (`.nvmrc`; CI reads the same file).
 
 ### Backend
 

@@ -32,9 +32,11 @@ L’installateur choisit la première méthode qui fonctionne sur votre machine 
 Une installation par paquet crée :
 
 - un service systemd nommé `meshloom`, exécuté par un utilisateur dédié `meshloom` qui peut utiliser les périphériques série et Bluetooth ;
-- le programme dans `/opt/meshloom` ;
+- le programme dans `/opt/meshloom`, que le service peut lire mais pas modifier ;
 - le fichier de réglages `/etc/meshloom/meshloom.env`, où les bots sont **désactivés** par défaut ;
 - la base de données et vos données dans `/var/lib/meshloom`.
+
+Le paquet recommande aussi bubblewrap, qui enferme les extensions dans un bac à sable (voir [Extensions](/docs/deep/plugins/)), et le service peut lancer au plus 512 processus et fils d’exécution au total, extensions comprises.
 
 Vérifiez avec :
 
@@ -90,7 +92,7 @@ L’image est `ghcr.io/twinrocket/meshloom`. Le dépôt contient `docker-compose
 - `devices:`, pour donner une radio USB au conteneur. Le fichier contient un chemin d’exemple qui n’existe pas sur votre machine : remplacez-le par le chemin de votre radio, ou supprimez les deux lignes si votre radio est en réseau ou en Bluetooth, sinon le conteneur ne démarre pas. La radio elle-même se choisit dans l’interface web.
 - `MESHCORE_DATABASE_PATH: data/meshcore.db`, et `restart: unless-stopped`.
 
-Le conteneur tourne par défaut sous root. Pour le faire tourner sous l’utilisateur numéro 10001, définissez `MESHLOOM_RUN_AS_USER: "10001"`. Au démarrage, le conteneur confie `./data` à cet utilisateur et lui donne les groupes des périphériques série. Si la radio reste inaccessible ainsi, Meshloom reste sous root et écrit un avertissement dans son journal. À ne pas utiliser avec le Bluetooth, qui demande une mise en place manuelle plus poussée, décrite dans [Transports radio](/docs/deep/transports/).
+Le conteneur tourne par défaut sous root. Pour le faire tourner sous l’utilisateur numéro 10001, définissez `MESHLOOM_RUN_AS_USER: "10001"`. Au démarrage, le conteneur confie `./data` à cet utilisateur et lui donne les groupes des périphériques série. Si la radio reste inaccessible ainsi, Meshloom reste sous root et écrit un avertissement dans son journal. Sous l’utilisateur 10001, Meshloom ne garde que les trois droits nécessaires pour exécuter les extensions sous leur propre compte. À ne pas utiliser avec le Bluetooth, qui demande une mise en place manuelle plus poussée, décrite dans [Transports radio](/docs/deep/transports/).
 
 Un fichier Compose écrit à la main ne peut pas être mis à jour depuis l’interface. Le mode Docker de l’installateur ajoute un petit assistant qui tourne sous root sur l’hôte : il fige l’image par son empreinte signée dans `.env` et installe les mises à jour quand vous le demandez dans **Réglages → Mises à jour**. Il ne modifie jamais `docker-compose.yml`. Docker Desktop et Docker sans root n’ont pas cet assistant : la pile suit `:latest`.
 

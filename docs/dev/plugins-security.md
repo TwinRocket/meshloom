@@ -25,7 +25,8 @@ values `bwrap`, `setuid`, `none` (`policy.ISOLATION_LEVELS`), in `/api/health`
 |---|---|---|
 | Linux, root, account `meshloom-plugin` exists (Docker image, add-on) | `setuid` | — |
 | Linux, root, no such account | `bwrap` if its self-test passes | `none` |
-| Linux, not root (deb/rpm, RPi image, source, Docker with `MESHLOOM_RUN_AS_USER`) | `bwrap` if its self-test passes | `none` |
+| Linux, not root, holds `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` and the account exists (Docker with `MESHLOOM_RUN_AS_USER`) | `setuid` | — |
+| Linux, not root (deb/rpm, RPi image, source) | `bwrap` if its self-test passes | `none` |
 | not Linux (macOS, development) | `none` | — |
 
 The bwrap self-test starts the interpreter in the exact sandbox a child gets
@@ -38,10 +39,10 @@ end in `none` with the reason logged.
 |---|---|---|---|
 | Database and data directory | not mounted | `0600` files in a `0711` directory, owned by root | readable |
 | Server code (`app/`) | not mounted | readable (world-readable code, no secret) | readable |
-| `/proc/<server>/environ`, `mem` | not there (own pid namespace and `/proc`) | refused (root's process) | refused by `PR_SET_DUMPABLE` (non-root servers), readable when the server is root |
+| `/proc/<server>/environ`, `mem` | not there (own pid namespace and `/proc`) | refused (root's process, or another uid's undumpable one) | refused by `PR_SET_DUMPABLE` (non-root servers), readable when the server is root |
 | Write outside the work dir | refused (read-only binds, `--remount-ro /`) | refused (root-owned tree) | only the hooks |
 | Network | none (own network namespace, loopback down) | open (the hooks refuse sockets in-process) | the hooks only |
-| A process it execs (`fork_exec` rebuilt) | none: `RLIMIT_NPROC` 0 fails the fork; a root child stays in the sandbox | none: `RLIMIT_NPROC` 0 fails the fork | none: `RLIMIT_NPROC` 0 fails the fork, unless the server runs as root |
+| A process it execs (`fork_exec` rebuilt) | none: the seccomp filter and `RLIMIT_NPROC` 0 fail the fork | same | same; as root only the filter holds, and a root child without one does not start |
 | SIGKILL of the group | kills everything (the sandbox's pid 1 goes, the kernel kills the namespace) | kills the group; a grandchild that called `setsid()` survives until the service or container stops | same as `setuid` |
 
 ### `bwrap` (`bwrap.py`)
@@ -70,10 +71,16 @@ without the setuid bit.
 `Dockerfile`, next to `MESHLOOM_RUN_AS_USER`'s 10001: Docker does not remap
 users, so it is that uid on the host too, and the first system uid, 999, is
 often a real host account; no shell, no home; an account that already exists is
-kept; the add-on is `FROM` that image). The work dir is created by
-the server and handed to the uid (`chown`, `0700`). The runner refuses to
-start when told `setuid` while still root (it sets `RLIMIT_NPROC` 0 at every
-level, and root ignores it). At startup (`isolation.startup()`) the
+kept; the add-on is `FROM` that image). A root server creates the work dir and
+hands it to the uid (`chown`, `0700`). A non-root server holding only
+`CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` (docker-entrypoint.sh under
+`MESHLOOM_RUN_AS_USER` keeps exactly those three, ambient: the uid switch, and
+the group kill of another uid) cannot `chown`: a
+short helper started as the plugin uid creates it (`0711`, the server must still
+`chdir` into it before the uid switch) and removes it at the end
+(`remove_work_dir`). The runner clears those inherited capabilities before any
+plugin code. The runner refuses to start when told `setuid` while still root.
+At startup (`isolation.startup()`) the
 file model is applied to the data directory: `0711` on the directory, `0600` on
 each file in it, `0700` on each subdirectory but `plugins/`, whose tree is
 `0755`/`0644`; the server's umask becomes `077`, so later files are born
@@ -101,10 +108,13 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 - Without a pid namespace (`setuid`, `none`), a process that left the session
   survives the group kill; the service's cgroup (`KillMode=control-group`) or
   the container's end still stops it.
-- Docker with `MESHLOOM_RUN_AS_USER`: no `CAP_SETUID`, no user namespaces, so
-  `none` (cadrage Q12 proposes keeping `CAP_SETUID`/`CAP_SETGID`).
-- No seccomp filter of our own (no `pyseccomp`): bwrap and the uid are the
-  boundary; a filter is a defence-in-depth study (T31).
+- Docker with `MESHLOOM_RUN_AS_USER`: the server keeps `CAP_SETUID`,
+  `CAP_SETGID` and `CAP_KILL` (ambient), so `setuid`; the startup file model applies the same
+  way, the data directory and its `0600` files belonging to uid 10001.
+- The seccomp filter (`meshloom_plugin/seccomp.py`, no `pyseccomp`) knows
+  x86_64, i386, aarch64, arm and riscv64. On another architecture a non-root
+  child runs without it (`RLIMIT_NPROC` 0 still holds) and a root child refuses
+  to start.
 
 ## What the runner does
 
@@ -115,6 +125,8 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 | `os.environ` cleared but `LANG` and `PYTHONHASHSEED` (and the supervisor passes only those) | no server secret in the environment |
 | Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` 0 (Linux, every level); small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap; no thread and no process can be created, whatever path the hook does not see (the kernel counts the uid's tasks against the limit; root, `CAP_SYS_RESOURCE` and `CAP_SYS_ADMIN` ignore it) |
 | `PR_SET_NO_NEW_PRIVS` (Linux) | no privilege gain through a setuid binary, even if a process were spawned |
+| Inherited capabilities dropped (Linux, non-root child): ambient cleared, effective, permitted and inheritable emptied, checked in `/proc/self/status` | `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` kept by a `MESHLOOM_RUN_AS_USER` server do not reach plugin code |
+| seccomp filter (Linux, `meshloom_plugin/seccomp.py`): `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat` and any syscall of a foreign ABI answer `EPERM` | no thread, no process, no exec, **root included** (MSHL-323); required for a root child, best effort otherwise |
 | `PR_SET_DUMPABLE` 0 (Linux, before any plugin code) | `execve` (and the uid drop) made the child dumpable again; now no process of the same uid, another instance included, can open its `/proc/<pid>/mem` or `ptrace` it |
 | Audit hook (PEP 578) | refuses the events below |
 | Purge of `sys.modules`, references replaced by stubs, import guard | network, process and native modules are not reachable by name |
@@ -147,7 +159,8 @@ The audit hook raises `PermissionError` on:
   compiled like the hook without globals or builtins, that raises
   `PermissionError`: the refusal is an error the plugin sees);
 - thread start (`_thread.start_new_thread`, `_thread.start_joinable_thread`;
-  3.12 and later only; on 3.11 `RLIMIT_NPROC` 0 fails the clone, see below);
+  3.12 and later only; on 3.11 the seccomp filter and `RLIMIT_NPROC` 0 fail
+  the clone, see below);
 - `resource.setrlimit`, `resource.prlimit`;
 - the `import` event for every name in `policy.DENIED_MODULES`.
 - the `import` event of an extension module (it carries the file) whose file is
@@ -177,12 +190,11 @@ frame.
    interpreter (python-build-standalone, which the deb/rpm packages ship), plugin
    code can rebuild the module from its spec through the import machinery kept
    in `sys.modules` (`importlib._bootstrap.module_from_spec` emits no `import`
-   event) and call `fork_exec`. **Closed by `RLIMIT_NPROC` 0** (MSHL-289): the
-   fork fails with `EAGAIN` at every level, 3.11 to 3.14. **Still open when the
-   child runs as root** (the server started as root with `none` or `bwrap`):
-   root ignores the limit. Under `bwrap` what it execs then has no database, no
-   app code and no network (check `exec_escape`); under `none` nothing contains
-   it. Corpus: `posixsubprocess_spec_rebuild` (runs a program through the
+   event) and call `fork_exec`. **Closed by the seccomp filter** (MSHL-323,
+   `EPERM`) and by `RLIMIT_NPROC` 0 (MSHL-289, `EAGAIN`) at every level, 3.11 to
+   3.14. Root ignores the limit, so for a child running as root (a root server
+   with `none` or `bwrap`) the filter is the guard, and such a child does not
+   start without it. Corpus: `posixsubprocess_spec_rebuild` (runs a program through the
    rebuilt `fork_exec`), `posixsubprocess_reach` (the routes the hook closes).
 3. **The hook's frame is reachable through the traceback** of the exception it
    raises. Answer: the frame holds only immutable values (the event name, the
@@ -204,13 +216,9 @@ frame.
   code can remove the import guard. The allowlist is an aid for authors (a clear
   error, a known surface), not a boundary; the hook keeps refusing the events.
 - On Python 3.11 starting a thread emits no audit event (the `threading` import
-  is refused to plugin code, `_thread` is not a boundary). `RLIMIT_NPROC` 0 makes
-  the clone fail (`RuntimeError: can't start new thread`) at every level, except
-  for a child running as root (corpus: `thread_start`).
-- `RLIMIT_NPROC` does not hold a child running as root: a server running as
-  root without the `meshloom-plugin` account (`bwrap` or `none`, see the level
-  table). The Docker image and the add-on run their children under `setuid`,
-  the deb/rpm packages and the RPi image run the server as a non-root user.
+  is refused to plugin code, `_thread` is not a boundary). The seccomp filter
+  and `RLIMIT_NPROC` 0 make the clone fail (`RuntimeError: can't start new
+  thread`) at every level, root included (corpus: `thread_start`).
 - The RPC descriptors are ordinary small integers: plugin code can write to the
   server directly. The server must treat every child message as hostile input
   (bounded lines, typed checks), which it does anyway.
@@ -314,13 +322,21 @@ What runs, and where:
   and pytest only), `tests/test_plugin_isolation.py` (the selection table and
   the per-level checks: database, environ, code, network, group kill) and
   `tests/test_plugin_host.py` (budgets, restarts, crash loop).
+- `tests/test_plugin_seccomp.py` (standard library and pytest only): the ABI
+  table, the BPF program run through a small interpreter for every ABI, and a
+  probe process that installs the filter and checks `fork`, `execv`,
+  `posix_spawn`, `subprocess` and a thread start are refused, and that a
+  non-root process ends with no capability. `tests/test_plugin_runner.py` also
+  checks `Seccomp: 2` in a live child's `/proc/<pid>/status`.
 
-CI: the backend job (Python 3.11, 3.12 and 3.14, `ubuntu-latest`, bubblewrap
+CI: the backend job (Python 3.11, 3.12, 3.13 and 3.14, `ubuntu-latest`, bubblewrap
 installed and its self-test required) runs everything at `none` and `bwrap`.
 The root container job (`plugin-isolation-root`, Python 3.11 and 3.14) creates
-the account, runs the isolation and runner tests with `--noconftest`, then
-installs the dependencies and runs the corpus and the fuzz as root, where all
-three levels are available.
+the account, runs the isolation, runner and seccomp tests with `--noconftest`,
+then installs the dependencies and runs the corpus, the fuzz and the host tests
+as root, where all three levels are available, then all of them again as uid
+10001 holding only `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` ambient (`setpriv` as
+docker-entrypoint.sh calls it), where `none` and `setuid` are.
 
 | Case | Stage | Tries | Expected, every level unless noted |
 |---|---|---|---|
@@ -339,10 +355,10 @@ three levels are available.
 | `loaded_module_reach` | runner | `socket` through `sys.modules`, `asyncio.base_events`, `asyncio.open_connection` (bypass 1) | purged, `PermissionError` |
 | `subprocess_spawn` | runner | `subprocess`, `os.system`, `os.posix_spawn`, `os.execv` | `PermissionError` |
 | `posixsubprocess_reach` | runner | `_posixsubprocess` by import and through asyncio (bypass 2) | `PermissionError` |
-| `posixsubprocess_spec_rebuild` | runner | rebuild `_posixsubprocess` from its spec and run a program with `fork_exec` | refused: the import, or the fork (`EAGAIN`); a root child: open path, `exec_escape` at `bwrap`, `xfail` at `none` |
+| `posixsubprocess_spec_rebuild` | runner | rebuild `_posixsubprocess` from its spec and run a program with `fork_exec` | refused: the import, or the fork (`EPERM` from the filter, `EAGAIN` from `RLIMIT_NPROC`), root included |
 | `fork_bomb` | runner | `os.fork()` in a loop | `PermissionError` at the first |
 | `kill_parent` | runner | `os.kill`, `os.killpg` (signal 0) | `PermissionError` |
-| `thread_start` | runner | `_thread.start_new_thread` | `PermissionError` on 3.12+; 3.11: `can't start new thread` (`RLIMIT_NPROC` 0); a root child on 3.11: open path, `xfail` |
+| `thread_start` | runner | `_thread.start_new_thread` | `PermissionError` on 3.12+; 3.11: `can't start new thread` (seccomp filter, `RLIMIT_NPROC` 0), root included |
 | `ctypes_import` | runner | `ctypes`, `_ctypes` | `PermissionError` |
 | `extension_import` | runner | `mmap`, `fcntl`, `sqlite3` | `PermissionError` |
 | `native_load_from_work_dir` | runner | load native code written to the work dir (bypass 4) | `PermissionError` |
@@ -381,7 +397,8 @@ stand-in and a database, not a hostile child).
 in a privileged Linux arm64 container, root, all three levels): each guard below
 was removed in turn and the cases pinning it failed: the `os.fork`,
 `sys.addaudithook`, `gc.get_objects` and `resource.setrlimit` refusals, the
-`sys.addaudithook` stub, `RLIMIT_NPROC` 0 (MSHL-289), the open
+`sys.addaudithook` stub, `RLIMIT_NPROC` 0 (MSHL-289), the seccomp filter
+(MSHL-323), the open
 read roots, the native-suffix write rule, the native load roots, the environment
 scrub, `RLIMIT_AS`, the host's two 3.11 pipe guards together (the stdout drain
 after a framing kill and the bounded wait for the pipes: either one alone

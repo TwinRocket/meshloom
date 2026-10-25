@@ -398,7 +398,10 @@ line on stdin is the RPC stream.
    what the hook cannot see; root ignores it); `_thread.stack_size(256 KiB)`;
    `PR_SET_NO_NEW_PRIVS` and `PR_SET_DUMPABLE` 0 on Linux (through `ctypes`,
    purged afterwards; dumpable 0 keeps a same-uid sibling out of
-   `/proc/<pid>/mem`). Then
+   `/proc/<pid>/mem`); then, on Linux, inherited capabilities are dropped and a
+   seccomp filter refuses `clone`, `fork` and `exec` (`meshloom_plugin/seccomp.py`,
+   the guard that holds for a root child; a root child that cannot install it
+   does not start, see `plugins-security.md`). Then
    `asyncio` is imported: it loads `socket`, `ssl` and `subprocess` at module
    level, so it cannot come after the hook, and step 5 removes them again.
 4. Install the audit hook, then replace `sys.addaudithook` with a stub that
