@@ -12,7 +12,10 @@ Callers that talk to a fixed set of hosts (the Store client, the plugin
 ``http`` capability) also pass a ``HostAllowlist`` and send through
 ``follow_checked_redirects``: every redirect hop is validated again, the
 request and response bodies are capped (the response while it streams) and
-headers a caller must never set are dropped.
+headers a caller must never set are dropped. The plugin capability also passes
+its declared LAN devices as ``lan_hosts``: those, and only those, may be reached
+over plain HTTP and must resolve to a LAN address (10/8, 172.16/12, 192.168/16,
+fc00::/7), checked on every hop.
 
 Address classes are tested range by range. ``ipaddress.is_private`` and
 ``is_global`` changed between Python 3.11 and 3.13 (IPv4-mapped IPv6,
@@ -65,6 +68,7 @@ EgressCode = Literal[
     "egress_request_too_large",
     "egress_response_too_large",
     "egress_response_encoding",
+    "egress_lan_address",
 ]
 
 DEFAULT_SCHEMES = frozenset({"http", "https"})
@@ -133,6 +137,11 @@ _METADATA_IPS = frozenset(
 )
 _METADATA_HOSTS = frozenset({"metadata.google.internal"})
 
+# What a declared LAN host (`lan_hosts`) must resolve to: the home and office network
+# ranges, nothing else (no loopback, link-local, CGNAT, transition form or public IP).
+_LAN_V4 = tuple(ipaddress.IPv4Network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+_LAN_V6 = (ipaddress.IPv6Network("fc00::/7"),)
+
 
 # English fallbacks for API details; the UI translates errors.<code>.
 EGRESS_MESSAGES: dict[str, str] = {
@@ -149,6 +158,8 @@ EGRESS_MESSAGES: dict[str, str] = {
     "egress_request_too_large": "The request body is larger than allowed",
     "egress_response_too_large": "The answer is larger than allowed",
     "egress_response_encoding": "The answer is compressed, which is not allowed here",
+    "egress_lan_address": "This local-network host did not resolve to an address of your "
+    "local network",
 }
 
 
@@ -235,6 +246,27 @@ def is_private_address(ip: IPAddress) -> bool:
     if isinstance(ip, ipaddress.IPv4Address):
         return any(ip in net for net in _PRIVATE_V4)
     return any(ip in net for net in _PRIVATE_V6)
+
+
+def is_lan_address(ip: IPAddress) -> bool:
+    """True only for a plain LAN address: 10/8, 172.16/12, 192.168/16 or fc00::/7, written
+    as itself (an IPv4-mapped or transition form is not), never a metadata address."""
+    if is_metadata_address(ip):
+        return False
+    if isinstance(ip, ipaddress.IPv4Address):
+        return any(ip in net for net in _LAN_V4)
+    return any(ip in net for net in _LAN_V6)
+
+
+def check_lan_addresses(ips: Iterable[IPAddress]) -> None:
+    """A declared LAN host must resolve to LAN addresses only: one other answer (public,
+    loopback, link-local, another class) refuses it, so a name cannot be re-pointed
+    (DNS rebinding) at the Meshloom machine or the Internet."""
+    for ip in ips:
+        if is_metadata_address(ip) or is_documentation_address(ip):
+            raise EgressBlocked("egress_private_address", always_refused=True)
+        if not is_lan_address(ip):
+            raise EgressBlocked("egress_lan_address")
 
 
 def tls_check_may_be_off(ips: Iterable[IPAddress]) -> bool:
@@ -379,15 +411,29 @@ async def validate_destination(
     allow_private_network: bool = False,
     schemes: frozenset[str] = DEFAULT_SCHEMES,
     allowed_hosts: HostAllowlist | None = None,
+    lan_hosts: HostAllowlist | None = None,
 ) -> ResolvedDestination:
     """Check the scheme, resolve A/AAAA and refuse a forbidden address class.
 
     With ``allowed_hosts``, a host outside the list is refused before the DNS
-    lookup. Raises ``EgressBlocked`` before any connection is made.
+    lookup. ``lan_hosts`` are the declared devices of the user's network
+    (plugin ``lan_hosts``, MSHL-282): a URL matching one is accepted over http
+    or https whatever ``schemes`` says, skips ``allowed_hosts`` and
+    ``allow_private_network``, and every address it resolves to must pass
+    ``check_lan_addresses`` (``egress_lan_address`` otherwise). Raises
+    ``EgressBlocked`` before any connection is made.
     """
-    scheme, host, port = _split(url, schemes)
+    scheme, host, port = _split(url, schemes | DEFAULT_SCHEMES if lan_hosts else schemes)
+    if lan_hosts is not None and lan_hosts.allows(scheme, host, port):
+        if host in _METADATA_HOSTS:
+            raise EgressBlocked("egress_private_address", permanent=True)
+        ips = await _resolve(host, port)
+        check_lan_addresses(ips)
+        return ResolvedDestination(url=url.strip(), scheme=scheme, host=host, port=port, ips=ips)
     if allowed_hosts is not None and not allowed_hosts.allows(scheme, host, port):
         raise EgressBlocked("egress_host_not_allowed")
+    if scheme not in schemes:  # only reached with lan_hosts: `_split` checked it otherwise
+        raise EgressBlocked("egress_scheme", permanent=True)
     if host in _METADATA_HOSTS:
         raise EgressBlocked("egress_private_address", permanent=True)
     ips = await _resolve(host, port)
@@ -567,6 +613,7 @@ async def follow_checked_redirects(
     *,
     timeout: httpx.Timeout | float,
     allowed_hosts: HostAllowlist | None = None,
+    lan_hosts: HostAllowlist | None = None,
     allow_private_network: bool = False,
     schemes: frozenset[str] = DEFAULT_SCHEMES,
     max_redirects: int = 0,
@@ -583,7 +630,7 @@ async def follow_checked_redirects(
     """Send through the guard and follow redirects one validated hop at a time.
 
     Every hop, the first included, goes through ``validate_destination`` with
-    the same allowlist, schemes and private-network rule, then a pinned
+    the same allowlist, LAN hosts, schemes and private-network rule, then a pinned
     client. A body above ``max_request_bytes`` is refused before the first DNS
     lookup; a response is aborted as soon as it declares or streams more than
     ``max_response_bytes``. ``timeout`` applies per httpx operation,
@@ -619,6 +666,7 @@ async def follow_checked_redirects(
                 allow_private_network=allow_private_network,
                 schemes=schemes,
                 allowed_hosts=allowed_hosts,
+                lan_hosts=lan_hosts,
             )
             # A fresh client per hop: no cookie jar carried from one host to the next.
             async with (

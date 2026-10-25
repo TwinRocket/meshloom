@@ -8,18 +8,21 @@ order, all before any DNS lookup or connection:
   info, `GET`/`POST`/`PUT`/`PATCH`/`DELETE`, at most `MAX_HEADERS` string
   headers, a text body of at most `MAX_BODY_BYTES` UTF-8 bytes (`params.limit`),
   a positive timeout (clamped to `MAX_TIMEOUT_SECONDS`);
-- the host is one of the instance's effective `http.hosts` (`host_not_allowed`):
-  exact match, the scheme's default port only; `meshloom.app` and its
-  subdomains only for a `meshloom.*` plugin;
-- HTTPS (`https_required`): plain HTTP waits for LAN hosts declared by name and
-  consented to (MSHL-282); until then no host can use it;
+- the host is one of the instance's effective `http.hosts` or `http.lan_hosts`
+  (`host_not_allowed`): exact match, the declared port or else the scheme's
+  default port only; `meshloom.app` and its subdomains only for a `meshloom.*`
+  plugin;
+- HTTPS (`https_required`) for a public host; a declared LAN host (MSHL-282)
+  may also use plain HTTP;
 - the quota, `PER_HOUR` requests per instance and clock hour, in memory
   (`quota_exceeded`, `params.period`, `params.limit`, `params.retry_after`).
 
-Then the guard: pinned resolution, private and reserved addresses refused
-(`host_not_allowed`), at most `MAX_REDIRECTS` redirects, each hop re-validated
-against the same hosts (`host_not_allowed`, or `https_required` for a hop to
-`http:`), credentials dropped when a hop leaves the origin, `Host`,
+Then the guard: pinned resolution, private and reserved addresses refused for a
+public host (`host_not_allowed`), a LAN host that does not resolve to LAN
+addresses only (10/8, 172.16/12, 192.168/16, fc00::/7) refused too
+(`host_not_allowed`, DNS rebinding), at most `MAX_REDIRECTS` redirects, each hop
+re-validated against the same hosts (`host_not_allowed`, or `https_required` for
+a hop to `http:` on a public host), credentials dropped when a hop leaves the origin, `Host`,
 `Content-Length`, `Transfer-Encoding`, `Cookie` and the hop-by-hop headers
 never sent, no cookie jar, an answer cut at `MAX_RESPONSE_BYTES` while it
 streams (`truncated: true`). Any other failure is `fetch_failed` with
@@ -51,7 +54,7 @@ from app.net.egress_guard import (
     follow_checked_redirects,
 )
 from app.plugins.capabilities.base import Call, CapabilityError, capability, invalid_params
-from app.plugins.permissions import is_meshloom_domain
+from app.plugins.permissions import is_meshloom_domain, lan_host_name
 from meshloom_plugin.sdk import safe_url
 
 logger = logging.getLogger(__name__)
@@ -94,7 +97,9 @@ _HEADER_NAME = frozenset(
 )
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 # Guard refusals that mean "not a host this plugin may reach".
-_HOST_REFUSALS = frozenset({"egress_host_not_allowed", "egress_private_address"})
+_HOST_REFUSALS = frozenset(
+    {"egress_host_not_allowed", "egress_private_address", "egress_lan_address"}
+)
 
 
 class HourlyQuota:
@@ -122,10 +127,10 @@ class HourlyQuota:
 QUOTA = HourlyQuota(PER_HOUR)
 
 
-def _allowlist(call: Call) -> HostAllowlist:
-    hosts = call.instance.permissions.get("http", {}).get("hosts", [])
+def _allowlist(call: Call, key: str = "hosts") -> HostAllowlist:
+    hosts = call.instance.permissions.get("http", {}).get(key, [])
     if not call.instance.plugin_id.startswith("meshloom."):
-        hosts = [h for h in hosts if not is_meshloom_domain(h)]
+        hosts = [h for h in hosts if not is_meshloom_domain(lan_host_name(h))]
     return HostAllowlist.parse(hosts)
 
 
@@ -234,11 +239,13 @@ async def fetch(call: Call) -> dict[str, Any]:
     instance_id = call.instance.instance_id
 
     allowlist = _allowlist(call)
+    lan_hosts = _allowlist(call, "lan_hosts")
     scheme, host, port = _target(url)
-    if not allowlist.allows(scheme, host, port):
+    on_lan = lan_hosts.allows(scheme, host, port)
+    if not on_lan and not allowlist.allows(scheme, host, port):
         logger.info("Plugin %s http.fetch %s %s: host_not_allowed", instance_id, method, shown)
         raise CapabilityError("host_not_allowed", "this host is not allowed for this plugin")
-    if scheme != "https":
+    if not on_lan and scheme != "https":
         logger.info("Plugin %s http.fetch %s %s: https_required", instance_id, method, shown)
         raise CapabilityError("https_required", "only https URLs are allowed")
     retry_after = QUOTA.take(instance_id)
@@ -258,6 +265,7 @@ async def fetch(call: Call) -> dict[str, Any]:
             timeout=httpx.Timeout(timeout),
             total_timeout=timeout,
             allowed_hosts=allowlist,
+            lan_hosts=lan_hosts,
             schemes=frozenset({"https"}),
             max_redirects=MAX_REDIRECTS,
             max_request_bytes=MAX_BODY_BYTES,
