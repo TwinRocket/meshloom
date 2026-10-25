@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.auth.permissions import require
 from app.notifications import api_support
@@ -35,6 +35,7 @@ from app.notifications.channels import (
 )
 from app.notifications.events import EVENT_IDS
 from app.notifications.legacy_sync import MEDIUM_IDS, sync_columns
+from app.notifications.quiet_hours import quiet_hours_of, validate_quiet_hours
 from app.repository.notification_channels import (
     DELIVERIES_PER_CHANNEL,
     NotificationChannelRepository,
@@ -142,9 +143,22 @@ class EventRulePatch(BaseModel):
     contact_types: dict[str, list[str]] | None = None
 
 
+class QuietHoursPatch(BaseModel):
+    """Quiet hours (``rules.quiet_hours``); an omitted field keeps its stored value."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    start: str | None = None
+    end: str | None = None
+    weekdays: list[StrictInt] | None = None
+    digest_at_end: bool | None = None
+
+
 class RulesPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    quiet_hours: QuietHoursPatch | None = None
     events: dict[str, EventRulePatch] | None = None
     paused_until: int | None = None
     radio_offline_grace_s: int | None = Field(None, ge=0, le=3600)
@@ -429,6 +443,7 @@ async def _rules_view() -> dict[str, Any]:
         "watched_nodes": rules.get("watched_nodes") or [],
         "radio_offline_grace_s": settings.radio_offline_grace_s,
         "mention_whole_word": bool(rules.get("mention_whole_word", False)),
+        "quiet_hours": quiet_hours_of(rules),
         "push_allow_private_endpoints": settings.push_allow_private_endpoints,
         "host_timezone": host_timezone(),
     }
@@ -453,8 +468,9 @@ def _check_ids(ids: list[str], known: set[str]) -> None:
 
 @router.patch("/rules")
 async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
-    """Change event rules (per event: channels, ``always_deliver``, contact types), the global
-    pause (``paused_until``: epoch seconds, ``null`` resumes), the radio offline grace, the
+    """Change event rules (per event: channels, ``always_deliver``, contact types), the quiet
+    hours (``quiet_hours``: ``enabled``, ``start``, ``end``, ``weekdays``, ``digest_at_end``; a
+    missing field keeps its value), the global pause (``paused_until``: epoch seconds, ``null`` resumes), the radio offline grace, the
     mention rule and the private push endpoints."""
     rules = await NotificationChannelRepository.get_rules()
     known = await _known_channel_ids()
@@ -494,6 +510,12 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
         if until is not None and until > now + MAX_PAUSE_S:
             raise fail("invalid_config", 400, fields=["paused_until"])
         rules["paused_until"] = until if until is not None and until > now else None
+    if body.quiet_hours is not None:
+        patch = body.quiet_hours.model_dump(exclude_none=True)
+        try:
+            rules["quiet_hours"] = validate_quiet_hours({**quiet_hours_of(rules), **patch})
+        except ValueError as exc:
+            raise fail("invalid_config", 400, fields=[f"quiet_hours.{exc.args[0]}"]) from None
     if "mention_whole_word" in fields and body.mention_whole_word is not None:
         rules["mention_whole_word"] = body.mention_whole_word
     rules.setdefault("version", 1)

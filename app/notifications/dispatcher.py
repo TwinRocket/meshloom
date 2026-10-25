@@ -32,8 +32,8 @@ delays itself.
   every ``COUNTER_FLUSH_S``, with the channel's ``last_ok_at``); a failure updates
   ``failure_count`` and ``last_error`` at once (``secret_fields.scrub_error``) and
   a success after failures resets them. ``notification_deliveries`` rows are
-  written only for ``failed``, ``rate_limited``, ``aggregated``, ``paused`` and
-  ``aborted`` (``suppressed_quiet`` comes with the quiet hours), and carry the
+  written only for ``failed``, ``rate_limited``, ``aggregated``, ``paused``,
+  ``aborted``, ``suppressed_quiet`` (quiet hours, ``quiet_hours.py``), and carry the
   event id, the hashed ``dedup_key`` and a code: never the message text.
 - **Status.** ``notification_statuses()`` is the health payload's map; a change of
   a channel's status or error broadcasts ``health``.
@@ -58,6 +58,7 @@ from typing import Any, Literal
 from aiolimiter import AsyncLimiter
 from tenacity import AsyncRetrying, RetryCallState, retry_if_result, stop_after_attempt
 
+from app.notifications import quiet_hours as quiet
 from app.notifications import rules as rules_mod
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
@@ -90,6 +91,7 @@ MAX_RETRY_AFTER_S = 120.0
 LONG_RETRY_S = 300.0
 LONG_RETRY_EVENTS = frozenset({"radio.offline", "telemetry.alert"})
 COUNTER_FLUSH_S = 60.0
+QUIET_TICK_S = 60.0
 
 GROUPED_EVENT = "notifications_grouped"
 FIRST_SEEN_GROUPED_EVENT = "first_seen_grouped"
@@ -336,6 +338,7 @@ class Dispatcher:
         self._counter_task: asyncio.Task[None] | None = None
         self._journal_rows: list[dict[str, Any]] = []
         self._journal_task: asyncio.Task[None] | None = None
+        self._quiet_task: asyncio.Task[None] | None = None
 
     # -- emit -------------------------------------------------------------------
 
@@ -405,6 +408,7 @@ class Dispatcher:
             payload = event.to_payload()
         if event is None:
             event = event_from_payload(payload)
+        self._start_quiet_loop()
         name = event.event if event is not None else str(payload.get("event") or "notification")
         urgent = bool(event.urgent if event is not None else payload.get("urgent"))
         if rules is None:
@@ -449,9 +453,19 @@ class Dispatcher:
         dedup_key = event.dedup_key if event is not None else ""
         by_id = {c.id: c for c in channels}
         queued = 0
+        # Quiet hours come after the rules and every pause: an event nobody wanted (an
+        # account's own choice, a mute) or that a pause holds is never counted here.
+        is_quiet = (
+            not urgent
+            and not rules_mod.always_deliver(rules, name)
+            and quiet.is_quiet(rules, self._wall())
+        )
         for target in decided:
             if target.paused:
                 self._journal(target.channel_id, name, "paused", dedup_key=dedup_key)
+                continue
+            if is_quiet and not by_id[target.channel_id].quiet_hours_exempt:
+                await self._suppress_quiet(by_id[target.channel_id], delivery, rules)
                 continue
             job = _Job(delivery, urgent=urgent, dedup_key=dedup_key, is_open=bool(is_open))
             if await self._admit(by_id[target.channel_id], job, rules):
@@ -498,6 +512,137 @@ class Dispatcher:
             return [c for c in channel_ids if c != BUILTIN_PUSH_ID], None
         ids = channel_ids if listed else [*channel_ids, BUILTIN_PUSH_ID]
         return ids, (audience if overrides or push_mention is not None else None)
+
+    # -- quiet hours ------------------------------------------------------------
+
+    async def _suppress_quiet(
+        self, channel: Channel, delivery: Delivery, rules: Mapping[str, Any]
+    ) -> None:
+        """Record a job the quiet hours hold: a journal row, and (``digest_at_end``) one counter
+        UPDATE per (channel, event, conversation), or per wanted account on Web Push."""
+        from app.notifications.user_rules import conversation_state_key
+        from app.repository.notification_channels import NotificationJournalRepository
+
+        event = delivery.event
+        self._journal(
+            channel.id,
+            delivery.name,
+            "suppressed_quiet",
+            dedup_key=event.dedup_key if event is not None else "",
+        )
+        if not quiet.quiet_hours_of(rules)["digest_at_end"]:
+            return
+        conversation = (conversation_state_key(event) if event is not None else None) or ""
+        audience = delivery.audience if channel.id == BUILTIN_PUSH_ID else None
+        if audience is None:
+            keys = [channel.id]
+        else:
+            keys = []
+            if audience.default is not None:
+                keys.append(quiet.account_channel_key(channel.id, None))
+            keys += [
+                quiet.account_channel_key(channel.id, uid)
+                for uid, payload in audience.per_user.items()
+                if payload is not None
+            ]
+        try:
+            for key in keys:
+                await NotificationJournalRepository.counter_incr(
+                    quiet.counter_key(key, delivery.name, conversation)
+                )
+        except Exception:
+            logger.debug("quiet hours counter not written", exc_info=True)
+
+    def _start_quiet_loop(self) -> None:
+        if self._quiet_task is None or self._quiet_task.done():
+            from app.background_tasks import spawn
+
+            self._quiet_task = spawn(self._quiet_loop(), name="notify-quiet-digest")
+
+    async def _quiet_loop(self) -> None:
+        while True:
+            await asyncio.sleep(QUIET_TICK_S)
+            try:
+                await self.quiet_tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("quiet hours digest failed")
+
+    async def quiet_tick(self) -> int:
+        """Once the window is over, send one digest per channel from the counters and clear
+        them. Held while the global pause is on (the counters stay). Returns the digests queued."""
+        from app.repository.notification_channels import NotificationJournalRepository
+
+        rules = await rules_mod.load_rules()
+        now = self._wall()
+        if quiet.is_quiet(rules, now) or rules_mod.globally_paused(rules, now):
+            return 0
+        taken = await NotificationJournalRepository.counters_take(quiet.COUNTER_PREFIX)
+        if not taken or not quiet.quiet_hours_of(rules)["digest_at_end"]:
+            return 0
+        by_channel: dict[str, dict[int | str | None, list[quiet.QuietRow]]] = {}
+        for key, count in taken.items():
+            parsed = quiet.parse_counter_key(key)
+            if parsed is not None:
+                channel_id, account, event, conversation = parsed
+                rows = by_channel.setdefault(channel_id, {}).setdefault(account, [])
+                rows.append(quiet.QuietRow(event, conversation, count))
+        labels = await quiet.resolve_labels(
+            row.conversation
+            for accounts in by_channel.values()
+            for r in accounts.values()
+            for row in r
+        )
+        channels = await self._channels(list(by_channel), allow_legacy=True)
+        queued = 0
+        for channel in channels:
+            if not channel.enabled or (
+                channel.paused_until is not None and channel.paused_until > now
+            ):
+                continue
+            delivery = await self._digest(channel, by_channel[channel.id], labels)
+            if delivery is not None and await self._admit(channel, _Job(delivery), rules):
+                queued += 1
+        return queued
+
+    async def _digest(
+        self,
+        channel: Channel,
+        accounts: dict[int | str | None, list[quiet.QuietRow]],
+        labels: Mapping[str, quiet.Label],
+    ) -> Delivery | None:
+        names = channel.include_message_text == "always"
+        shared = accounts.get(None, [])
+        if channel.id != BUILTIN_PUSH_ID or set(accounts) <= {None}:
+            payload = quiet.build_digest(shared, labels, names=names)
+            return Delivery(quiet.DIGEST_EVENT, payload) if payload else None
+        from app.notifications.user_rules import PushAudience, is_paused
+        from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+        try:
+            overrides = await UserNotificationRulesRepository.all_overrides()
+        except Exception:
+            logger.debug("account notification rules unreadable", exc_info=True)
+            overrides = {}
+        now = self._wall()
+        known = {a for a in accounts if isinstance(a, int)} | {
+            uid for uid, ov in overrides.items() if is_paused(ov, now)
+        }
+
+        def digest_for(account: int | str | None) -> dict[str, Any] | None:
+            rows = [*shared, *accounts.get(account, [])]
+            return quiet.build_digest(rows, labels, names=names)
+
+        per_user = {
+            uid: None if is_paused(overrides.get(uid, {}), now) else digest_for(uid)
+            for uid in known
+        }
+        audience = PushAudience(default=digest_for(quiet.ACCOUNT_DEFAULT), per_user=per_user)
+        if audience.empty:
+            return None
+        payload = audience.default or next(p for p in per_user.values() if p is not None)
+        return Delivery(quiet.DIGEST_EVENT, dict(payload), audience=audience)
 
     # -- admission --------------------------------------------------------------
 

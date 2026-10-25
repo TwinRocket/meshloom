@@ -482,6 +482,11 @@ class NotificationChannelRepository:
             await conn.execute(
                 "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
             )
+            for sep in (":", "@"):  # quiet-hours counters (``quiet_hours.py``), also per account
+                await conn.execute(
+                    "DELETE FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
+                    (_like_prefix(f"quiet:{channel_id}{sep}"),),
+                )
             async with conn.execute(
                 "SELECT notification_rules FROM app_settings WHERE id = 1"
             ) as c:
@@ -820,6 +825,47 @@ class NotificationJournalRepository:
             )
 
     @staticmethod
+    async def counter_incr(key: str) -> None:
+        """Add one to a counter of ``notification_state``: one UPDATE for a known key, an INSERT
+        only the first time (quiet hours: one cheap write per suppressed event)."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "UPDATE notification_state SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
+                "WHERE key = ?",
+                (key,),
+            ) as cursor:
+                updated = cursor.rowcount
+            if not updated:
+                await conn.execute(
+                    "INSERT INTO notification_state (key, value, expires_at) VALUES (?, '1', NULL) "
+                    "ON CONFLICT(key) DO UPDATE SET "
+                    "value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
+                    (key,),
+                )
+
+    @staticmethod
+    async def counters_take(prefix: str) -> dict[str, int]:
+        """Read and delete every counter whose key starts with ``prefix``, atomically."""
+        like = _like_prefix(prefix)
+        async with db.tx() as conn:
+            async with conn.execute(
+                "SELECT key, value FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
+                (like,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            if rows:
+                await conn.execute(
+                    "DELETE FROM notification_state WHERE key LIKE ? ESCAPE '\\'", (like,)
+                )
+        out: dict[str, int] = {}
+        for key, value in rows:
+            try:
+                out[key] = int(value)
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    @staticmethod
     async def state_prune(now: int | None = None) -> None:
         async with db.tx() as conn:
             await conn.execute(
@@ -838,6 +884,10 @@ class NotificationJournalRepository:
                 "ORDER BY expires_at DESC, key LIMIT ?)",
                 (like, like, keep),
             )
+
+
+def _like_prefix(prefix: str) -> str:
+    return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
 __all__ = [

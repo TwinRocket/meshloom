@@ -6,7 +6,8 @@ lists are ``blocked_keys`` / ``blocked_names`` in the settings, which the v1 fie
 
 - **No secret leaves.** A write-only field (``writeOnly`` in the type's schema) is never exported:
   ``secret_omitted`` names the ones that held a value. The delivery journal, the counters and the
-  dedup state are runtime data and stay out. ``paused_until`` (channel and rules) is not exported:
+  dedup state, and the quiet-hours counters (``quiet:*`` rows of ``notification_state``) are runtime
+  data and stay out; the ``quiet_hours`` setting itself travels in the rules. ``paused_until`` (channel and rules) is not exported:
   a restore must not bring back a stale silence.
 - **A channel without its secret never sends.** It is recreated disabled, with
   ``last_error = "secret_missing"`` (the channel list shows it; saving the secret clears it, see
@@ -394,6 +395,16 @@ def sanitize_rules(raw: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
         if raw_list is not None and not isinstance(raw_list, list):
             dropped += 1
         rules[name] = kept
+
+    if "quiet_hours" in raw:
+        from app.notifications.quiet_hours import validate_quiet_hours
+
+        try:
+            if not isinstance(raw["quiet_hours"], dict):
+                raise ValueError("quiet_hours")
+            rules["quiet_hours"] = validate_quiet_hours(raw["quiet_hours"])
+        except ValueError:
+            dropped += 1
 
     if isinstance(raw.get("mention_whole_word"), bool):
         rules["mention_whole_word"] = raw["mention_whole_word"]
