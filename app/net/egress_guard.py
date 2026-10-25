@@ -15,8 +15,9 @@ request and response bodies are capped (the response while it streams) and
 headers a caller must never set are dropped. The plugin capability also passes
 its declared LAN devices as ``lan_hosts``: those, and only those, may be reached
 over plain HTTP and must resolve to a LAN address (10/8, 172.16/12, 192.168/16,
-100.64/10, fc00::/7) that is not the Meshloom host itself (``is_self_address``),
-checked on every hop.
+100.64/10, fc00::/7) that is not the Meshloom host itself (``is_self_address``)
+nor, in the Home Assistant add-on, the supervisor network
+(``is_supervisor_network_address``), checked on every hop.
 
 Address classes are tested range by range. ``ipaddress.is_private`` and
 ``is_global`` changed between Python 3.11 and 3.13 (IPv4-mapped IPv6,
@@ -39,6 +40,8 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import httpx
+
+from app.services.install_kind import detect_install_kind
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,7 @@ EgressCode = Literal[
     "egress_response_encoding",
     "egress_lan_address",
     "egress_self_address",
+    "egress_supervisor_address",
 ]
 
 DEFAULT_SCHEMES = frozenset({"http", "https"})
@@ -171,6 +175,8 @@ EGRESS_MESSAGES: dict[str, str] = {
     "local network",
     "egress_self_address": "This local-network host is the machine Meshloom runs on, which "
     "a plugin may not reach",
+    "egress_supervisor_address": "This address is on the Home Assistant Supervisor's internal "
+    "network (Supervisor, other add-ons), which a plugin may not reach",
 }
 
 
@@ -330,8 +336,11 @@ def _default_gateways(
 
 
 # The Home Assistant supervisor network (``hassio`` bridge, ``homeassistant`` alias): its
-# gateway is the host, which exposes the HA core API and the radio proxy.
-_HASSIO_NET = ipaddress.ip_network("172.30.32.0/23")
+# gateway is the host, which exposes the HA core API and the radio proxy; the Supervisor
+# (172.30.32.2), its DNS and observer and every other add-on live there too. The
+# Supervisor numbers the IPv6 half of the bridge from fd0c:ac1e:2100::/48.
+_HASSIO_NET = ipaddress.IPv4Network("172.30.32.0/23")
+_HASSIO_NET_V6 = ipaddress.IPv6Network("fd0c:ac1e:2100::/48")
 # Interfaces a container only sees when it shares the host's network namespace
 # (``network_mode: host``): the engine's own bridges and the containers' veth ends.
 _HOST_NETWORK_IFACE = re.compile(
@@ -430,11 +439,34 @@ def is_self_address(ip: IPAddress) -> bool:
     return _in_container() and _gateway_is_host(ip)
 
 
+def _is_ha_addon() -> bool:
+    """The Home Assistant add-on: only ``MESHLOOM_INSTALL_KIND=addon``, which the add-on's
+    ``run.py`` declares (``app/services/install_kind.py``), never inferred from the
+    addresses in use: a deb, Docker or source install whose LAN happens to be numbered
+    from 172.30.32.0/23 keeps reaching its devices there."""
+    return detect_install_kind()[0] == "addon"
+
+
+def is_supervisor_network_address(ip: IPAddress) -> bool:
+    """True, in the Home Assistant add-on only, for an address of the supervisor network
+    (``172.30.32.0/23``, ``fd0c:ac1e:2100::/48``; an IPv4-mapped spelling is unwrapped):
+    the Supervisor, the other add-ons and the host's gateway are never a plugin's LAN
+    device there (MSHL-350)."""
+    ip = _unmapped(ip)
+    if isinstance(ip, ipaddress.IPv4Address):
+        inside = ip in _HASSIO_NET
+    else:
+        inside = ip in _HASSIO_NET_V6
+    return inside and _is_ha_addon()
+
+
 def check_lan_addresses(ips: Iterable[IPAddress]) -> None:
     """A declared LAN host must resolve to LAN addresses only: one other answer (public,
     loopback, link-local, another class) refuses it, so a name cannot be re-pointed
     (DNS rebinding) at the Internet; one address of the Meshloom host itself refuses it
-    too (``egress_self_address``), whatever the name or literal."""
+    too (``egress_self_address``), whatever the name or literal, and so does, in the
+    Home Assistant add-on, one address of the supervisor network
+    (``egress_supervisor_address``, MSHL-350)."""
     for ip in ips:
         if is_metadata_address(ip) or is_documentation_address(ip):
             raise EgressBlocked("egress_private_address", always_refused=True)
@@ -442,6 +474,8 @@ def check_lan_addresses(ips: Iterable[IPAddress]) -> None:
             raise EgressBlocked("egress_lan_address")
         if is_self_address(ip):
             raise EgressBlocked("egress_self_address")
+        if is_supervisor_network_address(ip):
+            raise EgressBlocked("egress_supervisor_address")
 
 
 def tls_check_may_be_off(ips: Iterable[IPAddress]) -> bool:

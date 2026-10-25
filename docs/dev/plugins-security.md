@@ -328,8 +328,8 @@ covered by `tests/test_egress_guard_lan_hosts.py` and `tests/test_plugin_http_la
   `br-*` or `veth*` interfaces in `/proc/net/dev`, and every default route
   leaves through an interface that is its own link, `iflink == ifindex` in
   `/sys/class/net`, or a VLAN or macvlan stacked on one in the same namespace,
-  which the kernel shows as a `lower_<parent>` entry) the gateway is the LAN router and is allowed; only the Home
-  Assistant supervisor gateway (`172.30.32.0/23`) stays refused there, and the
+  which the kernel shows as a `lower_<parent>` entry) the gateway is the LAN router and is allowed; only a Home
+  Assistant supervisor gateway (a gateway in `172.30.32.0/23`) stays refused there, and the
   host's own addresses are caught by the bind probe. The second signal rules out
   a bridged container that runs its own engine (Docker-in-Docker lists
   `docker0` but routes through its veth `eth0`, whose peer is on the real host;
@@ -341,6 +341,21 @@ covered by `tests/test_egress_guard_lan_hosts.py` and `tests/test_plugin_http_la
   router stays refused). This keeps
   plugins away from the radio proxy (5051, `0.0.0.0`, no authentication) and the
   app's own port.
+- Home Assistant add-on only (MSHL-350): the whole supervisor network
+  (`172.30.32.0/23`, and `fd0c:ac1e:2100::/48` when the Supervisor turns IPv6
+  on) is refused, not only its gateway: the Supervisor (`172.30.32.2`), its DNS
+  and observer and every other add-on. An IP literal in it fails manifest and
+  grant validation (`lan_host_supervisor`, `check_lan_host`), and a name that
+  resolves into it, on any hop, is refused at fetch time
+  (`egress_supervisor_address`, `is_supervisor_network_address`; the plugin
+  sees `host_not_allowed`). The add-on is recognised only by the declared
+  `MESHLOOM_INSTALL_KIND=addon` (set by `meshloom/run.py`, the same signal as
+  the ingress provider), never by the addresses in use: a deb, Docker or source
+  install whose LAN happens to be numbered from `172.30.32.0/23` keeps
+  reaching its devices there. A plugin cannot set that variable (it is read in
+  the server process). Consequence: in the add-on, a plugin whose manifest
+  lists such a literal is invalid, and a grant listing one drops its `http`
+  permission until the plugin is updated.
 - Redirects: every hop is checked again against `hosts` and `lan_hosts`; a hop
   to an undeclared LAN device, or to plain HTTP outside `lan_hosts`, is
   refused before any lookup.
@@ -361,7 +376,9 @@ Residual risks, accepted:
   see every address of the host, so the bind probe covers them.
 - In the Home Assistant add-on, `homeassistant` resolves to the supervisor
   gateway (`172.30.32.1`), which is the host (HA core API, radio proxy), and is
-  refused on purpose, also with host networking.
+  refused on purpose (`egress_self_address`); the rest of the supervisor
+  network is refused too (`egress_supervisor_address`, MSHL-350). With host
+  networking, which the add-on does not use, only the gateway is refused.
 - With Linux's `ip_nonlocal_bind` sysctl on, every bind probe succeeds and every
   LAN host is refused (fails closed).
 - Link-local addresses are not accepted.

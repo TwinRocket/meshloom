@@ -329,3 +329,29 @@ async def test_skipping_the_certificate_check_is_for_lan_devices_only(net, dns, 
     err = await refused(params)
     assert err.refusal == "invalid_params"
     assert dns.lookups == [] and net.requests == []
+
+
+# --- the Home Assistant supervisor network (MSHL-350) ----------------------------------
+
+
+async def test_in_the_addon_the_supervisor_network_is_refused_by_name_and_redirect(
+    net, dns, monkeypatch
+):
+    monkeypatch.setitem(DNS, "supervisor", ["172.30.32.2"])
+    inst = instance(lan_hosts=["supervisor", "printer.local"])
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    err = await refused({"url": "http://supervisor/"}, inst)
+    assert err.refusal == "host_not_allowed"
+    assert net.requests == []
+    net.handler = lambda r: httpx.Response(302, headers={"location": "http://supervisor/"})
+    err = await refused({"url": "http://printer.local/"}, inst)
+    assert err.refusal == "host_not_allowed"
+    assert len(net.requests) == 1
+
+
+async def test_outside_the_addon_a_lan_device_in_172_30_32_0_is_reached(net, dns, monkeypatch):
+    monkeypatch.setitem(DNS, "supervisor", ["172.30.32.2"])
+    monkeypatch.delenv("MESHLOOM_INSTALL_KIND", raising=False)
+    inst = instance(lan_hosts=["supervisor"])
+    assert (await fetch({"url": "http://supervisor/"}, inst))["status"] == 200
+    assert [r.url.host for r in net.requests] == ["172.30.32.2"]
