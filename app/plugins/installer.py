@@ -39,7 +39,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 import httpx
 
@@ -63,6 +63,18 @@ _STAGING = "_staging"
 _PREVIOUS = "previous-"
 # A manifest id (`app/plugins/manifest.py`): no separator, never `.` or `..`.
 _PLUGIN_ID_RE = r"[a-z0-9]+(-[a-z0-9]+)*\.[a-z0-9]+(-[a-z0-9]+)*"
+_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789")
+
+
+def _is_plugin_id(value: object) -> TypeGuard[str]:
+    """``_PLUGIN_ID_RE`` without a regex: two dot-separated parts of lowercase letters and
+    digits, each part possibly hyphenated (no leading, trailing or doubled hyphen)."""
+    if not isinstance(value, str) or not 3 <= len(value) <= 64:
+        return False
+    parts = value.split(".")
+    return len(parts) == 2 and all(
+        word and set(word) <= _ID_CHARS for part in parts for word in part.split("-")
+    )
 
 _BLANK_SOURCE = '''"""A local plugin. Docs: docs/dev/plugins.md ("SDK")."""
 
@@ -263,7 +275,7 @@ def _tree_plugin_id(tree: Path) -> str | None:
         plugin_id = json.loads(manifest.read_text("utf-8")).get("id")
     except (OSError, ValueError, AttributeError):
         return None
-    if not isinstance(plugin_id, str) or not re.fullmatch(_PLUGIN_ID_RE, plugin_id):
+    if not _is_plugin_id(plugin_id):
         return None
     return plugin_id
 
@@ -646,7 +658,7 @@ class PreparedInstall:
 
 
 def _tree_version(target: Path) -> str | None:
-    if not re.fullmatch(_PLUGIN_ID_RE, target.name) or _tree_plugin_id(target) is None:
+    if not _is_plugin_id(target.name) or _tree_plugin_id(target) is None:
         return None
     try:
         version = json.loads((target / "manifest.json").read_text("utf-8")).get("version")
@@ -658,11 +670,11 @@ def _tree_version(target: Path) -> str | None:
 def _plugin_dir(plugins_root: Path, plugin_id: str) -> Path | None:
     """``<plugins_root>/<plugin_id>``, or None when ``plugin_id`` is not a plugin id or the
     path would leave ``plugins_root``."""
-    if not re.fullmatch(_PLUGIN_ID_RE, plugin_id):
+    if not _is_plugin_id(plugin_id):
         return None
     root = os.path.normpath(plugins_root)
     target = os.path.normpath(os.path.join(root, plugin_id))
-    if os.path.dirname(target) != root:
+    if not target.startswith(root + os.sep) or os.path.dirname(target) != root:
         return None
     return Path(target)
 

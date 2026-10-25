@@ -8,6 +8,7 @@ request. The archives are built from ``tests/plugin_dev/echo``.
 import hashlib
 import io
 import json
+import re
 import shutil
 import socket
 import sys
@@ -658,3 +659,33 @@ def test_failed_extraction_spares_a_concurrent_staging_dir(tmp_path: Path) -> No
 def test_bad_plugin_ids_never_reach_the_filesystem(tmp_path: Path) -> None:
     assert installer._tree_version(tmp_path / "..") is None
     assert not installer.code_installed(tmp_path, "../etc", "1.0.0")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "a.b",
+        "acme.weather",
+        "a-b.c-d-e",
+        "x1.y2",
+        "a.b.c",
+        "a..b",
+        "-a.b",
+        "a-.b",
+        "a--b.c",
+        "A.b",
+        "a.b/",
+        "../etc",
+        "ab",
+        "a.",
+        ".b",
+        "a_b.c",
+        "a.b ",
+        "é.b",
+        "a" * 63 + ".b",
+        "",
+    ],
+)
+def test_plugin_id_check_matches_the_pattern(value: str) -> None:
+    expected = bool(re.fullmatch(installer._PLUGIN_ID_RE, value)) and len(value) <= 64
+    assert installer._is_plugin_id(value) is expected
