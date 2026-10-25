@@ -552,6 +552,31 @@ describe('re-consent, reorder and admin gate', () => {
     expect(screen.queryByText('plugin_code_mismatch')).not.toBeInTheDocument();
   });
 
+  it('shows the dropped supervisor permission notice in the drawer, in both languages', async () => {
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([
+      instance({ notices: ['permission_dropped_supervisor'] }),
+    ]);
+    render(<SettingsExtensionsSection health={health()} />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: t('settings.extensions.openDetails', { name: 'Weather' }),
+      })
+    );
+    const drawer = await screen.findByRole('dialog');
+    expect(
+      within(drawer).getByText(t('settings.extensions.drawer.notice_permission_dropped_supervisor'))
+    ).toBeInTheDocument();
+    for (const lng of ['en', 'fr']) {
+      for (const key of [
+        'settings.extensions.drawer.notice_permission_dropped_supervisor',
+        'errors.lan_host_supervisor',
+        'settings.extensions.local.reason.lan_host_supervisor',
+      ]) {
+        expect(i18n.exists(key, { lng })).toBe(true);
+      }
+    }
+  });
+
   it('has the privacy and code mismatch texts in French and English', () => {
     for (const lng of ['en', 'fr']) {
       for (const key of [

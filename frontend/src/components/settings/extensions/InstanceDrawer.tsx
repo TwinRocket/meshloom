@@ -301,6 +301,15 @@ function DrawerBody({
             <dd>{instance.dropped_events}</dd>
           </div>
         </dl>
+        {instance.notices?.map((notice) => (
+          <p
+            key={notice}
+            role="status"
+            className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm"
+          >
+            {t(`settings.extensions.drawer.notice_${notice}`, { defaultValue: notice })}
+          </p>
+        ))}
         {frozen && (
           <p className="text-sm text-destructive">
             {t(`settings.extensions.blocked.${instance.status}`)}

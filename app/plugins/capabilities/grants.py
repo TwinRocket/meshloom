@@ -39,6 +39,29 @@ def _parse(name: str, params: Any) -> dict[str, Any] | None:
     return parsed.declared().get(name)
 
 
+SUPERVISOR_DROP = "lan_host_supervisor"
+
+
+def dropped_for_supervisor(manifest: Mapping[str, Any] | None) -> list[str]:
+    """The permissions of the stored manifest that no longer validate because they list
+    an address of the Home Assistant supervisor network (``lan_host_supervisor``,
+    MSHL-350, add-on only). The drop stays (fail closed): this only makes it visible.
+    Names only, never the host values."""
+    declared = (manifest or {}).get("permissions")
+    if not isinstance(declared, Mapping):
+        return []
+    dropped: list[str] = []
+    for name, params in declared.items():
+        if not isinstance(name, str):
+            continue
+        try:
+            Permissions.model_validate({name: params})
+        except ValidationError as exc:
+            if any(e.get("type") == SUPERVISOR_DROP for e in exc.errors()):
+                dropped.append(name)
+    return sorted(dropped)
+
+
 def _narrow(name: str, declared: dict[str, Any], granted: dict[str, Any]) -> dict[str, Any]:
     if name == "messages.read":
         return {
