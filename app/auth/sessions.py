@@ -40,7 +40,7 @@ from dataclasses import dataclass
 
 from starlette.requests import cookie_parser
 
-from app.auth.models import AuthSession, User
+from app.auth.models import MAX_SESSION_LIFETIME_DAYS, AuthSession, User
 from app.auth.principal import Via
 from app.auth.tokens import hash_token, new_token
 from app.repository.auth import (
@@ -100,7 +100,8 @@ async def lifetime_seconds(remember: bool = True) -> int:
     """The sliding server-side lifetime: the setting, or for a login without
     "remember me" at most ``BROWSER_SESSION_LIFETIME_S``."""
     settings = await AuthSettingsRepository.get()
-    lifetime = int(settings.session_lifetime_days) * DAY_S
+    # A legacy row may exceed the documented bound (the read model is wider): cap it here.
+    lifetime = min(int(settings.session_lifetime_days), MAX_SESSION_LIFETIME_DAYS) * DAY_S
     return lifetime if remember else min(lifetime, BROWSER_SESSION_LIFETIME_S)
 
 

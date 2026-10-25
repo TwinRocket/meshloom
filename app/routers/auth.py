@@ -29,7 +29,7 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
 
 from app.auth import audit, device_cookie, ratelimit, sessions, totp, webauthn
 from app.auth.middleware import client_ip, second_factor_enrolment_required
@@ -902,7 +902,7 @@ class AuthSettingsPatch(BaseModel):
     audit_retention_days: int | None = Field(
         default=None, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
     )
-    session_lifetime_days: int | None = Field(
+    session_lifetime_days: StrictInt | None = Field(
         default=None, ge=MIN_SESSION_LIFETIME_DAYS, le=MAX_SESSION_LIFETIME_DAYS
     )
     ingress_default_role: Role | None = None

@@ -36,7 +36,8 @@ async def test_an_admin_changes_it_and_the_change_is_audited():
 
 
 @pytest.mark.parametrize(
-    "days", [0, -1, MIN_SESSION_LIFETIME_DAYS - 1, MAX_SESSION_LIFETIME_DAYS + 1, "x"]
+    "days",
+    [0, -1, MIN_SESSION_LIFETIME_DAYS - 1, MAX_SESSION_LIFETIME_DAYS + 1, "x", True, False, 7.5],
 )
 async def test_the_value_is_bounded(days):
     await create_user()
@@ -108,3 +109,22 @@ async def test_an_existing_session_takes_the_new_lifetime_at_its_next_slide(test
         assert await sessions.slide_session(session.id)
         [slid] = await AuthSessionRepository.list_for_user(1)
         assert slid.expires_at - slid.last_seen_at == 2 * DAY
+
+
+async def test_a_legacy_row_above_the_bound_is_capped_for_new_and_slid_sessions(test_db):
+    await create_user()
+    async with test_db.tx() as conn:
+        await conn.execute("UPDATE auth_settings SET session_lifetime_days = 3650 WHERE id = 1")
+    assert (await AuthSettingsRepository.get()).session_lifetime_days == 3650
+    assert await sessions.lifetime_seconds(True) == MAX_SESSION_LIFETIME_DAYS * DAY
+    async with make_client() as client:
+        await login(client)
+        [session] = await AuthSessionRepository.list_for_user(1)
+        assert session.expires_at - session.created_at == MAX_SESSION_LIFETIME_DAYS * DAY
+        async with test_db.tx() as conn:
+            await conn.execute(
+                "UPDATE sessions SET last_seen_at = last_seen_at - 120 WHERE id = ?", (session.id,)
+            )
+        assert await sessions.slide_session(session.id)
+        [slid] = await AuthSessionRepository.list_for_user(1)
+        assert slid.expires_at - slid.last_seen_at == MAX_SESSION_LIFETIME_DAYS * DAY
