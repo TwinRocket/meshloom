@@ -116,6 +116,7 @@ Meshloom écrit le même avertissement à chaque démarrage tant que l’une d�
 | Variable retirée | Ce qu’elle devient |
 |----------|--------|
 | `MESHCORE_BASIC_AUTH_USERNAME`, `MESHCORE_BASIC_AUTH_PASSWORD` | Lues uniquement au premier démarrage sans compte, pour créer l’administrateur ; compatibilité jusqu’à la 5.2 : `Authorization: Basic` reste accepté, puis sera retiré. Les comptes se gèrent dans **Réglages → Utilisateurs et accès**. Même avertissement à chaque démarrage |
+| `MESHCORE_DISABLE_BOTS` | Les bots Python sont des extensions depuis la 5.0.0. Lue une dernière fois par la migration des bots (`true` enregistre toutes les extensions converties éteintes), puis ignorée, avec un avertissement au démarrage qui nomme `MESHCORE_DISABLE_PLUGINS`. Pour verrouiller toutes les extensions, posez cette variable (voir [Extensions](/docs/deep/plugins/#les-bots-de-la-418-et-avant)) |
 | `MESHCORE_ENABLE_LOCAL_PRIVATE_KEY_EXPORT` | Ignorée, avec le même avertissement. La clé privée de la radio peut toujours être relue : par `GET /api/radio/private-key` et dans la sauvegarde complète (**Réglages → Base de données**, voir [Sauvegarder la radio](/docs/backup/)). Voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud) |
 
 ## Réglages stockés dans la base

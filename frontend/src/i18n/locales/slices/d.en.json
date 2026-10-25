@@ -280,7 +280,7 @@
         "preserveIdentity": "Preserve identity on Discord",
         "preserveIdentityHelp": "When enabled, Discord webhooks will use their configured name/avatar instead of overriding with MeshCore sender info.",
         "includeOutgoing": "Forward Meshloom-sent messages",
-        "includeOutgoingHelp": "Include DMs and channel messages sent by this Meshloom instance, including manual sends and bot replies. Outgoing messages carry no routing path or signal data, so path-related format fields render as direct and RSSI/SNR are empty.",
+        "includeOutgoingHelp": "Include DMs and channel messages sent by this Meshloom instance, including manual sends and extension replies. Outgoing messages carry no routing path or signal data, so path-related format fields render as direct and RSSI/SNR are empty.",
         "messageFormat": "Message Format",
         "markdown": "Markdown formatting",
         "markdownHelp": "If notifications fail on services like Telegram due to special characters in sender names, disable this option.",

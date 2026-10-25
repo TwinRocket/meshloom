@@ -1,11 +1,11 @@
 ---
 title: Plugins
-description: What a plugin may read and send, and the limits Meshloom holds it to.
+description: What a plugin (extension) is, where it runs, what it may read and send, the limits it is held to, and what leaves your instance.
 level: deep
 order: 22
 ---
 
-> Draft. Plugins arrive with Meshloom 5.0.0 and replaced the Python bots, which were retired in 5.0.0 (see [Bots from 4.18](#bots-from-418-and-earlier)). This page describes their permissions and limits; installing and configuring them will be described when the interface lands.
+A plugin (the interface calls it an **extension**) is a small Python program that reacts to what Meshloom hears and may answer. Plugins arrived with Meshloom 5.0.0 and replaced the Python bots, which were retired then (see [Bots from 4.18](#bots-from-418-and-earlier)). Administrators manage them in **Settings → Extensions** (see [below](#settings--extensions)). This page says where they run, what they may do and what limits hold them.
 
 A plugin runs in its own process, apart from Meshloom. It cannot open your database, your files or the network by itself: it can only ask Meshloom, and Meshloom checks every request against the permissions you granted to that plugin. A request it was not granted is refused before anything happens.
 
@@ -51,7 +51,7 @@ Combined with reading private channels or direct messages, this permission lets 
 ## Limits
 
 - **Messages sent.** By default 30 per hour and 200 per day for each copy of a plugin. A plugin may ask for more, up to 60 per hour and 500 per day, and you can always lower it. The counters survive a restart of Meshloom.
-- **All plugins together.** Whatever the copies are allowed individually, together they send at most 120 messages per hour from your Meshloom. Each channel receives at most 20 messages per hour from plugins and each contact 10 per hour, counted across all plugins. These three limits can be lowered, never raised; the control for it comes with the plugin settings screen (a later release). The counters survive a restart of Meshloom.
+- **All plugins together.** Whatever the copies are allowed individually, together they send at most 120 messages per hour from your Meshloom. Each channel receives at most 20 messages per hour from plugins and each contact 10 per hour, counted across all plugins. These three limits are fixed in 5.0.0: the code can only ever lower them, and no screen or setting does so yet. The counters survive a restart of Meshloom.
 - **Loops.** A plugin copy answers the same sender at most once every 30 seconds, and does not answer a message that arrived less than 5 seconds after it sent one to the same channel or contact. This stops two auto-responders, even on two different Meshloom, from answering each other forever.
 - **Spacing.** Meshloom waits at least 2 seconds between two automatic messages, whichever plugin sends them, so repeaters have time to listen again.
 - **Size.** A message is limited to what the radio can carry: 156 bytes for a direct message, less on a channel, where your node's name comes first.
@@ -79,15 +79,17 @@ Neither of the above is available, so only Meshloom's own guards inside the plug
 
 - bubblewrap is not installed (the Linux package recommends it; `sudo apt install bubblewrap` or `sudo dnf install bubblewrap` adds it);
 - the system refuses the user namespaces bubblewrap needs (Ubuntu 24.04 and later restrict them; a hardened kernel may disable them);
-- Meshloom runs on macOS or Windows.
+- Meshloom runs on macOS (on Windows there are no plugins at all, see below).
 
 ### Check your level
 
 Look for `Plugin isolation` in the server log at startup, or open `/api/health` while signed in and read `plugins_isolation`: `bwrap`, `setuid` or `none`. After installing bubblewrap, restart Meshloom so it checks again.
 
-Escaping these walls is a security bug: report it as described in the project's security policy. Plugins you install are still code you choose to trust; the walls limit what a mistake or a bad update can reach.
+**Windows.** Plugins need the operating system's resource limits, which Windows does not have: there, the plugin system is switched off, nothing can be installed or started, and `/api/health` reports `plugins_disabled_source: "platform"`.
 
-## Settings → Extensions (draft)
+Escaping these walls is a security bug: report it as described in the project's security policy. The hooks-only level is explicitly weaker and is not a promise of isolation. Plugins you install are still code you choose to trust; the walls limit what a mistake or a bad update can reach.
+
+## Settings → Extensions
 
 Administrators manage plugins in **Settings → Extensions** (the interface calls them extensions). The top of the page shows the isolation level in force and what it means. The **Installed** tab lists each copy with its status, a badge when it needs attention (settings required, permissions to review, consent needed), whether it is bundled, an on/off switch and arrows to reorder. **Store** and **Updates** are placeholders for now.
 
@@ -155,3 +157,13 @@ Meshloom 5.0.0 removes the Python bots of **MQTT & Automation**. At its first st
 - **The old lock.** If `MESHCORE_DISABLE_BOTS=true` was set when you upgraded, it is honoured one last time: every converted extension is stored switched off. After that the variable does nothing (Meshloom logs a warning at start if it is still set). To keep all extensions from running, use `MESHCORE_DISABLE_PLUGINS=true` (the `disable_plugins` option of the Home Assistant add-on; its `disable_bots` option is gone). The Linux package no longer sets any lock in `meshloom.env`: a bot-free install has nothing running until you add an extension and accept its permissions.
 - **Backups.** A backup made before 5.0.0 that holds bots restores them as local extensions, switched off and waiting for review. New backups hold no bot.
 - **Stopping them all.** There is no "disable bots until restart" any more: use **Pause all extensions** (above) or the host lock.
+
+## What leaves your instance
+
+Nothing, by itself. Meshloom 5.0.0 has no extension store online: the only extensions you can add are the bundled ones, the ones you write and the bots converted from 4.18, and Meshloom contacts no server to list, fetch or update them. Updates of the bundled extensions arrive with Meshloom itself.
+
+An extension reaches the internet only if you accepted the **Connect to the internet** permission, and then only the servers listed in its consent screen, through Meshloom (see above). What it sends there is its own business, which is why reading private channels or direct messages together with that permission deserves a warning. The backup never contains an extension's secrets or stored data (see [Backup](/en/docs/backup/)). A converted bot keeps its code; if it embedded a token in that code, it is in the backup like any local extension's code, so move it to a setting.
+
+## No way back to 4.18
+
+The conversion of bots changes the database when 5.0.0 starts and is not undone by an older version. 4.18 does not know extensions: if you downgrade, your converted bots are not shown as bots. The originals are kept in a table of the database until 5.2.0, but 4.18 does not read it. Before upgrading, download a **full copy of the database** (**Settings → Database → Download meshcore.db**) and keep it: it is the only way back.

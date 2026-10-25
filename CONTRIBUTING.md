@@ -8,7 +8,7 @@
 - No pull request should introduce new failing lint, typecheck, test, or build results.
 - Every pull request from a contributor should have an associated issue or discussion thread; a brand new feature appearing first in a PR is an antipattern. The repository owners may open a PR directly.
 - Security vulnerabilities are the exception: never open a public issue or PR for one. Report it privately as described in [SECURITY.md](SECURITY.md).
-- No truly automated radio traffic. Bot replies are already the practical edge of what this project wants to automate; any kind of traffic that would be intervalized or automated is not what this project is about.
+- No truly automated radio traffic. Extension replies are already the practical edge of what this project wants to automate; any kind of traffic that would be intervalized or automated is not what this project is about.
 - No ingestion from the internet onto the mesh. This project is a radio client, not a bridge for outside traffic to enter the network. The mesh is strong because it is a radio mesh, not the internet with some weird wireless links.
 
 ## Local Development
@@ -152,26 +152,28 @@ The test harness starts its own uvicorn instance on port 8001 with a fresh tempo
 
 **The partner-radio DM ACK test (tagged `@partner-radio`)** validates direct-route learning by sending a DM and waiting for an ACK. It requires a second radio in range that has your test radio in its contacts. Configure the partner node's public key and name via `E2E_PARTNER_RADIO_PUBKEY` and `E2E_PARTNER_RADIO_NAME`.
 
-### Making mesh-traffic tests reliable: the echo bot
+### Making mesh-traffic tests reliable: the echo extension
 
-The most practical way to guarantee incoming traffic is to run an **echo bot on a second radio** monitoring a known channel. When the test suite starts a `@mesh-traffic` test, it sends a trigger message to that channel. If a bot on another radio is listening, it replies — generating the incoming RF packet the test needs within seconds instead of waiting for organic mesh traffic.
+The most practical way to guarantee incoming traffic is to run an **echo extension on a second radio** monitoring a known channel. When the test suite starts a `@mesh-traffic` test, it sends a trigger message to that channel. If an extension on another radio is listening, it replies — generating the incoming RF packet the test needs within seconds instead of waiting for organic mesh traffic.
 
 The test suite sends `!echo please give incoming message` to the echo channel (default `#flightless`) at the start of each `@mesh-traffic` test. The trigger message is configurable via `E2E_ECHO_TRIGGER_MESSAGE`.
 
 Setup:
 1. Set up a second MeshCore radio within RF range of your test radio
 2. Run a Meshloom instance on the second radio
-3. Configure a bot on the second radio that monitors the echo channel and replies when it sees the trigger. Example bot code:
+3. On the second radio's Meshloom, open **Settings → Extensions → New local extension**, paste this code, accept its permissions (read public channels, reply in the conversation) and turn it on. Meshloom 5 has no Python bots any more; a local extension is the replacement:
    ```python
-   def bot(sender_name, sender_key, message_text, is_dm,
-           channel_key, channel_name, sender_timestamp, path):
-       if "!echo" in message_text.lower():
-           return f"[ECHO] {message_text}"
-       return None
+   from meshloom_plugin import Message, Plugin
+
+
+   class EchoTrigger(Plugin):
+       async def on_message(self, msg: Message) -> None:
+           if "!echo" in msg.text.lower():
+               await self.reply(msg, f"[ECHO] {msg.text}")
    ```
 4. The test suite calls `nudgeEchoBot()` automatically — no manual intervention needed
 
-Without the echo bot, `@mesh-traffic` tests rely on organic traffic from other nodes. In a quiet RF environment they will time out.
+Without the echo extension, `@mesh-traffic` tests rely on organic traffic from other nodes. In a quiet RF environment they will time out.
 
 ### Environment variables
 
@@ -180,8 +182,8 @@ All E2E environment configuration is centralized in `tests/e2e/helpers/env.ts` w
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `MESHCORE_SERIAL_PORT` | *(optional leftover)* | Copied into `radio_serial_port` by the e2e seed before the server starts; not read by the server as transport config |
-| `E2E_ECHO_CHANNEL` | `#flightless` | Channel the echo bot monitors for traffic generation |
-| `E2E_ECHO_TRIGGER_MESSAGE` | `!echo please give incoming message` | Message sent to nudge the echo bot |
+| `E2E_ECHO_CHANNEL` | `#flightless` | Channel the echo extension monitors for traffic generation |
+| `E2E_ECHO_TRIGGER_MESSAGE` | `!echo please give incoming message` | Message sent to nudge the echo extension |
 | `E2E_PARTNER_RADIO_PUBKEY` | *(maintainer's test node)* | 64-char hex public key of a node that will ACK DMs from your radio |
 | `E2E_PARTNER_RADIO_NAME` | *(maintainer's test node)* | Display name of that node (used in UI assertions) |
 

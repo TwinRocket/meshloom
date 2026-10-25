@@ -48,7 +48,7 @@ User docs: `docs/user/` (en, fr). Environment variables for users:
   Refresh copies, never edit them to make a test pass.
 - **Out of scope until explicitly launched.** Do not start these, and do not "fix"
   them on the side:
-  - Plugins: the marketplace (Store). The plugin host and local extensions are in; the bots' `exec` is gone.
+  - Plugins: the marketplace (Store, in progress). The plugin host, bundled and local extensions are in, and the bots' `exec` is gone (`docs/dev/plugins.md`, `docs/dev/plugins-security.md`); the online Store is not started.
   - Radio proxy authentication. The proxy must keep binding to `0.0.0.0`.
 
   On `preversion-5` every `/api` route needs a signed-in account
