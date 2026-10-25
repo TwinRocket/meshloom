@@ -1,4 +1,4 @@
-"""Contract tests for meshcore ``send_cmd`` destination handling (pinned 2.3.15)."""
+"""Contract tests for meshcore ``send_cmd`` destination handling (pinned 2.3.17)."""
 
 from unittest.mock import AsyncMock, MagicMock
 
