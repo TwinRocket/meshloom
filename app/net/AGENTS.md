@@ -129,12 +129,16 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   `follow_checked_redirects`; the plugin `http` capability's declared LAN
   devices, MSHL-282): a host in that list may use `http` or `https` whatever
   `schemes` says, and every resolved address must pass `check_lan_addresses`
-  (`is_lan_address`: `10/8`, `172.16/12`, `192.168/16`, `fc00::/7`, tested as
-  written, so mapped and transition forms are not LAN; never a metadata
-  address). Anything else raises `egress_lan_address`, metadata and
-  documentation `egress_private_address`. A host in neither list raises
-  `egress_host_not_allowed` before the scheme check and the lookup. Without
-  `lan_hosts` nothing changes.
+  (`is_lan_address`: `10/8`, `172.16/12`, `192.168/16`, `100.64/10` (CGNAT,
+  Tailscale), `fc00::/7`, tested as written, so mapped and transition forms are
+  not LAN; never a metadata address). Anything else raises `egress_lan_address`,
+  metadata and documentation `egress_private_address`; an address of the
+  Meshloom host itself (`is_self_address`: bind probe, plus the default gateways
+  inside a container, MSHL-330) raises `egress_self_address`. A host in neither
+  list raises `egress_host_not_allowed` before the scheme check and the lookup.
+  `follow_checked_redirects(..., lan_verify_tls=False)` turns the certificate
+  check off only on the hops that reach a `lan_hosts` host (self-signed LAN
+  device, MSHL-331). Without `lan_hosts` nothing changes.
 - The existing consumers below keep `validate_destination` plus
   `pinned_async_client` and never follow redirects; they did not change.
 
