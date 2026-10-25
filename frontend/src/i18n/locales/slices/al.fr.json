@@ -43,7 +43,7 @@
         "description": "Se connecte uniquement aux serveurs listés ici, en passant par Meshloom : {{hosts}}.",
         "description_lan_only": "Se connecte uniquement aux appareils de votre réseau local listés ici, en passant par Meshloom.",
         "lan_host": "Cette extension pourra communiquer avec cet appareil de votre réseau : {{host}}",
-        "lan_note": "Les appareils de votre réseau, ou joints par un VPN comme Tailscale, sont contactés directement, éventuellement sans chiffrement (HTTP simple) ou sans vérifier leur certificat (auto-signé). La machine où tourne Meshloom n’est jamais joignable.",
+        "lan_note": "Les appareils de votre réseau, ou joints par un VPN comme Tailscale, sont contactés directement, éventuellement sans chiffrement (HTTP simple) ou sans vérifier leur certificat (auto-signé). Meshloom refuse la machine où il tourne, mais dans un conteneur (Docker, Home Assistant) l’adresse réseau propre de cette machine reste joignable si l’extension la liste : n’acceptez que des appareils que vous connaissez.",
         "private_messages_warning": "Cette extension peut transmettre vos messages privés à {{hosts}}."
       },
       "timer": {

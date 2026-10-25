@@ -43,7 +43,7 @@
         "description": "Connects only to the servers listed here, through Meshloom: {{hosts}}.",
         "description_lan_only": "Connects only to the devices of your local network listed here, through Meshloom.",
         "lan_host": "This plugin will be able to talk to this device on your network: {{host}}",
-        "lan_note": "Devices on your network, or reached through a VPN such as Tailscale, are contacted directly, possibly without encryption (plain HTTP) or without checking their certificate (self-signed). The machine Meshloom runs on is never reachable.",
+        "lan_note": "Devices on your network, or reached through a VPN such as Tailscale, are contacted directly, possibly without encryption (plain HTTP) or without checking their certificate (self-signed). Meshloom refuses the machine it runs on, but when it runs in a container (Docker, Home Assistant) that machine’s own network address can still be reached if the plugin lists it: only accept devices you know.",
         "private_messages_warning": "This plugin can send your private messages to {{hosts}}."
       },
       "timer": {
