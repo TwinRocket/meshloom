@@ -280,8 +280,9 @@ imported by `services/backup.py`.
 - **Notification choices.** The `notification_user_rules` section (MSHL-321,
   registered in `services/backup_notifications.py`, not `sensitive`,
   `restore_with="users"`, in `ACCOUNT_SECTIONS`) holds `{"accounts": [{user_id,
-  rules}]}`: what each account forced on or off for its own devices
-  (`app/notifications/user_rules.py`, `sanitize_override`). Its restore replaces
+  rules}]}`: what each account forced on or off for its own devices, its conversation
+  exceptions (MSHL-362) and its pause (MSHL-363, an end time or "until resumed"), all in
+  the one `rules` document (`app/notifications/user_rules.py`, `sanitize_override`). Its restore replaces
   every row in the accounts' transaction, right after them, and drops a row whose
   account does not exist (`notification_user_rules_dropped:<id>`); with the accounts
   kept it is not touched, and a `users` restore without this section leaves every

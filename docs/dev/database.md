@@ -250,7 +250,9 @@ A subscription is deleted once `failure_count` reaches 15 consecutive failures.
 
 One account's notification choices for its own Web Push devices (migration 123, MSHL-321):
 PK `user_id` (FK `users(id)` `ON DELETE CASCADE`), `rules` (JSON, `{"version": 1, "events":
-{id: bool}, "contact_types": {kind: bool}}`, `app/notifications/user_rules.py`), `updated_at`.
+{id: bool}, "contact_types": {kind: bool}, "conversations": {state_key: bool}, "pause":
+{"until": int | null}}`, `app/notifications/user_rules.py`; the last two keys, MSHL-362 and 363,
+need no migration), `updated_at`.
 An account with no row follows `app_settings.notification_rules`, which are the admin defaults;
 migration 123 writes no row, so an upgrade changes nothing. `UserNotificationRulesRepository`
 (`user_notification_rules.py`) keeps the non-empty rows in memory (dropped by every write and

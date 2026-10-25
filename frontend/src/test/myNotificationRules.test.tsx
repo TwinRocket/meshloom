@@ -21,6 +21,8 @@ function rules(overrides: Partial<MyPushRules> = {}): MyPushRules {
       repeater: { default: false, choice: null },
       sensor: { default: false, choice: null },
     },
+    conversations: {},
+    pause: { active: false, until: null },
     ...overrides,
   };
 }
@@ -91,6 +93,70 @@ describe('MyNotificationRules (MSHL-321)', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Follow the defaults again' }));
     await waitFor(() => expect(reset).toHaveBeenCalled());
+  });
+
+  it('pauses my devices for a while, until I resume, and resumes', async () => {
+    vi.spyOn(api, 'getMyPushRules').mockResolvedValue(rules());
+    const pause = vi
+      .spyOn(api, 'pauseMyPush')
+      .mockResolvedValue(rules({ pause: { active: true, until: null } }));
+    const resume = vi.spyOn(api, 'resumeMyPush').mockResolvedValue(rules());
+    render(<MyNotificationRules />);
+
+    expect(await screen.findByText('Notifications are on.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '1 hour' }));
+    await waitFor(() => expect(pause).toHaveBeenCalledTimes(1));
+    const until = pause.mock.calls[0][0] as number;
+    expect(until - Math.floor(Date.now() / 1000)).toBeGreaterThan(3500);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Until I resume' }));
+    await waitFor(() => expect(pause).toHaveBeenLastCalledWith(null));
+    expect(await screen.findByText('Paused until you resume')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resume now' }));
+    await waitFor(() => expect(resume).toHaveBeenCalled());
+    expect(await screen.findByText('Notifications are on.')).toBeInTheDocument();
+  });
+
+  it('adds, changes and removes a conversation exception', async () => {
+    const key = 'ab'.repeat(32);
+    vi.spyOn(api, 'getMyPushRules').mockResolvedValue(
+      rules({ conversations: { [`contact-${key}`]: false } })
+    );
+    const patch = vi
+      .spyOn(api, 'patchMyPushRules')
+      .mockResolvedValue(rules({ conversations: { [`contact-${key}`]: true } }));
+    const contacts = [{ public_key: key, name: 'Léa', type: 1 }] as never;
+    const channels = [{ key: 'AA'.repeat(16), name: 'Paris', is_hashtag: false }] as never;
+    render(<MyNotificationRules contacts={contacts} chatChannels={channels} />);
+
+    const row = await screen.findByLabelText('Léa');
+    fireEvent.change(row, { target: { value: 'on' } });
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ conversations: { [`contact-${key}`]: true } })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove my exception for Léa' }));
+    await waitFor(() =>
+      expect(patch).toHaveBeenLastCalledWith({ conversations: { [`contact-${key}`]: null } })
+    );
+
+    fireEvent.change(screen.getByLabelText('Choose a conversation'), {
+      target: { value: `channel-${'AA'.repeat(16)}` },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Mute for me' }));
+    await waitFor(() =>
+      expect(patch).toHaveBeenLastCalledWith({
+        conversations: { [`channel-${'AA'.repeat(16)}`]: false },
+      })
+    );
+  });
+
+  it('is available in French', async () => {
+    await i18n.changeLanguage('fr');
+    vi.spyOn(api, 'getMyPushRules').mockResolvedValue(rules());
+    render(<MyNotificationRules />);
+    expect(await screen.findByText("Jusqu'à la reprise")).toBeInTheDocument();
+    expect(screen.getByText('Aucune exception de conversation.')).toBeInTheDocument();
   });
 
   it('renders nothing when the rules cannot be read', async () => {

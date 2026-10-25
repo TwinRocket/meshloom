@@ -128,6 +128,119 @@ def test_the_audience_gives_each_account_the_mention_or_the_plain_payload():
     assert not audience.empty
 
 
+CHAN_KEY = "8B3387E9C5CDEA6AC9E5EDBAA115CD72"
+
+
+def _chan_event(text: str = "hello"):
+    return event_from_payload(
+        {"event": "message", "type": "CHAN", "conversation_key": CHAN_KEY, "text": text}
+    )
+
+
+def test_sanitize_keeps_conversation_exceptions_and_a_pause():
+    raw = {
+        "conversations": {
+            f"channel-{CHAN_KEY}": False,
+            f"contact-{DM_KEY}": True,
+            "channel-nothex!": True,
+            f"contact-{DM_KEY}x": True,
+            "other-ab": True,
+            "channel-ab": "yes",
+        },
+        "pause": {"until": 2_000_000_000},
+    }
+    assert ur.sanitize_override(raw) == {
+        "version": 1,
+        "conversations": {f"channel-{CHAN_KEY}": False, f"contact-{DM_KEY}": True},
+        "pause": {"until": 2_000_000_000},
+    }
+    assert ur.sanitize_override({"pause": {"until": None}})["pause"] == {"until": None}
+    assert ur.sanitize_override({"pause": {"until": -5}}) == {}
+    assert ur.sanitize_override({"pause": {"until": True}}) == {}
+    assert ur.sanitize_override({"pause": "now"}) == {}
+
+
+def test_a_conversation_exception_beats_the_event_choice_both_ways():
+    rules = {"events": {"message.channel": {"channels": [PUSH]}, "message.dm": {"channels": []}}}
+    chan_key = f"channel-{CHAN_KEY}"
+    dm_key = f"contact-{DM_KEY}"
+    # Muted for me, whatever the event says (even an explicit "always notify me").
+    mute = {"conversations": {chan_key: False}, "events": {"message.channel": True}}
+    assert not ur.push_wanted(rules, mute, _chan_event(), is_public_or_hashtag=True)
+    # Other conversations follow the event.
+    other = {"conversations": {f"channel-{'00' * 16}": False}}
+    assert ur.push_wanted(rules, other, _chan_event(), is_public_or_hashtag=True)
+    # Forced on for a DM the defaults leave off, even with the event turned off by me.
+    force = {"conversations": {dm_key: True}, "events": {"message.dm": False}}
+    assert ur.push_wanted(rules, force, _dm_event())
+    assert not ur.push_wanted(rules, {"events": {"message.dm": False}}, _dm_event())
+    # Forced on for a private-key channel that notifies no one by default.
+    forced_chan = {"conversations": {chan_key: True}}
+    assert not ur.push_wanted(rules, {}, _chan_event())
+    assert ur.push_wanted(rules, forced_chan, _chan_event())
+
+
+def test_a_forced_conversation_still_obeys_a_mute_and_a_block():
+    rules = {"events": {"message.dm": {"channels": []}}}
+    force = {"conversations": {f"contact-{DM_KEY}": True}}
+    assert ur.push_wanted(rules, force, _dm_event())
+    assert not ur.push_wanted(rules, force, _dm_event(), muted=True)
+    assert not ur.push_wanted(rules, force, _dm_event(), blocked=True)
+
+
+def test_a_conversation_exception_cuts_the_mention_too():
+    rules = {"events": {"message.mention": {"channels": [PUSH]}}}
+    mention = event_from_payload(
+        {
+            "event": "message",
+            "type": "CHAN",
+            "conversation_key": CHAN_KEY,
+            "text": "@[Bob]",
+            "mention": True,
+        }
+    )
+    assert ur.push_wanted(rules, {}, mention, is_public_or_hashtag=True)
+    off = {"conversations": {f"channel-{CHAN_KEY}": False}}
+    assert not ur.push_wanted(rules, off, mention, is_public_or_hashtag=True)
+
+
+def test_a_pause_holds_everything_but_urgent_always_deliver_and_locked_events():
+    rules = {
+        "events": {
+            "message.dm": {"channels": [PUSH]},
+            "radio.online": {"channels": [PUSH], "always_deliver": True},
+            "radio.offline": {"channels": [PUSH]},
+            "notify.channel_changed": {"channels": [PUSH]},
+        }
+    }
+    paused = {"pause": {"until": 5_000}}
+    assert not ur.push_wanted(rules, paused, _dm_event(), now=4_000)
+    assert ur.push_wanted(rules, paused, _dm_event(), now=6_000)  # over
+    assert not ur.push_wanted(rules, {"pause": {"until": None}}, _dm_event(), now=9e12)
+    for name, payload in (
+        ("radio.online", {"event": "radio_online"}),
+        ("radio.offline", {"event": "radio_offline", "outage_started_at": 1}),
+    ):
+        event = event_from_payload(payload)
+        assert event is not None and event.event == name
+        assert ur.push_wanted(rules, paused, event, now=4_000), name
+    from app.notifications.events import TestData, TestEvent
+
+    rules["events"]["notify.test"] = {"channels": [PUSH]}
+    assert ur.push_wanted(
+        rules, paused, TestEvent(event="notify.test", dedup_key="t", data=TestData()), now=4_000
+    )  # locked
+
+
+def test_pause_helpers():
+    assert ur.is_paused({"pause": {"until": 100}}, 50)
+    assert not ur.is_paused({"pause": {"until": 100}}, 100)
+    assert ur.is_paused({"pause": {"until": None}}, 1e12)
+    assert not ur.is_paused({}, 1)
+    assert ur.pause_until({"pause": {"until": 100}}) == 100
+    assert ur.pause_until({"pause": {"until": None}}) is None
+
+
 # -- the dispatcher ---------------------------------------------------------------
 
 
@@ -159,12 +272,12 @@ async def _defaults(**events: list[str]) -> None:
     await NotificationChannelRepository.set_rules(rules)
 
 
-async def _emit_dm() -> None:
+async def _emit_dm(n: int = 0) -> None:
     from app.notifications.dispatcher import notification_dispatcher
     from app.notifications.producers import emit_message
 
     await emit_message(
-        {"type": "PRIV", "conversation_key": DM_KEY, "text": "hi", "sender_name": "Léa"}
+        {"type": "PRIV", "conversation_key": DM_KEY, "text": "hi", "sender_name": "Léa", "id": n}
     )
     await notification_dispatcher().wait_idle()
 
@@ -243,6 +356,26 @@ async def test_a_mention_reaches_each_account_in_the_version_its_rules_give(
     assert audience.payload_for(3).get("mention") is True
 
 
+@pytest.mark.asyncio
+async def test_a_conversation_exception_and_a_pause_shape_each_accounts_audience(accounts, pushes):
+    import time
+
+    await _defaults(message_dm=[PUSH])
+    await UserNotificationRulesRepository.set(2, {"conversations": {f"contact-{DM_KEY}": False}})
+    await UserNotificationRulesRepository.set(3, {"pause": {"until": int(time.time()) + 3600}})
+    await _emit_dm()
+    assert len(pushes) == 1
+    _, audience = pushes[0]
+    assert audience.payload_for(1) is not None
+    assert audience.payload_for(2) is None  # muted this conversation
+    assert audience.payload_for(3) is None  # paused
+    # The pause ends: the account is back.
+    await UserNotificationRulesRepository.set(3, {"pause": {"until": int(time.time()) - 1}})
+    await _emit_dm(1)
+    assert len(pushes) == 2
+    assert pushes[-1][1].payload_for(3) is not None
+
+
 # -- the API ----------------------------------------------------------------------
 
 
@@ -279,6 +412,69 @@ async def test_my_rules_show_the_default_and_my_choice(accounts, client, sign_in
     reset = await client.delete("/api/push/my-rules")
     assert reset.json()["contact_types"]["repeater"]["choice"] is None
     assert await UserNotificationRulesRepository.get(2) == {}
+
+
+@pytest.mark.asyncio
+async def test_my_conversation_exceptions_and_pause_through_the_api(accounts, client, sign_in_as):
+    import time
+
+    sign_in_as("member")
+    key = f"contact-{DM_KEY}"
+    body = (await client.get("/api/push/my-rules")).json()
+    assert body["conversations"] == {}
+    assert body["pause"] == {"active": False, "until": None}
+
+    patched = await client.patch("/api/push/my-rules", json={"conversations": {key: False}})
+    assert patched.status_code == 200
+    assert patched.json()["conversations"] == {key: False}
+    # Another patch keeps the conversations; a pause survives a rules patch.
+    until = int(time.time()) + 3600
+    paused = await client.put("/api/push/my-pause", json={"until": until})
+    assert paused.json()["pause"] == {"active": True, "until": until}
+    again = await client.patch("/api/push/my-rules", json={"events": {"message.dm": True}})
+    assert again.json()["conversations"] == {key: False}
+    assert again.json()["pause"]["active"] is True
+    assert await UserNotificationRulesRepository.get(1) == {}  # nobody else's data
+
+    reset = await client.delete("/api/push/my-rules")
+    assert reset.json()["conversations"] == {}
+    assert reset.json()["pause"]["until"] == until  # the pause is not a rule
+    resumed = await client.delete("/api/push/my-pause")
+    assert resumed.json()["pause"] == {"active": False, "until": None}
+    assert await UserNotificationRulesRepository.get(2) == {}
+
+    forever = await client.put("/api/push/my-pause", json={"until": None})
+    assert forever.json()["pause"] == {"active": True, "until": None}
+    cleared = await client.patch("/api/push/my-rules", json={"conversations": {key: None}})
+    assert cleared.json()["pause"]["active"] is True
+
+
+@pytest.mark.asyncio
+async def test_my_conversation_and_pause_inputs_are_checked(accounts, client, sign_in_as):
+    import time
+
+    sign_in_as("member")
+    bad = await client.patch("/api/push/my-rules", json={"conversations": {"channel-xyz": True}})
+    assert bad.status_code == 400
+    assert bad.json()["detail"]["code"] == "notification_rule_unknown"
+    now = int(time.time())
+    for until in (now - 10, now + 400 * 24 * 3600):
+        refused = await client.put("/api/push/my-pause", json={"until": until})
+        assert refused.status_code == 400
+        assert refused.json()["detail"]["code"] == "notification_pause_invalid"
+    many = {f"channel-{n:032x}": True for n in range(60)}
+    for start in range(0, 300, 60):
+        batch = {f"channel-{start + n:032x}": True for n in range(60)}
+        res = await client.patch("/api/push/my-rules", json={"conversations": batch})
+        if res.status_code == 400:
+            assert res.json()["detail"]["code"] == "notification_conversations_limit"
+            break
+    else:
+        raise AssertionError("the limit was never reached")
+    assert many
+    sign_in_as("kiosk")
+    assert (await client.put("/api/push/my-pause", json={"until": None})).status_code == 403
+    assert (await client.delete("/api/push/my-pause")).status_code == 403
 
 
 @pytest.mark.asyncio
@@ -319,7 +515,14 @@ async def test_the_choices_round_trip_through_the_accounts_section(accounts, tes
 
     assert await export_user_notification_rules() is None
     await UserNotificationRulesRepository.set(2, {"events": {"message.dm": False}})
-    await UserNotificationRulesRepository.set(3, {"contact_types": {"sensor": True}})
+    await UserNotificationRulesRepository.set(
+        3,
+        {
+            "contact_types": {"sensor": True},
+            "conversations": {f"contact-{DM_KEY}": True},
+            "pause": {"until": None},
+        },
+    )
     section = await export_user_notification_rules()
     assert section is not None
     data = json.loads(json.dumps(section.data))
@@ -335,7 +538,10 @@ async def test_the_choices_round_trip_through_the_accounts_section(accounts, tes
 
     invalidate_cache()
     assert (await UserNotificationRulesRepository.get(2))["events"] == {"message.dm": False}
-    assert (await UserNotificationRulesRepository.get(3))["contact_types"] == {"sensor": True}
+    restored = await UserNotificationRulesRepository.get(3)
+    assert restored["contact_types"] == {"sensor": True}
+    assert restored["conversations"] == {f"contact-{DM_KEY}": True}
+    assert restored["pause"] == {"until": None}
     assert await UserNotificationRulesRepository.get(99) == {}
 
 

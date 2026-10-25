@@ -144,14 +144,22 @@ A new channel is filled in for you by the last step of the add dialog, **What to
 
 The table above holds the **defaults**. Web Push is the one channel whose recipients are people (every device belongs to an account), so under **Settings → Notifications → My notifications** each account (member or administrator) sees one line per event, and one per node type for *New node seen*. Each line follows the administrator's default (the list says whether that is *notify* or *do not notify*) until you choose **Always notify me** or **Never notify me**; **Follow the defaults again** clears all your choices. Your choices apply only to the devices of your account, and nobody else sees or edits them.
 
-- *Never notify me* wins over everything for your devices, conversation exceptions included.
+- *Never notify me* wins over everything for your devices, the administrator's conversation exceptions included.
 - *Always notify me* still respects what belongs to the installation: the administrator's exceptions for a conversation, a muted channel, the block lists and **Do not disturb**.
 - E-mail, webhook, ntfy, Telegram and the other channels are shared destinations that the administrator owns: they keep following the table, whatever your choices.
 - A mention reaches your devices as a mention when your rules give you *Mentions*, else as an ordinary channel message, never both.
-- The summaries sent when a channel is over its limit (see [Limits and grouping](#limits-and-grouping)), and the notice that a destination changed, reach every device.
+- The summaries sent when a channel is over its limit (see [Limits and grouping](#limits-and-grouping)) follow your rules too: you only get one when at least one of the notifications it replaces was meant for you, and its counts only include those. The notice that a destination changed reaches every device.
 - Until you change something, nothing differs from the table, and an upgrade to this version changes nothing for anyone.
 
-The same choices are available through `GET`, `PATCH` and `DELETE /api/push/my-rules` (see [Web Push](/en/docs/deep/push/)).
+### Your own conversation exceptions
+
+Under **My notifications → Conversations**, pick a channel or a contact and choose **Mute for me** or **Always notify me**. It applies to that conversation only, on your devices only, and wins over your own event lines above (a channel muted for you stays silent even if *Channel messages* is on; a contact you always want to hear from notifies even if *Direct messages* is off). *Mute for me* also silences mentions of that channel. *Always notify me* does not override what belongs to the installation: a muted conversation, a blocked sender and the administrator's pause still keep it quiet. Change the choice in the list, or remove the line to follow your event lines again. Up to 256 conversations.
+
+### Pause your own devices
+
+Under **My notifications → Pause**, choose **1 hour**, **8 hours**, **Until tomorrow 8:00** or **Until I resume**. Your devices then receive nothing, except urgent alerts (radio offline, telemetry alerts) and the events the administrator marked *Always deliver*, as with **Do not disturb**. The summaries are paused too. **Resume now** ends it early; a pause with an end time ends by itself. Nobody else is affected, and neither are the shared destinations (e-mail, webhooks...): the administrator's own **Do not disturb** is separate. **Follow the defaults again** clears your rules and conversation exceptions but does not end a pause in progress.
+
+The same choices are available through `GET`, `PATCH` and `DELETE /api/push/my-rules`, and `PUT` and `DELETE /api/push/my-pause` (see [Web Push](/en/docs/deep/push/)).
 
 ## Events
 

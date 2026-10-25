@@ -4,10 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { api, formatApiError } from '../../../api';
 import { useCapabilities } from '../../../auth/SessionProvider';
 import type { MyPushRuleState, MyPushRules, MyPushRulesPatch } from '../../../notifications/types';
+import type { Channel, Contact } from '../../../types';
 import { Button } from '../../ui/button';
 import { Separator } from '../../ui/separator';
 import { toast } from '../../ui/sonner';
 import { SettingsGroupHeader } from '../settingsPrimitives';
+import { MyConversationRules } from './MyConversationRules';
+import { MyPauseControl } from './MyPauseControl';
 import { CONTACT_KINDS, GROUP_ORDER, eventKey, groupOf } from './rulesShared';
 
 const SELECT_CLASS =
@@ -58,9 +61,16 @@ function ChoiceSelect({
  * The account's own notification rules (MSHL-321): for each event, follow the administrator's
  * default or force it on or off for this account's devices. Instance destinations (e-mail,
  * webhooks...) stay with the administrator, whose matrix below is the default for everyone.
+ * Also the account's own pause (MSHL-363) and conversation exceptions (MSHL-362).
  * Renders nothing for a role that owns no devices.
  */
-export function MyNotificationRules() {
+export function MyNotificationRules({
+  contacts = [],
+  chatChannels = [],
+}: {
+  contacts?: Contact[];
+  chatChannels?: Channel[];
+}) {
   const { t } = useTranslation();
   const { canSend } = useCapabilities();
   const [rules, setRules] = useState<MyPushRules | null>(null);
@@ -99,7 +109,8 @@ export function MyNotificationRules() {
 
   const customised =
     Object.values(rules.events).some((s) => s.choice !== null) ||
-    Object.values(rules.contact_types).some((s) => s.choice !== null);
+    Object.values(rules.contact_types).some((s) => s.choice !== null) ||
+    Object.keys(rules.conversations).length > 0;
   const eventLabel = (id: string) =>
     t(`settings.notifications.matrix.events.${eventKey(id)}.label`);
 
@@ -114,6 +125,20 @@ export function MyNotificationRules() {
         <p className="text-[0.8125rem] text-muted-foreground">
           {t('settings.notifications.mine.help')}
         </p>
+        <div className="space-y-1">
+          <span className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+            {t('settings.notifications.mine.pauseTitle')}
+          </span>
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.notifications.mine.pauseHelp')}
+          </p>
+          <MyPauseControl
+            pause={rules.pause}
+            disabled={busy}
+            onPause={(until) => void run(() => api.pauseMyPush(until))}
+            onResume={() => void run(() => api.resumeMyPush())}
+          />
+        </div>
         {GROUP_ORDER.map((group) => {
           const ids = Object.keys(rules.events).filter((id) => groupOf(id) === group);
           if (ids.length === 0) return null;
@@ -160,6 +185,13 @@ export function MyNotificationRules() {
             </div>
           );
         })}
+        <MyConversationRules
+          conversations={rules.conversations}
+          contacts={contacts}
+          chatChannels={chatChannels}
+          disabled={busy}
+          onSet={(key, value) => patch({ conversations: { [key]: value } })}
+        />
         <Button
           variant="outline"
           size="sm"

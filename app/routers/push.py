@@ -346,19 +346,28 @@ async def test_push(subscription_id: str, request: Request) -> dict:
         raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
 
 
-# ── My notification rules (MSHL-321) ─────────────────────────────────────
+# ── My notification rules (MSHL-321, 362, 363) ───────────────────────────
 #
 # The admin defaults are ``/api/notifications/rules``. These routes are the caller's own
-# choices for its own devices: per event, and per contact type for ``contact.first_seen``,
-# "follow the defaults" (no entry), on or off (``app/notifications/user_rules.py``). They
-# touch nobody else's choices and no instance channel.
+# choices for its own devices (``app/notifications/user_rules.py``): per event, and per contact
+# type for ``contact.first_seen``, "follow the defaults" (no entry), on or off; per
+# conversation, on or off over those; and a pause of its own devices. They touch nobody else's
+# choices and no instance channel.
 
 
 class MyRulesPatch(BaseModel):
-    """``null`` clears a choice (back to the defaults)."""
+    """``null`` clears a choice (back to the defaults). ``conversations`` is keyed by
+    ``channel-<key>`` or ``contact-<pubkey>``."""
 
     events: dict[str, bool | None] = Field(default_factory=dict, max_length=64)
     contact_types: dict[str, bool | None] = Field(default_factory=dict, max_length=8)
+    conversations: dict[str, bool | None] = Field(default_factory=dict, max_length=64)
+
+
+class MyPause(BaseModel):
+    """Pause the caller's devices until ``until`` (epoch seconds); ``null`` until it resumes."""
+
+    until: int | None = None
 
 
 def _my_user_id(request: Request) -> int:
@@ -369,12 +378,16 @@ def _my_user_id(request: Request) -> int:
 
 
 async def _my_rules_view(user_id: int) -> dict:
+    import time
+
     from app.notifications.rules import load_rules
     from app.notifications.user_rules import (
         CONTACT_KIND_NAMES,
         FIRST_SEEN_EVENT,
         OVERRIDABLE_EVENTS,
         default_state,
+        is_paused,
+        pause_until,
     )
     from app.repository.user_notification_rules import UserNotificationRulesRepository
 
@@ -397,25 +410,35 @@ async def _my_rules_view(user_id: int) -> dict:
             }
             for kind in CONTACT_KIND_NAMES
         },
+        "conversations": dict(mine.get("conversations") or {}),
+        "pause": {"active": is_paused(mine, time.time()), "until": pause_until(mine)},
     }
 
 
 @router.get("/my-rules", dependencies=[Depends(require("send"))])
 async def get_my_rules(request: Request) -> dict:
     """What reaches the caller's devices: per event (and contact type) the admin default and
-    the caller's own choice (``null`` follows the default)."""
+    the caller's own choice (``null`` follows the default), the caller's conversation
+    exceptions and its pause (``active`` once ``until`` is not over)."""
     return await _my_rules_view(_my_user_id(request))
 
 
 @router.patch("/my-rules", dependencies=[Depends(require("send"))])
 async def patch_my_rules(body: MyRulesPatch, request: Request) -> dict:
-    from app.notifications.user_rules import CONTACT_KIND_NAMES, OVERRIDABLE_EVENTS
+    from app.notifications.user_rules import (
+        CONTACT_KIND_NAMES,
+        CONVERSATION_KEY,
+        MAX_CONVERSATIONS,
+        OVERRIDABLE_EVENTS,
+    )
     from app.repository.user_notification_rules import UserNotificationRulesRepository
 
     user_id = _my_user_id(request)
-    unknown = [e for e in body.events if e not in OVERRIDABLE_EVENTS] + [
-        k for k in body.contact_types if k not in CONTACT_KIND_NAMES
-    ]
+    unknown = (
+        [e for e in body.events if e not in OVERRIDABLE_EVENTS]
+        + [k for k in body.contact_types if k not in CONTACT_KIND_NAMES]
+        + [c for c in body.conversations if not CONVERSATION_KEY.match(c)]
+    )
     if unknown:
         raise HTTPException(
             status_code=400,
@@ -424,23 +447,75 @@ async def patch_my_rules(body: MyRulesPatch, request: Request) -> dict:
     mine = await UserNotificationRulesRepository.get(user_id)
     events = dict(mine.get("events") or {})
     types = dict(mine.get("contact_types") or {})
-    for target, patch in ((events, body.events), (types, body.contact_types)):
+    conversations = dict(mine.get("conversations") or {})
+    for target, patch in (
+        (events, body.events),
+        (types, body.contact_types),
+        (conversations, body.conversations),
+    ):
         for key, value in patch.items():
             if value is None:
                 target.pop(key, None)
             else:
                 target[key] = value
-    await UserNotificationRulesRepository.set(user_id, {"events": events, "contact_types": types})
+    if len(conversations) > MAX_CONVERSATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "notification_conversations_limit",
+                "params": {"max": MAX_CONVERSATIONS},
+            },
+        )
+    await UserNotificationRulesRepository.set(
+        user_id,
+        {**mine, "events": events, "contact_types": types, "conversations": conversations},
+    )
     return await _my_rules_view(user_id)
 
 
 @router.delete("/my-rules", dependencies=[Depends(require("send"))])
 async def reset_my_rules(request: Request) -> dict:
-    """Forget the caller's choices: its devices follow the admin defaults again."""
+    """Forget the caller's event, contact type and conversation choices: its devices follow
+    the admin defaults again. A pause in force stays (``DELETE /my-pause`` ends it)."""
     from app.repository.user_notification_rules import UserNotificationRulesRepository
 
     user_id = _my_user_id(request)
-    await UserNotificationRulesRepository.set(user_id, {})
+    mine = await UserNotificationRulesRepository.get(user_id)
+    await UserNotificationRulesRepository.set(
+        user_id, {"pause": mine["pause"]} if "pause" in mine else {}
+    )
+    return await _my_rules_view(user_id)
+
+
+@router.put("/my-pause", dependencies=[Depends(require("send"))])
+async def pause_my_notifications(body: MyPause, request: Request) -> dict:
+    """Pause the caller's own devices until ``until`` (epoch seconds, at most a year away) or,
+    with ``null``, until it resumes. Urgent and always-deliver events still arrive; other
+    accounts and the instance channels are not affected."""
+    import time
+
+    from app.notifications.user_rules import MAX_PAUSE_S
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    user_id = _my_user_id(request)
+    now = int(time.time())
+    if body.until is not None and not now < body.until <= now + MAX_PAUSE_S:
+        raise HTTPException(status_code=400, detail={"code": "notification_pause_invalid"})
+    mine = await UserNotificationRulesRepository.get(user_id)
+    await UserNotificationRulesRepository.set(user_id, {**mine, "pause": {"until": body.until}})
+    return await _my_rules_view(user_id)
+
+
+@router.delete("/my-pause", dependencies=[Depends(require("send"))])
+async def resume_my_notifications(request: Request) -> dict:
+    """End the caller's pause."""
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    user_id = _my_user_id(request)
+    mine = await UserNotificationRulesRepository.get(user_id)
+    await UserNotificationRulesRepository.set(
+        user_id, {k: v for k, v in mine.items() if k != "pause"}
+    )
     return await _my_rules_view(user_id)
 
 

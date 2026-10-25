@@ -1180,7 +1180,8 @@ explicitly (no reliance on the cascade alone). Sends go to `PushSubscriptionRepo
 `send` in `ROLE_PERMISSIONS` (kiosk and viewer own nothing deliverable; a token acts for its
 user). The rules are the admin defaults, and each account may override them for its own
 devices (`user_notification_rules`, migration 123, MSHL-321; `app/notifications/AGENTS.md`,
-"Per-account rules"; routes `GET/PATCH/DELETE /push/my-rules`, `send`). `restore_users` unowns rows before replacing the accounts
+"Per-account rules"; routes `GET/PATCH/DELETE /push/my-rules` and `PUT/DELETE /push/my-pause`,
+`send`; MSHL-361/362/363 add the grouped summaries, conversation exceptions and pause). `restore_users` unowns rows before replacing the accounts
 so the cascade keeps them, then gives each back to the account of the same `username_key`
 (unowned when none). The full backup carries each subscription's owner by username
 (`BackupPushSubscription.owner`, MSHL-320, never the id); `_restore_push` and, after the
