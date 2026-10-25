@@ -72,11 +72,11 @@ async def test_size_cap_holds_with_mixed_sizes(tmp_path):
 async def test_eviction_follows_recent_use(tmp_path):
     cache = ShareCache(tmp_path / "c", size_limit=500_000)
     try:
-        # Two fit with the SQLite index (about 32 KiB), a third does not.
-        await cache.set("Old0001", CachedObject(b"a" * 200_000, "image/png"))
-        await cache.set("Old0002", CachedObject(b"b" * 200_000, "image/png"))
+        # Two fit with the index, the shm file and the log budget, a third does not.
+        await cache.set("Old0001", CachedObject(b"a" * 150_000, "image/png"))
+        await cache.set("Old0002", CachedObject(b"b" * 150_000, "image/png"))
         assert await cache.get("Old0001") is not None  # touched: now most recent
-        await cache.set("New0003", CachedObject(b"c" * 200_000, "image/png"))
+        await cache.set("New0003", CachedObject(b"c" * 150_000, "image/png"))
         assert await cache.get("Old0002") is None
         assert await cache.get("Old0001") is not None
         assert await cache.get("New0003") is not None
@@ -88,14 +88,18 @@ def test_ttl_is_one_hour():
     assert share_cache.TTL_S == 3600
 
 
-async def test_entry_cap_drops_the_oldest(tmp_path):
+async def test_entry_cap_drops_the_least_recently_used(tmp_path):
     cache = ShareCache(tmp_path / "c", max_entries=3)
     try:
-        for i in range(5):
+        for i in range(3):
+            await cache.set(f"Obj{i:04d}", CachedObject(b"x", "image/png"))
+        assert await cache.get("Obj0000") is not None  # oldest inserted, now most recent
+        for i in range(3, 5):
             await cache.set(f"Obj{i:04d}", CachedObject(b"x", "image/png"))
         assert await cache.count() == 3
-        assert await cache.get("Obj0000") is None
+        assert await cache.get("Obj0000") is not None
         assert await cache.get("Obj0001") is None
+        assert await cache.get("Obj0002") is None
         assert await cache.get("Obj0004") is not None
     finally:
         cache.close()
@@ -144,3 +148,131 @@ def test_package_cache_directory_is_writable_by_the_service(monkeypatch):
     monkeypatch.setattr(settings, "database_path", database.group(1).strip())
     directory = share_cache.default_directory()
     assert any(directory.is_relative_to(Path(root).resolve()) for root in roots)
+
+
+async def test_concurrent_fills_never_exceed_the_cap(tmp_path):
+    import asyncio
+
+    limit = 600_000
+    cache = ShareCache(tmp_path / "c", size_limit=limit)
+    peak = 0
+
+    async def watch(stop: asyncio.Event) -> None:
+        nonlocal peak
+        while not stop.is_set():
+            if cache.opened:
+                peak = max(peak, cache.measured(cache._open()))
+            await asyncio.sleep(0)
+
+    try:
+        stop = asyncio.Event()
+        watcher = asyncio.create_task(watch(stop))
+        await asyncio.gather(
+            *(
+                cache.set(f"Con{i:04d}", CachedObject(bytes([i]) * 150_000, "image/png"))
+                for i in range(24)
+            )
+        )
+        stop.set()
+        await watcher
+        assert peak <= limit
+        assert cache.measured(cache._open()) <= limit
+        assert await cache.count() >= 1
+    finally:
+        cache.close()
+
+
+async def test_oversized_object_is_not_stored(tmp_path):
+    cache = ShareCache(tmp_path / "c", size_limit=100_000)
+    try:
+        await cache.set("Keep001", CachedObject(b"k" * 1000, "image/png"))
+        await cache.set("Huge001", CachedObject(b"h" * 200_000, "image/png"))
+        assert await cache.get("Huge001") is None
+        assert await cache.get("Keep001") is not None
+    finally:
+        cache.close()
+
+
+async def test_wal_is_bounded_and_counted(tmp_path):
+    limit = 2_000_000
+    cache = ShareCache(tmp_path / "c", size_limit=limit)
+    try:
+        for i in range(200):
+            await cache.set(f"Wal{i:04d}", CachedObject(bytes([i % 256]) * 20_000, "image/png"))
+            assert cache._wal_size() <= cache.wal_budget() * 2
+            assert await cache.volume() + cache._wal_size() <= limit
+    finally:
+        cache.close()
+
+
+async def test_fallback_clears_then_stores_the_new_object(tmp_path, monkeypatch):
+    monkeypatch.setattr(ShareCache, "_self_check", staticmethod(lambda cache: False))
+    cache = ShareCache(tmp_path / "c", size_limit=300_000)
+    try:
+        await cache.set("Fb00000", CachedObject(b"x" * 100_000, "image/png"))
+        await cache.set("Fb00001", CachedObject(b"x" * 100_000, "image/png"))
+        # 200 kB held, 300 kB cap with the log budget: the third does not fit.
+        await cache.set("Fb00002", CachedObject(b"x" * 100_000, "image/png"))
+        assert await cache.get("Fb00002") is not None
+        assert await cache.get("Fb00000") is None
+        assert await cache.count() == 1
+    finally:
+        cache.close()
+
+
+async def test_lru_query_failing_after_open_falls_back(tmp_path, monkeypatch, caplog):
+    import logging
+
+    cache = ShareCache(tmp_path / "c", size_limit=300_000)
+    try:
+        await cache.set("Rt00000", CachedObject(b"x" * 100_000, "image/png"))
+        await cache.set("Rt00001", CachedObject(b"x" * 100_000, "image/png"))
+
+        def boom(self, c):
+            raise RuntimeError("schema changed")
+
+        monkeypatch.setattr(ShareCache, "_lru_key", boom)
+        with caplog.at_level(logging.WARNING):
+            await cache.set("Rt00002", CachedObject(b"x" * 100_000, "image/png"))
+        assert cache._lru_ok is False
+        assert "LRU query failed" in caplog.text
+        assert await cache.get("Rt00002") is not None
+        assert await cache.get("Rt00000") is None
+    finally:
+        cache.close()
+
+
+async def test_reader_pinning_the_log_does_not_wipe_the_cache(tmp_path):
+    import sqlite3
+    import time
+
+    limit = 2_000_000
+    cache = ShareCache(tmp_path / "c", size_limit=limit)
+    reader = None
+    try:
+        for i in range(10):
+            await cache.set(f"A{i:03d}", CachedObject(bytes([i]) * 50_000, "image/png"))
+        reader = sqlite3.connect(str(tmp_path / "c" / "cache.db"), isolation_level=None)
+        reader.execute("BEGIN")
+        reader.execute("SELECT count(*) FROM Cache").fetchone()  # pinned snapshot
+        start = time.monotonic()
+        for i in range(150):
+            await cache.set(f"B{i:03d}", CachedObject(bytes([i % 256]) * 2_000, "image/png"))
+        # Checkpoints back off: no 1-2 s stall per write, and the cache survives.
+        assert time.monotonic() - start < 20
+        assert await cache.count() >= 100
+        assert await cache.get("B149") is not None
+    finally:
+        if reader is not None:
+            reader.execute("COMMIT")
+            reader.close()
+        cache.close()
+
+
+def test_self_check_passes_on_the_pinned_diskcache(tmp_path):
+    cache = ShareCache(tmp_path / "c")
+    try:
+        cache._open()
+        assert cache._lru_ok is True
+    finally:
+        cache.close()

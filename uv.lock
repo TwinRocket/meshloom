@@ -1255,7 +1255,7 @@ requires-dist = [
     { name = "bleak", specifier = ">=2.1,<4" },
     { name = "boto3", specifier = ">=1.38.0" },
     { name = "dbus-fast", marker = "sys_platform == 'linux'", specifier = ">=3.1" },
-    { name = "diskcache", specifier = ">=5.6.3,<6" },
+    { name = "diskcache", specifier = ">=5.6.3,<5.7" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "imagesize", specifier = ">=1.4.1,<2" },
