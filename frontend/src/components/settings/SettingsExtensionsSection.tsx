@@ -23,6 +23,8 @@ import { MigrationBanner } from './extensions/MigrationBanner';
 import type { PluginInstance, PluginPauseState } from './extensions/pluginsTypes';
 import { SettingsGroupHeader } from './settingsPrimitives';
 
+// The lease files of the setuid level (app/plugins/isolation/uid_lease.py, LEASE_DIR_NAME).
+const UID_LEASE_DIR = '/.meshloom-plugin-uids/';
 const ISOLATION_LEVELS = ['bwrap', 'setuid', 'none'] as const;
 
 /**
@@ -196,6 +198,11 @@ export function SettingsExtensionsSection({
           <p className="text-muted-foreground">
             {t('settings.extensions.isolation.purgeBlocked.fix')}
           </p>
+          {purgeBlocked.some((path) => path.includes(UID_LEASE_DIR)) && (
+            <p className="text-muted-foreground" data-testid="plugins-purge-blocked-lease">
+              {t('settings.extensions.isolation.purgeBlocked.leaseFix')}
+            </p>
+          )}
         </div>
       )}
 

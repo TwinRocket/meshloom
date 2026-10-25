@@ -105,7 +105,8 @@
         "purgeBlocked": {
           "title": "A temporary folder keeps extension accounts taken",
           "text": "When an extension is removed, Meshloom cleans up what its account left in the temporary folders before giving the account to another extension. It could not look inside these folders, so the accounts stay taken (nothing is lost, it is a safety rule):",
-          "fix": "On the server, remove these folders or make them readable (chmod o+r), then restart Meshloom."
+          "fix": "On the server, remove these folders or make them readable (chmod o+r), then restart Meshloom.",
+          "leaseFix": "A path in .meshloom-plugin-uids is a reservation: another Meshloom on this machine (another container, for example) holds that account, so this one leaves it alone. Remove that file only if no other Meshloom runs here any more, then restart Meshloom. A file whose folder is not owned by Meshloom, or can be written by others, must be removed too."
         }
       },
       "disabled": {
@@ -243,6 +244,7 @@
     "instance_cap_reached": "Too many extensions are running. Disable one first.",
     "instance_not_running": "This extension is not running.",
     "uid_exhausted": "No system user ID is left for another extension. Uninstall unused extensions, then try again.",
+    "uid_leased": "The system account of this extension is held by another Meshloom on this machine. See Settings → Extensions.",
     "quota_invalid": "A sending limit is out of range. It can only be lowered.",
     "scope_invalid": "The conversations selection is not valid.",
     "secret_required": "A secret value is missing.",

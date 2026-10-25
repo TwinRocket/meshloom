@@ -8,9 +8,11 @@ bubblewrap is not an option there; dropping to an unprivileged uid is. The
 account `meshloom-plugin` is the opt-in: the level is selected only when it
 exists. Each instance then gets a uid of its own from `INSTANCE_UIDS` (gid = uid,
 no supplementary group, umask 077), allocated once and kept in the database
-(`plugin_uids`, `PluginUidRepository`): the lowest uid of the range that no row
-holds, that has no passwd or group entry and that is not the server's. The
-runner then sets `RLIMIT_NPROC` (it counts every task of the uid) and
+(`plugin_uids`, `PluginUidRepository`): the first uid of the range, searched from
+an offset derived from the install id, that no row holds, that has no passwd or
+group entry, that is not the server's and whose host-wide lease this install
+gets (`uid_lease`, MSHL-357: another Meshloom on the same kernel never takes,
+nor purges, a uid this one holds). The runner then sets `RLIMIT_NPROC` (it counts every task of the uid) and
 `PR_SET_NO_NEW_PRIVS`. The uid cannot read root's 0600 files (the database,
 `/proc/<server>/environ`) nor signal or trace the server, nor another instance's
 work directory or processes. The file model that makes this true is
@@ -28,7 +30,8 @@ what the uid owns anywhere in the shared temp directories (`/tmp`, `/var/tmp`,
 `/dev/shm`, `/dev/mqueue`; also inside a directory someone else owns, such as
 `/tmp/.X11-unix`, without crossing into another file system) and its System V
 IPC objects (shared memory, message queues, semaphores, owner or creator), so
-the next instance given the uid finds nothing of the previous one. Startup
+the next instance given the uid finds nothing of the previous one; a uid leased
+by another install is not purged (`PurgeBlockedError` names the lease). Startup
 purges the uids that left something behind (a crash, the shared uid of the
 releases before per-instance uids) and releases the rows of deleted instances.
 A walk that meets more than `PURGE_MAX_ENTRIES` entries fails: the uid is then
@@ -60,12 +63,12 @@ import subprocess
 import sys
 import tempfile
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
 from app.plugins import launch
-from app.plugins.isolation import permissions
+from app.plugins.isolation import permissions, uid_lease
 from app.plugins.isolation.base import IsolationBackend
 
 ACCOUNT = "meshloom-plugin"
@@ -347,6 +350,16 @@ def shared_temp_dirs() -> list[Path]:
     return seen
 
 
+def lease_domains() -> list[Path]:
+    """Where the uid leases live (`uid_lease`): the shared temp dirs the purge walks,
+    but `/dev/mqueue`, which holds no directory (it follows the IPC namespace, like
+    `/dev/shm`)."""
+    mqueue = Path("/dev/mqueue")
+    with contextlib.suppress(OSError):
+        mqueue = mqueue.resolve()
+    return [path for path in shared_temp_dirs() if path != mqueue]
+
+
 def owns_something(uid: int, dirs: Iterable[Path] | None = None) -> bool:
     """True when `uid` owns an entry anywhere in the shared temp dirs (same file
     system as each dir, as `purge` walks them) or a System V IPC object. A walk
@@ -461,15 +474,56 @@ class SetuidBackend(IsolationBackend):
         self.uid = uid
         self.gid = gid
         self.data_dir: Path | None = None
+        # The host-wide uid leases (MSHL-357), set by `prepare_data_dir` and shared
+        # with every per-uid copy. None (tests that skip startup): no lease, and
+        # `uid_candidates()` starts at the bottom of the range.
+        self.leases: uid_lease.UidLeases | None = None
 
     def for_uid(self, uid: int) -> "SetuidBackend":
         backend = SetuidBackend(uid, uid)
         backend.data_dir = self.data_dir
+        backend.leases = self.leases
         return backend
 
     def prepare_data_dir(self, data_dir: Path) -> None:
         permissions.apply(data_dir)
         self.data_dir = Path(data_dir).resolve()
+        # A malformed install id file raises: startup then fails closed.
+        self.leases = uid_lease.UidLeases(uid_lease.install_id(self.data_dir), lease_domains)
+
+    def uid_candidates(self) -> Sequence[int]:
+        """`INSTANCE_UIDS`, starting at an offset derived from the install id: two
+        installs on one kernel whose temp dirs are apart (where the leases cannot
+        see each other) still rarely pick the same uid, whose per-uid kernel limits
+        (`RLIMIT_NPROC`, inotify) they would share."""
+        if self.leases is None:
+            return INSTANCE_UIDS
+        start = int(self.leases.install_id[:8], 16) % len(INSTANCE_UIDS)
+        return [*INSTANCE_UIDS[start:], *INSTANCE_UIDS[:start]]
+
+    def uid_available(self, uid: int) -> bool:
+        """`uid_is_free`, and its lease taken for this install (False when another
+        install holds it). A lease directory that is not this server's raises
+        `UidLeaseError` (fail closed)."""
+        if not uid_is_free(uid):
+            return False
+        try:
+            self.claim_uid(uid)
+        except uid_lease.UidLeaseTaken:
+            return False
+        return True
+
+    def claim_uid(self, uid: int) -> None:
+        if self.leases is not None:
+            self.leases.acquire(uid)
+
+    def release_uid(self, uid: int) -> None:
+        if self.leases is not None:
+            self.leases.release(uid)
+
+    def prepare_uid_leases(self) -> None:
+        if self.leases is not None:
+            self.leases.prepare()
 
     def prepare_work_dir(self, work_dir: Path) -> Path:
         if os.geteuid() == 0:
@@ -525,7 +579,12 @@ class SetuidBackend(IsolationBackend):
         enter but not list, or leaves something the
         server still sees (`owns_something`, run as the server afterwards: as root it
         lists every directory): the uid is then kept. `PurgeBlockedError` (a
-        `ValueError`) names the directories it could not list."""
+        `ValueError`) names the directories it could not list, or the lease of
+        another install holding the uid (`uid_lease`): then nothing is removed."""
+        try:
+            self.claim_uid(self.uid)
+        except uid_lease.UidLeaseError as exc:
+            raise PurgeBlockedError(f"uid {self.uid}: {exc}", exc.paths) from None
         paths = list(shared_temp_dirs() if dirs is None else dirs)
         kinds = ",".join(f"{kind}:{column}" for kind, column in SYSV_IPC_KINDS)
         self._helper(

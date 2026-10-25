@@ -75,13 +75,58 @@ no shell, no home; an account that already exists is kept; the add-on is `FROM`
 that image) only opts the server into this level; no child runs under it any
 more; an image built with another `PLUGIN_UID` works too: the purge reads the
 account's uid from passwd each time (`setuid.account_uid()`, MSHL-349), and 10002
-(`ACCOUNT_UID`) is only the image's default. Each instance gets the lowest free uid in 40000-49999 (gid = uid, no
+(`ACCOUNT_UID`) is only the image's default. Each instance gets a free uid in 40000-49999 (gid = uid, no
 passwd entry needed), stored in the `plugin_uids` table (migration 121) so it
 keeps it across restarts: a uid with a passwd or group entry, the server's own
-uid, 10002, or one already held is skipped (the passwd and group lookups run in a
-thread, outside the write transaction); none left is `uid_exhausted`. Docker does
+uid, 10002, one already held, or one another install leased (below) is skipped
+(the passwd, group and lease checks run in a thread, outside the write
+transaction, and the insert re-checks the row inside it); none left is
+`uid_exhausted`. Docker does
 not remap uids by default: 40000-49999 are the same numbers on the host, where a
 directory service (LDAP) may use them; the user docs (`install-paths.md`) say so.
+
+Host-wide uid leases (`uid_lease.py`, MSHL-357). `plugin_uids` only keeps a uid
+unique within one database, so two installs on one kernel (two containers, or two
+servers on one system; deb/rpm never reach this level) could pick the same uid.
+Exposure: with Docker's default namespaces (own mount, IPC and pid namespaces)
+they share only the per-uid kernel accounting (`RLIMIT_NPROC`, inotify limits);
+with a shared `/tmp` (bind mount), `--ipc=host` or two servers on one system, one
+install's purge would delete what the other's plugin owns, and the two plugins
+could read each other's leftovers. A lease is a file
+`<temp dir>/.meshloom-plugin-uids/<uid>` holding the install id (32 hex
+characters, `<data dir>/plugin-install-id`, `0600`, created on first start; a
+malformed one disables the plugin system), in each shared temp dir the purge walks
+(`/dev/mqueue` aside: it holds no directory). So a lease is visible exactly where
+another install's purge could reach this install's files, and a tmpfs loses both
+at reboot. Rules:
+- A uid is allocated only when its lease can be created, or already holds this
+  install's id, in every domain (atomic create: temp file then `link`); the lease
+  stays while the row does, across restarts, and is removed only after a
+  successful purge freed the row (`PluginManager._purge_uid`).
+- `purge()` takes the lease first: a uid leased by another install is never
+  purged; `PurgeBlockedError` names the lease file, so the uid stays taken and
+  health shows it (`plugins_purge_blocked`, and a hint in the Settings banner).
+- A stored uid whose lease another install holds refuses the start
+  (`uid_leased`); startup (`reap_uids`, before `load_from_db`) creates the lease
+  directories before any child runs, then takes back the lease of every uid this
+  install keeps (after a crash, a reboot or a cleanup that removed them) and does
+  not purge one another install holds.
+- While running, the server holds `flock(LOCK_EX)` on its leases (a second copy of
+  the same data dir running at the same time is refused, a crash drops the locks
+  and the files stay) and `flock(LOCK_SH)` on each lease directory, which
+  systemd-tmpfiles' age cleanup honours; a lease removed anyway is written again
+  at the next allocation or purge (inode check).
+- Fail closed: the lease directory must be a real directory owned by the server's
+  euid with no group or other bits (a plugin cannot create it first, startup does
+  before any child), else no uid is allocated and no purge runs until an
+  administrator removes it; a read-only temp dir is skipped. A lease of an install
+  that is gone for good keeps its uid out of the others' reach until reboot (tmpfs)
+  or until an administrator deletes the file.
+- Where the temp dirs are apart (Docker's default) the leases cannot see each
+  other: each install then starts its search at an offset derived from its install
+  id, so two installs rarely share a uid and its kernel limits. Rows allocated
+  before MSHL-357 (both installs at 40000) keep their uid; only shared accounting
+  remains in that case.
 Deleting the instance purges what its uid left in the shared temporary
 directories (`/tmp`, `/var/tmp`, `/dev/shm`, `/dev/mqueue`, `tempfile.gettempdir()`:
 every entry it owns at any depth, also under a directory another uid owns such as

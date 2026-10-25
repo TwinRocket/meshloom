@@ -105,7 +105,8 @@
         "purgeBlocked": {
           "title": "Un dossier temporaire garde des comptes d'extension occupés",
           "text": "Quand une extension est supprimée, Meshloom nettoie ce que son compte a laissé dans les dossiers temporaires avant de confier ce compte à une autre extension. Il n'a pas pu regarder dans ces dossiers, donc les comptes restent occupés (rien n'est perdu, c'est une règle de sécurité) :",
-          "fix": "Sur le serveur, supprimez ces dossiers ou rendez-les lisibles (chmod o+r), puis redémarrez Meshloom."
+          "fix": "Sur le serveur, supprimez ces dossiers ou rendez-les lisibles (chmod o+r), puis redémarrez Meshloom.",
+          "leaseFix": "Un chemin dans .meshloom-plugin-uids est une réservation : un autre Meshloom de cette machine (un autre conteneur, par exemple) tient ce compte, donc celui-ci n'y touche pas. Supprimez ce fichier seulement si plus aucun autre Meshloom ne tourne ici, puis redémarrez Meshloom. Un fichier dont le dossier n'appartient pas à Meshloom, ou que d'autres peuvent modifier, doit aussi être supprimé."
         }
       },
       "disabled": {
@@ -243,6 +244,7 @@
     "instance_cap_reached": "Trop d'extensions tournent. Désactivez-en une d'abord.",
     "instance_not_running": "Cette extension ne tourne pas.",
     "uid_exhausted": "Plus aucun identifiant système libre pour une nouvelle extension. Désinstallez des extensions inutilisées puis réessayez.",
+    "uid_leased": "Le compte système de cette extension est tenu par un autre Meshloom de cette machine. Voir Réglages → Extensions.",
     "quota_invalid": "Une limite d'envoi est hors plage. Elle ne peut que baisser.",
     "scope_invalid": "La sélection de conversations n'est pas valide.",
     "secret_required": "Une valeur secrète est manquante.",

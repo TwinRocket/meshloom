@@ -1454,16 +1454,24 @@ class PluginManager:
         backend = isolation.current().backend
         if not backend.per_instance_uid:
             return backend
-        from app.plugins.isolation import setuid
         from app.repository.plugins import PluginUidError, PluginUidRepository
 
         try:
+            # `uid_available` also takes the uid's host-wide lease (MSHL-357), and
+            # `claim_uid` holds it again for a stored uid: another Meshloom on this
+            # kernel never gets it while this install keeps it.
             uid = await PluginUidRepository.allocate(
-                instance_id, setuid.INSTANCE_UIDS, setuid.uid_is_free
+                instance_id, backend.uid_candidates(), backend.uid_available
             )
+            await asyncio.to_thread(backend.claim_uid, uid)
         except PluginUidError:
             raise PluginHostError(
                 "uid_exhausted", "no free uid left for a plugin instance"
+            ) from None
+        except ValueError as exc:  # `UidLeaseError`: refused, or not checkable
+            logger.warning("Plugin uid of %s refused: %s", instance_id, exc)
+            raise PluginHostError(
+                "uid_leased", "the plugin uid is held by another Meshloom on this machine"
             ) from None
         return backend.for_uid(uid)
 
@@ -1484,6 +1492,7 @@ class PluginManager:
             logger.warning("Plugin uid %s of %s kept: purge failed: %s", uid, instance_id, error)
             return False
         await PluginUidRepository.release(instance_id)
+        await asyncio.to_thread(backend.release_uid, uid)
         return True
 
     async def _purge(self, backend: isolation.IsolationBackend, uid: int) -> Exception | None:
@@ -1526,6 +1535,13 @@ class PluginManager:
         from app.plugins.isolation import setuid
         from app.repository.plugins import PluginUidRepository
 
+        # The lease directories exist before any child runs (a plugin cannot plant them).
+        # One that is not this server's fails closed: every claim and purge below
+        # then refuses, and health names it.
+        try:
+            await asyncio.to_thread(backend.prepare_uid_leases)
+        except ValueError as exc:
+            logger.warning("Plugin uid leases not usable: %s", exc)
         running = {i for i, instance in self._instances.items() if instance.active}
         orphans = await PluginUidRepository.orphans()
         for instance_id, uid in orphans.items():
@@ -1538,13 +1554,29 @@ class PluginManager:
         }
         # The account's own uid: every instance ran under it before MSHL-339.
         legacy = getattr(backend, "uid", None)
+        refused: set[int] = set()
+        for uid in sorted(kept):
+            # Hold the lease of every uid this install keeps (written again after a
+            # crash or a cleared temp dir); another install's lease keeps it blocked.
+            try:
+                await asyncio.to_thread(backend.claim_uid, uid)
+            except ValueError as exc:
+                logger.warning("Plugin uid %s: lease refused: %s", uid, exc)
+                self._set_purge_blocked(uid, getattr(exc, "paths", ()))
+                refused.add(uid)
         for uid in sorted(kept | ({legacy} if legacy else set())):
+            if uid in refused:
+                continue
             if not await asyncio.to_thread(setuid.owns_something, uid):
                 self._set_purge_blocked(uid, ())
-                continue
-            error = await self._purge(backend, uid)
-            if error is not None:
-                logger.warning("Plugin uid %s: leftover files not removed: %s", uid, error)
+            else:
+                error = await self._purge(backend, uid)
+                if error is not None:
+                    logger.warning("Plugin uid %s: leftover files not removed: %s", uid, error)
+                    continue
+            if uid == legacy and uid not in kept:
+                # No row holds the account's uid: its lease (taken by the purge) goes.
+                await asyncio.to_thread(backend.release_uid, uid)
 
     async def start_all(self) -> None:
         """Start every enabled instance not held by a sticky status, staggered."""

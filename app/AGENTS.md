@@ -153,7 +153,10 @@ and the OpenAPI page (`/docs`), not a table here.
   the uid may enter but not list, then `owns_something` re-checks; MSHL-347; it restores owner
   rwx on the uid's own dirs before removing them and skips only `0711` work dirs of other plugin
   uids, the account's uid read from passwd at runtime; MSHL-348/349; the dirs that block a
-purge go to health `plugins_purge_blocked`, admins only). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
+  `uid_lease.py`, MSHL-357: allocation, purge and startup take the uid's lease in each
+  shared temp dir, another install's lease skips the uid or blocks its purge, start
+  refused `uid_leased`; see docs/dev/plugins-security.md). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). The child's own kernel guards
   (dropped capabilities, a seccomp filter refusing clone/fork/exec, required for
   a root child) are `meshloom_plugin/seccomp.py`. Stdlib only, so
