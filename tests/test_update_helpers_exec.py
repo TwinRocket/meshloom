@@ -854,7 +854,7 @@ def test_entrypoint_drops_to_requested_uid(entry) -> None:
     calls = log.read_text().splitlines()
     assert calls[-1].startswith(
         "setpriv --reuid=10001 --regid=10001 --clear-groups"
-        " --inh-caps=-all,+kill,+setgid,+setuid --ambient-caps=+kill,+setgid,+setuid -- "
+        " --inh-caps=-all,+setgid,+setuid --ambient-caps=+setgid,+setuid -- "
     )
 
 

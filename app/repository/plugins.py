@@ -27,7 +27,7 @@ import json
 import time
 import unicodedata
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal
 
 import aiosqlite
@@ -529,6 +529,72 @@ class PluginSendQuotaRepository:
             await conn.execute(
                 "DELETE FROM plugin_send_quota WHERE instance_id = ?", (instance_id,)
             )
+
+
+class PluginUidError(Exception):
+    """No uid of the range is free."""
+
+
+class PluginUidRepository:
+    """The uid each instance runs under at the ``setuid`` level (migration 121).
+
+    Allocated once and kept: the same instance gets the same uid at every start.
+    Released only after a purge as that uid (``PluginManager.remove``), so a row
+    may outlive its instance until startup purges it."""
+
+    @staticmethod
+    async def get(instance_id: str) -> int | None:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT uid FROM plugin_uids WHERE instance_id = ?", (instance_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+        return int(row[0]) if row else None
+
+    @staticmethod
+    async def all() -> dict[str, int]:
+        async with db.readonly() as conn:
+            async with conn.execute("SELECT instance_id, uid FROM plugin_uids") as cursor:
+                return {row[0]: int(row[1]) for row in await cursor.fetchall()}
+
+    @staticmethod
+    async def orphans() -> dict[str, int]:
+        """The rows whose instance is gone."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT instance_id, uid FROM plugin_uids"
+                " WHERE instance_id NOT IN (SELECT instance_id FROM plugins)"
+            ) as cursor:
+                return {row[0]: int(row[1]) for row in await cursor.fetchall()}
+
+    @staticmethod
+    async def allocate(
+        instance_id: str, candidates: Iterable[int], is_free: Callable[[int], bool]
+    ) -> int:
+        """The instance's uid: the stored one, else the lowest free candidate no row
+        holds. Raises ``PluginUidError`` when none is left."""
+        async with db.tx() as conn:
+            async with conn.execute(
+                "SELECT uid FROM plugin_uids WHERE instance_id = ?", (instance_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is not None:
+                return int(row[0])
+            async with conn.execute("SELECT uid FROM plugin_uids") as cursor:
+                taken = {int(r[0]) for r in await cursor.fetchall()}
+            for uid in candidates:
+                if uid not in taken and is_free(uid):
+                    await conn.execute(
+                        "INSERT INTO plugin_uids (instance_id, uid, allocated_at) VALUES (?, ?, ?)",
+                        (instance_id, uid, int(time.time())),
+                    )
+                    return uid
+        raise PluginUidError("no free plugin uid left")
+
+    @staticmethod
+    async def release(instance_id: str) -> None:
+        async with db.tx() as conn:
+            await conn.execute("DELETE FROM plugin_uids WHERE instance_id = ?", (instance_id,))
 
 
 # `plugin_send_guard.subject` of the per-instance scopes is `<instance_id>|<what>`.

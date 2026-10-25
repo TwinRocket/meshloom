@@ -101,7 +101,7 @@ def _getpwnam(entry: pwd.struct_passwd | None):
             0,
         ),
         (
-            "Docker MESHLOOM_RUN_AS_USER, CAP_SETUID, CAP_SETGID and CAP_KILL ambient",
+            "Docker MESHLOOM_RUN_AS_USER, CAP_SETUID and CAP_SETGID ambient (no CAP_KILL)",
             "linux",
             10001,
             _pw(999, 999),
@@ -109,7 +109,7 @@ def _getpwnam(entry: pwd.struct_passwd | None):
             "bwrap self-test failed: No permissions to create new namespace",
             "setuid",
             0,
-            0xE0,
+            0xC0,
         ),
         (
             "capabilities but no account",
@@ -120,10 +120,21 @@ def _getpwnam(entry: pwd.struct_passwd | None):
             None,
             "none",
             2,
-            0xE0,
+            0xC0,
         ),
         ("only CAP_SETUID", "linux", 10001, _pw(999, 999), None, None, "none", 1, 0x80),
-        ("no CAP_KILL", "linux", 10001, _pw(999, 999), None, None, "none", 1, 0xC0),
+        ("only CAP_SETGID", "linux", 10001, _pw(999, 999), None, None, "none", 1, 0x40),
+        (
+            "CAP_KILL is not needed nor enough",
+            "linux",
+            10001,
+            _pw(999, 999),
+            None,
+            None,
+            "none",
+            1,
+            0x60,
+        ),
         ("macOS source", "darwin", 501, None, "/opt/homebrew/bin/bwrap", None, "none", 1, 0),
     ],
 )
@@ -411,7 +422,8 @@ def test_sigkill_of_the_group_leaves_no_process(level: str) -> None:
         # the kill is not taken for a survivor.
         tree = {pid: _identity(pid) for pid in _descendants(proc.pid)}
         assert len(tree) >= 2, tree
-        os.killpg(proc.pid, signal.SIGKILL)
+        # Through the backend: without CAP_KILL, setuid signals from a helper.
+        backend.signal_group(proc.pid, signal.SIGKILL, wait=True)
         proc.wait(timeout=10)
         deadline = time.monotonic() + 10
         while any(_alive(p, i) for p, i in tree.items()) and time.monotonic() < deadline:
@@ -461,3 +473,183 @@ def test_setuid_opens_plugin_dirs_created_after_startup(tmp_path: Path) -> None:
     assert _mode(data) == 0o711
     assert _mode(data / "plugins") == _mode(data / "plugins" / "local") == 0o755
     assert _mode(code) == 0o755 and _mode(code / "plugin.py") == 0o644
+
+
+# --- per-instance uids, the kill and purge helpers (MSHL-339) ----------------------
+
+
+def test_instance_uids_skip_accounts_groups_root_and_the_server(monkeypatch) -> None:
+    from app.plugins.isolation import setuid as setuid_module
+
+    taken_users = {40000}
+    taken_groups = {40001}
+
+    def getpwuid(uid: int):
+        if uid in taken_users:
+            return _pw(uid, uid)
+        raise KeyError(uid)
+
+    def getgrgid(gid: int):
+        if gid in taken_groups:
+            return object()
+        raise KeyError(gid)
+
+    monkeypatch.setattr(setuid_module.pwd, "getpwuid", getpwuid)
+    monkeypatch.setattr(setuid_module.grp, "getgrgid", getgrgid)
+    monkeypatch.setattr(setuid_module.os, "getuid", lambda: 40003)
+    monkeypatch.setattr(setuid_module.os, "geteuid", lambda: 40003)
+    free = [uid for uid in range(40000, 40006) if setuid_module.uid_is_free(uid)]
+    assert free == [40002, 40004, 40005]
+    assert not setuid_module.uid_is_free(0)
+    assert not setuid_module.uid_is_free(setuid_module.ACCOUNT_UID)
+    uids = setuid_module.INSTANCE_UIDS
+    assert uids.start > setuid_module.ACCOUNT_UID and uids.stop <= 65536
+
+
+def test_for_uid_binds_uid_and_gid_and_keeps_the_data_dir(tmp_path: Path) -> None:
+    base = SetuidBackend(10002, 10002)
+    base.data_dir = tmp_path
+    bound = base.for_uid(40007)
+    assert (bound.uid, bound.gid, bound.data_dir) == (40007, 40007, tmp_path)
+    assert bound.popen_kwargs(tmp_path)["user"] == 40007
+    assert base.per_instance_uid and not NoneBackend().per_instance_uid
+    assert NoneBackend().for_uid(40007) is not None
+
+
+def test_non_root_setuid_signals_through_the_helper_never_killpg(monkeypatch) -> None:
+    from app.plugins.isolation import setuid as setuid_module
+
+    calls: list[tuple[str, ...]] = []
+    backend = SetuidBackend(40010, 40010)
+    monkeypatch.setattr(setuid_module.os, "geteuid", lambda: 10001)
+    monkeypatch.setattr(backend, "_helper", lambda op, *args: calls.append((op, *args)))
+
+    def no_killpg(*_args):
+        raise AssertionError("a server without CAP_KILL cannot killpg another uid")
+
+    monkeypatch.setattr(setuid_module.os, "killpg", no_killpg)
+    backend.signal_group(1234, signal.SIGTERM, wait=True)
+    assert calls == [("kill", "1234", str(int(signal.SIGTERM)))]
+
+
+def test_root_setuid_signals_directly(monkeypatch) -> None:
+    import app.plugins.isolation.base as base_module
+    from app.plugins.isolation import setuid as setuid_module
+
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr(setuid_module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(base_module.os, "killpg", lambda pgid, sig: sent.append((pgid, sig)))
+    SetuidBackend(40010, 40010).signal_group(1234, signal.SIGKILL)
+    assert sent == [(1234, signal.SIGKILL)]
+
+
+def test_the_helper_never_runs_as_the_server_or_root(monkeypatch) -> None:
+    from app.plugins.isolation import setuid as setuid_module
+
+    monkeypatch.setattr(setuid_module.os, "getuid", lambda: 10001)
+    monkeypatch.setattr(setuid_module.os, "geteuid", lambda: 10001)
+    monkeypatch.setattr(
+        setuid_module.subprocess, "run", lambda *a, **k: pytest.fail("helper started")
+    )
+    with pytest.raises(ValueError):
+        SetuidBackend(10001, 10001).purge([Path("/tmp")])
+
+
+def test_owns_something_looks_only_at_the_top_of_each_dir(tmp_path: Path) -> None:
+    from app.plugins.isolation.setuid import owns_something
+
+    nested = tmp_path / "a" / "b"
+    nested.mkdir(parents=True)
+    mine = os.getuid()
+    assert owns_something(mine, [tmp_path])
+    assert not owns_something(mine, [nested])
+    assert not owns_something(mine + 1, [tmp_path])
+    assert not owns_something(mine, [tmp_path / "missing"])
+
+
+def _free_instance_uids(count: int) -> list[int]:
+    from app.plugins.isolation.setuid import INSTANCE_UIDS, uid_is_free
+
+    found = [uid for uid in INSTANCE_UIDS[-200:] if uid_is_free(uid)][:count]
+    assert len(found) == count
+    return found
+
+
+@pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
+def test_two_instance_uids_cannot_read_or_signal_each_other() -> None:
+    base = _backend("setuid")
+    first, second = (base.for_uid(uid) for uid in _free_instance_uids(2))
+    plugin_dir = shared_tmp_dir("meshloom-uid-plugin-")
+    work = first.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-plugin-")))
+    other = second.prepare_work_dir(Path(tempfile.mkdtemp(prefix="meshloom-plugin-")))
+    try:
+        assert os.lstat(work).st_uid == first.uid
+        sleeper = first.spawn(
+            [sys.executable, "-I", "-S", "-c", "import time; time.sleep(60)"],
+            plugin_dir,
+            work,
+            stdin=subprocess.DEVNULL,
+        )
+        try:
+            probe = (
+                "import os, sys\n"
+                "work, pid = sys.argv[1], int(sys.argv[2])\n"
+                "out = []\n"
+                "try:\n    os.listdir(work); out.append('listed')\n"
+                "except PermissionError:\n    out.append('denied')\n"
+                "try:\n    os.kill(pid, 0); out.append('signalled')\n"
+                "except PermissionError:\n    out.append('denied')\n"
+                "print(os.getuid(), *out)\n"
+            )
+            proc = second.spawn(
+                [sys.executable, "-I", "-S", "-c", probe, str(work), str(sleeper.pid)],
+                plugin_dir,
+                other,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+            )
+            out, _ = proc.communicate(timeout=30)
+            assert out.decode().split() == [str(second.uid), "denied", "denied"]
+            first.signal_group(sleeper.pid, signal.SIGKILL, wait=True)
+            assert sleeper.wait(timeout=10) == -signal.SIGKILL
+        finally:
+            if sleeper.poll() is None:
+                sleeper.kill()
+                sleeper.wait()
+    finally:
+        first.remove_work_dir(work)
+        second.remove_work_dir(other)
+    assert not work.exists() and not other.exists()
+
+
+@pytest.mark.skipif(not LINUX, reason="the dedicated uid is Linux only")
+def test_purge_removes_only_what_the_instance_uid_left() -> None:
+    base = _backend("setuid")
+    mine, theirs = (base.for_uid(uid) for uid in _free_instance_uids(2))
+    shared = shared_tmp_dir("meshloom-purge-")
+    os.chmod(shared, 0o1777)
+    plugin_dir = shared_tmp_dir("meshloom-purge-plugin-")
+    leave = (
+        "import os, sys\n"
+        "d = os.path.join(sys.argv[1], 'dir-' + str(os.getuid()))\n"
+        + "os.mkdir(d); open(os.path.join(d, 'f'), 'w').close()\n"
+        "open(os.path.join(sys.argv[1], 'file-' + str(os.getuid())), 'w').close()\n"
+    )
+    try:
+        for backend in (mine, theirs):
+            proc = backend.spawn(
+                [sys.executable, "-I", "-S", "-c", leave, str(shared)],
+                plugin_dir,
+                shared,
+                stdin=subprocess.DEVNULL,
+            )
+            assert proc.wait(timeout=30) == 0
+        mine.purge([shared])
+        left = sorted(p.name for p in shared.iterdir())
+        assert left == [f"dir-{theirs.uid}", f"file-{theirs.uid}"]
+        theirs.purge([shared])
+        assert list(shared.iterdir()) == []
+    finally:
+        import shutil
+
+        shutil.rmtree(shared, ignore_errors=True)

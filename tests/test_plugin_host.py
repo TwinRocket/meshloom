@@ -211,12 +211,14 @@ def pid_gone(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return True
+    except PermissionError:  # alive under another uid (setuid level, no CAP_KILL)
+        return False
     return False
 
 
 @pytest.fixture
 def tmp_path(tmp_path: Path):
-    """Where the selected level is setuid (root, or CAP_SETUID, CAP_SETGID and CAP_KILL), the
+    """Where the selected level is setuid (root, or CAP_SETUID and CAP_SETGID), the
     plugin uid cannot traverse pytest's 0700 base temp dir: the runner would refuse
     `plugin_dir` (MSHL-324). Those get a traversable directory instead."""
     if "setuid" not in available_backends():
@@ -354,7 +356,8 @@ async def test_a_child_killed_from_outside_restarts_with_backoff(manager, tmp_pa
     pid = instance.pid
     assert pid is not None
 
-    os.kill(pid, signal.SIGKILL)
+    # Through the backend: a non-root server holds no CAP_KILL (MSHL-339).
+    instance.backend.signal_group(pid, signal.SIGKILL, wait=True)
     await wait_until(lambda: instance.status == "error", what="error")
     assert instance.last_error == "killed: killed by SIGKILL"
     await wait_until(lambda: instance.status == "running" and instance.pid != pid)

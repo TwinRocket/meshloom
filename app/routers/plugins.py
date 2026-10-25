@@ -1110,7 +1110,7 @@ async def delete_plugin(
 
 async def _delete(row: dict[str, Any], keep_data: bool) -> None:
     instance_id = row["instance_id"]
-    await plugin_manager.remove(instance_id)
+    await plugin_manager.remove(instance_id, purge=True)
     await PluginRepository.delete(instance_id, keep_data=keep_data)
     if row["kind"] == "local":
         shutil.rmtree(

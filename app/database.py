@@ -376,6 +376,12 @@ CREATE TABLE IF NOT EXISTS plugin_send_limits (
     value INTEGER NOT NULL CHECK (value >= 1)
 );
 
+CREATE TABLE IF NOT EXISTS plugin_uids (
+    instance_id TEXT PRIMARY KEY,
+    uid INTEGER NOT NULL UNIQUE CHECK (uid > 0),
+    allocated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS api_tokens (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,

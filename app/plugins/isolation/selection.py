@@ -3,7 +3,7 @@
 | Server | Backend |
 |---|---|
 | Linux, root, `meshloom-plugin` exists | `setuid` |
-| Linux, not root but `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` effective (Docker with `MESHLOOM_RUN_AS_USER`), `meshloom-plugin` exists | `setuid` |
+| Linux, not root but `CAP_SETUID` and `CAP_SETGID` effective (Docker with `MESHLOOM_RUN_AS_USER`), `meshloom-plugin` exists | `setuid` |
 | Linux, root, no such account | `bwrap` if its self-test passes, else `none` |
 | Linux, not root without those capabilities (deb/rpm, RPi image, source) | `bwrap` if its self-test passes, else `none` |
 | not Linux (macOS: development only) | `none` |
@@ -51,7 +51,6 @@ def _account(getpwnam: Callable[[str], pwd.struct_passwd]) -> tuple[int, int] | 
     return entry.pw_uid, entry.pw_gid
 
 
-CAP_KILL = 5
 CAP_SETGID = 6
 CAP_SETUID = 7
 
@@ -69,9 +68,9 @@ def effective_capabilities(status_path: str = "/proc/self/status") -> int:
 
 
 def can_switch_uid(caps: int) -> bool:
-    """Enough to run children under another uid and supervise them: switch to it,
-    and signal it (killpg of another uid needs `CAP_KILL`)."""
-    return all(caps >> bit & 1 for bit in (CAP_SETUID, CAP_SETGID, CAP_KILL))
+    """Enough to run children under other uids. No `CAP_KILL`: a helper running as
+    the instance uid signals its children (`SetuidBackend.signal_group`)."""
+    return all(caps >> bit & 1 for bit in (CAP_SETUID, CAP_SETGID))
 
 
 def detect(
@@ -97,7 +96,7 @@ def detect(
         if account is not None and account[0] != geteuid():
             return Selection(SetuidBackend(*account))
         fallbacks.append(
-            f"CAP_SETUID, CAP_SETGID and CAP_KILL held but the account {ACCOUNT} does not exist "
+            f"CAP_SETUID and CAP_SETGID held but the account {ACCOUNT} does not exist "
             "or is the server's own"
         )
     path = which("bwrap")

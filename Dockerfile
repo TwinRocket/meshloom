@@ -108,13 +108,14 @@ COPY --from=frontend-builder /build/dist ./frontend/dist
 # Create data directory for SQLite database
 RUN mkdir -p /app/data
 
-# The account plugin children drop to when the server runs as root (the default
-# here and in the Home Assistant add-on): app/plugins/isolation/setuid.py. No
-# shell, no home, no password; Docker's seccomp profile refuses the user
-# namespaces bubblewrap needs, so this is the isolation of the image.
-# uid/gid pinned to 10002 (next to MESHLOOM_RUN_AS_USER's 10001): Docker does not
-# remap users, so this is that uid on the host too, and the first system uid
-# (999) is often a real host account. An existing account is kept as it is.
+# The account that turns on the dedicated-uid isolation when it exists (root, the
+# default here and in the Home Assistant add-on, or MESHLOOM_RUN_AS_USER):
+# app/plugins/isolation/setuid.py. Each plugin instance then runs under a uid of
+# its own from 40000-49999 (no account needed), never under this one. No shell,
+# no home, no password; Docker's seccomp profile refuses the user namespaces
+# bubblewrap needs, so this is the isolation of the image. uid/gid pinned to
+# 10002 (next to MESHLOOM_RUN_AS_USER's 10001): Docker does not remap users, so
+# it is that uid on the host too. An existing account is kept as it is.
 ARG PLUGIN_UID=10002
 RUN if ! getent passwd meshloom-plugin >/dev/null; then \
         getent group meshloom-plugin >/dev/null \

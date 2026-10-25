@@ -27,7 +27,7 @@ LINUX = sys.platform.startswith("linux")
 @cache
 def available_backends() -> dict[str, IsolationBackend]:
     """`none` always, `bwrap` when its self-test passes, `setuid` with the account as
-    root or with `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` (the image's `MESHLOOM_RUN_AS_USER`)."""
+    root or with `CAP_SETUID` and `CAP_SETGID` (the image's `MESHLOOM_RUN_AS_USER`)."""
     backends: dict[str, IsolationBackend] = {"none": NoneBackend()}
     if not LINUX:
         return backends
