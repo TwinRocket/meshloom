@@ -54,6 +54,7 @@ import grp
 import logging
 import os
 import pwd
+import re
 import stat
 import subprocess
 import sys
@@ -429,6 +430,7 @@ def uid_is_free(uid: int) -> bool:
         return True
 
 
+_BOX_PREFIX = re.compile(r"^\s*[+|] ?")  # ExceptionGroup traceback box
 _CRASH_LINE_MAX = 300  # Characters shown per crash line, after escaping.
 
 
@@ -564,18 +566,24 @@ class SetuidBackend(IsolationBackend):
             tail = lines[-1] if lines else f"exit {proc.returncode}"
             if op == "purge" and lines:
                 # One line per problem: the first ones (the walk's), then a count.
-                tail = "; ".join(lines[:3]) + (f" (+{len(lines) - 3} more)" if lines[3:] else "")
-            if proc.returncode != 0 and any(line.startswith("Traceback (") for line in lines):
+                tail = "; ".join(_escape_capped(line) for line in lines[:3]) + (
+                    f" (+{len(lines) - 3} more)" if lines[3:] else ""
+                )
+            elif lines:
+                tail = _escape_capped(tail)
+            if proc.returncode != 0 and any("Traceback (" in line for line in lines):
                 # A crash, not a walk report: the first lines are the traceback's header
                 # and frames; the exception is at the end. The helper had no chance to
-                # escape it, so do it here (same rule as the helper's `shown`).
+                # escape it, so do it here (same rule as the helper's `shown`). An
+                # ExceptionGroup traceback is boxed in "+" / "|" prefixes: drop them.
+                unboxed = [_BOX_PREFIX.sub("", line, count=1) for line in lines]
                 final = [
                     line
-                    for line in lines
-                    if line and not line[0].isspace() and not line.startswith("Traceback (")
+                    for line in unboxed
+                    if line.strip(" +-") and not line[0].isspace() and "Traceback (" not in line
                 ][-2:]
-                # No exception line (ExceptionGroup output, a bare "Traceback"): fall
-                # back to the last stderr line that says something, else the exit code.
+                # Still no exception line (a bare "Traceback"): fall back to the last
+                # stderr line that says something, else the exit code.
                 final = final or [line.strip() for line in lines if line.strip()][-1:]
                 tail = (
                     "; ".join(_escape_capped(line) for line in final) or f"exit {proc.returncode}"
