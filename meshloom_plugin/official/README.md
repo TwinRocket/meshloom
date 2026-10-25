@@ -17,5 +17,7 @@ Check one from a source checkout:
 uv run python -m meshloom_plugin.dev check meshloom_plugin/official/echo --origin bundled
 ```
 
-A package's `version` changes only when its files change; `tests/test_official_plugins.py`
+At start, an instance installed from an older version is updated in place to the shipped one
+(`app/plugins/bundled_update.py`; added permissions hold it until the admin accepts, see
+`docs/dev/plugins.md`). A package's `version` changes only when its files change; `tests/test_official_plugins.py`
 checks both packages.

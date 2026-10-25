@@ -606,8 +606,24 @@ Installed ("Add a bundled extension") through `POST /plugins/install` and
 party plugin, no special permission, not listed in any index. The directory is copied
 along with the rest of `meshloom_plugin/` by the Dockerfile and the packages. A package's
 `version` changes only with its files; `install_bundled` is a no-op for the same
-version and replaces `<data>/plugins/<id>/` for another. Nothing yet re-installs an
-existing instance after a Meshloom upgrade (open item). `tests/test_official_plugins.py` runs `dev check` on both
+version and replaces `<data>/plugins/<id>/` for another (the old tree is moved aside
+until the swap succeeds, so a failure keeps it). `app/plugins/bundled_update.py`
+(MSHL-337) re-installs the instances after a Meshloom upgrade: `lifecycle.start()` calls
+`update_bundled()` before `load_from_db()`, so no child runs during the swap. For each
+`kind = bundled` row whose packaged version is newer (PEP 440) it installs the code once
+per plugin, then rewrites `version`, `manifest` and `config_schema`, keeping config,
+secrets, scope, quotas, label and KV. Permissions the new manifest adds or changes
+(`added`) drop their grant and set `needs_attention` / `attention.type =
+review_permissions` (`added`, `from_version`, `to_version`) while `enabled` stays, so the
+admin's usual acceptance (`PATCH` with `granted_permissions`, see "Instances") starts it;
+otherwise grants and status are untouched (a newly required, unset config field switches
+the instance off with `config_required`, like an install). Same or older version: no-op;
+the row carries the new version afterwards, so a second start does nothing. An invalid
+package (`list_bundled` skips it), a failed install or a failed row write is logged and
+the old version stays, startup goes on. Skipped: the host lock (`lifecycle.start()`
+returns first), `reinstall`, `revoked` and `incompatible` rows. Each update writes a
+`plugin.updated` audit row (system actor, versions, `held`); tests:
+`tests/test_bundled_update.py`. `tests/test_official_plugins.py` runs `dev check` on both
 (`--origin bundled`), tests the rules, installs them through the API and runs the
 two-host simulation.
 
