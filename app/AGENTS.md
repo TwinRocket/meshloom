@@ -133,7 +133,10 @@ and the OpenAPI page (`/docs`), not a table here.
   refuses to start the instance with `plugin_code_mismatch` until a later start writes
   the rows), a failure is logged and keeps the old version, nothing under the host lock.
   `installer.sweep_staging()` clears `<data>/plugins/_staging` leftovers at start, before
-  the update, without following symlinks.
+  the update, without following symlinks. `plugins/installer.py` is also the generic
+  install pipeline (MSHL-195: sources, fail-closed download gate, egress-guarded streaming
+  download, size and sha256 checks before extraction, manifest equal to the source's entry,
+  atomic move; `docs/dev/plugins.md`, "Installing").
   `plugins/launch.py` builds the launch contract of the plugin child, which runs
   the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
   `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).

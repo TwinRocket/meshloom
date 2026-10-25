@@ -283,12 +283,22 @@ async def test_install_unknown_bundled_plugin_is_404(api, manager):
     assert response.status_code == 404 and code_of(response) == "plugin_not_bundled"
 
 
-async def test_install_only_accepts_the_bundled_kind(api, manager):
+async def test_install_of_a_kind_without_a_source_is_unavailable(api, manager):
+    """No resolver is registered for ``store`` or ``custom`` here (MSHL-195): nothing to
+    download from, nothing installed. Unknown kinds stay a validation error."""
+    for kind in ("store", "custom"):
+        response = await api.post(
+            "/api/plugins/install",
+            json={"kind": kind, "plugin_id": "meshloom.echo", "granted_permissions": ECHO_GRANT},
+        )
+        assert response.status_code == 404
+        assert code_of(response) == "plugin_source_unavailable"
     response = await api.post(
         "/api/plugins/install",
-        json={"kind": "store", "plugin_id": "meshloom.echo", "granted_permissions": ECHO_GRANT},
+        json={"kind": "local", "plugin_id": "meshloom.echo", "granted_permissions": ECHO_GRANT},
     )
     assert response.status_code == 422
+    assert await PluginRepository.get_all() == []
 
 
 async def test_install_missing_required_config_needs_attention_and_does_not_start(
@@ -1136,7 +1146,7 @@ async def test_bundled_install_names_the_supervisor_network(api, manager, monkey
             [PluginIssue(issue, "permissions.http.lan_hosts.0", "172.30.32.2")]
         )
 
-    monkeypatch.setattr(installer, "install_bundled", refuse)
+    monkeypatch.setattr(installer, "_stage", refuse)
     body = {"kind": "bundled", "plugin_id": "meshloom.echo", "granted_permissions": ECHO_GRANT}
     refused = await api.post("/api/plugins/install", json=body)
     assert refused.status_code == 400 and code_of(refused) == code
