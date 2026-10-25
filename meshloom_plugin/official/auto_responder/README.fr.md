@@ -11,7 +11,7 @@ Répond aux messages avec des réponses écrites sous forme de règles simples. 
 Une règle par ligne dans **Règles** :
 
 ```
-déclencheur[,option=valeur]: texte à chercher => réponse
+déclencheur[,option=valeur]: texte à chercher => réponse   (une espace de chaque côté de =>)
 ```
 
 | Déclencheur | La règle s'applique quand... |

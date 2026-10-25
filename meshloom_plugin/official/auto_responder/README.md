@@ -11,7 +11,7 @@ Answers messages with replies you write as simple rules. No code.
 One rule per line in **Rules**:
 
 ```
-trigger[,option=value]: text to look for => reply
+trigger[,option=value]: text to look for => reply   (a space on each side of =>)
 ```
 
 | Trigger | The rule applies when... |

@@ -27,14 +27,11 @@ HOUR = 3600
 STORAGE_KEY = "sent"
 MAX_TRACKED_SENDERS = 2000
 
-_RULE = re.compile(
-    r"\s*(?P<trigger>keyword|prefix|regex)(?P<options>(?:\s*,\s*[a-z]+=[^,:]+)*)"
-    r"\s*:\s*(?P<text>.+?)\s+=>\s+(?P<reply>.+?)\s*",
-    re.DOTALL,
-)
-# A group that repeats and is itself repeated, or a back-reference: the classic ways
-# to a catastrophic pattern. Refused outright instead of being run to find out.
-_NESTED = re.compile(r"\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*(?:[+*]|\{\d*,\d*\})")
+# The head of a rule, up to the colon. No nested or overlapping repeats (it runs on
+# user text); the rest of the line is split on the first " => " with `str.partition`.
+_HEAD = re.compile(r" ?(keyword|prefix|regex)((?: ?, ?[a-z]+=[^,:\s]+)*) ?: ?")
+# A back-reference, and a group that repeats and is repeated (`_repeats_a_repeat`): the
+# classic ways to a catastrophic pattern. Refused outright instead of being run to find out.
 _BACKREF = re.compile(r"\\[1-9]|\(\?P=")
 
 _STATUS = {
@@ -87,10 +84,43 @@ def _channel_key(name: str | None) -> str:
     return (name or "").strip().lstrip("#").casefold()
 
 
+_RANGE_REPEAT = re.compile(r"\{\d*,\d*\}")
+
+
+def _repeats_a_repeat(source: str) -> bool:
+    """True when a group that contains a repeat is itself repeated: `(a+)+`, `(x*y)*`,
+    `(.*a){5,}`. One left-to-right scan: a regex for this would be a ReDoS itself."""
+    stack: list[bool] = []  # per open group: does it contain a repeat yet
+    in_class = False
+    i = 0
+    while i < len(source):
+        c = source[i]
+        if c == "\\":
+            i += 2
+            continue
+        if in_class:
+            in_class = c != "]"
+        elif c == "[":
+            in_class = True
+        elif c == "(":
+            stack.append(False)
+        elif c in "+*" or (c == "{" and _RANGE_REPEAT.match(source, i)):
+            if stack:
+                stack[-1] = True
+        elif c == ")" and stack:
+            inner = stack.pop()
+            if inner and source[i + 1 : i + 2] in ("+", "*", "{"):
+                return True
+            if inner and stack:
+                stack[-1] = True
+        i += 1
+    return False
+
+
 def compile_pattern(source: str, *, case_sensitive: bool) -> "re.Pattern[str]":
     if len(source) > MAX_REGEX_LENGTH:
         raise RuleError(f"a regex is {MAX_REGEX_LENGTH} characters at most")
-    if _NESTED.search(source) or _BACKREF.search(source):
+    if _repeats_a_repeat(source) or _BACKREF.search(source):
         raise RuleError("a regex may not repeat a group that repeats, nor use a back-reference")
     started = time.perf_counter()
     try:
@@ -103,12 +133,16 @@ def compile_pattern(source: str, *, case_sensitive: bool) -> "re.Pattern[str]":
 
 
 def parse_rule(line: str, *, default_cooldown: int, case_sensitive: bool = False) -> Rule:
-    found = _RULE.fullmatch(line)
-    if found is None:
+    head = _HEAD.match(line.strip())
+    if head is None:
+        raise RuleError("expected 'trigger: text => reply'")
+    text, arrow, reply = line.strip()[head.end() :].partition(" => ")
+    text, reply = text.strip(), reply.strip()
+    if not arrow or not text or not reply:
         raise RuleError("expected 'trigger: text => reply'")
     channel: str | None = None
     cooldown = default_cooldown
-    for option in filter(None, (o.strip() for o in found["options"].split(","))):
+    for option in filter(None, (o.strip() for o in head[2].split(","))):
         name, _, value = option.partition("=")
         value = value.strip()
         if name.strip() == "channel":
@@ -121,13 +155,10 @@ def parse_rule(line: str, *, default_cooldown: int, case_sensitive: bool = False
             cooldown = int(value)
         else:
             raise RuleError(f"unknown option '{name.strip()}'")
-    text = found["text"].strip()
     pattern = None
-    if found["trigger"] == "regex":
+    if head[1] == "regex":
         pattern = compile_pattern(text, case_sensitive=case_sensitive)
-    return Rule(
-        found["trigger"], text, found["reply"].strip(), channel, cooldown, case_sensitive, pattern
-    )
+    return Rule(head[1], text, reply, channel, cooldown, case_sensitive, pattern)
 
 
 def parse_rules(
