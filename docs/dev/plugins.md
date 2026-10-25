@@ -7,8 +7,9 @@ UI, the global pause, and the conversion of the 4.18 bots** (MSHL-175 to MSHL-19
 MSHL-216, MSHL-337, MSHL-339; isolation: `docs/dev/plugins-security.md`, "OS
 isolation"). The server starts one supervised child per enabled instance, isolated by
 the OS, and answers its requests (see "Capabilities"). Not in 5.0.0: the online Store
-(index, personalised repositories, updates from a store, `app_settings.store_online`
-stays off and unread) and Windows (no plugins). Two bundled packages ship ("Bundled
+(index, personalised repositories, updates from a store; the consent
+`app_settings.store_online`, off by default, and its egress gate exist since MSHL-194, see
+"Store egress" in `app/AGENTS.md`) and Windows (no plugins). Two bundled packages ship ("Bundled
 plugins"). Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
@@ -164,8 +165,8 @@ manifest can produce.
 ## Data model
 
 Migration 103 adds three tables (columns in `docs/dev/database.md`) and
-`app_settings.store_online` (the Store egress consent, off; not in `AppSettings` until
-the Store client reads it). It was additive; migration 122 (MSHL-192) then converted the bots of
+`app_settings.store_online` (the Store egress consent, off; in `AppSettings` and
+`PATCH /api/settings` since MSHL-194, read by `app/plugins/store_egress.py`). It was additive; migration 122 (MSHL-192) then converted the bots of
 `fanout_configs` into local instances (see "Legacy bots"), so no release has bots without
 a runtime.
 

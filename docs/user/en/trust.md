@@ -46,6 +46,7 @@ A few rules prevent most problems:
 - On a shared network (shared house, office, guest network), give accounts only to people you trust, and lock extensions (`MESHCORE_DISABLE_PLUGINS=true`).
 - Remember that the radio's private key is given to the server so it can decrypt direct messages. It is kept in memory only, but an administrator can read it back, through the API and in the full backup. A compromised machine is a compromised machine.
 - The optional short-link service (**Settings > Share: links and files**) is off by default and never contacted until an administrator turns it on. It uses a key of its own, never the radio's, and backups carry neither that key nor the consent: a restore never turns sharing on and always gives a new key (see [Short links](/en/docs/deep/share/)).
+- The online Store (to come) has its own switch, off by default, separate from Community: until an administrator turns it on, Meshloom contacts no Store server, and a backup never carries that choice (see [What leaves your instance](/en/docs/deep/plugins/#what-leaves-your-instance)).
 - If you turn on **Settings > Proxy** to share your radio with other apps, know that it has no login at all: accounts do not cover it, and anyone who can reach its port (5051 by default) can use your radio and send as your node. That is a decision, because the apps that speak this protocol cannot sign in. Keep that port inside your network.
 - Treat channels for what they are. The key is the only access: giving it to someone lets them read and write there.
 

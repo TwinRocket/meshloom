@@ -1557,6 +1557,7 @@ _CONSENT_FIELDS = {
     "share_effective",
     "share_terms_version",
     "share_terms_accepted_at",
+    "store_online",
 }
 
 
@@ -1759,6 +1760,14 @@ class AppSettings(BaseModel):
     share_terms_accepted_at: int = Field(
         default=0,
         description="Unix time of that acceptance (0 = never). Never restored from a backup",
+    )
+    store_online: bool = Field(
+        default=False,
+        description=(
+            "Instance-level consent to the Store egress (custom GitHub repositories, later "
+            "the signed index on store.meshloom.app). Off: nothing is ever sent for the Store "
+            "and installed plugins keep working. Never restored from a backup"
+        ),
     )
     share_shorten_mode: Literal["auto", "always", "never"] = Field(
         default="auto",
@@ -3425,3 +3434,37 @@ class ShareMetaResponse(BaseModel):
     kind: str
     target_host: str | None = None
     expires_at: int | None = None
+
+
+class StoreStatus(BaseModel):
+    """``GET /api/store/status``: what the Store activation card says. No egress."""
+
+    enabled: bool = Field(
+        description="The Store egress consent (app_settings.store_online). Off by default"
+    )
+    hosts: list[str] = Field(
+        description=(
+            "Every host a Store request may reach: the egress guard allowlist of "
+            "app/plugins/store_egress.py, nothing else"
+        )
+    )
+    sends: list[Literal["ip_address", "user_agent"]] = Field(
+        description=(
+            "What each Store request reveals: the instance's public IP address and the "
+            "User-Agent (with the Meshloom version). No account, key or radio data"
+        )
+    )
+    user_agent: str = Field(description="The User-Agent every Store request carries")
+    refresh_interval_s: int = Field(
+        description=(
+            "Background refresh cadence while enabled and at least one custom or store "
+            "instance is installed"
+        )
+    )
+    missed_when_disabled: list[Literal["updates", "revocation_alerts"]] = Field(
+        description="What the instance does not receive while the Store is off"
+    )
+    refresh_running: bool = Field(description="The background refresh loop is running")
+    last_refresh_at: int | None = Field(
+        description="Unix time of the last background refresh, null when none ran since start"
+    )
