@@ -287,8 +287,10 @@ Community guard.
   The wrapper is shipped at `/opt/meshloom/.venv/bin/meshloom-admin` (`nfpm.yaml.tmpl`)
   and `/usr/local/bin/meshloom-admin` (`Dockerfile`; the add-on is `FROM` that image).
   On the package it must run as root (also linked as `/usr/bin/meshloom-admin`): it parses
-  `/etc/meshloom/meshloom.env` (root:root 0640) as data, never sources it, then drops to
-  `meshloom` with `runuser`. It runs python with `-P` so a local `app/` cannot shadow the
+  `/etc/meshloom/meshloom.env` (root:meshloom 0640) as data, never sources it, and refuses
+  it unless it and its directory are root-owned, not group/world-writable and not a link
+  (skipped with `--db`). It sets a fixed `PATH`, then drops to `meshloom` with `runuser`
+  (`--pty` when stdin, stdout and stderr are terminals). It runs python with `-P` so a local `app/` cannot shadow the
   install. It finds the database the way the service does (that env file, `/config` for the
   add-on, `/app/data`), since `sudo` and `docker exec` do not carry the unit's environment. CI runs `--help` on the unpacked .deb (`nfpm.yml`) and in the image (`docker.yml`).
 - It opens the file itself (`mode=rw`, never created, no schema script, no migration:

@@ -5,8 +5,11 @@
 # One wrapper for every install kind that ships a Python tree:
 #   - deb/rpm and the RPi image: /opt/meshloom/.venv/bin/meshloom-admin, also
 #     linked as /usr/bin/meshloom-admin. Run it with sudo: it reads
-#     /etc/meshloom/meshloom.env (root:root 0640), then drops to the `meshloom`
+#     /etc/meshloom/meshloom.env (root:meshloom 0640, refused unless owned by root
+#     and not group- or world-writable, nor a link), then drops to the `meshloom`
 #     user, which owns the database, so SQLite never leaves root-owned -wal files.
+#     With a terminal on stdin, stdout and stderr, the child gets its own pty
+#     (runuser --pty), so it cannot push input into root's terminal.
 #   - Docker image and Home Assistant add-on: /usr/local/bin/meshloom-admin, run with
 #     `docker compose exec` / `docker exec` (the container user is already right).
 # The project is not pip-installed in the venv (no build backend), so a console
@@ -14,11 +17,16 @@
 #
 # The database path is MESHCORE_DATABASE_PATH when set. Otherwise it is found the
 # way the service finds it, because an interactive shell or `docker exec` does not
-# see the unit's EnvironmentFile or the add-on launcher's environment.
+# see the unit's EnvironmentFile or the add-on launcher's environment. With --db,
+# the environment file is not read at all (the CLI uses the given path).
 #
 # Test hooks (not documented for users): MESHLOOM_APP_DIR, MESHLOOM_PACKAGE_ROOT,
-# MESHLOOM_ENV_FILE, MESHLOOM_EUID, MESHLOOM_RUNUSER.
+# MESHLOOM_ENV_FILE, MESHLOOM_EUID, MESHLOOM_RUNUSER, MESHLOOM_ROOT_UID.
 set -eu
+# Every tool (id, sed, find, runuser, env) comes from the system directories,
+# whatever PATH the caller has (plain `su` keeps the user's).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 PKG_ROOT="${MESHLOOM_PACKAGE_ROOT:-/opt/meshloom}"
 SERVICE_USER=meshloom
@@ -44,20 +52,45 @@ if [ "$APP" = "$PKG_ROOT" ]; then
         echo "meshloom-admin: run it as root: sudo meshloom-admin ..." >&2
         exit 1
     fi
-    if [ -z "${MESHCORE_DATABASE_PATH:-}" ]; then
-        # Read the unit's environment file as data, never `source` it.
+    given_db=
+    for arg in "$@"; do
+        case "$arg" in
+            --db | --db=*) given_db=1 ;;
+        esac
+    done
+    if [ -z "${MESHCORE_DATABASE_PATH:-}" ] && [ -z "$given_db" ]; then
+        # Read the unit's environment file as data, never `source` it, and only
+        # when root owns it and its directory and nobody else can write them.
         env_file="${MESHLOOM_ENV_FILE:-/etc/meshloom/meshloom.env}"
+        root_uid="${MESHLOOM_ROOT_UID:-0}"
         value=
-        if [ -r "$env_file" ]; then
+        if [ -e "$env_file" ] || [ -L "$env_file" ]; then
+            env_dir=$(dirname "$env_file")
+            if [ -L "$env_file" ] || [ ! -f "$env_file" ] \
+                || [ -z "$(find "$env_file" -prune -user "$root_uid" ! -perm -020 ! -perm -002)" ] \
+                || [ -z "$(find "$env_dir" -prune -user "$root_uid" ! -perm -020 ! -perm -002)" ]; then
+                echo "meshloom-admin: refusing $env_file: it must be a regular file owned by root" \
+                    "in a root-owned directory, neither group- nor world-writable" \
+                    "(chown root:meshloom; chmod 0640); or pass --db" >&2
+                exit 1
+            fi
+            if [ ! -r "$env_file" ]; then
+                echo "meshloom-admin: cannot read $env_file; pass --db" >&2
+                exit 1
+            fi
             value=$(sed -n 's/^MESHCORE_DATABASE_PATH=//p' "$env_file" | tail -n 1 | tr -d '"'"'")
-        elif [ -e "$env_file" ]; then
-            echo "meshloom-admin: cannot read $env_file; pass --db or set MESHCORE_DATABASE_PATH" >&2
-            exit 1
         fi
-        MESHCORE_DATABASE_PATH="${value:-/var/lib/meshloom/meshcore.db}"
+        MESHCORE_DATABASE_PATH="$value"
     fi
+    MESHCORE_DATABASE_PATH="${MESHCORE_DATABASE_PATH:-/var/lib/meshloom/meshcore.db}"
     cd /
-    exec "${MESHLOOM_RUNUSER:-runuser}" -u "$SERVICE_USER" -- \
+    pty=
+    if [ -t 0 ] && [ -t 1 ] && [ -t 2 ]; then
+        # Interactive (password prompts): the meshloom child gets a pty of its
+        # own instead of root's terminal, so it cannot inject input (TIOCSTI).
+        pty=--pty
+    fi
+    exec "${MESHLOOM_RUNUSER:-runuser}" ${pty:+"$pty"} -u "$SERVICE_USER" -- \
         env "MESHCORE_DATABASE_PATH=$MESHCORE_DATABASE_PATH" "PYTHONPATH=$APP" \
         "$PYTHON" "$@"
 fi

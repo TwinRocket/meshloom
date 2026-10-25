@@ -274,7 +274,7 @@ Lancez-la avec `sudo` :
 sudo meshloom-admin reset-password alice
 ```
 
-La commande refuse de s’exécuter sans les droits root. En root, elle lit le chemin de la base dans `/etc/meshloom/meshloom.env` (un fichier que seul root peut lire), puis passe à l’utilisateur `meshloom`, qui possède la base : SQLite ne laisse ainsi aucun fichier que le service ne peut pas écrire. La même commande existe sous le nom `/opt/meshloom/.venv/bin/meshloom-admin`.
+La commande refuse de s’exécuter sans les droits root. En root, elle lit le chemin de la base dans `/etc/meshloom/meshloom.env` (un fichier que seul root peut modifier), puis passe à l’utilisateur `meshloom`, qui possède la base : SQLite ne laisse ainsi aucun fichier que le service ne peut pas écrire. La même commande existe sous le nom `/opt/meshloom/.venv/bin/meshloom-admin`.
 
 ### Docker et Docker Compose
 
@@ -322,6 +322,7 @@ La base est `data/meshcore.db` dans ce dossier.
 
 - **`database not found`** : la commande a regardé le mauvais fichier. Donnez-lui le chemin avec `--db /chemin/vers/meshcore.db`, ou définissez `MESHCORE_DATABASE_PATH`.
 - **`run it as root`** (paquet) : ajoutez `sudo` devant.
-- **`cannot read /etc/meshloom/meshloom.env`** : donnez la base avec `--db /chemin/vers/meshcore.db` ou définissez `MESHCORE_DATABASE_PATH`.
+- **`cannot read /etc/meshloom/meshloom.env`** : donnez la base avant la commande : `sudo meshloom-admin --db /chemin/vers/meshcore.db reset-password alice`. Le fichier n’est alors pas lu.
+- **`refusing /etc/meshloom/meshloom.env`** : le fichier, ou son dossier, n’appartient pas à root, peut être modifié par un autre utilisateur, ou est un lien : la commande ne se fie donc pas au chemin de base qu’il contient. Réinstaller le paquet rétablit le propriétaire et les droits (ou `sudo chown root:meshloom /etc/meshloom /etc/meshloom/meshloom.env`, `sudo chmod 0750 /etc/meshloom`, `sudo chmod 0640 /etc/meshloom/meshloom.env`). En attendant, `--db` fonctionne comme ci-dessus.
 - **`cannot read database` ou `cannot open database for writing`** : vous n’êtes pas l’utilisateur propriétaire du fichier. Utilisez `sudo meshloom-admin` (paquet) ou `docker compose exec` (Docker).
 - **`start Meshloom once`** : la base est plus ancienne que le programme. Lancez Meshloom pour qu’il la mette à niveau, puis relancez la commande.
