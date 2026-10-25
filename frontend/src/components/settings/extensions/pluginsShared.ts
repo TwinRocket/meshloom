@@ -63,14 +63,24 @@ export function attentionTextKey(instance: Pick<PluginInstance, 'attention'>): s
 }
 
 /**
- * The text of an instance's `last_error`: a coded error (`plugin_code_mismatch`, ...) is
+ * The bare `last_error` codes the host itself writes (`app/plugins/host.py`). Only these
+ * are translated: any other value, snake_case or not, may come from the plugin and is
+ * shown as written (React escapes it), so a plugin cannot pass its text off as a host
+ * message.
+ */
+export const HOST_LAST_ERROR_CODES: readonly string[] = ['plugin_code_mismatch'];
+
+/**
+ * The text of an instance's `last_error`: a host code (`HOST_LAST_ERROR_CODES`) is
  * translated through `errors.<code>`, anything else is shown as the server wrote it.
  */
 export function lastErrorText(
   t: (key: string, options?: Record<string, unknown>) => string,
   error: string
 ): string {
-  return /^[a-z][a-z0-9_]*$/.test(error) ? t(`errors.${error}`, { defaultValue: error }) : error;
+  return HOST_LAST_ERROR_CODES.includes(error)
+    ? t(`errors.${error}`, { defaultValue: error })
+    : error;
 }
 
 /** The required config fields the instance still lacks (`attention.fields`). */

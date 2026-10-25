@@ -19,6 +19,7 @@ vi.mock('../auth/SessionProvider', async (importOriginal) => {
 import { api, ApiError } from '../api';
 import { SettingsExtensionsSection } from '../components/settings/SettingsExtensionsSection';
 import { MigrationBanner } from '../components/settings/extensions/MigrationBanner';
+import { lastErrorText } from '../components/settings/extensions/pluginsShared';
 import type { BundledPlugin, PluginInstance } from '../components/settings/extensions/pluginsTypes';
 import { capabilitiesFor } from '../auth/capabilities';
 import i18n from '../i18n';
@@ -794,5 +795,23 @@ describe('converted bots notice in the Extensions section', () => {
     );
     await waitFor(() => expect(ack).toHaveBeenCalledOnce());
     await waitFor(() => expect(onHealthRefresh).toHaveBeenCalledOnce());
+  });
+});
+
+describe('lastErrorText', () => {
+  it('translates only the host codes, in English and French; plugin text stays raw', () => {
+    for (const lng of ['en', 'fr']) {
+      const fixed = i18n.getFixedT(lng);
+      const tl = (key: string, options?: Record<string, unknown>) => String(fixed(key, options));
+      const mismatch = lastErrorText(tl, 'plugin_code_mismatch');
+      expect(mismatch).toBe(tl('errors.plugin_code_mismatch'));
+      expect(mismatch).not.toBe('plugin_code_mismatch');
+      // A snake_case string that names another host message is a plugin's: shown as is.
+      expect(lastErrorText(tl, 'plugin_revoked')).toBe('plugin_revoked');
+      expect(lastErrorText(tl, 'plugins_disabled')).toBe('plugins_disabled');
+      expect(lastErrorText(tl, 'crash: exited unexpectedly (code 1)')).toBe(
+        'crash: exited unexpectedly (code 1)'
+      );
+    }
   });
 });
