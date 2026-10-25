@@ -1141,6 +1141,7 @@ export function FeedView({
           type="button"
           size="sm"
           onClick={handleFollowClick}
+          data-above-bottom-nav=""
           className="absolute bottom-3 right-4 shadow-md"
         >
           <ArrowDown className="h-4 w-4" aria-hidden="true" />

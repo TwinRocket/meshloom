@@ -197,6 +197,11 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   acks made while the socket was down (reload the page). Control rows are outside this
   policy: they come from the live packet stream, are kept
   across the reconnect, and are neither reconciled nor emptied by `resetFeedForRefetch()`.
+- **Phone layout.** The two chip groups are single swipeable lines below `md` (wrapped from `md`).
+  The text input is 16 px below `md` (iOS zooms smaller ones). `FeedFacets` sections are
+  `min-w-0` (a `fieldset` otherwise refuses to shrink and pushes the counts out). The Follow
+  button carries `data-above-bottom-nav` so `styles.css` lifts it over the bottom bar. Checklist:
+  `docs/dev/feed.md`.
 - **Display mode** (`#feed?display=1`, the Display button in the header; `feed/feedDisplay.ts`,
   `FeedDisplayBar.tsx`, slice `ca`). A layer over the reader's filters, never an edit:
   `displayFilters(filters)` forces channels only and no node, and `FeedView` evaluates and queries `shown`

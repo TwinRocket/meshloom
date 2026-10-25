@@ -5,6 +5,7 @@ import { Bell, ChevronDown, ChevronLeft, Globe2, Pin, Star, Trash2, VolumeX } fr
 import { ConversationNotifyPanel, type ConversationNotifyTarget } from './ConversationNotifyPanel';
 import { MUTE_DURATIONS } from './ChannelMuteMenu';
 import { cn } from '../lib/utils';
+import { formatClockTime } from '../utils/formatTime';
 
 type Panel = 'main' | 'notify' | 'mute';
 
@@ -105,10 +106,7 @@ export function ConversationOverflowMenu({
   const muteStatus =
     muted && mutedUntil && mutedUntil > openedAt / 1000
       ? t('chatHeader.mutedUntil', {
-          time: new Date(mutedUntil * 1000).toLocaleTimeString(i18n.language, {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
+          time: formatClockTime(mutedUntil, i18n.language),
         })
       : muted
         ? t('chatHeader.mutedIndefinite')

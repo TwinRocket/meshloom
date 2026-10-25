@@ -98,7 +98,7 @@ export const FeedMessageRow = memo(function FeedMessageRow({
       role="listitem"
       tabIndex={readOnly ? undefined : 0}
       data-mention={mentionsUs ? 'true' : undefined}
-      className={`absolute left-0 top-0 w-full cursor-pointer border-b border-border/50 py-2 text-sm hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring${
+      className={`absolute left-0 top-0 w-full cursor-pointer [-webkit-touch-callout:none] border-b border-border/50 py-2 text-sm hover:bg-accent/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring${
         mentionsUs ? ' border-l-2 border-l-primary pl-2' : ''
       }`}
       style={{ transform: `translateY(${offset}px)` }}
