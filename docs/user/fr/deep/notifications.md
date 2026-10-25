@@ -5,9 +5,9 @@ level: deep
 order: 17
 ---
 
-Meshloom peut vous prévenir de ce qu’il entend et de son propre état sans que vous regardiez l’interface : un message privé, une mention, un répéteur qui se tait, la radio qui décroche. Chaque endroit où il envoie est un **canal**. Ce qui va vers quel canal est décidé par un seul tableau de **règles**, commun à toute l’installation.
+Meshloom peut vous prévenir de ce qu’il entend et de son propre état sans que vous regardiez l’interface : un message privé, une mention, un répéteur qui se tait, la radio qui décroche. Chaque endroit où il envoie est un **canal**. Ce qui va vers quel canal est décidé par un seul tableau de **règles**, les valeurs par défaut de l’administrateur pour toute l’installation. Chaque compte peut ensuite ajuster, pour ses seuls appareils Web Push, les événements qui l’atteignent : voir [Vos propres règles](#vos-propres-règles).
 
-Tout se règle dans **Réglages → Notifications** (administrateurs seulement). Rien ici ne demande de variable d’environnement. Ce qui est propre aux navigateurs (HTTPS, l’adresse de contact VAPID, l’abonnement d’un navigateur) est sur [Notifications push](/docs/deep/push/) ; cette page couvre tout le reste.
+Tout se règle dans **Réglages → Notifications** (administrateurs seulement, sauf [Mes notifications](#vos-propres-règles)). Rien ici ne demande de variable d’environnement. Ce qui est propre aux navigateurs (HTTPS, l’adresse de contact VAPID, l’abonnement d’un navigateur) est sur [Notifications push](/docs/deep/push/) ; cette page couvre tout le reste.
 
 Les canaux de notification sont distincts du [fanout](/docs/deep/fanout/), qui transmet chaque message des conversations que vous choisissez à des machines (MQTT, webhooks, SQS). Les notifications s’adressent aux personnes et parlent d’événements.
 
@@ -136,9 +136,22 @@ Les destinations que vous aviez avant l’existence de cette vérification (4.18
 
 ## Le tableau des règles
 
-**Réglages → Notifications → Notifications par défaut** est un tableau : une ligne par événement, regroupée (Messages, Nœuds, Radio, Télémétrie, Meshloom), une colonne par canal (Web Push et les canaux ajoutés ; un canal désactivé est grisé mais garde ses coches) et une colonne **Toujours livrer** qui laisse passer un événement malgré la pause. Cochez une case pour envoyer cet événement à ce canal. La première colonne reste visible quand le tableau défile sur un téléphone. Chaque case a une étiquette : le tableau se parcourt au clavier et au lecteur d’écran. **Nouveau nœud vu** n’a pas de case propre, seulement une sous-ligne par type de nœud (compagnons, répéteurs, capteurs). **Canal modifié** va toujours vers Web Push (verrouillé). **Mentions** a une case **Mots entiers uniquement**. Web Push est activé pour les événements usuels au départ.
+**Réglages → Notifications → Valeurs par défaut pour tous les comptes** est un tableau : une ligne par événement, regroupée (Messages, Nœuds, Radio, Télémétrie, Meshloom), une colonne par canal (Web Push et les canaux ajoutés ; un canal désactivé est grisé mais garde ses coches) et une colonne **Toujours livrer** qui laisse passer un événement malgré la pause. Cochez une case pour envoyer cet événement à ce canal. La première colonne reste visible quand le tableau défile sur un téléphone. Chaque case a une étiquette : le tableau se parcourt au clavier et au lecteur d’écran. **Nouveau nœud vu** n’a pas de case propre, seulement une sous-ligne par type de nœud (compagnons, répéteurs, capteurs). **Canal modifié** va toujours vers Web Push (verrouillé). **Mentions** a une case **Mots entiers uniquement**. Web Push est activé pour les événements usuels au départ.
 
 Un nouveau canal est rempli pour vous par la dernière étape du dialogue d’ajout, **Que recevoir ici ?** : **Comme Push** (les événements que reçoit Web Push, par défaut), **Alertes seulement** ou **Tout**. Les événements urgents (radio hors ligne, alertes de télémétrie, canal modifié) sont toujours livrés, même pendant **Ne pas déranger**.
+
+## Vos propres règles
+
+Le tableau ci-dessus porte les **valeurs par défaut**. Web Push est le seul canal dont les destinataires sont des personnes (chaque appareil appartient à un compte) : sous **Réglages → Notifications → Mes notifications**, chaque compte (membre ou administrateur) voit une ligne par événement, et une par type de nœud pour *Nouveau nœud vu*. Chaque ligne suit la valeur par défaut de l’administrateur (la liste indique si c’est *notifier* ou *ne pas notifier*) tant que vous ne choisissez pas **Me notifier toujours** ou **Ne jamais me notifier** ; **Revenir aux valeurs par défaut** efface tous vos choix. Vos choix ne valent que pour les appareils de votre compte, et personne d’autre ne les voit ni ne les modifie.
+
+- *Ne jamais me notifier* l’emporte sur tout pour vos appareils, exceptions de conversation comprises.
+- *Me notifier toujours* respecte quand même ce qui relève de l’installation : les exceptions de l’administrateur pour une conversation, un canal en sourdine, les listes de blocage et **Ne pas déranger**.
+- L’e-mail, les webhooks, ntfy, Telegram et les autres canaux sont des destinations partagées que l’administrateur gère : ils continuent de suivre le tableau, quels que soient vos choix.
+- Une mention atteint vos appareils comme une mention quand vos règles vous donnent *Mentions*, sinon comme un message de canal ordinaire, jamais les deux.
+- Les résumés envoyés quand un canal dépasse sa limite (voir [Limites et regroupement](#limites-et-regroupement)) et l’avis qu’une destination a changé atteignent tous les appareils.
+- Tant que vous ne changez rien, rien ne diffère du tableau, et la mise à jour vers cette version ne change rien pour personne.
+
+Les mêmes choix sont disponibles par `GET`, `PATCH` et `DELETE /api/push/my-rules` (voir [Web Push](/docs/deep/push/)).
 
 ## Les événements
 
@@ -234,7 +247,7 @@ Les tests sont limités : un toutes les 5 secondes par canal, un toutes les 2 se
 
 ## Sauvegardes
 
-La **sauvegarde complète** (Réglages → Base de données) contient une partie *Notifications* : chaque canal (type, nom, options, limites, langue, politique de texte) et les règles (événements, exceptions par conversation et options du tableau de règles), **sans aucun secret**. Les mots de passe, jetons, adresses Discord ou Apprise, sujets ntfy, URL de webhook et leur secret HMAC ne quittent jamais Meshloom. Les destinations e-mail, webhook et Apprise des anciens réglages sont elles aussi écrites sans leurs secrets. Les listes de blocage voyagent avec les réglages. Le journal des envois et les compteurs ne sont pas sauvegardés, ni la pause : *Ne pas déranger* n’est jamais restauré. Les clés et abonnements Web Push forment une autre partie, restaurée seulement sur un Meshloom sans abonnement propre.
+La **sauvegarde complète** (Réglages → Base de données) contient une partie *Notifications* : chaque canal (type, nom, options, limites, langue, politique de texte) et les règles (événements, exceptions par conversation et options du tableau de règles), **sans aucun secret**. Les choix propres à chaque compte (voir [Vos propres règles](#vos-propres-règles)) voyagent avec les comptes : ils reviennent quand **Inclure les comptes** est coché. Les mots de passe, jetons, adresses Discord ou Apprise, sujets ntfy, URL de webhook et leur secret HMAC ne quittent jamais Meshloom. Les destinations e-mail, webhook et Apprise des anciens réglages sont elles aussi écrites sans leurs secrets. Les listes de blocage voyagent avec les réglages. Le journal des envois et les compteurs ne sont pas sauvegardés, ni la pause : *Ne pas déranger* n’est jamais restauré. Les clés et abonnements Web Push forment une autre partie, restaurée seulement sur un Meshloom sans abonnement propre.
 
 **Restauration.** Un canal qui a perdu un secret revient **désactivé** et marqué *Secret manquant après une restauration* ; Meshloom n’envoie jamais avec un secret manquant. Ouvrez-le dans **Réglages → Notifications → Canaux**, saisissez de nouveau chaque secret (ou effacez-le exprès), puis activez-le. Si le même canal existe déjà ici avec la même destination, ses secrets enregistrés sont conservés. La restauration fusionne les canaux (un canal que le fichier ne nomme pas reste) et remplace les règles. Une sauvegarde faite par Meshloom 4.18 se restaure dans les mêmes canaux et règles (Web Push, e-mail, webhook, Apprise, les exceptions de chaque conversation).
 

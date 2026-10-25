@@ -31,6 +31,7 @@ from app.notifications.render import (  # noqa: F401  (re-exported: callers impo
     neutralise_mentions,
     state_key_for_message,
 )
+from app.notifications.user_rules import PushAudience
 from app.push.send import send_push
 from app.push.vapid import get_vapid_claims, get_vapid_private_key
 from app.repository.push_subscriptions import PushSubscriptionRepository
@@ -117,14 +118,27 @@ class PushManager:
         self._forbidden_since.move_to_end(sub_id)
         return now - first >= FORBIDDEN_ANSWER_CONFIRM_SECONDS
 
-    async def dispatch_event(self, data: dict) -> PushOutcome:
-        """Send a push payload to every deliverable subscription. Not a WebSocket event."""
+    async def dispatch_event(self, data: dict, audience: PushAudience | None = None) -> PushOutcome:
+        """Send a push payload to every deliverable subscription. Not a WebSocket event.
+
+        With ``audience`` (MSHL-321) each device gets the payload its owner's rules give it
+        (``app/notifications/user_rules.py``), and a device whose owner wants none is skipped.
+        """
+        if audience is None:
+            return await self._send_to_all_subscriptions(
+                lambda sub: build_push_payload(data, sub.get("language") or "fr")
+            )
         return await self._send_to_all_subscriptions(
-            lambda sub: build_push_payload(data, sub.get("language") or "fr")
+            lambda sub: build_push_payload(
+                dict(audience.payload_for(sub.get("user_id")) or data), sub.get("language") or "fr"
+            ),
+            wanted=lambda sub: audience.payload_for(sub.get("user_id")) is not None,
         )
 
     async def _send_to_all_subscriptions(
-        self, payload_for_sub: Callable[[dict], str]
+        self,
+        payload_for_sub: Callable[[dict], str],
+        wanted: Callable[[dict], bool] | None = None,
     ) -> PushOutcome:
         try:
             subs = await PushSubscriptionRepository.deliverable()
@@ -132,6 +146,8 @@ class PushManager:
             logger.debug("Push dispatch: failed to load subscriptions", exc_info=True)
             return PushOutcome()
 
+        if wanted is not None:
+            subs = [sub for sub in subs if wanted(sub)]
         if not subs:
             return PushOutcome()
 

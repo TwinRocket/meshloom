@@ -33,6 +33,7 @@ This file is a hypothesis: check it against the code.
   in-memory cache of the public channels, status updates, `get_rules()`) and
   `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).
 - `rules.py`: pure evaluation of `notification_rules` (see "Dispatcher").
+- `user_rules.py`: the per-account layer over those rules, for Web Push only (see "Per-account rules").
 - `limits.py`: the dispatcher's token buckets (`ClockedLimiter`), the daily quota, `effective_limits()` and the persisted dedup keys (see "Dispatcher", "Limits").
 - `dispatcher.py`: `emit()`, the queue and worker per channel, the limiter, the retry
   policy, the journal, the counters and `notification_statuses()` (see "Dispatcher").
@@ -63,7 +64,7 @@ This file is a hypothesis: check it against the code.
   `allow_private_network` changes (egress guard; Apprise URLs by `validate_apprise_urls`),
   coded `egress_*` / Apprise codes. `allow_private_network` is false for a new channel; the
   import grandfathers every existing destination.
-- **Rules** (`app_settings.notification_rules`): `version`, `paused_until`, `events[id]`
+- **Rules** (`app_settings.notification_rules`, the admin defaults, see "Per-account rules"): `version`, `paused_until`, `events[id]`
   (`channels`, `always_deliver`, and for `contact.first_seen` `contact_types`
   `{companion, repeater, sensor}` since 4.18.x read the three types differently),
   `conversations[key][channel_id] = bool`, `keywords[*].channels`,
@@ -72,7 +73,7 @@ This file is a hypothesis: check it against the code.
 - **Backup.** The `notifications` backup section (`services/backup_notifications.py`) exports
   the channels without secrets and the rules; a restore writes a channel missing a secret
   disabled with `last_error = "secret_missing"`, which `update()` clears once the secret is
-  saved. A 4.18.x file reaches the rules and the `legacy:*` channels through `legacy_sync`
+  saved. The accounts' own choices travel in the `notification_user_rules` section. A 4.18.x file reaches the rules and the `legacy:*` channels through `legacy_sync`
   (the migration 113 builders). See `docs/dev/backup.md`.
 - **Deletion cascade.** `delete()` removes the channel, its deliveries and counters, and its
   id from `events[*].channels`, `contact_types`, `conversations`, `keywords[*].channels`
@@ -106,6 +107,47 @@ This file is a hypothesis: check it against the code.
   `notification_destinations` at send time. Media with no channel yet (no SMTP, no URL) keep their stored flags and overrides: `sync_columns` only overwrites the media whose channel exists, so the flags come back as rules when the destination is configured. The telemetry rules' old `channels` field is neither
   read nor written (migration 114 copied it into `push_defaults.telemetry_alert` where that key was missing) (`TelemetryAlertRules.channels` is `exclude=True`, accepted and ignored). The shims
   are removed in 5.2.0 (T34).
+
+## Per-account rules (`user_rules.py`, MSHL-321)
+
+`app_settings.notification_rules` is the **admin defaults**. Web Push is the one channel whose
+recipients are accounts (each device has an owner, MSHL-290), so an account may change, for its
+own devices only, whether an event reaches them; every other channel is a destination the admin
+owns and keeps following the defaults (webhooks, e-mail, Apprise, ntfy, `legacy:*`).
+
+- **Storage.** `user_notification_rules` (migration 123): one row per account that changed
+  something, `{"version": 1, "events": {id: bool}, "contact_types": {kind: bool}}`
+  (`sanitize_override`: known events, the three contact kinds, booleans). No row means "follow
+  the defaults", so migration 123 writes none and an upgrade changes nothing. The events that
+  prove a destination change (`notify.channel_changed`, `notify.destination_changed`) and
+  `notify.test` cannot be overridden. `UserNotificationRulesRepository.all_overrides()` is read
+  from memory on every notification.
+- **Effective rules.** `push_wanted(rules, override, event, ...)`: a `false` choice cuts the
+  event for that account, conversation exceptions included; a `true` lists `builtin:push` on
+  that event (or contact kind) and then goes through the same evaluation as the defaults, so
+  the admin's conversation exceptions, mutes, block lists and the global pause still apply.
+  Conversation exceptions, `always_deliver`, keywords, watched nodes and the pause are instance
+  settings: an account has no copy of them.
+- **Dispatch.** Without `targets`, `Dispatcher._emit` strips `builtin:push` from the channels the
+  defaults chose and asks `build_audience` instead: a `PushAudience` that gives each account's
+  devices a payload or none. `builtin:push` is queued when anyone wants the event, even if the
+  defaults leave it off, and the `Delivery` carries the audience only when an account has an
+  override or a mention version exists (otherwise every device gets the payload, as before). The
+  Web Push transport passes it to `PushManager.dispatch_event(audience=)`, which skips the
+  devices of an account that wants nothing. A producer that routes Web Push alone with `targets`
+  asks for the same with `per_account=True`. Deliveries with no audience (a destination-change
+  proof, the `notifications_grouped` and `first_seen_grouped` summaries) reach every deliverable
+  device.
+- **Mentions.** The producer takes `builtin:push` out of the instance-wide mention/plain split
+  and hands the dispatcher both versions (`push_mention`). An account whose rules give it
+  `message.mention` receives the mention, else the plain `message.channel`, never both.
+- **API.** `GET/PATCH/DELETE /api/push/my-rules` (`send`): per overridable event and per contact
+  kind `{default, choice}` (`choice` null follows the default). The admin edits the defaults
+  with `/api/notifications/rules` as before. The Settings page shows the account's own rules
+  next to its devices, and the admin's matrix as "defaults for all accounts".
+- **Backup.** The `notification_user_rules` section rides with the accounts
+  (`docs/dev/backup.md`).
+- Tests: `tests/test_user_notification_rules.py`, `tests/test_migrations/test_migration_123.py`.
 
 ## Presets (`presets.py`)
 

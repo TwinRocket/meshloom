@@ -397,6 +397,14 @@ CREATE TABLE IF NOT EXISTS plugin_uids (
     allocated_at INTEGER NOT NULL
 );
 
+-- One account's notification choices for its own devices (migration 123, MSHL-321).
+-- Keep identical to the migration.
+CREATE TABLE IF NOT EXISTS user_notification_rules (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    rules TEXT NOT NULL DEFAULT '{}',
+    updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS api_tokens (
     id TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL,

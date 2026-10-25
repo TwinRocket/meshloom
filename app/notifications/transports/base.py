@@ -30,6 +30,7 @@ from app.net.egress_guard import EgressBlocked, error_code
 from app.notifications.channels import Channel
 from app.notifications.events import NotificationEvent
 from app.notifications.render import Rendered
+from app.notifications.user_rules import PushAudience
 
 SendStatus = Literal["ok", "retry", "failed"]
 
@@ -56,6 +57,8 @@ class Delivery:
     name: str
     payload: dict[str, Any] = field(default_factory=dict)
     event: NotificationEvent | None = None
+    # Web Push only: which payload each account's devices get (``user_rules.PushAudience``).
+    audience: PushAudience | None = None
 
 
 class Transport(Protocol):

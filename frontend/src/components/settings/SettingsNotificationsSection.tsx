@@ -10,6 +10,7 @@ import type {
 } from '../../types';
 import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
+import { MyNotificationRules } from './notifications/MyNotificationRules';
 import { NotificationChannelsPanel } from './notifications/NotificationChannelsPanel';
 import { NotificationRulesPanel } from './notifications/NotificationRulesPanel';
 import { useNotificationChannels } from './notifications/useNotificationChannels';
@@ -35,6 +36,8 @@ export function SettingsNotificationsSection({
 
   return (
     <div className={className}>
+      <MyNotificationRules />
+
       <NotificationChannelsPanel
         state={notificationChannels}
         appSettings={appSettings}

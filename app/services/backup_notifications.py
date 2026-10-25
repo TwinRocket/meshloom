@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.models import BackupSection
 from app.repository.notification_channels import PENDING_SECRETS
+from app.services.backup_accounts import USER_NOTIFICATION_RULES_SECTION, USERS_SECTION
 from app.services.backup_sections import RestoreSource, register_backup_section, register_on_restore
 
 logger = logging.getLogger(__name__)
@@ -435,10 +436,78 @@ async def _after_restore(source: RestoreSource) -> None:
     from app.notifications.legacy_sync import sync_columns
     from app.repository.notification_channels import invalidate_cache
 
-    invalidate_cache()
+    invalidate_cache()  # the account choices too
     await sync_columns()
 
 
+MAX_BACKUP_USER_RULES = 10_000
+
+
+class BackupUserNotificationRules(BaseModel):
+    """One account's choices as the file holds them (``user_rules.sanitize_override``)."""
+
+    model_config = ConfigDict(hide_input_in_errors=True, extra="ignore")
+
+    user_id: int = Field(ge=1)
+    rules: dict[str, Any] = Field(default_factory=dict)
+
+
+class BackupUserNotificationRulesData(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True, extra="ignore")
+
+    accounts: list[BackupUserNotificationRules] = Field(max_length=MAX_BACKUP_USER_RULES)
+
+
+async def export_user_notification_rules() -> BackupSection | None:
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    overrides = await UserNotificationRulesRepository.all_overrides()
+    if not overrides:
+        return None
+    return BackupSection(
+        data={
+            "accounts": [
+                {"user_id": user_id, "rules": rules} for user_id, rules in sorted(overrides.items())
+            ]
+        }
+    )
+
+
+async def restore_user_notification_rules(
+    section: BackupSection, conn: aiosqlite.Connection
+) -> list[str]:
+    """Replace every account's choices with the file's. Runs in the accounts' transaction, right
+    after them, so an id names the restored account; a row whose account does not exist is
+    dropped. A ``users`` restore without this section leaves no choices (the replaced
+    accounts' rows cascade): the accounts follow the admin defaults."""
+    from app.notifications.user_rules import sanitize_override
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    data = BackupUserNotificationRulesData.model_validate(section.data)
+    async with conn.execute("SELECT id FROM users") as cursor:
+        known = {int(row[0]) for row in await cursor.fetchall()}
+    await conn.execute("DELETE FROM user_notification_rules")
+    warnings: list[str] = []
+    for item in data.accounts:
+        override = sanitize_override(item.rules)
+        if item.user_id not in known:
+            warnings.append(f"notification_user_rules_dropped:{item.user_id}")
+            continue
+        await UserNotificationRulesRepository.write(conn, item.user_id, override)
+    return warnings
+
+
+register_backup_section(
+    USER_NOTIFICATION_RULES_SECTION,
+    export_user_notification_rules,
+    restore_user_notification_rules,
+    description={
+        "en": "Each account's own notification choices for its devices",
+        "fr": "Choix de notification propres à chaque compte pour ses appareils",
+    },
+    sensitive=False,
+    restore_with=USERS_SECTION,
+)
 register_backup_section(
     NOTIFICATIONS_SECTION,
     export_notifications,

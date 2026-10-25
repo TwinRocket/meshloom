@@ -14,6 +14,8 @@ Pure functions over ``app_settings.notification_rules`` (``app/notifications/AGE
   forged by anyone in range, and must not push a private channel's text to a third party);
 - ``contact.first_seen`` follows ``contact_types`` by the contact's type (a room or
   an unknown type never notifies, as in 4.18.x);
+- Web Push is decided per account over these rules (``user_rules.py``, MSHL-321): the rules
+  here are the admin defaults and an account may force an event on or off for its own devices;
 - the global pause (``paused_until``) and a channel's own ``paused_until`` hold
   every event except ``always_deliver`` ones and urgent ones.
 

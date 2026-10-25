@@ -372,7 +372,17 @@
       "test": "Test",
       "unsubscribeDevice": "Unsubscribe this device",
       "deviceRemoved": "Device removed",
-      "defaults": "Default notifications",
+      "mine": {
+        "title": "My notifications",
+        "help": "Choose which events notify the devices of your account. Each line follows the administrator's default unless you change it. E-mail, webhook and other shared destinations stay with the administrator.",
+        "followDefaultOn": "Default: notify",
+        "followDefaultOff": "Default: do not notify",
+        "on": "Always notify me",
+        "off": "Never notify me",
+        "reset": "Follow the defaults again",
+        "saveFailed": "Could not save your notification rules"
+      },
+      "defaults": "Defaults for all accounts",
       "defaultsHelp": "Choose where each event is delivered. First-seen alerts fire after radio setup when a new companion, repeater, or sensor appears on the mesh. Unknown nodes and room servers never trigger a first-seen notification. Telemetry alerts are configured on the Alerts page.",
       "defaultsType": "Type",
       "mediaPush": "Push",

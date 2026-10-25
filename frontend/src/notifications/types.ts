@@ -151,3 +151,23 @@ export interface NotificationChannelChange {
   type: string;
   name: string;
 }
+
+/** One row of `GET /api/push/my-rules`: the admin default and the account's own choice. */
+export interface MyPushRuleState {
+  /** Whether the admin defaults send this event to Web Push. */
+  default: boolean;
+  /** The account's choice for its own devices; null follows the default. */
+  choice: boolean | null;
+}
+
+/** The caller's own Web Push rules (MSHL-321), overriding the admin defaults. */
+export interface MyPushRules {
+  events: Record<string, MyPushRuleState>;
+  contact_types: Record<string, MyPushRuleState>;
+}
+
+export interface MyPushRulesPatch {
+  /** `null` goes back to the default. */
+  events?: Record<string, boolean | null>;
+  contact_types?: Record<string, boolean | null>;
+}

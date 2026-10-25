@@ -20,6 +20,8 @@ import type {
   PluginTestResult,
 } from './components/settings/extensions/pluginsTypes';
 import type {
+  MyPushRules,
+  MyPushRulesPatch,
   NotificationChannel,
   NotificationChannelCreate,
   NotificationChannelPatch,
@@ -1203,6 +1205,10 @@ export const api = {
     fetchJson<{ deleted: boolean }>(`/push/subscriptions/${id}`, { method: 'DELETE' }),
   testPushSubscription: (id: string) =>
     fetchJson<{ status: string }>(`/push/subscriptions/${id}/test`, { method: 'POST' }),
+  getMyPushRules: () => fetchJson<MyPushRules>('/push/my-rules'),
+  patchMyPushRules: (body: MyPushRulesPatch) =>
+    fetchJson<MyPushRules>('/push/my-rules', { method: 'PATCH', body: JSON.stringify(body) }),
+  resetMyPushRules: () => fetchJson<MyPushRules>('/push/my-rules', { method: 'DELETE' }),
   getPlugins: () => fetchJson<PluginInstance[]>('/plugins'),
   getBundledPlugins: () => fetchJson<BundledPlugin[]>('/plugins/bundled'),
   installPlugin: (body: PluginInstallRequest) =>

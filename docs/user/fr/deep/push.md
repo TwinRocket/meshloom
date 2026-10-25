@@ -7,7 +7,7 @@ order: 18
 
 Web Push peut prévenir votre navigateur d’un message entrant alors que l’onglet de Meshloom est fermé. Cette page couvre ce qui est propre aux navigateurs : HTTPS, l’adresse de contact (VAPID), l’abonnement et la liste des appareils. Tout le reste, c’est-à-dire les canaux, les événements, le tableau des règles, Ne pas déranger, les mentions, la cloche, les sauvegardes et les autres façons d’être prévenu (e-mail, webhook, ntfy, Discord, Telegram, Gotify, Home Assistant, Apprise), est sur [Notifications](/docs/deep/notifications/).
 
-Web Push est un canal parmi d’autres (le canal intégré **Web Push**). Chaque navigateur a son propre abonnement, qui appartient au compte qui l’a abonné, alors que les règles (quoi notifier, et pour quelles conversations) sont communes à toute l’installation et à tous les canaux. C’est distinct du [fanout](/docs/deep/fanout/). Il n’y a pas de fenêtre contextuelle depuis l’onglet ouvert : Web Push est la seule façon dont Meshloom notifie un navigateur. En HTTP simple, ntfy, Gotify ou Home Assistant sur votre réseau sont la réponse.
+Web Push est un canal parmi d’autres (le canal intégré **Web Push**). Chaque navigateur a son propre abonnement, qui appartient au compte qui l’a abonné, alors que les règles (quoi notifier, et pour quelles conversations) sont les valeurs par défaut de l’administrateur pour toute l’installation et tous les canaux ; chaque compte peut les ajuster pour ses propres appareils (voir [Vos propres règles](/docs/deep/notifications/#vos-propres-règles)). C’est distinct du [fanout](/docs/deep/fanout/). Il n’y a pas de fenêtre contextuelle depuis l’onglet ouvert : Web Push est la seule façon dont Meshloom notifie un navigateur. En HTTP simple, ntfy, Gotify ou Home Assistant sur votre réseau sont la réponse.
 
 ## Ce qu’il vous faut
 
@@ -31,13 +31,15 @@ Voir la [documentation Apple](https://developer.apple.com/documentation/usernoti
 
 Dans **Réglages → Notifications → Canaux**, ouvrez **Appareils et réglages Web Push** sur la carte Web Push et choisissez **Abonner ce navigateur**. La liste des appareils enregistrés montre alors chaque navigateur, avec un bouton **Tester** et un moyen de le désabonner.
 
-L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les règles sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés. Ce qu’il faut notifier se choisit dans [Notifications](/docs/deep/notifications/#le-tableau-des-règles), cloche et Ne pas déranger compris.
+L’abonnement d’un navigateur décide seulement si ce navigateur reçoit les notifications. Les exceptions de conversation sont communes : si vous activez une conversation depuis votre téléphone, elle l’est pour tous les navigateurs abonnés. Les événements qui notifient vos appareils peuvent être ajustés pour votre seul compte (voir [Vos propres règles](/docs/deep/notifications/#vos-propres-règles)). Ce qu’il faut notifier se choisit dans [Notifications](/docs/deep/notifications/#le-tableau-des-règles), cloche et Ne pas déranger compris.
 
 ### À qui sont les appareils
 
 Chaque compte ne voit et ne gère que ses propres appareils : **Vos appareils** liste les navigateurs que vous avez abonnés, et aucun autre compte ne peut les renommer, les tester ni les retirer. Un navigateur partagé par deux comptes appartient au dernier qui l’a abonné.
 
 Un administrateur voit aussi **Appareils des autres comptes** : l’étiquette de chaque appareil, son compte et le service push par lequel il passe (jamais son adresse complète, qui sert de mot de passe pour ce navigateur), avec un bouton pour le retirer, pour un téléphone perdu ou un ancien membre. Renommer ou tester un appareil reste l’affaire de son propriétaire.
+
+Les événements qui atteignent vos appareils suivent les valeurs par défaut de l’administrateur, sauf si vous les avez changés dans **Mes notifications** ; les choix des autres comptes n’affectent pas vos appareils.
 
 Un appareil ne reçoit des notifications que tant que son compte est actif et peut envoyer des messages (membre ou administrateur). Un lecteur ou un kiosque ne peut pas s’abonner ; les appareils d’un compte désactivé restent muets jusqu’à sa réactivation, et supprimer un compte supprime ses appareils. Les appareils enregistrés avant que les comptes les possèdent (avant Meshloom 5.0, ou restaurés depuis une sauvegarde) appartiennent au premier administrateur.
 
@@ -55,6 +57,9 @@ Un appareil ne reçoit des notifications que tant que son compte est actif et pe
 | PATCH | `/api/push/subscriptions/{id}` | Change l’étiquette ou la langue d’un de vos abonnements |
 | DELETE | `/api/push/subscriptions/{id}` | Supprime un de vos abonnements (un administrateur : n’importe lequel) |
 | POST | `/api/push/subscriptions/{id}/test` | Envoie une notification de test à un de vos abonnements |
+| GET | `/api/push/my-rules` | Vos règles de notification : par événement (et type de nœud) la valeur par défaut de l’administrateur et votre choix |
+| PATCH | `/api/push/my-rules` | Fixe (`true`, `false`) ou efface (`null`) votre choix pour des événements et des types de nœud |
+| DELETE | `/api/push/my-rules` | Efface tous vos choix |
 | GET | `/api/push/preferences` | **Déprécié.** Valeurs par défaut, exceptions et sujet VAPID |
 | PATCH | `/api/push/preferences` | **Déprécié.** Modifie les valeurs par défaut et/ou le sujet VAPID |
 | PUT | `/api/push/preferences/conversations/{key}` | **Déprécié.** Crée ou efface une exception pour une conversation |

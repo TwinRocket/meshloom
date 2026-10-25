@@ -88,8 +88,14 @@ USERS_SECTION = "users"
 # 3: each user carries ``passkeys`` (WebAuthn, Access T52).
 USERS_SECTION_VERSION = 3
 API_TOKENS_SECTION = "api_tokens"
+# Registered in ``services/backup_notifications.py``: it rides with the accounts (MSHL-321).
+USER_NOTIFICATION_RULES_SECTION = "notification_user_rules"
 # Sections the "Include accounts" box covers.
-ACCOUNT_SECTIONS: tuple[str, ...] = (USERS_SECTION, API_TOKENS_SECTION)
+ACCOUNT_SECTIONS: tuple[str, ...] = (
+    USERS_SECTION,
+    API_TOKENS_SECTION,
+    USER_NOTIFICATION_RULES_SECTION,
+)
 MAX_BACKUP_TOKENS = 100_000
 
 # A bound on a file, not a policy.

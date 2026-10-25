@@ -6,6 +6,10 @@ a push service answering 403, 404 or 410 deletes the subscription, the egress
 guard's refusals and the failure counts stay as they are (``app/AGENTS.md``,
 "Web Push"). A push is never retried by the dispatcher: a second attempt would
 reach again the subscriptions that already took it.
+
+A delivery with an ``audience`` (``app/notifications/user_rules.py``, MSHL-321) reaches only
+the devices whose owner's rules want it, each with the payload those rules give it; without
+one (a destination-change proof, a summary) every deliverable device gets it.
 """
 
 from __future__ import annotations
@@ -25,7 +29,12 @@ class WebPushTransport:
     ) -> SendResult:
         from app.push.manager import PushOutcome, push_manager
 
-        outcome = await push_manager.dispatch_event(dict(event.payload))
+        if event.audience is None:
+            outcome = await push_manager.dispatch_event(dict(event.payload))
+        else:  # each account's rules decide which of its devices get which payload
+            outcome = await push_manager.dispatch_event(
+                dict(event.payload), audience=event.audience
+            )
         if isinstance(outcome, PushOutcome) and outcome.total and not outcome.delivered:
             return SendResult("failed", error_code="push_delivery_failed")
         return SEND_OK

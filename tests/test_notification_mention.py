@@ -11,6 +11,7 @@ import pytest
 from app.notifications import events as ev
 from app.notifications import render
 from app.notifications import rules as rules_mod
+from app.notifications.dispatcher import notification_dispatcher
 from app.notifications.mention import _matcher, is_mention
 from app.repository.channels import ChannelRepository
 from app.repository.notification_channels import NotificationChannelRepository
@@ -273,10 +274,13 @@ def emitted(monkeypatch) -> list[dict]:
     seen: list[dict] = []
 
     async def fake_emit(event, *, payload=None, targets=None, exclude=(), rules=None, **kw):
-        ids = (
-            list(targets)
-            if targets is not None
-            else [
+        """What the dispatcher would queue: the instance channels the rules give, and Web Push
+        decided per account (``user_rules``): a mention goes out as ``message.mention``."""
+        audience = None
+        if targets is not None:
+            ids = list(targets)
+        else:
+            ids = [
                 c
                 for c in rules_mod.event_channel_ids(
                     rules,
@@ -287,7 +291,32 @@ def emitted(monkeypatch) -> list[dict]:
                 )
                 if c not in exclude
             ]
+            ids, audience = await notification_dispatcher()._push_per_account(
+                ids,
+                rules,
+                event,
+                payload,
+                kw.get("push_mention"),
+                is_open=bool(kw.get("is_open")),
+                muted=kw.get("muted", False),
+                blocked=kw.get("blocked", False),
+            )
+        # With a mention version for the accounts, the dispatcher carries an audience whose
+        # default payload is the mention one.
+        pushed_mention = bool(
+            audience is not None and audience.default and audience.default.get("mention")
         )
+        if pushed_mention:
+            ids = [c for c in ids if c != "builtin:push"]
+            previous = next((e for e in seen if e["event"] == "message.mention"), None)
+            if previous is not None:
+                previous["channels"].insert(0, "builtin:push")
+            else:
+                seen.append(
+                    {"event": "message.mention", "urgent": False, "channels": ["builtin:push"]}
+                )
+            if not ids:
+                return 1
         seen.append({"event": event.event, "urgent": event.urgent, "channels": ids})
         return len(ids)
 

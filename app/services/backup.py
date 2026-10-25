@@ -267,6 +267,10 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "device pairing codes (short-lived hashes), never exported, emptied in the SQLite download",
     ),
     "api_tokens": ("excluded", "the api_tokens backup section (services/backup_accounts.py)"),
+    "user_notification_rules": (
+        "included",
+        "the notification_user_rules backup section (services/backup_notifications.py)",
+    ),
     "recovery_codes": (
         "excluded",
         "TOTP recovery code hashes: inside the users backup section (services/backup_accounts.py)",
