@@ -634,6 +634,7 @@ class Dispatcher:
 
         taken = await NotificationJournalRepository.counters_take(prefix)
         if not taken or not quiet.quiet_hours_of(rules)["digest_at_end"]:
+            self._forget_retries(prefix, ())
             return 0
         by_channel: dict[str, dict[int | str | None, list[quiet.QuietRow]]] = {}
         for key, count in taken.items():
@@ -650,33 +651,52 @@ class Dispatcher:
         )
         channels = await self._channels(list(by_channel), allow_legacy=True)
         queued = 0
+        pending: set[str] = set()  # channels whose counters are still waiting for a retry
         for channel in channels:
             if not channel.enabled:
                 continue  # a disabled channel gets no digest: its counters go
-            retry_key = (prefix, channel.id)
             if channel.paused_until is None or channel.paused_until <= now:
                 delivery = await self._digest(channel, by_channel[channel.id], labels, scope)
                 if delivery is None:
                     continue
                 if await self._admit(channel, _Job(delivery), rules):
-                    self._digest_retries.pop(retry_key, None)
                     queued += 1
                     continue
-            await self._put_back(prefix, channel.id, taken)
+                if await self._put_back(prefix, channel.id, taken, count_retry=True):
+                    pending.add(channel.id)
+                continue
+            # The channel's own pause: wait for it without spending the retry budget, which
+            # only counts real refusals (MSHL-374).
+            await self._put_back(prefix, channel.id, taken, count_retry=False)
+            pending.add(channel.id)
+        self._forget_retries(prefix, pending)
         return queued
 
-    async def _put_back(self, prefix: str, channel_id: str, taken: Mapping[str, int]) -> None:
-        """The digest could not be queued (the limits dropped it, the channel is paused): keep
-        the counters for the next tick, at most ``QUIET_DIGEST_RETRIES`` times in a row."""
+    def _forget_retries(self, prefix: str, keep: Iterable[str]) -> None:
+        """Drop the retry counters of the channels that have no counters waiting any more (the
+        digest went out, was given up, or the channel is gone), so a later digest starts with the
+        full budget and the dict stays bounded by the channels with counters."""
+        keep_set = set(keep)
+        for key in [k for k in self._digest_retries if k[0] == prefix and k[1] not in keep_set]:
+            del self._digest_retries[key]
+
+    async def _put_back(
+        self, prefix: str, channel_id: str, taken: Mapping[str, int], *, count_retry: bool
+    ) -> bool:
+        """Keep the counters for the next tick. ``count_retry`` is true when the digest was
+        refused (limits): at most ``QUIET_DIGEST_RETRIES`` times in a row, then given up. A
+        channel in its own pause is waited for with no limit (counters are bounded by their
+        keys). Returns whether the counters were kept."""
         from app.repository.notification_channels import NotificationJournalRepository
 
         retry_key = (prefix, channel_id)
-        attempts = self._digest_retries.get(retry_key, 0) + 1
-        if attempts > QUIET_DIGEST_RETRIES:
-            self._digest_retries.pop(retry_key, None)
-            logger.warning("digest of %s given up after %d ticks", channel_id, attempts - 1)
-            return
-        self._digest_retries[retry_key] = attempts
+        if count_retry:
+            attempts = self._digest_retries.get(retry_key, 0) + 1
+            if attempts > QUIET_DIGEST_RETRIES:
+                self._digest_retries.pop(retry_key, None)
+                logger.warning("digest of %s given up after %d ticks", channel_id, attempts - 1)
+                return False
+            self._digest_retries[retry_key] = attempts
         try:
             for key, count in taken.items():
                 parsed = quiet.parse_counter_key(key, prefix)
@@ -684,6 +704,7 @@ class Dispatcher:
                     await NotificationJournalRepository.counter_add(key, count)
         except Exception:
             logger.debug("digest counters not put back", exc_info=True)
+        return True
 
     async def _digest(
         self,

@@ -437,6 +437,73 @@ async def test_a_dropped_digest_is_put_back_and_given_up_after_a_bound(test_db, 
 
 
 @pytest.mark.asyncio
+async def test_a_digest_waits_out_a_long_channel_pause_without_burning_retries(test_db):
+    from app.notifications import dispatcher as dmod
+
+    await _setup(test_db)
+    wall = Wall(at(2, 23))
+    transport = StubTransport()
+    dispatcher = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall)
+    await dispatcher.emit(None, payload=_dm(n=1), targets=["email-1"])
+    wall.now = at(3, 8)
+    async with test_db.tx() as conn:
+        await conn.execute(
+            "UPDATE notification_channels SET paused_until = ? WHERE id = 'email-1'",
+            (int(at(3, 8)) + 3600,),
+        )
+    invalidate_cache()
+    for _ in range(dmod.QUIET_DIGEST_RETRIES * 3):  # far past the retry budget
+        assert await dispatcher.quiet_tick() == 0
+        assert list((await _counters(test_db)).values()) == ["1"]
+        assert dispatcher._digest_retries == {}  # a pause spends nothing
+    wall.now = at(3, 9, 1)
+    assert await dispatcher.quiet_tick() == 1
+    await _settle(dispatcher)
+    assert transport.payloads[0]["count"] == 1 and await _counters(test_db) == {}
+    assert dispatcher._digest_retries == {}
+
+
+@pytest.mark.asyncio
+async def test_retry_budget_is_reset_after_a_success_or_when_counters_are_gone(
+    test_db, monkeypatch
+):
+    from app.notifications import dispatcher as dmod
+
+    await _setup(test_db)
+    wall = Wall(at(2, 23))
+    transport = StubTransport()
+    dispatcher = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall)
+    await dispatcher.emit(None, payload=_dm(n=1), targets=["email-1"])
+    wall.now = at(3, 8)
+    dropped = {"on": True}
+    real = dispatcher._admit
+
+    async def admit(channel, job, rules):
+        return False if dropped["on"] else await real(channel, job, rules)
+
+    monkeypatch.setattr(dispatcher, "_admit", admit)
+    for _ in range(dmod.QUIET_DIGEST_RETRIES - 1):
+        assert await dispatcher.quiet_tick() == 0
+    assert list(dispatcher._digest_retries.values()) == [dmod.QUIET_DIGEST_RETRIES - 1]
+    dropped["on"] = False
+    assert await dispatcher.quiet_tick() == 1  # success: the budget is reset
+    assert dispatcher._digest_retries == {}
+    # A second digest gets the full budget again: it survives QUIET_DIGEST_RETRIES refusals.
+    wall.now = at(3, 23)
+    await dispatcher.emit(None, payload=_dm(n=2), targets=["email-1"])
+    wall.now = at(4, 8)
+    dropped["on"] = True
+    for _ in range(dmod.QUIET_DIGEST_RETRIES):
+        assert await dispatcher.quiet_tick() == 0
+        assert len(await _counters(test_db)) == 1
+    # Counters deleted behind its back (channel removed): no stale retry state is left.
+    async with test_db.tx() as conn:
+        await conn.execute("DELETE FROM notification_state WHERE key LIKE 'quiet:%'")
+    assert await dispatcher.quiet_tick() == 0
+    assert dispatcher._digest_retries == {}
+
+
+@pytest.mark.asyncio
 async def test_a_retryable_digest_failure_gets_the_long_retry(test_db):
     from app.notifications.dispatcher import LONG_RETRY_EVENTS
 

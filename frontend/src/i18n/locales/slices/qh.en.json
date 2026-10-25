@@ -8,7 +8,7 @@
         "start": "Window start",
         "end": "Window end",
         "weekdays": "Days",
-        "digest": "Send a summary when the window ends",
+        "digest": "Send a summary after quiet hours and after a pause",
         "digestHelp": "One message per channel with counts and names, never a message text. Off: nothing is counted and no summary is sent, for quiet hours and for the pause.",
         "timezone": "Times follow this machine's clock ({{zone}}), not this browser."
       },

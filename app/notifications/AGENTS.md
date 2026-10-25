@@ -307,8 +307,12 @@ wall clock in host-local time (an overnight window belongs to its opening weekda
   `quiet_digest` with `scope: "pause"` per channel once the pause is over, whether or not a quiet window
   is open; the pause summary goes first.
 - **Digest failures** (MSHL-368): a digest `_admit` drops (limits) or that targets a paused channel is
-  put back (`_put_back`, `counter_add`) and retried each tick, at most `QUIET_DIGEST_RETRIES` (10) ticks
-  in a row, then given up with a warning. A disabled or deleted channel gets none. A queued digest that
+  put back (`_put_back`, `counter_add`) and retried each tick. Only a real refusal (`_admit` false) spends the
+  budget: at most `QUIET_DIGEST_RETRIES` (10) ticks in a row, then given up with a warning. A channel in its
+  own pause keeps its counters with no retry spent and no time limit (MSHL-374; the counters are bounded by
+  their keys). `_digest_retries` is reset by `_forget_retries` at the end of every tick for each channel with
+  no counters waiting (sent, given up, dropped, disabled or deleted), so a later digest gets the full budget
+  and the dict only holds channels that are being retried. A disabled or deleted channel gets none. A queued digest that
   still answers `retry` gets the one long retry (`quiet_digest` is in `LONG_RETRY_EVENTS`).
 - Tests: `tests/test_quiet_hours.py`.
 

@@ -8,7 +8,7 @@
         "start": "Début de la plage",
         "end": "Fin de la plage",
         "weekdays": "Jours",
-        "digest": "Envoyer un résumé à la fin de la plage",
+        "digest": "Envoyer un résumé après les heures calmes et après une pause",
         "digestHelp": "Un message par canal avec des compteurs et des noms, jamais le texte d'un message. Désactivé : rien n'est compté et aucun résumé n'est envoyé, ni pour les heures calmes ni pour la pause.",
         "timezone": "Les heures suivent l'horloge de cette machine ({{zone}}), pas celle de ce navigateur."
       },
