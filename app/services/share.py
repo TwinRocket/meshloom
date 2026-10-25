@@ -38,6 +38,13 @@ the Community guard.
   (``app/net/breaker.py``): ``BREAKER_FAILURE_THRESHOLD`` consecutive failures
   (network, timeout, guard refusal, 5xx, non-JSON) stop every call for
   ``BREAKER_OPEN_SECONDS`` and answer ``share_unavailable`` locally.
+- **Objects.** ``read_object`` serves ``GET /{id}`` from the disk cache
+  (``app/services/share_cache.py``) or fetches it once: the bytes are sniffed
+  (PNG, JPEG, GIF, WebP magic), the dimensions re-read with ``imagesize`` (at
+  most ``MAX_IMAGE_PIXELS``) and only a checked image is served as an image;
+  any other object is raw bytes (``application/octet-stream``). An answer
+  over ``MAX_OBJECT_RESPONSE_BYTES`` is ``share_too_large``; a refused object
+  is negatively cached like a 404.
 
 Never log a token, a request body or a response body. Tests:
 ``tests/test_share_service.py``, ``tests/test_share_off_no_egress.py``.
@@ -46,6 +53,7 @@ Never log a token, a request body or a response body. Tests:
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import re
@@ -55,6 +63,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
+import imagesize
 from aiolimiter import AsyncLimiter
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -69,6 +78,7 @@ from app.net.egress_guard import (
 )
 from app.repository import AppSettingsRepository
 from app.services.instance_identity import mint_share_jwt
+from app.services.share_cache import CachedObject, reset_share_cache_for_tests, share_cache
 from app.services.ttl_lru import TtlLruCache
 from app.version_info import get_app_build_info
 
@@ -90,12 +100,23 @@ SHARE_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=60.0, pool=5.0)
 SHARE_TOTAL_TIMEOUT_S = 100.0
 # Response caps: JSON answers are small; files are at most 10 MiB (contract).
 MAX_JSON_RESPONSE_BYTES = 64 * 1024
-MAX_OBJECT_RESPONSE_BYTES = 11 * 1024 * 1024
+MAX_OBJECT_RESPONSE_BYTES = 10 * 1024 * 1024
+# Contract limits of a stored image: GIF at most 5 MiB, at most 40 megapixels.
+MAX_GIF_BYTES = 5 * 1024 * 1024
+MAX_IMAGE_PIXELS = 40_000_000
+OCTET_STREAM = "application/octet-stream"
+IMAGE_CONTENT_TYPES = frozenset({"image/jpeg", "image/png", "image/gif", "image/webp"})
 # What GET /{id} may answer as bytes: the image types the contract serves,
 # and raw bytes (an encrypted object). Never text/html or anything else.
-OBJECT_CONTENT_TYPES = frozenset(
-    {"image/jpeg", "image/png", "image/gif", "image/webp", "application/octet-stream"}
-)
+OBJECT_CONTENT_TYPES = IMAGE_CONTENT_TYPES | {OCTET_STREAM}
+# File name extension of a served object (Content-Disposition).
+OBJECT_EXTENSIONS: dict[str, str] = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    OCTET_STREAM: "bin",
+}
 
 BREAKER_FAILURE_THRESHOLD = 3
 BREAKER_OPEN_SECONDS = 300.0
@@ -128,6 +149,8 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_target_blocked": (422, "This link target is refused"),
     "share_invalid_url": (400, "This URL cannot be shortened"),
     "share_cross_site": (403, "Sharing requests from another site are refused"),
+    "share_invalid_id": (400, "This is not a shared object id"),
+    "share_invalid_request": (400, "Unexpected parameter in a share request"),
 }
 
 # The contract's optional ``scope`` of a 429 ``quota_exceeded`` -> local code. An
@@ -196,6 +219,12 @@ class ShareMeta(BaseModel):
     target_host: str | None = None
     created_at: int | None = None
     expires_at: int | None = None
+    # Files (contract "Files API v1"): a public file has content_type and size;
+    # an encrypted one (M3) has size_kib and no content_type.
+    mode: str | None = None
+    content_type: str | None = None
+    size: int | None = None
+    size_kib: int | None = None
 
 
 @dataclass(frozen=True)
@@ -236,6 +265,7 @@ def share_breaker() -> CircuitBreaker:
 def reset_share_client_for_tests(clock: Callable[[], float] | None = None) -> None:
     global _state
     _state = _State(clock or time.monotonic)
+    reset_share_cache_for_tests()
 
 
 def is_share_host(host: str) -> bool:
@@ -434,7 +464,16 @@ async def share_request(
     except ShareError:
         breaker.release_trial()
         raise
-    except (httpx.HTTPError, EgressBlocked, TimeoutError, OSError) as exc:
+    except EgressBlocked as exc:
+        if read == "bytes" and exc.code == "egress_response_too_large":
+            # The service answered, with more than a file may hold: not an outage.
+            breaker.record_success()
+            _note_refused_object(cache_key, "share_too_large")
+            raise ShareError("share_too_large") from None
+        breaker.record_failure()
+        logger.warning("Share service %s failed: %s", method.upper(), error_code(exc))
+        raise ShareError("share_unavailable") from None
+    except (httpx.HTTPError, TimeoutError, OSError) as exc:
         breaker.record_failure()
         logger.warning("Share service %s failed: %s", method.upper(), error_code(exc))
         raise ShareError("share_unavailable") from None
@@ -459,6 +498,16 @@ async def share_request(
         now = _state.clock()
         _state.negative.set(cache_key, (error.code, error.params), now + NEGATIVE_CACHE_S, now)
     raise error
+
+
+def _note_refused_object(cache_key: str, code: str) -> None:
+    now = _state.clock()
+    _state.negative.set(cache_key, (code, {}), now + NEGATIVE_CACHE_S, now)
+
+
+def is_share_id(share_id: str) -> bool:
+    """True for an id of the contract grammar."""
+    return SHARE_ID_RE.fullmatch(share_id) is not None
 
 
 def _checked_id(share_id: str) -> str:
@@ -531,3 +580,84 @@ async def report_object(share_id: str, reason: str, details: str) -> None:
         binding=f"{share_id}\n{reason}",
         json_body={"id": share_id, "reason": reason, "details": details},
     )
+
+
+# Objects --------------------------------------------------------------------
+
+
+def sniff_image_type(content: bytes) -> str | None:
+    """The image type the magic bytes say (PNG, JPEG, GIF, WebP), else None."""
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def image_dimensions(content: bytes) -> tuple[int, int] | None:
+    """Width and height read from the header, or None when unreadable."""
+    try:
+        width, height = imagesize.get(io.BytesIO(content))
+    except Exception:  # noqa: BLE001 - any parser failure means "not an image"
+        return None
+    if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def checked_object(obj: ShareObject) -> ShareObject:
+    """The object as it may be served, else a ``ShareError``.
+
+    An image is served as an image only when the declared type, the magic bytes
+    and a readable header of at most ``MAX_IMAGE_PIXELS`` agree (a GIF at most
+    ``MAX_GIF_BYTES``). Raw bytes (``application/octet-stream``, an encrypted
+    object) stay raw bytes, served as an attachment. Never anything else.
+    """
+    if len(obj.content) > MAX_OBJECT_RESPONSE_BYTES:
+        raise ShareError("share_too_large")
+    if obj.content_type == OCTET_STREAM:
+        return ShareObject(content=obj.content, content_type=OCTET_STREAM)
+    if obj.content_type not in IMAGE_CONTENT_TYPES:
+        raise ShareError("share_type_refused")
+    if sniff_image_type(obj.content) != obj.content_type:
+        raise ShareError("share_type_refused")
+    if obj.content_type == "image/gif" and len(obj.content) > MAX_GIF_BYTES:
+        raise ShareError("share_too_large")
+    dimensions = image_dimensions(obj.content)
+    if dimensions is None or dimensions[0] * dimensions[1] > MAX_IMAGE_PIXELS:
+        raise ShareError("share_type_refused")
+    return obj
+
+
+async def read_object(share_id: str) -> ShareObject:
+    """``GET /{id}`` through the disk cache: a checked object, else a ``ShareError``.
+
+    Off means off: the opt-in is checked before the cache, so a cached object
+    is never served while sharing is off. A hit makes no request; a miss
+    fetches (read bucket, breaker, negative cache), checks and stores.
+    """
+    share_id = _checked_id(share_id)
+    if await share_egress_state() is None:
+        raise ShareError("share_disabled")
+    cache = share_cache()
+    cached = await cache.get(share_id)
+    if cached is not None:
+        return ShareObject(content=cached.content, content_type=cached.content_type)
+    fetched = await fetch_object(share_id)
+    try:
+        obj = checked_object(fetched)
+    except ShareError as exc:
+        logger.warning("Share object refused locally: %s", exc.code)
+        _note_refused_object(f"GET /{share_id}", exc.code)
+        raise
+    await cache.set(share_id, CachedObject(content=obj.content, content_type=obj.content_type))
+    return obj
+
+
+async def clear_object_cache() -> int:
+    """Empty the disk cache of objects (local only); the bytes freed."""
+    return await share_cache().clear()

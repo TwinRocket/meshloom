@@ -166,6 +166,8 @@ Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une in
 
 `MESHCORE_DATABASE_PATH` la déplace. Une mise à jour ne remplace jamais votre base : sa structure est mise à niveau au démarrage, étape par étape.
 
+À côté de la base, le dossier `share-cache` garde les images partagées que Meshloom a déjà téléchargées (par exemple `/var/lib/meshloom/share-cache`) : un second affichage n’envoie aucune requête. Il contient au plus 200 Mio, retire d’abord les images vues le moins récemment et garde chacune 6 heures au plus. Le supprimer est sans danger.
+
 La commande de récupération `meshloom-admin` lit le même fichier ; la façon de la lancer pour chaque installation est dans [Comptes et accès](/docs/deep/access/).
 
 **Réglages → Mises à jour** affiche l’état des mises à jour et peut chercher une nouvelle version (**Vérifier maintenant**). Là où c’est pris en charge, il installe la mise à jour depuis une source signée, soit à la demande (**Installer maintenant**), soit tout seul dans une plage horaire et les jours que vous choisissez. Cela fonctionne pour un paquet Linux et pour une pile Docker gérée par l’assistant. Une copie du code se met à jour comme décrit plus haut. Ailleurs, mettez à jour à la main :

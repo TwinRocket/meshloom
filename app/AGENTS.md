@@ -263,10 +263,12 @@ Community guard.
   redirect, an unexpected body) is 502 `share_unavailable`. **Any answer that is
   not `application/json`** (a Cloudflare 1027 page, a challenge, an HTML 404) is
   `share_unavailable`, whatever its status. An id outside the grammar is a local
-  404 `share_not_found`. `fetch_object` accepts only `OBJECT_CONTENT_TYPES`
+  404 `share_not_found` (400 `share_invalid_id` on `GET /{id}`). `fetch_object` accepts only `OBJECT_CONTENT_TYPES`
   (`image/jpeg`, `image/png`, `image/gif`, `image/webp`,
   `application/octet-stream`); a 2xx of any other type (`text/html`, SVG) is
-  `share_unavailable`. A service code is logged only when it matches
+  `share_unavailable`; a bytes answer past `MAX_OBJECT_RESPONSE_BYTES` (10 MiB, the
+  guard's `egress_response_too_large`) is 413 `share_too_large`, counts as a breaker
+  success and is negatively cached. A service code is logged only when it matches
   `^[a-z_]{1,32}$` ("unknown" otherwise).
 - **Banned.** A 403 `banned` holds a banned state in memory for 12 h
   (`BANNED_HOLD_S`): later writes are refused locally (403 `share_banned`) with
@@ -291,20 +293,47 @@ Community guard.
     refusal, 5xx, a non-JSON 4xx) open it for 5 min (`BREAKER_OPEN_SECONDS`);
     while open every call answers `share_unavailable` locally; then one trial
     decides. A contract 4xx closes it.
-- **Functions.** `create_link`, `get_meta`, `fetch_object`, `report_object` (and
-  `share_request` underneath). Every new network function must be added to
+- **Functions.** `create_link`, `get_meta`, `fetch_object`, `read_object`,
+  `report_object` (and `share_request` underneath); `clear_object_cache` and
+  `share_egress_state` are local (`_LOCAL` in the sweep). Every new network function must be added to
   `SERVICE_CALLS` in `tests/test_share_off_no_egress.py` (the test finds them
   from the module and fails otherwise); `/api/share/*` routes are found from
   `app.routes` and swept too.
 - **Meta cache.** `get_meta` replays a good answer for `META_CACHE_S` (10 min,
   256 ids), after the opt-in check; turning sharing off clears it.
+- **Objects (`read_object`, MSHL-244).** Opt-in check first (off answers
+  `share_disabled` even for a cached object), then the disk cache
+  (`services/share_cache.py`, a thin `diskcache` wrapper: `<data dir>/share-cache/`
+  next to `MESHCORE_DATABASE_PATH`, mode 0700, created on first use; 200 MiB with
+  least-recently-used eviction, 5000 entries, 6 h per entry; blocking calls in the
+  default executor). A hit makes no request. A miss calls `fetch_object` then
+  `checked_object`: an image type must match its magic bytes (`sniff_image_type`),
+  GIF at most 5 MiB, `imagesize` must read the dimensions, at most 40 Mpx
+  (`MAX_IMAGE_PIXELS`); anything else is 415 `share_type_refused`.
+  `application/octet-stream` passes unchanged and is never upgraded to an image.
+  A refusal is negatively cached like a 404/410, so a refused object is not
+  downloaded again for 10 min. Only validated objects are stored. Opting out does
+  not empty the disk cache (`POST /cache/clear` does). Tests:
+  `tests/test_share_cache.py`.
 - **Routes (`routers/share.py`, prefix `/api/share`).** `GET /status` (`read`; no
   egress: `enabled`, `host`, `hosts`, `identity_ready`, `dm_encryption_available`
   = `keystore.has_private_key()`, `banned`, `unreachable` (share breaker open), `shorten_mode`, `preview_policy`),
   `POST /links` (`send`, i.e. member+; off answers `share_disabled` before
   anything; the URL is checked locally: http/https, host, 2048 characters, no
   whitespace), `GET /{id}/meta` (`read`, so a viewer or kiosk reads it; the id
-  is checked against the grammar before any call). Every write route depends on
+  is checked against the grammar before any call; a link keeps `kind`,
+  `target_host`, `expires_at`, a file adds `created_at`, `mode`, `content_type`
+  (images only), `size`, `name` (always null: names travel encrypted, M3) and
+  `decryptable` (true for a public file)), `GET /{id}` (`read`; the object bytes:
+  bad id 400 `share_invalid_id` with no request, then off `share_disabled`;
+  headers `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src
+  'none'; sandbox`, `Cache-Control: private, max-age=3600`, `Content-Disposition`
+  `inline` for an image and `attachment` (`.bin`) otherwise, `filename*=` built
+  from the id), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
+  sharing off, no egress). On both reads the only query parameter is
+  `message_id` (anything else or a repeat is 400 `share_invalid_request`); when
+  given, the message must exist and contain the id (else 404 `share_not_found`)
+  and a non-channel message needs `read_private` (a kiosk gets 403). Every write route depends on
   `refuse_cross_site`: 403 `share_cross_site` when `Sec-Fetch-Site` is
   `cross-site` (defence in depth: the auth gate already refuses unsafe
   cross-origin requests that are not bearer-token ones). Tests:
