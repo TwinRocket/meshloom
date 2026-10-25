@@ -18,6 +18,8 @@ import type {
   PluginSourceResult,
   PluginTestRequest,
   PluginTestResult,
+  StoreRepositories,
+  StoreRepository,
 } from './components/settings/extensions/pluginsTypes';
 import type {
   MyPushRules,
@@ -1214,6 +1216,19 @@ export const api = {
   resumeMyPush: () => fetchJson<MyPushRules>('/push/my-pause', { method: 'DELETE' }),
   getPlugins: () => fetchJson<PluginInstance[]>('/plugins'),
   getBundledPlugins: () => fetchJson<BundledPlugin[]>('/plugins/bundled'),
+  getStoreRepositories: () => fetchJson<StoreRepositories>('/store/repositories'),
+  addStoreRepository: (repository: string) =>
+    fetchJson<StoreRepository>('/store/repositories', {
+      method: 'POST',
+      body: JSON.stringify({ repository }),
+    }),
+  removeStoreRepository: (repository: string) => {
+    const [owner, name] = repository.split('/');
+    return fetchJson<void>(
+      `/store/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+  },
   installPlugin: (body: PluginInstallRequest) =>
     fetchJson<PluginInstance>('/plugins/install', { method: 'POST', body: JSON.stringify(body) }),
   patchPlugin: (id: string, body: PluginPatch) =>

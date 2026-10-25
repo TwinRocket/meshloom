@@ -6,8 +6,9 @@ capability API v1 with the global send budgets and loop guards, OS isolation,
 UI, the global pause, and the conversion of the 4.18 bots** (MSHL-175 to MSHL-192,
 MSHL-216, MSHL-337, MSHL-339; isolation: `docs/dev/plugins-security.md`, "OS
 isolation"). The server starts one supervised child per enabled instance, isolated by
-the OS, and answers its requests (see "Capabilities"). Not in 5.0.0: the online Store
-(index, personalised repositories, updates from a store; the consent
+the OS, and answers its requests (see "Capabilities"). Custom repositories (GitHub
+`owner/name`, tier `custom`, MSHL-196) are in: see "Custom repositories". Not in 5.0.0:
+the index Store and updates of installed `custom`/`store` instances (the consent
 `app_settings.store_online`, off by default, and its egress gate exist since MSHL-194, see
 "Store egress" in `app/AGENTS.md`) and Windows (no plugins). Two bundled packages ship ("Bundled
 plugins"). Like every doc here, this
@@ -717,8 +718,10 @@ then `PreparedInstall.commit()` (or `discard()`).
   zips a package of `meshloom_plugin/official/`. `RemoteArchiveSource(tier, entry,
   archive_url, expected_sha256, allowed_hosts, expected_size?, repository?)` downloads.
   `custom` and `store` sources come from resolvers, `register_resolver(kind,
-  resolver(plugin_id, version, repository))`: none is registered yet (GitHub releases are
-  T22, the index Store M3), so `POST /install` answers 404 `plugin_source_unavailable`.
+  resolver(plugin_id, version, repository))`. `custom` is registered at startup by
+  `app/plugins/custom_repos.py` (MSHL-196, see "Custom repositories"); `store` has none
+  yet (the index Store, M3), so `POST /install` with it answers 404
+  `plugin_source_unavailable`.
 - **Download gate.** A remote source is fetched only when `downloads_allowed()` is true:
   `set_download_gate(async callable)`, fail closed (no gate, or a gate that raises, means
   409 `store_offline`, and no request leaves). `app/main.py` wires
@@ -1037,6 +1040,59 @@ holds a config value or a secret. Reads need `send` (member and up: `config`, `s
 changes, runs or reads the logs of an instance is `admin`. `kiosk` and `viewer` are refused
 everywhere. While the host lock or the platform turns the system off, every write but `DELETE` and
 `PUT /pause` is 403 `plugins_disabled` (`params.source`).
+
+### Custom repositories
+
+`app/plugins/custom_repos.py` (MSHL-196, Store T22), storage in
+`app/repository/store_repositories.py`, table `store_repositories` (migration 126,
+`docs/dev/database.md`). Like HACS custom repositories: the admin takes responsibility for
+an unsigned source.
+
+- **Name.** `owner/name` only (no URL, host or extra segment), checked against GitHub's
+  rules (`parse_repository`, 400 `repository_invalid`); the lowercase form is the key, the
+  typed form is kept for display. At most `MAX_REPOSITORIES` (50, 409 `repository_limit`).
+- **Lookup.** No API and no token: `GET https://github.com/<owner>/<name>/releases/latest`
+  with redirects off, like `fetch_github_latest` in `app/services/oss_updates.py`. The tag
+  is read from the `Location` (`/releases/tag/<tag>`, `repository_tag_invalid` when it
+  fails the tag regex). A 404 or a redirect to `/releases` or the repository page is
+  404 `repository_no_release`; a redirect to another `owner/name` (renamed or moved) is
+  409 `repository_moved`: the lookup redirect is never followed.
+- **Assets.** `manifest.json`, `plugin.zip.sha256` (at most 1 KiB, the first 64-hex token) and
+  `plugin.zip` from `/releases/download/<tag>/`, through `store_fetch` with
+  `CUSTOM_REPO_HOSTS` (`github.com`, `objects.githubusercontent.com`,
+  `release-assets.githubusercontent.com`; `store.meshloom.app` is excluded): a redirect
+  to any other host is 409 `download_blocked`. Missing ones are 404
+  `repository_assets_missing` (`params.missing`); over the cap
+  `repository_asset_too_large`. The manifest goes through `load_manifest_json`
+  (third-party, `repository_manifest_invalid`), the archive through `validate_package`
+  and must match the manifest and the sha256 (`repository_archive_invalid`,
+  `repository_sha256_invalid`, `archive_mismatch`).
+- **When.** The three assets are read at add time and again when a refresh sees a new
+  tag; a failed refresh records `last_error` (a code) and keeps the last good release.
+  `refresh_repositories` is a Store refresher (`register_store_refresher`), so it runs
+  only while `store_online` is on and a `custom`/`store` instance is installed. Every
+  request goes through `store_fetch`, which raises `store_offline` before any lookup
+  while the consent is off.
+- **Install.** `resolve_custom(plugin_id, version, repository)` serves the **latest**
+  release only, and only for a registered repository or the repository of an installed
+  `custom` instance of that plugin (a restored backup brings the instances back without
+  the list). It reads the manifest and the sha256 again, and the installer downloads and
+  checks the archive (`RemoteArchiveSource`, tier `custom`).
+- **Catalogue.** `catalogue_entry(row)`: `tier: "custom"`, `signed: false`, the manifest's
+  name, summary, permissions, privacy and compat, the archive's sha256 and size, and the
+  warning (`warning: "custom_unsigned"`, `warning_text` in en and fr: unsigned, sha256
+  is an integrity check over the same channel, no online revocation). The UI shows its
+  own i18n copy (`settings.extensions.store.warning`).
+- **Backup.** The table is excluded from the JSON backup (`BACKUP_COVERAGE`); installed
+  instances keep their `repository`, which is enough to reinstall.
+
+Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
+
+| Route | Behaviour |
+|---|---|
+| `GET /store/repositories` | `{store_online, max_repositories, warning, warning_text, repositories: [{repository, display_name, added_at, checked_at, last_error, entry, instances: [{instance_id, label, version}], update_available}]}`. Reads the table only: no request to GitHub. |
+| `POST /store/repositories` | `{repository}`: the lookup and the checks above, then 201 with the row. 409 `store_offline`, 409 `repository_exists`, plus the codes above. Audited `store.repository_added` (target `repository:<key>`, `details.plugin_id` or `details.code`). |
+| `DELETE /store/repositories/{owner}/{name}` | 204; 400 `repository_invalid`, 404 `repository_not_found`. Installed instances stay. Audited `store.repository_removed`. |
 
 Audit (MSHL-215, `app/auth/audit.py`, `docs/dev/auth.md`): every successful or failed admin write
 records the actor, the target `plugin:<instance_id>` and `{plugin_id, kind, fields?}`, where

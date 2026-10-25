@@ -17,6 +17,7 @@ import { toast } from '../ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { AddBundledDialog } from './extensions/AddBundledDialog';
 import { CreateLocalDialog } from './extensions/CreateLocalDialog';
+import { CustomRepositoriesPanel } from './extensions/CustomRepositoriesPanel';
 import { InstalledTab } from './extensions/InstalledTab';
 import { InstanceDrawer } from './extensions/InstanceDrawer';
 import { MigrationBanner } from './extensions/MigrationBanner';
@@ -301,8 +302,8 @@ export function SettingsExtensionsSection({
             />
           )}
         </TabsContent>
-        <TabsContent value="store" className="mt-3 text-sm text-muted-foreground">
-          {t('settings.extensions.tabs.storeSoon')}
+        <TabsContent value="store" className="mt-3">
+          <CustomRepositoriesPanel canManage={isAdmin} locked={locked} onInstalled={reload} />
         </TabsContent>
         <TabsContent value="updates" className="mt-3 text-sm text-muted-foreground">
           {t('settings.extensions.tabs.updatesSoon')}

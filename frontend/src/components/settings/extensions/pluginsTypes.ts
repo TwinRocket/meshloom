@@ -45,8 +45,10 @@ export interface PluginDiagnostic {
 }
 
 export interface PluginInstallRequest {
-  kind: 'bundled';
+  kind: 'bundled' | 'custom';
   plugin_id: string;
+  /** `owner/name` of a custom Store repository (`kind: 'custom'`). */
+  repository?: string;
   label?: string;
   granted_permissions: Record<string, unknown>;
   config?: Record<string, unknown>;
@@ -142,3 +144,46 @@ export interface PluginTestResult {
 }
 
 export type { PluginInstance };
+
+/** The catalogue entry of a custom repository's last good release (MSHL-196). */
+export interface CustomCatalogueEntry {
+  tier: 'custom';
+  signed: false;
+  repository: string;
+  plugin_id: string;
+  version: string;
+  tag: string;
+  name: Record<string, string>;
+  summary: Record<string, string>;
+  permissions: Record<string, Record<string, unknown>>;
+  privacy?: Record<string, unknown> | null;
+  compat?: Record<string, unknown> | null;
+  archive_sha256: string | null;
+  archive_size: number | null;
+  /** `custom_unsigned`: the UI shows its own i18n copy of the warning. */
+  warning: string;
+  warning_text: Record<string, string>;
+}
+
+export interface StoreRepository {
+  /** Lowercase `owner/name`, the key. */
+  repository: string;
+  /** `owner/name` as GitHub writes it. */
+  display_name: string;
+  added_at: number;
+  checked_at: number | null;
+  /** Error code of the last check, null when it succeeded. */
+  last_error: string | null;
+  entry: CustomCatalogueEntry | null;
+  instances: Array<{ instance_id: string; label: string; version: string }>;
+  update_available: boolean;
+}
+
+/** `GET /api/store/repositories`: makes no request to GitHub. */
+export interface StoreRepositories {
+  store_online: boolean;
+  max_repositories: number;
+  warning: string;
+  warning_text: Record<string, string>;
+  repositories: StoreRepository[];
+}

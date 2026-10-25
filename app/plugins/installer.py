@@ -17,8 +17,9 @@ The archive is then validated and extracted (`app/plugins/package.py`: zip-slip,
 symlinks, special files, size and entry caps) into `<data>/plugins/_staging/<uuid>/`,
 its manifest must equal the entry (id, version, permissions), and the tree is moved
 atomically into `<data>/plugins/<plugin_id>/`, shared by the instances of that plugin.
-`custom` and `store` sources come from resolvers (`register_resolver`); none is
-registered yet, so those kinds answer `plugin_source_unavailable`.
+`custom` and `store` sources come from resolvers (`register_resolver`): `custom` is
+registered by `app/plugins/custom_repos.py` (MSHL-196); `store` has none yet and
+answers `plugin_source_unavailable`.
 
 `bundled` plugins are packages in the app tree (`meshloom_plugin/official/<dir>/`),
 versioned with meshloom and installed offline (`BundledSource`, origin `bundled`;

@@ -211,6 +211,27 @@
         "resume": "Reprendre",
         "paused": "Toutes les extensions sont en pause.",
         "resumed": "Extensions relancées."
+      },
+      "store": {
+        "title": "Dépôts personnalisés",
+        "intro": "Ajoutez un plugin publié sur GitHub sous la forme propriétaire/nom. Sa dernière release doit contenir manifest.json, plugin.zip et plugin.zip.sha256.",
+        "warning": "Les dépôts personnalisés ne sont ni relus ni signés par Meshloom : vous les installez à vos risques. Le fichier plugin.zip.sha256 vient du même endroit que l'archive : il vérifie seulement que le téléchargement est intact (intégrité), pas qui l'a produit. Ces plugins ne bénéficient d'aucune révocation en ligne.",
+        "offline": "Le Store est hors ligne : rien n'est téléchargé depuis GitHub tant que vous ne le mettez pas en ligne.",
+        "goOnline": "Mettre le Store en ligne",
+        "repositoryLabel": "Dépôt GitHub (propriétaire/nom)",
+        "add": "Ajouter",
+        "added": "Dépôt {{repository}} ajouté.",
+        "removed": "Dépôt {{repository}} retiré.",
+        "none": "Aucun dépôt personnalisé pour l'instant.",
+        "unsigned": "non signé",
+        "install": "Installer",
+        "remove": "Retirer",
+        "removeTitle": "Retirer {{repository}} ?",
+        "removeIntro": "Les plugins déjà installés depuis ce dépôt restent installés et continuent de fonctionner ; leurs mises à jour ne seront plus vérifiées.",
+        "updateAvailable": "mise à jour disponible",
+        "checkFailed": "La dernière vérification a échoué.",
+        "accept": "Je comprends que ce plugin n'est ni relu ni signé par Meshloom, et j'accepte ces permissions.",
+        "adminOnly": "Seul un administrateur peut voir et gérer les dépôts personnalisés."
       }
     },
     "fullRestore": {
@@ -250,6 +271,23 @@
     "scope_invalid": "La sélection de conversations n'est pas valide.",
     "secret_required": "Une valeur secrète est manquante.",
     "plugin_reinstall_required": "Cette extension a été restaurée sans son code : réinstallez-la avant de la démarrer.",
-    "plugin_code_mismatch": "Le code installé de cette extension ne correspond pas à sa version enregistrée après une mise à jour échouée. Elle ne démarrera pas tant que Meshloom n'aura pas redémarré et terminé la mise à jour."
+    "plugin_code_mismatch": "Le code installé de cette extension ne correspond pas à sa version enregistrée après une mise à jour échouée. Elle ne démarrera pas tant que Meshloom n'aura pas redémarré et terminé la mise à jour.",
+    "repository_invalid": "Saisissez un dépôt GitHub sous la forme propriétaire/nom.",
+    "repository_exists": "Ce dépôt est déjà dans la liste.",
+    "repository_limit": "Au plus {{limit}} dépôts personnalisés.",
+    "repository_not_found": "Ce dépôt n'est pas dans la liste.",
+    "repository_no_release": "Ce dépôt n'a aucune release publiée.",
+    "repository_moved": "Ce dépôt a été renommé ou déplacé sur GitHub : ajoutez-le sous son nouveau nom.",
+    "repository_tag_invalid": "Le nom de tag de la dernière release est inutilisable.",
+    "repository_assets_missing": "Il manque à la dernière release : {{missing}}.",
+    "repository_asset_too_large": "Un fichier de la release dépasse la taille autorisée.",
+    "repository_manifest_invalid": "Le manifest.json de la release n'est pas un manifeste de plugin valide.",
+    "repository_archive_invalid": "Le plugin.zip de la release n'est pas une archive de plugin valide, ou ne correspond pas au manifest.json.",
+    "repository_sha256_invalid": "plugin.zip.sha256 est illisible ou ne correspond pas à plugin.zip.",
+    "archive_mismatch": "L'archive téléchargée ne correspond pas à l'empreinte attendue.",
+    "store_offline": "Le Store est hors ligne : mettez-le en ligne pour faire ceci.",
+    "download_blocked": "Le téléchargement a été refusé (hôte non autorisé ou redirection vers un autre hôte).",
+    "download_failed": "Le téléchargement a échoué. Réessayez plus tard.",
+    "plugin_source_unavailable": "La source de ce plugin n'est pas disponible."
   }
 }

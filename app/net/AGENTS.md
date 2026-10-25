@@ -203,7 +203,9 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   and `release-assets.githubusercontent.com`, and `store.meshloom.app`), HTTPS only,
   only while `app_settings.store_online`; `StoreOffline` otherwise, before any lookup.
   It refuses a URL with user info (`egress_userinfo`) and narrows a caller's
-  `allowed_hosts` to `STORE_ALLOWLIST`. Plugin archive downloads use it (MSHL-366).
+  `allowed_hosts` to `STORE_ALLOWLIST`. Plugin archive downloads use it (MSHL-366), and
+  so do the custom repository lookups (`app/plugins/custom_repos.py`, MSHL-196: GitHub
+  hosts only, `store.meshloom.app` excluded).
 - The plugin `http` capability (the
   plugin's declared hosts, plus its declared `lan_hosts`, 10 s, 1 MB response, 256 KB body, redirects
   re-validated to a declared host) both send through
