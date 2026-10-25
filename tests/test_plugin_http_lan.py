@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 import pytest
 
+from app.net import egress_guard
 from app.plugins import capabilities
 from app.plugins.capabilities.base import CapabilityError
 from app.plugins.capabilities.grants import effective_permissions
@@ -30,7 +31,10 @@ DNS = {
     "rebind-v6-link-local.local": ["fe80::1"],
     "rebind-mapped.local": ["::ffff:127.0.0.1"],
     "rebind-mapped-lan.local": ["::ffff:192.168.1.20"],
-    "rebind-cgnat.local": ["100.64.0.1"],
+    "tailnet-nas": ["100.101.102.103"],
+    "rebind-self.local": ["192.168.1.10"],
+    "rebind-self-mapped.local": ["::ffff:192.168.1.10"],
+    "rebind-alibaba-metadata.local": ["100.100.100.200"],
     "rebind-public.local": ["93.184.215.14"],
     "rebind-mixed.local": ["192.168.1.21", "127.0.0.1"],
     "other.local": ["192.168.1.21"],
@@ -38,6 +42,8 @@ DNS = {
 LAN_HOSTS = [
     "printer.local",
     "nas",
+    "tailnet-nas",
+    "192.168.1.10:5051",  # this machine's radio proxy
     "192.168.1.40:8080",
     "[fd00::40]:8443",
     *(h for h in DNS if h.startswith("rebind-")),
@@ -65,6 +71,16 @@ class Dns:
 @pytest.fixture
 def dns(monkeypatch):
     return Dns(monkeypatch)
+
+
+# This machine is 192.168.1.10 here, whatever the runner's real addresses are.
+SELF = "192.168.1.10"
+
+
+@pytest.fixture(autouse=True)
+def this_machine(monkeypatch):
+    monkeypatch.setattr(egress_guard, "_binds_locally", lambda ip: str(ip) == SELF)
+    monkeypatch.setattr(egress_guard, "_in_container", lambda: False)
 
 
 @pytest.fixture
@@ -228,3 +244,88 @@ def test_a_grant_written_before_lan_hosts_still_matches():
     granted = {"http": {"hosts": ["api.example.org"]}}
     assert consent_missing(manifest, granted) == []
     assert grant_problems(manifest, granted) == []
+
+
+# --- MSHL-330 / MSHL-331 ------------------------------------------------------------
+
+
+async def test_a_tailscale_device_declared_by_name_is_reached(net, dns):
+    assert (await fetch({"url": "http://tailnet-nas/"}))["status"] == 200
+    assert [r.url.host for r in net.requests] == ["100.101.102.103"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://192.168.1.10:5051/",
+        "http://rebind-self.local/",
+        "http://rebind-self-mapped.local/",  # ::ffff:192.168.1.10, the mapped spelling
+    ],
+)
+async def test_this_machine_is_refused_even_when_declared(net, dns, url):
+    err = await refused({"url": url})
+    assert err.refusal == "host_not_allowed"
+    assert net.requests == []
+
+
+async def test_a_redirect_to_this_machine_is_refused(net, dns):
+    net.handler = lambda r: httpx.Response(302, headers={"location": "http://192.168.1.10:5051/"})
+    err = await refused({"url": "http://printer.local/"})
+    assert err.refusal == "host_not_allowed"
+    assert len(net.requests) == 1
+
+
+class VerifySpy:
+    """Records the certificate setting of each hop's pinned client."""
+
+    def __init__(self, monkeypatch) -> None:
+        self.verify: list[bool] = []
+        real = egress_guard.pinned_async_client
+
+        def spy(dest, *, verify_tls=True, timeout):
+            self.verify.append(verify_tls)
+            return real(dest, verify_tls=verify_tls, timeout=timeout)
+
+        monkeypatch.setattr(egress_guard, "pinned_async_client", spy)
+
+
+async def test_certificates_are_checked_by_default(net, dns, monkeypatch):
+    spy = VerifySpy(monkeypatch)
+    await fetch({"url": "https://printer.local/"})
+    await fetch({"url": "https://api.example.org/"})
+    assert spy.verify == [True, True]
+
+
+async def test_a_self_signed_lan_device_may_skip_the_certificate_check(net, dns, monkeypatch):
+    spy = VerifySpy(monkeypatch)
+    assert (await fetch({"url": "https://printer.local/", "verify_tls": False}))["status"] == 200
+    assert spy.verify == [False]
+
+
+async def test_the_certificate_check_stays_on_after_a_redirect_to_a_public_host(
+    net, dns, monkeypatch
+):
+    spy = VerifySpy(monkeypatch)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers["host"] == "printer.local":
+            return httpx.Response(302, headers={"location": "https://api.example.org/done"})
+        return httpx.Response(200, text="done")
+
+    net.handler = handler
+    await fetch({"url": "https://printer.local/", "verify_tls": False})
+    assert spy.verify == [False, True]
+
+
+@pytest.mark.parametrize(
+    ("params", "field"),
+    [
+        ({"url": "https://api.example.org/", "verify_tls": False}, "verify_tls"),
+        ({"url": "https://printer.local/", "verify_tls": "no"}, "verify_tls"),
+        ({"url": "https://printer.local/", "verify_tls": 0}, "verify_tls"),
+    ],
+)
+async def test_skipping_the_certificate_check_is_for_lan_devices_only(net, dns, params, field):
+    err = await refused(params)
+    assert err.refusal == "invalid_params"
+    assert dns.lookups == [] and net.requests == []

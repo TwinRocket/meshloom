@@ -15,7 +15,8 @@ request and response bodies are capped (the response while it streams) and
 headers a caller must never set are dropped. The plugin capability also passes
 its declared LAN devices as ``lan_hosts``: those, and only those, may be reached
 over plain HTTP and must resolve to a LAN address (10/8, 172.16/12, 192.168/16,
-fc00::/7), checked on every hop.
+100.64/10, fc00::/7) that is not the Meshloom host itself (``is_self_address``),
+checked on every hop.
 
 Address classes are tested range by range. ``ipaddress.is_private`` and
 ``is_global`` changed between Python 3.11 and 3.13 (IPv4-mapped IPv6,
@@ -25,8 +26,10 @@ Address classes are tested range by range. ``ipaddress.is_private`` and
 from __future__ import annotations
 
 import asyncio
+import errno
 import ipaddress
 import logging
+import os
 import socket
 import ssl
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
@@ -69,6 +72,7 @@ EgressCode = Literal[
     "egress_response_too_large",
     "egress_response_encoding",
     "egress_lan_address",
+    "egress_self_address",
 ]
 
 DEFAULT_SCHEMES = frozenset({"http", "https"})
@@ -138,8 +142,12 @@ _METADATA_IPS = frozenset(
 _METADATA_HOSTS = frozenset({"metadata.google.internal"})
 
 # What a declared LAN host (`lan_hosts`) must resolve to: the home and office network
-# ranges, nothing else (no loopback, link-local, CGNAT, transition form or public IP).
-_LAN_V4 = tuple(ipaddress.IPv4Network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+# ranges and 100.64.0.0/10, where a VPN such as Tailscale numbers the user's own
+# devices (MSHL-331); nothing else (no loopback, link-local, transition form or public IP).
+_LAN_V4 = tuple(
+    ipaddress.IPv4Network(n)
+    for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10")
+)
 _LAN_V6 = (ipaddress.IPv6Network("fc00::/7"),)
 
 
@@ -160,6 +168,8 @@ EGRESS_MESSAGES: dict[str, str] = {
     "egress_response_encoding": "The answer is compressed, which is not allowed here",
     "egress_lan_address": "This local-network host did not resolve to an address of your "
     "local network",
+    "egress_self_address": "This local-network host is the machine Meshloom runs on, which "
+    "a plugin may not reach",
 }
 
 
@@ -249,7 +259,7 @@ def is_private_address(ip: IPAddress) -> bool:
 
 
 def is_lan_address(ip: IPAddress) -> bool:
-    """True only for a plain LAN address: 10/8, 172.16/12, 192.168/16 or fc00::/7, written
+    """True only for a plain LAN address: 10/8, 172.16/12, 192.168/16, 100.64/10 or fc00::/7, written
     as itself (an IPv4-mapped or transition form is not), never a metadata address."""
     if is_metadata_address(ip):
         return False
@@ -258,15 +268,85 @@ def is_lan_address(ip: IPAddress) -> bool:
     return any(ip in net for net in _LAN_V6)
 
 
+def _binds_locally(ip: IPAddress) -> bool:
+    """True when ``ip`` is assigned to an interface of this machine (or container):
+    binding a socket to it succeeds. Any error but "address not available" counts as
+    local, so a failing probe refuses rather than lets through. With Linux's
+    ``ip_nonlocal_bind`` sysctl on, every bind succeeds and every LAN host is refused."""
+    family = socket.AF_INET if ip.version == 4 else socket.AF_INET6
+    try:
+        sock = socket.socket(family, socket.SOCK_DGRAM)
+    except OSError:
+        return False  # no such address family here: it cannot be one of ours
+    try:
+        sock.bind((str(ip), 0))
+    except OSError as exc:
+        return exc.errno != errno.EADDRNOTAVAIL
+    finally:
+        sock.close()
+    return True
+
+
+def _in_container() -> bool:
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def _default_gateways(
+    route: str = "/proc/net/route", route6: str = "/proc/net/ipv6_route"
+) -> frozenset[IPAddress]:
+    """The default routes' gateways from ``/proc/net/route`` and ``/proc/net/ipv6_route``
+    (Linux; empty elsewhere or when unreadable)."""
+    gateways: set[IPAddress] = set()
+    try:
+        with open(route, encoding="ascii") as f:
+            for line in f.readlines()[1:]:
+                fields = line.split()
+                # Iface Destination Gateway Flags ...: hex, little-endian; 0x2 = RTF_GATEWAY.
+                if len(fields) > 3 and fields[1] == "00000000" and int(fields[3], 16) & 0x2:
+                    gateways.add(ipaddress.IPv4Address(int(fields[2], 16).to_bytes(4, "little")))
+    except (OSError, ValueError):
+        pass
+    try:
+        with open(route6, encoding="ascii") as f:
+            for line in f:
+                fields = line.split()
+                # dest prefix src prefix next_hop ...: 32 hex digits each.
+                if len(fields) > 4 and fields[0] == "0" * 32 and fields[1] == "00":
+                    hop = ipaddress.IPv6Address(int(fields[4], 16))
+                    if hop != ipaddress.IPv6Address(0):
+                        gateways.add(hop)
+    except (OSError, ValueError):
+        pass
+    return frozenset(gateways)
+
+
+def is_self_address(ip: IPAddress) -> bool:
+    """True when ``ip`` reaches the machine Meshloom runs on (MSHL-330): an address of
+    one of its interfaces (its LAN address, a Docker bridge such as 172.17.0.1, a
+    Tailscale address...), or, inside a container, the default gateway, which is the
+    Docker or Home Assistant host. There the radio proxy (5051, no authentication)
+    and the app's own port listen. The host's LAN address seen from inside a bridged
+    container cannot be listed: that residual risk is in
+    ``docs/dev/plugins-security.md``."""
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped  # ::ffff:a.b.c.d reaches the IPv4 interface a.b.c.d
+    if _binds_locally(ip):
+        return True
+    return _in_container() and ip in _default_gateways()
+
+
 def check_lan_addresses(ips: Iterable[IPAddress]) -> None:
     """A declared LAN host must resolve to LAN addresses only: one other answer (public,
     loopback, link-local, another class) refuses it, so a name cannot be re-pointed
-    (DNS rebinding) at the Meshloom machine or the Internet."""
+    (DNS rebinding) at the Internet; one address of the Meshloom host itself refuses it
+    too (``egress_self_address``), whatever the name or literal."""
     for ip in ips:
         if is_metadata_address(ip) or is_documentation_address(ip):
             raise EgressBlocked("egress_private_address", always_refused=True)
         if not is_lan_address(ip):
             raise EgressBlocked("egress_lan_address")
+        if is_self_address(ip):
+            raise EgressBlocked("egress_self_address")
 
 
 def tls_check_may_be_off(ips: Iterable[IPAddress]) -> bool:
@@ -625,6 +705,7 @@ async def follow_checked_redirects(
     header_filter: Callable[[str, str], bool] | None = None,
     cross_origin_headers: Iterable[str] = (),
     verify_tls: bool = True,
+    lan_verify_tls: bool = True,
     truncate_response: bool = False,
 ) -> CheckedResponse:
     """Send through the guard and follow redirects one validated hop at a time.
@@ -644,7 +725,9 @@ async def follow_checked_redirects(
     (``egress_response_encoding``), so the cap counts the bytes on the wire.
     Cookies are never stored nor sent. When a hop leaves the origin, only
     ``CROSS_ORIGIN_HEADERS`` and the names in ``cross_origin_headers`` follow
-    it. Raises ``EgressBlocked``, ``httpx`` transport errors or
+    it. ``lan_verify_tls=False`` skips the certificate check on the hops to a
+    ``lan_hosts`` device only (a self-signed device, MSHL-331); every other hop
+    keeps ``verify_tls``. Raises ``EgressBlocked``, ``httpx`` transport errors or
     ``TimeoutError``.
     """
     if max_request_bytes is not None and content is not None and len(content) > max_request_bytes:
@@ -668,9 +751,11 @@ async def follow_checked_redirects(
                 allowed_hosts=allowed_hosts,
                 lan_hosts=lan_hosts,
             )
+            on_lan = lan_hosts is not None and lan_hosts.allows(dest.scheme, dest.host, dest.port)
+            verify = verify_tls and (lan_verify_tls or not on_lan)
             # A fresh client per hop: no cookie jar carried from one host to the next.
             async with (
-                pinned_async_client(dest, verify_tls=verify_tls, timeout=timeout) as client,
+                pinned_async_client(dest, verify_tls=verify, timeout=timeout) as client,
                 client.stream(method, content=content, headers=sent_headers) as response,
             ):
                 location = response.headers.get("location")

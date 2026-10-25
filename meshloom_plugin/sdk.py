@@ -199,8 +199,13 @@ def fetch_params(
     headers: dict[str, str] | None,
     body: str | None,
     timeout: float,
+    verify_tls: bool = True,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"url": url, "method": method.upper(), "timeout": timeout}
+    if not verify_tls:
+        # Only for a declared `lan_hosts` device (a self-signed certificate); the
+        # server refuses it for any other host.
+        params["verify_tls"] = False
     if headers:
         params["headers"] = dict(headers)
     if body is not None:
@@ -249,9 +254,10 @@ class Http:
         headers: dict[str, str] | None = None,
         body: str | None = None,
         timeout: float = DEFAULT_HTTP_TIMEOUT,
+        verify_tls: bool = True,
     ) -> HttpResponse:
         result = await meshloom_plugin.host().call(
-            "http.fetch", fetch_params(url, method, headers, body, timeout)
+            "http.fetch", fetch_params(url, method, headers, body, timeout, verify_tls)
         )
         return HttpResponse.from_result(result)
 
@@ -261,8 +267,9 @@ class Http:
         *,
         headers: dict[str, str] | None = None,
         timeout: float = DEFAULT_HTTP_TIMEOUT,
+        verify_tls: bool = True,
     ) -> Any:
-        response = await self.fetch(url, headers=headers, timeout=timeout)
+        response = await self.fetch(url, headers=headers, timeout=timeout, verify_tls=verify_tls)
         if response.status >= 400:
             raise HttpStatusError(response.status, url)
         return response.json()
@@ -274,9 +281,12 @@ class Http:
         *,
         headers: dict[str, str] | None = None,
         timeout: float = DEFAULT_HTTP_TIMEOUT,
+        verify_tls: bool = True,
     ) -> Any:
         body, merged = json_body(data, headers)
-        response = await self.fetch(url, method="POST", headers=merged, body=body, timeout=timeout)
+        response = await self.fetch(
+            url, method="POST", headers=merged, body=body, timeout=timeout, verify_tls=verify_tls
+        )
         if response.status >= 400:
             raise HttpStatusError(response.status, url)
         return response.json()

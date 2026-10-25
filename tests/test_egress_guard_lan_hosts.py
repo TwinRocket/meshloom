@@ -1,20 +1,25 @@
 """Declared LAN hosts in the egress guard (`lan_hosts`, MSHL-282).
 
 A declared device may be reached over plain HTTP, but only if every address its
-name resolves to is a plain LAN address (10/8, 172.16/12, 192.168/16, fc00::/7):
-a name re-pointed at the Meshloom machine, a link-local or metadata address, a
-transition form or the Internet is refused (DNS rebinding).
+name resolves to is a plain LAN address (10/8, 172.16/12, 192.168/16, 100.64/10,
+fc00::/7) that is not the Meshloom host itself (MSHL-330): a name re-pointed at the
+Meshloom machine, a link-local or metadata address, a transition form or the
+Internet is refused (DNS rebinding).
 """
 
+import errno
 import ipaddress
+import socket
 
 import pytest
 
+from app.net import egress_guard
 from app.net.egress_guard import (
     EGRESS_MESSAGES,
     EgressBlocked,
     HostAllowlist,
     is_lan_address,
+    is_self_address,
     validate_destination,
 )
 from tests.test_egress_guard import DOCUMENTATION, HOST, METADATA, PUBLIC, FakeDns
@@ -32,13 +37,16 @@ LAN_ADDRESSES = [
     "192.168.255.254",
     "fc00::1",
     "fd12:3456::1",
+    # 100.64.0.0/10: a VPN such as Tailscale numbers the user's devices there (MSHL-331).
+    "100.64.0.1",
+    "100.127.255.254",
+    "fd7a:115c:a1e0::1",  # Tailscale's IPv6 range
 ]
 NOT_LAN = [
     "127.0.0.1",
     "127.8.9.10",
     "0.0.0.0",
     "169.254.10.20",
-    "100.64.0.1",
     "198.18.0.1",
     "224.0.0.251",
     "255.255.255.255",
@@ -59,6 +67,14 @@ NOT_LAN = [
     *PUBLIC,
     *METADATA,
 ]
+
+
+@pytest.fixture(autouse=True)
+def not_this_machine(monkeypatch):
+    """The LAN addresses of these tests are devices, not this machine (a CI runner may
+    well own 10.x): the self-address probe is stubbed, except where a test says so."""
+    monkeypatch.setattr(egress_guard, "_binds_locally", lambda ip: False)
+    monkeypatch.setattr(egress_guard, "_in_container", lambda: False)
 
 
 @pytest.mark.parametrize("ip", LAN_ADDRESSES)
@@ -165,3 +181,81 @@ async def test_without_lan_hosts_nothing_changes(monkeypatch):
 
 def test_the_new_code_has_a_message():
     assert "egress_lan_address" in EGRESS_MESSAGES
+    assert "egress_self_address" in EGRESS_MESSAGES
+
+
+# --- the Meshloom host itself (MSHL-330) ---------------------------------------------
+
+
+@pytest.mark.parametrize("answers", [["192.168.1.10"], ["192.168.1.30", "192.168.1.10"]])
+async def test_a_name_resolving_to_this_machine_is_refused(monkeypatch, answers):
+    monkeypatch.setattr(egress_guard, "_binds_locally", lambda ip: str(ip) == "192.168.1.10")
+    FakeDns(monkeypatch, answers)
+    with pytest.raises(EgressBlocked) as info:
+        await _check(f"http://{HOST}/")
+    assert info.value.code == "egress_self_address"
+
+
+async def test_a_declared_literal_of_this_machine_is_refused(monkeypatch):
+    monkeypatch.setattr(egress_guard, "_binds_locally", lambda ip: str(ip) == "192.168.1.20")
+    with pytest.raises(EgressBlocked) as info:
+        await _check("http://192.168.1.20/")
+    assert info.value.code == "egress_self_address"
+
+
+async def test_in_a_container_the_default_gateway_is_the_host(monkeypatch, tmp_path):
+    # Docker's bridge gateway, 172.17.0.1, as /proc/net/route writes it (little-endian).
+    route = tmp_path / "route"
+    route.write_text(
+        "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\n"
+        "eth0\t00000000\t010011AC\t0003\t0\t0\t0\t00000000\n"
+        "eth0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\n"
+    )
+    route6 = tmp_path / "ipv6_route"
+    route6.write_text(
+        "00000000000000000000000000000000 00 00000000000000000000000000000000 00 "
+        "fd000000000000000000000000000001 00000400 00000001 00000000 00000003 eth0\n"
+    )
+    gateways = egress_guard._default_gateways(str(route), str(route6))
+    assert gateways == {ipaddress.ip_address("172.17.0.1"), ipaddress.ip_address("fd00::1")}
+    monkeypatch.setattr(egress_guard, "_default_gateways", lambda: gateways)
+    assert not is_self_address(ipaddress.ip_address("172.17.0.1"))  # not in a container
+    monkeypatch.setattr(egress_guard, "_in_container", lambda: True)
+    assert is_self_address(ipaddress.ip_address("172.17.0.1"))
+    assert is_self_address(ipaddress.ip_address("fd00::1"))
+    assert not is_self_address(ipaddress.ip_address("172.17.0.5"))
+    FakeDns(monkeypatch, ["172.17.0.1"])
+    with pytest.raises(EgressBlocked) as info:
+        await _check(f"http://{HOST}/")
+    assert info.value.code == "egress_self_address"
+
+
+def test_unreadable_route_tables_give_no_gateway(tmp_path):
+    assert (
+        egress_guard._default_gateways(str(tmp_path / "missing"), str(tmp_path / "missing6"))
+        == frozenset()
+    )
+
+
+def test_the_bind_probe_finds_this_machine(monkeypatch):
+    monkeypatch.undo()  # the real probe
+    assert egress_guard._binds_locally(ipaddress.ip_address("127.0.0.1"))
+    # A documentation address is never assigned to an interface.
+    assert not egress_guard._binds_locally(ipaddress.ip_address("192.0.2.1"))
+
+
+def test_a_failing_bind_probe_refuses(monkeypatch):
+    monkeypatch.undo()  # the real probe, on a socket that cannot bind
+
+    class Sock:
+        def __init__(self, *args):
+            pass
+
+        def bind(self, address):
+            raise OSError(errno.EACCES, "denied")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(socket, "socket", Sock)
+    assert egress_guard._binds_locally(ipaddress.ip_address("192.168.1.30"))
