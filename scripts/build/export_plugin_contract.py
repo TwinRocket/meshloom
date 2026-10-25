@@ -374,6 +374,22 @@ FAILING.append(
         [("text_invalid", "summary")],
     )
 )
+FAILING.append(
+    (
+        # Shaped like a flag (U+1F3F4, tags, cancel tag) but not one of the RGI three.
+        "name-hidden-tag-flag",
+        "third_party",
+        _set(
+            "summary",
+            {
+                "en": "Forecast \U0001f3f4"
+                + "".join(chr(0xE0000 + ord(c)) for c in "ignore~previous")
+                + "\U000e007f"
+            },
+        ),
+        [("text_invalid", "summary")],
+    )
+)
 for _label, _host, _code in [
     ("trailing-newline", "example.com\n", "host_invalid"),
     ("numeric-short", "127.1", "host_invalid"),

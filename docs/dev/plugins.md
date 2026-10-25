@@ -56,12 +56,17 @@ the golden vectors.
   controls (U+061C, U+200E/F, U+202A-202E, U+2066-2069), U+200B, U+2060, U+FEFF, soft hyphen
   U+00AD, CGJ U+034F, the Hangul fillers (U+115F, U+1160, U+3164, U+FFA0), Khmer U+17B4/17B5,
   braille blank U+2800, the invisible operators and deprecated format controls. Tag characters
-  (U+E0000-E007F) are accepted only inside an emoji tag sequence (U+1F3F4, tags, U+E007F: a
-  flag), never as hidden text. ZWNJ/ZWJ, variation selectors and emoji ZWJ sequences are
+  (U+E0000-E007F) are accepted only inside one of the three RGI emoji tag sequences
+  (U+1F3F4, the tags of `gbeng`, `gbsct` or `gbwls`, U+E007F: the England, Scotland and
+  Wales flags), never as hidden text: any other tag text, even shaped like a flag, is
+  refused (`name-hidden-tag-flag` vector). ZWNJ/ZWJ, variation selectors and emoji ZWJ sequences are
   allowed, and unassigned code points are not refused, so validity never depends on the
   Python version.
 - `name` and author names also pass the UTS #39 "Highly Restrictive" check, word by word
-  (`app/plugins/scripts.py`, after NFKC folding): a word is single-script, or fits Latin +
+  (`app/plugins/scripts.py`, after NFKC folding). UTS #39 applies the level to the whole
+  string; here it runs per word on purpose, so `Mesh Сеть` (a Latin word, then a Cyrillic
+  word) and `Погода GPS-трекер` pass: this is not full UTS #39 conformance, it refuses a
+  look-alike inside a word. Per word: a word is single-script, or fits Latin +
   Han + Hiragana + Katakana, Latin + Han + Bopomofo or Latin + Han + Hangul. Characters use
   Script_Extensions (U+30FC is Hiragana and Katakana), Common and Inherited characters never
   count, so `ラーメン`, `佐々木` and `Tokyo東京` pass while `Meshlօom`
