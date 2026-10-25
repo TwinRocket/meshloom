@@ -829,8 +829,12 @@
     "token_replayed": 401,
     "banned": 403,
     "turnstile_failed": 403,
+    "not_owner": 403,
     "not_found": 404,
+    "id_taken": 409,
     "gone": 410,
+    "too_large": 413,
+    "type_refused": 415,
     "target_blocked": 422,
     "quota_exceeded": 429,
     "rate_limited": 429,
@@ -869,6 +873,88 @@
       ]
     },
     {
+      "method": "POST",
+      "path": "/v1/files",
+      "auth": "jwt",
+      "binding": "mode\nsha256\nproposed_id\ncontent_length",
+      "kill_switch": "KILL_UPLOADS",
+      "response": "json",
+      "success": [
+        201
+      ],
+      "errors": [
+        "invalid_request",
+        "token_missing",
+        "token_malformed",
+        "token_audience",
+        "token_signature",
+        "token_expired",
+        "clock_skew",
+        "token_binding",
+        "token_replayed",
+        "banned",
+        "id_taken",
+        "too_large",
+        "type_refused",
+        "quota_exceeded",
+        "rate_limited",
+        "kill_switch",
+        "unavailable"
+      ]
+    },
+    {
+      "method": "DELETE",
+      "path": "/v1/objects/{id}",
+      "auth": "jwt",
+      "binding": "id",
+      "kill_switch": null,
+      "response": "none",
+      "success": [
+        204
+      ],
+      "errors": [
+        "invalid_request",
+        "token_missing",
+        "token_malformed",
+        "token_audience",
+        "token_signature",
+        "token_expired",
+        "clock_skew",
+        "token_binding",
+        "token_replayed",
+        "banned",
+        "not_owner",
+        "not_found",
+        "gone",
+        "rate_limited",
+        "unavailable"
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/mine",
+      "auth": "jwt",
+      "binding": "mine",
+      "kill_switch": null,
+      "response": "json",
+      "success": [
+        200
+      ],
+      "errors": [
+        "invalid_request",
+        "token_missing",
+        "token_malformed",
+        "token_audience",
+        "token_signature",
+        "token_expired",
+        "clock_skew",
+        "token_binding",
+        "token_replayed",
+        "rate_limited",
+        "unavailable"
+      ]
+    },
+    {
       "method": "GET",
       "path": "/{id}",
       "auth": "none",
@@ -876,6 +962,7 @@
       "kill_switch": "KILL_SERVE",
       "response": "redirect",
       "success": [
+        200,
         302
       ],
       "errors": [
@@ -884,6 +971,11 @@
         "rate_limited",
         "kill_switch",
         "unavailable"
+      ],
+      "variants": [
+        "redirect",
+        "html",
+        "bytes"
       ]
     },
     {
@@ -1065,5 +1157,582 @@
       ],
       "errors": []
     }
-  ]
+  ],
+  "files": {
+    "$comment": "M2 files API: binding cases for POST /v1/files, DELETE /v1/objects/{id} and GET /v1/mine (same key, audience and token rules as jwt.cases), the image allowlist and limits, header-sniffing cases, and a /v1/mine answer. Added by the files CONTRACTS: commit; jwt.cases is unchanged.",
+    "fixtures": {
+      "png_1x1": {
+        "content_type": "image/png",
+        "body_hex": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082",
+        "sha256": "2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20",
+        "size": 69,
+        "width": 1,
+        "height": 1
+      }
+    },
+    "allowlist": {
+      "content_types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif"
+      ],
+      "max_bytes": 10485760,
+      "max_bytes_gif": 5242880,
+      "max_pixels": 40000000,
+      "modes": [
+        "public",
+        "encrypted"
+      ]
+    },
+    "cases": [
+      {
+        "id": "valid_file_public",
+        "note": "POST /v1/files, no proposed id; bh = sha256(mode LF sha256 LF (empty) LF content-length)",
+        "route": "POST /v1/files",
+        "request": {
+          "headers": {
+            "Content-Type": "image/png",
+            "Content-Length": "69",
+            "X-Share-Mode": "public",
+            "X-Share-Sha256": "2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20"
+          },
+          "body_fixture": "png_1x1"
+        },
+        "binding": "public\n2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20\n\n69",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "EgfA_AjMGZQWz_ZYG09Fhg",
+          "bh": "86a13b0555fdcc28b7278f5c35e6f8b41a474f9305c4c60b87ea919c230836c9"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"EgfA_AjMGZQWz_ZYG09Fhg\",\"bh\":\"86a13b0555fdcc28b7278f5c35e6f8b41a474f9305c4c60b87ea919c230836c9\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiJFZ2ZBX0FqTUdaUVd6X1pZRzA5RmhnIiwiYmgiOiI4NmExM2IwNTU1ZmRjYzI4YjcyNzhmNWMzNWU2ZjhiNDFhNDc0ZjkzMDVjNGM2MGI4N2VhOTE5YzIzMDgzNmM5In0.488ca155dfb5b1b849306422f11f591d1970a13d3bd4a910c2c61e2c0c4a3fce88aab3f6d0849988079fabcde2acd61f1bd4a9de3d2d2e48c2a3bb8690b79102",
+        "expect": {
+          "verifier": "accept",
+          "service": "accept"
+        }
+      },
+      {
+        "id": "valid_file_proposed_id",
+        "note": "POST /v1/files with X-Share-Id: the proposed id is part of the binding string",
+        "route": "POST /v1/files",
+        "request": {
+          "headers": {
+            "Content-Type": "image/png",
+            "Content-Length": "69",
+            "X-Share-Mode": "public",
+            "X-Share-Sha256": "2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20",
+            "X-Share-Id": "AbCdEfG"
+          },
+          "body_fixture": "png_1x1"
+        },
+        "binding": "public\n2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20\nAbCdEfG\n69",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "N-mXcflfTM3SBhzrbY7JPA",
+          "bh": "d980871a16b644f6d7aa4b7d09b1053ab27f5ce7792f5d4e60f8247834640373"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"N-mXcflfTM3SBhzrbY7JPA\",\"bh\":\"d980871a16b644f6d7aa4b7d09b1053ab27f5ce7792f5d4e60f8247834640373\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiJOLW1YY2ZsZlRNM1NCaHpyYlk3SlBBIiwiYmgiOiJkOTgwODcxYTE2YjY0NGY2ZDdhYTRiN2QwOWIxMDUzYWIyN2Y1Y2U3NzkyZjVkNGU2MGY4MjQ3ODM0NjQwMzczIn0.f3e17d46fec9e65d23e7efb7f24eb76d11900d4974f4f86010e97a50c207a471b243f6babf66052dab1474143e463b0ff9c671461198f56f8c86276222b24d0e",
+        "expect": {
+          "verifier": "accept",
+          "service": "accept"
+        }
+      },
+      {
+        "id": "valid_file_no_sha256",
+        "note": "X-Share-Sha256 absent: its slot in the binding string is the empty string",
+        "route": "POST /v1/files",
+        "request": {
+          "headers": {
+            "Content-Type": "image/png",
+            "Content-Length": "69",
+            "X-Share-Mode": "public"
+          },
+          "body_fixture": "png_1x1"
+        },
+        "binding": "public\n\n\n69",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "9xgHpM0GLxiwmqp8Ner4BQ",
+          "bh": "1cc3fef3c787e121abb958f7a6d3a7324186e6bc7ffbe7eb7234965e07b8984a"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"9xgHpM0GLxiwmqp8Ner4BQ\",\"bh\":\"1cc3fef3c787e121abb958f7a6d3a7324186e6bc7ffbe7eb7234965e07b8984a\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiI5eGdIcE0wR0x4aXdtcXA4TmVyNEJRIiwiYmgiOiIxY2MzZmVmM2M3ODdlMTIxYWJiOTU4ZjdhNmQzYTczMjQxODZlNmJjN2ZmYmU3ZWI3MjM0OTY1ZTA3Yjg5ODRhIn0.4edf9b920c15a2302ff10975911b93df77351c6cc16e08a051745d6c4a270b54941afa0fac33cfb8596911dac62a4c2bc43bc317960d6b272fbd1b5ed8bf1301",
+        "expect": {
+          "verifier": "accept",
+          "service": "accept"
+        }
+      },
+      {
+        "id": "file_wrong_mode",
+        "note": "bh was minted for mode encrypted, the request says public",
+        "route": "POST /v1/files",
+        "request": {
+          "headers": {
+            "Content-Type": "image/png",
+            "Content-Length": "69",
+            "X-Share-Mode": "public",
+            "X-Share-Sha256": "2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20"
+          },
+          "body_fixture": "png_1x1"
+        },
+        "binding": "public\n2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20\n\n69",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "ejTGKP5-JCoGpUGKzD5FMQ",
+          "bh": "70d28b26db40f8146c64ac8f38cbd24642c6bc5436c030d8c01245b936d403ab"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"ejTGKP5-JCoGpUGKzD5FMQ\",\"bh\":\"70d28b26db40f8146c64ac8f38cbd24642c6bc5436c030d8c01245b936d403ab\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiJlalRHS1A1LUpDb0dwVUdLekQ1Rk1RIiwiYmgiOiI3MGQyOGIyNmRiNDBmODE0NmM2NGFjOGYzOGNiZDI0NjQyYzZiYzU0MzZjMDMwZDhjMDEyNDViOTM2ZDQwM2FiIn0.3b0598424dd06a401ecba05ac753c00d22a09c0b21d65928cf137cf7a1c2741ae4bb610809d6994adce2b729bcbfe51a776183eb5af1e509c2b46ee81730d202",
+        "expect": {
+          "verifier": "accept",
+          "service": "token_binding"
+        }
+      },
+      {
+        "id": "file_wrong_length",
+        "note": "bh was minted for another Content-Length than the one sent",
+        "route": "POST /v1/files",
+        "request": {
+          "headers": {
+            "Content-Type": "image/png",
+            "Content-Length": "69",
+            "X-Share-Mode": "public",
+            "X-Share-Sha256": "2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20"
+          },
+          "body_fixture": "png_1x1"
+        },
+        "binding": "public\n2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20\n\n69",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "Q_4CpgoAxl0jjs3m8f83vA",
+          "bh": "a636d12352aba465dc39982c487da10d0ba07ef46f0baf4e5a433693d42ad15e"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"Q_4CpgoAxl0jjs3m8f83vA\",\"bh\":\"a636d12352aba465dc39982c487da10d0ba07ef46f0baf4e5a433693d42ad15e\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiJRXzRDcGdvQXhsMGpqczNtOGY4M3ZBIiwiYmgiOiJhNjM2ZDEyMzUyYWJhNDY1ZGMzOTk4MmM0ODdkYTEwZDBiYTA3ZWY0NmYwYmFmNGU1YTQzMzY5M2Q0MmFkMTVlIn0.55dfabe49573062a753cde5a35f9b2676753779c3d0bfebe6df413666e379b4f50c659262dae579a9993d1575aad96c11e8da8e97f5395b3843ee42d512cb808",
+        "expect": {
+          "verifier": "accept",
+          "service": "token_binding"
+        }
+      },
+      {
+        "id": "file_proposed_id_dropped",
+        "note": "bh binds a proposed id the request does not carry",
+        "route": "POST /v1/files",
+        "request": {
+          "headers": {
+            "Content-Type": "image/png",
+            "Content-Length": "69",
+            "X-Share-Mode": "public",
+            "X-Share-Sha256": "2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20"
+          },
+          "body_fixture": "png_1x1"
+        },
+        "binding": "public\n2e9b06dc65a4dec84a3eb3124553ec93ca27c78221e64ab2177d0f1412cfcb20\n\n69",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "nDmBS1XJyEmCVAIkhkY43Q",
+          "bh": "d980871a16b644f6d7aa4b7d09b1053ab27f5ce7792f5d4e60f8247834640373"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"nDmBS1XJyEmCVAIkhkY43Q\",\"bh\":\"d980871a16b644f6d7aa4b7d09b1053ab27f5ce7792f5d4e60f8247834640373\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiJuRG1CUzFYSnlFbUNWQUlraGtZNDNRIiwiYmgiOiJkOTgwODcxYTE2YjY0NGY2ZDdhYTRiN2QwOWIxMDUzYWIyN2Y1Y2U3NzkyZjVkNGU2MGY4MjQ3ODM0NjQwMzczIn0.d3edc287104c5f88a3856727413bc29bd2f0186e8fbdc94b2888b9a6e9bf9635d860a2698e7eecd6eae0a496c950c17f94ee3ce2f23e83b76fb0b9a5c11b5f07",
+        "expect": {
+          "verifier": "accept",
+          "service": "token_binding"
+        }
+      },
+      {
+        "id": "valid_delete",
+        "note": "DELETE /v1/objects/{id}; bh = sha256 of the id",
+        "route": "DELETE /v1/objects/AbCdEfG",
+        "request": {
+          "path_id": "AbCdEfG"
+        },
+        "binding": "AbCdEfG",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "6VPF9ergcnueyd2kM6VGlg",
+          "bh": "347b850fa7392bf1ba5498c7b95d3d3790be2baf2bb7dfbef244777c0b0d7022"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"6VPF9ergcnueyd2kM6VGlg\",\"bh\":\"347b850fa7392bf1ba5498c7b95d3d3790be2baf2bb7dfbef244777c0b0d7022\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiI2VlBGOWVyZ2NudWV5ZDJrTTZWR2xnIiwiYmgiOiIzNDdiODUwZmE3MzkyYmYxYmE1NDk4YzdiOTVkM2QzNzkwYmUyYmFmMmJiN2RmYmVmMjQ0Nzc3YzBiMGQ3MDIyIn0.ef03835ba5d0367341569a228e5eae993db4410309a096107d37ee9c5f35f9fdc02d011d1634ac52039b4ca7b5b4aef6e08495b4cf182dc6655bc6b52dc6ca0f",
+        "expect": {
+          "verifier": "accept",
+          "service": "accept"
+        }
+      },
+      {
+        "id": "delete_wrong_id",
+        "note": "bh was minted for another object than the one in the path",
+        "route": "DELETE /v1/objects/AbCdEfG",
+        "request": {
+          "path_id": "AbCdEfG"
+        },
+        "binding": "AbCdEfG",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "_AgXKCoYYGU_iesQG8WFyQ",
+          "bh": "9be5f892c5ecade487f568cc136180b8f703e5f5c39c94c43706105e4b097cde"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"_AgXKCoYYGU_iesQG8WFyQ\",\"bh\":\"9be5f892c5ecade487f568cc136180b8f703e5f5c39c94c43706105e4b097cde\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiJfQWdYS0NvWVlHVV9pZXNRRzhXRnlRIiwiYmgiOiI5YmU1Zjg5MmM1ZWNhZGU0ODdmNTY4Y2MxMzYxODBiOGY3MDNlNWY1YzM5Yzk0YzQzNzA2MTA1ZTRiMDk3Y2RlIn0.4ca456e8056249e4c63c0c0eaae7b9fb3dcd6555ee08f9e2e807e01a5bf2181f14419573d3834c070b75076c1f86c4130a4b8782649356ea01bf0933c33c4c09",
+        "expect": {
+          "verifier": "accept",
+          "service": "token_binding"
+        }
+      },
+      {
+        "id": "valid_mine",
+        "note": "GET /v1/mine; bh = sha256 of the literal string mine",
+        "route": "GET /v1/mine",
+        "request": {},
+        "binding": "mine",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "uOTuyJRnhWveIA9E-kYv9g",
+          "bh": "3fd30542fe3f61b14bd4a4b2dc0b6fb30fa6f63ebce52dd1778aaa8c4dc02cff"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"uOTuyJRnhWveIA9E-kYv9g\",\"bh\":\"3fd30542fe3f61b14bd4a4b2dc0b6fb30fa6f63ebce52dd1778aaa8c4dc02cff\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiJ1T1R1eUpSbmhXdmVJQTlFLWtZdjlnIiwiYmgiOiIzZmQzMDU0MmZlM2Y2MWIxNGJkNGE0YjJkYzBiNmZiMzBmYTZmNjNlYmNlNTJkZDE3NzhhYWE4YzRkYzAyY2ZmIn0.9a32c53dc6d5d435a7ffc46e0060a1453f3c8f1c5a717a75de2678f738610ba4b1683c9d654336c3b267b4a3f38eee46904456b378fb1e046270f9378e3dea08",
+        "expect": {
+          "verifier": "accept",
+          "service": "accept"
+        }
+      },
+      {
+        "id": "mine_token_on_delete",
+        "note": "a GET /v1/mine token presented on DELETE: the bindings differ",
+        "route": "DELETE /v1/objects/AbCdEfG",
+        "request": {
+          "path_id": "AbCdEfG"
+        },
+        "binding": "AbCdEfG",
+        "seen_jti": [],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "Zt3_mc2S0LWghxZSkYLwdg",
+          "bh": "3fd30542fe3f61b14bd4a4b2dc0b6fb30fa6f63ebce52dd1778aaa8c4dc02cff"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"Zt3_mc2S0LWghxZSkYLwdg\",\"bh\":\"3fd30542fe3f61b14bd4a4b2dc0b6fb30fa6f63ebce52dd1778aaa8c4dc02cff\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiJadDNfbWMyUzBMV2doeFpTa1lMd2RnIiwiYmgiOiIzZmQzMDU0MmZlM2Y2MWIxNGJkNGE0YjJkYzBiNmZiMzBmYTZmNjNlYmNlNTJkZDE3NzhhYWE4YzRkYzAyY2ZmIn0.538d2abcd151b8afef7f0fb68b28bf16d5e9743da917a7d23f869e9bcd91e10fe9f46e6bb46d1ea57bf62c41f92034c5f26325c3d64e87cb7986b2c5aa33290d",
+        "expect": {
+          "verifier": "accept",
+          "service": "token_binding"
+        }
+      },
+      {
+        "id": "replay_delete",
+        "note": "same request as valid_delete, new token reusing its jti, already seen",
+        "route": "DELETE /v1/objects/AbCdEfG",
+        "request": {
+          "path_id": "AbCdEfG"
+        },
+        "binding": "AbCdEfG",
+        "seen_jti": [
+          "6VPF9ergcnueyd2kM6VGlg"
+        ],
+        "header": {
+          "alg": "Ed25519",
+          "typ": "JWT"
+        },
+        "claims": {
+          "publicKey": "A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889",
+          "aud": "meshloom-share",
+          "iat": 1760099995,
+          "exp": 1760100055,
+          "client": "meshloom/5.0.0",
+          "jti": "6VPF9ergcnueyd2kM6VGlg",
+          "bh": "347b850fa7392bf1ba5498c7b95d3d3790be2baf2bb7dfbef244777c0b0d7022"
+        },
+        "payload_json": "{\"publicKey\":\"A1755057EDB32CC009C5B5017400179DEC710216C372DBD04BD992C141DD3889\",\"aud\":\"meshloom-share\",\"iat\":1760099995,\"exp\":1760100055,\"client\":\"meshloom/5.0.0\",\"jti\":\"6VPF9ergcnueyd2kM6VGlg\",\"bh\":\"347b850fa7392bf1ba5498c7b95d3d3790be2baf2bb7dfbef244777c0b0d7022\"}",
+        "token": "eyJhbGciOiJFZDI1NTE5IiwidHlwIjoiSldUIn0.eyJwdWJsaWNLZXkiOiJBMTc1NTA1N0VEQjMyQ0MwMDlDNUI1MDE3NDAwMTc5REVDNzEwMjE2QzM3MkRCRDA0QkQ5OTJDMTQxREQzODg5IiwiYXVkIjoibWVzaGxvb20tc2hhcmUiLCJpYXQiOjE3NjAwOTk5OTUsImV4cCI6MTc2MDEwMDA1NSwiY2xpZW50IjoibWVzaGxvb20vNS4wLjAiLCJqdGkiOiI2VlBGOWVyZ2NudWV5ZDJrTTZWR2xnIiwiYmgiOiIzNDdiODUwZmE3MzkyYmYxYmE1NDk4YzdiOTVkM2QzNzkwYmUyYmFmMmJiN2RmYmVmMjQ0Nzc3YzBiMGQ3MDIyIn0.ef03835ba5d0367341569a228e5eae993db4410309a096107d37ee9c5f35f9fdc02d011d1634ac52039b4ca7b5b4aef6e08495b4cf182dc6655bc6b52dc6ca0f",
+        "expect": {
+          "verifier": "accept",
+          "service": "token_replayed"
+        }
+      }
+    ],
+    "classify": [
+      {
+        "id": "png_1x1",
+        "content_type": "image/png",
+        "content_length": 69,
+        "prefix_hex": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082",
+        "expect": "accept",
+        "width": 1,
+        "height": 1,
+        "why": "smallest valid PNG"
+      },
+      {
+        "id": "jpeg_sof0",
+        "content_type": "image/jpeg",
+        "content_length": 200000,
+        "prefix_hex": "ffd8ffe000104a46494600010100000100010000ffc0001108032004b003012200021101031101",
+        "expect": "accept",
+        "width": 1200,
+        "height": 800,
+        "why": "dimensions from the SOF0 marker"
+      },
+      {
+        "id": "gif_ok",
+        "content_type": "image/gif",
+        "content_length": 100000,
+        "prefix_hex": "4749463839614001f000000000",
+        "expect": "accept",
+        "width": 320,
+        "height": 240,
+        "why": "dimensions from the logical screen descriptor"
+      },
+      {
+        "id": "webp_vp8x",
+        "content_type": "image/webp",
+        "content_length": 50000,
+        "prefix_hex": "524946461600000057454250565038580a00000000000000ff0300ff0200",
+        "expect": "accept",
+        "width": 1024,
+        "height": 768,
+        "why": "dimensions from the VP8X chunk (canvas width-1, height-1, 24-bit little-endian)"
+      },
+      {
+        "id": "png_40mpx_exact",
+        "content_type": "image/png",
+        "content_length": 1048576,
+        "prefix_hex": "89504e470d0a1a0a0000000d4948445200001f40000013880802000000",
+        "expect": "accept",
+        "width": 8000,
+        "height": 5000,
+        "why": "40 000 000 pixels is allowed"
+      },
+      {
+        "id": "png_42mpx",
+        "content_type": "image/png",
+        "content_length": 1048576,
+        "prefix_hex": "89504e470d0a1a0a0000000d494844520000177000001b580802000000",
+        "expect": "refuse",
+        "code": "too_large",
+        "width": 6000,
+        "height": 7000,
+        "why": "42 000 000 pixels: over 40 Mpx (decompression bomb guard)"
+      },
+      {
+        "id": "png_10mib_exact",
+        "content_type": "image/png",
+        "content_length": 10485760,
+        "prefix_hex": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082",
+        "expect": "accept",
+        "width": 1,
+        "height": 1,
+        "why": "10 MiB exactly is allowed"
+      },
+      {
+        "id": "png_over_10mib",
+        "content_type": "image/png",
+        "content_length": 10485761,
+        "prefix_hex": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082",
+        "expect": "refuse",
+        "code": "too_large",
+        "why": "refused on the declared Content-Length, before reading the body"
+      },
+      {
+        "id": "gif_5mib_exact",
+        "content_type": "image/gif",
+        "content_length": 5242880,
+        "prefix_hex": "4749463839614001f000000000",
+        "expect": "accept",
+        "width": 320,
+        "height": 240,
+        "why": "GIF cap is 5 MiB"
+      },
+      {
+        "id": "gif_over_5mib",
+        "content_type": "image/gif",
+        "content_length": 5242881,
+        "prefix_hex": "4749463839614001f000000000",
+        "expect": "refuse",
+        "code": "too_large",
+        "why": "GIF cap is 5 MiB, not 10"
+      },
+      {
+        "id": "type_svg",
+        "content_type": "image/svg+xml",
+        "content_length": 40,
+        "prefix_hex": "3c73766720786d6c6e733d27687474703a2f2f7777772e77332e6f72672f323030302f737667272f3e",
+        "expect": "refuse",
+        "code": "type_refused",
+        "why": "SVG is never accepted: scriptable"
+      },
+      {
+        "id": "type_pdf",
+        "content_type": "application/pdf",
+        "content_length": 5000,
+        "prefix_hex": "255044462d312e37",
+        "expect": "refuse",
+        "code": "type_refused",
+        "why": "images only (Q22)"
+      },
+      {
+        "id": "type_zip",
+        "content_type": "application/zip",
+        "content_length": 5000,
+        "prefix_hex": "504b0304",
+        "expect": "refuse",
+        "code": "type_refused",
+        "why": "images only (Q22)"
+      },
+      {
+        "id": "type_html_as_png",
+        "content_type": "image/png",
+        "content_length": 40,
+        "prefix_hex": "3c68746d6c3e3c7363726970743e",
+        "expect": "refuse",
+        "code": "type_refused",
+        "why": "magic bytes do not match the declared type"
+      },
+      {
+        "id": "png_declared_jpeg",
+        "content_type": "image/jpeg",
+        "content_length": 69,
+        "prefix_hex": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082",
+        "expect": "refuse",
+        "code": "type_refused",
+        "why": "magic bytes say PNG, Content-Type says JPEG"
+      },
+      {
+        "id": "type_with_parameters",
+        "content_type": "image/png; charset=binary",
+        "content_length": 69,
+        "prefix_hex": "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082",
+        "expect": "accept",
+        "width": 1,
+        "height": 1,
+        "why": "media type parameters are ignored, the type is compared without case"
+      }
+    ],
+    "mine_example": {
+      "objects": [
+        {
+          "id": "AbCdEfG",
+          "kind": "file",
+          "status": "active",
+          "blocked_category": null,
+          "mode": "public",
+          "content_type": "image/png",
+          "size": 69,
+          "created_at": 1760100000,
+          "expires_at": 1762692000
+        },
+        {
+          "id": "9xQ2mNp",
+          "kind": "link",
+          "status": "active",
+          "blocked_category": null,
+          "target_host": "example.com",
+          "created_at": 1760000000,
+          "expires_at": 1791536000
+        },
+        {
+          "id": "Hk3Ra7w",
+          "kind": "file",
+          "status": "blocked",
+          "blocked_category": "copyright",
+          "mode": "public",
+          "content_type": "image/jpeg",
+          "size": 183204,
+          "created_at": 1759900000,
+          "expires_at": 1762492000
+        }
+      ],
+      "next_cursor": null
+    }
+  }
 }
