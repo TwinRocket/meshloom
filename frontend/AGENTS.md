@@ -468,7 +468,7 @@ Uninstall. The consent (`AddBundledDialog`) grants exactly the declared permissi
 `plugins.permissions.http.private_messages_warning` when `messages.read` (direct or all channels)
 meets `http`. `ScopeEditor` is a small own editor (not the fanout `ScopeSelector`, which is private
 to `SettingsFanoutSection.tsx`). Quotas: only `messages.send` per hour/day, lowered only.
-`MigrationBanner` is ready for the bot-migration health warning (Store T9) and not mounted yet.
+`MigrationBanner` shows the converted-bots notice from `health.converted_bots` (how many bots became extensions, how many await review) with a dismiss button (`POST /plugins/converted-bots/acknowledge`).
 Strings: slice `cc` (`settings.extensions.*`, `errors.*` plugin codes), slice `al`
 (permissions in plain words) and slice `ce` (`schemaForm.*`, `settings.extensions.config.*`
 form strings, `settings.extensions.local.*`). Tests: `src/test/pluginsSection.test.tsx`,
@@ -482,14 +482,13 @@ form strings, `settings.extensions.local.*`). Tests: `src/test/pluginsSection.te
   remounts on `updated_at`. `attention.fields` flag the required fields still empty and the drawer's
   **Go to the settings** button (`focusConfigForm`) focuses the first one.
 - **Local plugins** (`kind: 'local'`): `CreateLocalDialog` (`POST /plugins`, `echo` or `blank`
-  template, hooks) and `LocalPluginEditor` in the drawer: the lazy `BotCodeEditor` (shared with the
-  bot editor, `ariaLabel` prop) saved with `PUT source`, the static scan listed with line numbers,
+  template, hooks) and `LocalPluginEditor` in the drawer: the lazy `BotCodeEditor` (`ariaLabel` prop; its
+  file name is a leftover of the retired bot editor) saved with `PUT source`, the static scan listed with line numbers,
   `http_hosts` offered as an **Allow** button (a `granted_permissions` patch), hooks and permissions
   (`PATCH hooks` then `granted_permissions`: a local plugin declares and grants together, so the
   generic permission list is not shown), **Check** (`POST /check`, disabled while the code is
   unsaved) and **Test with a message** (`POST /test`; the page states nothing reached the radio;
-  needs the instance enabled and the `message` hook). The bot editor in `SettingsFanoutSection.tsx`
-  stays until the bots are retired.
+  needs the instance enabled and the `message` hook).
 
 ### Shared `SchemaForm` (`components/forms/`)
 

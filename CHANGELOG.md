@@ -2,6 +2,20 @@
 
 The server now enforces the radio's message size limit for every way of sending.
 
+### Before you upgrade
+
+Release 5.0.0 changes your database in ways an older version cannot undo. **Before upgrading, download a full copy of the database** (**Settings → Database → Download meshcore.db**) and keep it: there is no way back to 4.18 without it. A backup file made on 5.0.0 is not fully understood by 4.18 either (see below).
+
+### Breaking
+
+- **Python bots are converted into local extensions** and no user code runs inside the server process any more (the `exec` is gone). Each converted extension stays off until an administrator reviews its permissions. The `bot` fanout type answers `410 bot_type_retired`, the "Unprotected bot execution" warning and its **Disable Bots Until Server Restart** button and route are gone. The conversion shim and the copy of the original bots (`fanout_configs_bots_archive`) are removed in 5.2.0. Details under *Changed* and in [Plugins](docs/user/en/deep/plugins.md#bots-from-418-and-earlier).
+- **`MESHCORE_DISABLE_BOTS` and the add-on option `disable_bots` are removed, with no alias.** A leftover value is ignored and logged with a start-up warning that names `MESHCORE_DISABLE_PLUGINS` (add-on: `disable_plugins`), the lock of every extension.
+- **No rollback to 4.18.** The migration of the bots runs at the first start and an older version does not read the result: the converted bots do not appear as bots, and notification channels added in 5.0.0 are not seen. Restore the database copy taken before the upgrade to go back.
+- **The full backup is format v2** (`meshloom-backup-v2`: identity, radio, Wi-Fi, accounts, notifications, extensions). 4.18 reads it as a v1 file and silently drops everything it does not know: restore a v2 file on 5.0.0 or later.
+- **The server enforces the radio's message size limit** for every way of sending (bots, scripts, API). A message over the limit is now refused by the server; until now only the web composer checked.
+- **`bots_disabled` and `bots_disabled_source` in `/api/health` are deprecated**, kept for one release.
+- **Extensions need Linux or macOS.** On Windows the extension system is switched off (`plugins_disabled_source: "platform"`). Without bubblewrap and without a dedicated account (macOS, Linux without them), extensions run at the weaker *hooks only* level, and the server log says so at every start.
+
 ### Added
 
 - **Bundled extensions update with Meshloom.** At start, the extensions that ship with Meshloom (Echo, Auto-responder) and that you installed are updated in place when the release carries a newer version: settings, secrets, conversations, limits and data are kept. If the new version asks for more permissions it is updated but held, *Needs attention* / *Review permissions*, until you accept them; otherwise it keeps running. A package that cannot be installed keeps the old version and is logged, and Meshloom starts anyway. Nothing is updated while extensions are disabled by the host. English and French user guide updated.
@@ -121,7 +135,6 @@ The server now enforces the radio's message size limit for every way of sending.
 
 - **Notification limits hold under a flood.** The pending and stored dedup keys are now bounded and trimmed, the global cap is checked and charged in one step, and the grouped summaries count against the 600-an-hour cap.
 - **Apprise links point to the current documentation.** The "Apprise URL formats" links in Settings → Notifications and Settings → Fanout, and in the push documentation, went to the archived Apprise wiki. They now open the Apprise URL syntax page on appriseit.com.
-- **The bot warning now follows accounts.** The "Unprotected bot execution is enabled" dialog used to depend on the 4.x Basic auth setting. It now reads the real sign-in state (`GET /api/auth/session`): no warning while an account is signed in, however it signed in.
 
 ### Security
 
@@ -158,6 +171,20 @@ The server now enforces the radio's message size limit for every way of sending.
 ### Français
 
 Le serveur applique désormais la limite de taille des messages de la radio, quel que soit le mode d'envoi.
+
+#### Avant de mettre à jour
+
+La version 5.0.0 modifie votre base de données d’une façon qu’une version plus ancienne ne sait pas défaire. **Avant de mettre à jour, téléchargez une copie complète de la base** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la : sans elle, il n’y a pas de retour possible vers la 4.18. Une sauvegarde faite en 5.0.0 n’est pas non plus comprise en entier par la 4.18 (voir plus bas).
+
+#### Ruptures
+
+- **Les bots Python sont convertis en extensions locales** et plus aucun code utilisateur ne tourne dans le processus du serveur (l’`exec` a disparu). Chaque extension convertie reste éteinte tant qu’un administrateur n’a pas examiné ses permissions. Le type de fanout `bot` répond `410 bot_type_retired`, l’avertissement « L’exécution non protégée de bots est activée » et son bouton **Désactiver les bots jusqu’au redémarrage du serveur** (avec sa route) n’existent plus. Le code de conversion et la copie des bots d’origine (`fanout_configs_bots_archive`) sont retirés en 5.2.0. Détails sous *Modifications* et dans [Extensions](docs/user/fr/deep/plugins.md#les-bots-de-la-418-et-avant).
+- **`MESHCORE_DISABLE_BOTS` et l’option d’add-on `disable_bots` sont supprimées, sans alias.** Une valeur résiduelle est ignorée et journalisée par un avertissement au démarrage qui nomme `MESHCORE_DISABLE_PLUGINS` (add-on : `disable_plugins`), le verrou de toutes les extensions.
+- **Pas de retour à la 4.18.** La migration des bots s’exécute au premier démarrage et une version plus ancienne n’en lit pas le résultat : les bots convertis n’apparaissent pas comme des bots, et les canaux de notification ajoutés en 5.0.0 ne sont pas vus. Restaurez la copie de la base prise avant la mise à jour pour revenir en arrière.
+- **La sauvegarde complète est au format v2** (`meshloom-backup-v2` : identité, radio, Wi-Fi, comptes, notifications, extensions). La 4.18 la lit comme un fichier v1 et ignore sans rien dire tout ce qu’elle ne connaît pas : restaurez un fichier v2 en 5.0.0 ou plus.
+- **Le serveur applique la limite de taille des messages de la radio** pour tous les modes d’envoi (bots, scripts, API). Un message trop long est désormais refusé par le serveur ; jusqu’ici seul le composeur web le vérifiait.
+- **`bots_disabled` et `bots_disabled_source` dans `/api/health` sont dépréciés**, conservés une version.
+- **Les extensions demandent Linux ou macOS.** Sous Windows le système d’extensions est désactivé (`plugins_disabled_source: "platform"`). Sans bubblewrap et sans compte dédié (macOS, Linux sans eux), les extensions tournent au niveau plus faible *hooks seulement*, et le journal du serveur le dit à chaque démarrage.
 
 #### Ajouts
 
@@ -272,7 +299,6 @@ Le serveur applique désormais la limite de taille des messages de la radio, que
 
 - **Les limites de notifications tiennent sous un afflux.** Les clés de dédoublonnage en attente et stockées sont désormais bornées et élaguées, le plafond global est vérifié et débité en une seule étape, et les résumés groupés comptent dans le plafond de 600 par heure.
 - **Les liens Apprise mènent à la documentation actuelle.** Les liens « Formats d’URL Apprise » de Réglages → Notifications et Réglages → Fanout, ainsi que ceux de la documentation push, menaient au wiki Apprise archivé. Ils ouvrent désormais la page de syntaxe des URL Apprise sur appriseit.com.
-- **L’avertissement sur les bots suit désormais les comptes.** La fenêtre « L’exécution non protégée de bots est activée » dépendait du réglage Basic de la 4.x. Elle regarde maintenant la vraie connexion (`GET /api/auth/session`) : plus d’avertissement quand un compte est connecté, quelle que soit la façon de se connecter.
 
 #### Sécurité
 

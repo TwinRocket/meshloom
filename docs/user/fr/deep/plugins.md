@@ -1,11 +1,11 @@
 ---
 title: Extensions
-description: Ce qu’une extension peut lire et envoyer, et les limites que Meshloom lui impose.
+description: Ce qu’est une extension (plugin), où elle tourne, ce qu’elle peut lire et envoyer, ses limites et ce qui quitte votre instance.
 level: deep
 order: 22
 ---
 
-> Brouillon. Les extensions arrivent avec Meshloom 5.0.0 et ont remplacé les bots Python, retirés en 5.0.0 (voir [Les bots de la 4.18](#les-bots-de-la-418-et-avant)). Cette page décrit leurs permissions et leurs limites ; leur installation et leur configuration seront décrites avec l’interface.
+Une extension (plugin) est un petit programme Python qui réagit à ce que Meshloom entend et peut répondre. Les extensions sont arrivées avec Meshloom 5.0.0 et ont remplacé les bots Python, retirés à ce moment (voir [Les bots de la 4.18](#les-bots-de-la-418-et-avant)). Les administrateurs les gèrent dans **Réglages → Extensions** (voir [plus bas](#réglages--extensions)). Cette page dit où elles tournent, ce qu’elles peuvent faire et quelles limites les retiennent.
 
 Une extension tourne dans son propre processus, à part de Meshloom. Elle ne peut ouvrir ni votre base de données, ni vos fichiers, ni le réseau par elle-même : elle peut seulement demander à Meshloom, qui vérifie chaque demande d’après les permissions que vous lui avez accordées. Une demande qui ne lui a pas été accordée est refusée avant que quoi que ce soit ne se passe.
 
@@ -79,15 +79,17 @@ Aucun des deux n’est disponible : il ne reste que les garde-fous de Meshloom �
 
 - bubblewrap n’est pas installé (le paquet Linux le recommande ; `sudo apt install bubblewrap` ou `sudo dnf install bubblewrap` l’ajoute) ;
 - le système refuse les espaces de noms utilisateur dont bubblewrap a besoin (Ubuntu 24.04 et suivantes les restreignent ; un noyau durci peut les désactiver) ;
-- Meshloom tourne sous macOS ou Windows.
+- Meshloom tourne sous macOS (sous Windows il n’y a aucune extension, voir plus bas).
 
 ### Vérifier votre niveau
 
 Cherchez `Plugin isolation` dans le journal du serveur au démarrage, ou ouvrez `/api/health` une fois connecté et lisez `plugins_isolation` : `bwrap`, `setuid` ou `none`. Après avoir installé bubblewrap, redémarrez Meshloom pour qu’il vérifie à nouveau.
 
-Franchir ces murs est une faille de sécurité : signalez-la comme l’indique la politique de sécurité du projet. Les extensions que vous installez restent du code auquel vous choisissez de faire confiance ; les murs limitent ce qu’une erreur ou une mauvaise mise à jour peut atteindre.
+**Windows.** Les extensions ont besoin des limites de ressources du système, que Windows n’a pas : le système d’extensions y est désactivé, rien ne peut être installé ni démarré, et `/api/health` indique `plugins_disabled_source: "platform"`.
 
-## Réglages → Extensions (brouillon)
+Franchir ces murs est une faille de sécurité : signalez-la comme l’indique la politique de sécurité du projet. Le niveau « hooks seulement » est explicitement plus faible et ne promet aucune isolation. Les extensions que vous installez restent du code auquel vous choisissez de faire confiance ; les murs limitent ce qu’une erreur ou une mauvaise mise à jour peut atteindre.
+
+## Réglages → Extensions
 
 Les administrateurs gèrent les extensions dans **Réglages → Extensions**. Le haut de la page indique le niveau d'isolation en vigueur et ce qu'il signifie. L'onglet **Installées** liste chaque copie avec son état, un badge quand elle demande votre attention (réglages requis, permissions à revoir, consentement requis), si elle est fournie, un interrupteur et des flèches pour réordonner. **Store** et **Mises à jour** sont des emplacements pour l'instant.
 
@@ -155,3 +157,13 @@ Meshloom 5.0.0 retire les bots Python de **MQTT & Automation**. Au premier déma
 - **L’ancien verrou.** Si `MESHCORE_DISABLE_BOTS=true` était posé lors de la mise à jour, il est respecté une dernière fois : toutes les extensions converties sont enregistrées éteintes. Ensuite la variable ne fait plus rien (Meshloom journalise un avertissement au démarrage si elle est encore posée). Pour empêcher toute extension de tourner, utilisez `MESHCORE_DISABLE_PLUGINS=true` (l’option `disable_plugins` de l’add-on Home Assistant ; son option `disable_bots` a disparu). Le paquet Linux ne pose plus aucun verrou dans `meshloom.env` : rien ne tourne tant que vous n’ajoutez pas une extension et n’acceptez pas ses permissions.
 - **Sauvegardes.** Une sauvegarde faite avant la 5.0.0 qui contient des bots les restaure comme extensions locales, éteintes et en attente de relecture. Les nouvelles sauvegardes ne contiennent aucun bot.
 - **Tout arrêter.** « Désactiver les bots jusqu’au redémarrage » n’existe plus : utilisez **Mettre en pause toutes les extensions** (plus haut) ou le verrou de l’hôte.
+
+## Ce qui quitte votre instance
+
+Rien, de lui-même. Meshloom 5.0.0 n’a pas de store d’extensions en ligne : les seules extensions que vous pouvez ajouter sont celles qui sont fournies, celles que vous écrivez et les bots convertis de la 4.18, et Meshloom ne contacte aucun serveur pour les lister, les récupérer ou les mettre à jour. Les mises à jour des extensions fournies arrivent avec Meshloom lui-même.
+
+Une extension n’atteint Internet que si vous avez accepté la permission **Se connecter à internet**, et alors seulement les serveurs listés dans son écran de consentement, par l’intermédiaire de Meshloom (voir plus haut). Ce qu’elle y envoie la regarde, d’où l’avertissement quand elle lit les canaux privés ou les messages directs avec cette permission. La sauvegarde ne contient jamais les secrets ni les données stockées d’une extension (voir [Sauvegarde](/fr/docs/backup/)). Un bot converti garde son code ; s’il y avait mis un jeton, il se retrouve dans la sauvegarde comme le code de toute extension locale : déplacez-le dans un réglage.
+
+## Pas de retour à la 4.18
+
+La conversion des bots modifie la base de données au démarrage de la 5.0.0 et n’est pas défaite par une version plus ancienne. La 4.18 ne connaît pas les extensions : si vous revenez en arrière, vos bots convertis ne sont pas affichés comme des bots. Les originaux restent dans une table de la base jusqu’en 5.2.0, mais la 4.18 ne la lit pas. Avant de mettre à jour, téléchargez une **copie complète de la base** (**Réglages → Base de données → Télécharger meshcore.db**) et gardez-la : c’est le seul chemin de retour.

@@ -1,13 +1,15 @@
 # Plugins
 
-Status: **format, validators, data model, the child runtime, the SDK, the legacy
-bot shim and conversion, the supervisor, the capability API v1, the OS isolation and `http.fetch`**
-(MSHL-175, MSHL-184, MSHL-176, MSHL-177, MSHL-179, MSHL-181, MSHL-180, MSHL-183;
-isolation: `docs/dev/plugins-security.md`, "OS isolation"). The server starts one
-supervised child per enabled instance, isolated by the OS, and answers its requests
-(see "Capabilities"); the global send budgets and loop guards
-(Store T6b) and the UI are later tickets; the REST API is described in "API" (MSHL-185), and
-two bundled packages ship (Store T26, "Bundled plugins"). Like every doc here, this
+Status (5.0.0): **format, validators, data model, child runtime, SDK, supervisor,
+capability API v1 with the global send budgets and loop guards, OS isolation,
+`http.fetch`, the REST API, bundled and local plugins with the Settings → Extensions
+UI, the global pause, and the conversion of the 4.18 bots** (MSHL-175 to MSHL-192,
+MSHL-216, MSHL-337, MSHL-339; isolation: `docs/dev/plugins-security.md`, "OS
+isolation"). The server starts one supervised child per enabled instance, isolated by
+the OS, and answers its requests (see "Capabilities"). Not in 5.0.0: the online Store
+(index, personalised repositories, updates from a store, `app_settings.store_online`
+stays off and unread) and Windows (no plugins). Two bundled packages ship ("Bundled
+plugins"). Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
 ## Package and manifest
