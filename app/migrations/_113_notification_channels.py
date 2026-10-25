@@ -190,8 +190,9 @@ def build_channels(destinations: Mapping[str, Any], now: int) -> list[dict[str, 
                 else {},
                 "secrets": secrets,
                 "allow_private_network": 1 if grandfathered or stored_flag else 0,
-                # 4.18.x had no quiet hours: nothing to exempt (the registry default
-                # for a new webhook channel is separate).
+                # 4.18.x had no quiet hours: nothing to exempt. Deliberate (MSHL-368): the
+                # registry default of a new webhook channel (exempt) is separate, and the
+                # channel card's box flips this one once quiet hours are switched on.
                 "quiet_hours_exempt": 0,
                 "sort_order": 2,
             }

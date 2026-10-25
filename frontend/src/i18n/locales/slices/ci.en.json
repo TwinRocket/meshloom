@@ -11,7 +11,7 @@
       "exceptionChip": "{{name}}, {{channel}}: {{state}}. Click to change.",
       "pause": {
         "title": "Do not disturb",
-        "help": "Pauses every notification except the ones marked “always deliver”.",
+        "help": "Pauses every notification except the ones marked “always deliver”. When it ends, one message sums up what was held (the summary option of quiet hours).",
         "active": "Paused, {{hours}} h {{minutes}} min left",
         "inactive": "Notifications are on.",
         "choice_1h": "1 hour",

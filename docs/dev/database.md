@@ -230,8 +230,8 @@ Successful sends per channel and hour: PK `(channel_id, hour)`, `sent`. Written 
 Small state with an expiry: PK `key`, `value`, `expires_at`. Keys: `dedup:<channel>:<dedup_key>`
 and `dedup:urgent:<channel>:<dedup_key>` (the dispatcher's persisted dedup, 24 h, written in
 batches), the pending secrets of a restored channel, and the quiet-hours counters
-`quiet:<channel>[@<account>]:<event>:<conversation>` (no expiry: the digest takes and deletes them,
-MSHL-124; `builtin:push@<user id>` or `@d` count per wanted account). Expired rows are
+`quiet:<channel>[@<account>]:<event>:<conversation>` and, for what the global pause held (MSHL-368),
+`pause:...` of the same shape (no expiry: the digest takes and deletes them, MSHL-124; `builtin:push@<user id>` or `@d` count per wanted account). Expired rows are
 pruned hourly by the dispatcher.
 
 ### `push_subscriptions`

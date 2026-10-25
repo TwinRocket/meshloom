@@ -490,11 +490,13 @@ class NotificationChannelRepository:
             await conn.execute(
                 "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
             )
-            for sep in (":", "@"):  # quiet-hours counters (``quiet_hours.py``), also per account
-                await conn.execute(
-                    "DELETE FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
-                    (_like_prefix(f"quiet:{channel_id}{sep}"),),
-                )
+            # quiet-hours and pause counters (``quiet_hours.py``), also per account
+            for prefix in ("quiet:", "pause:"):
+                for sep in (":", "@"):
+                    await conn.execute(
+                        "DELETE FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
+                        (_like_prefix(f"{prefix}{channel_id}{sep}"),),
+                    )
             async with conn.execute(
                 "SELECT notification_rules FROM app_settings WHERE id = 1"
             ) as c:
@@ -836,19 +838,24 @@ class NotificationJournalRepository:
     async def counter_incr(key: str) -> None:
         """Add one to a counter of ``notification_state``: one UPDATE for a known key, an INSERT
         only the first time (quiet hours: one cheap write per suppressed event)."""
+        await NotificationJournalRepository.counter_add(key, 1)
+
+    @staticmethod
+    async def counter_add(key: str, amount: int) -> None:
+        """Add ``amount`` to a counter (put back what a failed digest had taken)."""
         async with db.tx() as conn:
             async with conn.execute(
-                "UPDATE notification_state SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) "
+                "UPDATE notification_state SET value = CAST(CAST(value AS INTEGER) + ? AS TEXT) "
                 "WHERE key = ?",
-                (key,),
+                (amount, key),
             ) as cursor:
                 updated = cursor.rowcount
             if not updated:
                 await conn.execute(
-                    "INSERT INTO notification_state (key, value, expires_at) VALUES (?, '1', NULL) "
+                    "INSERT INTO notification_state (key, value, expires_at) VALUES (?, ?, NULL) "
                     "ON CONFLICT(key) DO UPDATE SET "
-                    "value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)",
-                    (key,),
+                    "value = CAST(CAST(value AS INTEGER) + ? AS TEXT)",
+                    (key, str(amount), amount),
                 )
 
     @staticmethod

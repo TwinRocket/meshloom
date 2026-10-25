@@ -10,6 +10,7 @@ import { toast } from '../../ui/sonner';
 import { SettingsGroupHeader } from '../settingsPrimitives';
 import { ConversationExceptions } from './ConversationExceptions';
 import { GlobalPauseControl } from './GlobalPauseControl';
+import { QuietHoursControl } from './QuietHoursControl';
 import { RulesMatrix } from './RulesMatrix';
 import type { NotificationChannelsState } from './useNotificationChannels';
 
@@ -72,6 +73,20 @@ export function NotificationRulesPanel({
           disabled={busy}
           onChange={(until) => patch({ paused_until: until })}
         />
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3">
+        <SettingsGroupHeader
+          title={t('settings.notifications.quiet.title')}
+          storedOn="server"
+          instant
+        />
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.notifications.quiet.help')}
+        </p>
+        <QuietHoursControl rules={rules} disabled={busy} onPatch={patch} />
       </div>
 
       <Separator />

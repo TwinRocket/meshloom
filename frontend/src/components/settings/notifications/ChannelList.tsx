@@ -5,6 +5,8 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { BUILTIN_PUSH_ID } from '../../../notifications/ids';
 import type { NotificationChannel } from '../../../notifications/types';
 import { Button } from '../../ui/button';
+import { Checkbox } from '../../ui/checkbox';
+import { Label } from '../../ui/label';
 import { iconFor, isLegacyChannel, STATUS_DOT_CLASS } from './notificationsShared';
 
 export function ChannelList({
@@ -14,6 +16,7 @@ export function ChannelList({
   pushOpen = false,
   legacyBlock,
   onToggle,
+  onQuietExempt,
   onTest,
   onEdit,
   onDelete,
@@ -27,6 +30,8 @@ export function ChannelList({
   /** The 4.18.x destination form of a `legacy:*` channel (its Edit opens it in the card). */
   legacyBlock: (medium: 'email' | 'webhook' | 'apprise') => ReactNode;
   onToggle: (channel: NotificationChannel, enabled: boolean) => void;
+  /** Let the channel through the quiet hours (`quiet_hours_exempt`). */
+  onQuietExempt: (channel: NotificationChannel, exempt: boolean) => void;
   onTest: (channel: NotificationChannel) => void;
   onEdit: (channel: NotificationChannel) => void;
   onDelete: (channel: NotificationChannel) => void;
@@ -119,6 +124,23 @@ export function ChannelList({
                   />
                 </button>
               )}
+            </div>
+            <div className="mt-2 flex items-start gap-2">
+              <Checkbox
+                id={`quiet-exempt-${channel.id}`}
+                checked={channel.quiet_hours_exempt}
+                disabled={busy}
+                onCheckedChange={(checked) => onQuietExempt(channel, checked === true)}
+                className="mt-0.5"
+              />
+              <div className="min-w-0 space-y-0.5">
+                <Label htmlFor={`quiet-exempt-${channel.id}`} className="text-[0.8125rem]">
+                  {t('settings.notifications.channels.quietExempt')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.notifications.channels.quietExemptHelp')}
+                </p>
+              </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {builtin ? (

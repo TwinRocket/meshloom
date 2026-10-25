@@ -96,6 +96,13 @@ export function NotificationChannelsPanel({
               t('settings.notifications.channels.toggleFailed', { name: channel.name })
             )
           }
+          onQuietExempt={(channel, exempt) =>
+            void run(
+              channel,
+              () => api.updateNotificationChannel(channel.id, { quiet_hours_exempt: exempt }),
+              t('settings.notifications.channels.quietExemptFailed', { name: channel.name })
+            )
+          }
           onTest={(channel) =>
             void run(
               channel,
