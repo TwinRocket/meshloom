@@ -62,8 +62,9 @@ AuditAction = Literal[
     "totp.recovery_regenerated",
     "passkey.added",
     "passkey.removed",
-    # Code that runs on the instance: the legacy bots and the plugins
-    # (`app/routers/plugins.py`, target `plugin:<instance_id>`)
+    # Code that runs on the instance: the plugins (`app/routers/plugins.py`, target
+    # `plugin:<instance_id>`). The `bot.*`/`bots.*` actions are no longer written since
+    # 5.0.0 (bots are plugins, MSHL-192); kept so 4.18 rows still read.
     "bot.created",
     "bot.changed",
     "bot.deleted",

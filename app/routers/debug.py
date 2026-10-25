@@ -113,7 +113,7 @@ class DebugHealthSummary(BaseModel):
     database_size_mb: float
     oldest_undecrypted_timestamp: int | None
     fanouts_with_errors: dict[str, FanoutStatusResponse] = Field(default_factory=dict)
-    bots_disabled_source: Literal["env", "until_restart", "paused"] | None = None
+    bots_disabled_source: Literal["env", "paused"] | None = None
 
 
 class DebugEnvironment(BaseModel):
@@ -129,7 +129,6 @@ class DebugEnvironment(BaseModel):
     ble_pairing_error: str | None = None
     log_level: str
     database_path: str
-    disable_bots: bool
     retired_env_still_set: list[str] = Field(
         default_factory=list,
         description=(
@@ -295,7 +294,6 @@ async def _build_environment() -> DebugEnvironment:
         ble_pairing_error=pairing_error,
         log_level=settings.log_level,
         database_path=settings.database_path,
-        disable_bots=settings.disable_bots,
         retired_env_still_set=[
             name for name in RETIRED_ENV if (os.environ.get(name) or "").strip()
         ],

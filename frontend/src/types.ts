@@ -426,9 +426,8 @@ export interface HealthStatus {
   fanout_statuses: Record<string, FanoutStatusEntry>;
   /** Each notification channel's status, keyed by channel id (`builtin:push`, `legacy:webhook`...). */
   notification_statuses?: Record<string, NotificationChannelStatus>;
-  bots_disabled: boolean;
-  /** Deprecated: mirrors the plugin host (`paused` while the global plugin pause holds). */
-  bots_disabled_source?: 'env' | 'until_restart' | 'paused' | null;
+  /** Legacy bots converted into extensions; non-null until an admin acknowledges it. */
+  converted_bots?: { converted: number; attention: number } | null;
   /** Plugin host: isolation level, why it is off (null when on), and each instance. */
   plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
   /** True whenever no plugin may run: the host lock, the platform, isolation, or the pause. */
@@ -1917,8 +1916,6 @@ export interface BackupInspectResult {
   wifi_open_network?: boolean;
   counts: BackupCounts;
   bot_names: string[];
-  /** Bots are turned off on this server: the file's bots are not restored. */
-  bots_will_be_skipped: boolean;
   /** Non-bot integrations in the file; enabled ones start right after a restore. */
   integrations: BackupIntegrationSummary[];
   /** The file's radio proxy setting (null: not in the file). */

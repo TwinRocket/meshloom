@@ -154,27 +154,17 @@ async def test_retention_is_bounded(client, days):
 
 
 @pytest.mark.usefixtures("test_db")
-async def test_bot_edits_are_audited_and_other_fanout_types_are_not(client):
+async def test_fanout_edits_are_not_audited(client):
+    """The `bot.*` rows went with the bots (5.0.0): no fanout edit writes a row, and a
+    retired bot create (410) writes none either."""
     with patch("app.routers.fanout.fanout_manager") as manager:
         manager.reload_config = AsyncMock()
         manager.remove_config = AsyncMock()
-        manager.disable_bots_until_restart = AsyncMock(return_value="until_restart")
-        created = await client.post(
+        retired = await client.post(
             "/api/fanout",
-            json={
-                "type": "bot",
-                "name": "Echo",
-                "config": {"code": "def bot(**kw):\n    return None\n"},
-                "enabled": False,
-            },
+            json={"type": "bot", "name": "Echo", "config": {"code": "def bot(**kw): pass"}},
         )
-        assert created.status_code == 200, created.text
-        bot_id = created.json()["id"]
-        assert (
-            await client.patch(f"/api/fanout/{bot_id}", json={"name": "Echo 2"})
-        ).status_code == 200
-        assert (await client.delete(f"/api/fanout/{bot_id}")).status_code == 200
-        assert (await client.post("/api/fanout/bots/disable-until-restart")).status_code == 200
+        assert retired.status_code == 410
         webhook = await client.post(
             "/api/fanout",
             json={
@@ -185,19 +175,13 @@ async def test_bot_edits_are_audited_and_other_fanout_types_are_not(client):
             },
         )
         assert webhook.status_code == 200, webhook.text
+        hook_id = webhook.json()["id"]
+        assert (
+            await client.patch(f"/api/fanout/{hook_id}", json={"name": "Hook 2"})
+        ).status_code == 200
+        assert (await client.delete(f"/api/fanout/{hook_id}")).status_code == 200
 
-    rows = await _rows()
-    assert _summary(rows) == [
-        ("bot.created", "success", "lan"),
-        ("bot.changed", "success", "lan"),
-        ("bot.deleted", "success", "lan"),
-        ("bots.disabled", "success", "lan"),
-    ]
-    assert all(row.actor_user_id == 1 for row in rows)
-    assert rows[0].target == f"bot:{bot_id}"
-    assert rows[1].details["fields"] == ["name"]
-    # The bot's code never reaches the log.
-    assert all("def bot" not in json.dumps(row.details) for row in rows)
+    assert await _rows() == []
 
 
 @pytest.mark.usefixtures("test_db")
@@ -332,37 +316,6 @@ async def test_a_failed_login_never_stores_an_unknown_typed_name():
         ("login", "failure", "user:1"),
     ]
     assert all(PASSWORD not in json.dumps(row.model_dump()) for row in rows)
-
-
-@pytest.mark.usefixtures("test_db")
-async def test_refused_bot_edits_write_a_refused_row(client):
-    from app.fanout.manager import fanout_manager
-
-    created = await client.post(
-        "/api/fanout",
-        json={
-            "type": "bot",
-            "name": "Echo",
-            "config": {"code": "def bot(**kw):\n    return None\n"},
-        },
-    )
-    assert created.status_code == 200, created.text
-    bot_id = created.json()["id"]
-    with patch.object(fanout_manager, "get_bots_disabled_source", return_value="until_restart"):
-        assert (
-            await client.post("/api/fanout", json={"type": "bot", "name": "Other", "config": {}})
-        ).status_code == 403
-        assert (
-            await client.patch(f"/api/fanout/{bot_id}", json={"name": "Echo 2"})
-        ).status_code == 403
-    rows = await _rows()
-    assert [(row.action, row.outcome) for row in rows] == [
-        ("bot.created", "success"),
-        ("bot.created", "refused"),
-        ("bot.changed", "refused"),
-    ]
-    assert rows[1].details == {"name": "Other", "status": 403}
-    assert rows[2].target == f"bot:{bot_id}"
 
 
 @pytest.mark.usefixtures("test_db")

@@ -1,8 +1,9 @@
-"""Legacy bots through the shim (`meshloom_plugin.compat`), against `execute_bot_code`.
+"""Legacy bots through the shim (`meshloom_plugin.compat`).
 
-The cases of `tests/test_bot.py` that pin call conventions and return shapes run
-twice: through the 4.18.x executor and through `legacy_bot()` with a fake host, and
-the replies must agree.
+The call conventions and return shapes run through `legacy_bot()` with a fake host.
+The expected replies are what the 4.18.x in-process executor (`app/fanout/bot_exec.py`,
+removed in 5.0.0 by MSHL-192) answered for the same code: a converted bot must behave
+as it did.
 """
 
 import textwrap
@@ -11,7 +12,6 @@ from typing import Any
 import pytest
 
 import meshloom_plugin
-from app.fanout.bot_exec import BotReply, execute_bot_code
 from meshloom_plugin import compat, sdk
 from meshloom_plugin.errors import HostError
 
@@ -103,36 +103,25 @@ CONVENTIONS = {
 }
 
 
-def legacy_reply(code: str) -> list[str] | None:
-    reply = execute_bot_code(
-        code=textwrap.dedent(code),
-        sender_name=MESSAGE["sender_name"],
-        sender_key=MESSAGE["sender_key"],
-        message_text=MESSAGE["message_text"],
-        is_dm=MESSAGE["is_dm"],
-        channel_key=MESSAGE["channel_key"],
-        channel_name=MESSAGE["channel_name"],
-        sender_timestamp=MESSAGE["sender_timestamp"],
-        path=MESSAGE["path"],
-        is_outgoing=MESSAGE["is_outgoing"],
-        path_bytes_per_hop=MESSAGE["path_bytes_per_hop"],
-        packet_hash=MESSAGE["packet_hash"],
-        region=MESSAGE["region"],
-        scoped=MESSAGE["scoped"],
-    )
-    if reply is None:
-        return None
-    if isinstance(reply, BotReply):
-        return reply.messages
-    return [reply] if isinstance(reply, str) else reply
+# What the 4.18.x executor replied to MESSAGE (None: nothing sent).
+LEGACY_CONVENTION_REPLIES: dict[str, list[str]] = {
+    "legacy": ["Alice|Hi|aabb"],
+    "positional_9": ["False"],
+    "positional_10": ["2"],
+    "positional_11": ["2HHHHHHHHHHHHHHHH"],
+    "keyword_all": [
+        "channel_key,channel_name,is_dm,is_outgoing,message_text,packet_hash,path,path_bytes_per_hop,region,scoped,sender_key,sender_name,sender_timestamp"
+    ],
+    "keyword_named": ["us-west:True"],
+    "keyword_required_kwonly": ["us-west"],
+    "mixed_keyword": ["2us-west"],
+    "varargs": ["11"],
+}
 
 
 @pytest.mark.parametrize("name", list(CONVENTIONS))
 async def test_call_convention_matches_the_executor(name: str, host: FakeHost) -> None:
-    code = CONVENTIONS[name]
-    expected = legacy_reply(code)
-    assert expected is not None
-    assert texts(await run_shim(code, host)) == expected
+    assert texts(await run_shim(CONVENTIONS[name], host)) == LEGACY_CONVENTION_REPLIES[name]
 
 
 @pytest.mark.parametrize(
@@ -200,11 +189,31 @@ SHAPES = {
 }
 
 
+# What the 4.18.x executor replied (None: nothing sent).
+LEGACY_SHAPE_REPLIES: dict[str, list[str] | None] = {
+    "none": None,
+    "str": ["one"],
+    "blank_str": None,
+    "list": ["a", "b"],
+    "list_filtered": ["a", "b"],
+    "list_empty": None,
+    "list_blank": None,
+    "dict_list": ["x", "y"],
+    "dict_empty": None,
+    "dict_invalid": None,
+    "int": None,
+    "raises": None,
+    "syntax_error": None,
+    "no_bot": None,
+    "not_callable": None,
+    "empty": None,
+}
+
+
 @pytest.mark.parametrize("name", list(SHAPES))
 async def test_return_shape_matches_the_executor(name: str, host: FakeHost) -> None:
-    code = SHAPES[name]
-    expected = legacy_reply(code) or []
-    assert texts(await run_shim(code, host)) == expected
+    expected = LEGACY_SHAPE_REPLIES[name] or []
+    assert texts(await run_shim(SHAPES[name], host)) == expected
 
 
 async def test_broken_bots_are_logged_not_raised(host: FakeHost) -> None:

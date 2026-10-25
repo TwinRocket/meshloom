@@ -1,8 +1,8 @@
 """Legacy bot compatibility: a 4.18.x `bot(...)` function runs as a plugin.
 
 `legacy_bot(source)` returns a `Plugin` class that executes the bot source with
-the same call conventions (`BotCallPlan`, moved from `app/fanout/bot_exec.py`,
-which imports it back) and the same return shapes (`None`, `str`, `list[str]`,
+the same call conventions (`BotCallPlan`, moved from the 4.18.x in-app bot
+runtime, removed in 5.0.0) and the same return shapes (`None`, `str`, `list[str]`,
 `{"region", "message"}`). What changes, on purpose (docs/dev/plugins.md,
 "Legacy bots"):
 
@@ -321,9 +321,10 @@ def legacy_bot(source: str) -> type[sdk.Plugin]:
     """Wrap a 4.18.x bot's source in a `Plugin` class (the entry point of a migrated bot).
 
     ```python
-    # plugin.py of a migrated bot
+    # compat.py of a migrated bot (manifest entry "compat.py:Bot"), written by the host
     from meshloom_plugin.compat import legacy_bot
-    Bot = legacy_bot(open("bot.py", encoding="utf-8").read())   # manifest entry "plugin.py:Bot"
+    with open(__file__.rsplit("/", 1)[0] + "/bot.py", encoding="utf-8") as _source:
+        Bot = legacy_bot(_source.read())   # sandbox reads need an absolute path
     ```
     """
 

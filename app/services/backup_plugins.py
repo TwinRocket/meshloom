@@ -8,7 +8,7 @@ One entry per row of ``plugins`` (Store T12, ``docs/dev/backup.md``, "Plugins"):
   masked value from ``config``. ``secret_omitted`` names the ones that held a value. The
   key-value store (``plugin_kv``), the send counters, the runtime state (``status``,
   ``last_error``, ``attention``) and ``archive_sha256`` stay out, and so does the archive of
-  the converted bots (Store T9).
+  the converted bots (`fanout_configs_bots_archive`, migration 122).
 - **A local plugin comes back whole**: its code lives in ``plugins.source``, so its
   manifest, source, config and grants are restored.
 - **Any other instance (bundled, store, custom) is a "to reinstall" entry**: its code is not

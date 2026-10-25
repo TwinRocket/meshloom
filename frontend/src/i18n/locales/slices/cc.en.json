@@ -173,6 +173,8 @@
       "migration": {
         "title": "Your bots were converted to extensions",
         "text": "Review each converted extension before starting it: it only runs once you have accepted what it may do.",
+        "counts_one": "{{count}} bot was converted, {{attention}} need attention.",
+        "counts_other": "{{count}} bots were converted, {{attention}} need attention.",
         "acknowledge": "Got it"
       },
       "memberReadOnly": "Only an administrator can add, change, start, remove or pause extensions. You can see what is installed and how it is doing.",

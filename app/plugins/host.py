@@ -57,7 +57,7 @@ from typing import Any, Literal
 
 from app.auth.ws_events import WsEvent
 from app.message_limits import DM_HARD_LIMIT, channel_text_allowance
-from app.plugins import isolation, launch
+from app.plugins import bot_conversion, isolation, launch
 from app.plugins.quotas import effective_send_limits, send_guard
 from app.secret_fields import scrub_error
 from meshloom_plugin import policy, rpc
@@ -1268,7 +1268,8 @@ class PluginManager:
         return Path(settings.database_path).resolve().parent / "plugins"
 
     def code_dir(self, row: dict[str, Any]) -> Path:
-        """The plugin's code: shared per `plugin_id`; a local plugin's source is written out."""
+        """The plugin's code: shared per `plugin_id`; a local plugin's source is written out
+        (a converted bot's as `bot.py` beside the `compat.py` wrapper, `bot_conversion.py`)."""
         if row.get("kind") != "local":
             return self.plugins_root() / row["plugin_id"]
         directory = self.plugins_root() / "local" / row["instance_id"]
@@ -1281,7 +1282,14 @@ class PluginManager:
             raise PluginHostError("entry_invalid", "the entry is outside the plugin directory")
         target.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
         (directory / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-        target.write_text(row.get("source") or "", encoding="utf-8")
+        if bot_conversion.is_compat_manifest(manifest):
+            # A converted 4.18.x bot: its code is bot.py, run by a fixed wrapper.
+            (directory / bot_conversion.COMPAT_SOURCE_FILE).write_text(
+                row.get("source") or "", encoding="utf-8"
+            )
+            target.write_text(bot_conversion.COMPAT_WRAPPER, encoding="utf-8")
+        else:
+            target.write_text(row.get("source") or "", encoding="utf-8")
         return directory.resolve()
 
     # Lifecycle.
@@ -1330,6 +1338,12 @@ class PluginManager:
             row = await PluginRepository.get(instance_id)
             if row is None:
                 raise PluginHostError("unknown_instance", "no such plugin instance")
+            if row.get("status") == "needs_attention" and (row.get("attention") or {}).get(
+                "converted_bot"
+            ):
+                # A converted 4.18.x bot never runs before its grant is accepted (the
+                # router clears the attention first); defence in depth for other callers.
+                raise PluginHostError("attention_required", "the instance needs a review")
             running = sum(1 for i in self._instances.values() if i.active)
             cap = self.instance_cap()
             if running >= cap:

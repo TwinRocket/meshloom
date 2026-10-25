@@ -3,7 +3,8 @@
 Pure: `scan_source(source)` parses with `ast` (nothing is imported or run) and
 returns the reasons a user should review, each with its line, plus the hosts of
 the `https://` literals that prefill the `http` permission. Reused by the
-switch (Store T9, `attention: migrated`) and by `dev check` (Store T4d).
+bot conversion (`app/plugins/bot_conversion.py`, attention `review_permissions`)
+and by `dev check` (Store T4d).
 
 Blocking reasons name the common things the sandbox refuses (the call fails at
 run time with the error in the journal; the plugin still starts); the list is a

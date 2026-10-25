@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from app.services.legacy_env_settings import ENV_BOT_LOCK
+
 INSTALL_SH = Path(__file__).resolve().parents[1] / "scripts" / "setup" / "install.sh"
 
 _HELPERS = (
@@ -150,7 +152,7 @@ def test_installer_writes_compose_kind_and_ensure_helper() -> None:
     assert "compose-update --bootstrap" in text
     assert "docker-compose.yml.bak-" in text
     assert "MESHLOOM_INSTALL_KIND=package" in text
-    assert "MESHCORE_DISABLE_BOTS" not in text
+    assert ENV_BOT_LOCK not in text
     assert "_env_ensure_key" in text
     assert "apt upgrade" not in text or "apt-get install" in text
 

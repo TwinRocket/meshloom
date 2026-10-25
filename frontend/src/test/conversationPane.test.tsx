@@ -128,7 +128,6 @@ const health: HealthStatus = {
   database_size_mb: 1,
   oldest_undecrypted_timestamp: null,
   fanout_statuses: {},
-  bots_disabled: false,
 };
 
 const channel: Channel = {

@@ -18,7 +18,7 @@ services:
       - ${MESHLOOM_DATA_PATH:-/app/data}:/app/data
     environment:
       MESHCORE_DATABASE_PATH: "${MESHCORE_DATABASE_PATH:-/app/data/meshcore.db}"
-      MESHCORE_DISABLE_BOTS: "${MESHCORE_DISABLE_BOTS:-0}"
+      MESHCORE_DISABLE_PLUGINS: "${MESHCORE_DISABLE_PLUGINS:-0}"
     networks:
       - meshloom-net
     restart: unless-stopped

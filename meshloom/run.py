@@ -94,6 +94,15 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
         "MESHLOOM_INSTALL_KIND": "addon",
     }
 
+    if "disable_bots" in options:
+        # Retired in 5.0.0: bots became extensions, so the option maps to nothing.
+        print(
+            "Warning: the add-on option disable_bots was removed and is ignored. "
+            "Bots are now extensions; set disable_plugins (MESHCORE_DISABLE_PLUGINS) "
+            "to lock every extension.",
+            file=sys.stderr,
+        )
+
     for option, variable in (PASS_THROUGH | RETIRED_PASS_THROUGH).items():
         value = options.get(option)
         if isinstance(value, str) and value.strip():
@@ -102,9 +111,6 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
     port = options.get("proxy_port")
     if isinstance(port, int) and 0 < port < 65536:
         env["MESHCORE_RADIO_PROXY_PORT"] = str(port)
-
-    if options.get("disable_bots") is True:
-        env["MESHCORE_DISABLE_BOTS"] = "true"
 
     if options.get("disable_plugins") is True:
         env["MESHCORE_DISABLE_PLUGINS"] = "true"

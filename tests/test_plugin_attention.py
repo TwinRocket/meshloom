@@ -1,6 +1,5 @@
 """Static attention scan of local plugin sources (app/plugins/attention.py)."""
 
-import re
 import textwrap
 import time
 from pathlib import Path
@@ -35,10 +34,9 @@ def _codes(report):
 
 
 def _default_bot_template() -> str:
-    tsx = (ROOT / "frontend/src/components/settings/SettingsFanoutSection.tsx").read_text()
-    match = re.search(r"const DEFAULT_BOT_CODE = `(.*?)`;", tsx, re.S)
-    assert match, "DEFAULT_BOT_CODE not found: update this test with the template's new home"
-    return match.group(1)
+    """The bot editor's starter template of 4.18.x (gone with the bots in 5.0.0): the
+    most common converted bot, so it must convert with no reason to review."""
+    return (ROOT / "tests/fixtures/default_bot_4_18.txt").read_text(encoding="utf-8")
 
 
 def test_open_meteo_bot_names_the_module_and_line_and_prefills_the_host():

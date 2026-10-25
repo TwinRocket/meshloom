@@ -19,6 +19,7 @@ import { AddBundledDialog } from './extensions/AddBundledDialog';
 import { CreateLocalDialog } from './extensions/CreateLocalDialog';
 import { InstalledTab } from './extensions/InstalledTab';
 import { InstanceDrawer } from './extensions/InstanceDrawer';
+import { MigrationBanner } from './extensions/MigrationBanner';
 import type { PluginInstance, PluginPauseState } from './extensions/pluginsTypes';
 import { SettingsGroupHeader } from './settingsPrimitives';
 
@@ -32,9 +33,11 @@ const ISOLATION_LEVELS = ['bwrap', 'setuid', 'none'] as const;
 export function SettingsExtensionsSection({
   className,
   health,
+  onHealthRefresh,
 }: {
   className?: string;
   health: HealthStatus | null;
+  onHealthRefresh?: () => Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const { isAdmin } = useCapabilities();
@@ -129,6 +132,20 @@ export function SettingsExtensionsSection({
       setPauseBusy(false);
     }
   };
+  const convertedBots = health?.converted_bots ?? null;
+  const [ackBusy, setAckBusy] = useState(false);
+  const acknowledgeBots = async () => {
+    setAckBusy(true);
+    try {
+      await api.acknowledgeConvertedBots();
+      await onHealthRefresh?.();
+      reload();
+    } catch (err) {
+      toast.error(formatApiError(err, t));
+    } finally {
+      setAckBusy(false);
+    }
+  };
   const sinceText = since ? new Date(since * 1000).toLocaleString(i18n.language) : '';
 
   return (
@@ -156,6 +173,17 @@ export function SettingsExtensionsSection({
             : t('settings.extensions.isolation.explain.unknown')}
         </p>
       </div>
+
+      {convertedBots && isAdmin && (
+        <div className="mb-3">
+          <MigrationBanner
+            converted={convertedBots.converted}
+            attention={convertedBots.attention}
+            onAcknowledge={() => void acknowledgeBots()}
+            busy={ackBusy}
+          />
+        </div>
+      )}
 
       {locked && (
         <p

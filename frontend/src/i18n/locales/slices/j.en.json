@@ -43,7 +43,7 @@
       "hasWifiFlagOnly": "Contains whether the radio's Wi-Fi is on, without credentials (the radio stored none).",
       "v1Only": "Meshloom data only (older format): the radio is not touched.",
       "counts": "{{contacts}} contacts, {{channels}} channels, {{groups}} groups",
-      "botsRestoredDisabled": "Bots ({{names}}) come back disabled: bots run code on this server; enable each one after reading it.",
+      "botsConverted": "Bots ({{names}}) come back as disabled extensions: review the permissions of each one in Settings > Extensions before starting it.",
       "identity": {
         "no_identity": "The radio keeps its own identity.",
         "same": "The connected radio already has this identity.",
@@ -140,7 +140,6 @@
       "failed": "Restore failed",
       "another": "Restore another file",
       "close": "Close",
-      "botsWillBeSkipped": "Bots ({{names}}) are not restored: bots are turned off on this server. Turn them on first if you want them back.",
       "integrations": "Integrations in this backup: {{list}}. Enabled ones start sending right after the restore.",
       "integrationOn": "{{name}} ({{type}}, enabled)",
       "integrationOff": "{{name}} ({{type}}, disabled)",
@@ -162,9 +161,8 @@
       "warningsTitle": "Notes",
       "warnings": {
         "fanout_reserved": "{{value}} is one of Meshloom's own modules: not taken from the file.",
-        "bots_disabled": "Bot {{value}} was not restored: bots are turned off on this server.",
         "fanout_invalid": "Integration {{value}} was not restored: its settings are not valid here.",
-        "bots_restored_disabled": "Bots ({{value}}) came back disabled: enable each one after reading it.",
+        "bots_converted": "Bots ({{value}}) were converted into disabled extensions: review the permissions of each one in Settings > Extensions before starting it.",
         "push_kept_existing": "This Meshloom already has push subscriptions: its own push keys were kept. Turn push notifications on again in each browser that used the backup's.",
         "proxy_port_managed": "The radio proxy port is set by the host: the backup's port was not applied.",
         "proxy_targets_transport": "The radio proxy would point at Meshloom's own radio link: it stays disabled.",

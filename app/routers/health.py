@@ -9,6 +9,7 @@ from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
 from app.notifications.dispatcher import notification_statuses, notifications_capped
+from app.plugins import bot_conversion
 from app.plugins import lifecycle as plugin_lifecycle
 from app.repository import RawPacketRepository
 from app.services.radio_lifecycle import expected_reboot_reason
@@ -142,9 +143,13 @@ class HealthResponse(BaseModel):
     notification_statuses: dict[str, NotificationStatusResponse] = Field(default_factory=dict)
     # The global notification cap (rules ``limits.global_per_hour``) is reached.
     notifications_capped: bool = False
-    # Deprecated (the legacy bots): mirrors the global plugin pause as "paused".
+    # Deprecated since 5.0.0 (bots are plugins, MSHL-192): mirrors the plugin system,
+    # "paused" for the global pause, "env" for any other hold. Removed in 5.2.0.
     bots_disabled: bool = False
-    bots_disabled_source: Literal["env", "until_restart", "paused"] | None = None
+    bots_disabled_source: Literal["env", "paused"] | None = None
+    # The "N bots converted" notice (app/plugins/bot_conversion.py) until an admin
+    # acknowledges it: {"converted": N, "attention": still waiting for review}.
+    converted_bots: dict[str, int] | None = None
     # The plugin host (app/plugins/lifecycle.py): None when the system is off.
     plugins_isolation: Literal["none", "setuid", "bwrap"] | None = None
     # Off or held: the host lock, the platform and the isolation take precedence
@@ -176,11 +181,6 @@ def _clean_optional_str(value: object) -> str | None:
     return cleaned or None
 
 
-def _read_optional_bool_setting(name: str) -> bool:
-    value = getattr(settings, name, False)
-    return value if isinstance(value, bool) else False
-
-
 async def build_health_data(radio_connected: bool, connection_info: str | None) -> dict:
     """Build the health status payload used by REST endpoint and WebSocket broadcasts."""
     app_build_info = get_app_build_info()
@@ -199,16 +199,17 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
 
     # Fanout module statuses
     fanout_statuses: dict[str, Any] = {}
-    bots_disabled_source = "env" if _read_optional_bool_setting("disable_bots") else None
     try:
         from app.fanout.manager import fanout_manager
 
         fanout_statuses = fanout_manager.get_statuses()
-        manager_bots_disabled_source = fanout_manager.get_bots_disabled_source()
-        if manager_bots_disabled_source is not None:
-            bots_disabled_source = manager_bots_disabled_source
     except Exception:
         pass
+    plugin_fields = plugin_lifecycle.health_fields()
+    plugins_source = plugin_fields.get("plugins_disabled_source")
+    bots_disabled_source = (
+        None if plugins_source is None else "paused" if plugins_source == "paused" else "env"
+    )
 
     setup_in_progress = getattr(radio_manager, "is_setup_in_progress", False)
     setup_complete = getattr(radio_manager, "is_setup_complete", radio_connected)
@@ -309,10 +310,11 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "notifications_capped": notifications_capped(),
         "bots_disabled": bots_disabled_source is not None,
         "bots_disabled_source": bots_disabled_source,
+        "converted_bots": await bot_conversion.notice(),
         "transport_configured": transport_configured,
         "identity": identity,
         "radio_proxy": _radio_proxy_status(),
-        **plugin_lifecycle.health_fields(),
+        **plugin_fields,
     }
 
 

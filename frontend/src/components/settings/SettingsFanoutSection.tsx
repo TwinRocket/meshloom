@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, lazy, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { ChevronDown, Info } from 'lucide-react';
 import i18n from '../../i18n';
@@ -19,11 +19,6 @@ import { cn } from '@/lib/utils';
 import { api, formatApiError } from '../../api';
 import { SECRET_REDACTED } from '../../types';
 import type { Channel, Contact, FanoutConfig, HealthStatus } from '../../types';
-import { LazyBoundary } from '../LazyBoundary';
-
-const BotCodeEditor = lazy(() =>
-  import('../BotCodeEditor').then((m) => ({ default: m.BotCodeEditor }))
-);
 
 const transInline = { code: <code />, strong: <strong /> };
 
@@ -31,7 +26,6 @@ const FANOUT_TYPE_ORDER = [
   'mqtt_private',
   'mqtt_community',
   'mqtt_ha',
-  'bot',
   'webhook',
   'apprise',
   'sqs',
@@ -70,61 +64,6 @@ function createCommunityConfigDefaults(
   };
 }
 
-const DEFAULT_BOT_CODE = `def bot(**kwargs) -> str | list[str] | None:
-    """
-    Process messages and optionally return a reply.
-
-    Args:
-        kwargs keys currently provided:
-            sender_name: Display name of sender (may be None)
-            sender_key: 64-char hex public key (None for channel msgs)
-            message_text: The message content
-            is_dm: True for direct messages, False for channel
-            channel_key: 32-char hex key for channels, None for DMs
-            channel_name: Channel name with hash (e.g. "#bot"), None for DMs
-            sender_timestamp: Sender's timestamp (unix seconds, may be None)
-            path: Hex-encoded routing path (may be None)
-            is_outgoing: True if this is our own outgoing message
-            path_bytes_per_hop: Bytes per hop in path (1, 2, or 3) when known
-            scoped: True if the message carried a regional flood scope,
-                False for plain/unscoped flood. Check this first. Set for
-                scoped DMs too.
-            region: Only meaningful when scoped is True (else always None).
-                When scoped, it's the decoded region name, or None if the
-                scope matched none of your known_regions. region alone can't
-                distinguish unscoped from unrecognized — use scoped.
-
-    Returns:
-        None for no reply, a string for a single reply,
-        a list of strings to send multiple messages in order, or a dict
-        {"region": <name or None>, "message": <str or list[str]>} to scope a
-        channel reply to a region for that send only (None/"" = unscoped flood;
-        region is ignored for DM replies).
-    """
-    sender_name = kwargs.get("sender_name")
-    message_text = kwargs.get("message_text", "")
-    channel_name = kwargs.get("channel_name")
-    is_outgoing = kwargs.get("is_outgoing", False)
-    path_bytes_per_hop = kwargs.get("path_bytes_per_hop")
-
-    # Don't reply to our own outgoing messages
-    if is_outgoing:
-        return None
-    
-    # If you want to make use of persistant data between calls to this function, 
-    # you can put that data into the global _bot_globals dictionary, e.g.:
-    #
-    # bot_globals = globals()["_bot_globals"] 
-    # if not "known_sender_names" in bot_globals:
-    #     bot_globals["known_sender_names"] = set()
-    #
-    # bot_globals["known_sender_names"].add(sender_name)
-
-    # Example: Only respond in #bot channel to "!pling" command
-    if channel_name == "#bot" and "!pling" in message_text.lower():
-        return "[BOT] Plong!"
-    return None`;
-
 type DraftType =
   | 'mqtt_private'
   | 'mqtt_ha'
@@ -135,7 +74,6 @@ type DraftType =
   | 'webhook'
   | 'apprise'
   | 'sqs'
-  | 'bot'
   | 'map_upload';
 
 type CreateSectionKey = 'privateForwarding' | 'communitySharing' | 'automation';
@@ -312,18 +250,6 @@ const CREATE_INTEGRATION_DEFINITIONS: readonly CreateIntegrationDefinition[] = [
         access_key_id: '',
         secret_access_key: '',
         session_token: '',
-      },
-      scope: { messages: 'all', raw_packets: 'none' },
-    },
-  },
-  {
-    value: 'bot',
-    savedType: 'bot',
-    sectionKey: 'automation',
-    nameMode: 'counted',
-    defaults: {
-      config: {
-        code: DEFAULT_BOT_CODE,
       },
       scope: { messages: 'all', raw_packets: 'none' },
     },
@@ -839,7 +765,7 @@ function getDefaultIntegrationName(type: string, configs: FanoutConfig[]) {
 
 function getStatusLabel(status: string | undefined, type?: string) {
   if (status === 'connected')
-    return type === 'bot' || type === 'webhook' || type === 'apprise' || type === 'map_upload'
+    return type === 'webhook' || type === 'apprise' || type === 'map_upload'
       ? i18n.t('settings.fanout.status.active')
       : i18n.t('settings.fanout.status.connected');
   if (status === 'error') return i18n.t('settings.fanout.status.error');
@@ -1954,74 +1880,6 @@ function LetsMeshConfigEditor({
             className="w-32"
           />
         </div>
-      </div>
-    </div>
-  );
-}
-
-function BotConfigEditor({
-  config,
-  onChange,
-}: {
-  config: Record<string, unknown>;
-  onChange: (config: Record<string, unknown>) => void;
-}) {
-  const code = (config.code as string) || '';
-  const { t } = useTranslation();
-  return (
-    <div className="space-y-3">
-      <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-md">
-        <p className="text-sm text-destructive">
-          <Trans i18nKey="settings.fanout.bot.experimental" components={transInline} />
-        </p>
-      </div>
-
-      <div className="p-3 bg-warning/10 border border-warning/30 rounded-md">
-        <p className="text-sm text-warning">
-          <Trans i18nKey="settings.fanout.bot.security" components={transInline} />
-        </p>
-      </div>
-
-      <div className="p-3 bg-warning/10 border border-warning/30 rounded-md">
-        <p className="text-sm text-warning">
-          <Trans i18nKey="settings.fanout.bot.dontWreck" components={transInline} />
-        </p>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <p className="text-[0.8125rem] text-muted-foreground">
-          <Trans i18nKey="settings.fanout.bot.defineFunction" components={transInline} />
-        </p>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onChange({ ...config, code: DEFAULT_BOT_CODE })}
-        >
-          {t('settings.fanout.bot.resetExample')}
-        </Button>
-      </div>
-
-      <LazyBoundary
-        fallback={
-          <div className="h-64 md:h-96 rounded-md border border-input bg-code-editor-bg flex items-center justify-center text-muted-foreground">
-            {t('settings.fanout.bot.loadingEditor')}
-          </div>
-        }
-      >
-        <BotCodeEditor value={code} onChange={(c) => onChange({ ...config, code: c })} />
-      </LazyBoundary>
-
-      <div className="text-[0.8125rem] text-muted-foreground space-y-1">
-        <p>
-          <Trans i18nKey="settings.fanout.bot.available" components={transInline} />
-        </p>
-        <p>
-          <Trans i18nKey="settings.fanout.bot.limits" components={transInline} />
-        </p>
-        <p>
-          <Trans i18nKey="settings.fanout.bot.note" components={transInline} />
-        </p>
       </div>
     </div>
   );
@@ -3317,13 +3175,7 @@ export function SettingsFanoutSection({
     void loadConfigs();
   }, [loadConfigs]);
 
-  const availableCreateOptions = useMemo(
-    () =>
-      CREATE_INTEGRATION_DEFINITIONS.filter(
-        (definition) => definition.savedType !== 'bot' || !health?.bots_disabled
-      ),
-    [health?.bots_disabled]
-  );
+  const availableCreateOptions = CREATE_INTEGRATION_DEFINITIONS;
 
   // While the create dialog is open, fall back to the first available type when the
   // user's pick is missing or no longer offered (derived, not synced in an effect).
@@ -3596,10 +3448,6 @@ export function SettingsFanoutSection({
           />
         )}
 
-        {detailType === 'bot' && (
-          <BotConfigEditor config={editConfig} onChange={updateEditConfig} />
-        )}
-
         {detailType === 'apprise' && (
           <AppriseConfigEditor
             config={editConfig}
@@ -3682,15 +3530,12 @@ export function SettingsFanoutSection({
         </div>
       )}
 
-      {health?.bots_disabled && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {health.bots_disabled_source === 'until_restart'
-            ? t('settings.fanout.list.botsDisabledUntilRestart')
-            : health.bots_disabled_source === 'paused'
-              ? t('settings.fanout.list.botsPaused')
-              : t('settings.fanout.list.botsDisabled')}
-        </div>
-      )}
+      <div
+        className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm"
+        data-testid="fanout-bots-moved"
+      >
+        {t('settings.fanout.list.botsMoved')}
+      </div>
 
       <div className="flex flex-wrap gap-2">
         <Button type="button" size="sm" onClick={() => setCreateDialogOpen(true)}>

@@ -70,9 +70,18 @@ def test_the_database_lives_where_the_addon_keeps_its_data() -> None:
     assert addon.build_environment({})["MESHCORE_DATABASE_PATH"] == "/config/meshcore.db"
 
 
-def test_bots_are_only_disabled_when_actually_asked() -> None:
-    assert "MESHCORE_DISABLE_BOTS" not in addon.build_environment({"disable_bots": False})
-    assert addon.build_environment({"disable_bots": True})["MESHCORE_DISABLE_BOTS"] == "true"
+def test_the_retired_disable_bots_option_maps_to_nothing_and_warns(capsys) -> None:
+    """Bots became extensions in 5.0.0; a leftover value must not lock anything."""
+    for value in (True, False):
+        env = addon.build_environment({"disable_bots": value})
+        assert "MESHCORE_DISABLE_BOTS" not in env
+        assert "MESHCORE_DISABLE_PLUGINS" not in env
+        assert "MESHCORE_DISABLE_PLUGINS" in capsys.readouterr().err
+
+
+def test_no_warning_without_the_retired_option(capsys) -> None:
+    addon.build_environment({"disable_plugins": True})
+    assert capsys.readouterr().err == ""
 
 
 def test_plugins_are_only_locked_when_actually_asked() -> None:
@@ -80,7 +89,6 @@ def test_plugins_are_only_locked_when_actually_asked() -> None:
     assert "MESHCORE_DISABLE_PLUGINS" not in addon.build_environment({"disable_plugins": False})
     env = addon.build_environment({"disable_plugins": True})
     assert env["MESHCORE_DISABLE_PLUGINS"] == "true"
-    # Independent of the bots switch, both ways.
     assert "MESHCORE_DISABLE_BOTS" not in env
 
 
@@ -110,7 +118,7 @@ def test_every_option_in_the_manifest_is_understood_here() -> None:
     handled = (
         set(addon.PASS_THROUGH)
         | set(addon.RETIRED_PASS_THROUGH)
-        | {"proxy_port", "disable_bots", "disable_plugins"}
+        | {"proxy_port", "disable_plugins"}
     )
     assert set(config["options"]) <= handled
 

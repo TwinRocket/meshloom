@@ -35,7 +35,6 @@ def _register_module_types() -> None:
     if _MODULE_TYPES:
         return
     from app.fanout.apprise_mod import AppriseModule
-    from app.fanout.bot import BotModule
     from app.fanout.map_upload import MapUploadModule
     from app.fanout.mqtt_community import MqttCommunityModule
     from app.fanout.mqtt_ha import MqttHaModule
@@ -46,7 +45,6 @@ def _register_module_types() -> None:
     _MODULE_TYPES["mqtt_private"] = MqttPrivateModule
     _MODULE_TYPES["mqtt_community"] = MqttCommunityModule
     _MODULE_TYPES["mqtt_ha"] = MqttHaModule
-    _MODULE_TYPES["bot"] = BotModule
     _MODULE_TYPES["webhook"] = WebhookModule
     _MODULE_TYPES["apprise"] = AppriseModule
     _MODULE_TYPES["sqs"] = SqsModule
@@ -116,10 +114,6 @@ class FanoutManager:
     def __init__(self) -> None:
         self._modules: dict[str, tuple[FanoutModule, dict]] = {}  # id -> (module, scope)
         self._restart_locks: dict[str, asyncio.Lock] = {}
-        self._bots_disabled_until_restart = False
-        # Held by the global plugin pause (`app/plugins/pause.py`): no bot module
-        # runs, but bots stay creatable and restorable, unlike `env`/`until_restart`.
-        self._bots_paused = False
         self._module_errors: dict[str, str] = {}
 
     def _broadcast_health_update(self) -> None:
@@ -137,23 +131,6 @@ class FanoutManager:
     def _clear_module_error(self, config_id: str) -> None:
         if self._module_errors.pop(config_id, None) is not None:
             self._broadcast_health_update()
-
-    def get_bots_disabled_source(self) -> str | None:
-        """Return why bot modules are unavailable, if at all."""
-        from app.config import settings as server_settings
-
-        if server_settings.disable_bots:
-            return "env"
-        if self._bots_disabled_until_restart:
-            return "until_restart"
-        if self._bots_paused:
-            return "paused"
-        return None
-
-    def bots_disabled_effective(self) -> bool:
-        """True when bot modules are unavailable (env or until restart): created,
-        restored or started never. The global pause only holds them (`_start_module`)."""
-        return self.get_bots_disabled_source() in ("env", "until_restart")
 
     async def load_from_db(self) -> None:
         """Read enabled fanout_configs and instantiate modules."""
@@ -248,15 +225,6 @@ class FanoutManager:
         config_type = cfg["type"]
         config_blob = cfg["config"]
         scope = cfg["scope"]
-
-        # Skip bot modules when bots are disabled server-wide or until restart.
-        if config_type == "bot" and (self.bots_disabled_effective() or self._bots_paused):
-            logger.info(
-                "Skipping bot module %s (bots disabled: %s)",
-                config_id,
-                self.get_bots_disabled_source(),
-            )
-            return
 
         cls = _MODULE_TYPES.get(config_type)
         if cls is None:
@@ -477,42 +445,6 @@ class FanoutManager:
                 "last_error": scrub_error(last_error, config_secret_values(config_type, config)),
             }
         return result
-
-    async def disable_bots_until_restart(self) -> str:
-        """Stop active bot modules and prevent them from starting again until restart."""
-        source = self.get_bots_disabled_source()
-        if source == "env":
-            return source
-
-        self._bots_disabled_until_restart = True
-        await self._stop_bot_modules()
-        return "until_restart"
-
-    async def set_bots_paused(self, paused: bool) -> None:
-        """The global plugin pause applied to the legacy bots: stop the running bot
-        modules, or start the enabled ones again when nothing else disables them."""
-        self._bots_paused = paused
-        if paused:
-            await self._stop_bot_modules()
-            return
-        if self.bots_disabled_effective():
-            return
-        from app.repository.fanout import FanoutConfigRepository
-
-        for cfg in await FanoutConfigRepository.get_enabled():
-            if cfg["type"] == "bot" and cfg["id"] not in self._modules:
-                await self._start_module(cfg)
-
-    async def _stop_bot_modules(self) -> None:
-        from app.repository.fanout import _configs_cache
-
-        bot_ids = [
-            config_id
-            for config_id in list(self._modules)
-            if _configs_cache.get(config_id, {}).get("type") == "bot"
-        ]
-        for config_id in bot_ids:
-            await self.remove_config(config_id)
 
 
 # Module-level singleton

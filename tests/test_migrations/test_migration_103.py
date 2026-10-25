@@ -82,7 +82,10 @@ async def test_existing_database_with_bots_keeps_them_and_gets_empty_tables():
         await conn.commit()
         before = await (await conn.execute("SELECT * FROM fanout_configs")).fetchall()
 
-        await run_migrations(conn)
+        # Migration 103 alone (122 converts the bots later: test_122_bots_to_plugins.py).
+        from app.migrations._103_plugin_tables import migrate as migrate_103
+
+        await migrate_103(conn)
 
         assert await (await conn.execute("SELECT * FROM fanout_configs")).fetchall() == before
         for table in _PLUGIN_TABLES:

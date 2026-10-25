@@ -1042,14 +1042,6 @@ export const api = {
     fetchJson<{ deleted: boolean }>(`/fanout/${id}`, {
       method: 'DELETE',
     }),
-  disableBotsUntilRestart: () =>
-    fetchJson<{
-      status: string;
-      bots_disabled: boolean;
-      bots_disabled_source: 'env' | 'until_restart';
-    }>('/fanout/bots/disable-until-restart', {
-      method: 'POST',
-    }),
 
   // Statistics
   getStatistics: () => fetchJson<StatisticsResponse>('/statistics'),
@@ -1249,6 +1241,10 @@ export const api = {
     fetchJson<PluginPauseState>('/plugins/pause', {
       method: 'PUT',
       body: JSON.stringify({ paused }),
+    }),
+  acknowledgeConvertedBots: () =>
+    fetchJson<{ acknowledged: boolean }>('/plugins/converted-bots/acknowledge', {
+      method: 'POST',
     }),
   deletePlugin: (id: string, keepData: boolean) =>
     fetchJson<void>(`/plugins/${encodeURIComponent(id)}?keep_data=${keepData}`, {

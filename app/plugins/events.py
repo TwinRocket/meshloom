@@ -1,17 +1,39 @@
 """The parameters of `event.message`, built from the fanout message dict.
 
 The SDK (`meshloom_plugin.sdk.Message.from_params`) reads the fields of the
-bots' call (`app/fanout/bot.py`, `_run_for_message`), plus `conversation_key`,
-`is_public_channel` and `received_at` (docs/dev/plugins.md, "SDK"). The
-derivation is the bots' one; `bot.py` keeps its own copy until the switch (T9)
-removes the bot module, so the legacy bots are untouched.
+4.18.x bots' call, plus `conversation_key`, `is_public_channel` and
+`received_at` (docs/dev/plugins.md, "SDK"). The derivation is the bots' one
+(the in-app bot runtime was removed by the 5.0.0 switch, MSHL-192).
 """
 
 from typing import Any
 
 from app.channel_constants import is_public_channel_key
 from app.data.meshcore_channels import is_public_hashtag_channel
-from app.fanout.bot import _derive_path_bytes_per_hop
+
+
+def _derive_path_bytes_per_hop(paths: object, path_value: str | None) -> int | None:
+    """Derive hop width from the first serialized message path when possible."""
+    if not isinstance(path_value, str) or not path_value:
+        return None
+    if not isinstance(paths, list) or not paths:
+        return None
+    first_path = paths[0]
+    if not isinstance(first_path, dict):
+        return None
+    path_hops = first_path.get("path_len")
+    if not isinstance(path_hops, int) or path_hops <= 0:
+        return None
+    path_hex_chars = len(path_value)
+    if path_hex_chars % 2 != 0:
+        return None
+    path_bytes = path_hex_chars // 2
+    if path_bytes % path_hops != 0:
+        return None
+    hop_width = path_bytes // path_hops
+    if hop_width not in (1, 2, 3):
+        return None
+    return hop_width
 
 
 async def message_event_params(data: dict[str, Any]) -> dict[str, Any]:
