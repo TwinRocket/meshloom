@@ -212,7 +212,7 @@ class RadioFactoryResetRequest(BaseModel):
 
 
 # The firmware only accepts CMD_FACTORY_RESET (0x33) followed by the ASCII bytes "reset".
-# meshcore 2.3.15 confirm_factory_reset() sends 0x33 alone, which the firmware ignores.
+# meshcore 2.3.17 confirm_factory_reset() sends 0x33 alone, which the firmware ignores.
 _FACTORY_RESET_FRAME = b"\x33reset"
 
 
