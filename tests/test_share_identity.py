@@ -2,7 +2,7 @@
 
 Provenance: tests/fixtures/links_files_vectors.json is a byte-for-byte copy of
 TwinRocket/meshloom-community docs/contracts/vectors/links-files.json on main
-(commit a158340, vectors version 1), rules in docs/contracts/links-files.md,
+(commit a9b34cfc, PR #138, vectors version 1), rules in docs/contracts/links-files.md,
 "Instance JWT". sha256 below. To update, copy the file again and change the
 hash; never edit the copy to make a test pass.
 
@@ -41,7 +41,7 @@ from app.services.instance_identity import (
 )
 
 VECTORS_PATH = Path(__file__).parent / "fixtures" / "links_files_vectors.json"
-VECTORS_SHA256 = "7d0d7b940fba350f8b8772dfddd6caff51fe26330336bbfec4aa6efc30ec00e8"
+VECTORS_SHA256 = "a0296037cffe04f5f22de4f9e2bb0ff1b8715bec5c1bc93dab582a3227c40d2c"
 VECTORS: dict[str, Any] = json.loads(VECTORS_PATH.read_text(encoding="utf-8"))
 JWT = VECTORS["jwt"]
 
