@@ -51,10 +51,12 @@ function PermissionRow({
   // Each LAN device is named on its own line: the consent says which device of the
   // user's network the plugin will be able to talk to (MSHL-282).
   const lanHosts = name === 'http' ? httpLanHosts({ http: params }) : [];
-  const description =
-    name === 'http' && !hosts && lanHosts.length > 0
-      ? t(`${key}.description_lan_only`)
-      : t(`${key}.description`, { hosts });
+  const lanOnly = name === 'http' && !hosts && lanHosts.length > 0;
+  // Only LAN devices declared: the plugin does not reach the Internet (MSHL-331).
+  const title = lanOnly ? t(`${key}.title_lan_only`) : t(`${key}.title`);
+  const description = lanOnly
+    ? t(`${key}.description_lan_only`)
+    : t(`${key}.description`, { hosts });
   const lines = useDetailLines(name, params);
   return (
     <li className="flex items-start gap-2 py-2">
@@ -64,12 +66,12 @@ function PermissionRow({
           className="mt-1 h-4 w-4 shrink-0"
           checked={checked ?? true}
           disabled={disabled}
-          aria-label={t(`${key}.title`)}
+          aria-label={title}
           onChange={(e) => onToggle(e.target.checked)}
         />
       )}
       <div className="min-w-0 text-sm">
-        <div className="font-medium">{t(`${key}.title`)}</div>
+        <div className="font-medium">{title}</div>
         <div className="text-muted-foreground break-words">{description}</div>
         {lines.map((line) => (
           <div key={line} className="text-muted-foreground break-words">

@@ -9,6 +9,7 @@
     "egress_response_too_large": "La réponse dépasse la taille autorisée.",
     "egress_response_encoding": "La réponse est compressée, ce qui n'est pas autorisé ici.",
     "egress_lan_address": "Cet appareil du réseau local ne correspond pas à une adresse de votre réseau local.",
+    "egress_self_address": "Cet appareil du réseau local est la machine où tourne Meshloom, qu’une extension ne peut pas joindre.",
     "timeout": "La destination n'a pas répondu à temps.",
     "tls_error": "La connexion sécurisée (TLS) a échoué : vérifiez le certificat, ou utilisez http:// si la destination n'a pas de TLS.",
     "service_error": "La destination a répondu par une erreur HTTP {{status}}."

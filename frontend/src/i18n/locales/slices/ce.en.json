@@ -64,7 +64,7 @@
         "hostsLabel": "Servers it may contact",
         "hostsPlaceholder": "One server per line, for example api.example.com",
         "lanHostsLabel": "Devices of your local network it may contact",
-        "lanHostsPlaceholder": "One device per line, for example printer.local or 192.168.1.20:8080",
+        "lanHostsPlaceholder": "One device per line, for example printer.local, 192.168.1.20:8080 or [fd00::1]:80",
         "checkTitle": "Check",
         "checkHint": "Reads the manifest and scans the code. Nothing is run.",
         "check": "Check",
