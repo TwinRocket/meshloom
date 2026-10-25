@@ -111,11 +111,13 @@ retries the purge and clears the entry once the uid is clean. Without `/proc` th
 helper cannot change a mode through an `O_PATH` descriptor (and
 `chmod(follow_symlinks=False)` is not implemented on Linux): removing a directory the
 uid locked then fails with "/proc is not mounted", and the uid is kept. The System V IPC
-tables are read from `/proc/sysvipc`: without `/proc` the purge fails and
-`owns_sysv_ipc` answers True, so a segment the uid owns never reaches the next instance
-given that uid; a table is skipped only when `/proc` is mounted without it (a kernel
-without System V IPC). Blocking paths keep any printable character (accents, CJK) and
-escape control characters and undecodable bytes. A helper that times out also keeps the
+tables are read from `/proc/sysvipc`: when a table cannot be read (no `/proc`,
+`/proc/sysvipc` masked by an empty tmpfs) the purge fails and `owns_sysv_ipc` answers
+True, so a segment the uid owns never reaches the next instance given that uid; a kind
+is skipped only when the kernel lacks it (`IPC_INFO` answers `ENOSYS`), whatever `/proc`
+looks like. Every path the helper prints keeps any printable character (accents, CJK)
+and escapes control characters and undecodable bytes, so a name holding a line break
+cannot forge a blocking-path line. A helper that times out also keeps the
 uid. After the helper, the server re-walks the same dirs
 (`owns_something`, which a root server can list fully) and fails if anything is left.
 The walk does not cross file systems: what the uid left on another mount under `/tmp`

@@ -603,19 +603,23 @@ def test_owns_sysv_ipc_reads_owner_and_creator(tmp_path: Path) -> None:
     assert not owns_sysv_ipc(40003, tmp_path)
 
 
-def test_owns_sysv_ipc_fails_closed_without_proc(tmp_path: Path) -> None:
+def test_owns_sysv_ipc_fails_closed_when_the_tables_are_unreadable(tmp_path: Path) -> None:
     """MSHL-349: an unreadable table must not let the uid go (a segment it owns
-    would reach the next instance); only a kernel without SysV IPC is skipped."""
-    from app.plugins.isolation.setuid import owns_sysv_ipc
+    would reach the next instance), whatever /proc looks like (absent, or
+    /proc/sysvipc masked by an empty tmpfs); only a kind the kernel lacks is
+    skipped."""
+    from app.plugins.isolation.setuid import kernel_has_sysv_ipc, owns_sysv_ipc
 
-    proc = tmp_path / "proc"
-    proc.mkdir()
-    assert owns_sysv_ipc(40001, proc / "sysvipc")  # /proc not mounted
-    (proc / "self").mkdir()
-    assert not owns_sysv_ipc(40001, proc / "sysvipc")  # mounted, no SysV IPC
-    (proc / "sysvipc").mkdir()
-    (proc / "sysvipc" / "shm").mkdir()  # unreadable as a file
-    assert owns_sysv_ipc(40001, proc / "sysvipc")
+    masked = tmp_path / "proc" / "sysvipc"
+    masked.mkdir(parents=True)  # /proc mounted, /proc/sysvipc an empty directory
+    assert owns_sysv_ipc(40001, masked, lambda kind: True)
+    assert owns_sysv_ipc(40001, tmp_path / "absent", lambda kind: True)  # no /proc
+    (masked / "shm").mkdir()  # unreadable as a file
+    assert owns_sysv_ipc(40001, masked, lambda kind: kind == "shm")
+    assert not owns_sysv_ipc(40001, masked, lambda kind: False)  # no SysV IPC
+    # The real kernel decides by default: the empty directory fails closed there.
+    if all(kernel_has_sysv_ipc(kind) for kind in ("shm", "msg", "sem")):
+        assert owns_sysv_ipc(40001, masked)
 
 
 def test_purge_asks_the_helper_for_every_depth_and_sysv_ipc(monkeypatch) -> None:
@@ -1066,9 +1070,9 @@ def _helper_directly(source: str, *args: str) -> subprocess.CompletedProcess:
 
 @pytest.mark.skipif(not LINUX, reason="the helper is Linux only")
 def test_without_proc_the_purge_fails_on_sysv_ipc(monkeypatch, tmp_path: Path) -> None:
-    """MSHL-349: without /proc the helper cannot list the System V IPC objects the
-    uid owns; the purge fails (uid kept) instead of skipping them. With /proc
-    mounted but no table (kernel without SysV IPC), nothing is reported."""
+    """MSHL-349: without /proc, or with /proc/sysvipc masked by an empty directory,
+    the helper cannot list the System V IPC objects the uid owns; the purge fails
+    (uid kept) instead of skipping them (the kernel has them: IPC_INFO)."""
     from app.plugins.isolation import setuid as setuid_module
 
     kinds = ",".join(f"{kind}:{column}" for kind, column in setuid_module.SYSV_IPC_KINDS)
@@ -1077,14 +1081,23 @@ def test_without_proc_the_purge_fails_on_sysv_ipc(monkeypatch, tmp_path: Path) -
     if "setuid" in backends:
         (runner,) = (backends["setuid"].for_uid(uid) for uid in _free_instance_uids(1))
         empty = shared_tmp_dir("meshloom-noproc-ipc-")
+        fake = shared_tmp_dir("meshloom-masked-proc-")
+        os.chmod(fake, 0o755)
+        (fake / "self").mkdir(mode=0o755)
+        (fake / "sysvipc").mkdir(mode=0o755)  # masked: an empty directory
+        masked = _helper_with_proc(str(fake))
         try:
             monkeypatch.setattr(setuid_module, "_HELPER_SOURCE", no_proc)
-            with pytest.raises(ValueError, match="/proc is not mounted"):
+            with pytest.raises(ValueError, match="sysvipc shm: cannot be listed"):
+                runner.purge([empty])
+            monkeypatch.setattr(setuid_module, "_HELPER_SOURCE", masked)
+            with pytest.raises(ValueError, match="sysvipc shm: cannot be listed"):
                 runner.purge([empty])
             monkeypatch.undo()
             runner.purge([empty])
         finally:
             shutil.rmtree(empty, ignore_errors=True)
+            shutil.rmtree(fake, ignore_errors=True)
         return
     if os.geteuid() == 0:
         pytest.skip("root without the meshloom-plugin account")
@@ -1093,10 +1106,37 @@ def test_without_proc_the_purge_fails_on_sysv_ipc(monkeypatch, tmp_path: Path) -
     args = ("purge", "100", kinds, "40000-50000", str(empty))
     proc = _helper_directly(no_proc, *args)
     assert proc.returncode == 0
-    assert "sysvipc shm: cannot be listed, /proc is not mounted" in proc.stderr
-    fake_proc = tmp_path / "proc"
-    (fake_proc / "self").mkdir(parents=True)
-    assert _helper_directly(_helper_with_proc(str(fake_proc)), *args).stderr == ""
+    assert "sysvipc shm: cannot be listed (No such file or directory)" in proc.stderr
+    masked = tmp_path / "proc"
+    (masked / "self").mkdir(parents=True)
+    (masked / "sysvipc").mkdir()
+    proc = _helper_directly(_helper_with_proc(str(masked)), *args)
+    assert proc.stderr.splitlines() == [
+        f"sysvipc {kind}: cannot be listed (No such file or directory)"
+        for kind in ("shm", "msg", "sem")
+    ]
+    assert _helper_directly(setuid_module._HELPER_SOURCE, *args).stderr == ""
+
+
+@pytest.mark.skipif(
+    not LINUX or os.geteuid() == 0, reason="the helper is Linux only; root lists all"
+)
+def test_other_helper_errors_cannot_forge_a_blocking_path(tmp_path: Path) -> None:
+    """MSHL-349: every path the helper prints is escaped, so a name holding a line
+    break cannot add a fake "not listable" line to the admin banner."""
+    from app.plugins.isolation import setuid as setuid_module
+
+    base = tmp_path / "b\nforged: not listable"
+    base.mkdir()
+    (base / "one").write_text("")
+    (base / "two").write_text("")
+    kinds = ",".join(f"{kind}:{column}" for kind, column in setuid_module.SYSV_IPC_KINDS)
+    proc = _helper_directly(
+        setuid_module._HELPER_SOURCE, "purge", "1", kinds, "40000-50000", str(base)
+    )
+    assert proc.stderr.splitlines() == [f"{tmp_path}/b\\nforged: not listable: more than 1 entries"]
+    lines = proc.stderr.splitlines()
+    assert not [line for line in lines if line.endswith(setuid_module.NOT_LISTABLE)]
 
 
 @pytest.mark.skipif(

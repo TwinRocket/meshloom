@@ -48,6 +48,8 @@ is purged only when it is itself one of the walked roots
 """
 
 import contextlib
+import ctypes
+import errno
 import grp
 import logging
 import os
@@ -57,7 +59,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -113,6 +115,7 @@ WORK_DIR_NAME = re.compile(r"meshloom-plugin-[a-z0-9_]{8}")
 uid = os.getuid()
 O_DIR_PATH = os.O_PATH | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
 PROC = "/proc"
+IPC_INFO = 3
 
 
 def shown(path):
@@ -238,12 +241,12 @@ elif op == "purge":
                     print(f"{shown(path)}: not listable", file=sys.stderr)
                 continue
             except OSError as exc:
-                print(f"{path}: {exc}", file=sys.stderr)
+                print(f"{shown(path)}: {shown(str(exc))}", file=sys.stderr)
                 continue
             for entry in entries:
                 seen += 1
                 if seen > limit:
-                    print(f"{base}: more than {limit} entries", file=sys.stderr)
+                    print(f"{shown(base)}: more than {limit} entries", file=sys.stderr)
                     stack = []
                     break
                 try:
@@ -258,28 +261,31 @@ elif op == "purge":
                 except FileNotFoundError:
                     pass
                 except OSError as exc:
-                    print(f"{entry.path}: {exc}", file=sys.stderr)
+                    print(f"{shown(entry.path)}: {shown(str(exc))}", file=sys.stderr)
     libc = ctypes.CDLL(None, use_errno=True)
     remove = {
         "shm": lambda i: libc.shmctl(i, 0, None),
         "msg": lambda i: libc.msgctl(i, 0, None),
         "sem": lambda i: libc.semctl(i, 0, 0),
     }
-    # A missing table is skipped only on a kernel without System V IPC (/proc
-    # mounted): without /proc an object this uid owns would survive the uid's
-    # release and reach the next instance given it, so the purge fails.
-    proc_mounted = os.path.isdir(PROC + "/self")
+    info = ctypes.create_string_buffer(256)
+    kernel_has = {
+        "shm": lambda: libc.shmctl(0, IPC_INFO, info),
+        "msg": lambda: libc.msgctl(0, IPC_INFO, info),
+        "sem": lambda: libc.semctl(0, 0, IPC_INFO, info),
+    }
     for kind in kinds:
         kind, _, id_column = kind.partition(":")
+        # A table is skipped only when the kernel has no such objects (ENOSYS):
+        # anything else unreadable (no /proc, /proc/sysvipc masked) fails the purge,
+        # or an object this uid owns would reach the next instance given the uid.
+        if kernel_has[kind]() == -1 and ctypes.get_errno() == errno.ENOSYS:
+            continue
         try:
             with open(PROC + "/sysvipc/" + kind) as table:
                 lines = table.read().splitlines()
-        except FileNotFoundError:
-            if not proc_mounted:
-                print(f"sysvipc {kind}: cannot be listed, /proc is not mounted", file=sys.stderr)
-            continue
         except OSError as exc:
-            print(f"sysvipc {kind}: {exc}", file=sys.stderr)
+            print(f"sysvipc {kind}: cannot be listed ({exc.strerror})", file=sys.stderr)
             continue
         head = lines[0].split() if lines else []
         for line in lines[1:]:
@@ -368,19 +374,34 @@ def owns_something(uid: int, dirs: Iterable[Path] | None = None) -> bool:
     return dirs is None and owns_sysv_ipc(uid)
 
 
-def owns_sysv_ipc(uid: int, root: Path = Path("/proc/sysvipc")) -> bool:
+def kernel_has_sysv_ipc(kind: str) -> bool:
+    """False only when the kernel has no System V `kind` objects (`IPC_INFO`
+    answers ENOSYS); any other answer counts as present (fail closed)."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    info = ctypes.create_string_buffer(256)
+    ipc_info = 3  # IPC_INFO (Linux)
+    calls = {
+        "shm": lambda: libc.shmctl(0, ipc_info, info),
+        "msg": lambda: libc.msgctl(0, ipc_info, info),
+        "sem": lambda: libc.semctl(0, 0, ipc_info, info),
+    }
+    return not (calls[kind]() == -1 and ctypes.get_errno() == errno.ENOSYS)
+
+
+def owns_sysv_ipc(
+    uid: int,
+    root: Path = Path("/proc/sysvipc"),
+    kernel_has: Callable[[str], bool] = kernel_has_sysv_ipc,
+) -> bool:
     """True when `uid` owns or created a System V shared memory segment, message
-    queue or semaphore set (the tables are world-readable). Also True when a table
-    cannot be read (no /proc, fail closed); a table missing while /proc is mounted
-    is a kernel without System V IPC."""
-    proc_mounted = (root.parent / "self").is_dir()
+    queue or semaphore set (the tables are world-readable). Also True when the
+    kernel has such objects but their table cannot be read (no /proc, or
+    /proc/sysvipc masked): fail closed. Only a kind the kernel lacks is skipped."""
     for kind, _ in SYSV_IPC_KINDS:
+        if not kernel_has(kind):
+            continue
         try:
             lines = (root / kind).read_text().splitlines()
-        except FileNotFoundError:
-            if proc_mounted:
-                continue
-            return True
         except OSError:
             return True
         head = lines[0].split() if lines else []
@@ -523,6 +544,9 @@ class SetuidBackend(IsolationBackend):
         if proc.returncode != 0 or (op == "purge" and proc.stderr.strip()):
             lines = proc.stderr.strip().splitlines()
             tail = lines[-1] if lines else f"exit {proc.returncode}"
+            if op == "purge" and lines:
+                # One line per problem: the first ones (the walk's), then a count.
+                tail = "; ".join(lines[:3]) + (f" (+{len(lines) - 3} more)" if lines[3:] else "")
             message = f"plugin helper ({op}) failed: {tail}"
             blocked = [
                 line.removesuffix(NOT_LISTABLE) for line in lines if line.endswith(NOT_LISTABLE)
