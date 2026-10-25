@@ -58,7 +58,7 @@
           "type": "array"
         },
         "lan_hosts": {
-          "description": "Devices of the user's local network, by name or LAN IP, optionally with :port; HTTP or HTTPS; each must resolve to a LAN address.",
+          "description": "Devices of the user's local network: a local name (single label, .local, .lan, .home.arpa, .internal) or a LAN IP, optionally with :port ([v6]:port for IPv6); HTTP or HTTPS; each must resolve to a LAN address that is not the Meshloom host.",
           "items": {
             "maxLength": 260,
             "type": "string"

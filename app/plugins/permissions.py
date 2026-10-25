@@ -2,8 +2,9 @@
 
 Reserved names are refused with a clear error until implemented (M4). The `http`
 host rules live here: `hosts` are public hosts (HTTPS only), `lan_hosts` the devices
-of the user's local network the plugin may reach by name (MSHL-282, plain HTTP
-allowed, the egress guard checks that each one resolves to a LAN address). The
+of the user's local network the plugin may reach (MSHL-282; local names and LAN IP
+literals only, MSHL-330; plain HTTP allowed; the egress guard checks that each one
+resolves to a LAN address that is not the Meshloom host itself). The
 `*.meshloom.app` rule depends on the plugin id and is applied by the manifest model.
 """
 
@@ -97,6 +98,9 @@ def check_host(value: str) -> str:
 _PORT_RE = re.compile(r"[1-9][0-9]{0,4}")
 _LOOPBACK_NAMES = ("localhost",)
 _METADATA_NAMES = frozenset({"metadata.google.internal"})
+# The names a local network answers itself (mDNS, the router's DNS, RFC 8375, the
+# ICANN-reserved private TLD). Anything else with a dot is a public DNS name.
+_LAN_NAME_SUFFIXES = (".local", ".lan", ".home.arpa", ".internal")
 
 
 def _lan_port(value: str) -> int:
@@ -121,11 +125,13 @@ def split_lan_host(value: str) -> tuple[str, int | None]:
 
 
 def check_lan_host(value: str) -> str:
-    """A device of the user's local network, reached by name: an exact lowercase host
-    name (single-label and `.local`/`.lan`/`.home.arpa`/`.internal` names included) or a
-    LAN IP literal (10/8, 172.16/12, 192.168/16, fc00::/7), optionally with `:port`.
-    Never a wildcard, a range, a URL, `localhost` (the Meshloom machine itself), a
-    loopback, link-local, metadata or public address."""
+    """A device of the user's local network: an exact lowercase local host name (a
+    single label, or ending in `.local`, `.lan`, `.home.arpa` or `.internal`) or a LAN
+    IP literal (10/8, 172.16/12, 192.168/16, 100.64/10 for a VPN such as Tailscale,
+    fc00::/7), optionally with `:port` (`[v6]:port` for IPv6: a bare `fd00::1:80` is
+    the address `fd00::1:80`, no port). Never a public DNS name (its owner would choose
+    the LAN address), a wildcard, a range, a URL, `localhost` (the Meshloom machine
+    itself), a loopback, link-local, metadata or public address."""
     if len(value) > 260:
         raise PydanticCustomError("lan_host_invalid", "host is too long")
     if "*" in value:
@@ -150,7 +156,8 @@ def check_lan_host(value: str) -> str:
         if not is_lan_address(ip):
             raise PydanticCustomError(
                 "lan_host_not_lan",
-                "a LAN IP literal is in 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or fc00::/7",
+                "a LAN IP literal is in 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, "
+                "100.64.0.0/10 or fc00::/7",
             )
         return value
     if (
@@ -164,6 +171,15 @@ def check_lan_host(value: str) -> str:
     if host in _LOOPBACK_NAMES or host.endswith(".localhost") or host in _METADATA_NAMES:
         raise PydanticCustomError(
             "lan_host_not_lan", "localhost and metadata names are not LAN devices"
+        )
+    if "." in host and not host.endswith(_LAN_NAME_SUFFIXES):
+        # A public DNS name is answered by its owner's servers: whoever owns
+        # `nas.example.com` would pick which device of the user's network it reaches
+        # (MSHL-330). Only names the user's own network answers are accepted.
+        raise PydanticCustomError(
+            "lan_host_public_name",
+            "a LAN host name is a single label or ends in .local, .lan, .home.arpa or "
+            ".internal; a public DNS name is not a LAN device",
         )
     return value
 
@@ -211,8 +227,10 @@ class HttpParams(_Params):
         default_factory=list,
         max_length=HTTP_MAX_LAN_HOSTS,
         description=(
-            "Devices of the user's local network, by name or LAN IP, optionally with "
-            ":port; HTTP or HTTPS; each must resolve to a LAN address."
+            "Devices of the user's local network: a local name (single label, .local, "
+            ".lan, .home.arpa, .internal) or a LAN IP, optionally with :port "
+            "([v6]:port for IPv6); HTTP or HTTPS; each must resolve to a LAN address "
+            "that is not the Meshloom host."
         ),
     )
 
