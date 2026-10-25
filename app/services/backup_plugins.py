@@ -155,6 +155,11 @@ class _Dropped(Exception):
     """An entry that cannot be restored (the reason goes to the log, never a value)."""
 
 
+class _DroppedSupervisor(_Dropped):
+    """Dropped because a ``lan_hosts`` entry is on the Home Assistant supervisor network
+    (add-on only, MSHL-350): the warning says why."""
+
+
 def _warning_id(value: object) -> str:
     return value if isinstance(value, str) and _PLUGIN_ID.match(value) else "invalid"
 
@@ -205,7 +210,9 @@ def _manifest(item: BackupPluginInstance, plugin_id: str) -> tuple[dict[str, Any
     draft = {**item.manifest, "id": plugin_id}
     try:
         parsed = parse_manifest(draft, origin=_ORIGINS[item.kind])
-    except PluginValidationError:
+    except PluginValidationError as exc:
+        if any(i.code == "lan_host_supervisor" for i in exc.issues):
+            raise _DroppedSupervisor("manifest: lan_host_supervisor") from None
         raise _Dropped("manifest") from None
     stored = parsed.model_dump(mode="json", by_alias=True, exclude_none=True)
     stored["permissions"] = parsed.permissions.declared()
@@ -396,7 +403,12 @@ async def restore_plugins(section: BackupSection, conn: aiosqlite.Connection) ->
             values = _plan(item, rows, instance_id)
         except _Dropped as exc:
             logger.warning("Backup restore: plugin entry %s dropped (%s)", plugin_id, exc)
-            warnings.append(f"plugin_dropped:{plugin_id}")
+            kind = (
+                "plugin_dropped_supervisor"
+                if isinstance(exc, _DroppedSupervisor)
+                else "plugin_dropped"
+            )
+            warnings.append(f"{kind}:{plugin_id}")
             continue
         await _insert(conn, values)
         row = {

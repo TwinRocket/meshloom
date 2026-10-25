@@ -371,7 +371,9 @@ by `services/backup.py`.
   another plugin, or one that is not a uuid, gets a new uuid; a local
   `plugin_id` already used gets a new `-xxxxxx` suffix. A bad entry (invalid
   shape, manifest, schema, missing source, source that is not valid Python, oversized JSON, duplicate) is dropped
-  on its own: `plugin_dropped:<id or "invalid">`. Counters:
+  on its own: `plugin_dropped:<id or "invalid">`; in the Home Assistant add-on, an entry
+  whose manifest lists a supervisor-network `lan_hosts` address is dropped (fail closed)
+  with `plugin_dropped_supervisor:<id>` instead (MSHL-355). Counters:
   `plugins_restored:<n>`, `plugins_to_reinstall:<n>`,
   `plugin_secrets_missing:<n>`.
 - **Hook.** `on_restore("plugins")` writes out the code of each bundled
