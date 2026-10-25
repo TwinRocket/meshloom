@@ -174,14 +174,18 @@ async def test_two_instances_of_one_plugin_keep_separate_config_kv_and_secrets(t
 
 
 @pytest.mark.asyncio
-async def test_delete_with_keep_data_keeps_the_kv_and_drops_the_secrets(test_db):
+async def test_delete_with_keep_data_keeps_the_kv_and_the_secrets(test_db):
     instance_id = (await _create())["instance_id"]
     await PluginKvRepository.set(instance_id, "k", "v")
+    async with test_db.readonly() as conn:
+        async with conn.execute("SELECT COUNT(*) FROM plugin_secrets") as cursor:
+            (secrets,) = tuple(await cursor.fetchone())
+    assert secrets > 0
     await PluginRepository.delete(instance_id, keep_data=True)
     assert await PluginKvRepository.get(instance_id, "k") == "v"
     async with test_db.readonly() as conn:
         async with conn.execute("SELECT COUNT(*) FROM plugin_secrets") as cursor:
-            assert tuple(await cursor.fetchone()) == (0,)
+            assert tuple(await cursor.fetchone()) == (secrets,)
 
 
 @pytest.mark.asyncio

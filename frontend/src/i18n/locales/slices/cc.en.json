@@ -182,7 +182,7 @@
       "uninstall": {
         "title": "Uninstall {{name}}?",
         "text": "The extension stops and its settings and secrets are deleted.",
-        "keepData": "Keep the data it stored (so a reinstall finds it again).",
+        "keepData": "Keep the data and secret settings it stored (kept on this device; a new install starts empty).",
         "confirm": "Uninstall"
       },
       "migration": {
