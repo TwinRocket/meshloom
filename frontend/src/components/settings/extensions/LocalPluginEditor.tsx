@@ -17,6 +17,7 @@ import {
 } from './pluginsShared';
 import type {
   CheckFinding,
+  LanHostSuggestion,
   LocalHook,
   PluginCheckResult,
   PluginInstance,
@@ -47,6 +48,16 @@ const DEFAULT_PARAMS: Record<string, Record<string, unknown>> = {
   'messages.send': { targets: 'reply' },
   http: { hosts: [] },
 };
+
+/** The `lan_hosts` maximum of the `http` permission (`HTTP_MAX_LAN_HOSTS`). */
+const MAX_LAN_HOSTS = 10;
+const EXCERPT_CHARS = 120;
+
+/** One source line, trimmed and shortened, with any `user:password@` of a URL hidden. */
+function sourceExcerpt(source: string, line: number): string {
+  const text = (source.split('\n')[line - 1] ?? '').trim().replace(/\/\/[^/\s@'"]+@/g, '//');
+  return text.length > EXCERPT_CHARS ? `${text.slice(0, EXCERPT_CHARS)}…` : text;
+}
 
 /** One entry per non-empty line. */
 function lines(text: string): string[] {
@@ -117,6 +128,8 @@ export function LocalPluginEditor({
   const [code, setCode] = useState(saved);
   const [scan, setScan] = useState<ScanReason[] | null>(null);
   const [hosts, setHosts] = useState<string[]>([]);
+  const [lanHosts, setLanHosts] = useState<LanHostSuggestion[]>([]);
+  const [lanTruncated, setLanTruncated] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const dirty = code !== saved;
@@ -139,6 +152,8 @@ export function LocalPluginEditor({
       onChanged(result.instance);
       setScan(result.scan);
       setHosts(result.http_hosts);
+      setLanHosts(result.lan_hosts ?? []);
+      setLanTruncated(result.lan_hosts_truncated === true);
       setCheck(null);
       toast.success(t('settings.extensions.local.codeSaved'));
     } catch (err) {
@@ -196,6 +211,8 @@ export function LocalPluginEditor({
       const result = await api.checkPlugin(instance.instance_id);
       setCheck(result);
       setHosts(result.http_hosts);
+      setLanHosts(result.lan_hosts ?? []);
+      setLanTruncated(result.lan_hosts_truncated === true);
     } catch (err) {
       setError(formatApiError(err, t));
     } finally {
@@ -219,6 +236,26 @@ export function LocalPluginEditor({
     }
   };
   const pendingHosts = hosts.filter((h) => !httpHosts(granted).includes(h));
+
+  // Same as acceptHost, for one device of the local network (`lan_hosts`): one at a
+  // time, never all at once, so each device is a decision.
+  const acceptLanHost = async (host: string) => {
+    const saved = declaredPermissions(instance) as Permissions;
+    const next = {
+      ...saved,
+      http: httpParams(httpHosts(saved), [...new Set([...httpLanHosts(saved), host])]),
+    };
+    const updated = await savePermissions({ permissions: next });
+    if (updated) {
+      setGranted((prev) => ({
+        ...prev,
+        http: httpParams(httpHosts(prev), [...new Set([...httpLanHosts(prev), host])]),
+      }));
+    }
+  };
+  const pendingLanHosts = lanHosts.filter((s) => !httpLanHosts(granted).includes(s.host));
+  const lanFull =
+    httpLanHosts(declaredPermissions(instance) as Permissions).length >= MAX_LAN_HOSTS;
 
   const permsChanged =
     JSON.stringify(granted) !== JSON.stringify(declaredPermissions(instance)) ||
@@ -287,6 +324,53 @@ export function LocalPluginEditor({
                 </Button>
               </div>
             ))}
+          </div>
+        )}
+        {pendingLanHosts.length > 0 && (
+          <div
+            className="space-y-2 rounded-md border border-warning/50 bg-warning/10 p-2 text-sm"
+            data-testid="local-lan-hosts"
+          >
+            <p>{t('settings.extensions.local.lanHostsFound')}</p>
+            {pendingLanHosts.map((suggestion) => {
+              const excerpt = sourceExcerpt(instance.source ?? '', suggestion.line);
+              return (
+                <div key={suggestion.host} className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="break-all font-mono">{suggestion.host}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={off || lanFull}
+                      onClick={() => acceptLanHost(suggestion.host)}
+                    >
+                      {t('settings.extensions.local.allowLanHost', { host: suggestion.host })}
+                    </Button>
+                  </div>
+                  <p className="break-all text-xs text-muted-foreground">
+                    <span className="font-mono">
+                      {t('settings.extensions.local.line', { line: suggestion.line })}
+                    </span>
+                    {excerpt ? <span className="font-mono"> {excerpt}</span> : null}
+                  </p>
+                  {suggestion.service_port && (
+                    <p className="text-xs text-warning" role="note">
+                      {t('settings.extensions.local.lanHostServicePort')}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+            {lanFull && (
+              <p className="text-xs text-muted-foreground">
+                {t('settings.extensions.local.lanHostsFull', { max: MAX_LAN_HOSTS })}
+              </p>
+            )}
+            {lanTruncated && (
+              <p className="text-xs text-muted-foreground">
+                {t('settings.extensions.local.lanHostsTruncated')}
+              </p>
+            )}
           </div>
         )}
       </Section>

@@ -439,4 +439,108 @@ describe('local plugin editor', () => {
     // The unsaved storage edit is still pending.
     expect(screen.getByLabelText(t('plugins.permissions.storage.title'))).toBeChecked();
   });
+  it('suggests local-network devices one by one, with their line and a service-port warning', async () => {
+    const source = "A = 'https://api.example.com'\nB = 'http://admin:pw@192.168.1.20:8123/api'\n";
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([local()]);
+    vi.spyOn(api, 'putPluginSource').mockResolvedValue({
+      instance: local({ source }),
+      scan: [],
+      http_hosts: [],
+      lan_hosts: [
+        { host: 'shelly.local', line: 1, service_port: false },
+        { host: '192.168.1.20:8123', line: 2, service_port: true },
+      ],
+      lan_hosts_truncated: true,
+    });
+    const patch = vi.spyOn(api, 'patchPlugin').mockResolvedValue(local());
+    render(<SettingsExtensionsSection health={health} />);
+    await openDrawer('Pling');
+    fireEvent.change(await screen.findByTestId('code-editor'), { target: { value: source } });
+    fireEvent.click(screen.getByRole('button', { name: t('settings.extensions.local.saveCode') }));
+    const box = await screen.findByTestId('local-lan-hosts');
+    expect(box).toHaveTextContent(t('settings.extensions.local.lanHostsFound'));
+    expect(box).toHaveTextContent(t('settings.extensions.local.line', { line: 2 }));
+    expect(box).toHaveTextContent('192.168.1.20:8123/api');
+    expect(box).not.toHaveTextContent('admin:pw');
+    expect(within(box).getAllByRole('note')).toHaveLength(1);
+    expect(box).toHaveTextContent(t('settings.extensions.local.lanHostServicePort'));
+    expect(box).toHaveTextContent(t('settings.extensions.local.lanHostsTruncated'));
+
+    fireEvent.click(
+      within(box).getByRole('button', {
+        name: t('settings.extensions.local.allowLanHost', { host: 'shelly.local' }),
+      })
+    );
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith(local().instance_id, {
+        granted_permissions: {
+          'messages.send': { targets: 'reply' },
+          http: { lan_hosts: ['shelly.local'] },
+        },
+      })
+    );
+    // Added: no longer suggested; the other one still is.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', {
+          name: t('settings.extensions.local.allowLanHost', { host: 'shelly.local' }),
+        })
+      ).not.toBeInTheDocument()
+    );
+    expect(
+      screen.getByRole('button', {
+        name: t('settings.extensions.local.allowLanHost', { host: '192.168.1.20:8123' }),
+      })
+    ).toBeInTheDocument();
+  });
+
+  it('keeps public hosts when a device is added, and refuses past the lan_hosts maximum', async () => {
+    const full = Array.from({ length: 10 }, (_, i) => `192.168.1.${i + 1}`);
+    const withHttp = (lan: string[]) =>
+      local({
+        manifest: {
+          hooks: ['message'],
+          permissions: { http: { hosts: ['api.example.com'], lan_hosts: lan } },
+        },
+        granted_permissions: { http: { hosts: ['api.example.com'], lan_hosts: lan } },
+      });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([withHttp(full)]);
+    vi.spyOn(api, 'checkPlugin').mockResolvedValue({
+      ok: true,
+      errors: [],
+      warnings: [],
+      http_hosts: [],
+      lan_hosts: [{ host: 'nas.local', line: 1, service_port: false }],
+      lan_hosts_truncated: false,
+    });
+    render(<SettingsExtensionsSection health={health} />);
+    await openDrawer('Pling');
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('settings.extensions.local.check') })
+    );
+    const add = await screen.findByRole('button', {
+      name: t('settings.extensions.local.allowLanHost', { host: 'nas.local' }),
+    });
+    expect(add).toBeDisabled();
+    expect(screen.getByTestId('local-lan-hosts')).toHaveTextContent(
+      t('settings.extensions.local.lanHostsFull', { max: 10 })
+    );
+  });
+
+  it('has every LAN suggestion string in French and English', () => {
+    for (const key of [
+      'lanHostsFound',
+      'allowLanHost',
+      'lanHostServicePort',
+      'lanHostsFull',
+      'lanHostsTruncated',
+    ]) {
+      for (const lng of ['fr', 'en']) {
+        expect(i18n.exists(`settings.extensions.local.${key}`, { lng })).toBe(true);
+      }
+      expect(i18n.t(`settings.extensions.local.${key}`, { lng: 'fr' })).not.toBe(
+        i18n.t(`settings.extensions.local.${key}`, { lng: 'en' })
+      );
+    }
+  });
 });

@@ -6,6 +6,13 @@ the `https://` literals that prefill the `http` permission. Reused by the
 bot conversion (`app/plugins/bot_conversion.py`, attention `review_permissions`)
 and by `dev check` (Store T4d).
 
+It also lists the local-network devices of the `http://` and `https://` literals
+that `check_lan_host` accepts (`lan_hosts`, MSHL-342): suggestions the local plugin
+editor offers one by one with their source line, never added on their own. Nothing
+is resolved: the Meshloom machine's own names (its host name, `meshloom`, Docker's
+`host.docker.internal`...) are dropped by name, and the fetch-time egress guard
+still refuses whatever reaches the machine.
+
 Blocking reasons name the common things the sandbox refuses (the call fails at
 run time with the error in the journal; the plugin still starts); the list is a
 review aid, not exhaustive, and the sandbox stays the boundary. Informative
@@ -20,13 +27,19 @@ extraction examines a bounded number of bytes and URLs (`truncated`).
 
 import ast
 import re
+import socket
 from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic_core import PydanticCustomError
 
 from app.message_limits import DM_HARD_LIMIT
-from app.plugins.permissions import check_host, is_meshloom_domain
+from app.plugins.permissions import (
+    HTTP_MAX_LAN_HOSTS,
+    check_host,
+    check_lan_host,
+    is_meshloom_domain,
+)
 from meshloom_plugin import policy
 
 # The runner's own lists (MSHL-176), so the scan and the sandbox never drift. A
@@ -81,7 +94,28 @@ MAX_SOURCE_BYTES = 1024 * 1024
 MAX_AST_NODES = 200_000
 MAX_URL_SCAN_BYTES = 256 * 1024  # literal bytes searched for https:// URLs
 MAX_URL_MATCHES = 1000  # URLs examined
-_HTTPS_HOST_RE = re.compile(r"https://([^/\s?#'\"<>\\]+)", re.IGNORECASE)
+_URL_RE = re.compile(r"(https?)://([^/\s?#'\"<>\\]+)", re.IGNORECASE)
+# LAN suggestions have their own cap (the `lan_hosts` maximum), so LAN literals never
+# crowd out public hosts or the reverse; they share the byte and URL budgets.
+MAX_LAN_SUGGESTIONS = HTTP_MAX_LAN_HOSTS
+# Ports of services that take orders without a password or hold a whole home: Home
+# Assistant (8123), a Meshloom radio proxy (5051), a Meshloom web app (8000). The
+# editor warns before such a device is added.
+SERVICE_PORTS = frozenset({8123, 5051, 8000})
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+# Names that always reach the machine Meshloom runs on (or its container host).
+_SELF_NAMES = frozenset(
+    {
+        "meshloom",
+        "meshloom.local",
+        "ip6-localhost",
+        "ip6-loopback",
+        "host.docker.internal",
+        "gateway.docker.internal",
+        "host.containers.internal",
+        "supervisor",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -103,12 +137,30 @@ class AttentionReason:
         }
 
 
+@dataclass(frozen=True)
+class LanHostSuggestion:
+    """A `lan_hosts` entry found in the code: `host` is the entry as the permission
+    stores it (`name`, `name:port`, `ip`, `[v6]:port`; no credentials, no default
+    port), `line` the first line that mentions it, `service_port` True for a port of
+    `SERVICE_PORTS`."""
+
+    host: str
+    line: int
+    service_port: bool = False
+
+    def to_json(self) -> dict[str, Any]:
+        return {"host": self.host, "line": self.line, "service_port": self.service_port}
+
+
 @dataclass
 class AttentionReport:
     reasons: list[AttentionReason] = field(default_factory=list)
     http_hosts: list[str] = field(default_factory=list)
     # True when host extraction stopped at a bound: more hosts may exist.
     truncated: bool = False
+    # Suggestions only, never prefilled: not part of `to_json` (the stored shape).
+    lan_hosts: list[LanHostSuggestion] = field(default_factory=list)
+    lan_truncated: bool = False
 
     @property
     def needs_attention(self) -> bool:
@@ -147,6 +199,74 @@ def _https_host(match: str) -> str | None:
         return check_host(host)
     except PydanticCustomError:
         return None
+
+
+def self_names() -> frozenset[str]:
+    """The names of the Meshloom machine itself, from its host name (no lookup)."""
+    names = set(_SELF_NAMES)
+    try:
+        hostname = socket.gethostname().strip().rstrip(".").lower()
+    except OSError:
+        hostname = ""
+    if hostname:
+        short = hostname.split(".", 1)[0]
+        names.update({hostname, short, f"{hostname}.local", f"{short}.local"})
+    return frozenset(names)
+
+
+def _is_self_name(host: str, own: frozenset[str]) -> bool:
+    return host in own or host.split(".", 1)[0] == "localhost" or is_meshloom_domain(host)
+
+
+def _lan_host(scheme: str, authority: str, own: frozenset[str]) -> tuple[str, bool] | None:
+    """The `lan_hosts` entry of an `http(s)://` literal and whether its port is a
+    service port, or None when `check_lan_host` refuses it or it names this machine.
+    The credentials of `user:pass@` are dropped, a scheme's default port too (an
+    entry without port allows only that port)."""
+    authority = authority.rsplit("@", 1)[-1].lower()
+    if authority.startswith("["):
+        end = authority.find("]")
+        if end < 0:
+            return None
+        host, rest = authority[1:end], authority[end + 1 :]
+        if rest and not rest.startswith(":"):
+            return None
+        port = rest[1:]
+    else:
+        if authority.count(":") > 1:
+            return None
+        host, _, port = authority.partition(":")
+        host = host.rstrip(".")
+    if not host:
+        return None
+    if port.isdigit() and int(port) == _DEFAULT_PORTS[scheme]:
+        port = ""
+    if port:
+        entry = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+    else:
+        entry = host
+    try:
+        check_lan_host(entry)
+    except PydanticCustomError:
+        return None
+    if _is_self_name(host, own):
+        return None
+    return entry, bool(port) and int(port) in SERVICE_PORTS
+
+
+def _open_ended_ids(nodes: list[ast.AST]) -> set[int]:
+    """The literal parts of f-strings (and t-strings) followed by a placeholder: a URL
+    that runs to their end is cut (`f"http://nas{n}"`), so its host is not suggested."""
+    joined = tuple(t for t in (ast.JoinedStr, getattr(ast, "TemplateStr", None)) if t)
+    holes = tuple(t for t in (ast.FormattedValue, getattr(ast, "Interpolation", None)) if t)
+    ids: set[int] = set()
+    for node in nodes:
+        if isinstance(node, joined):
+            values = node.values
+            for part, after in zip(values, values[1:], strict=False):
+                if isinstance(part, ast.Constant) and isinstance(after, holes):
+                    ids.add(id(part))
+    return ids
 
 
 def _docstring_ids(nodes: list[ast.AST]) -> set[int]:
@@ -190,14 +310,19 @@ def _is_mutable_value(value: ast.expr) -> bool:
 class _Scanner:
     """Checks one node at a time; the caller supplies the nodes (no recursion)."""
 
-    def __init__(self, docstrings: set[int]) -> None:
+    def __init__(self, docstrings: set[int], open_ended: set[int] | None = None) -> None:
         self.reasons: list[AttentionReason] = []
         self.hosts: list[str] = []
         self._seen_hosts: set[str] = set()
+        self.lan_hosts: list[LanHostSuggestion] = []
+        self._seen_lan: set[str] = set()
         self._url_bytes = 0
         self._url_matches = 0
         self.truncated = False
+        self.lan_truncated = False
         self._docstrings = docstrings
+        self._open_ended = open_ended or set()
+        self._own = self_names()
 
     def _add(self, code: str, node: ast.AST, detail: str | None = None, info: bool = False):
         self.reasons.append(AttentionReason(code, getattr(node, "lineno", 0), detail, info))
@@ -254,35 +379,64 @@ class _Scanner:
             return
         if value == "_bot_globals":  # globals()["_bot_globals"]
             self._add("module_state", node, "_bot_globals", info=True)
-        self._hosts_from(value)
+        self._hosts_from(value, getattr(node, "lineno", 0), id(node) in self._open_ended)
         if id(node) in self._docstrings:
             return
         if len(value) > LONG_LITERAL_BYTES or len(value.encode("utf-8")) > LONG_LITERAL_BYTES:
             self._add("long_literal", node)
 
-    def _hosts_from(self, value: str) -> None:
-        if "https://" not in value.lower():
+    def _exhausted(self) -> None:
+        """A byte or URL bound stopped the scan: more hosts of either kind may exist."""
+        self.truncated = True
+        self.lan_truncated = True
+
+    def _hosts_from(self, value: str, line: int = 0, open_ended: bool = False) -> None:
+        lower = value.lower()
+        if "https://" not in lower and "http://" not in lower:
+            return
+        budget = MAX_URL_SCAN_BYTES - self._url_bytes
+        if budget <= 0:
+            self._exhausted()
+            return
+        if len(value) > budget:
+            value = value[:budget]
+            open_ended = True
+            self._exhausted()
+        self._url_bytes += len(value)
+        for match in _URL_RE.finditer(value):
+            if self._url_matches >= MAX_URL_MATCHES:
+                self._exhausted()
+                return
+            self._url_matches += 1
+            scheme, authority = match.group(1).lower(), match.group(2)
+            if scheme == "https":
+                host = _https_host(authority)
+                if host:
+                    self._add_host(host)
+                    continue
+            if open_ended and match.end() == len(value):
+                continue
+            lan = _lan_host(scheme, authority, self._own)
+            if lan:
+                self._add_lan(lan[0], line, lan[1])
+
+    def _add_host(self, host: str) -> None:
+        if host in self._seen_hosts:
             return
         if len(self.hosts) >= MAX_PREFILL_HOSTS:
             self.truncated = True
             return
-        budget = MAX_URL_SCAN_BYTES - self._url_bytes
-        if budget <= 0:
-            self.truncated = True
+        self._seen_hosts.add(host)
+        self.hosts.append(host)
+
+    def _add_lan(self, host: str, line: int, service_port: bool) -> None:
+        if host in self._seen_lan:
             return
-        if len(value) > budget:
-            value = value[:budget]
-            self.truncated = True
-        self._url_bytes += len(value)
-        for match in _HTTPS_HOST_RE.finditer(value):
-            if self._url_matches >= MAX_URL_MATCHES or len(self.hosts) >= MAX_PREFILL_HOSTS:
-                self.truncated = True
-                return
-            self._url_matches += 1
-            host = _https_host(match.group(1))
-            if host and host not in self._seen_hosts:
-                self._seen_hosts.add(host)
-                self.hosts.append(host)
+        if len(self.lan_hosts) >= MAX_LAN_SUGGESTIONS:
+            self.lan_truncated = True
+            return
+        self._seen_lan.add(host)
+        self.lan_hosts.append(LanHostSuggestion(host, line, service_port))
 
     def scan_module_state(self, tree: ast.Module) -> None:
         for stmt in tree.body:
@@ -317,11 +471,17 @@ def scan_source(source: str) -> AttentionReport:
             return _single("too_complex")
         # Source order, so the prefilled hosts follow the file.
         nodes.sort(key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)))
-        scanner = _Scanner(_docstring_ids(nodes))
+        scanner = _Scanner(_docstring_ids(nodes), _open_ended_ids(nodes))
         scanner.scan_module_state(tree)
         for node in nodes:
             scanner.check(node)
     except (RecursionError, MemoryError):
         return _single("too_complex")
     reasons = sorted(scanner.reasons, key=lambda r: (r.line, r.code, r.detail or ""))
-    return AttentionReport(reasons=reasons, http_hosts=scanner.hosts, truncated=scanner.truncated)
+    return AttentionReport(
+        reasons=reasons,
+        http_hosts=scanner.hosts,
+        truncated=scanner.truncated,
+        lan_hosts=scanner.lan_hosts,
+        lan_truncated=scanner.lan_truncated,
+    )

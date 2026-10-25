@@ -433,6 +433,14 @@ Residual risks, accepted:
 - With Linux's `ip_nonlocal_bind` sysctl on, every bind probe succeeds and every
   LAN host is refused (fails closed).
 - Link-local addresses are not accepted.
+- Suggestions from code (MSHL-342): the local editor offers the LAN literals of
+  the plugin's own source as one-click `lan_hosts` entries (`docs/dev/plugins.md`,
+  "Attention scan"). That source is not always the admin's (a converted bot, a
+  restored backup, pasted code), so one click lowers the friction of granting a
+  plain-HTTP device. Mitigations: admin only, one device per click (no "add all"),
+  the source line shown, a warning on ports 8123, 5051 and 8000, the machine's own
+  names and IPs dropped (no lookup), credentials never echoed. No network scan
+  exists: nothing is resolved or contacted to build the list.
 
 ### Does a `.local` name resolve? (MSHL-351)
 
