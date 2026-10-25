@@ -64,7 +64,7 @@
         "hostsLabel": "Serveurs qu’elle peut joindre",
         "hostsPlaceholder": "Un serveur par ligne, par exemple api.example.com",
         "lanHostsLabel": "Appareils de votre réseau local qu’elle peut joindre",
-        "lanHostsPlaceholder": "Un appareil par ligne, par exemple printer.local ou 192.168.1.20:8080",
+        "lanHostsPlaceholder": "Un appareil par ligne, par exemple printer.local, 192.168.1.20:8080 ou [fd00::1]:80",
         "checkTitle": "Vérification",
         "checkHint": "Lit le manifeste et analyse le code. Rien n’est exécuté.",
         "check": "Vérifier",

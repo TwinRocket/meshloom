@@ -1,4 +1,4 @@
-"""`http.fetch {url, method?, headers?, body?, timeout?}` (permission `http`).
+"""`http.fetch {url, method?, headers?, body?, timeout?, verify_tls?}` (permission `http`).
 
 The server makes the request for the child, through the egress guard's
 fixed-host path (`follow_checked_redirects`, `app/net/AGENTS.md`). Checks in
@@ -8,6 +8,10 @@ order, all before any DNS lookup or connection:
   info, `GET`/`POST`/`PUT`/`PATCH`/`DELETE`, at most `MAX_HEADERS` string
   headers, a text body of at most `MAX_BODY_BYTES` UTF-8 bytes (`params.limit`),
   a positive timeout (clamped to `MAX_TIMEOUT_SECONDS`);
+- `verify_tls` (optional boolean, default true): false skips the certificate
+  check, allowed only when the URL is a declared `lan_hosts` device (a
+  self-signed device, MSHL-331; `invalid_params` otherwise) and applied only to
+  the hops to such a device; a redirect to a public host is still checked;
 - the host is one of the instance's effective `http.hosts` or `http.lan_hosts`
   (`host_not_allowed`): exact match, the declared port or else the scheme's
   default port only; `meshloom.app` and its subdomains only for a `meshloom.*`
@@ -19,8 +23,9 @@ order, all before any DNS lookup or connection:
 
 Then the guard: pinned resolution, private and reserved addresses refused for a
 public host (`host_not_allowed`), a LAN host that does not resolve to LAN
-addresses only (10/8, 172.16/12, 192.168/16, fc00::/7) refused too
-(`host_not_allowed`, DNS rebinding), at most `MAX_REDIRECTS` redirects, each hop
+addresses only (10/8, 172.16/12, 192.168/16, 100.64/10, fc00::/7), or resolves to
+an address of the Meshloom host itself, refused too (`host_not_allowed`, DNS
+rebinding, MSHL-330), at most `MAX_REDIRECTS` redirects, each hop
 re-validated against the same hosts (`host_not_allowed`, or `https_required` for
 a hop to `http:` on a public host), credentials dropped when a hop leaves the origin, `Host`,
 `Content-Length`, `Transfer-Encoding`, `Cookie` and the hop-by-hop headers
@@ -98,7 +103,12 @@ _HEADER_NAME = frozenset(
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 # Guard refusals that mean "not a host this plugin may reach".
 _HOST_REFUSALS = frozenset(
-    {"egress_host_not_allowed", "egress_private_address", "egress_lan_address"}
+    {
+        "egress_host_not_allowed",
+        "egress_private_address",
+        "egress_lan_address",
+        "egress_self_address",
+    }
 )
 
 
@@ -208,6 +218,13 @@ def _timeout(params: dict[str, Any]) -> float:
     return min(float(value), MAX_TIMEOUT_SECONDS)
 
 
+def _verify_tls(params: dict[str, Any]) -> bool:
+    value = params.get("verify_tls", True)
+    if type(value) is not bool:
+        raise invalid_params("verify_tls must be a boolean", fields=["verify_tls"])
+    return value
+
+
 def _encode_body(content: bytes) -> dict[str, Any]:
     encoded = base64.b64encode(content).decode("ascii")
     try:
@@ -235,6 +252,7 @@ async def fetch(call: Call) -> dict[str, Any]:
     headers = _headers(call.params)
     body = _body(call.params)
     timeout = _timeout(call.params)
+    verify_tls = _verify_tls(call.params)
     shown = safe_url(raw)
     instance_id = call.instance.instance_id
 
@@ -248,6 +266,11 @@ async def fetch(call: Call) -> dict[str, Any]:
     if not on_lan and scheme != "https":
         logger.info("Plugin %s http.fetch %s %s: https_required", instance_id, method, shown)
         raise CapabilityError("https_required", "only https URLs are allowed")
+    if not on_lan and not verify_tls:
+        raise invalid_params(
+            "verify_tls may be false only for a declared lan_hosts device",
+            fields=["verify_tls"],
+        )
     retry_after = QUOTA.take(instance_id)
     if retry_after is not None:
         raise CapabilityError(
@@ -273,6 +296,7 @@ async def fetch(call: Call) -> dict[str, Any]:
             truncate_response=True,
             content=body,
             headers=headers,
+            lan_verify_tls=verify_tls,
         )
     except (EgressBlocked, httpx.HTTPError, TimeoutError) as exc:
         code = error_code(exc)

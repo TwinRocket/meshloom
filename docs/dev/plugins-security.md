@@ -229,7 +229,7 @@ frame.
   not readable through `open`; without OS isolation, the bypasses above still
   reach them.
 
-## LAN hosts (`http.lan_hosts`, MSHL-282)
+## LAN hosts (`http.lan_hosts`, MSHL-282, MSHL-330, MSHL-331)
 
 The `http` capability reaches a device on the user's network only through
 `lan_hosts`, each entry named in the consent. What holds, all in
@@ -238,25 +238,48 @@ covered by `tests/test_egress_guard_lan_hosts.py` and `tests/test_plugin_http_la
 
 - Exact entries only: no wildcard, no range, no `localhost`/`*.localhost`, no
   metadata name, no IP literal outside `10/8`, `172.16/12`, `192.168/16`,
-  `fc00::/7` (manifest validation and `HostAllowlist`, port included).
+  `100.64/10` (CGNAT, Tailscale), `fc00::/7` (manifest validation and
+  `HostAllowlist`, port included).
+- Local names only (`lan_host_public_name`): a single label or a name ending in
+  `.local`, `.lan`, `.home.arpa` or `.internal`. A public DNS name is refused
+  because its owner, not the user, would choose which LAN address it reaches.
 - DNS rebinding: every address a `lan_hosts` name resolves to must be in those
-  ranges, tested as written (`is_lan_address`): loopback, link-local, CGNAT,
-  metadata, documentation, IPv4-mapped/NAT64/6to4 forms and public addresses
-  are refused (`egress_lan_address`, metadata and documentation as
-  `egress_private_address`). The connection is pinned to the checked address.
+  ranges, tested as written (`is_lan_address`): loopback, link-local, metadata
+  (Alibaba's `100.100.100.200` included), documentation, IPv4-mapped/NAT64/6to4
+  forms and public addresses are refused (`egress_lan_address`, metadata and
+  documentation as `egress_private_address`). The connection is pinned to the
+  checked address.
+- The Meshloom host itself is refused on every port (`egress_self_address`,
+  `is_self_address`), whatever the name or literal (an IPv4-mapped spelling is
+  unwrapped first): an address bound to one of its interfaces (bind probe: a
+  failing probe counts as local), and inside a container (`/.dockerenv`,
+  `/run/.containerenv`) the default gateways from `/proc/net/route` and
+  `/proc/net/ipv6_route`, which are the Docker or Home Assistant host. This keeps
+  plugins away from the radio proxy (5051, `0.0.0.0`, no authentication) and the
+  app's own port.
 - Redirects: every hop is checked again against `hosts` and `lan_hosts`; a hop
   to an undeclared LAN device, or to plain HTTP outside `lan_hosts`, is
   refused before any lookup.
+- Self-signed devices: `http.fetch` takes `verify_tls: false` only when the URL's
+  host is a `lan_hosts` entry (`invalid_params` otherwise), and the check is
+  skipped only on the hops that reach a `lan_hosts` device; a redirect to a
+  public host is verified. The consent says certificates may go unchecked.
 - `hosts` stays public-only; an entry cannot be in both lists.
 
 Residual risks, accepted:
 
-- Plain HTTP to a declared device: anyone on the LAN can read or alter it.
-- A user can accept the Meshloom host's own LAN address. The radio proxy listens
-  on `0.0.0.0` without authentication (port 5051), so such a plugin can reach it
-  and bypass its send budgets. The consent names the device; the user decides.
-- CGNAT (Tailscale) and link-local addresses are not accepted, and a device with a
-  self-signed certificate fails over `https`.
+- Plain HTTP, or HTTPS with `verify_tls: false`, to a declared device: anyone on
+  the LAN can read or alter it.
+- In a bridged container (Docker, Home Assistant add-on), the host's LAN address
+  is not visible from inside, so a plugin that declares it can still reach the
+  host (radio proxy included). The consent names the device; the user decides.
+  Bare-metal installs (deb, rpm, Raspberry Pi image) and host-network containers
+  see every address.
+- In the Home Assistant add-on, `homeassistant` resolves to the gateway and is
+  refused as the host.
+- With Linux's `ip_nonlocal_bind` sysctl on, every bind probe succeeds and every
+  LAN host is refused (fails closed).
+- Link-local addresses are not accepted.
 
 ## Tests
 

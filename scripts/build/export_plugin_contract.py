@@ -234,8 +234,10 @@ FAILING: list[tuple[str, str, Mutation, list[tuple[str, str]]]] = [
     (
         "http-lan-host-also-public",
         "third_party",
+        # The two lists cannot overlap any more (MSHL-330): a public name is refused
+        # in lan_hosts before the overlap check.
         _perm("http", {"hosts": ["nas.example.com"], "lan_hosts": ["nas.example.com:8080"]}),
-        [("lan_host_overlap", "permissions.http")],
+        [("lan_host_public_name", "permissions.http.lan_hosts.0")],
     ),
     (
         "http-lan-host-duplicate",
@@ -247,7 +249,8 @@ FAILING: list[tuple[str, str, Mutation, list[tuple[str, str]]]] = [
         "http-lan-meshloom-host",
         "third_party",
         _perm("http", {"lan_hosts": ["store.meshloom.app"]}),
-        [("http_host_reserved", "")],
+        # A dotted public name is refused before the reserved-host check runs.
+        [("lan_host_public_name", "permissions.http.lan_hosts.0")],
     ),
     (
         "http-meshloom-host",
@@ -452,7 +455,7 @@ for _label, _host, _code in [
     ("metadata-ip", "169.254.169.254", "lan_host_not_lan"),
     ("ipv6-link-local", "fe80::1", "lan_host_not_lan"),
     ("ipv6-metadata", "fd00:ec2::254", "lan_host_not_lan"),
-    ("cgnat", "100.64.0.1", "lan_host_not_lan"),
+    ("cgnat-edge", "100.128.0.1", "lan_host_not_lan"),
     ("public-ip", "8.8.8.8", "lan_host_not_lan"),
     ("ipv4-mapped", "::ffff:192.168.1.10", "lan_host_not_lan"),
     ("nat64", "64:ff9b::c0a8:10a", "lan_host_not_lan"),
@@ -463,6 +466,11 @@ for _label, _host, _code in [
     ("port-zero", "printer.local:0", "lan_host_invalid"),
     ("port-too-big", "printer.local:65536", "lan_host_invalid"),
     ("uppercase-name", "Printer.local", "lan_host_invalid"),
+    # A public DNS name: its owner would choose the LAN address reached (MSHL-330).
+    ("public-name", "nas.example.com", "lan_host_public_name"),
+    ("public-name-with-port", "x.evil.com:8080", "lan_host_public_name"),
+    ("public-name-local-label", "printer.local.example.com", "lan_host_public_name"),
+    ("tailscale-magicdns-fqdn", "nas.tailnet-1234.ts.net", "lan_host_public_name"),
 ]:
     FAILING.append(
         (
@@ -514,9 +522,10 @@ def _with_lan_hosts() -> dict[str, Any]:
             "nas.home.arpa",
             "192.168.1.20",
             "10.0.0.5:8080",
-            "172.16.0.9",
-            "fd00::20",
             "[fd12:3456::1]:8443",
+            "vault.internal:8200",
+            "100.101.102.103",
+            "fd00::1:80",  # a full IPv6 address, no port: write [fd00::1]:80 for one
         ],
     }
     return m

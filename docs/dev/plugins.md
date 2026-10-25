@@ -99,7 +99,7 @@ the golden vectors.
 | `messages.read` | `channels` `public` (default) or `all`; `direct`, `outgoing` (booleans, default false) |
 | `messages.send` | `targets` `reply` (default), `scope`, `any`; `per_hour` 1 to 60; `per_day` 1 to 500 |
 | `raw_packets.read`, `contacts.read`, `channels.read`, `telemetry.read`, `storage`, `timer` | none (`{}`) |
-| `http` | at least one of `hosts` and `lan_hosts` (`http_hosts_required`), no entry in both lists and no duplicate (`lan_host_overlap`, `host_duplicate`). `hosts`: up to 20 exact lowercase hostnames or **public** IP literals (classified with the egress guard's range tables in `app/net/egress_guard.py`, never `ipaddress.is_global`); never a wildcard, a range, a URL or a port. A hostname's last label starts with a letter (so `127.1`, `2130706433` and `0x7f.1` are refused); an IP literal is canonical (no scope id, lowercase IPv6, not IPv4-mapped), and every range the guard refuses is refused (`host_private_ip`: private, loopback, link-local, multicast, NAT64 or 6to4 around a private IPv4, `169.254.169.254`, documentation ranges). Names `localhost`, `*.localhost`, `*.local`, `*.lan`, `*.home.arpa`, `*.internal` and single-label hosts are refused too (`host_private_name`). `meshloom.app` and its subdomains are refused unless the id is `meshloom.*`. `lan_hosts`: up to 10 devices on the user's network, each `host` or `host:port` (`[v6]:port` for IPv6): a lowercase hostname (`*.local`, `*.lan`, single-label names are fine) or a canonical IP literal in a LAN range (`10/8`, `172.16/12`, `192.168/16`, `fc00::/7`); never a wildcard or range (`host_wildcard`, `host_range`), `localhost`/`*.localhost`, a metadata name or a non-LAN literal (`lan_host_not_lan`), never a bad port, scope id or uppercase (`lan_host_invalid`). Without a port only the scheme's default port is allowed |
+| `http` | at least one of `hosts` and `lan_hosts` (`http_hosts_required`), no entry in both lists and no duplicate (`lan_host_overlap`, `host_duplicate`). `hosts`: up to 20 exact lowercase hostnames or **public** IP literals (classified with the egress guard's range tables in `app/net/egress_guard.py`, never `ipaddress.is_global`); never a wildcard, a range, a URL or a port. A hostname's last label starts with a letter (so `127.1`, `2130706433` and `0x7f.1` are refused); an IP literal is canonical (no scope id, lowercase IPv6, not IPv4-mapped), and every range the guard refuses is refused (`host_private_ip`: private, loopback, link-local, multicast, NAT64 or 6to4 around a private IPv4, `169.254.169.254`, documentation ranges). Names `localhost`, `*.localhost`, `*.local`, `*.lan`, `*.home.arpa`, `*.internal` and single-label hosts are refused too (`host_private_name`). `meshloom.app` and its subdomains are refused unless the id is `meshloom.*`. `lan_hosts`: up to 10 devices on the user's network, each `host` or `host:port` (`[v6]:port` for IPv6: `fd00::1:80` is a full IPv6 address without a port, write `[fd00::1]:80`): a lowercase **local** name (a single label, or ending in `.local`, `.lan`, `.home.arpa` or `.internal`; any other dotted name is a public DNS name whose owner picks the address, refused with `lan_host_public_name`) or a canonical IP literal in a LAN range (`10/8`, `172.16/12`, `192.168/16`, CGNAT/Tailscale `100.64/10`, `fc00::/7`); never a wildcard or range (`host_wildcard`, `host_range`), `localhost`/`*.localhost`, a metadata name or a non-LAN literal (`lan_host_not_lan`; link-local stays refused), never a bad port, scope id or uppercase (`lan_host_invalid`). Without a port only the scheme's default port is allowed |
 
 Reserved and refused with `permission_reserved`: `notifications.send`, `feed.post`,
 `ui.panel`, `channels.manage`, `contacts.manage`. Any other name is `extra_forbidden`.
@@ -529,7 +529,7 @@ permissions and quotas and answers a typed error, raised as
 | `self.storage.get/set/delete/list` | `storage.get {key}`, `storage.set {key, value}`, `storage.delete {key}`, `storage.list {prefix}` | JSON values; `get` returns the value or `null` (a stored `null` reads as absent) |
 | `self.contacts.list(limit, offset)` / `self.contacts.get(key)` | `contacts.list {limit, offset}`, `contacts.get {key}` | dicts (see "Capabilities"); `get` returns `None` when unknown |
 | `self.channels.list()` | `channels.list {}` | dicts `key`, `name`, `is_public` |
-| `self.http.fetch/get_json/post_json` | `http.fetch {url, method, headers?, body?, timeout}` | `get_json`/`post_json` raise `HttpStatusError` from status 400, without the query string |
+| `self.http.fetch/get_json/post_json` | `http.fetch {url, method, headers?, body?, timeout, verify_tls?}` | `get_json`/`post_json` raise `HttpStatusError` from status 400, without the query string |
 | `await self.timer(seconds)` | `timer.set {seconds}` | answered later by `on_timer` |
 | `self.log(level, message)` | notification `log {level, message}` | stderr when there is no host |
 | `await self.set_status(summary)` | `status.set {summary}` | |
@@ -868,7 +868,7 @@ else: a refusal has no side effect, uses no quota and touches no network.
 | `contacts.list` | `contacts.read` | `limit?` (1 to 200, default 100), `offset?` | contacts |
 | `contacts.get` | `contacts.read` | `key` (64 hex) | a contact or `null` |
 | `channels.list` | `channels.read` | none | `{key, name, is_public}` per channel |
-| `http.fetch` | `http` | `url`, `method?` (`GET` default, `POST`, `PUT`, `PATCH`, `DELETE`), `headers?` (at most 32 strings), `body?` (text, at most 256 KiB, and a request line of at most 384 KiB once escaped), `timeout?` (seconds, clamped to 10) | `{status, headers, body, encoding?, truncated}` |
+| `http.fetch` | `http` | `url`, `method?` (`GET` default, `POST`, `PUT`, `PATCH`, `DELETE`), `headers?` (at most 32 strings), `body?` (text, at most 256 KiB, and a request line of at most 384 KiB once escaped), `timeout?` (seconds, clamped to 10), `verify_tls?` (boolean, default true; false only for a `lan_hosts` device) | `{status, headers, body, encoding?, truncated}` |
 | `status.set` | none | `summary` (`""` clears) | `null` |
 | `log` | none | `level` (`debug`, `info`, `warning`, `error`), `message` | `null` (usually sent as a notification) |
 
@@ -917,7 +917,8 @@ else: a refusal has no side effect, uses no quota and touches no network.
   lookup or connection: the params (`invalid_params`, `params.fields`: an `http(s)`
   URL of at most 2048 characters **without user info**, a known method, header
   names that are HTTP tokens and values without CR/LF, a body over 256 KiB with
-  `params.limit`, a positive timeout); the host is one of the effective
+  `params.limit`, a positive timeout, a boolean `verify_tls` that is false only
+  when the URL's host is a `lan_hosts` device); the host is one of the effective
   `http.hosts` or `http.lan_hosts`, exactly, on the declared port or else the scheme's default port (`host_not_allowed`;
   `meshloom.app` and its subdomains only for a `meshloom.*` id, checked again here
   although the manifest already refuses them); HTTPS (`https_required`), except for a
@@ -930,7 +931,10 @@ else: a refusal has no side effect, uses no quota and touches no network.
   resolution, private and reserved addresses refused for `hosts`, and for a
   `lan_hosts` name every resolved address must be in a LAN range (DNS-rebinding
   safe: a name that resolves to loopback, link-local, CGNAT, metadata, a mapped
-  form or a public address is refused) (`host_not_allowed`), at most 3 redirects, each hop re-validated
+  form or a public address is refused, and so is any address of the Meshloom host
+  itself, `egress_self_address`, MSHL-330) (`host_not_allowed`); `verify_tls: false`
+  skips the certificate check (self-signed LAN device, MSHL-331) on the hops that
+  reach a `lan_hosts` device only, so a redirect to a public host is verified; at most 3 redirects, each hop re-validated
   against both lists (`host_not_allowed`, or `https_required` for a hop to `http:`
   outside `lan_hosts`), credentials
   (`Authorization`, API key headers...) dropped once a hop leaves the origin,

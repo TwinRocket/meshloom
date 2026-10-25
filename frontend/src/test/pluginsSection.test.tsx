@@ -277,6 +277,9 @@ describe('SettingsExtensionsSection', () => {
     expect(
       screen.getByText(t('plugins.permissions.http.description_lan_only'))
     ).toBeInTheDocument();
+    // LAN devices only: the title does not claim an Internet connection (MSHL-331).
+    expect(screen.getByText(t('plugins.permissions.http.title_lan_only'))).toBeInTheDocument();
+    expect(screen.queryByText(t('plugins.permissions.http.title'))).not.toBeInTheDocument();
     // LAN devices count as destinations for the exfiltration sentence.
     expect(screen.getByTestId('plugin-exfiltration-warning')).toHaveTextContent(
       t('plugins.permissions.http.private_messages_warning', {
