@@ -45,7 +45,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import signal
 import sys
 import tempfile
@@ -265,9 +264,9 @@ def read_proc_cpu_seconds(pid: int) -> float | None:
 def read_proc_tree_cpu_seconds(pid: int) -> float | None:
     """CPU of `pid` and every descendant, reaped ones included (`cutime`, `cstime`).
 
-    Under bwrap the supervisor's child is bwrap and the runner a grandchild, and
-    a child running as root ignores `RLIMIT_NPROC` 0 and may start processes of
-    its own: the budget covers the whole tree.
+    Under bwrap the supervisor's child is bwrap and the runner a grandchild (the
+    runner's seccomp filter and `RLIMIT_NPROC` 0 keep it from starting more, but
+    the budget covers the whole tree anyway).
     None when `pid` is unreadable.
     """
     total = 0
@@ -708,7 +707,7 @@ class PluginProcess:
             if not future.done():
                 future.set_exception(ProcessEnded())
         if self.work_dir is not None:
-            shutil.rmtree(self.work_dir, ignore_errors=True)
+            isolation.current().backend.remove_work_dir(self.work_dir)
 
 
 # --- one instance -----------------------------------------------------------------

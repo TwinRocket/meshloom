@@ -7,6 +7,11 @@
 # groups of every mapped serial device are added. If a mapped serial device is
 # still not usable by that uid, Meshloom keeps running as root with a warning:
 # a radio that works beats a stricter sandbox that cannot reach it.
+# CAP_SETUID and CAP_SETGID stay as inheritable and ambient capabilities, and
+# nothing else: the server needs them to start each plugin as the dedicated
+# meshloom-plugin uid (app/plugins/isolation/setuid.py), and the plugin runner
+# drops them in the child. An image rebuilt without them runs plugins at a
+# reduced level (bwrap or hooks only, docs/user/en/deep/plugins.md).
 #
 # The Home Assistant add-on replaces CMD; with the variable unset this script
 # only execs it.
@@ -77,4 +82,5 @@ export HOME="$home"
 export UV_NO_SYNC=1
 export UV_CACHE_DIR="$home/.cache/uv"
 
-exec setpriv --reuid="$target" --regid="$target" "$groups_opt" --inh-caps=-all -- "$@"
+exec setpriv --reuid="$target" --regid="$target" "$groups_opt" \
+    --inh-caps=-all,+kill,+setgid,+setuid --ambient-caps=+kill,+setgid,+setuid -- "$@"

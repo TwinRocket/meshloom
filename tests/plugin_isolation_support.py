@@ -26,7 +26,8 @@ LINUX = sys.platform.startswith("linux")
 
 @cache
 def available_backends() -> dict[str, IsolationBackend]:
-    """`none` always, `bwrap` when its self-test passes, `setuid` as root with the account."""
+    """`none` always, `bwrap` when its self-test passes, `setuid` with the account as
+    root or with `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` (the image's `MESHLOOM_RUN_AS_USER`)."""
     backends: dict[str, IsolationBackend] = {"none": NoneBackend()}
     if not LINUX:
         return backends
@@ -35,7 +36,7 @@ def available_backends() -> dict[str, IsolationBackend]:
     path = shutil.which("bwrap")
     if path is not None and self_test(path) is None:
         backends["bwrap"] = BwrapBackend(path)
-    if os.geteuid() == 0:
+    if os.geteuid() == 0 or selection.can_switch_uid(selection.effective_capabilities()):
         import pwd
 
         account = selection._account(pwd.getpwnam)

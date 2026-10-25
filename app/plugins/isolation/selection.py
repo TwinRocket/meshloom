@@ -3,8 +3,9 @@
 | Server | Backend |
 |---|---|
 | Linux, root, `meshloom-plugin` exists | `setuid` |
+| Linux, not root but `CAP_SETUID`, `CAP_SETGID` and `CAP_KILL` effective (Docker with `MESHLOOM_RUN_AS_USER`), `meshloom-plugin` exists | `setuid` |
 | Linux, root, no such account | `bwrap` if its self-test passes, else `none` |
-| Linux, not root (deb/rpm, RPi image, source, Docker with `MESHLOOM_RUN_AS_USER`) | `bwrap` if its self-test passes, else `none` |
+| Linux, not root without those capabilities (deb/rpm, RPi image, source) | `bwrap` if its self-test passes, else `none` |
 | not Linux (macOS: development only) | `none` |
 
 Detected once per process (`current()`), never silently: the level is logged at
@@ -50,10 +51,34 @@ def _account(getpwnam: Callable[[str], pwd.struct_passwd]) -> tuple[int, int] | 
     return entry.pw_uid, entry.pw_gid
 
 
+CAP_KILL = 5
+CAP_SETGID = 6
+CAP_SETUID = 7
+
+
+def effective_capabilities(status_path: str = "/proc/self/status") -> int:
+    """This process's effective capability mask (0 when unreadable)."""
+    try:
+        with open(status_path, encoding="ascii") as fh:
+            for line in fh:
+                if line.startswith("CapEff:"):
+                    return int(line.split()[1], 16)
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def can_switch_uid(caps: int) -> bool:
+    """Enough to run children under another uid and supervise them: switch to it,
+    and signal it (killpg of another uid needs `CAP_KILL`)."""
+    return all(caps >> bit & 1 for bit in (CAP_SETUID, CAP_SETGID, CAP_KILL))
+
+
 def detect(
     *,
     platform: str = sys.platform,
     geteuid: Callable[[], int] = os.geteuid,
+    capabilities: Callable[[], int] = effective_capabilities,
     getpwnam: Callable[[str], pwd.struct_passwd] = pwd.getpwnam,
     which: Callable[[str], str | None] = shutil.which,
     bwrap_self_test: Callable[[str], str | None] = bwrap_backend.self_test,
@@ -67,6 +92,14 @@ def detect(
         if account is not None:
             return Selection(SetuidBackend(*account))
         fallbacks.append(f"running as root but the account {ACCOUNT} does not exist")
+    elif can_switch_uid(capabilities()):
+        account = _account(getpwnam)
+        if account is not None and account[0] != geteuid():
+            return Selection(SetuidBackend(*account))
+        fallbacks.append(
+            f"CAP_SETUID, CAP_SETGID and CAP_KILL held but the account {ACCOUNT} does not exist "
+            "or is the server's own"
+        )
     path = which("bwrap")
     if path is None:
         fallbacks.append("bwrap is not installed")

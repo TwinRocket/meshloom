@@ -24,7 +24,7 @@ import pytest
 from app.plugins import launch
 from app.plugins.isolation.base import IsolationBackend
 from app.plugins.isolation.none import NoneBackend
-from meshloom_plugin import policy, rpc
+from meshloom_plugin import policy, rpc, seccomp
 from tests.plugin_isolation_support import available_backends, shared_tmp_dir
 
 CORPUS = Path(__file__).parent / "plugin_corpus"
@@ -54,8 +54,11 @@ class Runner:
         backend = backend or NoneBackend()
         if backend.level != "none":
             isolation = backend.level
-        # The dedicated uid cannot enter pytest's 0700 base temp dir.
-        parent = shared_tmp_dir("meshloom-runner-") if backend.level == "setuid" else work
+        # The dedicated uid cannot enter pytest's 0700 base temp dir: under setuid the
+        # work dir goes in the system temp dir, as the host does (a non-root server's
+        # helper makes it there as the plugin uid).
+        self._backend = backend
+        parent = Path(tempfile.gettempdir()) if backend.level == "setuid" else work
         self.cwd = backend.prepare_work_dir(Path(tempfile.mkdtemp(dir=parent, prefix="cwd-")))
         self.stderr_path = work / f"stderr-{self.cwd.name}.log"
         self._stderr = self.stderr_path.open("wb")
@@ -149,6 +152,8 @@ class Runner:
         if self.proc.stdout is not None:
             self.proc.stdout.close()
         self._stderr.close()
+        if self._backend.level == "setuid":
+            self._backend.remove_work_dir(self.cwd)
         return self.proc.returncode
 
 
@@ -496,7 +501,8 @@ def test_setuid_announced_to_a_root_child_is_refused(work: Path) -> None:
 
 
 def _assert_no_thread_or_process(runner: Runner) -> None:
-    """RLIMIT_NPROC is 0 (soft and hard) at every level: no clone() succeeds."""
+    """RLIMIT_NPROC is 0 (soft and hard) and a seccomp filter is installed, at every
+    level: no clone() succeeds."""
     # Under bwrap, proc.pid is bwrap (and its init): the runner is the leaf.
     pid = runner.proc.pid
     while children := Path(f"/proc/{pid}/task/{pid}/children").read_text().split():
@@ -504,6 +510,12 @@ def _assert_no_thread_or_process(runner: Runner) -> None:
     limits = Path(f"/proc/{pid}/limits").read_text()
     line = next(line for line in limits.splitlines() if line.startswith("Max processes"))
     assert line.split()[2:4] == ["0", "0"], line
+    # And the seccomp filter refusing clone/fork/exec, which also binds a root
+    # child (MSHL-323; tests/test_plugin_seccomp.py proves what it refuses).
+    if seccomp.native_abi() is not None:
+        status = Path(f"/proc/{pid}/status").read_text()
+        mode = next(line for line in status.splitlines() if line.startswith("Seccomp:"))
+        assert mode.split()[1] == "2", mode
 
 
 def test_launch_env_keeps_only_the_whitelisted_keys() -> None:

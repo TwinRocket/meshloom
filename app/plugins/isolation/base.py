@@ -8,6 +8,7 @@ can hand them to `asyncio.create_subprocess_exec` and the tests to
 `subprocess.Popen` (`spawn()`).
 """
 
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any, ClassVar
@@ -34,6 +35,10 @@ class IsolationBackend:
     def prepare_work_dir(self, work_dir: Path) -> Path:
         """Create the child's private work directory, owned by whoever the child runs as."""
         return launch.prepare_work_dir(work_dir)
+
+    def remove_work_dir(self, work_dir: Path) -> None:
+        """Remove a work directory `prepare_work_dir` made, whatever the child left in it."""
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     def prepare_data_dir(self, data_dir: Path) -> None:
         """Startup work on the data directory for this level. No-op by default."""
