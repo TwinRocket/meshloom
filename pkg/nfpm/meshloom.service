@@ -20,8 +20,9 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
-# The kiosk device token directory exists on kiosk hosts only ("-": optional).
-ReadWritePaths=/opt/meshloom /var/lib/meshloom -/var/lib/meshloom-kiosk
+# /opt/meshloom (root-owned code) stays read-only. The kiosk device token
+# directory exists on kiosk hosts only ("-": optional).
+ReadWritePaths=/var/lib/meshloom -/var/lib/meshloom-kiosk
 SupplementaryGroups=dialout
 # Caps every task of the unit (server threads, plugin children and their
 # helpers): a plugin that escapes its own limits cannot fork-bomb the host.
