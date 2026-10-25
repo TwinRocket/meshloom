@@ -30,10 +30,6 @@ MAX_TRACKED_SENDERS = 2000
 # The head of a rule, up to the colon. No nested or overlapping repeats (it runs on
 # user text); the rest of the line is split on the first " => " with `str.partition`.
 _HEAD = re.compile(r" ?(keyword|prefix|regex)((?: ?, ?[a-z]+=[^,:\s]+)*) ?: ?")
-# A back-reference, and a group that repeats and is repeated (`_repeats_a_repeat`): the
-# classic ways to a catastrophic pattern. Refused outright instead of being run to find out.
-_BACKREF = re.compile(r"\\[1-9]|\(\?P=")
-
 _STATUS = {
     "en": "{rules} rule(s), {replies} answer(s) in the last hour",
     "fr": "{rules} règle(s), {replies} réponse(s) la dernière heure",
@@ -84,44 +80,90 @@ def _channel_key(name: str | None) -> str:
     return (name or "").strip().lstrip("#").casefold()
 
 
-_RANGE_REPEAT = re.compile(r"\{\d*,\d*\}")
+# The regex dialect is a structural whitelist on the parse tree (`re` has no timeout, so
+# a pattern must be cheap by construction, not by test). Refused: back-references,
+# lookarounds, a large repeat whose body holds another repeat or an alternation, more than
+# two large repeats in a row, and more than two large repeats in all. A repeat is
+# "large" above SMALL_REPEAT. Everything else is polynomial of low degree on at most
+# MATCH_TEXT_LIMIT characters.
+SMALL_REPEAT = 5
+MAX_LARGE_REPEATS = 2
+MAX_ADJACENT_LARGE_REPEATS = 2  # also the cap in all
+_REPEATS = ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT")
+_REFUSED_OPS = ("GROUPREF", "GROUPREF_EXISTS", "ASSERT", "ASSERT_NOT")
 
 
-def _repeats_a_repeat(source: str) -> bool:
-    """True when a group that contains a repeat is itself repeated: `(a+)+`, `(x*y)*`,
-    `(.*a){5,}`. One left-to-right scan: a regex for this would be a ReDoS itself."""
-    stack: list[bool] = []  # per open group: does it contain a repeat yet
-    in_class = False
-    i = 0
-    while i < len(source):
-        c = source[i]
-        if c == "\\":
-            i += 2
-            continue
-        if in_class:
-            in_class = c != "]"
-        elif c == "[":
-            in_class = True
-        elif c == "(":
-            stack.append(False)
-        elif c in "+*" or (c == "{" and _RANGE_REPEAT.match(source, i)):
-            if stack:
-                stack[-1] = True
-        elif c == ")" and stack:
-            inner = stack.pop()
-            if inner and source[i + 1 : i + 2] in ("+", "*", "{"):
-                return True
-            if inner and stack:
-                stack[-1] = True
-        i += 1
+def _name(op: Any) -> str:
+    return getattr(op, "name", str(op))
+
+
+def _is_large(node: Any) -> bool:
+    return _name(node[0]) in _REPEATS and node[1][1] > SMALL_REPEAT
+
+
+def _flatten(nodes: Any) -> list[Any]:
+    """The nodes of a sequence with plain (non-repeated) groups inlined."""
+    out: list[Any] = []
+    for node in nodes:
+        if _name(node[0]) in ("SUBPATTERN", "ATOMIC_GROUP"):
+            out.extend(_flatten(node[1][-1] if _name(node[0]) == "SUBPATTERN" else node[1]))
+        else:
+            out.append(node)
+    return out
+
+
+def _children(node: Any) -> list[Any]:
+    op, av = _name(node[0]), node[1]
+    if op in _REPEATS:
+        return [av[2]]
+    if op == "SUBPATTERN":
+        return [av[3]]
+    if op == "ATOMIC_GROUP":
+        return [av]
+    if op == "BRANCH":
+        return list(av[1])
+    return []
+
+
+def _contains(nodes: Any, wanted: tuple[str, ...]) -> bool:
+    for node in nodes:
+        if _name(node[0]) in wanted or any(_contains(c, wanted) for c in _children(node)):
+            return True
     return False
+
+
+def _check_tree(nodes: Any, counts: list[int]) -> None:
+    run = 0
+    for node in _flatten(nodes):
+        op = _name(node[0])
+        if op in _REFUSED_OPS:
+            raise RuleError("a regex may not use back-references or lookarounds")
+        if _is_large(node):
+            run += 1
+            counts[0] += 1
+            if run > MAX_ADJACENT_LARGE_REPEATS or counts[0] > MAX_LARGE_REPEATS:
+                raise RuleError("a regex has at most 2 repeats such as * or +")
+            if _contains(node[1][2], (*_REPEATS, "BRANCH")):
+                raise RuleError("a regex may not repeat a group that holds a repeat or a choice")
+        else:
+            run = 0
+        for child in _children(node):
+            _check_tree(child, counts)
+
+
+def check_regex(source: str) -> None:
+    """Raise RuleError unless `source` is inside the restricted dialect."""
+    try:
+        tree = re._parser.parse(source)  # type: ignore[attr-defined]
+    except (re.error, RecursionError, OverflowError) as exc:
+        raise RuleError(f"invalid regex: {getattr(exc, 'msg', 'too complex')}") from None
+    _check_tree(tree, [0])
 
 
 def compile_pattern(source: str, *, case_sensitive: bool) -> "re.Pattern[str]":
     if len(source) > MAX_REGEX_LENGTH:
         raise RuleError(f"a regex is {MAX_REGEX_LENGTH} characters at most")
-    if _repeats_a_repeat(source) or _BACKREF.search(source):
-        raise RuleError("a regex may not repeat a group that repeats, nor use a back-reference")
+    check_regex(source)
     started = time.perf_counter()
     try:
         pattern = re.compile(source, 0 if case_sensitive else re.IGNORECASE)

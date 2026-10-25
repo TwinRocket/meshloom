@@ -156,12 +156,58 @@ def test_unusable_rules_are_refused(line):
         rule(line)
 
 
-def test_catastrophic_patterns_are_refused_and_fine_ones_pass():
-    for bad in ("(a+)+", "(a*)*", "(x+x+)+y", "(.*a){5,}"):
-        with pytest.raises(RuleError):
-            compile_pattern(bad, case_sensitive=False)
-    for good in ("^!ping$", r"\bhi\b", "(hi|hey) there", "[a-z]+ (now|later)"):
-        compile_pattern(good, case_sensitive=False)
+CATASTROPHIC = [
+    "(a+)+",
+    "(a*)*",
+    "(x+x+)+y",
+    "(.*a){5,}",
+    "(a|aa)+$",
+    "(a|a?)+$",
+    "(a|a)+$",
+    "(?:a|aa)*b",
+    "a*a*a*a*a*a*a*b",
+    ".*a.*a.*a.*b",
+    "a*a*a*b",
+    "(a?){30}",
+    "(a{1,9})*",
+    "(?:a*)(?:a*)a*b",
+    r"(a)\1",
+    "(?=a)a",
+    "(?!a)a",
+]
+FINE = [
+    "^!ping$",
+    r"\bhi\b",
+    "(hi|hey) there",
+    "[a-z]+ (now|later)",
+    ".*a.*b",
+    "(ab){2,4}c",
+    r"\d+-\d+",
+    r"^(hi|hey)\b",
+    ".*x.*x",
+    "a*a*b",
+    "[ab]+[ab]+c",
+]
+HOSTILE_TEXTS = ["a" * 200, "ab" * 100, "x" * 200, "a-" * 100, "a" * 199 + "!", "ab" * 99 + "!"]
+
+
+@pytest.mark.parametrize("pattern", CATASTROPHIC)
+def test_catastrophic_patterns_are_refused_at_config_time(pattern):
+    with pytest.raises(RuleError):
+        compile_pattern(pattern, case_sensitive=False)
+    with pytest.raises(RuleError):
+        rule(f"regex: {pattern} => x")
+
+
+@pytest.mark.parametrize("pattern", FINE)
+def test_accepted_patterns_are_cheap_on_the_longest_input(pattern):
+    import time
+
+    compiled = compile_pattern(pattern, case_sensitive=False)
+    for text in HOSTILE_TEXTS:
+        started = time.perf_counter()
+        compiled.search(text[: ar.MATCH_TEXT_LIMIT])
+        assert time.perf_counter() - started < 0.1, (pattern, text[:4])
 
 
 def test_a_slow_compile_is_refused(monkeypatch):

@@ -619,10 +619,14 @@ two-host simulation.
   `max_replies_per_hour` (default 20, below the instance's 30). The first rule that
   matches decides, even when its cooldown keeps it silent. Cooldowns are per rule and
   per sender and live in memory; the hourly stamps are kept in `storage` so a restart
-  keeps the cap. Regex safety, since `re` has no timeout: at most 100 characters, a
-  group that repeats and is repeated or a back-reference is refused when the rule is
-  read, the compile time is capped at 100 ms, and the pattern only sees the first 200
-  characters of the message. A rule that does not parse is skipped and logged with its
+  keeps the cap. Regex safety, since `re` has no timeout: a structural whitelist on the
+  `re._parser` tree (`check_regex`), applied when the rule is read. Refused: more than
+  100 characters, back-references and lookarounds, a repeat above 5 whose body holds a
+  repeat or a branch, more than 2 such repeats in all; the compile time is capped at
+  100 ms and the pattern only sees the first 200 characters of the message. What is
+  accepted is at worst quadratic or cubic on 200 characters
+  (`test_accepted_patterns_are_cheap_on_the_longest_input`, under 100 ms; the
+  catastrophic shapes are in `CATASTROPHIC`). A rule that does not parse is skipped and logged with its
   line number. `language` is the standard instance field (the status line is localised).
   The host guards (`SendGuard`) stay the authority: the plugin's own limits only keep it
   below them, and the two-host simulation in the tests shows two auto-responders

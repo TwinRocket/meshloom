@@ -33,7 +33,17 @@ prefix,channel=#test,cooldown=300: !ping => Pong, {sender} !
 regex: ^(salut|coucou)\b => Salut {sender}, bienvenue sur {channel}
 ```
 
-La première règle qui correspond décide. Une règle illisible est ignorée et écrite dans le journal avec son numéro de ligne. Un motif qui répète un groupe déjà répété, ou qui utilise une référence arrière, est refusé.
+La première règle qui correspond décide. Une règle illisible est ignorée et écrite dans le journal avec son numéro de ligne. 
+### Le dialecte des regex
+
+Un motif doit rester peu coûteux à exécuter : `regex` accepte donc un dialecte restreint, et une règle qui en sort est ignorée (la raison est dans le journal). Autorisé : littéraux, `.`, classes de caractères, `^`, `$`, `\b`, `\d`, `\w`, `\s`, groupes, `|` et répétitions. Refusé :
+
+- plus de **2** répétitions de plus de 5 fois dans un motif (`*`, `+`, `{6,}`, `{1,50}`... ; `?` ne compte pas) ;
+- un groupe répété qui contient une autre répétition ou un choix : `(a+)+`, `(a|aa)*`, `(ab|c){6,}` ;
+- les références arrière (`\1`) et les assertions (`(?=...)`, `(?!...)`, `(?<=...)`) ;
+- plus de 100 caractères.
+
+Le motif n'est essayé que sur les 200 premiers caractères du message.
 
 ## Limites
 

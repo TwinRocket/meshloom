@@ -33,7 +33,17 @@ prefix,channel=#test,cooldown=300: !ping => Pong, {sender}!
 regex: ^(hi|hey)\b => Hi {sender}, welcome to {channel}
 ```
 
-The first rule that matches decides. A rule that cannot be read is ignored and written to the log with its line number. A regex that repeats a group that repeats, or uses a back-reference, is refused.
+The first rule that matches decides. A rule that cannot be read is ignored and written to the log with its line number. 
+### The regex dialect
+
+A pattern must be cheap to run, so `regex` accepts a restricted dialect and a rule outside it is ignored (with the reason in the log). Allowed: literals, `.`, character classes, `^`, `$`, `\b`, `\d`, `\w`, `\s`, groups, `|` and repeats. Refused:
+
+- at most **2** repeats of more than 5 times in a pattern (`*`, `+`, `?` does not count, `{6,}`, `{1,50}`...);
+- a repeated group that holds another repeat or a choice: `(a+)+`, `(a|aa)*`, `(ab|c){6,}`;
+- back-references (`\1`) and lookarounds (`(?=...)`, `(?!...)`, `(?<=...)`);
+- more than 100 characters.
+
+The pattern is only tried on the first 200 characters of the message.
 
 ## Limits
 
