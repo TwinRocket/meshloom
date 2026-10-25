@@ -100,6 +100,11 @@ export const FeedControlRow = memo(function FeedControlRow({
           {labelPayloadType(entry.journalType)}
         </span>
         {subtype && <span className={badgeClass}>{subtype}</span>}
+        {entry.packet.replayed && (
+          <span data-testid="feed-control-replayed" className={badgeClass}>
+            {t('feed.controlReplayed')}
+          </span>
+        )}
         {entry.pairedKey &&
           (pairedAvailable && actions.onOpenPaired ? (
             <button

@@ -75,6 +75,7 @@ import {
   fillHiddenPages,
   FEED_MAX_PAGES_PER_GESTURE,
   FEED_MIN_VISIBLE,
+  loadControlHistory,
   loadFeedPage,
 } from './feedHistory';
 import { FeedMessageRow } from './FeedMessageRow';
@@ -161,7 +162,7 @@ export function FeedView({
   onOpenRadioSettings,
 }: FeedViewProps) {
   const { t, i18n } = useTranslation();
-  const { rows, controlPackets, events, hasOlder, epoch } = useFeedRows();
+  const { rows, controlPackets, events, controlHistory, hasOlder, epoch } = useFeedRows();
   const formatRowTime = useTimeFormatter(i18n.language);
   const labelDay = useMemo(() => createDayLabeler(i18n.language), [i18n.language]);
 
@@ -452,6 +453,14 @@ export function FeedView({
     // `query` is derived from `queryKey`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey, loadNewest]);
+
+  // Stored control packets, once per session and only after the first message page is in, so
+  // the request never competes with the first paint.
+  const controlShown = shown.sources.control;
+  useEffect(() => {
+    if (status !== 'ready' || !controlShown) return;
+    void loadControlHistory('open');
+  }, [status, controlShown]);
 
   // The store was emptied by a reconciliation that could not catch up: fetch again.
   useEffect(() => {
@@ -827,6 +836,40 @@ export function FeedView({
       description={t('rawPacket.detailsDescription')}
     />
   );
+  // Earlier control packets: the action, and the scan-limit hint when the last answer stopped there.
+  const historyBar =
+    !display && controlShown && status === 'ready' && !forbidden && controlHistory.started ? (
+      <div
+        data-testid="feed-control-history"
+        className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-border/50 px-4 py-1.5 text-xs text-muted-foreground"
+      >
+        {controlHistory.error && <span role="alert">{t('feed.controlHistoryError')}</span>}
+        {controlHistory.truncated && !controlHistory.error && (
+          <span data-testid="feed-control-history-truncated">
+            {t('feed.controlHistoryTruncated', {
+              formatted: controlHistory.scanned.toLocaleString(i18n.language),
+            })}
+          </span>
+        )}
+        {controlHistory.exhausted && !controlHistory.error && !controlHistory.truncated && (
+          <span>{t('feed.controlHistoryEnd')}</span>
+        )}
+        {!controlHistory.exhausted && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={controlHistory.loading}
+            onClick={() => void loadControlHistory('more')}
+          >
+            {controlHistory.loading
+              ? t('feed.controlHistoryLoading')
+              : controlHistory.error
+                ? t('feed.retry')
+                : t('feed.controlHistoryMore')}
+          </Button>
+        )}
+      </div>
+    ) : null;
   // Header, chips, then the Nodes facet beside the pane the rest of the view fills.
   const shell = (content: ReactNode) => (
     <>
@@ -840,7 +883,10 @@ export function FeedView({
       )}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {facet}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{content}</div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {historyBar}
+          {content}
+        </div>
       </div>
       {inspector}
     </>

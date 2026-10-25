@@ -213,12 +213,16 @@ HISTORY_ITEM_LIMIT = 5000
 HISTORY_SCAN_LIMIT = 20_000
 
 
-def _payload_type_filter(value: str | None) -> PayloadType | None:
+def _payload_type_filter(value: str | None) -> frozenset[PayloadType] | None:
+    """Parse ``payload_type``: one name or a comma-separated list (any of them matches)."""
     if value is None:
         return None
+    members = {_payload_type_member(part) for part in value.split(",") if part.strip()}
+    return frozenset(members) or None
+
+
+def _payload_type_member(value: str) -> PayloadType:
     stripped = value.strip()
-    if not stripped:
-        return None
     compact = stripped.upper().replace("-", "_").replace(" ", "_")
     try:
         return PayloadType[compact]
@@ -303,7 +307,7 @@ async def get_raw_packet_history(
         after_id=after_id,
         limit=limit,
         max_scan=max_scan,
-        payload_type=type_filter,
+        payload_types=type_filter,
     )
     known_regions = (await AppSettingsRepository.get()).known_regions
     items = [

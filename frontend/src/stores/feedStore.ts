@@ -37,12 +37,40 @@ export interface FeedAckExtras {
   observer_reach_eligible?: boolean | null;
 }
 
+/** State of the bounded replay of stored control packets (`GET /api/packets/history`). */
+export interface ControlHistoryState {
+  /** The on-open fetch was started (once per session; `resetFeedStore()` clears it). */
+  started: boolean;
+  loading: boolean;
+  /** The last fetch failed (a retry is the "Load earlier control packets" button). */
+  error: boolean;
+  /** Nothing older to offer: a short unscanned-complete answer, or the control rows are full. */
+  exhausted: boolean;
+  /** The last response stopped at the server's scan limit: older packets may exist. */
+  truncated: boolean;
+  /** Stored packets the last response walked (the scan limit when `truncated`). */
+  scanned: number;
+  /** Database id of the oldest replayed packet: the `after_id` of the next fetch. */
+  cursorId: number | null;
+}
+
+const initialControlHistory: ControlHistoryState = {
+  started: false,
+  loading: false,
+  error: false,
+  exhausted: false,
+  truncated: false,
+  scanned: 0,
+  cursorId: null,
+};
+
 export interface FeedSnapshot {
   rows: readonly Message[];
   /** Control packets, oldest first by `(timestamp, observation key)`; survive a reconnect. */
   controlPackets: readonly RawPacket[];
   /** Event rows (`utils/feedEvents.ts`), oldest first by `(at, key)`; session-only, survive a reconnect. */
   events: readonly FeedEvent[];
+  controlHistory: ControlHistoryState;
   /** True when rows older than the first one may exist on the server. */
   hasOlder: boolean;
   /** Bumped by `resetFeedForRefetch()`: the view must fetch the newest page again. */
@@ -62,8 +90,20 @@ let epoch = 0;
 // Highest id ever seen, held or not: a live row older than the window is not stored (the
 // next page returns it) but reconciliation must not ask for it again.
 let highWater = 0;
-let snapshot: FeedSnapshot = { rows: [], controlPackets: [], events: [], hasOlder: true, epoch: 0 };
+let controlHistory: ControlHistoryState = initialControlHistory;
+let snapshot: FeedSnapshot = emptySnapshot();
 let flushScheduled = false;
+
+function emptySnapshot(): FeedSnapshot {
+  return {
+    rows: [],
+    controlPackets: [],
+    events: [],
+    controlHistory: initialControlHistory,
+    hasOlder: true,
+    epoch: 0,
+  };
+}
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void): () => void {
@@ -81,6 +121,7 @@ function flush(): void {
   snapshot = {
     rows: [...working],
     controlPackets: [...controlWorking],
+    controlHistory,
     events: [...eventsWorking],
     hasOlder,
     epoch,
@@ -224,6 +265,70 @@ export function recordFeedControlPacket(packet: RawPacket): boolean {
   return true;
 }
 
+export function getControlHistoryState(): ControlHistoryState {
+  return controlHistory;
+}
+
+/** Patch the replay state and publish. */
+export function updateControlHistory(patch: Partial<ControlHistoryState>): void {
+  controlHistory = { ...controlHistory, ...patch };
+  scheduleEmit();
+}
+
+/**
+ * Merge a page of stored control packets (newest first, as the history endpoint returns
+ * them). Each is a replay: the history endpoint keeps no RSSI/SNR and one row per packet, so
+ * both are nulled, `observation_id` is dropped and the row is flagged `replayed`. A packet a
+ * live row already shows is skipped (a live row's `id` is the same database id, its
+ * observation key differs). Replayed rows never push a live row out: only the room left under
+ * `FEED_CONTROL_MAX` is filled, the newest first, and a full store is `exhausted`.
+ */
+export function mergeControlHistory(
+  items: readonly RawPacket[],
+  meta: { truncated: boolean; scanned: number; limit: number }
+): number {
+  const heldIds = new Set(controlWorking.map((packet) => packet.id));
+  let room = FEED_CONTROL_MAX - controlWorking.length;
+  let added = 0;
+  let cursorId = controlHistory.cursorId;
+  for (const item of items) {
+    cursorId = item.id;
+    if (room <= 0) break;
+    if (heldIds.has(item.id)) continue;
+    const replayed: RawPacket = {
+      id: item.id,
+      timestamp: item.timestamp,
+      data: item.data,
+      payload_type: item.payload_type,
+      decrypted: item.decrypted,
+      decrypted_info: item.decrypted_info ?? null,
+      rssi: null,
+      snr: null,
+      transport_code: item.transport_code ?? null,
+      region: item.region ?? null,
+      packet_hash: item.packet_hash ?? null,
+      replayed: true,
+    };
+    if (!isControlJournalPacket(replayed)) continue;
+    if (insertControl(replayed)) {
+      added += 1;
+      room -= 1;
+    }
+  }
+  const full = FEED_CONTROL_MAX - controlWorking.length <= 0;
+  controlHistory = {
+    ...controlHistory,
+    loading: false,
+    error: false,
+    truncated: meta.truncated,
+    scanned: meta.scanned,
+    cursorId,
+    exhausted: full || (!meta.truncated && items.length < meta.limit),
+  };
+  scheduleEmit();
+  return added;
+}
+
 /**
  * Record one event row (`utils/feedEvents.ts` produces them). Inactive store: nothing, and
  * `false`, so a caller never counts an outage the feed did not show. Deduped by `key`.
@@ -356,7 +461,8 @@ export function resetFeedStore(): void {
   highWater = 0;
   epoch = 0;
   hasOlder = true;
-  snapshot = { rows: [], controlPackets: [], events: [], hasOlder: true, epoch: 0 };
+  controlHistory = initialControlHistory;
+  snapshot = emptySnapshot();
   flushScheduled = false;
   for (const listener of listeners) listener();
 }

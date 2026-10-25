@@ -19,6 +19,12 @@
     "beginning": "Beginning of history",
     "loadError": "The feed could not be loaded: {{error}}",
     "loadOlderError": "Older messages could not be loaded: {{error}}",
-    "retry": "Retry"
+    "retry": "Retry",
+    "controlHistoryMore": "Load earlier control packets",
+    "controlHistoryLoading": "Loading earlier control packets...",
+    "controlHistoryError": "Earlier control packets could not be loaded.",
+    "controlHistoryTruncated": "Scan limit reached ({{formatted}} stored packets checked): older control packets may exist.",
+    "controlHistoryEnd": "No earlier control packets stored.",
+    "controlReplayed": "Earlier"
   }
 }

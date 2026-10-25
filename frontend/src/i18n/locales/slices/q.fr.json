@@ -19,6 +19,12 @@
     "beginning": "Début de l'historique",
     "loadError": "Impossible de charger le fil : {{error}}",
     "loadOlderError": "Impossible de charger les messages plus anciens : {{error}}",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "controlHistoryMore": "Charger les paquets de contrôle précédents",
+    "controlHistoryLoading": "Chargement des paquets de contrôle précédents...",
+    "controlHistoryError": "Les paquets de contrôle précédents n'ont pas pu être chargés.",
+    "controlHistoryTruncated": "Limite d'analyse atteinte ({{formatted}} paquets stockés vérifiés) : des paquets de contrôle plus anciens peuvent exister.",
+    "controlHistoryEnd": "Aucun paquet de contrôle antérieur stocké.",
+    "controlReplayed": "Antérieur"
   }
 }
