@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 119 (the value of
+- Numbering is contiguous from 001. The current head is 120 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -92,7 +92,9 @@ terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS
 from backups and reset to 0 in a database copy; `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
 never exported by a backup; `store_online`: the Store egress consent, off by default,
 migration 103, not in `AppSettings` yet, excluded from backups and reset to 0 in a
-database copy).
+database copy; `plugins_paused`, `plugins_paused_at`, `plugins_paused_by`: the global plugin
+pause, its Unix time and the user name of who set it (migration 120, `app/plugins/pause.py`,
+written only by `PUT /api/plugins/pause`, outside `AppSettings`, excluded from backups).
 Most columns were added by migrations (`ALTER TABLE ... ADD COLUMN`). Read and
 written through `AppSettingsRepository` (`settings.py`), plus
 `RadioTransportRepository` (`radio_transport.py`) and `RadioProxyRepository`

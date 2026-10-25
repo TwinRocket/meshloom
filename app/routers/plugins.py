@@ -1,9 +1,13 @@
 """REST API of the plugin instances (``/api/plugins``; docs/dev/plugins.md, "API").
 
-Reads need ``send`` (member and up; ``config``, ``source`` and errors are admin-only
-fields). Everything that installs, changes, runs or reads the logs of an instance is
-``admin``. The host lock (``MESHCORE_DISABLE_PLUGINS``) refuses every write but the
-deletion with 403 ``plugins_disabled``. Secrets of a plugin config are write-only: a
+Reads need ``send`` (member and up, never ``kiosk`` or ``viewer``; ``config``,
+``source`` and errors are admin-only fields). Everything that installs, changes, runs
+or reads the logs of an instance is ``admin``, and every such change writes an audit
+row (``app/auth/audit.py``: actor, ``plugin:<instance_id>``, the plugin id and the
+names of the changed fields, never a value or the source). The host lock
+(``MESHCORE_DISABLE_PLUGINS``) refuses every write but the deletion and the global
+pause with 403 ``plugins_disabled``. The global pause (``/plugins/pause``,
+``app/plugins/pause.py``) holds every instance without touching ``enabled``. Secrets of a plugin config are write-only: a
 read shows ``********`` (``app/repository/plugins.py``), the logs, the diagnostic and
 the captured sends are scrubbed of their values, and no route returns
 ``config_for_init()``. The supervisor is ``app/plugins/host.py``; each change of status
@@ -22,10 +26,12 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.auth import audit
 from app.auth.permissions import has_permission, require
 from app.auth.principal import get_principal
 from app.log_redaction import redact_text
 from app.plugins import installer
+from app.plugins import pause as plugin_pause
 from app.plugins.attention import scan_source
 from app.plugins.capabilities.grants import effective_permissions
 from app.plugins.config_schema import secret_fields, validate_config_values
@@ -98,6 +104,23 @@ async def _row(instance_id: str) -> dict[str, Any]:
     if row is None:
         raise _error(404, "plugin_not_found", "No such plugin instance")
     return row
+
+
+def _target(instance_id: str) -> str:
+    return f"plugin:{instance_id}"
+
+
+def _audit_details(row: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    """What an audit row says of an instance: never a config value or the source."""
+    return {"plugin_id": row["plugin_id"], "kind": row["kind"], **extra}
+
+
+# PATCH fields that change what an instance may see, do or runs with.
+_CONFIG_FIELDS = frozenset({"config", "scope", "granted_permissions", "quotas", "hooks"})
+
+
+def _paused_error() -> HTTPException:
+    return _error(409, "plugins_paused", "All plugins are paused")
 
 
 def _store_error(exc: PluginStoreError) -> HTTPException:
@@ -251,6 +274,16 @@ class DiagnosticResult(BaseModel):
     dropped_events: int
     granted_permissions: list[str]
     logs: list[str]
+
+
+class PauseView(BaseModel):
+    paused: bool
+    since: int | None = Field(description="When the pause started (unix seconds).")
+    by: str | None = Field(description="The username of the admin who paused.")
+
+
+class PauseRequest(_Body):
+    paused: bool
 
 
 # --- helpers ---------------------------------------------------------------------
@@ -529,6 +562,41 @@ async def list_bundled() -> list[BundledPluginView]:
     return result
 
 
+# --- global pause ----------------------------------------------------------------
+
+
+def _pause_view() -> PauseView:
+    state = plugin_pause.state()
+    return PauseView(paused=state.paused, since=state.since, by=state.by)
+
+
+@router.get("/pause", response_model=PauseView, dependencies=[Reader])
+async def get_pause() -> PauseView:
+    """The global pause: whether every plugin is held, since when and by whom."""
+    return _pause_view()
+
+
+@router.put("/pause", response_model=PauseView, dependencies=[Admin])
+async def put_pause(
+    body: PauseRequest, request: Request, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PauseView:
+    """Pause or resume every plugin (idempotent). Pausing stops the running instances
+    cleanly and starts none until resumed; the per-instance ``enabled`` flags stay.
+    Allowed under the host lock, which keeps precedence."""
+    principal = get_principal(request)
+    by = principal.user.username if principal is not None else None
+    _, changed = await plugin_pause.set_paused(body.paused, by, plugin_manager)
+    if changed:
+        await audit.record(
+            "plugins.paused" if body.paused else "plugins.resumed", "success", actor=actor
+        )
+        from app.services.radio_runtime import radio_runtime
+        from app.websocket import broadcast_health
+
+        broadcast_health(radio_runtime.is_connected, radio_runtime.connection_info)
+    return _pause_view()
+
+
 # --- install and create ----------------------------------------------------------
 
 
@@ -538,10 +606,23 @@ async def list_bundled() -> list[BundledPluginView]:
     response_model=PluginInstanceView,
     dependencies=[Admin, Writable],
 )
-async def install_plugin(body: InstallRequest) -> PluginInstanceView:
+async def install_plugin(
+    body: InstallRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
     """Install a bundled plugin. ``granted_permissions`` must cover the manifest
     (400 ``consent_required`` lists what is missing); a required config field that is
-    missing creates the instance disabled with ``attention.type = "config_required"``."""
+    missing creates the instance disabled with ``attention.type = "config_required"``.
+    While the global pause holds, the instance is created but does not start."""
+    async with audit.audited(
+        actor, "plugin.installed", details={"plugin_id": body.plugin_id, "kind": "bundled"}
+    ) as scope:
+        view = await _install(body)
+        scope.target = _target(view.instance_id)
+        scope.details["enabled"] = view.enabled
+    return view
+
+
+async def _install(body: InstallRequest) -> PluginInstanceView:
     bundled = (await asyncio.to_thread(installer.list_bundled)).get(body.plugin_id)
     if bundled is None:
         raise _error(404, "plugin_not_bundled", "No such bundled plugin")
@@ -597,8 +678,18 @@ async def install_plugin(body: InstallRequest) -> PluginInstanceView:
 
 
 @router.post("", status_code=201, response_model=PluginInstanceView, dependencies=[Admin, Writable])
-async def create_local_plugin(body: CreateLocalRequest) -> PluginInstanceView:
+async def create_local_plugin(
+    body: CreateLocalRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
     """Create a local plugin (code kept in the database, started disabled)."""
+    async with audit.audited(actor, "plugin.created", details={"kind": "local"}) as scope:
+        view = await _create_local(body)
+        scope.target = _target(view.instance_id)
+        scope.details["plugin_id"] = view.plugin_id
+    return view
+
+
+async def _create_local(body: CreateLocalRequest) -> PluginInstanceView:
     hooks = list(dict.fromkeys(body.hooks))
     data = installer.local_manifest(body.label, hooks, body.permissions)
     try:
@@ -626,11 +717,48 @@ async def create_local_plugin(body: CreateLocalRequest) -> PluginInstanceView:
 
 
 @router.patch("/{instance_id}", response_model=PluginInstanceView, dependencies=[Admin, Writable])
-async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceView:
+async def patch_plugin(
+    instance_id: str, body: PatchRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
     """Change an instance. Enabling starts its process, disabling stops it; a change of
-    config, scope, grants, quotas or label restarts a running one. ``config`` replaces
-    the plain fields and merges the secrets (write-only)."""
+    config, scope, grants, quotas or label restarts a running one (none starts while
+    the global pause holds). ``config`` replaces the plain fields and merges the
+    secrets (write-only).
+
+    Audit: ``plugin.enabled`` / ``plugin.disabled`` for a change of ``enabled``,
+    ``plugin.config_changed`` for config, scope, grants, quotas or hooks, otherwise
+    ``plugin.changed``; one row per kind, the changed field names only."""
     row = await _row(instance_id)
+    fields = {f for f in body.model_fields_set if getattr(body, f) is not None}
+    toggled = "enabled" in fields and body.enabled != row["enabled"]
+    actions: list[tuple[audit.AuditAction, list[str]]] = []
+    if toggled:
+        actions.append(("plugin.enabled" if body.enabled else "plugin.disabled", ["enabled"]))
+    if config_fields := sorted(fields & _CONFIG_FIELDS):
+        actions.append(("plugin.config_changed", config_fields))
+    if other := sorted(fields - _CONFIG_FIELDS - {"enabled"}):
+        actions.append(("plugin.changed", other))
+    if not actions:
+        return await _patch(instance_id, row, body)
+    first, first_fields = actions[0]
+    async with audit.audited(
+        actor, first, target=_target(row["instance_id"]), details=_audit_details(row)
+    ) as scope:
+        scope.details["fields"] = first_fields
+        view = await _patch(instance_id, row, body)
+    for action, names in actions[1:]:
+        await audit.record(
+            action,
+            "success",
+            actor=actor,
+            target=_target(row["instance_id"]),
+            details=_audit_details(row, fields=names),
+        )
+    return view
+
+
+async def _patch(instance_id: str, row: dict[str, Any], body: PatchRequest) -> PluginInstanceView:
+    instance_id = row["instance_id"]
     fields = body.model_fields_set
     changes: dict[str, Any] = {}
     stored_secrets = frozenset(row["secret_fields"])
@@ -740,9 +868,22 @@ async def patch_plugin(instance_id: str, body: PatchRequest) -> PluginInstanceVi
 
 
 @router.put("/{instance_id}/source", response_model=SourceResult, dependencies=[Admin, Writable])
-async def put_source(instance_id: str, body: SourceRequest) -> SourceResult:
-    """Replace a local plugin's code (``ast.parse`` first) and restart it when enabled."""
+async def put_source(
+    instance_id: str, body: SourceRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> SourceResult:
+    """Replace a local plugin's code (``ast.parse`` first) and restart it when enabled.
+    Audited as ``plugin.updated`` with the source's size, never its text."""
     row = await _row(instance_id)
+    async with audit.audited(
+        actor,
+        "plugin.updated",
+        target=_target(row["instance_id"]),
+        details=_audit_details(row, fields=["source"]),
+    ):
+        return await _put_source(row["instance_id"], row, body)
+
+
+async def _put_source(instance_id: str, row: dict[str, Any], body: SourceRequest) -> SourceResult:
     if row["kind"] != "local":
         raise _error(409, "not_local", "Only a local plugin has editable source")
     if len(body.source.encode("utf-8")) > MAX_SOURCE_BYTES:
@@ -777,8 +918,11 @@ async def put_source(instance_id: str, body: SourceRequest) -> SourceResult:
     "/{instance_id}/restart", response_model=PluginInstanceView, dependencies=[Admin, Writable]
 )
 async def restart_plugin(instance_id: str) -> PluginInstanceView:
-    """Restart an instance with a fresh failure count (also clears ``crash_loop``)."""
+    """Restart an instance with a fresh failure count (also clears ``crash_loop``).
+    409 ``plugins_paused`` while the global pause holds."""
     row = await _row(instance_id)
+    if plugin_manager.paused:
+        raise _paused_error()
     if not row["enabled"]:
         raise _error(409, "plugin_disabled", "The instance is disabled")
     await _apply_runtime(instance_id, row, restart=True)
@@ -831,10 +975,13 @@ async def check_plugin(instance_id: str) -> CheckResult:
 @router.post("/{instance_id}/test", response_model=TestResult, dependencies=[Admin, Writable])
 async def test_plugin(instance_id: str, body: TestRequest) -> TestResult:
     """Inject a synthetic ``event.message`` (``test: true``) and return what the plugin
-    sent: the sends are captured by the host and never reach the radio."""
+    sent: the sends are captured by the host and never reach the radio. 409
+    ``plugins_paused`` while the global pause holds."""
     from app.repository import ChannelRepository, ContactRepository
 
     row = await _row(instance_id)
+    if plugin_manager.paused:
+        raise _paused_error()
     if len(body.text.encode("utf-8")) > MAX_TEST_TEXT_BYTES:
         raise _error(400, "test_text_too_long", "The test text is over 1 KiB")
     if body.channel and body.contact:
@@ -883,7 +1030,7 @@ async def test_plugin(instance_id: str, body: TestRequest) -> TestResult:
     try:
         outcome = await plugin_manager.dispatch_test(instance_id, "message", data)
     except PluginHostError as exc:
-        status = 409 if exc.code == "instance_not_running" else 502
+        status = 409 if exc.code in ("instance_not_running", "plugins_paused") else 502
         raise _error(status, exc.code, "The test event failed") from None
     except TimeoutError:
         raise _error(504, "test_timeout", "The plugin did not answer in time") from None
@@ -939,14 +1086,30 @@ async def plugin_diagnostic(instance_id: str) -> DiagnosticResult:
 
 
 @router.delete("/{instance_id}", status_code=204, dependencies=[Admin])
-async def delete_plugin(instance_id: str, keep_data: bool = Query(False)) -> Response:
+async def delete_plugin(
+    instance_id: str,
+    keep_data: bool = Query(False),
+    actor: audit.RequestActor = audit.SYSTEM_ACTOR,
+) -> Response:
     """Uninstall an instance. ``keep_data`` keeps its key-value store; its secrets
     always go. The shared code of a bundled plugin stays for its other instances."""
     row = await _row(instance_id)
+    instance_id = row["instance_id"]
+    async with audit.audited(
+        actor,
+        "plugin.removed",
+        target=_target(instance_id),
+        details=_audit_details(row, keep_data=keep_data),
+    ):
+        await _delete(row, keep_data)
+    return Response(status_code=204)
+
+
+async def _delete(row: dict[str, Any], keep_data: bool) -> None:
+    instance_id = row["instance_id"]
     await plugin_manager.remove(instance_id)
     await PluginRepository.delete(instance_id, keep_data=keep_data)
     if row["kind"] == "local":
         shutil.rmtree(
             plugin_manager.plugins_root() / "local" / row["instance_id"], ignore_errors=True
         )
-    return Response(status_code=204)

@@ -12,6 +12,7 @@ import type { PluginInstance } from './pluginsTypes';
 export function InstalledTab({
   instances,
   locked,
+  canManage = true,
   onOpen,
   onAdd,
   onCreateLocal,
@@ -20,6 +21,8 @@ export function InstalledTab({
 }: {
   instances: PluginInstance[];
   locked: boolean;
+  /** Admin only: the add, create, enable and reorder controls (a member reads the list). */
+  canManage?: boolean;
   onOpen: (instance: PluginInstance) => void;
   onAdd: () => void;
   onCreateLocal: () => void;
@@ -67,16 +70,18 @@ export function InstalledTab({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onCreateLocal} disabled={locked}>
-          <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
-          {t('settings.extensions.local.newButton')}
-        </Button>
-        <Button size="sm" onClick={onAdd} disabled={locked}>
-          <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
-          {t('settings.extensions.add.button')}
-        </Button>
-      </div>
+      {canManage && (
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={onCreateLocal} disabled={locked}>
+            <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+            {t('settings.extensions.local.newButton')}
+          </Button>
+          <Button size="sm" onClick={onAdd} disabled={locked}>
+            <Plus className="mr-1 h-4 w-4" aria-hidden="true" />
+            {t('settings.extensions.add.button')}
+          </Button>
+        </div>
+      )}
       {sorted.length === 0 && (
         <p className="text-sm text-muted-foreground">{t('settings.extensions.empty')}</p>
       )}
@@ -107,46 +112,48 @@ export function InstalledTab({
                   aria-hidden="true"
                 />
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    checked={instance.enabled}
-                    disabled={locked || busy || (block !== null && !instance.enabled)}
-                    aria-label={t('settings.extensions.enableToggle', { name })}
-                    onChange={(e) => void toggle(instance, e.target.checked)}
-                  />
-                  <span>{t('settings.extensions.enabled')}</span>
-                </label>
-                {block && !instance.enabled && (
-                  <span className="text-xs text-muted-foreground">
-                    {t(`settings.extensions.enableBlocked.${block}`)}
+              {canManage && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={instance.enabled}
+                      disabled={locked || busy || (block !== null && !instance.enabled)}
+                      aria-label={t('settings.extensions.enableToggle', { name })}
+                      onChange={(e) => void toggle(instance, e.target.checked)}
+                    />
+                    <span>{t('settings.extensions.enabled')}</span>
+                  </label>
+                  {block && !instance.enabled && (
+                    <span className="text-xs text-muted-foreground">
+                      {t(`settings.extensions.enableBlocked.${block}`)}
+                    </span>
+                  )}
+                  <span className="ml-auto flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      disabled={index === 0 || busyId !== null}
+                      aria-label={t('settings.extensions.moveUp', { name })}
+                      onClick={() => void move(index, -1)}
+                    >
+                      <ArrowUp className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9"
+                      disabled={index === sorted.length - 1 || busyId !== null}
+                      aria-label={t('settings.extensions.moveDown', { name })}
+                      onClick={() => void move(index, 1)}
+                    >
+                      <ArrowDown className="h-4 w-4" />
+                    </Button>
                   </span>
-                )}
-                <span className="ml-auto flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9"
-                    disabled={index === 0 || busyId !== null}
-                    aria-label={t('settings.extensions.moveUp', { name })}
-                    onClick={() => void move(index, -1)}
-                  >
-                    <ArrowUp className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9"
-                    disabled={index === sorted.length - 1 || busyId !== null}
-                    aria-label={t('settings.extensions.moveDown', { name })}
-                    onClick={() => void move(index, 1)}
-                  >
-                    <ArrowDown className="h-4 w-4" />
-                  </Button>
-                </span>
-              </div>
+                </div>
+              )}
             </li>
           );
         })}

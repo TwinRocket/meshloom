@@ -944,6 +944,29 @@ class AppSettingsRepository:
             )
 
     @staticmethod
+    async def get_plugins_pause() -> tuple[bool, int | None, str | None]:
+        """The global plugin pause: (paused, since, by). Not part of AppSettings."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT plugins_paused, plugins_paused_at, plugins_paused_by"
+                " FROM app_settings WHERE id = 1"
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return False, None, None
+        return bool(row[0]), row[1], row[2]
+
+    @staticmethod
+    async def set_plugins_pause(paused: bool, since: int | None, by: str | None) -> None:
+        """Persist the global plugin pause (``PUT /api/plugins/pause`` only)."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE app_settings SET plugins_paused = ?, plugins_paused_at = ?,"
+                " plugins_paused_by = ? WHERE id = 1",
+                (1 if paused else 0, since, by),
+            )
+
+    @staticmethod
     async def get_last_notified_update_version() -> str | None:
         """Last catalogue ``latest`` we already Web-Pushed. Not part of AppSettings."""
         async with db.readonly() as conn:

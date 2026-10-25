@@ -103,6 +103,33 @@ Deux extensions sont livrées avec Meshloom et s'installent sans aucun réseau :
 - **Écho** répond `Plong!` à `!pling`. Elle lit les canaux publics et vos messages directs et ne fait que répondre. Son code sert de référence pour écrire le vôtre.
 - **Auto-répondeur** répond aux messages à partir de règles que vous écrivez, sans code. Une règle par ligne, dans son réglage **Règles** : `déclencheur: texte => réponse`. Le déclencheur est `keyword` (le mot apparaît dans le message), `prefix` (le message commence par ce texte) ou `regex` (un motif de 100 caractères au plus, dans un dialecte restreint : au plus deux répétitions de plus de 5 fois, aucun groupe répété qui contient une répétition ou un choix, ni référence arrière ni assertion ; il ne lit que les 200 premiers caractères du message). Ajoutez des options après le déclencheur, séparées par des virgules : `channel=#nom` (ou `channel=dm`) pour limiter une règle à un canal, `cooldown=300` pour une pause en secondes avant de répondre de nouveau à la même personne. La réponse peut contenir `{sender}`, `{channel}` et `{text}`. Par exemple `prefix,channel=#test: !ping => Pong, {sender} !`. La première règle qui correspond décide ; une règle illisible est ignorée et écrite dans le journal. Autres réglages : respecter les majuscules et minuscules, répondre ou non aux messages directs, la pause par défaut (120 secondes) et le nombre maximal de réponses par heure (20). Au-delà, les limites ci-dessus s'appliquent toujours, dont une réponse toutes les 30 secondes au plus à la même personne.
 
+### Qui peut faire quoi
+
+- Les **administrateurs** installent, configurent, activent, désactivent, réordonnent, redémarrent, testent et désinstallent les extensions, écrivent les extensions locales, lisent leurs journaux et diagnostics, et mettent en pause ou relancent l’ensemble.
+- Les **membres** ouvrent **Réglages → Extensions** en lecture seule : ils voient la liste, les états, les permissions de chaque copie, et qui a mis les extensions en pause et depuis quand. La page leur indique que seul un administrateur peut la modifier. Journaux et diagnostics restent réservés aux administrateurs, car ils peuvent contenir le texte des messages.
+- Les comptes **lecteur** et **kiosque** n’ont pas de section Extensions.
+
+Chaque modification faite par un administrateur est inscrite au journal d’audit (**Réglages → Utilisateurs et accès → Journal d’audit**), avec son auteur et la copie concernée : installation, activation, désactivation, réglages modifiés, désinstallation, code local enregistré, pause et reprise. Le journal garde le nom des champs modifiés, jamais leur valeur : ni secret, ni code. Être sur le même réseau ne donne aucun droit d’installer quoi que ce soit. Seul un compte administrateur le peut, et le journal d’audit montre qui l’a fait.
+
+### Mettre en pause toutes les extensions
+
+**Mettre en pause toutes les extensions** (en haut de la page, administrateurs seulement, après confirmation) est l’interrupteur des incidents : une extension se comporte mal et vous voulez tout arrêter tout de suite, avant de chercher laquelle.
+
+- Toutes les copies en cours s’arrêtent et aucune ne démarre pendant la pause. Les messages et événements reçus entre-temps ne sont pas transmis aux extensions, et **Tester avec un message** est refusé.
+- Rien n’est perdu : chaque copie garde son interrupteur, ses réglages et ses données. Vous pouvez toujours installer, configurer ou activer des copies ; elles démarrent à la reprise.
+- Un bandeau indique depuis quand et par qui les extensions sont en pause, et les copies affichent l’état **En pause**. **Reprendre** relance exactement les copies dont l’interrupteur est activé.
+- La pause survit à un redémarrage de Meshloom. Les bots Python sont mis en pause en même temps.
+
+Elle se distingue des deux autres façons d’arrêter les extensions :
+
+| | Qui | Ce qui s’arrête | Comment revenir en arrière |
+|---|---|---|---|
+| L’interrupteur d’une copie | Un administrateur, dans l’interface | Cette copie seulement | La réactiver |
+| **Mettre en pause toutes les extensions** | Un administrateur, dans l’interface | Toutes les copies ; interrupteurs et réglages sont conservés | **Reprendre** |
+| Verrou de l’hôte (`MESHCORE_DISABLE_PLUGINS=true`, voir [Environnement](/docs/deep/environment/)) | Qui administre le serveur | Tout le système d’extensions ; rien ne peut démarrer | Retirer la variable et redémarrer |
+
+Quand le verrou de l’hôte est posé, il l’emporte : la page montre les extensions comme coupées par le serveur, quoi que dise la pause.
+
 ### Extensions locales
 
 **Nouvelle extension locale** (onglet Installées) crée un petit programme Python conservé dans Meshloom, à partir d'un code de départ (un écho qui répond `Plong!` à `!pling`, ou un code vide). Elle démarre éteinte, avec seulement les permissions que vous lui donnez. Dans son tiroir :

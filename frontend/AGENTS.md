@@ -407,18 +407,28 @@ purpose.
 
 ### Extensions section (`components/settings/extensions/`)
 
-Settings → Extensions (section id `extensions`, `SettingsExtensionsSection.tsx`, admin only
-through `canOpenSettingsSection`; icon `Puzzle`). Over `/api/plugins` (`api.getPlugins`,
+Settings → Extensions (section id `extensions`, `SettingsExtensionsSection.tsx`, icon `Puzzle`).
+`canOpenSettingsSection` opens it to `admin` and, through `MEMBER_SETTINGS_SECTIONS`, to any
+role with `send` (member); viewer and kiosk get no section. A member sees it read-only
+(`isAdmin` false): the `plugins-member-readonly` note, no add/create buttons, no switch or
+reorder (`InstalledTab canManage`), and a drawer (`InstanceDrawer canManage`) without scope,
+quotas, settings, code, logs, diagnostic, restart or uninstall, so no admin-only route is called.
+Over `/api/plugins` (`api.getPlugins`,
 `getBundledPlugins`, `installPlugin`, `createLocalPlugin`, `patchPlugin`, `putPluginSource`,
 `checkPlugin`, `testPlugin`, `restartPlugin`, `getPluginLogs`, `getPluginDiagnostic`,
-`deletePlugin`; types in `extensions/pluginsTypes.ts`, `PluginInstance` stays in `types.ts`).
-It reads `health` (`plugins_isolation`, `plugins_disabled_source`) and
+`deletePlugin`, `getPluginsPause`, `setPluginsPause`; types in `extensions/pluginsTypes.ts`,
+`PluginInstance` stays in `types.ts`). Global pause: `GET /plugins/pause` read on mount and on
+each health change; a banner (`plugins-paused-banner`: since when, by whom, **Resume** for admins)
+while paused, else an admin-only **Pause all extensions** button behind a confirmation dialog;
+instances read the `paused` status (tone `warn`). `plugins_disabled_source: "paused"` does not
+lock the writes (changes are saved and apply on resume); `env`, `platform` and `isolation` do.
+It reads `health` (`plugins_isolation`, `plugins_disabled_source`, `plugins_paused_since`) and
 reloads the list whenever `health.plugin_statuses` changes (the server announces `plugin_status`
 and a health refresh follows, so no extra WebSocket handler). Rules: `enableBlock()`
 (`pluginsShared.ts`) keeps `revoked`/`incompatible` from being enabled (the toggle is disabled
 and `toggle()` refuses too); `needs_attention` for a reason other than `config_required` is
 enabled only through the drawer's **Accept and enable** (resends `granted_permissions`, then
-`enabled: true`); with `plugins_disabled_source` set every write is off but
+`enabled: true`); with `plugins_disabled_source` set to anything but `paused` every write is off but
 Uninstall. The consent (`AddBundledDialog`) grants exactly the declared permissions and shows
 `plugins.permissions.http.private_messages_warning` when `messages.read` (direct or all channels)
 meets `http`. `ScopeEditor` is a small own editor (not the fanout `ScopeSelector`, which is private

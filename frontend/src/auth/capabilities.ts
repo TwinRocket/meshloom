@@ -29,6 +29,13 @@ const ROLE_CAPABILITIES: Record<AuthRole, readonly Capability[]> = {
  */
 const ACCOUNT_SETTINGS_SECTIONS: readonly SettingsSection[] = ['local', 'access'];
 
+/**
+ * Settings sections opened read-only by a role holding `send` (member and up): the
+ * plugin list and statuses are member-readable (`GET /plugins`, `GET /plugins/pause`),
+ * every write stays admin-only and the section hides it (`SettingsExtensionsSection`).
+ */
+const MEMBER_SETTINGS_SECTIONS: readonly SettingsSection[] = ['extensions'];
+
 export interface Capabilities {
   /** The role these were derived from; null when nobody is known (tests, previews). */
   role: AuthRole | null;
@@ -39,7 +46,8 @@ export interface Capabilities {
   canSend: boolean;
   /** Repeater and room administration panes (`repeater_admin`, held by `admin` only). */
   canAdministerRepeaters: boolean;
-  /** Instance administration: fanout, backup, radio settings, debug snapshot, private key... */
+  /** Instance administration: fanout, backup, radio settings, debug snapshot, private key,
+   * every plugin write and the global plugin pause... */
   isAdmin: boolean;
   /** Any settings page at all (the kiosk has none). */
   canOpenSettings: boolean;
@@ -55,7 +63,9 @@ export function capabilitiesOfRole(role: AuthRole): ReadonlySet<Capability> {
 function build(role: AuthRole | null, granted: ReadonlySet<Capability>): Capabilities {
   const isAdmin = granted.has('admin');
   const canOpenSettingsSection = (section: SettingsSection) =>
-    isAdmin || (role !== null && role !== 'kiosk' && ACCOUNT_SETTINGS_SECTIONS.includes(section));
+    isAdmin ||
+    (role !== null && role !== 'kiosk' && ACCOUNT_SETTINGS_SECTIONS.includes(section)) ||
+    (granted.has('send') && MEMBER_SETTINGS_SECTIONS.includes(section));
   return {
     role,
     has: (capability) => granted.has(capability),

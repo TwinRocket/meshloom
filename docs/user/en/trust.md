@@ -30,6 +30,8 @@ Two protections exist:
 
 If people you do not all know can reach the instance, keep bots disabled.
 
+From 5.0, plugins (**Settings → Extensions**) follow the same rule. Who can install, configure or run one is decided by the account's role, not by being on your network: only an administrator can, a member sees the list read-only, and viewer and kiosk accounts see nothing. Every change is written to the audit log with who made it, so you can tell afterwards who installed what. When one misbehaves, **Pause all extensions** stops them all at once without losing their settings (see [Plugins](/en/docs/deep/plugins/#pause-all-extensions)).
+
 ## The password and HTTPS
 
 Your password protects the interface only as far as the network between you and Meshloom does. Over plain HTTP, the user name and password travel unencrypted on every sign-in. [HTTPS](/en/docs/deep/https/) explains how to set up a certificate, even a self-signed one.

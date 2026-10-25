@@ -92,6 +92,7 @@ function LogsPanel({ instanceId }: { instanceId: string }) {
 export function InstanceDrawer({
   instance,
   locked,
+  canManage = true,
   onClose,
   onChanged,
   onRemoved,
@@ -99,6 +100,8 @@ export function InstanceDrawer({
   instance: PluginInstance | null;
   /** Plugins are turned off on this server (`plugins_disabled_source`): no write. */
   locked: boolean;
+  /** Admin only: every write, the log and the diagnostic (a member reads the status). */
+  canManage?: boolean;
   onClose: () => void;
   onChanged: (instance: PluginInstance) => void;
   onRemoved: (instanceId: string) => void;
@@ -111,6 +114,7 @@ export function InstanceDrawer({
             key={instance.instance_id}
             instance={instance}
             locked={locked}
+            canManage={canManage}
             onChanged={onChanged}
             onRemoved={onRemoved}
           />
@@ -123,11 +127,13 @@ export function InstanceDrawer({
 function DrawerBody({
   instance,
   locked,
+  canManage,
   onChanged,
   onRemoved,
 }: {
   instance: PluginInstance;
   locked: boolean;
+  canManage: boolean;
   onChanged: (instance: PluginInstance) => void;
   onRemoved: (instanceId: string) => void;
 }) {
@@ -253,6 +259,14 @@ function DrawerBody({
           {t('settings.extensions.disabled.drawer')}
         </p>
       )}
+      {!canManage && (
+        <p
+          data-testid="plugin-drawer-member-readonly"
+          className="rounded-md border border-border p-3 text-sm text-muted-foreground"
+        >
+          {t('settings.extensions.drawerMemberReadOnly')}
+        </p>
+      )}
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -306,7 +320,7 @@ function DrawerBody({
             {reason !== 'config_required' && reason !== 'reinstall' && !frozen && (
               <ConsentWarnings permissions={declared} manifest={instance.manifest} />
             )}
-            {reason !== 'config_required' && reason !== 'reinstall' && !frozen && (
+            {canManage && reason !== 'config_required' && reason !== 'reinstall' && !frozen && (
               <Button size="sm" onClick={acknowledge} disabled={readOnly}>
                 {t('settings.extensions.drawer.acceptAndEnable')}
               </Button>
@@ -323,7 +337,7 @@ function DrawerBody({
           <PermissionList
             declared={declared}
             granted={granted}
-            disabled={readOnly || frozen}
+            disabled={readOnly || frozen || !canManage}
             onToggle={(name, on) =>
               setGranted((prev) => {
                 const next = { ...prev };
@@ -336,100 +350,108 @@ function DrawerBody({
         </Group>
       )}
 
-      <Group title={t('settings.extensions.drawer.scopeTitle')}>
-        <ScopeEditor scope={scope} onChange={setScope} disabled={readOnly || frozen} />
-      </Group>
+      {canManage && (
+        <>
+          <Group title={t('settings.extensions.drawer.scopeTitle')}>
+            <ScopeEditor scope={scope} onChange={setScope} disabled={readOnly || frozen} />
+          </Group>
 
-      {hasSend && (
-        <Group title={t('settings.extensions.drawer.quotasTitle')}>
-          <p className="text-xs text-muted-foreground">
-            {t('settings.extensions.drawer.quotasHint')}
-          </p>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <label className="space-y-1">
-              <span>{t('settings.extensions.drawer.perHour')}</span>
-              <input
-                type="number"
-                min={1}
-                max={quota.maxHour}
-                value={perHour}
-                disabled={readOnly || frozen}
-                onChange={(e) => setPerHour(e.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-2"
-              />
-            </label>
-            <label className="space-y-1">
-              <span>{t('settings.extensions.drawer.perDay')}</span>
-              <input
-                type="number"
-                min={1}
-                max={quota.maxDay}
-                value={perDay}
-                disabled={readOnly || frozen}
-                onChange={(e) => setPerDay(e.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-2"
-              />
-            </label>
-          </div>
-          {!quotaValid && (
-            <p className="text-xs text-destructive">
-              {t('settings.extensions.drawer.quotaInvalid', {
-                hour: quota.maxHour,
-                day: quota.maxDay,
-              })}
-            </p>
+          {hasSend && (
+            <Group title={t('settings.extensions.drawer.quotasTitle')}>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.extensions.drawer.quotasHint')}
+              </p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <label className="space-y-1">
+                  <span>{t('settings.extensions.drawer.perHour')}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={quota.maxHour}
+                    value={perHour}
+                    disabled={readOnly || frozen}
+                    onChange={(e) => setPerHour(e.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-2"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span>{t('settings.extensions.drawer.perDay')}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={quota.maxDay}
+                    value={perDay}
+                    disabled={readOnly || frozen}
+                    onChange={(e) => setPerDay(e.target.value)}
+                    className="h-10 w-full rounded-md border border-input bg-background px-2"
+                  />
+                </label>
+              </div>
+              {!quotaValid && (
+                <p className="text-xs text-destructive">
+                  {t('settings.extensions.drawer.quotaInvalid', {
+                    hour: quota.maxHour,
+                    day: quota.maxDay,
+                  })}
+                </p>
+              )}
+            </Group>
           )}
-        </Group>
-      )}
 
-      {dirty && (
-        <Button onClick={save} disabled={readOnly || frozen || (hasSend && !quotaValid)}>
-          {t('settings.extensions.drawer.save')}
-        </Button>
-      )}
+          {dirty && (
+            <Button onClick={save} disabled={readOnly || frozen || (hasSend && !quotaValid)}>
+              {t('settings.extensions.drawer.save')}
+            </Button>
+          )}
 
-      {instance.kind === 'local' && (
-        <Group title={t('settings.extensions.local.title')}>
-          <LocalPluginEditor instance={instance} locked={locked || frozen} onChanged={onChanged} />
-        </Group>
-      )}
+          {instance.kind === 'local' && (
+            <Group title={t('settings.extensions.local.title')}>
+              <LocalPluginEditor
+                instance={instance}
+                locked={locked || frozen}
+                onChanged={onChanged}
+              />
+            </Group>
+          )}
 
-      <Group title={t('settings.extensions.config.title')}>
-        <PluginConfigForm instance={instance} locked={locked || frozen} onChanged={onChanged} />
-      </Group>
+          <Group title={t('settings.extensions.config.title')}>
+            <PluginConfigForm instance={instance} locked={locked || frozen} onChanged={onChanged} />
+          </Group>
 
-      <Group title={t('settings.extensions.logs.title')}>
-        <LogsPanel instanceId={instance.instance_id} />
-      </Group>
+          <Group title={t('settings.extensions.logs.title')}>
+            <LogsPanel instanceId={instance.instance_id} />
+          </Group>
 
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          disabled={readOnly || !canRestart}
-          onClick={() =>
-            run(
-              () => api.restartPlugin(instance.instance_id),
-              t('settings.extensions.drawer.restarted')
-            )
-          }
-        >
-          {t('settings.extensions.drawer.restart')}
-        </Button>
-        <Button variant="outline" onClick={copyDiagnostic}>
-          {t('settings.extensions.drawer.copyDiagnostic')}
-        </Button>
-        <Button variant="destructive" disabled={busy} onClick={() => setUninstallOpen(true)}>
-          {t('settings.extensions.drawer.uninstall')}
-        </Button>
-      </div>
-      {diagnostic && (
-        <textarea
-          readOnly
-          aria-label={t('settings.extensions.drawer.copyDiagnostic')}
-          className="h-40 w-full rounded-md border border-input bg-muted/40 p-2 text-xs"
-          value={diagnostic}
-          onFocus={(e) => e.currentTarget.select()}
-        />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={readOnly || !canRestart}
+              onClick={() =>
+                run(
+                  () => api.restartPlugin(instance.instance_id),
+                  t('settings.extensions.drawer.restarted')
+                )
+              }
+            >
+              {t('settings.extensions.drawer.restart')}
+            </Button>
+            <Button variant="outline" onClick={copyDiagnostic}>
+              {t('settings.extensions.drawer.copyDiagnostic')}
+            </Button>
+            <Button variant="destructive" disabled={busy} onClick={() => setUninstallOpen(true)}>
+              {t('settings.extensions.drawer.uninstall')}
+            </Button>
+          </div>
+          {diagnostic && (
+            <textarea
+              readOnly
+              aria-label={t('settings.extensions.drawer.copyDiagnostic')}
+              className="h-40 w-full rounded-md border border-input bg-muted/40 p-2 text-xs"
+              value={diagnostic}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+          )}
+        </>
       )}
 
       <Dialog open={uninstallOpen} onOpenChange={setUninstallOpen}>

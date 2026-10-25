@@ -205,6 +205,13 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "Store consent: a copy restored elsewhere would enable an egress nobody clicked",
     ),
+    **{
+        f"app_settings.{column}": (
+            "excluded",
+            "plugin pause: live incident state of this host, never restored on another one",
+        )
+        for column in ("plugins_paused", "plugins_paused_at", "plugins_paused_by")
+    },
     "app_settings.wifi_prompt_state": ("excluded", "per-host prompt state, never a secret"),
     "app_settings.auth_allowed_origins": (
         "excluded",

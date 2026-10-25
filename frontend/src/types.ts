@@ -427,10 +427,16 @@ export interface HealthStatus {
   /** Each notification channel's status, keyed by channel id (`builtin:push`, `legacy:webhook`...). */
   notification_statuses?: Record<string, NotificationChannelStatus>;
   bots_disabled: boolean;
-  bots_disabled_source?: 'env' | 'until_restart' | null;
+  /** Deprecated: mirrors the plugin host (`paused` while the global plugin pause holds). */
+  bots_disabled_source?: 'env' | 'until_restart' | 'paused' | null;
   /** Plugin host: isolation level, why it is off (null when on), and each instance. */
   plugins_isolation?: 'none' | 'setuid' | 'bwrap' | null;
-  plugins_disabled_source?: 'env' | 'platform' | 'isolation' | null;
+  /** True whenever no plugin may run: the host lock, the platform, isolation, or the pause. */
+  plugins_disabled?: boolean;
+  /** `env`, `platform` and `isolation` are host locks and win over `paused`. */
+  plugins_disabled_source?: 'env' | 'platform' | 'isolation' | 'paused' | null;
+  /** Unix seconds the global plugin pause started, null when not paused. */
+  plugins_paused_since?: number | null;
   plugin_statuses?: Record<string, PluginStatusEntry>;
   radio_proxy?: RadioProxyStatus | null;
 }

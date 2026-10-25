@@ -4,6 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock('../components/ui/sonner', () => ({ toast: toastMocks }));
 
+// The role the section renders for; null = no session (unrestricted, like a preview).
+const roleRef = vi.hoisted(() => ({ current: null as null | 'admin' | 'member' }));
+vi.mock('../auth/SessionProvider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auth/SessionProvider')>();
+  const { capabilitiesFor } = await import('../auth/capabilities');
+  return {
+    ...actual,
+    useCapabilities: () =>
+      roleRef.current ? capabilitiesFor(roleRef.current) : actual.useCapabilities(),
+  };
+});
+
 import { api, ApiError } from '../api';
 import { SettingsExtensionsSection } from '../components/settings/SettingsExtensionsSection';
 import { MigrationBanner } from '../components/settings/extensions/MigrationBanner';
@@ -79,6 +91,13 @@ const fixture: BundledPlugin = {
 
 const health = (extra: Partial<HealthStatus> = {}) =>
   ({ plugins_isolation: 'bwrap', plugins_disabled_source: null, ...extra }) as HealthStatus;
+
+const NOT_PAUSED = { paused: false, since: null, by: null };
+
+beforeEach(() => {
+  roleRef.current = null;
+  vi.spyOn(api, 'getPluginsPause').mockResolvedValue(NOT_PAUSED);
+});
 
 describe('SettingsExtensionsSection', () => {
   beforeEach(() => {
@@ -501,11 +520,138 @@ describe('re-consent, reorder and admin gate', () => {
 
   it.each([
     ['admin', true],
-    ['member', false],
+    ['member', true],
     ['viewer', false],
     ['kiosk', false],
   ] as const)('the extensions section is open to %s: %s', (role, open) => {
+    // Members read the list read-only (`GET /plugins` is member and up); kiosk and
+    // viewer get no section.
     expect(capabilitiesFor(role).canOpenSettingsSection('extensions')).toBe(open);
+  });
+});
+
+describe('global pause and member view', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    toastMocks.error.mockClear();
+    toastMocks.success.mockClear();
+  });
+
+  it('pauses every extension after a confirmation, then resumes from the banner', async () => {
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([instance()]);
+    // The server state the section reads back after each change.
+    let server: { paused: boolean; since: number | null; by: string | null } = NOT_PAUSED;
+    vi.spyOn(api, 'getPluginsPause').mockImplementation(async () => server);
+    const set = vi.spyOn(api, 'setPluginsPause').mockImplementation(async (paused) => {
+      server = paused ? { paused: true, since: 1_760_000_000, by: 'alice' } : NOT_PAUSED;
+      return server;
+    });
+    render(<SettingsExtensionsSection health={health()} />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: t('settings.extensions.pause.button') })
+    );
+    // Nothing happens before the confirmation.
+    expect(set).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(t('settings.extensions.pause.confirmText'));
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: t('settings.extensions.pause.confirm') })
+    );
+    await waitFor(() => expect(set).toHaveBeenCalledWith(true));
+    const banner = await screen.findByTestId('plugins-paused-banner');
+    expect(banner).toHaveTextContent('alice');
+    expect(
+      screen.queryByRole('button', { name: t('settings.extensions.pause.button') })
+    ).toBeNull();
+    fireEvent.click(
+      within(banner).getByRole('button', { name: t('settings.extensions.pause.resume') })
+    );
+    await waitFor(() => expect(set).toHaveBeenLastCalledWith(false));
+    await waitFor(() => expect(screen.queryByTestId('plugins-paused-banner')).toBeNull());
+  });
+
+  it('shows paused instances and keeps the writes on while paused', async () => {
+    vi.spyOn(api, 'getPluginsPause').mockResolvedValue({
+      paused: true,
+      since: 1_760_000_000,
+      by: 'alice',
+    });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([instance({ status: 'paused' })]);
+    render(
+      <SettingsExtensionsSection
+        health={health({ plugins_disabled_source: 'paused', plugins_paused_since: 1_760_000_000 })}
+      />
+    );
+    expect(await screen.findByText(t('settings.extensions.status.paused'))).toBeInTheDocument();
+    expect(await screen.findByTestId('plugins-paused-banner')).toHaveTextContent(
+      t('settings.extensions.pause.bannerExplain')
+    );
+    // The pause is not the host lock: no "turned off" alert, changes stay possible.
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('button', { name: t('settings.extensions.add.button') })).toBeEnabled();
+    expect(screen.getByRole('switch')).toBeEnabled();
+  });
+
+  it('gives a member the list read-only, with the reason and no write control', async () => {
+    roleRef.current = 'member';
+    vi.spyOn(api, 'getPluginsPause').mockResolvedValue({
+      paused: true,
+      since: 1_760_000_000,
+      by: 'alice',
+    });
+    const logs = vi.spyOn(api, 'getPluginLogs');
+    const diagnostic = vi.spyOn(api, 'getPluginDiagnostic');
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([
+      instance({ config: {}, secret_fields: [], status: 'paused' }),
+    ]);
+    render(<SettingsExtensionsSection health={health({ plugins_disabled_source: 'paused' })} />);
+    expect(await screen.findByTestId('plugins-member-readonly')).toHaveTextContent(
+      t('settings.extensions.memberReadOnly')
+    );
+    const banner = await screen.findByTestId('plugins-paused-banner');
+    expect(banner).toHaveTextContent('alice');
+    expect(within(banner).queryByRole('button')).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: t('settings.extensions.pause.button') })
+    ).toBeNull();
+    expect(screen.queryByRole('button', { name: t('settings.extensions.add.button') })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: t('settings.extensions.local.newButton') })
+    ).toBeNull();
+    expect(screen.queryByRole('switch')).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: t('settings.extensions.openDetails', { name: 'Weather' }),
+      })
+    );
+    expect(await screen.findByTestId('plugin-drawer-member-readonly')).toBeInTheDocument();
+    for (const name of [
+      'settings.extensions.drawer.restart',
+      'settings.extensions.drawer.uninstall',
+      'settings.extensions.drawer.copyDiagnostic',
+    ]) {
+      expect(screen.queryByRole('button', { name: t(name) })).toBeNull();
+    }
+    expect(screen.queryByText(t('settings.extensions.logs.title'))).toBeNull();
+    expect(logs).not.toHaveBeenCalled();
+    expect(diagnostic).not.toHaveBeenCalled();
+  });
+
+  it('has the pause and member texts in French and English', () => {
+    for (const lng of ['en', 'fr']) {
+      for (const key of [
+        'settings.extensions.status.paused',
+        'settings.extensions.memberReadOnly',
+        'settings.extensions.drawerMemberReadOnly',
+        'settings.extensions.pause.button',
+        'settings.extensions.pause.confirmText',
+        'settings.extensions.pause.banner',
+        'settings.extensions.pause.resume',
+      ]) {
+        expect(i18n.exists(key, { lng })).toBe(true);
+      }
+    }
   });
 });
 

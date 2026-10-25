@@ -113,7 +113,7 @@ class DebugHealthSummary(BaseModel):
     database_size_mb: float
     oldest_undecrypted_timestamp: int | None
     fanouts_with_errors: dict[str, FanoutStatusResponse] = Field(default_factory=dict)
-    bots_disabled_source: Literal["env", "until_restart"] | None = None
+    bots_disabled_source: Literal["env", "until_restart", "paused"] | None = None
 
 
 class DebugEnvironment(BaseModel):

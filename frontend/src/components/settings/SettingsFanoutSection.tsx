@@ -3686,7 +3686,9 @@ export function SettingsFanoutSection({
         <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {health.bots_disabled_source === 'until_restart'
             ? t('settings.fanout.list.botsDisabledUntilRestart')
-            : t('settings.fanout.list.botsDisabled')}
+            : health.bots_disabled_source === 'paused'
+              ? t('settings.fanout.list.botsPaused')
+              : t('settings.fanout.list.botsDisabled')}
         </div>
       )}
 
