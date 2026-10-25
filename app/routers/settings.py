@@ -374,6 +374,14 @@ async def _present_settings(settings: AppSettings) -> AppSettings:
             )
         }
     )
+    from app.services.share import SHARE_TERMS_VERSION
+
+    redacted = redacted.model_copy(
+        update={
+            "share_effective": settings.share_enabled
+            and settings.share_terms_version == SHARE_TERMS_VERSION
+        }
+    )
     return await annotate_directory_available(redacted)
 
 

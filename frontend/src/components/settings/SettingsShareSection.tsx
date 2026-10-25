@@ -4,10 +4,11 @@ import { formatApiError } from '../../api';
 import type {
   AppSettingsUpdate,
   SharePreviewPolicy,
+  ShareSettingsUpdate,
   ShareShortenMode,
   ShareStatus,
 } from '../../types';
-import { shareTermsStale, type ShareSettingsUpdate } from '../../utils/shareTerms';
+import { shareTermsStale } from '../../utils/shareTerms';
 import { loadShareStatus, refreshShareStatus, useShareStatus } from '../../stores/shareStatusStore';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';

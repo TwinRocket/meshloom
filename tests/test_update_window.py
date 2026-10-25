@@ -1,3 +1,4 @@
+import time as _time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -11,10 +12,15 @@ from app.services.update_window import (
 
 
 def _at(weekday: int, hour: int, minute: int) -> datetime:
-    """Build a timezone-aware local datetime on a specific ISO weekday."""
-    local = datetime.now().astimezone()
-    delta = weekday - local.weekday()
-    return local.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=delta)
+    """Build a timezone-aware local datetime on a specific ISO weekday.
+
+    Built from the calendar date and localized as wall-clock time, so it stays correct
+    when the week contains a DST switch (a fixed-offset ``+ timedelta(days=n)`` would
+    shift the wall clock by an hour).
+    """
+    today = datetime.now().astimezone().date()
+    day = today + timedelta(days=weekday - today.weekday())
+    return datetime.combine(day, datetime.min.time()).replace(hour=hour, minute=minute).astimezone()
 
 
 class TestParseHhmm:
@@ -93,3 +99,65 @@ def test_in_window_accepts_utc_aware_now():
     utc_now = datetime.now(UTC)
     local = utc_now.astimezone()
     assert in_window(utc_now, "00:00", "00:00", [local.weekday()]) is True
+
+
+@pytest.fixture
+def paris(monkeypatch):
+    monkeypatch.setenv("TZ", "Europe/Paris")
+    _time.tzset()
+    yield
+    monkeypatch.undo()
+    _time.tzset()
+
+
+def _paris(y, mo, d, h, mi=0):
+    return datetime(y, mo, d, h, mi).astimezone()
+
+
+@pytest.mark.skipif(not hasattr(_time, "tzset"), reason="needs time.tzset")
+class TestDstSwitch:
+    """Europe/Paris: 2026-03-29 (spring, 23 h day) and 2026-10-25 (autumn, 25 h day)."""
+
+    def test_autumn_day_same_day_range(self, paris):
+        # Sunday 2026-10-25, weekday 6
+        assert in_window(_paris(2026, 10, 25, 8), "08:00", "18:00", [6]) is True
+        assert in_window(_paris(2026, 10, 25, 17, 59), "08:00", "18:00", [6]) is True
+        assert in_window(_paris(2026, 10, 25, 18), "08:00", "18:00", [6]) is False
+        assert in_window(_paris(2026, 10, 25, 7, 59), "08:00", "18:00", [6]) is False
+
+    def test_spring_day_same_day_range(self, paris):
+        # Sunday 2026-03-29
+        assert in_window(_paris(2026, 3, 29, 8), "08:00", "18:00", [6]) is True
+        assert in_window(_paris(2026, 3, 29, 18), "08:00", "18:00", [6]) is False
+
+    def test_overnight_across_autumn_switch(self, paris):
+        # Window opened Saturday 22:00, still open Sunday 03:00 (after the 25 h night).
+        assert in_window(_paris(2026, 10, 25, 3), "22:00", "06:00", [5]) is True
+        assert in_window(_paris(2026, 10, 25, 6), "22:00", "06:00", [5]) is False
+
+    def test_next_start_is_wall_clock_across_autumn(self, paris):
+        now = _paris(2026, 10, 24, 12)  # Saturday, CEST
+        nxt = next_window_start(now, "08:00", "18:00", [0])  # Monday, CET
+        assert nxt is not None
+        assert nxt.date().isoformat() == "2026-10-26"
+        assert (nxt.hour, nxt.minute) == (8, 0)
+        assert nxt.utcoffset() == timedelta(hours=1)
+
+    def test_next_start_is_wall_clock_across_spring(self, paris):
+        now = _paris(2026, 3, 28, 12)  # Saturday, CET
+        nxt = next_window_start(now, "08:00", "18:00", [0])  # Monday, CEST
+        assert nxt is not None
+        assert nxt.date().isoformat() == "2026-03-30"
+        assert (nxt.hour, nxt.minute) == (8, 0)
+        assert nxt.utcoffset() == timedelta(hours=2)
+
+    def test_full_day_opens_at_midnight_after_switch(self, paris):
+        now = _paris(2026, 10, 24, 12)
+        nxt = next_window_start(now, "00:00", "00:00", [6])  # Sunday 25th, 00:00 CEST
+        assert nxt is not None
+        assert nxt.date().isoformat() == "2026-10-25"
+        assert (nxt.hour, nxt.minute) == (0, 0)
+
+    def test_naive_datetime_after_switch_uses_its_own_offset(self, paris):
+        naive = datetime(2026, 10, 25, 12, 0)  # CET by then
+        assert in_window(naive, "08:00", "18:00", [6]) is True
