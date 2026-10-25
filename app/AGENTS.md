@@ -127,8 +127,10 @@ and the OpenAPI page (`/docs`), not a table here.
   clear). Change the contract only through `scripts/build/export_plugin_contract.py`.
   `plugins/bundled_update.py` (MSHL-337) updates the installed bundled instances in place
   at start, from `lifecycle.start()` before any child: newer packaged version only, config
-  and data kept, added permissions hold the instance (`review_permissions`), a failure is
-  logged and keeps the old version, nothing under the host lock.
+  and data kept, added or changed permissions and a widened privacy declaration hold the
+  instance (`review_permissions`), the rows of a plugin are written in one transaction
+  (the old tree goes back if that fails), a failure is logged and keeps the old version,
+  nothing under the host lock.
   `plugins/launch.py` builds the launch contract of the plugin child, which runs
   the top-level package `meshloom_plugin/` (standard library only, next to `app/`;
   `docs/dev/plugins.md`, "Runner", and `docs/dev/plugins-security.md`).
