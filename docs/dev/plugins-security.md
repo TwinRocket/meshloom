@@ -76,10 +76,16 @@ that image) only opts the server into this level; no child runs under it any
 more. Each instance gets the lowest free uid in 40000-49999 (gid = uid, no
 passwd entry needed), stored in the `plugin_uids` table (migration 121) so it
 keeps it across restarts: a uid with a passwd or group entry, the server's own
-uid, 10002, or one already held is skipped; none left is `uid_exhausted`.
+uid, 10002, or one already held is skipped (the passwd and group lookups run in a
+thread, outside the write transaction); none left is `uid_exhausted`. Docker does
+not remap uids by default: 40000-49999 are the same numbers on the host, where a
+directory service (LDAP) may use them; the user docs (`install-paths.md`) say so.
 Deleting the instance purges what its uid left in the shared temporary
-directories (`/tmp`, `/var/tmp`, `/dev/shm`, `tempfile.gettempdir()`: top-level
-entries it owns), then frees the uid; a failed purge keeps the row, and the
+directories (`/tmp`, `/var/tmp`, `/dev/shm`, `/dev/mqueue`, `tempfile.gettempdir()`:
+every entry it owns at any depth, also under a directory another uid owns such as
+`/tmp/.X11-unix`, without leaving each directory's file system; past 100 000 entries
+the purge fails) and its System V IPC objects (owner or creator, `IPC_RMID`), then
+frees the uid; a failed purge keeps the row, and the
 startup (`PluginManager.reap_uids`) retries orphans, purges the uids of stopped
 instances, and once purges what the shared 10002 uid of earlier releases left.
 A root server creates the work dir and hands it to the uid (`chown`, `0700`).

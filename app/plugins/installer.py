@@ -9,6 +9,7 @@ plugin). A local plugin has no directory: its manifest and source live in the
 The REST layer is `app/routers/plugins.py`; the supervisor is `app/plugins/host.py`.
 """
 
+import contextlib
 import json
 import logging
 import re
@@ -30,6 +31,7 @@ BUNDLED_ROOT = Path(__file__).resolve().parent.parent.parent / "meshloom_plugin"
 LOCAL_TEMPLATES = ("blank", "echo")
 LOCAL_VERSION = "0.1.0"
 _STAGING = "_staging"
+_PREVIOUS = "previous-"
 
 _BLANK_SOURCE = '''"""A local plugin. Docs: docs/dev/plugins.md ("SDK")."""
 
@@ -96,22 +98,32 @@ def install_bundled(plugin: BundledPlugin, plugins_root: Path) -> None:
     already there at the same version). Extracted into a staging directory first,
     so a failure leaves nothing behind and a running sibling instance never sees a
     half-written tree."""
+    discard_previous(swap_bundled(plugin, plugins_root))
+
+
+def swap_bundled(plugin: BundledPlugin, plugins_root: Path) -> Path | None:
+    """`install_bundled`, but the old tree is kept: returns where it was moved
+    (`_staging/previous-<hex>`), None when there was none or nothing changed. The
+    caller then calls `discard_previous` or `restore_previous`.
+
+    A failed swap puts the old tree back. If even that fails, the old tree stays in
+    `_staging/previous-<hex>` (logged, never deleted by a later install), so the
+    instance can be recovered by hand; the next start installs the new tree."""
     manifest = plugin.package.manifest
     target = plugins_root / manifest.id
     current = target / "manifest.json"
     if current.is_file():
         try:
             if json.loads(current.read_text("utf-8")).get("version") == manifest.version:
-                return
+                return None
         except (OSError, ValueError):
             pass
     staging = plugins_root / _STAGING / uuid.uuid4().hex
-    aside = staging.parent / f"previous-{uuid.uuid4().hex}"
+    aside = staging.parent / f"{_PREVIOUS}{uuid.uuid4().hex}"
+    moved = False
     try:
         extract_package(_zip(plugin.directory), staging, origin="bundled")
         target.parent.mkdir(parents=True, exist_ok=True)
-        # The old tree is moved aside, not deleted, until the new one is in place:
-        # a failed swap puts it back (the in-place update keeps the old version).
         moved = target.exists()
         if moved:
             target.rename(aside)
@@ -119,10 +131,49 @@ def install_bundled(plugin: BundledPlugin, plugins_root: Path) -> None:
             staging.rename(target)
         except OSError:
             if moved:
-                aside.rename(target)
+                try:
+                    aside.rename(target)
+                except OSError:
+                    logger.error(
+                        "Bundled plugin %s: swap and restore failed, old tree kept at %s",
+                        manifest.id,
+                        aside,
+                    )
             raise
     finally:
-        shutil.rmtree(staging.parent, ignore_errors=True)
+        _clean_staging(staging.parent, staging)
+    return aside if moved else None
+
+
+def restore_previous(plugin: BundledPlugin, plugins_root: Path, previous: Path | None) -> None:
+    """Undo `swap_bundled`: the old tree back in place, the new one removed (no-op
+    when `previous` is None). Raises `OSError` when the old tree cannot go back; it
+    then stays where it is."""
+    if previous is None:
+        return
+    target = plugins_root / plugin.package.manifest.id
+    discarded = previous.parent / uuid.uuid4().hex
+    target.rename(discarded)
+    try:
+        previous.rename(target)
+    except OSError:
+        discarded.rename(target)
+        raise
+    _clean_staging(previous.parent, discarded)
+
+
+def discard_previous(previous: Path | None) -> None:
+    if previous is not None:
+        _clean_staging(previous.parent, previous)
+
+
+def _clean_staging(staging_root: Path, *paths: Path) -> None:
+    """Remove `paths` (this install's own), then `_staging` itself when empty. An old
+    tree a failed restore kept there is never touched."""
+    for path in paths:
+        shutil.rmtree(path, ignore_errors=True)
+    with contextlib.suppress(OSError):
+        staging_root.rmdir()
 
 
 def local_template_source(template: str) -> str:

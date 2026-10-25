@@ -607,14 +607,20 @@ party plugin, no special permission, not listed in any index. The directory is c
 along with the rest of `meshloom_plugin/` by the Dockerfile and the packages. A package's
 `version` changes only with its files; `install_bundled` is a no-op for the same
 version and replaces `<data>/plugins/<id>/` for another (the old tree is moved aside
-until the swap succeeds, so a failure keeps it). `app/plugins/bundled_update.py`
+until the swap succeeds, so a failure keeps it; if putting it back fails too, it stays in
+`_staging/previous-<hex>`, which no later install deletes). `app/plugins/bundled_update.py`
 (MSHL-337) re-installs the instances after a Meshloom upgrade: `lifecycle.start()` calls
 `update_bundled()` before `load_from_db()`, so no child runs during the swap. For each
 `kind = bundled` row whose packaged version is newer (PEP 440) it installs the code once
-per plugin, then rewrites `version`, `manifest` and `config_schema`, keeping config,
-secrets, scope, quotas, label and KV. Permissions the new manifest adds or changes
-(`added`) drop their grant and set `needs_attention` / `attention.type =
-review_permissions` (`added`, `from_version`, `to_version`) while `enabled` stays, so the
+per plugin (`swap_bundled`, old tree kept aside), then rewrites `version`, `manifest` and
+`config_schema` of all its rows in one transaction (`PluginRepository.update_many`); if
+that write fails the old tree goes back (`restore_previous`). Config, secrets, scope,
+quotas, label and KV are kept. Permissions the new manifest adds or changes (`added`;
+any different normalised parameters, narrower included; a removed one only loses its
+grant), or a widened privacy declaration (a new `sends_to_third_parties` host, or
+`stores_message_content` turning true: `privacy_widened`), set `needs_attention` /
+`attention.type = review_permissions` (`added`, `privacy_widened`, `from_version`,
+`to_version`); the changed names drop their grant while `enabled` stays, so the
 admin's usual acceptance (`PATCH` with `granted_permissions`, see "Instances") starts it;
 otherwise grants and status are untouched (a newly required, unset config field switches
 the instance off with `config_required`, like an install). Same or older version: no-op;

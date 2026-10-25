@@ -23,6 +23,7 @@ file (``app/secret_store.py``) exists, like the repeater passwords today; never
 exported (no JSON backup section, emptied in the SQLite download).
 """
 
+import asyncio
 import json
 import time
 import unicodedata
@@ -197,6 +198,66 @@ async def _write_secrets_in_conn(
         )
 
 
+def _check_updatable(fields: Mapping[str, Any]) -> None:
+    unknown = set(fields) - set(_UPDATABLE)
+    if unknown:
+        raise ValueError(f"not updatable: {', '.join(sorted(unknown))}")
+
+
+async def _update_in_conn(
+    conn: aiosqlite.Connection, instance_id: str, fields: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    now = int(time.time())
+    async with conn.execute(
+        "SELECT config, config_schema FROM plugins WHERE instance_id = ?", (instance_id,)
+    ) as cursor:
+        current = await cursor.fetchone()
+    if current is None:
+        return None
+    stored = (await _secret_fields_in_conn(conn, instance_id)).get(instance_id, frozenset())
+    schema = fields.get("config_schema")
+    schema = dict(schema) if schema is not None else _loads(current["config_schema"], {})
+    names = secret_fields(schema)
+    plain: dict[str, Any] = {}
+    writes: dict[str, str | None] = {}
+    if "config" in fields:
+        plain, writes = _split_config(fields["config"] or {}, names, stored)
+    elif "config_schema" in fields:
+        plain, writes = _split_config(_loads(current["config"], {}), names, stored)
+    updates: list[str] = []
+    params: list[Any] = []
+    for field in _UPDATABLE:
+        if field not in fields:
+            continue
+        value = fields[field]
+        if field == "config":
+            value = json.dumps(plain)
+        elif field == "config_schema":
+            value = json.dumps(schema)
+        elif field in _JSON_FIELDS:
+            value = json.dumps(value)
+        elif field == "attention":
+            value = json.dumps(value) if value is not None else None
+        elif field in _FLAG_FIELDS:
+            value = 1 if value else 0
+        updates.append(f"{field} = ?")
+        params.append(value)
+    if "config_schema" in fields and "config" not in fields:
+        updates.append("config = ?")
+        params.append(json.dumps(plain))
+    updates.append("updated_at = ?")
+    params.extend([now, instance_id])
+    await conn.execute(f"UPDATE plugins SET {', '.join(updates)} WHERE instance_id = ?", params)
+    await _write_secrets_in_conn(conn, instance_id, writes, now)
+    if "config_schema" in fields:
+        for field in stored - names:
+            await conn.execute(
+                "DELETE FROM plugin_secrets WHERE instance_id = ? AND field = ?",
+                (instance_id, field),
+            )
+    return await _get_in_conn(conn, instance_id)
+
+
 class PluginRepository:
     """CRUD for plugin instances, secrets included (write-only)."""
 
@@ -310,61 +371,19 @@ class PluginRepository:
         ``config_schema`` moves fields that became secret into ``plugin_secrets``
         and drops stored secrets the schema no longer declares. None when the
         instance is unknown."""
-        unknown = set(fields) - set(_UPDATABLE)
-        if unknown:
-            raise ValueError(f"not updatable: {', '.join(sorted(unknown))}")
-        now = int(time.time())
+        _check_updatable(fields)
         async with db.tx() as conn:
-            async with conn.execute(
-                "SELECT config, config_schema FROM plugins WHERE instance_id = ?", (instance_id,)
-            ) as cursor:
-                current = await cursor.fetchone()
-            if current is None:
-                return None
-            stored = (await _secret_fields_in_conn(conn, instance_id)).get(instance_id, frozenset())
-            schema = fields.get("config_schema")
-            schema = dict(schema) if schema is not None else _loads(current["config_schema"], {})
-            names = secret_fields(schema)
-            plain: dict[str, Any] = {}
-            writes: dict[str, str | None] = {}
-            if "config" in fields:
-                plain, writes = _split_config(fields["config"] or {}, names, stored)
-            elif "config_schema" in fields:
-                plain, writes = _split_config(_loads(current["config"], {}), names, stored)
-            updates: list[str] = []
-            params: list[Any] = []
-            for field in _UPDATABLE:
-                if field not in fields:
-                    continue
-                value = fields[field]
-                if field == "config":
-                    value = json.dumps(plain)
-                elif field == "config_schema":
-                    value = json.dumps(schema)
-                elif field in _JSON_FIELDS:
-                    value = json.dumps(value)
-                elif field == "attention":
-                    value = json.dumps(value) if value is not None else None
-                elif field in _FLAG_FIELDS:
-                    value = 1 if value else 0
-                updates.append(f"{field} = ?")
-                params.append(value)
-            if "config_schema" in fields and "config" not in fields:
-                updates.append("config = ?")
-                params.append(json.dumps(plain))
-            updates.append("updated_at = ?")
-            params.extend([now, instance_id])
-            await conn.execute(
-                f"UPDATE plugins SET {', '.join(updates)} WHERE instance_id = ?", params
-            )
-            await _write_secrets_in_conn(conn, instance_id, writes, now)
-            if "config_schema" in fields:
-                for field in stored - names:
-                    await conn.execute(
-                        "DELETE FROM plugin_secrets WHERE instance_id = ? AND field = ?",
-                        (instance_id, field),
-                    )
-            return await _get_in_conn(conn, instance_id)
+            return await _update_in_conn(conn, instance_id, fields)
+
+    @staticmethod
+    async def update_many(updates: Mapping[str, Mapping[str, Any]]) -> None:
+        """``update`` for several instances in one transaction: all rows change, or
+        none (the bundled update, ``app/plugins/bundled_update.py``)."""
+        for fields in updates.values():
+            _check_updatable(fields)
+        async with db.tx() as conn:
+            for instance_id, fields in updates.items():
+                await _update_in_conn(conn, instance_id, fields)
 
     @staticmethod
     async def delete(instance_id: str, *, keep_data: bool = False) -> None:
@@ -535,6 +554,12 @@ class PluginUidError(Exception):
     """No uid of the range is free."""
 
 
+def _first_free_uid(
+    candidates: Iterable[int], taken: set[int], is_free: Callable[[int], bool]
+) -> int | None:
+    return next((uid for uid in candidates if uid not in taken and is_free(uid)), None)
+
+
 class PluginUidRepository:
     """The uid each instance runs under at the ``setuid`` level (migration 121).
 
@@ -572,24 +597,39 @@ class PluginUidRepository:
         instance_id: str, candidates: Iterable[int], is_free: Callable[[int], bool]
     ) -> int:
         """The instance's uid: the stored one, else the lowest free candidate no row
-        holds. Raises ``PluginUidError`` when none is left."""
-        async with db.tx() as conn:
-            async with conn.execute(
-                "SELECT uid FROM plugin_uids WHERE instance_id = ?", (instance_id,)
-            ) as cursor:
-                row = await cursor.fetchone()
-            if row is not None:
-                return int(row[0])
-            async with conn.execute("SELECT uid FROM plugin_uids") as cursor:
-                taken = {int(r[0]) for r in await cursor.fetchall()}
-            for uid in candidates:
-                if uid not in taken and is_free(uid):
+        holds. Raises ``PluginUidError`` when none is left.
+
+        ``is_free`` may block (``getpwuid`` asks NSS, maybe LDAP): it runs in a
+        thread, outside the write transaction. The pick is then inserted only if
+        no row took it meanwhile; otherwise the search goes on past it."""
+        stored = await PluginUidRepository.get(instance_id)
+        if stored is not None:
+            return stored
+        pool = list(candidates)
+        lost: set[int] = set()
+        while True:
+            taken = set((await PluginUidRepository.all()).values()) | lost
+            uid = await asyncio.to_thread(_first_free_uid, pool, taken, is_free)
+            if uid is None:
+                raise PluginUidError("no free plugin uid left")
+            async with db.tx() as conn:
+                async with conn.execute(
+                    "SELECT uid FROM plugin_uids WHERE instance_id = ?", (instance_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is not None:
+                    return int(row[0])
+                async with conn.execute(
+                    "SELECT 1 FROM plugin_uids WHERE uid = ?", (uid,)
+                ) as cursor:
+                    held = await cursor.fetchone() is not None
+                if not held:
                     await conn.execute(
                         "INSERT INTO plugin_uids (instance_id, uid, allocated_at) VALUES (?, ?, ?)",
                         (instance_id, uid, int(time.time())),
                     )
                     return uid
-        raise PluginUidError("no free plugin uid left")
+            lost.add(uid)
 
     @staticmethod
     async def release(instance_id: str) -> None:

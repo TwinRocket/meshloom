@@ -22,7 +22,12 @@ SCHEMA = {
 }
 
 
-def _write_tree(root: Path, version: str, extra_permissions: dict | None = None) -> None:
+def _write_tree(
+    root: Path,
+    version: str,
+    extra_permissions: dict | None = None,
+    privacy: dict | None = None,
+) -> None:
     target = root / "echo"
     if target.exists():
         shutil.rmtree(target)
@@ -32,6 +37,8 @@ def _write_tree(root: Path, version: str, extra_permissions: dict | None = None)
     manifest["version"] = version
     manifest["config_schema"] = "config.schema.json"
     manifest["permissions"] = {**manifest["permissions"], **(extra_permissions or {})}
+    if privacy is not None:
+        manifest["privacy"] = privacy
     (target / "config.schema.json").write_text(json.dumps(SCHEMA))
     (target / "manifest.json").write_text(json.dumps(manifest))
 
@@ -208,3 +215,137 @@ async def test_frozen_and_reinstall_rows_are_left_alone(env):
     _write_tree(bundled, "1.1.0")
     await update_bundled()
     assert (await PluginRepository.get(row["instance_id"]))["version"] == "1.0.0"
+
+
+# --- MSHL-345 ----------------------------------------------------------------------
+
+READ = {"channels": "public", "direct": True, "outgoing": False}
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {**READ, "channels": "all"},  # broadened: every channel, same name
+        {**READ, "direct": False},  # narrowed: still a different consent
+    ],
+)
+async def test_changed_params_of_the_same_permission_hold(env, params):
+    bundled, manager = env
+    row = await _install(manager)
+    _write_tree(bundled, "1.1.0", {"messages.read": params})
+    await update_bundled()
+    after = await PluginRepository.get(row["instance_id"])
+    assert after["version"] == "1.1.0" and _disk_version(manager) == "1.1.0"
+    assert after["status"] == "needs_attention"
+    assert after["attention"]["type"] == "review_permissions"
+    assert after["attention"]["added"] == ["messages.read"]
+    assert after["attention"]["privacy_widened"] is False
+    # The old, narrower grant is not carried over to the wider declaration.
+    assert "messages.read" not in after["granted_permissions"]
+    assert "messages.send" in after["granted_permissions"]
+
+
+@pytest.mark.parametrize(
+    ("privacy", "held"),
+    [
+        ({"sends_to_third_parties": ["api.example.com"], "stores_message_content": False}, True),
+        ({"sends_to_third_parties": [], "stores_message_content": True}, True),
+    ],
+)
+async def test_widened_privacy_declaration_holds_and_keeps_grants(env, privacy, held):
+    bundled, manager = env
+    row = await _install(manager)
+    _write_tree(bundled, "1.1.0", privacy=privacy)
+    await update_bundled()
+    after = await PluginRepository.get(row["instance_id"])
+    assert after["version"] == "1.1.0"
+    assert after["status"] == "needs_attention"
+    assert after["attention"]["type"] == "review_permissions"
+    assert after["attention"]["added"] == []
+    assert after["attention"]["privacy_widened"] is held
+    assert after["granted_permissions"] == row["granted_permissions"]
+
+
+async def test_narrowed_privacy_declaration_does_not_hold(env):
+    bundled, manager = env
+    _write_tree(
+        bundled,
+        "1.0.0",
+        privacy={"sends_to_third_parties": ["api.example.com"], "stores_message_content": True},
+    )
+    row = await _install(manager)
+    _write_tree(bundled, "1.1.0")
+    await update_bundled()
+    after = await PluginRepository.get(row["instance_id"])
+    assert after["version"] == "1.1.0"
+    assert after["status"] == "installed" and after["attention"] is None
+
+
+async def test_failed_row_write_puts_the_old_tree_back(env, monkeypatch):
+    bundled, manager = env
+    row = await _install(manager)
+    other = await PluginRepository.create(
+        plugin_id="meshloom.echo",
+        label="Second echo",
+        kind="bundled",
+        version=row["version"],
+        manifest=row["manifest"],
+        granted_permissions=row["granted_permissions"],
+    )
+    _write_tree(bundled, "1.1.0")
+
+    async def broken(_updates):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(PluginRepository, "update_many", broken)
+    await update_bundled()
+    for instance_id in (row["instance_id"], other["instance_id"]):
+        assert (await PluginRepository.get(instance_id))["version"] == "1.0.0"
+    assert _disk_version(manager) == "1.0.0"
+    assert not (manager.plugins_root() / "_staging").exists()
+
+    # The next start retries and succeeds.
+    monkeypatch.undo()
+    monkeypatch.setattr(installer, "BUNDLED_ROOT", bundled)
+    monkeypatch.setattr("app.plugins.bundled_update.plugin_manager", manager)
+    await update_bundled()
+    for instance_id in (row["instance_id"], other["instance_id"]):
+        assert (await PluginRepository.get(instance_id))["version"] == "1.1.0"
+    assert _disk_version(manager) == "1.1.0"
+
+
+async def test_update_many_is_all_or_nothing(test_db):
+    a = await PluginRepository.create(
+        plugin_id="test.a", label="a", kind="store", version="1.0.0", manifest={"hooks": []}
+    )
+    with pytest.raises(ValueError):
+        await PluginRepository.update_many(
+            {a["instance_id"]: {"version": "2.0.0"}, "other": {"not_a_field": 1}}
+        )
+    assert (await PluginRepository.get(a["instance_id"]))["version"] == "1.0.0"
+
+
+async def test_failed_restore_keeps_the_old_tree_aside(env, monkeypatch):
+    bundled, manager = env
+    await _install(manager)
+    _write_tree(bundled, "1.1.0")
+    real_rename = Path.rename
+
+    def broken(self, target):
+        # Both the swap of the new tree and the restore of the old one fail.
+        if self.parent.name == "_staging":
+            raise OSError("rename failed")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", broken)
+    with pytest.raises(OSError):
+        installer.install_bundled(installer.list_bundled()["meshloom.echo"], manager.plugins_root())
+    monkeypatch.setattr(Path, "rename", real_rename)
+    staging = manager.plugins_root() / "_staging"
+    kept = [p for p in staging.iterdir() if p.name.startswith("previous-")]
+    assert len(kept) == 1
+    assert json.loads((kept[0] / "manifest.json").read_text())["version"] == "1.0.0"
+    # A later install leaves it alone and puts the new tree in place.
+    installer.install_bundled(installer.list_bundled()["meshloom.echo"], manager.plugins_root())
+    assert _disk_version(manager) == "1.1.0"
+    assert kept[0].is_dir()

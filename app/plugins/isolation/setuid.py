@@ -24,11 +24,15 @@ process group (a uid may signal its own processes). The helper and the runner
 drop the capabilities they inherit (`meshloom_plugin.seccomp`).
 
 A uid goes back to the pool only after `purge()` ran as that uid: it removes
-what the uid owns at the top of the shared temp directories (a plugin may write
-there), so the next instance given the uid finds nothing of the previous one.
-Startup purges the uids that left something behind (a crash, the shared uid of
-the releases before per-instance uids) and releases the rows of deleted
-instances.
+what the uid owns anywhere in the shared temp directories (`/tmp`, `/var/tmp`,
+`/dev/shm`, `/dev/mqueue`; also inside a directory someone else owns, such as
+`/tmp/.X11-unix`, without crossing into another file system) and its System V
+IPC objects (shared memory, message queues, semaphores, owner or creator), so
+the next instance given the uid finds nothing of the previous one. Startup
+purges the uids that left something behind (a crash, the shared uid of the
+releases before per-instance uids) and releases the rows of deleted instances.
+A walk that meets more than `PURGE_MAX_ENTRIES` entries fails: the uid is then
+kept rather than handed over half-cleaned.
 """
 
 import contextlib
@@ -61,11 +65,16 @@ INSTANCE_UIDS = range(40000, 50000)
 # A work directory made by the helper: the plugin uid owns it, the server traverses it.
 HELPER_WORK_DIR_MODE = 0o711
 HELPER_TIMEOUT = 30.0
+# Entries one purge (or `owns_something`) walks per directory before giving up.
+PURGE_MAX_ENTRIES = 100_000
+# System V IPC tables (`/proc/sysvipc/<kind>`) and the id column of each.
+SYSV_IPC_KINDS = (("shm", "shmid"), ("msg", "msqid"), ("sem", "semid"))
 
 logger = logging.getLogger(__name__)
 
 # Runs as the plugin uid, capabilities dropped first:
-#   mkdir <path> | rmtree <path> | kill <pgid> <signal> | purge <dir>...
+#   mkdir <path> | rmtree <path> | kill <pgid> <signal>
+#   | purge <max entries> <kind:id column,...> <dir>...  (IPC_RMID is 0 on Linux)
 _HELPER_SOURCE = """
 import os, shutil, stat, sys
 sys.path.insert(0, sys.argv[1])
@@ -88,23 +97,67 @@ elif op == "kill":
     except ProcessLookupError:
         pass
 elif op == "purge":
+    import ctypes, errno
     uid = os.getuid()
-    for base in args:
+    limit, kinds = int(args[0]), args[1].split(",")
+    for base in args[2:]:
         try:
-            entries = list(os.scandir(base))
+            dev = os.lstat(base).st_dev
         except OSError:
             continue
-        for entry in entries:
+        stack, seen = [base], 0
+        while stack:
+            path = stack.pop()
             try:
-                st = entry.stat(follow_symlinks=False)
-                if st.st_uid != uid:
-                    continue
-                if stat.S_ISDIR(st.st_mode):
-                    shutil.rmtree(entry.path)
-                else:
-                    os.unlink(entry.path)
+                entries = list(os.scandir(path))
+            except (FileNotFoundError, NotADirectoryError, PermissionError):
+                continue
             except OSError as exc:
-                print(f"{entry.path}: {exc}", file=sys.stderr)
+                print(f"{path}: {exc}", file=sys.stderr)
+                continue
+            for entry in entries:
+                seen += 1
+                if seen > limit:
+                    print(f"{base}: more than {limit} entries", file=sys.stderr)
+                    stack = []
+                    break
+                try:
+                    st = entry.stat(follow_symlinks=False)
+                    if st.st_uid == uid:
+                        if stat.S_ISDIR(st.st_mode):
+                            shutil.rmtree(entry.path)
+                        else:
+                            os.unlink(entry.path)
+                    elif stat.S_ISDIR(st.st_mode) and st.st_dev == dev:
+                        stack.append(entry.path)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    print(f"{entry.path}: {exc}", file=sys.stderr)
+    libc = ctypes.CDLL(None, use_errno=True)
+    remove = {
+        "shm": lambda i: libc.shmctl(i, 0, None),
+        "msg": lambda i: libc.msgctl(i, 0, None),
+        "sem": lambda i: libc.semctl(i, 0, 0),
+    }
+    for kind in kinds:
+        kind, _, id_column = kind.partition(":")
+        try:
+            with open("/proc/sysvipc/" + kind) as table:
+                lines = table.read().splitlines()
+        except OSError:
+            continue
+        head = lines[0].split() if lines else []
+        for line in lines[1:]:
+            row = dict(zip(head, line.split(), strict=False))
+            try:
+                ipc_id, owners = int(row[id_column]), {int(row["uid"]), int(row["cuid"])}
+            except (KeyError, ValueError):
+                continue
+            if uid in owners and remove[kind](ipc_id) != 0:
+                err = ctypes.get_errno()
+                if err not in (errno.EINVAL, errno.EIDRM):
+                    print(f"sysvipc {kind} {ipc_id}: {os.strerror(err)}", file=sys.stderr)
 else:
     sys.exit(2)
 """
@@ -113,7 +166,7 @@ else:
 def shared_temp_dirs() -> list[Path]:
     """Where a plugin uid may leave files outside its work directory."""
     seen: list[Path] = []
-    for candidate in (tempfile.gettempdir(), "/tmp", "/var/tmp", "/dev/shm"):
+    for candidate in (tempfile.gettempdir(), "/tmp", "/var/tmp", "/dev/shm", "/dev/mqueue"):
         path = Path(candidate)
         with contextlib.suppress(OSError):
             path = path.resolve()
@@ -123,15 +176,46 @@ def shared_temp_dirs() -> list[Path]:
 
 
 def owns_something(uid: int, dirs: Iterable[Path] | None = None) -> bool:
-    """True when `uid` owns an entry at the top of one of the shared temp dirs."""
+    """True when `uid` owns an entry anywhere in the shared temp dirs (same file
+    system as each dir, as `purge` walks them) or a System V IPC object. A walk
+    past `PURGE_MAX_ENTRIES` answers True: the purge then decides."""
     for base in shared_temp_dirs() if dirs is None else dirs:
         try:
-            entries = list(os.scandir(base))
+            dev = os.lstat(base).st_dev
         except OSError:
             continue
-        for entry in entries:
-            with contextlib.suppress(OSError):
-                if entry.stat(follow_symlinks=False).st_uid == uid:
+        stack, seen = [str(base)], 0
+        while stack:
+            try:
+                entries = list(os.scandir(stack.pop()))
+            except OSError:
+                continue
+            for entry in entries:
+                seen += 1
+                if seen > PURGE_MAX_ENTRIES:
+                    return True
+                with contextlib.suppress(OSError):
+                    st = entry.stat(follow_symlinks=False)
+                    if st.st_uid == uid:
+                        return True
+                    if stat.S_ISDIR(st.st_mode) and st.st_dev == dev:
+                        stack.append(entry.path)
+    return dirs is None and owns_sysv_ipc(uid)
+
+
+def owns_sysv_ipc(uid: int, root: Path = Path("/proc/sysvipc")) -> bool:
+    """True when `uid` owns or created a System V shared memory segment, message
+    queue or semaphore set (the tables are world-readable)."""
+    for kind, _ in SYSV_IPC_KINDS:
+        try:
+            lines = (root / kind).read_text().splitlines()
+        except OSError:
+            continue
+        head = lines[0].split() if lines else []
+        for line in lines[1:]:
+            row = dict(zip(head, line.split(), strict=False))
+            with contextlib.suppress(KeyError, ValueError):
+                if uid in (int(row["uid"]), int(row["cuid"])):
                     return True
     return False
 
@@ -220,11 +304,12 @@ class SetuidBackend(IsolationBackend):
             logger.warning("Could not signal the plugin process group %s: %s", pgid, exc)
 
     def purge(self, dirs: Iterable[Path] | None = None) -> None:
-        """Remove what this uid owns at the top of the shared temp dirs. Raises
-        `ValueError` (or `OSError`) when the helper fails: the uid is then kept."""
+        """Remove what this uid owns in the shared temp dirs (at any depth) and its
+        System V IPC objects. Raises `ValueError` (or `OSError`) when the helper
+        fails or leaves something: the uid is then kept."""
         targets = [str(d) for d in (shared_temp_dirs() if dirs is None else dirs)]
-        if targets:
-            self._helper("purge", *targets)
+        kinds = ",".join(f"{kind}:{column}" for kind, column in SYSV_IPC_KINDS)
+        self._helper("purge", str(PURGE_MAX_ENTRIES), kinds, *targets)
 
     def _helper(self, op: str, *args: str) -> None:
         if self.uid in (0, os.getuid(), os.geteuid()):

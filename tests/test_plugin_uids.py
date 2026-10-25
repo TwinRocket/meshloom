@@ -5,6 +5,8 @@ The backend is faked (no uid switch): what is checked is the bookkeeping in
 purge helpers run in tests/test_plugin_isolation.py where `setuid` is available.
 """
 
+import asyncio
+import threading
 from pathlib import Path
 
 import pytest
@@ -155,3 +157,46 @@ def test_host_signals_through_the_instance_backend():
     process.kill("stopped", 15)
     assert sent == [(4321, 15)]
     assert process.kill_reason == "stopped"
+
+
+async def test_the_free_uid_check_runs_off_the_event_loop(test_db):
+    """`getpwuid` may ask LDAP: it must not block the loop under the write lock."""
+    loop_thread = threading.current_thread()
+    seen: list[threading.Thread] = []
+
+    def is_free(uid: int) -> bool:
+        seen.append(threading.current_thread())
+        return True
+
+    a = await _instance("a")
+    assert await PluginUidRepository.allocate(a, range(40000, 40003), is_free) == 40000
+    assert seen and all(thread is not loop_thread for thread in seen)
+
+
+async def test_a_uid_taken_meanwhile_is_skipped(test_db):
+    """The pick happens outside the transaction: a row that took it in between
+    makes the allocation go on to the next free uid, never share one."""
+    a, b = await _instance("a"), await _instance("b")
+    raced = False
+
+    def is_free(uid: int) -> bool:
+        nonlocal raced
+        if not raced:
+            raced = True
+            # Another instance takes 40000 between the pick and the insert.
+            asyncio.run_coroutine_threadsafe(
+                PluginUidRepository.allocate(b, [40000], lambda _uid: True), loop
+            ).result(timeout=10)
+        return True
+
+    loop = asyncio.get_running_loop()
+    assert await PluginUidRepository.allocate(a, range(40000, 40003), is_free) == 40001
+    assert await PluginUidRepository.all() == {a: 40001, b: 40000}
+
+
+async def test_concurrent_allocations_never_share_a_uid(test_db):
+    ids = [await _instance(f"i{n}") for n in range(6)]
+    uids = await asyncio.gather(
+        *(PluginUidRepository.allocate(i, range(40000, 40010), lambda _uid: True) for i in ids)
+    )
+    assert sorted(uids) == list(range(40000, 40006))
