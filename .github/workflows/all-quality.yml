@@ -22,9 +22,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # requires-python is >=3.11. 3.12 is the dev baseline, 3.14 is what the
-        # Docker image ships.
-        python-version: ["3.11", "3.12", "3.14"]
+        # requires-python is >=3.11. 3.12 is the dev baseline, 3.13 is Debian
+        # trixie's python3 (the plugin host runs on it in deb installs), 3.14 is
+        # what the Docker image ships.
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     permissions:
       contents: read
     timeout-minutes: 45
@@ -100,10 +101,13 @@ jobs:
   # root server and the meshloom-plugin account, as in the Docker image: a root
   # container, on the oldest supported Python (3.11 has no thread-start audit
   # event: the corpus checks RLIMIT_NPROC instead) and on the image's 3.14. The
-  # stdlib-only plugin tests run first (`--noconftest`), then the hostile corpus
-  # and the RPC fuzz with the app's dependencies (the corpus drives the real
-  # supervisor), at `none` and `setuid`. The container is unprivileged, so the
-  # bwrap cases skip here; the backend job runs them.
+  # stdlib-only plugin tests run first (`--noconftest`, including the seccomp
+  # filter that keeps a root child from forking or exec'ing), then the hostile
+  # corpus, the RPC fuzz and the host tests with the app's dependencies (the
+  # corpus drives the real supervisor), at `none` and `setuid`. The same tests
+  # then run as a non-root server holding only CAP_SETUID, CAP_SETGID and CAP_KILL ambient,
+  # as docker-entrypoint.sh starts it under MESHLOOM_RUN_AS_USER. The container
+  # is unprivileged, so the bwrap cases skip here; the backend job runs them.
   plugin-isolation-root:
     name: Plugin isolation as root (Python ${{ matrix.image }})
     runs-on: ubuntu-latest
@@ -135,7 +139,7 @@ jobs:
           PYTHONPATH=. python -c "from tests.plugin_isolation_support import available_backends as a; assert 'setuid' in a(), a()"
 
       - name: Plugin isolation and runner tests
-        run: PYTHONPATH=. python -m pytest --noconftest -p no:cacheprovider -o addopts= -v tests/test_plugin_isolation.py tests/test_plugin_runner.py
+        run: PYTHONPATH=. python -m pytest --noconftest -p no:cacheprovider -o addopts= -v tests/test_plugin_isolation.py tests/test_plugin_runner.py tests/test_plugin_seccomp.py
 
       # uv pinned like the Dockerfile's UV_VERSION; the interpreter is the image's.
       - name: Hostile plugin corpus and RPC fuzz under every isolation level
@@ -144,7 +148,23 @@ jobs:
         run: |
           pip install --no-cache-dir -q "uv==0.6.17"
           uv sync --frozen --dev --python "$(command -v python)"
-          PYTHONPATH=. uv run --frozen pytest -p no:cacheprovider -o addopts= -v tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py
+          PYTHONPATH=. uv run --frozen pytest -p no:cacheprovider -o addopts= -v tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py
+
+      # setpriv as docker-entrypoint.sh calls it: uid 10001 keeps exactly
+      # CAP_SETUID, CAP_SETGID and CAP_KILL ambient, enough for the setuid level.
+      - name: Plugin tests as a non-root server with CAP_SETUID/CAP_SETGID/CAP_KILL
+        run: |
+          chmod -R a+rX "$GITHUB_WORKSPACE"
+          install -d -o 10001 -g 10001 -m 0700 /tmp/caps-home
+          setpriv --reuid=10001 --regid=10001 --clear-groups \
+            --inh-caps=-all,+kill,+setgid,+setuid --ambient-caps=+kill,+setgid,+setuid -- \
+            env HOME=/tmp/caps-home PYTHONPATH=. .venv/bin/python -c \
+            "from tests.plugin_isolation_support import available_backends as a; assert 'setuid' in a(), a()"
+          setpriv --reuid=10001 --regid=10001 --clear-groups \
+            --inh-caps=-all,+kill,+setgid,+setuid --ambient-caps=+kill,+setgid,+setuid -- \
+            env HOME=/tmp/caps-home PYTHONPATH=. .venv/bin/python -m pytest -p no:cacheprovider -o addopts= -v \
+            tests/test_plugin_isolation.py tests/test_plugin_runner.py tests/test_plugin_seccomp.py \
+            tests/test_plugin_corpus.py tests/test_plugin_rpc_fuzz.py tests/test_plugin_host.py
 
   frontend-checks:
     name: Frontend

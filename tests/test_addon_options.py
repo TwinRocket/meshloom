@@ -75,6 +75,15 @@ def test_bots_are_only_disabled_when_actually_asked() -> None:
     assert addon.build_environment({"disable_bots": True})["MESHCORE_DISABLE_BOTS"] == "true"
 
 
+def test_plugins_are_only_locked_when_actually_asked() -> None:
+    assert "MESHCORE_DISABLE_PLUGINS" not in addon.build_environment({})
+    assert "MESHCORE_DISABLE_PLUGINS" not in addon.build_environment({"disable_plugins": False})
+    env = addon.build_environment({"disable_plugins": True})
+    assert env["MESHCORE_DISABLE_PLUGINS"] == "true"
+    # Independent of the bots switch, both ways.
+    assert "MESHCORE_DISABLE_BOTS" not in env
+
+
 def test_a_missing_options_file_does_not_stop_the_addon(tmp_path: Path) -> None:
     """Meshloom's defaults are serviceable; a container that will not start says
     far less about what is wrong than one that starts and logs it."""
@@ -99,7 +108,9 @@ def test_every_option_in_the_manifest_is_understood_here() -> None:
 
     config = yaml.safe_load((ENTRYPOINT.parent / "config.yaml").read_text(encoding="utf-8"))
     handled = (
-        set(addon.PASS_THROUGH) | set(addon.RETIRED_PASS_THROUGH) | {"proxy_port", "disable_bots"}
+        set(addon.PASS_THROUGH)
+        | set(addon.RETIRED_PASS_THROUGH)
+        | {"proxy_port", "disable_bots", "disable_plugins"}
     )
     assert set(config["options"]) <= handled
 

@@ -93,3 +93,8 @@ def test_service_cannot_write_etc_meshloom() -> None:
     service = (PKG / "meshloom.service").read_text(encoding="utf-8")
     # The kiosk device token directory is optional ("-"): kiosk hosts only.
     assert "ReadWritePaths=/opt/meshloom /var/lib/meshloom -/var/lib/meshloom-kiosk\n" in service
+
+
+def test_service_caps_the_unit_task_count() -> None:
+    service = (PKG / "meshloom.service").read_text(encoding="utf-8")
+    assert "\nTasksMax=512\n" in service

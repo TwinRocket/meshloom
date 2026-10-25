@@ -61,6 +61,8 @@ as root. Code running in the add-on can therefore ask the host's system services
 to act as root on the Home Assistant machine, not only inside the add-on. Bots
 are such code (see `disable_bots` below): if Meshloom is reachable from outside
 Home Assistant, or if anyone you do not fully trust can sign in, turn bots off.
+Plugins run apart, as a dedicated unprivileged user that cannot reach the bus;
+`disable_plugins` locks them off entirely if you want no third-party code at all.
 
 ## Signing in
 
@@ -92,6 +94,7 @@ itself.
 | `basic_auth_username` / `basic_auth_password` | **Deprecated, removed in the next release.** Home Assistant now signs you in through the sidebar (see *Signing in* below). If both are set, Meshloom turns them into an administrator account once, at its first start while it has no account, for the published port; it never reads them again. Empty them afterwards. |
 | `vapid_subject` | **Deprecated, removed in the next release.** The contact address for Web Push now lives in Meshloom's **Settings → Notifications**, VAPID subject field. If you set it here, Meshloom copies it there once, at its first start, when that field is empty, and never reads this option again: change the address in Settings from now on. |
 | `disable_bots` | Turns off the bot system. Bots run Python code you write, with full access to the add-on, and through the host's D-Bus (needed for Bluetooth) with root access to the Home Assistant machine. Turn them off if the instance is reachable from outside Home Assistant or shared with people you do not fully trust. |
+| `disable_plugins` | Locks the plugin system off: no plugin starts, whatever Meshloom's settings say. Plugins run as the dedicated `meshloom-plugin` user, without the add-on's root rights nor its D-Bus access, but if you want no third-party code in the add-on at all, turn this on. `false` by default. |
 
 Everything else (radio, notifications, integrations) is set in Meshloom's own **Settings**.
 

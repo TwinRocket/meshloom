@@ -44,7 +44,8 @@ usb: true
 # Without this the transport is offered but every scan and connection fails.
 # The bus is not a narrow grant: the add-on runs as root and nothing mediates D-Bus,
 # so any code in it (bots included) can ask host services such as systemd or logind
-# to act as root on the host. DOCS.md says so and advises disable_bots when exposed.
+# to act as root on the host. DOCS.md says so and advises disable_bots (and
+# disable_plugins) when exposed.
 host_dbus: true
 
 # Everything the instance keeps: database, keys, settings.
@@ -61,6 +62,7 @@ options:
   # DEPRECATED, remove in the next release: copied once into Settings → Notifications.
   vapid_subject: ""
   disable_bots: false
+  disable_plugins: false
 
 schema:
   log_level: list(DEBUG|INFO|WARNING|ERROR)
@@ -72,3 +74,4 @@ schema:
   basic_auth_password: password?
   vapid_subject: str?
   disable_bots: bool?
+  disable_plugins: bool?

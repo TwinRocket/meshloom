@@ -23,6 +23,9 @@ NoNewPrivileges=yes
 # The kiosk device token directory exists on kiosk hosts only ("-": optional).
 ReadWritePaths=/opt/meshloom /var/lib/meshloom -/var/lib/meshloom-kiosk
 SupplementaryGroups=dialout
+# Caps every task of the unit (server threads, plugin children and their
+# helpers): a plugin that escapes its own limits cannot fork-bomb the host.
+TasksMax=512
 
 [Install]
 WantedBy=multi-user.target
