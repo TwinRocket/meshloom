@@ -6,7 +6,7 @@ import { api, formatApiError } from '../../../api';
 import { Button } from '../../ui/button';
 import { toast } from '../../ui/sonner';
 import { InstanceBadges } from './InstanceBadges';
-import { displayName, enableBlock, sortInstances } from './pluginsShared';
+import { displayName, enableBlock, lastErrorText, sortInstances } from './pluginsShared';
 import type { PluginInstance } from './pluginsTypes';
 
 export function InstalledTab({
@@ -103,7 +103,7 @@ export function InstalledTab({
                   <InstanceBadges instance={instance} />
                   {instance.last_error && (
                     <div className="text-xs break-words text-destructive">
-                      {instance.last_error}
+                      {lastErrorText(t, instance.last_error)}
                     </div>
                   )}
                 </button>

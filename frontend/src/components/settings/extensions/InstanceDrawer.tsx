@@ -19,11 +19,13 @@ import { focusConfigForm, PluginConfigForm } from './PluginConfigForm';
 import { ConsentWarnings, PermissionList } from './PermissionList';
 import { buildScope, parseScope, ScopeEditor } from './ScopeEditor';
 import {
+  attentionTextKey,
   attentionType,
   declaredPermissions,
   displayName,
   formatDiagnostic,
   isFrozen,
+  lastErrorText,
   sendQuotaState,
 } from './pluginsShared';
 import type { PluginInstance } from './pluginsTypes';
@@ -140,6 +142,7 @@ function DrawerBody({
   const { t } = useTranslation();
   const frozen = isFrozen(instance);
   const reason = attentionType(instance);
+  const reasonText = attentionTextKey(instance);
   const declared = useMemo(() => declaredPermissions(instance), [instance]);
   const [granted, setGranted] = useState(
     () => ({ ...instance.granted_permissions }) as Record<string, Record<string, unknown>>
@@ -284,7 +287,9 @@ function DrawerBody({
           {instance.last_error && (
             <div>
               <dt className="text-muted-foreground">{t('settings.extensions.drawer.lastError')}</dt>
-              <dd className="break-words text-destructive">{instance.last_error}</dd>
+              <dd className="break-words text-destructive">
+                {lastErrorText(t, instance.last_error)}
+              </dd>
             </div>
           )}
           <div className="flex justify-between gap-3">
@@ -304,7 +309,7 @@ function DrawerBody({
         {instance.status === 'needs_attention' && (
           <div className="space-y-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
             <p>
-              {t(`settings.extensions.attention.${reason ?? 'other'}.text`, {
+              {t(`settings.extensions.attention.${reasonText ?? 'other'}.text`, {
                 defaultValue: t('settings.extensions.attention.other.text'),
               })}
             </p>

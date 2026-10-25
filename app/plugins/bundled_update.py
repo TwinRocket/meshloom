@@ -21,7 +21,10 @@ and the label are kept.
 - Same or older packaged version: nothing happens. Idempotent: the row carries the
   new version afterwards.
 - A package that is invalid, or an install or row write that fails, is logged and
-  the old version stays; startup goes on. Nothing runs under the host lock
+  the old version stays; startup goes on. If the row write and then the restore of
+  the old tree both fail, the new code is left under the old rows: the host then
+  refuses to start those instances (`PluginManager.code_matches`: status `error`,
+  `last_error = plugin_code_mismatch`) until a later start writes the rows. Nothing runs under the host lock
   (`MESHCORE_DISABLE_PLUGINS`): `lifecycle.start()` returns before calling here.
 
 Instances restored without their code (`reinstall`), `revoked` and `incompatible`
@@ -171,9 +174,12 @@ async def _update_plugin(
         try:
             await asyncio.to_thread(installer.restore_previous, bundled, root, previous)
         except OSError as exc:
-            # The rows keep the old version: the next start retries the row write.
+            # New code, old rows: its instances refuse to start (`code_matches`,
+            # status `error`, `plugin_code_mismatch`) until the next start writes
+            # the rows (the tree is already the shipped version) or it is reinstalled.
             logger.error(
-                "Bundled plugin %s: the old tree could not be restored (%s): %s",
+                "Bundled plugin %s: the old tree could not be restored (%s), kept at %s;"
+                " its instances will not start until the rows are written",
                 plugin_id,
                 type(exc).__name__,
                 previous,

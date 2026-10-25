@@ -48,6 +48,31 @@ export function attentionType(instance: Pick<PluginInstance, 'attention'>): stri
   return typeof type === 'string' ? type : null;
 }
 
+/**
+ * The i18n key under `settings.extensions.attention` that explains why the instance waits.
+ * A bundled update held only because its privacy declaration widened says so
+ * (`attention.privacy_widened` with no added permission).
+ */
+export function attentionTextKey(instance: Pick<PluginInstance, 'attention'>): string | null {
+  const type = attentionType(instance);
+  if (type !== 'review_permissions' || instance.attention?.privacy_widened !== true) return type;
+  const added = instance.attention?.added;
+  return Array.isArray(added) && added.length > 0
+    ? 'review_permissions_privacy'
+    : 'privacy_widened';
+}
+
+/**
+ * The text of an instance's `last_error`: a coded error (`plugin_code_mismatch`, ...) is
+ * translated through `errors.<code>`, anything else is shown as the server wrote it.
+ */
+export function lastErrorText(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  error: string
+): string {
+  return /^[a-z][a-z0-9_]*$/.test(error) ? t(`errors.${error}`, { defaultValue: error }) : error;
+}
+
 /** The required config fields the instance still lacks (`attention.fields`). */
 export function attentionFields(instance: Pick<PluginInstance, 'attention'>): string[] {
   const fields = instance.attention?.fields;

@@ -12,8 +12,10 @@ The REST layer is `app/routers/plugins.py`; the supervisor is `app/plugins/host.
 import contextlib
 import json
 import logging
+import os
 import re
 import shutil
+import stat
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -32,6 +34,8 @@ LOCAL_TEMPLATES = ("blank", "echo")
 LOCAL_VERSION = "0.1.0"
 _STAGING = "_staging"
 _PREVIOUS = "previous-"
+# A manifest id (`app/plugins/manifest.py`): no separator, never `.` or `..`.
+_PLUGIN_ID_RE = r"[a-z0-9]+(-[a-z0-9]+)*\.[a-z0-9]+(-[a-z0-9]+)*"
 
 _BLANK_SOURCE = '''"""A local plugin. Docs: docs/dev/plugins.md ("SDK")."""
 
@@ -108,7 +112,8 @@ def swap_bundled(plugin: BundledPlugin, plugins_root: Path) -> Path | None:
 
     A failed swap puts the old tree back. If even that fails, the old tree stays in
     `_staging/previous-<hex>` (logged, never deleted by a later install), so the
-    instance can be recovered by hand; the next start installs the new tree."""
+    instance can be recovered by hand; the next start installs the new tree, and a
+    later startup sweep (`sweep_staging`) removes the old one."""
     manifest = plugin.package.manifest
     target = plugins_root / manifest.id
     current = target / "manifest.json"
@@ -174,6 +179,70 @@ def _clean_staging(staging_root: Path, *paths: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
     with contextlib.suppress(OSError):
         staging_root.rmdir()
+
+
+def sweep_staging(plugins_root: Path) -> None:
+    """Startup: remove what a crash left in `<plugins_root>/_staging`. Never raises.
+
+    A half-extracted tree or a discarded one goes. An old tree (`previous-<hex>`)
+    goes only once `<plugins_root>/<its plugin id>/` holds a tree again; until then
+    it is kept (logged) so the instance can be recovered by hand. Symlinks are
+    removed as links, never followed, and `_staging` itself is left alone when it
+    is a symlink or not a directory."""
+    staging = plugins_root / _STAGING
+    try:
+        st = staging.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        logger.warning("Plugin staging not swept: %s", type(exc).__name__)
+        return
+    if not stat.S_ISDIR(st.st_mode):
+        logger.warning("Plugin staging %s is not a directory: left alone", staging)
+        return
+    try:
+        entries = list(os.scandir(staging))
+    except OSError as exc:
+        logger.warning("Plugin staging not swept: %s", type(exc).__name__)
+        return
+    for entry in entries:
+        path = Path(entry.path)
+        try:
+            if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                path.unlink()
+                continue
+            if entry.name.startswith(_PREVIOUS):
+                plugin_id = _tree_plugin_id(path)
+                if plugin_id is None or not _has_tree(plugins_root, plugin_id):
+                    logger.warning("Plugin staging: old tree %s kept for recovery", path)
+                    continue
+            shutil.rmtree(path)
+        except OSError as exc:
+            logger.warning("Plugin staging: %s not removed: %s", path, type(exc).__name__)
+    with contextlib.suppress(OSError):
+        staging.rmdir()
+
+
+def _tree_plugin_id(tree: Path) -> str | None:
+    """The plugin id an extracted tree's `manifest.json` names (a regular file only)."""
+    manifest = tree / "manifest.json"
+    try:
+        if not stat.S_ISREG(manifest.lstat().st_mode):
+            return None
+        plugin_id = json.loads(manifest.read_text("utf-8")).get("id")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(plugin_id, str) or not re.fullmatch(_PLUGIN_ID_RE, plugin_id):
+        return None
+    return plugin_id
+
+
+def _has_tree(plugins_root: Path, plugin_id: str) -> bool:
+    target = plugins_root / plugin_id
+    try:
+        return stat.S_ISDIR(target.lstat().st_mode) and (target / "manifest.json").is_file()
+    except OSError:
+        return False
 
 
 def local_template_source(template: str) -> str:

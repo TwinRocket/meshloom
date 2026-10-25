@@ -499,6 +499,72 @@ describe('re-consent, reorder and admin gate', () => {
     expect(screen.queryByTestId('plugin-exfiltration-warning')).not.toBeInTheDocument();
   });
 
+  it('says when a bundled update is held only because its privacy declaration widened', async () => {
+    const row = instance({
+      enabled: false,
+      status: 'needs_attention',
+      attention: { type: 'review_permissions', added: [], privacy_widened: true },
+    });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([row]);
+    vi.spyOn(api, 'getPluginLogs').mockResolvedValue({ lines: [], truncated: false });
+    render(<SettingsExtensionsSection health={health()} />);
+    expect(
+      await screen.findByText(t('settings.extensions.attention.privacy_widened.badge'))
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: t('settings.extensions.openDetails', { name: 'Weather' }),
+      })
+    );
+    await screen.findByText(t('settings.extensions.attention.privacy_widened.text'));
+    expect(
+      screen.queryByText(t('settings.extensions.attention.review_permissions.text'))
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: t('settings.extensions.drawer.acceptAndEnable') })
+    ).toBeInTheDocument();
+  });
+
+  it('names both reasons when new permissions come with a wider privacy declaration', async () => {
+    const row = instance({
+      enabled: false,
+      status: 'needs_attention',
+      attention: { type: 'review_permissions', added: ['http'], privacy_widened: true },
+    });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([row]);
+    vi.spyOn(api, 'getPluginLogs').mockResolvedValue({ lines: [], truncated: false });
+    render(<SettingsExtensionsSection health={health()} />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: t('settings.extensions.openDetails', { name: 'Weather' }),
+      })
+    );
+    await screen.findByText(t('settings.extensions.attention.review_permissions_privacy.text'));
+  });
+
+  it('translates the code mismatch error of a failed bundled update', async () => {
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([
+      instance({ status: 'error', last_error: 'plugin_code_mismatch' }),
+    ]);
+    render(<SettingsExtensionsSection health={health()} />);
+    expect(await screen.findByText(t('errors.plugin_code_mismatch'))).toBeInTheDocument();
+    expect(screen.queryByText('plugin_code_mismatch')).not.toBeInTheDocument();
+  });
+
+  it('has the privacy and code mismatch texts in French and English', () => {
+    for (const lng of ['en', 'fr']) {
+      for (const key of [
+        'settings.extensions.attention.privacy_widened.badge',
+        'settings.extensions.attention.privacy_widened.text',
+        'settings.extensions.attention.review_permissions_privacy.badge',
+        'settings.extensions.attention.review_permissions_privacy.text',
+        'errors.plugin_code_mismatch',
+      ]) {
+        expect(i18n.exists(key, { lng })).toBe(true);
+      }
+    }
+  });
+
   it('reloads the list when a reorder fails half-way', async () => {
     const a = instance({ label: 'A', sort_order: 0 });
     const b = instance({

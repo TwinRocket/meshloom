@@ -349,3 +349,148 @@ async def test_failed_restore_keeps_the_old_tree_aside(env, monkeypatch):
     installer.install_bundled(installer.list_bundled()["meshloom.echo"], manager.plugins_root())
     assert _disk_version(manager) == "1.1.0"
     assert kept[0].is_dir()
+
+
+# --- MSHL-347 ----------------------------------------------------------------------
+
+
+def _bundled() -> installer.BundledPlugin:
+    return installer.list_bundled()["meshloom.echo"]
+
+
+async def test_restore_previous_failure_keeps_the_new_tree_and_the_old_one_aside(env, monkeypatch):
+    bundled, manager = env
+    await _install(manager)
+    _write_tree(bundled, "1.1.0")
+    root = manager.plugins_root()
+    previous = installer.swap_bundled(_bundled(), root)
+    assert previous is not None and _disk_version(manager) == "1.1.0"
+    real_rename = Path.rename
+
+    def broken(self, target):
+        if self == previous:
+            raise OSError("restore failed")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", broken)
+    with pytest.raises(OSError):
+        installer.restore_previous(_bundled(), root, previous)
+    monkeypatch.setattr(Path, "rename", real_rename)
+    # The new tree went back in place, the old one stays aside, nothing else is left.
+    assert _disk_version(manager) == "1.1.0"
+    assert json.loads((previous / "manifest.json").read_text())["version"] == "1.0.0"
+    assert [p.name for p in (root / "_staging").iterdir()] == [previous.name]
+
+
+async def test_restore_previous_is_a_noop_without_an_old_tree(env):
+    _, manager = env
+    await _install(manager)
+    installer.restore_previous(_bundled(), manager.plugins_root(), None)
+    assert _disk_version(manager) == "1.0.0"
+
+
+async def test_row_write_and_restore_both_failing_refuse_to_start(env, monkeypatch):
+    from app.plugins.host import CODE_MISMATCH, PluginHostError
+
+    bundled, manager = env
+    row = await _install(manager)
+    _write_tree(bundled, "1.1.0")
+    real_write = PluginRepository.update_many
+
+    async def broken_write(_updates):
+        raise RuntimeError("database is locked")
+
+    def broken_restore(*_args):
+        raise OSError("restore failed")
+
+    monkeypatch.setattr(PluginRepository, "update_many", broken_write)
+    monkeypatch.setattr(installer, "restore_previous", broken_restore)
+    await update_bundled()
+    stored = await PluginRepository.get(row["instance_id"])
+    assert stored["version"] == "1.0.0" and _disk_version(manager) == "1.1.0"
+    assert not manager.code_matches(stored)
+
+    # Fail closed: the new code never runs under the old manifest and grants.
+    monkeypatch.setattr(manager, "disabled_source", lambda: None)
+    with pytest.raises(PluginHostError) as refused:
+        await manager.start(row["instance_id"])
+    assert refused.value.code == CODE_MISMATCH
+    assert manager.get(row["instance_id"]) is None
+    status = manager.statuses()[row["instance_id"]]
+    assert status["status"] == "error" and status["last_error"] == CODE_MISMATCH
+
+    # The next start writes the rows (the tree already is the shipped version).
+    monkeypatch.setattr(PluginRepository, "update_many", real_write)
+    await update_bundled()
+    stored = await PluginRepository.get(row["instance_id"])
+    assert stored["version"] == "1.1.0" and manager.code_matches(stored)
+
+
+async def test_code_matches_is_fail_closed(env):
+    _, manager = env
+    row = await _install(manager)
+    assert manager.code_matches(row)
+    assert not manager.code_matches({**row, "version": "9.9.9"})
+    assert not manager.code_matches({**row, "plugin_id": "meshloom.other"})
+    assert manager.code_matches({**row, "kind": "local"})  # local code is written per start
+    manifest = manager.plugins_root() / "meshloom.echo" / "manifest.json"
+    manifest.write_text("{not json")
+    assert not manager.code_matches(row)
+    manifest.unlink()
+    assert not manager.code_matches(row)
+
+
+def test_sweep_staging_removes_crash_leftovers_and_keeps_needed_old_trees(tmp_path):
+    root = tmp_path / "plugins"
+    staging = root / "_staging"
+    (staging / "abc123" / "sub").mkdir(parents=True)  # a half-extracted tree
+    (staging / "abc123" / "sub" / "f").write_text("x")
+    (staging / "stray-file").write_text("x")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep").write_text("x")
+    (staging / "link").symlink_to(outside, target_is_directory=True)
+
+    def old_tree(name: str, plugin_id: str) -> Path:
+        tree = staging / name
+        tree.mkdir()
+        (tree / "manifest.json").write_text(json.dumps({"id": plugin_id, "version": "1.0.0"}))
+        return tree
+
+    replaced = old_tree("previous-1", "meshloom.echo")
+    orphan = old_tree("previous-2", "meshloom.gone")
+    bogus = old_tree("previous-3", "../escape")
+    (root / "meshloom.echo").mkdir()
+    (root / "meshloom.echo" / "manifest.json").write_text("{}")
+
+    installer.sweep_staging(root)
+
+    assert sorted(p.name for p in staging.iterdir()) == [orphan.name, bogus.name]
+    assert not replaced.exists()
+    assert (outside / "keep").is_file()  # the symlink went, never followed
+
+
+def test_sweep_staging_leaves_a_symlinked_staging_alone(tmp_path):
+    root = tmp_path / "plugins"
+    root.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "abc").mkdir(parents=True)
+    (root / "_staging").symlink_to(elsewhere, target_is_directory=True)
+    installer.sweep_staging(root)
+    assert (elsewhere / "abc").is_dir()
+    installer.sweep_staging(tmp_path / "missing")  # no plugins dir: nothing to do
+
+
+async def test_startup_sweeps_the_staging_directory(env, monkeypatch):
+    _, manager = env
+    monkeypatch.setattr("app.plugins.lifecycle.plugin_manager", manager)
+    monkeypatch.setattr("app.plugins.isolation.startup", lambda *_a, **_k: None)
+    leftover = manager.plugins_root() / "_staging" / "deadbeef"
+    leftover.mkdir(parents=True)
+
+    async def load() -> None:
+        return None
+
+    monkeypatch.setattr(manager, "load_from_db", load)
+    await lifecycle.start()
+    assert not (manager.plugins_root() / "_staging").exists()

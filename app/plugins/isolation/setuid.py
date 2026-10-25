@@ -32,7 +32,14 @@ the next instance given the uid finds nothing of the previous one. Startup
 purges the uids that left something behind (a crash, the shared uid of the
 releases before per-instance uids) and releases the rows of deleted instances.
 A walk that meets more than `PURGE_MAX_ENTRIES` entries fails: the uid is then
-kept rather than handed over half-cleaned.
+kept rather than handed over half-cleaned. So does a directory the uid may enter
+but not list (such as `0733` owned by someone else: the uid could have left
+entries there that it cannot see; another instance's `0711` work directory is
+the one exception), and so does anything `owns_something` still finds when the
+server checks again after the helper (as root it lists every directory). The
+walk never crosses into another file system: a temp dir mounted below another
+is purged only when it is itself one of the walked roots
+(docs/dev/plugins-security.md, "OS isolation").
 """
 
 import contextlib
@@ -83,6 +90,7 @@ seccomp.drop_capabilities(seccomp.libc_prctl())
 if os.getuid() == 0 or os.geteuid() == 0:
     sys.exit(3)
 op, args = sys.argv[2], sys.argv[3:]
+WORK_DIR_PREFIX = "meshloom-plugin-"
 if op == "mkdir":
     os.mkdir(args[0], 0o700)
     os.chmod(args[0], 0o711)
@@ -99,6 +107,19 @@ elif op == "kill":
 elif op == "purge":
     import ctypes, errno
     uid = os.getuid()
+
+    def other_work_dir(path, base):
+        try:
+            st = os.lstat(path)
+        except OSError:
+            return False
+        return (
+            os.path.dirname(path) == base
+            and os.path.basename(path).startswith(WORK_DIR_PREFIX)
+            and stat.S_ISDIR(st.st_mode)
+            and stat.S_IMODE(st.st_mode) == 0o711
+            and st.st_uid != uid
+        )
     limit, kinds = int(args[0]), args[1].split(",")
     for base in args[2:]:
         try:
@@ -110,7 +131,14 @@ elif op == "purge":
             path = stack.pop()
             try:
                 entries = list(os.scandir(path))
-            except (FileNotFoundError, NotADirectoryError, PermissionError):
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except PermissionError:
+                # Not listable, yet enterable: the uid may have left entries in it
+                # (or below) that this walk cannot see. Fail closed, except for
+                # another instance's work directory (0711 without root).
+                if os.access(path, os.X_OK) and not other_work_dir(path, base):
+                    print(f"{path}: not listable", file=sys.stderr)
                 continue
             except OSError as exc:
                 print(f"{path}: {exc}", file=sys.stderr)
@@ -306,10 +334,14 @@ class SetuidBackend(IsolationBackend):
     def purge(self, dirs: Iterable[Path] | None = None) -> None:
         """Remove what this uid owns in the shared temp dirs (at any depth) and its
         System V IPC objects. Raises `ValueError` (or `OSError`) when the helper
-        fails or leaves something: the uid is then kept."""
-        targets = [str(d) for d in (shared_temp_dirs() if dirs is None else dirs)]
+        fails, meets a directory it may enter but not list, or leaves something the
+        server still sees (`owns_something`, run as the server afterwards: as root it
+        lists every directory): the uid is then kept."""
+        paths = list(shared_temp_dirs() if dirs is None else dirs)
         kinds = ",".join(f"{kind}:{column}" for kind, column in SYSV_IPC_KINDS)
-        self._helper("purge", str(PURGE_MAX_ENTRIES), kinds, *targets)
+        self._helper("purge", str(PURGE_MAX_ENTRIES), kinds, *(str(p) for p in paths))
+        if owns_something(self.uid, None if dirs is None else paths):
+            raise ValueError(f"uid {self.uid} still owns something after the purge")
 
     def _helper(self, op: str, *args: str) -> None:
         if self.uid in (0, os.getuid(), os.geteuid()):

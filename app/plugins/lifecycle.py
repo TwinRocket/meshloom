@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import Any, Final
 
-from app.plugins import bundled_update, isolation
+from app.plugins import bundled_update, installer, isolation
 from app.plugins.host import isolation_level, plugin_manager
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,11 @@ async def start() -> None:
         await plugin_manager.reap_uids()
     except Exception:
         logger.exception("Plugin uid cleanup failed")
+    try:
+        # What a crash left in `<plugins>/_staging`, before the bundled update.
+        await asyncio.to_thread(installer.sweep_staging, plugin_manager.plugins_root())
+    except Exception:
+        logger.exception("Plugin staging sweep failed")
     try:
         # Bundled plugins newer in this release: code and rows, before any start.
         await bundled_update.update_bundled()

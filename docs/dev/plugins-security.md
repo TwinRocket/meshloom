@@ -85,7 +85,16 @@ directories (`/tmp`, `/var/tmp`, `/dev/shm`, `/dev/mqueue`, `tempfile.gettempdir
 every entry it owns at any depth, also under a directory another uid owns such as
 `/tmp/.X11-unix`, without leaving each directory's file system; past 100 000 entries
 the purge fails) and its System V IPC objects (owner or creator, `IPC_RMID`), then
-frees the uid; a failed purge keeps the row, and the
+frees the uid. The walk fails closed (MSHL-347): a directory the uid may enter but not
+list (`0733` owned by another uid, where it could have hidden files) fails the purge;
+only a work dir of another instance (`meshloom-plugin-*`, `0711`, directly under a
+scanned dir) and a directory the uid cannot enter are skipped, since it could not have
+written there unless another uid opened a subdirectory to it (collusion between two
+plugins, out of scope). After the helper, the server re-walks the same dirs
+(`owns_something`, which a root server can list fully) and fails if anything is left.
+The walk does not cross file systems: what the uid left on another mount under `/tmp`
+(a bind mount, a tmpfs mounted inside `/tmp`) is not purged; the uid is still freed only
+after a clean walk of each listed dir's own file system. A failed purge keeps the row, and the
 startup (`PluginManager.reap_uids`) retries orphans, purges the uids of stopped
 instances, and once purges what the shared 10002 uid of earlier releases left.
 A root server creates the work dir and hands it to the uid (`chown`, `0700`).

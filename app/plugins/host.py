@@ -82,6 +82,9 @@ DisabledSource = Literal["env", "platform", "isolation"]
 HOOKS = ("message", "raw_packet", "contact", "telemetry", "health", "timer")
 # Persisted statuses that keep an enabled instance stopped at start-up until
 # someone acts (a manual restart, a review, an update).
+# `last_error` of a bundled instance whose code on disk is not its row's version
+# (`PluginManager.code_matches`); also the `PluginHostError` code of its start.
+CODE_MISMATCH = "plugin_code_mismatch"
 STICKY_STATUSES = frozenset({"crash_loop", "needs_attention", "incompatible", "revoked"})
 # What a disabled instance keeps showing: it waits for the user, not for a start.
 ATTENTION_STATUSES = STICKY_STATUSES - {"crash_loop"}
@@ -1237,6 +1240,10 @@ class PluginManager:
         # Overrides of the capability layer (`app/plugins/capabilities/`), name to
         # coroutine: tests register extra methods here. Checked first.
         self.host_methods: dict[str, HostMethod] = {}
+        # Bundled instances refused at their last start because the code on disk is
+        # not the version their row records (`code_matches`): status `error`,
+        # `last_error = plugin_code_mismatch` until a start finds them matching.
+        self._code_mismatch: set[str] = set()
 
     # Gates.
 
@@ -1266,6 +1273,27 @@ class PluginManager:
         from app.config import settings
 
         return Path(settings.database_path).resolve().parent / "plugins"
+
+    def code_matches(self, row: dict[str, Any]) -> bool:
+        """A bundled instance's shared code is the version and plugin its row
+        records. False (fail closed) when its `manifest.json` is missing, unreadable
+        or says otherwise, e.g. after a bundled update that installed the new tree,
+        could not write the rows and could not put the old tree back
+        (`bundled_update.py`). Other kinds are not checked."""
+        if row.get("kind") != "bundled":
+            return True
+        path = self.plugins_root() / row["plugin_id"] / "manifest.json"
+        try:
+            if path.is_symlink():
+                return False
+            manifest = json.loads(path.read_text("utf-8"))
+        except (OSError, ValueError):
+            return False
+        return (
+            isinstance(manifest, dict)
+            and manifest.get("id") == row["plugin_id"]
+            and manifest.get("version") == row["version"]
+        )
 
     def code_dir(self, row: dict[str, Any]) -> Path:
         """The plugin's code: shared per `plugin_id`; a local plugin's source is written out
@@ -1344,6 +1372,15 @@ class PluginManager:
                 # A converted 4.18.x bot never runs before its grant is accepted (the
                 # router clears the attention first); defence in depth for other callers.
                 raise PluginHostError("attention_required", "the instance needs a review")
+            if not await asyncio.to_thread(self.code_matches, row):
+                # Fail closed: never run code under another version's manifest and grants.
+                if instance_id not in self._code_mismatch:
+                    self._code_mismatch.add(instance_id)
+                    _broadcast_status(self.statuses().get(instance_id) or {})
+                raise PluginHostError(
+                    CODE_MISMATCH, "the installed code is not the version of the instance"
+                )
+            self._code_mismatch.discard(instance_id)
             running = sum(1 for i in self._instances.values() if i.active)
             cap = self.instance_cap()
             if running >= cap:
@@ -1550,14 +1587,17 @@ class PluginManager:
                 if row.get("enabled") or row.get("status") in ATTENTION_STATUSES
                 else "disabled"
             )
+            last_error = row.get("last_error")
             if self.paused and row.get("enabled") and status not in STICKY_STATUSES:
                 status = "paused"
+            elif instance_id in self._code_mismatch and row.get("enabled"):
+                status, last_error = "error", CODE_MISMATCH
             result[instance_id] = {
                 "instance_id": instance_id,
                 "plugin_id": row.get("plugin_id"),
                 "label": row.get("label"),
                 "status": status,
-                "last_error": row.get("last_error"),
+                "last_error": last_error,
                 "dropped_events": 0,
                 "restarts": 0,
                 "summary": None,

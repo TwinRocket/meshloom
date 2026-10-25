@@ -49,6 +49,14 @@
           "badge": "Review permissions",
           "text": "This extension asks for different permissions than before. Review them below, then accept to start it."
         },
+        "privacy_widened": {
+          "badge": "Privacy changed",
+          "text": "This update declares a wider use of your data than before (third parties it sends to, or keeping message content). Review what it may do below, then accept to start it."
+        },
+        "review_permissions_privacy": {
+          "badge": "Review permissions",
+          "text": "This update asks for different permissions and declares a wider use of your data than before. Review them below, then accept to start it."
+        },
         "consent_required": {
           "badge": "Consent needed",
           "text": "This extension needs your consent for the permissions below before it can start."
@@ -227,6 +235,7 @@
     "quota_invalid": "A sending limit is out of range. It can only be lowered.",
     "scope_invalid": "The conversations selection is not valid.",
     "secret_required": "A secret value is missing.",
-    "plugin_reinstall_required": "This extension was restored without its code: reinstall it before starting it."
+    "plugin_reinstall_required": "This extension was restored without its code: reinstall it before starting it.",
+    "plugin_code_mismatch": "The installed code of this extension does not match its saved version after a failed update. It will not start until Meshloom restarts and finishes the update."
   }
 }
