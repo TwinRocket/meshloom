@@ -10,12 +10,23 @@ default executor. No hand-written LRU, index or atomic write.
   ``MESHCORE_DATABASE_PATH`` (``/var/lib/meshloom`` for the packages, inside the
   service's ``ReadWritePaths``; ``./data`` in Docker and a checkout). Created
   (mode 0700) on first use.
-- **Bounds.** ``SIZE_LIMIT`` (200 MiB, ``volume()``: the files plus the SQLite
-  index), ``MAX_ENTRIES`` (oldest inserted entries dropped past it) and
-  ``TTL_S`` (1 h) per entry. diskcache's culling (``cull_limit`` entries per write, in one
-  batch) both overshoots and over-evicts, so it is off (``cull_limit=0``) and
-  ``_set`` drops expired entries, then evicts the least recently used ones
-  until the volume is back under the limit.
+- **Bounds.** ``SIZE_LIMIT`` (200 MiB: ``volume()``, the files plus the SQLite
+  index, plus the SQLite write-ahead log), ``MAX_ENTRIES`` (oldest inserted
+  entries dropped past it) and ``TTL_S`` (1 h) per entry. The cap is
+  approximate: the files and the index are exact, the log is read from its
+  file size, and it is truncated back under ``wal_budget()`` after a write
+  (``journal_size_limit`` and ``wal_autocheckpoint`` bound it between
+  checkpoints too). diskcache's culling (``cull_limit`` entries per write, in
+  one batch) both overshoots and over-evicts, so it is off (``cull_limit=0``)
+  and ``_set`` drops expired entries, then evicts the least recently used ones
+  until the total is back under the limit. Writes are serialised by a lock, so
+  two concurrent fills cannot both pass the check; an object larger than the
+  cap is not stored.
+- **diskcache internals.** The least-recently-used order has no public
+  accessor (``peekitem`` orders by insertion), so ``_lru_key`` reads the
+  ``Cache`` table through ``cache._sql`` (diskcache is pinned ``<5.7``).
+  ``_open`` runs that query once as a self-check; if it fails, ``_set`` logs a
+  warning and falls back to clearing the whole cache when it is over the limit.
 - **Keys and values.** The key is the share id (from T28, the id and a
   fingerprint of the decryption key); the value is the raw bytes, the
   validated content type its ``tag``. Bytes and strings are stored raw by
@@ -29,6 +40,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import logging
+import os
+import sqlite3
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -37,12 +51,18 @@ from typing import Any, TypeVar
 
 import diskcache
 
+logger = logging.getLogger(__name__)
+
 SIZE_LIMIT = 200 * 1024 * 1024
 MAX_ENTRIES = 5000
 # How long a stored object is served without asking the service again: a
 # moderation takedown or a deletion on the service reaches this cache within it.
 TTL_S = 3600.0
 CACHE_DIRNAME = "share-cache"
+# Largest write-ahead log kept (and counted in the cap), at most an eighth of
+# the cap for small test caches.
+WAL_BUDGET = 4 * 1024 * 1024
+SQLITE_PAGE_SIZE = 4096
 
 T = TypeVar("T")
 
@@ -76,7 +96,12 @@ class ShareCache:
         self.max_entries = max_entries
         self.ttl_s = ttl_s
         self._cache: diskcache.Cache | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # opening
+        self._write_lock = threading.Lock()  # serialises _set / _clear
+        self._lru_ok = True
+
+    def wal_budget(self) -> int:
+        return min(WAL_BUDGET, max(self.size_limit // 8, SQLITE_PAGE_SIZE))
 
     @property
     def directory(self) -> Path:
@@ -102,8 +127,52 @@ class ShareCache:
                     # one batch whenever the volume is over: off, _set evicts
                     # exactly what is needed.
                     cull_limit=0,
+                    # The write-ahead log is part of the cap: truncate it back
+                    # to the budget after each checkpoint, and checkpoint
+                    # often (pages of 4 KiB).
+                    sqlite_journal_size_limit=self.wal_budget(),
+                    sqlite_wal_autocheckpoint=max(1, self.wal_budget() // SQLITE_PAGE_SIZE // 4),
                 )
+                self._lru_ok = self._self_check(self._cache)
             return self._cache
+
+    @staticmethod
+    def _self_check(cache: Any) -> bool:
+        try:
+            cache._sql("SELECT key FROM Cache ORDER BY access_time LIMIT 1").fetchone()
+        except Exception:  # noqa: BLE001 - any change of diskcache's internals
+            logger.warning(
+                "diskcache internals changed: share cache falls back to clear-on-overflow",
+                exc_info=True,
+            )
+            return False
+        return True
+
+    def _wal_path(self) -> Path:
+        return self.directory / "cache.db-wal"
+
+    def _wal_size(self) -> int:
+        try:
+            return os.path.getsize(self._wal_path())
+        except OSError:
+            return 0
+
+    def _used(self, cache: Any) -> int:
+        return int(cache.volume()) + self._wal_size()
+
+    def _truncate_wal(self) -> None:
+        try:
+            con = sqlite3.connect(str(self.directory / "cache.db"), timeout=1.0)
+            try:
+                con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                con.close()
+        except sqlite3.Error:
+            logger.debug("share cache WAL checkpoint skipped", exc_info=True)
+
+    def _lru_key(self, cache: Any) -> str | None:
+        row = cache._sql("SELECT key FROM Cache ORDER BY access_time LIMIT 1").fetchone()
+        return None if row is None else row[0]
 
     async def _run(self, fn: Callable[..., T], *args: Any) -> T:
         loop = asyncio.get_running_loop()
@@ -121,29 +190,43 @@ class ShareCache:
 
     def _set(self, key: str, obj: CachedObject) -> None:
         cache: Any = self._open()
-        cache.expire()  # automatic culling is off: drop expired entries here
-        cache.set(key, obj.content, expire=self.ttl_s, tag=obj.content_type)
-        # diskcache bounds the size only: trim the entry count, oldest first.
-        while len(cache) > self.max_entries:
-            try:
-                oldest, _ = cache.peekitem(last=False, expire_time=False)
-            except KeyError:
-                break
-            cache.delete(oldest)
-        # Evict least recently used entries until the volume fits. The Cache
-        # table (access_time is what the least-recently-used policy orders by)
-        # is stable in diskcache 5.x.
-        while cache.volume() > self.size_limit:
-            row = cache._sql("SELECT key FROM Cache ORDER BY access_time LIMIT 1").fetchone()
-            if row is None:
-                break
-            cache.delete(row[0])
+        if len(obj.content) > self.size_limit - self.wal_budget():
+            return  # would evict everything and still not fit
+        with self._write_lock:
+            cache.expire()  # automatic culling is off: drop expired entries here
+            cache.set(key, obj.content, expire=self.ttl_s, tag=obj.content_type)
+            # diskcache bounds the size only: trim the entry count, oldest first.
+            while len(cache) > self.max_entries:
+                try:
+                    oldest, _ = cache.peekitem(last=False, expire_time=False)
+                except KeyError:
+                    break
+                cache.delete(oldest)
+            if self._wal_size() > self.wal_budget():
+                self._truncate_wal()
+            # Evict least recently used entries until files, index and log fit.
+            while self._used(cache) > self.size_limit:
+                if not self._lru_ok:
+                    cache.clear()
+                    break
+                try:
+                    victim = self._lru_key(cache)
+                except Exception:  # noqa: BLE001 - internals changed after open
+                    self._lru_ok = False
+                    logger.warning("share cache LRU query failed, clearing", exc_info=True)
+                    continue
+                if victim is None:
+                    break
+                cache.delete(victim)
+                if self._wal_size() > self.wal_budget():
+                    self._truncate_wal()
 
     def _clear(self) -> int:
         cache = self._open()
-        before = cache.volume()
-        cache.clear()
-        return max(0, before - cache.volume())
+        with self._write_lock:
+            before = cache.volume()
+            cache.clear()
+            return max(0, before - cache.volume())
 
     def _count(self) -> int:
         cache: Any = self._open()

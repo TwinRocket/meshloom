@@ -144,3 +144,80 @@ def test_package_cache_directory_is_writable_by_the_service(monkeypatch):
     monkeypatch.setattr(settings, "database_path", database.group(1).strip())
     directory = share_cache.default_directory()
     assert any(directory.is_relative_to(Path(root).resolve()) for root in roots)
+
+
+async def test_concurrent_fills_never_exceed_the_cap(tmp_path):
+    import asyncio
+
+    limit = 600_000
+    cache = ShareCache(tmp_path / "c", size_limit=limit)
+    peak = 0
+
+    async def watch(stop: asyncio.Event) -> None:
+        nonlocal peak
+        while not stop.is_set():
+            peak = max(peak, await cache.volume() + cache._wal_size())
+            await asyncio.sleep(0)
+
+    try:
+        stop = asyncio.Event()
+        watcher = asyncio.create_task(watch(stop))
+        await asyncio.gather(
+            *(
+                cache.set(f"Con{i:04d}", CachedObject(bytes([i]) * 150_000, "image/png"))
+                for i in range(24)
+            )
+        )
+        stop.set()
+        await watcher
+        assert await cache.volume() + cache._wal_size() <= limit
+        assert await cache.count() >= 1
+    finally:
+        cache.close()
+
+
+async def test_oversized_object_is_not_stored(tmp_path):
+    cache = ShareCache(tmp_path / "c", size_limit=100_000)
+    try:
+        await cache.set("Keep001", CachedObject(b"k" * 1000, "image/png"))
+        await cache.set("Huge001", CachedObject(b"h" * 200_000, "image/png"))
+        assert await cache.get("Huge001") is None
+        assert await cache.get("Keep001") is not None
+    finally:
+        cache.close()
+
+
+async def test_wal_is_bounded_and_counted(tmp_path):
+    limit = 2_000_000
+    cache = ShareCache(tmp_path / "c", size_limit=limit)
+    try:
+        for i in range(200):
+            await cache.set(f"Wal{i:04d}", CachedObject(bytes([i % 256]) * 20_000, "image/png"))
+            assert cache._wal_size() <= cache.wal_budget() * 2
+            assert await cache.volume() + cache._wal_size() <= limit
+    finally:
+        cache.close()
+
+
+async def test_falls_back_to_clear_when_diskcache_internals_change(tmp_path, monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(ShareCache, "_self_check", staticmethod(lambda cache: False))
+    cache = ShareCache(tmp_path / "c", size_limit=300_000)
+    try:
+        with caplog.at_level(logging.WARNING):
+            for i in range(10):
+                await cache.set(f"Fb{i:05d}", CachedObject(b"x" * 100_000, "image/png"))
+                assert await cache.volume() + cache._wal_size() <= 300_000
+        assert await cache.get("Fb00009") is not None
+    finally:
+        cache.close()
+
+
+def test_self_check_passes_on_the_pinned_diskcache(tmp_path):
+    cache = ShareCache(tmp_path / "c")
+    try:
+        cache._open()
+        assert cache._lru_ok is True
+    finally:
+        cache.close()
