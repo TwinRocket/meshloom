@@ -76,6 +76,7 @@ def _is_plugin_id(value: object) -> TypeGuard[str]:
         word and set(word) <= _ID_CHARS for part in parts for word in part.split("-")
     )
 
+
 _BLANK_SOURCE = '''"""A local plugin. Docs: docs/dev/plugins.md ("SDK")."""
 
 from meshloom_plugin import host
