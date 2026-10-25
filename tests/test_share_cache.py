@@ -88,14 +88,18 @@ def test_ttl_is_one_hour():
     assert share_cache.TTL_S == 3600
 
 
-async def test_entry_cap_drops_the_oldest(tmp_path):
+async def test_entry_cap_drops_the_least_recently_used(tmp_path):
     cache = ShareCache(tmp_path / "c", max_entries=3)
     try:
-        for i in range(5):
+        for i in range(3):
+            await cache.set(f"Obj{i:04d}", CachedObject(b"x", "image/png"))
+        assert await cache.get("Obj0000") is not None  # oldest inserted, now most recent
+        for i in range(3, 5):
             await cache.set(f"Obj{i:04d}", CachedObject(b"x", "image/png"))
         assert await cache.count() == 3
-        assert await cache.get("Obj0000") is None
+        assert await cache.get("Obj0000") is not None
         assert await cache.get("Obj0001") is None
+        assert await cache.get("Obj0002") is None
         assert await cache.get("Obj0004") is not None
     finally:
         cache.close()
@@ -172,7 +176,7 @@ async def test_concurrent_fills_never_exceed_the_cap(tmp_path):
         stop.set()
         await watcher
         assert peak <= limit
-        assert await cache.volume() + cache._wal_size() <= limit
+        assert cache.measured(cache._open()) <= limit
         assert await cache.count() >= 1
     finally:
         cache.close()

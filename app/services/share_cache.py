@@ -10,8 +10,8 @@ default executor. No hand-written LRU, index or atomic write.
   ``MESHCORE_DATABASE_PATH`` (``/var/lib/meshloom`` for the packages, inside the
   service's ``ReadWritePaths``; ``./data`` in Docker and a checkout). Created
   (mode 0700) on first use.
-- **Bounds.** ``SIZE_LIMIT`` (200 MiB), ``MAX_ENTRIES`` (oldest inserted
-  entries dropped before a write past it) and ``TTL_S`` (1 h) per entry. The
+- **Bounds.** ``SIZE_LIMIT`` (200 MiB), ``MAX_ENTRIES`` (least recently
+  used entries dropped before a write past it) and ``TTL_S`` (1 h) per entry. The
   size counts ``volume()`` (the files plus the SQLite index), the ``-shm`` file
   and ``wal_budget()``, reserved for the write-ahead log whatever it weighs now. ``_set`` takes a write lock,
   drops expired entries, then evicts the least recently used ones BEFORE
