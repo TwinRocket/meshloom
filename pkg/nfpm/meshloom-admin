@@ -8,8 +8,10 @@
 #     /etc/meshloom/meshloom.env (root:root 0640 in root:meshloom 0750, refused unless owned by root
 #     and not group- or world-writable, nor a link), then drops to the `meshloom`
 #     user, which owns the database, so SQLite never leaves root-owned -wal files.
-#     With a terminal on stdin, stdout and stderr, the child gets its own pty
-#     (runuser --pty), so it cannot push input into root's terminal.
+#     The child runs in a session of its own (runuser -c), so it never has
+#     root's controlling terminal and cannot push input into it (TIOCSTI);
+#     with a terminal on stdin, stdout and stderr it also gets its own pty
+#     (runuser --pty).
 #   - Docker image and Home Assistant add-on: /usr/local/bin/meshloom-admin, run with
 #     `docker compose exec` / `docker exec` (the container user is already right).
 # The project is not pip-installed in the venv (no build backend), so a console
@@ -84,13 +86,23 @@ if [ "$APP" = "$PKG_ROOT" ]; then
     fi
     MESHCORE_DATABASE_PATH="${MESHCORE_DATABASE_PATH:-/var/lib/meshloom/meshcore.db}"
     cd /
+    # The meshloom child must never share root's terminal: with root's
+    # controlling terminal it could push input into it (TIOCSTI) through any
+    # inherited tty fd or by opening /dev/tty, even with every fd piped.
+    # `runuser -c` (unlike `runuser -u`) starts the child in a new session, so
+    # it has no controlling terminal, and runuser kills it on Ctrl-C. The
+    # command reaches `sh -c 'exec "$0" "$@"'` as arguments, never as a string.
     pty=
     if [ -t 0 ] && [ -t 1 ] && [ -t 2 ]; then
-        # Interactive (password prompts): the meshloom child gets a pty of its
-        # own instead of root's terminal, so it cannot inject input (TIOCSTI).
+        # Fully interactive (password prompts): the child also gets a pty of
+        # its own as its controlling terminal. When any fd is redirected, no
+        # pty: it would merge stderr into stdout, add CRs and echo piped input,
+        # and the tty fds left are not the child's controlling terminal.
         pty=--pty
     fi
-    exec "${MESHLOOM_RUNUSER:-runuser}" ${pty:+"$pty"} -u "$SERVICE_USER" -- \
+    # shellcheck disable=SC2016 # the inner sh expands "$0" "$@", not this one
+    exec "${MESHLOOM_RUNUSER:-runuser}" ${pty:+"$pty"} -s /bin/sh -c 'exec "$0" "$@"' \
+        -- "$SERVICE_USER" \
         env "MESHCORE_DATABASE_PATH=$MESHCORE_DATABASE_PATH" "PYTHONPATH=$APP" \
         "$PYTHON" "$@"
 fi

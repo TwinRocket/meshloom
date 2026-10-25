@@ -254,7 +254,8 @@ def _fake_install(tmp_path: Path) -> tuple[Path, Path]:
     fake_runuser = tmp_path / "runuser"
     fake_runuser.write_text(
         f'#!/bin/sh\necho "runuser $*" >&2\necho "runuser $*" >>"{tmp_path}/runuser.log"\n'
-        'while [ "$1" != -- ]; do shift; done\nshift\nexec "$@"\n'
+        # runuser -s /bin/sh -c 'exec "$0" "$@"' -- meshloom CMD...: run CMD.
+        'while [ "$1" != -- ]; do shift; done\nshift 2\nexec "$@"\n'
     )
     fake_runuser.chmod(0o755)
     return app, fake_runuser
@@ -302,7 +303,7 @@ def test_shim_package_kind_reads_the_env_file_as_data_and_drops_privileges(tmp_p
     }
     result = _shim(["list-users"], env)
     assert result.returncode == 0, result.stderr
-    assert "runuser -u meshloom --" in result.stderr
+    assert 'runuser -s /bin/sh -c exec "$0" "$@" -- meshloom env ' in result.stderr
     assert result.stdout.strip() == f"py|/srv/m/x y.db|{app}|-P -m app.cli list-users"
     assert not marker.exists()  # the file is parsed, never sourced
 
@@ -404,29 +405,48 @@ def test_shim_package_kind_uses_a_fixed_path(tmp_path):
     assert not marker.exists()
 
 
-def test_shim_package_kind_gives_the_child_a_pty_only_when_interactive(tmp_path):
-    env_file = tmp_path / "meshloom.env"
-    env = {"PATH": os.environ["PATH"], **_package_env(tmp_path, env_file)}
-    piped = _shim(["list-users"], env)
-    assert piped.returncode == 0 and "--pty" not in piped.stderr
+# The child is always started by `runuser -c` (a new session: no controlling
+# terminal, so no TIOCSTI into root's), never `runuser -u` (same session).
+# scripts/test/meshloom_admin_tty.sh checks the real runuser in CI.
+NEW_SESSION = '-s /bin/sh -c exec "$0" "$@" -- meshloom env '
 
+
+def _shim_on_terminal(env: dict[str, str], ttys: str) -> str:
+    """Run the shim with fds 0-2 on a pty where ``ttys`` has a 1; return the runuser call."""
     primary, secondary = pty.openpty()
+    pipe_r, pipe_w = os.pipe()
+    fds = [
+        secondary if flag == "1" else (pipe_r if n == 0 else pipe_w) for n, flag in enumerate(ttys)
+    ]
     try:
         proc = subprocess.run(
             ["sh", str(SHIM), "list-users"],
-            stdin=secondary,
-            stdout=secondary,
-            stderr=secondary,
+            stdin=fds[0],
+            stdout=fds[1],
+            stderr=fds[2],
             env=env,
             check=False,
             timeout=30,
         )
     finally:
-        os.close(secondary)
-        os.close(primary)
+        for fd in (secondary, primary, pipe_r, pipe_w):
+            os.close(fd)
     assert proc.returncode == 0
-    last = (tmp_path / "runuser.log").read_text().splitlines()[-1]
-    assert last.startswith("runuser --pty -u meshloom -- env ")
+    return (Path(env["MESHLOOM_PACKAGE_ROOT"]).parent / "runuser.log").read_text().splitlines()[-1]
+
+
+def test_shim_package_kind_never_shares_roots_terminal(tmp_path):
+    env_file = tmp_path / "meshloom.env"
+    env = {"PATH": os.environ["PATH"], **_package_env(tmp_path, env_file)}
+    piped = _shim(["list-users"], env)
+    assert piped.returncode == 0 and f"runuser {NEW_SESSION}" in piped.stderr
+
+    # Fully interactive: a pty of its own too, for the password prompts.
+    assert _shim_on_terminal(env, "111").startswith(f"runuser --pty {NEW_SESSION}")
+    # Partly piped (`| less`, `echo y |`, `2>/dev/null`): no pty, which would
+    # merge stderr into stdout, but still a new session.
+    for ttys in ("101", "011", "110", "100", "001"):
+        assert _shim_on_terminal(env, ttys).startswith(f"runuser {NEW_SESSION}"), ttys
 
 
 def test_current_directory_cannot_shadow_the_installed_code(tmp_path):

@@ -51,7 +51,7 @@ works on the same tables.
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | TOTP second factor (codes, replay rule, recovery codes, pending logins) | `app/auth/totp.py`, routes in `app/routers/auth_totp.py`, `tests/test_auth_totp.py` |
 | Passkeys (WebAuthn: RP id rules, ceremonies, counter) | `app/auth/webauthn.py` (py_webauthn), routes in `app/routers/auth_webauthn.py`, `app/migrations/_110_webauthn_credentials.py`, `tests/test_auth_webauthn.py` (py_webauthn's vectors in `tests/fixtures/webauthn_vectors.json`, a software authenticator in `tests/webauthn_authenticator.py`) |
-| Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py` |
+| Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py`, `scripts/test/meshloom_admin_tty.sh` |
 | Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_auth_totp.py`, `tests/test_migrations/test_migration_109.py`, `tests/test_auth_webauthn.py`, `tests/test_migrations/test_migration_110.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
