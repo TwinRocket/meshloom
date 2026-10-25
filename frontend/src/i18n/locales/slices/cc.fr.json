@@ -245,6 +245,7 @@
     "instance_not_running": "Cette extension ne tourne pas.",
     "uid_exhausted": "Plus aucun identifiant système libre pour une nouvelle extension. Désinstallez des extensions inutilisées puis réessayez.",
     "uid_leased": "Le compte système de cette extension est tenu par un autre Meshloom de cette machine. Voir Réglages → Extensions.",
+    "uid_lease_io_error": "Le compte système de cette extension n'a pas pu être réservé : le dossier temporaire partagé est plein ou protégé en écriture. Libérez de la place puis réessayez.",
     "quota_invalid": "Une limite d'envoi est hors plage. Elle ne peut que baisser.",
     "scope_invalid": "La sélection de conversations n'est pas valide.",
     "secret_required": "Une valeur secrète est manquante.",

@@ -5,6 +5,7 @@ live in the shared temp dirs (here tmp dirs standing in for them), so another
 install never takes, nor purges, a uid this one holds. No uid switch is needed.
 """
 
+import asyncio
 import errno
 import os
 from pathlib import Path
@@ -17,7 +18,14 @@ from app.plugins.isolation import setuid as setuid_module
 from app.plugins.isolation import uid_lease
 from app.plugins.isolation.selection import Selection
 from app.plugins.isolation.setuid import PurgeBlockedError, SetuidBackend
-from app.plugins.isolation.uid_lease import LEASE_DIR_NAME, UidLeaseError, UidLeases, UidLeaseTaken
+from app.plugins.isolation.uid_lease import (
+    LEASE_DIR_NAME,
+    UidLeaseError,
+    UidLeaseIOError,
+    UidLeases,
+    UidLeaseTaken,
+)
+from app.repository import plugins as plugins_repository
 from app.repository.plugins import PluginRepository, PluginUidRepository
 
 A = "a" * 32
@@ -121,7 +129,7 @@ def test_a_lease_that_cannot_be_written_fails_closed(domains, monkeypatch):
         return create(self, dir_fd, name)
 
     monkeypatch.setattr(UidLeases, "_create", second_domain_full)
-    with pytest.raises(UidLeaseError) as exc:
+    with pytest.raises(UidLeaseIOError) as exc:
         a.acquire(40000)
     assert not isinstance(exc.value, UidLeaseTaken)
     assert str(domains[1] / LEASE_DIR_NAME / "40000") in exc.value.paths
@@ -130,6 +138,65 @@ def test_a_lease_that_cannot_be_written_fails_closed(domains, monkeypatch):
     monkeypatch.setattr(UidLeases, "_create", create)
     a.acquire(40000)  # space back: taken
     assert (domains[1] / LEASE_DIR_NAME / "40000").read_text().strip() == A
+
+
+def _lease_dir_entries(domains: list[Path]) -> list[str]:
+    return sorted(p.name for d in domains for p in (d / LEASE_DIR_NAME).iterdir())
+
+
+def test_a_lease_whose_temp_file_cannot_be_removed_leaves_nothing(domains, monkeypatch):
+    """MSHL-360 (a): the lease was linked, then removing its temp file failed. The
+    call fails closed (I/O error) and removes the lease it linked, so the uid is
+    not kept from other installs until a restart."""
+    a = _leases(A, domains)
+    a.prepare()
+    unlink = os.unlink
+    failed = False
+
+    def flaky_unlink(path, *args, **kwargs):
+        nonlocal failed
+        if not failed and str(path).startswith(".40000."):
+            failed = True
+            raise OSError(errno.EIO, os.strerror(errno.EIO))
+        return unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "unlink", flaky_unlink)
+    with pytest.raises(UidLeaseIOError):
+        a.acquire(40000)
+    monkeypatch.setattr(os, "unlink", unlink)
+    assert failed
+    assert _lease_dir_entries(domains) == []
+    _leases(B, domains).acquire(40000)
+
+
+def test_a_lease_just_created_is_held_without_opening_it_again(domains, monkeypatch):
+    """MSHL-360 (a): the descriptor limit reached right after the link (EMFILE)
+    cannot orphan the lease: the lease is locked through the temp file's own
+    descriptor before it gets its name, and never opened again."""
+    a = _leases(A, domains)
+    a.prepare()
+    real_open, create = os.open, UidLeases._create
+    linked: list[tuple[int, str]] = []
+
+    def linking(self, dir_fd, name):
+        fd = create(self, dir_fd, name)
+        if fd is not None:
+            linked.append((dir_fd, name))
+        return fd
+
+    def no_more_fds(path, flags, *args, **kwargs):
+        if (kwargs.get("dir_fd"), path) in linked:  # the lease opened again after its link
+            raise OSError(errno.EMFILE, os.strerror(errno.EMFILE))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(UidLeases, "_create", linking)
+    monkeypatch.setattr(os, "open", no_more_fds)
+    a.acquire(40000)
+    monkeypatch.setattr(os, "open", real_open)
+    assert [name for _, name in linked] == ["40000", "40000"]
+    assert _lease_dir_entries(domains) == ["40000", "40000"]
+    with pytest.raises(UidLeaseTaken, match="running"):
+        _leases(A, domains).acquire(40000)  # locked: held by this server
 
 
 def test_release_frees_the_uid_for_another_install(domains):
@@ -339,7 +406,7 @@ async def test_a_full_temp_dir_refuses_the_start_cleanly(
     a = await _instance("a")
     with pytest.raises(PluginHostError) as exc:
         await manager._instance_backend(a)
-    assert exc.value.code == "uid_leased"
+    assert exc.value.code == "uid_lease_io_error"  # MSHL-360: not another install's
     assert await PluginUidRepository.all() == {}
 
 
@@ -396,3 +463,95 @@ async def test_a_pick_lost_to_the_same_instance_gives_its_lease_back(
     for domain in (tmp_path / "tmp", tmp_path / "shm"):
         assert not (domain / LEASE_DIR_NAME / "40000").exists()
     other.claim_uid(40000)  # free for the other install
+
+
+def _failing_tx(monkeypatch, failures: int | None) -> list[int]:
+    """`db.tx` raises a database error for the first `failures` transactions (every
+    one when None); returns the count of failed attempts."""
+    import sqlite3
+
+    real_tx = plugins_repository.db.tx
+    failed: list[int] = []
+
+    def tx():
+        if failures is None or len(failed) < failures:
+            failed.append(1)
+            raise sqlite3.OperationalError("database is locked")
+        return real_tx()
+
+    monkeypatch.setattr(plugins_repository.db, "tx", tx)
+    return failed
+
+
+async def test_a_failed_allocation_gives_its_lease_back(
+    test_db, leasing_setuid, monkeypatch, tmp_path
+):
+    """MSHL-360 (b): the pick took its lease, then the transaction storing it
+    failed: no row holds the uid, so its lease goes and another install may take it."""
+    mine, other = leasing_setuid
+    manager = PluginManager(plugins_root=tmp_path / "plugins")
+    a = await _instance("a")
+    failed = _failing_tx(monkeypatch, 1)
+    with pytest.raises(Exception, match="database is locked"):
+        await manager._instance_backend(a)
+    assert failed == [1]
+    assert await PluginUidRepository.all() == {}
+    for domain in (tmp_path / "tmp", tmp_path / "shm"):
+        assert not (domain / LEASE_DIR_NAME / "40000").exists()
+    other.claim_uid(40000)
+
+
+async def test_a_failed_allocation_keeps_the_lease_when_unsure(
+    test_db, leasing_setuid, monkeypatch, tmp_path
+):
+    """MSHL-360 (b), fail closed: the database still fails when the lease would be
+    given back, so it stays (no row is known not to hold the uid)."""
+    mine, other = leasing_setuid
+    manager = PluginManager(plugins_root=tmp_path / "plugins")
+    a = await _instance("a")
+    _failing_tx(monkeypatch, None)
+    with pytest.raises(Exception, match="database is locked"):
+        await manager._instance_backend(a)
+    with pytest.raises(UidLeaseTaken):
+        other.claim_uid(40000)
+
+
+async def test_a_failed_allocation_never_frees_a_uid_another_row_holds(
+    test_db, leasing_setuid, monkeypatch, tmp_path
+):
+    """MSHL-360 (b): a concurrent allocation stored the same pick for another
+    instance before this one failed: the lease is that row's and stays."""
+    mine, other = leasing_setuid
+    manager = PluginManager(plugins_root=tmp_path / "plugins")
+    a, b = await _instance("a"), await _instance("b")
+    real_tx = plugins_repository.db.tx
+    attempts = 0
+
+    def tx():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("storing failed")
+        return real_tx()
+
+    available = SetuidBackend.uid_available
+    loop = asyncio.get_running_loop()
+
+    def racing(self, uid):
+        free = available(self, uid)
+        if uid == 40000 and attempts == 0:
+            # b stores 40000 first (its own transaction runs before a's fails).
+            plugins_repository.db.tx = real_tx
+            asyncio.run_coroutine_threadsafe(
+                PluginUidRepository.allocate(b, [40000], lambda _uid: True), loop
+            ).result(timeout=10)
+            plugins_repository.db.tx = tx
+        return free
+
+    monkeypatch.setattr(plugins_repository.db, "tx", tx)
+    monkeypatch.setattr(SetuidBackend, "uid_available", racing)
+    with pytest.raises(RuntimeError, match="storing failed"):
+        await manager._instance_backend(a)
+    assert await PluginUidRepository.all() == {b: 40000}
+    with pytest.raises(UidLeaseTaken):
+        other.claim_uid(40000)

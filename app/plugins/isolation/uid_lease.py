@@ -72,6 +72,12 @@ class UidLeaseTaken(UidLeaseError):
     """Another install (or a running copy of this one) holds the uid."""
 
 
+class UidLeaseIOError(UidLeaseError):
+    """A lease or lease directory cannot be written or read: an `OSError` such as
+    `ENOSPC` (a plugin filled the shared tmpfs), `EACCES` or `EROFS` (MSHL-360).
+    Fail closed like the others, but nobody else is known to hold the uid."""
+
+
 def install_id(data_dir: Path) -> str:
     """This install's id, created on first use in `<data_dir>/plugin-install-id`
     (`0600`). An unreadable or malformed file raises (fail closed)."""
@@ -104,14 +110,6 @@ def _same_file(dir_fd: int, name: str, fd: int) -> bool:
     return (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino)
 
 
-def _exists(dir_fd: int, name: str) -> bool:
-    try:
-        os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
-    except FileNotFoundError:
-        return False
-    return True
-
-
 class UidLeases:
     """The leases this server holds. Thread-safe; one object per process (the
     `setuid` backend and its per-uid copies share it)."""
@@ -136,7 +134,7 @@ class UidLeases:
         except OSError as exc:
             if exc.errno == errno.EROFS:
                 return None
-            raise UidLeaseError(
+            raise UidLeaseIOError(
                 f"{path}: cannot be created ({exc.strerror})", [str(path)]
             ) from None
         try:
@@ -197,31 +195,54 @@ class UidLeases:
 
     # Leases.
 
-    def _create(self, dir_fd: int, name: str) -> None:
+    def _create(self, dir_fd: int, name: str) -> int | None:
         """Write the lease atomically (a temp file linked to its name), so it is
-        never seen empty. Another process may win the name: the caller reads it."""
+        never seen empty. The temp file is locked before the link, so the lease is
+        never seen unlocked either. Returns its locked fd when this call linked
+        it; None when another process won the name (the caller opens and reads
+        it). On failure, nothing this call wrote stays (MSHL-360)."""
         tmp = f".{name}.{secrets.token_hex(4)}"
         fd = os.open(
             tmp,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
             0o600,
             dir_fd=dir_fd,
         )
+        linked = False
         try:
-            with os.fdopen(fd, "w", encoding="ascii") as fh:
-                fh.write(self.install_id + "\n")
-            with contextlib.suppress(FileExistsError):
+            data = (self.install_id + "\n").encode("ascii")
+            if os.write(fd, data) != len(data):
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
                 os.link(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd, follow_symlinks=False)
-        finally:
+                linked = True
+            except FileExistsError:
+                pass
             os.unlink(tmp, dir_fd=dir_fd)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                if linked and _same_file(dir_fd, name, fd):
+                    os.unlink(name, dir_fd=dir_fd)
+            with contextlib.suppress(OSError):
+                os.unlink(tmp, dir_fd=dir_fd)
+            os.close(fd)
+            raise
+        if not linked:
+            os.close(fd)
+            return None
+        return fd
 
-    def _take(self, dir_fd: int, name: str, path: Path) -> int:
-        """The locked fd of this install's lease `name`, created if missing."""
+    def _take(self, dir_fd: int, name: str, path: Path) -> tuple[int, bool]:
+        """The locked fd of this install's lease `name`, created if missing, and
+        whether this call created it."""
         for _ in range(_ATTEMPTS):
             try:
                 fd = os.open(name, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
             except FileNotFoundError:
-                self._create(dir_fd, name)
+                created = self._create(dir_fd, name)
+                if created is not None:
+                    return created, True
                 continue
             try:
                 if not stat.S_ISREG(os.fstat(fd).st_mode):
@@ -238,7 +259,7 @@ class UidLeases:
                 owner = os.pread(fd, 64, 0).decode("ascii", "replace").strip()
                 if owner != self.install_id:
                     raise UidLeaseTaken(f"{path}: leased by another Meshloom install", [str(path)])
-                return fd
+                return fd, False
             except BaseException:
                 with contextlib.suppress(OSError):
                     os.close(fd)
@@ -247,9 +268,11 @@ class UidLeases:
 
     def acquire(self, uid: int) -> None:
         """Hold the uid's lease in every domain (created, or already this install's).
-        Raises `UidLeaseTaken` when another install holds it, `UidLeaseError` when a
-        lease directory or file is not usable (an `OSError` such as `ENOSPC` included). Idempotent; a lease removed meanwhile is
-        written again. On failure, the leases this call created are removed."""
+        Raises `UidLeaseTaken` when another install holds it, `UidLeaseIOError` when
+        a lease cannot be written or read (`ENOSPC`, `EACCES`...), `UidLeaseError`
+        when a lease directory or file is not this server's. Idempotent; a lease
+        removed meanwhile is written again. On failure, the leases this call
+        created are removed."""
         uid = int(uid)
         name = str(uid)
         with self._lock:
@@ -264,17 +287,18 @@ class UidLeases:
                     if fd is not None:
                         os.close(held.pop(path))
                     try:
-                        existed = _exists(dir_fd, name)
-                        held[path] = self._take(dir_fd, name, path / name)
+                        held[path], created = self._take(dir_fd, name, path / name)
                     except OSError as exc:
                         # ENOSPC (a plugin filled the shared tmpfs), EACCES...: the
                         # lease cannot be written nor checked, so fail closed with
-                        # the error every caller handles (MSHL-359).
-                        raise UidLeaseError(
+                        # the error every caller handles (MSHL-359), its own kind
+                        # so the start reason does not blame another install
+                        # (MSHL-360). `_create` left nothing behind.
+                        raise UidLeaseIOError(
                             f"{path / name}: cannot be leased ({exc.strerror or exc})",
                             [str(path / name)],
                         ) from None
-                    if not existed:
+                    if created:
                         new.append((dir_fd, path))
             except BaseException:
                 for dir_fd, path in new:

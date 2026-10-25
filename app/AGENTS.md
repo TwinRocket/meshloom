@@ -156,7 +156,8 @@ and the OpenAPI page (`/docs`), not a table here.
 purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
   `uid_lease.py`, MSHL-357: allocation, purge and startup take the uid's lease in each
   shared temp dir, another install's lease skips the uid or blocks its purge, start
-  refused `uid_leased`; see docs/dev/plugins-security.md). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
+  refused `uid_leased`, or `uid_lease_io_error` when the lease cannot be written (MSHL-360);
+  see docs/dev/plugins-security.md). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). The child's own kernel guards
   (dropped capabilities, a seccomp filter refusing clone/fork/exec, required for
   a root child) are `meshloom_plugin/seccomp.py`. Stdlib only, so
