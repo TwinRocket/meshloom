@@ -100,6 +100,14 @@
         "revokeSessionsOf": "Sign {{username}} out everywhere",
         "deleteOf": "Delete {{username}}"
       },
+      "sessionLifetime": {
+        "title": "Session lifetime",
+        "days": "Days a \"Keep me signed in\" session lasts",
+        "help": "Between {{min}} and {{max}} days. A session lasts that long after its last visit; using it again starts the count over. It applies to new sessions at once and to existing ones the next time they are used. A sign-in without \"Keep me signed in\" still ends after at most 12 hours without a visit.",
+        "save": "Save",
+        "saved": "Session lifetime saved.",
+        "invalid": "Enter a whole number of days from {{min}} to {{max}}."
+      },
       "ingress": {
         "title": "Home Assistant sign-in",
         "defaultRole": "Role of a new Home Assistant user",

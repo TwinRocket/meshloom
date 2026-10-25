@@ -26,6 +26,11 @@ USERNAME_MAX_LENGTH = 64
 MIN_AUDIT_RETENTION_DAYS = 1
 MAX_AUDIT_RETENTION_DAYS = 36500
 
+# ``auth_settings.session_lifetime_days`` bounds (30 by default), editable by an admin
+# through ``PATCH /api/auth/settings`` (MSHL-318).
+MIN_SESSION_LIFETIME_DAYS = 1
+MAX_SESSION_LIFETIME_DAYS = 365
+
 
 class User(BaseModel):
     id: int
@@ -133,7 +138,8 @@ class AuthSettings(BaseModel):
     public_urls: list[str] = Field(default_factory=list)
     host_guard_mode: HostGuardMode = "observe"
     ingress_default_role: Role = "member"
-    session_lifetime_days: int = Field(default=30, ge=1, le=3650)
+    # Wider than the PATCH bounds on purpose: a row written before they existed still loads.
+    session_lifetime_days: int = Field(default=30, ge=MIN_SESSION_LIFETIME_DAYS, le=3650)
     audit_retention_days: int = Field(
         default=366, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
     )

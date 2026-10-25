@@ -376,6 +376,69 @@ describe('SettingsAccessSection', () => {
   });
 });
 
+describe('session lifetime', () => {
+  beforeEach(() => {
+    settings = {
+      trusted_proxies: [],
+      audit_retention_days: 366,
+      ingress_default_role: 'member',
+      session_lifetime_days: 30,
+    };
+    sessions = [];
+    users = [];
+    mockApi();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('shows the current value and saves a new one', async () => {
+    const patch = vi
+      .spyOn(api, 'patchAuthSettings')
+      .mockResolvedValue({ ...settings, session_lifetime_days: 90 });
+    await renderAs('admin');
+    const ui = userEvent.setup();
+    const input = await screen.findByLabelText(t('settings.access.sessionLifetime.days'));
+    expect(input).toHaveValue(30);
+    const save = within(input.closest('form')!).getByRole('button', {
+      name: t('settings.access.sessionLifetime.save'),
+    });
+    expect(save).toBeDisabled();
+    await ui.clear(input);
+    await ui.type(input, '90');
+    await ui.click(save);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ session_lifetime_days: 90 }));
+    await waitFor(() => expect(save).toBeDisabled());
+  });
+
+  it.each(['0', '366', '1.5', ''])('refuses %j without calling the server', async (typed) => {
+    const patch = vi.spyOn(api, 'patchAuthSettings');
+    await renderAs('admin');
+    const ui = userEvent.setup();
+    const input = await screen.findByLabelText(t('settings.access.sessionLifetime.days'));
+    await ui.clear(input);
+    if (typed) await ui.type(input, typed);
+    await ui.click(
+      within(input.closest('form')!).getByRole('button', {
+        name: t('settings.access.sessionLifetime.save'),
+      })
+    );
+    expect(
+      await screen.findByText(t('settings.access.sessionLifetime.invalid', { min: 1, max: 365 }))
+    ).toBeInTheDocument();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('is hidden from a member and when the server does not send it', async () => {
+    await renderAs('member');
+    expect(screen.queryByText(t('settings.access.sessionLifetime.title'))).toBeNull();
+    vi.restoreAllMocks();
+    settings = { trusted_proxies: [], audit_retention_days: 366, ingress_default_role: 'member' };
+    mockApi();
+    await renderAs('admin');
+    await screen.findByText(t('settings.access.ingress.title'));
+    expect(screen.queryByText(t('settings.access.sessionLifetime.title'))).toBeNull();
+  });
+});
+
 describe('deviceLabel', () => {
   it('names the browser and system, never the raw user agent', () => {
     expect(deviceLabel(null, '?')).toBe('?');

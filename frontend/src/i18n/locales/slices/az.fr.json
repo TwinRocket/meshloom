@@ -100,6 +100,14 @@
         "revokeSessionsOf": "Déconnecter {{username}} partout",
         "deleteOf": "Supprimer {{username}}"
       },
+      "sessionLifetime": {
+        "title": "Durée des sessions",
+        "days": "Jours de durée d'une session « Rester connecté »",
+        "help": "Entre {{min}} et {{max}} jours. Une session dure ce temps après sa dernière visite ; l'utiliser de nouveau relance le décompte. Le réglage s'applique aussitôt aux nouvelles sessions, et aux sessions existantes à leur prochaine utilisation. Une connexion sans « Rester connecté » se termine toujours au bout de 12 heures au plus sans visite.",
+        "save": "Enregistrer",
+        "saved": "Durée des sessions enregistrée.",
+        "invalid": "Saisissez un nombre entier de jours de {{min}} à {{max}}."
+      },
       "ingress": {
         "title": "Connexion Home Assistant",
         "defaultRole": "Rôle d'un nouvel utilisateur Home Assistant",

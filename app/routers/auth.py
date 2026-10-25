@@ -1,8 +1,8 @@
 """``/api/auth/*``: first-run setup, login, logout, sessions and the own profile.
 
 ``GET/PATCH /auth/settings`` holds the access settings an admin tunes (the
-trusted proxies, the trusted networks, the audit retention, the role of new
-Home Assistant users);
+trusted proxies, the trusted networks, the audit retention, the session lifetime, the role of
+new Home Assistant users);
 ``/auth/users`` is the admin's account management (create, change the role,
 disable, delete, set a password, sign out); ``/auth/tokens`` (API and device
 tokens) lives in ``app/routers/auth_tokens.py``, the kiosk launcher's sign-in
@@ -35,7 +35,9 @@ from app.auth import audit, device_cookie, ratelimit, sessions, totp, webauthn
 from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import (
     MAX_AUDIT_RETENTION_DAYS,
+    MAX_SESSION_LIFETIME_DAYS,
     MIN_AUDIT_RETENTION_DAYS,
+    MIN_SESSION_LIFETIME_DAYS,
     USERNAME_MAX_LENGTH,
     AuthAuditEntry,
     AuthSettings,
@@ -841,6 +843,12 @@ class AuthSettingsView(BaseModel):
     audit_retention_days: int = Field(
         description="Audit rows older than this many days are purged (hourly)."
     )
+    session_lifetime_days: int = Field(
+        description=(
+            "Sliding lifetime of a session signed in with 'Keep me signed in' (a session "
+            "without it ends after at most 12 hours of inactivity)."
+        )
+    )
     ingress_default_role: Role = Field(
         description=(
             "Role of a Home Assistant user seen for the first time, after the first one "
@@ -893,6 +901,9 @@ class AuthSettingsPatch(BaseModel):
     )
     audit_retention_days: int | None = Field(
         default=None, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
+    )
+    session_lifetime_days: int | None = Field(
+        default=None, ge=MIN_SESSION_LIFETIME_DAYS, le=MAX_SESSION_LIFETIME_DAYS
     )
     ingress_default_role: Role | None = None
     public_urls: list[str] | None = Field(default=None, max_length=host_guard.MAX_PUBLIC_URLS * 4)
@@ -947,6 +958,7 @@ async def _settings_view(settings: AuthSettings) -> AuthSettingsView:
             for rule in settings.trusted_networks
         ],
         audit_retention_days=settings.audit_retention_days,
+        session_lifetime_days=settings.session_lifetime_days,
         ingress_default_role=settings.ingress_default_role,
         public_urls=settings.public_urls,
         host_guard_mode=settings.host_guard_mode,
@@ -1049,6 +1061,7 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         trusted_proxies=trusted_proxies,
         trusted_networks=trusted_networks,
         audit_retention_days=body.audit_retention_days,
+        session_lifetime_days=body.session_lifetime_days,
         ingress_default_role=body.ingress_default_role,
         public_urls=public_urls,
         host_guard_mode=body.host_guard_mode,
@@ -1079,6 +1092,15 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             "success",
             target="auth_settings.audit_retention_days",
             details={"audit_retention_days": settings.audit_retention_days},
+        )
+    if body.session_lifetime_days is not None:
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.session_lifetime_days",
+            # Not "session_…": the audit filter refuses keys that look like secrets.
+            details={"lifetime_days": settings.session_lifetime_days},
         )
     if body.ingress_default_role is not None:
         await audit.record_request(

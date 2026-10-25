@@ -308,6 +308,7 @@ class TestSettingsRoute:
         assert body == {
             "trusted_proxies": [],
             "audit_retention_days": 366,
+            "session_lifetime_days": 30,
             "ingress_default_role": "member",
             "trusted_networks": [],
             "public_urls": [],

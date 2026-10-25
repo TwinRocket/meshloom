@@ -9,6 +9,7 @@ import { AccessPasskeysPanel } from './AccessPasskeysPanel';
 import { AccessProfilePanel } from './AccessProfilePanel';
 import { AccessPublicAddressesPanel } from './AccessPublicAddressesPanel';
 import { AccessSecurityPanel } from './AccessSecurityPanel';
+import { AccessSessionLifetimePanel } from './AccessSessionLifetimePanel';
 import { AccessSessionsPanel } from './AccessSessionsPanel';
 import { AccessTokensPanel } from './AccessTokensPanel';
 import {
@@ -19,7 +20,7 @@ import { AccessUsersPanel } from './AccessUsersPanel';
 
 /**
  * Settings → Users & Access. Every account sees its own profile and sessions; the
- * user list, the trusted networks, the public addresses and the Host guard, the Home Assistant default role and the Access
+ * user list, the trusted networks, the public addresses and the Host guard, the session lifetime, the Home Assistant default role and the Access
  * security notice are for an administrator (the server refuses them to anyone else,
  * `app/auth/permissions.py`).
  */
@@ -38,6 +39,7 @@ export function SettingsAccessSection({ className }: { className?: string }) {
       {isAdmin && <AccessUsersPanel />}
       {isAdmin && <AccessTrustedNetworksPanel onNotices={setNotices} />}
       {isAdmin && <AccessPublicAddressesPanel />}
+      {isAdmin && <AccessSessionLifetimePanel />}
       {isAdmin && <AccessIngressPanel />}
       {isAdmin && <AccessAuditPanel />}
     </div>

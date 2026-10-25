@@ -333,7 +333,7 @@ Single row (`id = 1`) of access settings, kept out of `app_settings` so no auth
 secret reaches `AppSettings`: `trusted_networks` (JSON `[{cidr, user_id}]`),
 `trusted_proxies` (JSON CIDR list), `public_urls` (JSON), `host_guard_mode`
 (`observe`/`enforce`), `ingress_default_role` (`member`), `session_lifetime_days`
-(30), `audit_retention_days` (366), `basic_imported`, `setup_code_hash` (SHA-256 of
+(30; 1 to 365 through `PATCH /api/auth/settings`), `audit_retention_days` (366), `basic_imported`, `setup_code_hash` (SHA-256 of
 the installation code), `ingress_admin_granted` (migration 107: the first Home
 Assistant identity was made admin; never cleared), `require_2fa_for_admins`
 (migration 109, off: admins with a password and no second factor reach only the

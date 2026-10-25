@@ -49,6 +49,8 @@ export interface AuthSettings {
   trusted_proxies: string[];
   /** Audit rows older than this many days are purged (366 by default). */
   audit_retention_days: number;
+  /** Days a "Keep me signed in" session lasts after its last visit (30 by default, 1 to 365). */
+  session_lifetime_days?: number;
   /** Role of a Home Assistant user seen for the first time (the very first is always admin). */
   ingress_default_role: AuthRole;
   /** Networks whose direct requests act as an account without a login. Empty by default. */

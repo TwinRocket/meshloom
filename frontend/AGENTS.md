@@ -360,8 +360,9 @@ purpose.
   new admin-only route needs its UI gated here in the same change. The `access` section
   (Users & Access: `components/settings/SettingsAccessSection.tsx`, lazy-loaded from
   `SettingsModal`) is in `ACCOUNT_SETTINGS_SECTIONS` because its profile and sessions
-  panels use `own_account` routes; its users and Home Assistant default role panels render
-  for `isAdmin` only, as does the audit log (`AccessAuditPanel`: cursor pages of
+  panels use `own_account` routes; its users, session lifetime (`AccessSessionLifetimePanel`, `session_lifetime_days`, 1 to 365,
+  strings `settings.access.sessionLifetime.*` in slice `az`) and Home Assistant default role
+  panels render for `isAdmin` only, as does the audit log (`AccessAuditPanel`: cursor pages of
   `GET /auth/audit`, filters applied client-side to the loaded rows, labels from
   `auditShared.ts`; rows virtualised with `@tanstack/react-virtual` in a fixed-height
   scroller; `details` is never shown). Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded
