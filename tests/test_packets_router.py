@@ -984,3 +984,97 @@ class TestHistoricalDecryptionFlagsMessages:
         assert messages[0][0]["historical"] is True
         assert mock_success.call_args.kwargs["code"] == "historical_decrypt_complete_rooms"
         assert mock_success.call_args.kwargs["params"] == {"count": 1}
+
+
+class TestPacketHistoryMultiType:
+    """`payload_type` takes one name or a comma-separated list (feed control history)."""
+
+    @pytest.mark.asyncio
+    async def test_comma_separated_types_match_any(self, test_db, client):
+        from app.decoder import PayloadType
+
+        base = 1700000000
+        # header byte = payload type << 2 | route type (FLOOD = 1); the body makes each unique
+        types = [PayloadType.REQUEST, PayloadType.ADVERT, PayloadType.RESPONSE, PayloadType.ACK]
+        for i, ptype in enumerate(types):
+            raw = bytes([(int(ptype) << 2) | 1, 0x00]) + bytes([i + 1]) * 12
+            await RawPacketRepository.create(raw, base + i)
+
+        response = await client.get(
+            "/api/packets/history?payload_type=REQUEST,RESPONSE,ANON_REQUEST"
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert [item["payload_type"] for item in data["items"]] == ["RESPONSE", "REQUEST"]
+        assert data["scanned"] == 4
+
+        bad = await client.get("/api/packets/history?payload_type=REQUEST,NOPE")
+        assert bad.status_code == 422
+
+    @pytest.mark.slow
+    @pytest.mark.asyncio
+    async def test_four_type_filter_on_20000_rows_is_bounded(self, test_db, client):
+        """Worst case: the 20 000 newest rows hold few control packets, so the scan hits its cap."""
+        import os
+
+        from app.decoder import PayloadType
+
+        control = [
+            PayloadType.REQUEST,
+            PayloadType.RESPONSE,
+            PayloadType.ANON_REQUEST,
+            PayloadType.GROUP_DATA,
+        ]
+        base = 1700000000
+        rows = []
+        for i in range(25_000):
+            # 1 control packet in 200 among adverts: 125 matches over the whole table
+            ptype = control[(i // 200) % 4] if i % 200 == 0 else PayloadType.ADVERT
+            raw = bytes([(int(ptype) << 2) | 1, 0x00]) + i.to_bytes(4, "big") + os.urandom(28)
+            rows.append((base + i, raw, f"h{i}"))
+        async with test_db.tx() as conn:
+            await conn.executemany(
+                "INSERT INTO raw_packets (timestamp, data, payload_hash) VALUES (?, ?, ?)", rows
+            )
+
+        query = (
+            "/api/packets/history?payload_type=REQUEST,RESPONSE,ANON_REQUEST,GROUP_DATA"
+            "&limit=200&max_scan=20000"
+        )
+        t0 = time.perf_counter()
+        response = await client.get(query)
+        elapsed = time.perf_counter() - t0
+        data = response.json()
+        print(
+            f"four-type history, 25k rows, worst case: {elapsed * 1000:.0f} ms, "
+            f"scanned={data['scanned']}, items={len(data['items'])}, truncated={data['truncated']}"
+        )
+        assert response.status_code == 200
+        assert data["scanned"] == 20_000
+        assert data["truncated"] is True
+        assert len(data["items"]) == 100  # 20 000 / 200
+        assert elapsed < 5.0
+
+        dense = [
+            (
+                base + 100_000 + i,
+                bytes([(0 << 2) | 1, 0]) + i.to_bytes(4, "big") + os.urandom(28),
+                f"d{i}",
+            )
+            for i in range(2000)
+        ]
+        async with test_db.tx() as conn:
+            await conn.executemany(
+                "INSERT INTO raw_packets (timestamp, data, payload_hash) VALUES (?, ?, ?)", dense
+            )
+        t0 = time.perf_counter()
+        response = await client.get(query)
+        elapsed = time.perf_counter() - t0
+        data = response.json()
+        print(
+            f"four-type history, dense control, first page: {elapsed * 1000:.0f} ms, "
+            f"scanned={data['scanned']}, items={len(data['items'])}"
+        )
+        assert len(data["items"]) == 200
+        assert data["scanned"] == 200
+        assert elapsed < 2.0

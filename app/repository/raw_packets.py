@@ -310,13 +310,13 @@ class RawPacketRepository:
         after_id: int | None = None,
         limit: int,
         max_scan: int,
-        payload_type: PayloadType | None = None,
+        payload_types: frozenset[PayloadType] | None = None,
         batch_size: int = UNDECRYPTED_PACKET_BATCH_SIZE,
     ) -> tuple[list[tuple[int, bytes, int, int | None]], int, bool, int]:
         """Bounded newest-first history using ``idx_raw_packets_timestamp``.
 
-        ``payload_type`` is applied by parsing each header during the scan
-        (there is no stored payload_type column). Returns
+        ``payload_types`` (any of the given types) is applied by parsing each
+        header during the scan (there is no stored payload_type column). Returns
         ``(rows, total, truncated, scanned)`` where ``total`` is the SQL COUNT
         of the time/id window, ``scanned`` is rows walked, and ``truncated``
         is true when the scan stopped at ``max_scan`` with more window rows
@@ -353,7 +353,7 @@ class RawPacketRepository:
         while scanned < max_scan and len(rows) < limit:
             remaining_scan = max_scan - scanned
             batch_limit = min(batch_size, remaining_scan)
-            if payload_type is None:
+            if payload_types is None:
                 batch_limit = min(batch_limit, limit - len(rows))
             if batch_limit <= 0:
                 break
@@ -377,7 +377,7 @@ class RawPacketRepository:
                 last_ts = row["timestamp"]
                 last_id = row["id"]
                 data = bytes(row["data"])
-                if payload_type is None or get_packet_payload_type(data) == payload_type:
+                if payload_types is None or get_packet_payload_type(data) in payload_types:
                     rows.append((row["id"], data, row["timestamp"], row["message_id"]))
                     if len(rows) >= limit:
                         break

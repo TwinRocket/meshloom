@@ -7,6 +7,7 @@ import './qSlices';
 
 const mocks = vi.hoisted(() => ({
   getMessages: vi.fn(),
+  getPacketsHistory: vi.fn(),
   getNotificationRules: vi.fn(),
 }));
 const sessionMocks = vi.hoisted(() => ({ canReadPrivate: true, canSend: true, isAdmin: true }));
@@ -31,6 +32,7 @@ vi.mock('../api', async (importOriginal) => {
     api: {
       ...actual.api,
       getMessages: mocks.getMessages,
+      getPacketsHistory: mocks.getPacketsHistory,
       getNotificationRules: mocks.getNotificationRules,
     },
   };
@@ -130,6 +132,8 @@ async function findScroller(): Promise<HTMLElement> {
 
 beforeEach(() => {
   mocks.getMessages.mockReset();
+  mocks.getPacketsHistory.mockReset();
+  mocks.getPacketsHistory.mockResolvedValue({ items: [], total: 0, truncated: false, scanned: 0 });
   mocks.getNotificationRules.mockReset();
   mocks.getNotificationRules.mockResolvedValue({ radio_offline_grace_s: 60 });
   resetFeedStore();

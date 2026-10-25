@@ -975,6 +975,8 @@ export interface RawPacket {
   /** Client-only: browser Date.now() when the WS frame was recorded. Live activity
    *  (visualizer pruning) uses this so a skewed server clock cannot age packets. */
   received_at_ms?: number;
+  /** Client-only: a stored packet replayed from `GET /api/packets/history` (no RSSI/SNR). */
+  replayed?: boolean;
   data: string; // hex
   payload_type: string;
   snr: number | null; // Signal-to-noise ratio in dB

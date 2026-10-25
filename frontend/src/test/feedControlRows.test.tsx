@@ -6,11 +6,18 @@ import './qSlices';
 import './eSlices';
 import './wSlices';
 
-const mocks = vi.hoisted(() => ({ getMessages: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getMessages: vi.fn(), getPacketsHistory: vi.fn() }));
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
-  return { ...actual, api: { ...actual.api, getMessages: mocks.getMessages } };
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      getMessages: mocks.getMessages,
+      getPacketsHistory: mocks.getPacketsHistory,
+    },
+  };
 });
 
 import { FeedView } from '../components/feed/FeedView';
@@ -170,6 +177,8 @@ const rowsOf = async () =>
 beforeEach(() => {
   mocks.getMessages.mockReset();
   mocks.getMessages.mockResolvedValue([]);
+  mocks.getPacketsHistory.mockReset();
+  mocks.getPacketsHistory.mockResolvedValue({ items: [], total: 0, truncated: false, scanned: 0 });
   resetFeedStore();
   resetRawPacketStore();
   clearControlJournalCache();
@@ -566,5 +575,109 @@ describe('feed i18n', () => {
   it('keeps the w slice in parity between English and French', () => {
     expect(flatten(wEn).sort()).toEqual(flatten(wFr).sort());
     expect(flatten(wEn).length).toBeGreaterThan(2);
+  });
+});
+
+describe('feed control history', () => {
+  const stored = (id: number, overrides: Partial<RawPacket> = {}): RawPacket => ({
+    ...packet(id),
+    observation_id: undefined,
+    ...overrides,
+  });
+
+  it('replays stored control packets after the first page, without duplicating live rows', async () => {
+    feedControl(packet(10, { timestamp: BASE + 500 }));
+    mocks.getPacketsHistory.mockResolvedValue({
+      // newest first; id 10 is the live row's database id
+      items: [
+        stored(10, { timestamp: BASE + 500, rssi: -50, snr: 4 }),
+        stored(8, { timestamp: BASE + 300 }),
+        stored(9, {
+          timestamp: BASE + 100,
+          data: responseHex('aa', 'bb'),
+          payload_type: 'Response',
+        }),
+      ],
+      total: 3,
+      truncated: false,
+      scanned: 3,
+    });
+    renderFeed();
+    await screen.findByTestId('feed-control-history');
+    expect(mocks.getPacketsHistory).toHaveBeenCalledTimes(1);
+    expect(mocks.getPacketsHistory).toHaveBeenCalledWith(
+      {
+        payload_type: 'Request,Response,AnonRequest,GroupData',
+        limit: 200,
+        max_scan: 20000,
+      },
+      undefined
+    );
+    // The request left after the first message page.
+    expect(mocks.getMessages.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.getPacketsHistory.mock.invocationCallOrder[0]
+    );
+    const rows = await rowsOf();
+    expect(rows).toHaveLength(3);
+    // Oldest first: the replayed Response, the replayed Request, then the live one.
+    expect(rows[0]).toHaveAttribute('data-testid', 'feed-control-row-Response');
+    expect(screen.getAllByTestId('feed-control-replayed')).toHaveLength(2);
+    expect(screen.queryByTestId('feed-control-history-truncated')).not.toBeInTheDocument();
+  });
+
+  it('shows the scan-limit hint when the response was truncated, and loads earlier ones', async () => {
+    mocks.getPacketsHistory
+      .mockResolvedValueOnce({
+        items: [stored(30, { timestamp: BASE + 300 })],
+        total: 40000,
+        truncated: true,
+        scanned: 20000,
+      })
+      .mockResolvedValueOnce({
+        items: [stored(5, { timestamp: BASE + 50 })],
+        total: 40000,
+        truncated: false,
+        scanned: 700,
+      });
+    renderFeed();
+    const hint = await screen.findByTestId('feed-control-history-truncated');
+    expect(hint.textContent).toMatch(/20.000/);
+    expect(await rowsOf()).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('feed.controlHistoryMore') }));
+    await act(async () => {});
+    expect(mocks.getPacketsHistory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ after_id: 30 }),
+      undefined
+    );
+    expect(await rowsOf()).toHaveLength(2);
+    expect(screen.queryByTestId('feed-control-history-truncated')).not.toBeInTheDocument();
+    // A short, complete answer: nothing older to offer.
+    expect(
+      screen.queryByRole('button', { name: i18n.t('feed.controlHistoryMore') })
+    ).not.toBeInTheDocument();
+  });
+
+  it('fetches once per session: a re-mount does not replay again', async () => {
+    const first = renderFeed();
+    await screen.findByTestId('feed-control-history');
+    first.unmount();
+    renderFeed();
+    await screen.findByTestId('feed-control-history');
+    expect(mocks.getPacketsHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a retry when the request fails', async () => {
+    mocks.getPacketsHistory.mockRejectedValueOnce(new Error('boom'));
+    renderFeed();
+    expect(await screen.findByRole('alert')).toHaveTextContent(i18n.t('feed.controlHistoryError'));
+    mocks.getPacketsHistory.mockResolvedValueOnce({
+      items: [stored(3)],
+      total: 1,
+      truncated: false,
+      scanned: 1,
+    });
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('feed.retry') }));
+    expect(await rowsOf()).toHaveLength(1);
   });
 });

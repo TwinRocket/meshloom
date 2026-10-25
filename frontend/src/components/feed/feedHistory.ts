@@ -1,12 +1,16 @@
-import { api } from '../../api';
+import { api, ApiError } from '../../api';
 import {
+  getControlHistoryState,
   getFeedSnapshot,
   isFeedStoreActive,
   maxKnownId,
+  mergeControlHistory,
   mergeHistoryPage,
   mergeReconciledRows,
   resetFeedForRefetch,
+  updateControlHistory,
 } from '../../stores/feedStore';
+import { CONTROL_JOURNAL_PAYLOAD_TYPES } from '../../utils/controlJournal';
 import type { FeedQuery } from '../../utils/feedFilters';
 import { FEED_PAGE_SIZE } from './feedConversation';
 
@@ -135,4 +139,57 @@ async function reconcileOnce(): Promise<void> {
     sinceId = Math.max(sinceId, ...rows.map((row) => row.id));
   }
   resetFeedForRefetch();
+}
+
+/** Control packets asked per history request (the route's `limit`). */
+export const FEED_CONTROL_HISTORY_LIMIT = 200;
+/** Newest stored packets the server may walk per request (its own maximum). */
+export const FEED_CONTROL_HISTORY_MAX_SCAN = 20_000;
+
+/**
+ * Replay stored control packets into the feed. `'open'` is the first mount of the session
+ * (once; the caller waits for the first message page so the request stays off the first
+ * paint), `'more'` is the "Load earlier control packets" action and continues below the
+ * oldest replayed packet. The four types go in one request. A refused read (403) is a
+ * session without the surface: nothing more is offered, silently.
+ */
+export async function loadControlHistory(
+  mode: 'open' | 'more',
+  signal?: AbortSignal
+): Promise<void> {
+  if (!isFeedStoreActive()) return;
+  const state = getControlHistoryState();
+  if (state.loading) return;
+  if (mode === 'open' ? state.started : state.exhausted) return;
+  updateControlHistory({ started: true, loading: true, error: false });
+  try {
+    const page = await api.getPacketsHistory(
+      {
+        payload_type: CONTROL_JOURNAL_PAYLOAD_TYPES.join(','),
+        limit: FEED_CONTROL_HISTORY_LIMIT,
+        max_scan: FEED_CONTROL_HISTORY_MAX_SCAN,
+        ...(mode === 'more' && state.cursorId !== null && { after_id: state.cursorId }),
+      },
+      signal
+    );
+    if (signal?.aborted) {
+      updateControlHistory({ loading: false, started: state.started });
+      return;
+    }
+    mergeControlHistory(page.items, {
+      truncated: page.truncated,
+      scanned: page.scanned,
+      limit: FEED_CONTROL_HISTORY_LIMIT,
+    });
+  } catch (err) {
+    if (signal?.aborted) {
+      updateControlHistory({ loading: false, started: state.started });
+      return;
+    }
+    if (err instanceof ApiError && err.status === 403) {
+      updateControlHistory({ loading: false, exhausted: true });
+      return;
+    }
+    updateControlHistory({ loading: false, error: true });
+  }
 }

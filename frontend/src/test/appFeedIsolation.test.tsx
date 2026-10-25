@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   parseHash: vi.fn((): { type: string; name: string } | null => null),
   api: {
     getMessages: vi.fn(),
+    getPacketsHistory: vi.fn(),
     getNotificationRules: vi.fn(),
     getRadioConfig: vi.fn(),
     getSettings: vi.fn(),
@@ -189,6 +190,12 @@ describe('feed messages and the chat render path', () => {
     vi.clearAllMocks();
     mocks.parseHash.mockReturnValue(null);
     mocks.api.getMessages.mockResolvedValue([]);
+    mocks.api.getPacketsHistory.mockResolvedValue({
+      items: [],
+      total: 0,
+      truncated: false,
+      scanned: 0,
+    });
     mocks.api.getNotificationRules.mockResolvedValue({ radio_offline_grace_s: 60 });
     resetFeedStore();
     mocks.api.getRadioConfig.mockResolvedValue({

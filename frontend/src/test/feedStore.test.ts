@@ -8,6 +8,7 @@ import {
   applyFeedAck,
   getFeedSnapshot,
   maxKnownId,
+  mergeControlHistory,
   mergeHistoryPage,
   recordFeedControlPacket,
   recordFeedEvent,
@@ -394,5 +395,67 @@ describe('feedStore event rows', () => {
     expect(getFeedSnapshot().events).toHaveLength(1);
     resetFeedStore();
     expect(getFeedSnapshot().events).toHaveLength(0);
+  });
+});
+
+describe('feedStore control history', () => {
+  const meta = { truncated: false, scanned: 10, limit: 200 };
+  const stored = (id: number, timestamp: number) => ({
+    ...control(id, timestamp),
+    observation_id: undefined,
+    rssi: -70,
+    snr: 5,
+  });
+
+  beforeEach(() => {
+    resetFeedStore();
+    resetRawPacketStore();
+    activateFeedStore();
+  });
+
+  it('merges replayed packets by timestamp, nulls RSSI/SNR and flags them', async () => {
+    recordFeedControlPacket(control(5, 500));
+    mergeControlHistory([stored(7, 700), stored(3, 300)], meta);
+    await flush();
+    const held = getFeedSnapshot().controlPackets;
+    expect(held.map((p) => p.id)).toEqual([3, 5, 7]);
+    expect(held[0]).toMatchObject({ replayed: true, rssi: null, snr: null });
+    expect(held[1].replayed).toBeUndefined();
+  });
+
+  it('skips a packet a live row already shows (same database id, other observation key)', async () => {
+    recordFeedControlPacket(control(5, 500));
+    expect(mergeControlHistory([stored(5, 500), stored(4, 400)], meta)).toBe(1);
+    await flush();
+    expect(controlIds()).toEqual([4, 5]);
+  });
+
+  it('fills only the room under FEED_CONTROL_MAX and then reports exhausted', async () => {
+    for (let i = 1; i <= FEED_CONTROL_MAX - 2; i += 1)
+      recordFeedControlPacket(control(1000 + i, 5000 + i));
+    const items = [stored(9, 900), stored(8, 800), stored(7, 700)];
+    expect(mergeControlHistory(items, { ...meta, limit: 3, truncated: true })).toBe(2);
+    await flush();
+    const snap = getFeedSnapshot();
+    expect(snap.controlPackets).toHaveLength(FEED_CONTROL_MAX);
+    expect(snap.controlPackets.slice(0, 2).map((p) => p.id)).toEqual([8, 9]);
+    expect(snap.controlHistory.exhausted).toBe(true);
+  });
+
+  it('tracks truncated, scanned and the cursor, and resetFeedStore clears them', async () => {
+    mergeControlHistory([stored(9, 900), stored(8, 800)], {
+      truncated: true,
+      scanned: 20000,
+      limit: 200,
+    });
+    await flush();
+    expect(getFeedSnapshot().controlHistory).toMatchObject({
+      truncated: true,
+      scanned: 20000,
+      cursorId: 8,
+      exhausted: false,
+    });
+    resetFeedStore();
+    expect(getFeedSnapshot().controlHistory.cursorId).toBeNull();
   });
 });
