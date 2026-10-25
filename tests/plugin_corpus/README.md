@@ -33,16 +33,18 @@ the database and the app tree must be untouched and the child must answer
 - `{"error_code": <int>}`: a JSON-RPC error code (the runner's own refusals).
 - `{"result": <value>}`.
 - `{"check": "<name>"}`: a check written in the test (`hook_frame`, `environ`,
-  `inherited_fds`).
+  `inherited_fds`; `spawn_refused` and `thread_refused`: refused by the runner,
+  or the fork or clone failed because `RLIMIT_NPROC` is 0).
 
 An event may add `"open_path": {"note": "...", "python_below": "3.12",
-"closed_by": ["bwrap", "setuid"], "os_check": "<name>"}` for a documented path
-the runner does not close in-process (`python_below` optional). Where the
-expectation fails, a level in `closed_by` must pass `os_check` (`exec_escape`:
-a program with no hook, run in the same box, cannot read a `0600` database,
-`/proc/<server>/environ` or write the app root, and under bwrap cannot read
-`app/` or connect; `nproc`: `RLIMIT_NPROC` set), and any other level reports
-`xfail`. When the path gets closed, the case passes.
+"nproc_bypass": true, "closed_by": ["bwrap"], "os_check": "<name>"}` for a
+documented path the runner does not close in-process (`python_below` optional;
+`nproc_bypass`: the path is open only where `RLIMIT_NPROC` 0 does not hold, that
+is when the tests run as root at `none` or `bwrap`, or not on Linux). Where the expectation fails, a level in
+`closed_by` must pass `os_check` (`exec_escape`: a program with no hook, run in
+the same box, cannot read a `0600` database, `/proc/<server>/environ` or write
+the app root, and under bwrap cannot read `app/` or connect), and any other
+level reports `xfail`. When the path gets closed, the case passes.
 
 ### `host` (the real supervisor, `app/plugins/host.py`)
 

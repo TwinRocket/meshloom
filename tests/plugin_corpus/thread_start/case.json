@@ -1,18 +1,15 @@
 {
-  "description": "Starting a thread through _thread (kept in sys.modules, so the import guard is not involved): the audit hook refuses it on 3.12 and later. 3.11 emits no thread-start audit event.",
+  "description": "Starting a thread through _thread (kept in sys.modules, so the import guard is not involved): the audit hook refuses it on 3.12 and later. 3.11 emits no thread-start audit event, so there RLIMIT_NPROC 0 makes the start fail (RuntimeError), unless the child runs as root.",
   "events": [
     {
       "params": {},
       "expect": {
-        "error_type": "PermissionError"
+        "check": "thread_refused"
       },
       "open_path": {
         "python_below": "3.12",
-        "note": "no thread-start audit event on 3.11; under the dedicated uid RLIMIT_NPROC bounds the threads (MSHL-180)",
-        "closed_by": [
-          "setuid"
-        ],
-        "os_check": "nproc"
+        "note": "no thread-start audit event on 3.11 and where RLIMIT_NPROC does not hold (a child running as root, or not Linux) (MSHL-289)",
+        "nproc_bypass": true
       }
     }
   ]

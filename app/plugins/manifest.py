@@ -105,8 +105,8 @@ def _https_url(value: str) -> str:
 
 # Invisible or direction-changing characters that no real script needs. ZWNJ/ZWJ
 # (U+200C/200D, Persian and Indic scripts, emoji sequences), variation selectors and
-# emoji tag sequences are allowed. Unassigned code points are NOT refused: validity
-# must not depend on the Unicode tables of the running Python.
+# the three RGI emoji tag sequences (below) are allowed. Unassigned code points are
+# NOT refused: validity must not depend on the Unicode tables of the running Python.
 _FORBIDDEN_CHARS = frozenset(
     {
         0x00AD,  # soft hyphen
@@ -139,9 +139,17 @@ def is_forbidden_char(char: str) -> bool:
     return ord(char) in _FORBIDDEN_CHARS or unicodedata.category(char) in ("Cc", "Cs", "Co")
 
 
-# Tag characters are only valid inside an emoji tag sequence (a flag): U+1F3F4, tags
-# U+E0020-E007E, then the cancel tag U+E007F. Anywhere else they are invisible text.
-_TAG_SEQUENCE_RE = re.compile("\U0001f3f4[\U000e0020-\U000e007e]+\U000e007f")
+# Tag characters are only valid inside one of the three RGI emoji tag sequences
+# (UTS #51): U+1F3F4, the tag letters of `gbeng`, `gbsct` or `gbwls`, then the cancel
+# tag U+E007F (England, Scotland, Wales). Any other tag text, even shaped like a flag,
+# is invisible text a reader cannot see (ASCII smuggling), so it is refused.
+_RGI_TAG_FLAGS = ("gbeng", "gbsct", "gbwls")
+_TAG_SEQUENCE_RE = re.compile(
+    "|".join(
+        "\U0001f3f4" + "".join(chr(0xE0000 + ord(c)) for c in code) + "\U000e007f"
+        for code in _RGI_TAG_FLAGS
+    )
+)
 
 
 def contains_forbidden(value: str) -> bool:
@@ -159,7 +167,8 @@ def _text(value: str) -> str:
 def _identity_text(value: str) -> str:
     """Names shown as identities: also refuse a word that fails the UTS #39 "Highly
     Restrictive" script check (`Meshloom` with a Cyrillic, Greek, Armenian or Cherokee
-    look-alike). Compatibility forms (fullwidth, mathematical) fold to plain letters first."""
+    look-alike). The check runs per word, not on the whole string (`app/plugins/scripts.py`).
+    Compatibility forms (fullwidth, mathematical) fold to plain letters first."""
     _text(value)
     if mixed_script_word(value):
         raise PydanticCustomError("name_homoglyph", "a word mixes letters from different scripts")

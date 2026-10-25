@@ -23,6 +23,7 @@ docs/dev/plugins-security.md, "Tests".
 
 import asyncio
 import contextlib
+import errno
 import io
 import json
 import os
@@ -41,7 +42,7 @@ from app.plugins.isolation import selection
 from app.plugins.isolation.base import IsolationBackend
 from meshloom_plugin import policy
 from tests.plugin_isolation_support import available_backends, run_probe, shared_tmp_dir
-from tests.test_plugin_runner import Runner, _os_check_nproc
+from tests.test_plugin_runner import Runner
 
 CORPUS = Path(__file__).parent / "plugin_corpus"
 LEVELS = ("none", "bwrap", "setuid")
@@ -154,7 +155,7 @@ def test_runner_case(case_dir: Path, level: str, work: Path) -> None:
                     _check_expectation(event["expect"], response, marker_stat)
                 except AssertionError:
                     open_path = event.get("open_path")
-                    if not _open_path_applies(open_path):
+                    if not _open_path_applies(open_path, level):
                         raise
                     assert open_path is not None
                     if level in open_path.get("closed_by", []):
@@ -191,14 +192,47 @@ def _check_expectation(
         _CHECKS[expect["check"]](response, marker)
 
 
-def _open_path_applies(open_path: dict[str, Any] | None) -> bool:
+def _open_path_applies(open_path: dict[str, Any] | None, level: str) -> bool:
     if open_path is None:
+        return False
+    if open_path.get("nproc_bypass") and not _nproc_bypassed(level):
         return False
     below = open_path.get("python_below")
     if below is None:
         return True
     major, minor = (int(part) for part in below.split("."))
     return sys.version_info[:2] < (major, minor)
+
+
+def _nproc_bypassed(level: str) -> bool:
+    """Where the runner's RLIMIT_NPROC 0 does not hold: not set (not Linux), or
+    ignored by a child running as root (none or bwrap started by root)."""
+    if not sys.platform.startswith("linux"):
+        return True
+    return os.geteuid() == 0 and level != "setuid"
+
+
+def _refused_by_the_sandbox(response: dict[str, Any]) -> bool:
+    error = _error(response)
+    return error.get("data", {}).get(
+        "type"
+    ) == "PermissionError" and "plugin sandbox: " in error.get("message", "")
+
+
+def _check_spawn_refused(response: dict[str, Any], _marker: os.stat_result) -> None:
+    """The hook refused the rebuild, or the fork failed: RLIMIT_NPROC is 0."""
+    if _refused_by_the_sandbox(response):
+        return
+    assert response.get("result") == {"refused": errno.EAGAIN}, response
+
+
+def _check_thread_refused(response: dict[str, Any], _marker: os.stat_result) -> None:
+    """The hook refused the start (3.12+), or the clone failed: RLIMIT_NPROC is 0."""
+    if _refused_by_the_sandbox(response):
+        return
+    error = _error(response)
+    assert error.get("data", {}).get("type") == "RuntimeError", response
+    assert "can't start new thread" in error.get("message", ""), response
 
 
 def _check_hook_frame(response: dict[str, Any], _marker: os.stat_result) -> None:
@@ -223,6 +257,8 @@ _CHECKS = {
     "hook_frame": _check_hook_frame,
     "environ": _check_environ,
     "inherited_fds": _check_inherited_fds,
+    "spawn_refused": _check_spawn_refused,
+    "thread_refused": _check_thread_refused,
 }
 
 
@@ -244,7 +280,6 @@ def _os_check_exec_escape(_runner: Runner, backend: IsolationBackend, work: Path
 
 _OS_CHECKS = {
     "exec_escape": _os_check_exec_escape,
-    "nproc": _os_check_nproc,
 }
 
 

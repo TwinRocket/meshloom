@@ -5314,6 +5314,86 @@
       ]
     },
     {
+      "name": "name-hidden-tag-flag",
+      "origin": "third_party",
+      "manifest": {
+        "manifest": 1,
+        "id": "acme.weather",
+        "version": "1.2.0",
+        "name": {
+          "en": "Weather",
+          "fr": "Météo"
+        },
+        "summary": {
+          "en": "Forecast 🏴󠁩󠁧󠁮󠁯󠁲󠁥󠁾󠁰󠁲󠁥󠁶󠁩󠁯󠁵󠁳󠁿"
+        },
+        "authors": [
+          {
+            "name": "Acme",
+            "url": "https://github.com/acme"
+          }
+        ],
+        "license": "MIT",
+        "homepage": "https://github.com/acme/meshloom-plugin-weather",
+        "icon": "cloud-sun",
+        "categories": [
+          "bot"
+        ],
+        "runtime": {
+          "type": "python",
+          "api": 1,
+          "python": ">=3.11"
+        },
+        "compat": {
+          "meshloom": ">=5.0.0"
+        },
+        "entry": "plugin.py:Weather",
+        "hooks": [
+          "message",
+          "timer"
+        ],
+        "permissions": {
+          "messages.read": {
+            "channels": "public",
+            "direct": true,
+            "outgoing": false
+          },
+          "messages.send": {
+            "targets": "reply",
+            "per_hour": 20
+          },
+          "http": {
+            "hosts": [
+              "api.open-meteo.com"
+            ]
+          },
+          "storage": {}
+        },
+        "privacy": {
+          "sends_to_third_parties": [
+            "api.open-meteo.com"
+          ],
+          "stores_message_content": false
+        },
+        "config_schema": "config.schema.json",
+        "i18n": {
+          "en": "i18n/en.json",
+          "fr": "i18n/fr.json"
+        },
+        "readme": {
+          "en": "README.md",
+          "fr": "README.fr.md"
+        }
+      },
+      "valid": false,
+      "errors": [
+        {
+          "code": "text_invalid",
+          "path": "summary"
+        }
+      ]
+    },
+    {
       "name": "http-host-trailing-newline",
       "origin": "third_party",
       "manifest": {

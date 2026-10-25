@@ -54,6 +54,14 @@ def test_refused(text):
     assert mixed_script_word(text)
 
 
+def test_the_check_is_per_word_not_per_string():
+    # Deliberate (docs/dev/plugins.md): words in different scripts may sit side by side,
+    # a look-alike inside one word may not. Full UTS #39 would refuse the first two.
+    assert not mixed_script_word("Mesh \u0421\u0435\u0442\u044c")  # Mesh Сеть
+    assert not mixed_script_word("\u041f\u043e\u0433\u043e\u0434\u0430 GPS")  # Погода GPS
+    assert mixed_script_word("Mesh Me\u0455hloom")  # Cyrillic dze inside a Latin word
+
+
 def test_script_extensions_semantics():
     assert script_set("\u30fc") == {"Hiragana", "Katakana"}
     assert script_set("a") == {"Latin"}

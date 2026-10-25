@@ -19,6 +19,7 @@ from pathlib import Path
 CORPUS = "tests/test_plugin_corpus.py"
 FUZZ = "tests/test_plugin_rpc_fuzz.py"
 RUNNER = "meshloom_plugin/runner.py"
+RUNNER_TESTS = "tests/test_plugin_runner.py"
 
 # (name, file, text to replace, replacement, test file, -k expression); several
 # edits of one file: a list of (text, replacement) pairs and None.
@@ -32,7 +33,32 @@ MUTANTS = [
         CORPUS,
         "read_etc_passwd or read_database or proc_server",
     ),
-    ("addaudithook refused", RUNNER, '        "sys.addaudithook",\n', "", CORPUS, "add_audit_hook"),
+    # The hook's refusal sits behind the stub (`sys.addaudithook` replaced): each
+    # one is pinned on its own.
+    (
+        "addaudithook refused",
+        RUNNER,
+        '        "sys.addaudithook",\n',
+        "",
+        RUNNER_TESTS,
+        "hook_source",
+    ),
+    (
+        "addaudithook stub",
+        RUNNER,
+        "    sys.addaudithook = _add_audit_hook_stub()\n",
+        "",
+        CORPUS,
+        "add_audit_hook",
+    ),
+    (
+        "RLIMIT_NPROC 0",
+        RUNNER,
+        "        wanted.append((resource.RLIMIT_NPROC, 0))\n",
+        "",
+        RUNNER_TESTS,
+        "serves_under_each_isolation_level",
+    ),
     ("gc events refused", RUNNER, '        "gc.get_objects",\n', "", CORPUS, "gc_objects"),
     ("setrlimit refused", RUNNER, '        "resource.setrlimit",\n', "", CORPUS, "rlimit_raise"),
     (
