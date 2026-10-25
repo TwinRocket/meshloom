@@ -111,6 +111,8 @@ export function SettingsExtensionsSection({
   }, [reloadTick, pausedSince, disabledSource]);
   const paused = pause?.paused ?? disabledSource === 'paused';
   const since = pause?.since ?? pausedSince;
+  // The pause state could not be read at boot: held as paused (fail closed), no date.
+  const pauseUnreadable = health?.plugins_pause_unreadable === true;
 
   const applyPause = async (next: boolean) => {
     setPauseBusy(true);
@@ -171,9 +173,13 @@ export function SettingsExtensionsSection({
           className="mb-3 space-y-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm"
         >
           <p className="font-medium">
-            {pause?.by
-              ? t('settings.extensions.pause.banner', { time: sinceText, user: pause.by })
-              : t('settings.extensions.pause.bannerNoUser', { time: sinceText })}
+            {pauseUnreadable && !since
+              ? t('settings.extensions.pause.bannerUnreadable')
+              : !sinceText
+                ? t('settings.extensions.pause.bannerNoTime')
+                : pause?.by
+                  ? t('settings.extensions.pause.banner', { time: sinceText, user: pause.by })
+                  : t('settings.extensions.pause.bannerNoUser', { time: sinceText })}
           </p>
           <p className="text-muted-foreground">{t('settings.extensions.pause.bannerExplain')}</p>
           {isAdmin && (

@@ -185,6 +185,8 @@
         "confirm": "Tout mettre en pause",
         "banner": "Toutes les extensions sont en pause depuis {{time}}, par {{user}}.",
         "bannerNoUser": "Toutes les extensions sont en pause depuis {{time}}.",
+        "bannerNoTime": "Toutes les extensions sont en pause.",
+        "bannerUnreadable": "Toutes les extensions sont retenues en pause car l'état de la pause n'a pas pu être lu. Elles restent arrêtées jusqu'à ce qu'un administrateur les relance.",
         "bannerExplain": "Aucune ne tourne ni ne reçoit de messages. Les modifications sont enregistrées et s'appliquent à la reprise.",
         "resume": "Reprendre",
         "paused": "Toutes les extensions sont en pause.",

@@ -437,6 +437,8 @@ export interface HealthStatus {
   plugins_disabled_source?: 'env' | 'platform' | 'isolation' | 'paused' | null;
   /** Unix seconds the global plugin pause started, null when not paused. */
   plugins_paused_since?: number | null;
+  /** The pause state could not be read at boot: plugins are held as paused (fail closed), no date. */
+  plugins_pause_unreadable?: boolean;
   plugin_statuses?: Record<string, PluginStatusEntry>;
   radio_proxy?: RadioProxyStatus | null;
 }
