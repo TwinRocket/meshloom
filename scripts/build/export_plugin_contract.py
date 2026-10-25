@@ -229,7 +229,25 @@ FAILING: list[tuple[str, str, Mutation, list[tuple[str, str]]]] = [
         "http-no-hosts",
         "third_party",
         _perm("http", {"hosts": []}),
-        [("too_short", "permissions.http.hosts")],
+        [("http_hosts_required", "permissions.http")],
+    ),
+    (
+        "http-lan-host-also-public",
+        "third_party",
+        _perm("http", {"hosts": ["nas.example.com"], "lan_hosts": ["nas.example.com:8080"]}),
+        [("lan_host_overlap", "permissions.http")],
+    ),
+    (
+        "http-lan-host-duplicate",
+        "third_party",
+        _perm("http", {"lan_hosts": ["printer.local", "printer.local"]}),
+        [("host_duplicate", "permissions.http")],
+    ),
+    (
+        "http-lan-meshloom-host",
+        "third_party",
+        _perm("http", {"lan_hosts": ["store.meshloom.app"]}),
+        [("http_host_reserved", "")],
     ),
     (
         "http-meshloom-host",
@@ -420,6 +438,40 @@ for _label, _host, _code in [
             [(_code, "permissions.http.hosts.0")],
         )
     )
+# `lan_hosts`: a device of the user's network, by exact name or LAN IP literal.
+for _label, _host, _code in [
+    ("wildcard", "*.local", "host_wildcard"),
+    ("range", "192.168.1.0/24", "host_range"),
+    ("url", "http://printer.local/", "host_range"),
+    ("localhost", "localhost", "lan_host_not_lan"),
+    ("localhost-subdomain", "printer.localhost", "lan_host_not_lan"),
+    ("metadata-name", "metadata.google.internal", "lan_host_not_lan"),
+    ("loopback", "127.0.0.1", "lan_host_not_lan"),
+    ("ipv6-loopback", "::1", "lan_host_not_lan"),
+    ("link-local", "169.254.10.1", "lan_host_not_lan"),
+    ("metadata-ip", "169.254.169.254", "lan_host_not_lan"),
+    ("ipv6-link-local", "fe80::1", "lan_host_not_lan"),
+    ("ipv6-metadata", "fd00:ec2::254", "lan_host_not_lan"),
+    ("cgnat", "100.64.0.1", "lan_host_not_lan"),
+    ("public-ip", "8.8.8.8", "lan_host_not_lan"),
+    ("ipv4-mapped", "::ffff:192.168.1.10", "lan_host_not_lan"),
+    ("nat64", "64:ff9b::c0a8:10a", "lan_host_not_lan"),
+    ("numeric-short", "192.168.1", "lan_host_invalid"),
+    ("ipv6-scope-id", "fe80::1%eth0", "lan_host_invalid"),
+    ("ipv6-uppercase", "FD00::1", "lan_host_invalid"),
+    ("ipv6-port-without-brackets", "[fd00::1]", "lan_host_invalid"),
+    ("port-zero", "printer.local:0", "lan_host_invalid"),
+    ("port-too-big", "printer.local:65536", "lan_host_invalid"),
+    ("uppercase-name", "Printer.local", "lan_host_invalid"),
+]:
+    FAILING.append(
+        (
+            f"http-lan-host-{_label}",
+            "third_party",
+            _perm("http", {"lan_hosts": [_host]}),
+            [(_code, "permissions.http.lan_hosts.0")],
+        )
+    )
 FAILING += [
     (
         f"permission-reserved-{name.replace('.', '-')}",
@@ -448,6 +500,31 @@ def _bundled() -> dict[str, Any]:
     m.update(id="meshloom.echo", name={"en": "Meshloom Echo"})
     m["permissions"]["http"] = {"hosts": ["store.meshloom.app"]}
     m["privacy"]["sends_to_third_parties"] = ["store.meshloom.app"]
+    return m
+
+
+def _with_lan_hosts() -> dict[str, Any]:
+    m = copy.deepcopy(SAMPLE)
+    m["permissions"]["http"] = {
+        "hosts": m["permissions"]["http"]["hosts"],
+        "lan_hosts": [
+            "printer.local",
+            "nas",
+            "router.lan",
+            "nas.home.arpa",
+            "192.168.1.20",
+            "10.0.0.5:8080",
+            "172.16.0.9",
+            "fd00::20",
+            "[fd12:3456::1]:8443",
+        ],
+    }
+    return m
+
+
+def _with_only_lan_hosts() -> dict[str, Any]:
+    m = copy.deepcopy(SAMPLE)
+    m["permissions"]["http"] = {"lan_hosts": ["printer.local:8080"]}
     return m
 
 
@@ -488,6 +565,8 @@ def build_vectors() -> dict[str, Any]:
         _vector("minimal", "third_party", minimal, None),
         _vector("bundled-meshloom-namespace", "bundled", _bundled(), None),
         _vector("local-namespace", "local", local, None),
+        _vector("http-lan-hosts", "third_party", _with_lan_hosts(), None),
+        _vector("http-lan-hosts-only", "third_party", _with_only_lan_hosts(), None),
         _vector(
             "text-persian-zwnj",
             "third_party",
