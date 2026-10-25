@@ -1,0 +1,56 @@
+{
+  "manifest": 1,
+  "id": "meshloom.auto-responder",
+  "version": "1.0.0",
+  "name": {
+    "en": "Auto-responder",
+    "fr": "Auto-répondeur"
+  },
+  "summary": {
+    "en": "Answers messages with replies you write as simple rules, no code",
+    "fr": "Répond aux messages avec des réponses écrites sous forme de règles simples, sans code"
+  },
+  "authors": [
+    {
+      "name": "Meshloom"
+    }
+  ],
+  "license": "MIT",
+  "categories": [
+    "bot",
+    "utility"
+  ],
+  "icon": "bot",
+  "runtime": {
+    "type": "python",
+    "api": 1,
+    "python": ">=3.11"
+  },
+  "compat": {
+    "meshloom": ">=5.0.0"
+  },
+  "entry": "plugin.py:AutoResponder",
+  "hooks": [
+    "message"
+  ],
+  "permissions": {
+    "messages.read": {
+      "channels": "public",
+      "direct": true,
+      "outgoing": false
+    },
+    "messages.send": {
+      "targets": "reply"
+    },
+    "storage": {}
+  },
+  "privacy": {
+    "sends_to_third_parties": [],
+    "stores_message_content": false
+  },
+  "config_schema": "config.schema.json",
+  "readme": {
+    "en": "README.md",
+    "fr": "README.fr.md"
+  }
+}
