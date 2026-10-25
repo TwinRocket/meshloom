@@ -434,6 +434,36 @@ Residual risks, accepted:
   LAN host is refused (fails closed).
 - Link-local addresses are not accepted.
 
+### Does a `.local` name resolve? (MSHL-351)
+
+`_resolve` in `app/net/egress_guard.py` calls `getaddrinfo`, so a `lan_hosts` name
+resolves only if the process's own resolver (`/etc/nsswitch.conf`, then
+`/etc/resolv.conf`) can. Meshloom does no mDNS itself. Measured on 2026-10-25
+with the published `ghcr.io/twinrocket/meshloom:next` image (`python:3.14-slim`,
+Debian trixie) in throwaway containers on mininode1 (Debian, systemd-resolved with
+mDNS off, no avahi), resolving a peer's name (`<mac>.local`, advertised by a
+macOS laptop on the same LAN) and the host's own name:
+
+| Mode | Peer `.local` | Host's own `.local` | Basis |
+|---|---|---|---|
+| Docker bridge | fails (`EAI_NONAME`) | fails | measured: `hosts: files dns`, no `libnss_mdns`, the container's queries go to the host's DNS servers, which do not answer `.local` |
+| Docker host network | fails | resolves (host stub answers its own name) | measured; a peer would resolve only if the host resolver does mDNS |
+| Bridge or host + `libnss-mdns` added | fails | as above | measured: `libnss-mdns` (`mdns4_minimal`) needs `avahi-daemon` and its socket; without them it answers nothing |
+| Home Assistant add-on | probably resolves on HA OS, not guaranteed | n/a | inferred, not measured: the add-on image is the Docker image on the Supervisor network, whose resolver is the Supervisor's CoreDNS (docs say it resolves `.local` through the host's mDNS on HA OS); Supervised and Container installs depend on their host |
+| deb / rpm | depends on the host | host name resolves | inferred: `libc6` only, so it uses the host's nsswitch: works with `libnss-mdns`/avahi or systemd-resolved mDNS (usual on desktop distros), not on a bare server |
+| Raspberry Pi image | depends on the host | `meshloom.local` is self, refused by the egress guard | inferred: the image runs `avahi-daemon` (`scripts/build/build_rpi_image.sh`) on Raspberry Pi OS, which ships `libnss-mdns`; the Pi's own name resolves, and peers should |
+
+Decision: **do not add `libnss-mdns` to the image.** It does nothing without an
+`avahi-daemon` in the container (or the host's daemon socket mounted in), and
+running a daemon that multicasts from a bridge network, or mounting a host socket
+into a container that runs untrusted plugin children, is neither small nor safe,
+and it would not help the bridge network at all (mDNS multicast does not leave a bridge network).
+The guidance instead is: in a container, declare the device by IP address
+(`192.168.1.20`) and give the device a DHCP reservation. A `.local` name stays
+valid in the manifest (it works where the host resolver handles it); a name that
+does not resolve fails closed with `egress_unresolvable`. The user docs say so
+(`docs/user/{en,fr}/deep/plugins.md`).
+
 ## Tests
 
 What runs, and where:
