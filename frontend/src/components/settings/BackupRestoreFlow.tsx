@@ -788,7 +788,9 @@ function RestoreSummary({
         {(inspect.push_targets?.length ?? 0) > 0 && (
           <p className="text-warning">
             {t('settings.fullRestore.pushTargets', {
-              list: (inspect.push_targets ?? []).map((target) => pushTargetText(target, t)).join('; '),
+              list: (inspect.push_targets ?? [])
+                .map((target) => pushTargetText(target, t))
+                .join('; '),
             })}
           </p>
         )}
