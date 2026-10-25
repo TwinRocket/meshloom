@@ -516,7 +516,7 @@
       "typeRooms": "room servers",
       "typeSensors": "sensors",
       "blockedContacts": "Blocked Contacts",
-      "blockedContactsHelp": "Blocked contacts are hidden from the sidebar. Blocking only hides messages from the UI — MQTT forwarding and bot responses are not affected. Messages are still stored and will reappear if unblocked.",
+      "blockedContactsHelp": "Blocked contacts are hidden from the sidebar. Blocking only hides messages from the UI — MQTT forwarding and extension responses are not affected. Messages are still stored and will reappear if unblocked.",
       "noBlocked": "No blocked contacts. Block contacts from their info pane, viewed by clicking their avatar in any channel, or their name within the top status bar with the conversation open.",
       "blockedKeys": "Blocked Keys",
       "blockedNames": "Blocked Names",

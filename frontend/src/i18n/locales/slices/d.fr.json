@@ -280,7 +280,7 @@
         "preserveIdentity": "Conserver l’identité sur Discord",
         "preserveIdentityHelp": "Lorsque c’est activé, les webhooks Discord utilisent leur nom/avatar configurés au lieu de les remplacer par les infos d’expéditeur MeshCore.",
         "includeOutgoing": "Transférer les messages envoyés par Meshloom",
-        "includeOutgoingHelp": "Inclure les DM et messages de canal envoyés par cette instance Meshloom, y compris les envois manuels et les réponses de bots. Les messages sortants n’ont ni chemin de routage ni données de signal : les champs de format liés au chemin s’affichent comme direct et RSSI/SNR restent vides.",
+        "includeOutgoingHelp": "Inclure les DM et messages de canal envoyés par cette instance Meshloom, y compris les envois manuels et les réponses d’extensions. Les messages sortants n’ont ni chemin de routage ni données de signal : les champs de format liés au chemin s’affichent comme direct et RSSI/SNR restent vides.",
         "messageFormat": "Format du message",
         "markdown": "Mise en forme Markdown",
         "markdownHelp": "Si les notifications échouent sur des services comme Telegram à cause de caractères spéciaux dans les noms d’expéditeur, désactivez cette option.",

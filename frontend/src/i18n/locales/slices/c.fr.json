@@ -516,7 +516,7 @@
       "typeRooms": "serveurs de salon",
       "typeSensors": "capteurs",
       "blockedContacts": "Contacts bloqués",
-      "blockedContactsHelp": "Les contacts bloqués sont masqués de la barre latérale. Le blocage masque seulement les messages dans l’interface — le relais MQTT et les réponses des bots ne sont pas affectés. Les messages restent stockés et réapparaissent si le contact est débloqué.",
+      "blockedContactsHelp": "Les contacts bloqués sont masqués de la barre latérale. Le blocage masque seulement les messages dans l’interface — le relais MQTT et les réponses des extensions ne sont pas affectés. Les messages restent stockés et réapparaissent si le contact est débloqué.",
       "noBlocked": "Aucun contact bloqué. Bloquez un contact depuis sa fiche, ouverte en cliquant son avatar dans un canal, ou son nom dans la barre d’état supérieure avec la conversation ouverte.",
       "blockedKeys": "Clés bloquées",
       "blockedNames": "Noms bloqués",
