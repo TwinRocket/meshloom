@@ -18,7 +18,7 @@ fast it sends.
   enabled when the cookie is checked. ``updated_at`` has one-second
   resolution: a change in the same second as the previous one would not move it.
 - **Key.** 32 random bytes in ``auth_settings.device_cookie_key`` (migration
-  116), created on first use and read from the database at each use (no
+  119), created on first use and read from the database at each use (no
   cache), so cookies survive a restart and a rotation applies at once. Never
   in the JSON backup (``auth_settings`` is excluded) and cleared in the SQLite
   download, so a restored copy gets a new key and every browser is unknown

@@ -603,7 +603,7 @@ async def test_device_cookie_refused_when_forged_expired_for_another_user_or_sta
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("fast_argon2")
 async def test_device_cookie_key_is_persisted_and_survives_a_restart(test_db):
-    """The key lives in ``auth_settings`` (migration 116): a new process (the
+    """The key lives in ``auth_settings`` (migration 119): a new process (the
     module state is gone, the database stays) still honours the cookie."""
     import importlib
 

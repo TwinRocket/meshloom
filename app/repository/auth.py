@@ -1658,7 +1658,7 @@ class AuthSettingsRepository:
     @staticmethod
     async def device_cookie_key() -> bytes:
         """The HMAC key of the known-device cookies (``app/auth/device_cookie.py``,
-        migration 116), created on first use. Read per use, never cached, so a
+        migration 119), created on first use. Read per use, never cached, so a
         rotation by ``meshloom-admin`` or a restored database applies at once."""
         async with db.readonly() as conn:
             async with conn.execute(
