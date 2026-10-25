@@ -106,6 +106,9 @@ def build_environment(options: dict[str, object]) -> dict[str, str]:
     if options.get("disable_bots") is True:
         env["MESHCORE_DISABLE_BOTS"] = "true"
 
+    if options.get("disable_plugins") is True:
+        env["MESHCORE_DISABLE_PLUGINS"] = "true"
+
     return env
 
 

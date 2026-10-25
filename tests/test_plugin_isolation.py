@@ -51,12 +51,32 @@ def _getpwnam(entry: pwd.struct_passwd | None):
 
 
 @pytest.mark.parametrize(
-    ("environment", "platform", "euid", "account", "bwrap", "self_test", "level", "fallbacks"),
+    (
+        "environment",
+        "platform",
+        "euid",
+        "account",
+        "bwrap",
+        "self_test",
+        "level",
+        "fallbacks",
+        "caps",
+    ),
     [
-        ("docker or add-on, root", "linux", 0, _pw(999, 999), "/usr/bin/bwrap", None, "setuid", 0),
-        ("root, account missing", "linux", 0, None, "/usr/bin/bwrap", None, "bwrap", 1),
-        ("root, account missing, no bwrap", "linux", 0, None, None, None, "none", 2),
-        ("root, account is uid 0", "linux", 0, _pw(0, 0), None, None, "none", 2),
+        (
+            "docker or add-on, root",
+            "linux",
+            0,
+            _pw(999, 999),
+            "/usr/bin/bwrap",
+            None,
+            "setuid",
+            0,
+            0,
+        ),
+        ("root, account missing", "linux", 0, None, "/usr/bin/bwrap", None, "bwrap", 1, 0),
+        ("root, account missing, no bwrap", "linux", 0, None, None, None, "none", 2, 0),
+        ("root, account is uid 0", "linux", 0, _pw(0, 0), None, None, "none", 2, 0),
         (
             "deb/rpm or RPi, bwrap works",
             "linux",
@@ -66,8 +86,9 @@ def _getpwnam(entry: pwd.struct_passwd | None):
             None,
             "bwrap",
             0,
+            0,
         ),
-        ("deb/rpm, no bubblewrap", "linux", 998, None, None, None, "none", 1),
+        ("deb/rpm, no bubblewrap", "linux", 998, None, None, None, "none", 1, 0),
         (
             "Docker MESHLOOM_RUN_AS_USER (seccomp refuses user namespaces)",
             "linux",
@@ -77,12 +98,37 @@ def _getpwnam(entry: pwd.struct_passwd | None):
             "bwrap self-test failed: No permissions to create new namespace",
             "none",
             1,
+            0,
         ),
-        ("macOS source", "darwin", 501, None, "/opt/homebrew/bin/bwrap", None, "none", 1),
+        (
+            "Docker MESHLOOM_RUN_AS_USER, CAP_SETUID, CAP_SETGID and CAP_KILL ambient",
+            "linux",
+            10001,
+            _pw(999, 999),
+            "/usr/bin/bwrap",
+            "bwrap self-test failed: No permissions to create new namespace",
+            "setuid",
+            0,
+            0xE0,
+        ),
+        (
+            "capabilities but no account",
+            "linux",
+            10001,
+            None,
+            None,
+            None,
+            "none",
+            2,
+            0xE0,
+        ),
+        ("only CAP_SETUID", "linux", 10001, _pw(999, 999), None, None, "none", 1, 0x80),
+        ("no CAP_KILL", "linux", 10001, _pw(999, 999), None, None, "none", 1, 0xC0),
+        ("macOS source", "darwin", 501, None, "/opt/homebrew/bin/bwrap", None, "none", 1, 0),
     ],
 )
 def test_backend_selection_table(
-    environment, platform, euid, account, bwrap, self_test, level, fallbacks
+    environment, platform, euid, account, bwrap, self_test, level, fallbacks, caps
 ) -> None:
     tested: list[str] = []
 
@@ -93,6 +139,7 @@ def test_backend_selection_table(
     chosen = selection.detect(
         platform=platform,
         geteuid=lambda: euid,
+        capabilities=lambda: caps,
         getpwnam=_getpwnam(account),
         which=lambda name: bwrap if name == "bwrap" else None,
         bwrap_self_test=fake_self_test,
@@ -331,12 +378,19 @@ def test_sigkill_of_the_group_leaves_no_process(level: str) -> None:
     # Each fork drops a marker once it is set up: the tree is read only after both,
     # never in the middle of a fork (MSHL-301).
     setsid = "    os.setsid()\n" if level == "bwrap" else ""
+    # A non-root server cannot list the setuid work dir (0711, made by the plugin
+    # uid): the markers then go in a sticky directory both can use.
+    markers, prefix = work_dir, ""
+    if level == "setuid" and os.geteuid() != 0:
+        markers = shared_tmp_dir("meshloom-kill-markers-")
+        os.chmod(markers, 0o1777)
+        prefix = f"{markers}/"
     script = (
         "import os, time\n"
         "if os.fork() == 0:\n"
         "    os.fork()\n"
         f"{setsid}"
-        "    open(f'ready-{os.getpid()}', 'x').close()\n"
+        f"    open(f'{prefix}ready-{{os.getpid()}}', 'x').close()\n"
         "time.sleep(60)\n"
     )
     proc = backend.spawn(
@@ -349,9 +403,9 @@ def test_sigkill_of_the_group_leaves_no_process(level: str) -> None:
     )
     try:
         deadline = time.monotonic() + 10
-        while len(list(work_dir.glob("ready-*"))) < 2 and time.monotonic() < deadline:
+        while len(list(markers.glob("ready-*"))) < 2 and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert len(list(work_dir.glob("ready-*"))) == 2, "the forks never got ready"
+        assert len(list(markers.glob("ready-*"))) == 2, "the forks never got ready"
         # The child and the grandchild, plus the sandbox's own init under bwrap. Each
         # pid is kept with its start time, so a pid the system hands out again after
         # the kill is not taken for a survivor.

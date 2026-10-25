@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -33,6 +34,7 @@ from app.plugins.host import (
     read_proc_cpu_seconds,
 )
 from app.repository.plugins import PluginRepository
+from tests.plugin_isolation_support import available_backends, shared_tmp_dir
 
 LINUX = sys.platform.startswith("linux")
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no plugins on Windows")
@@ -210,6 +212,21 @@ def pid_gone(pid: int) -> bool:
     except ProcessLookupError:
         return True
     return False
+
+
+@pytest.fixture
+def tmp_path(tmp_path: Path):
+    """Where the selected level is setuid (root, or CAP_SETUID, CAP_SETGID and CAP_KILL), the
+    plugin uid cannot traverse pytest's 0700 base temp dir: the runner would refuse
+    `plugin_dir` (MSHL-324). Those get a traversable directory instead."""
+    if "setuid" not in available_backends():
+        yield tmp_path
+        return
+    path = shared_tmp_dir("meshloom-host-test-")
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture

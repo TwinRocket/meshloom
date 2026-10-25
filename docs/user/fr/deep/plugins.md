@@ -71,7 +71,7 @@ Le paquet Linux, l’image Raspberry Pi et une installation depuis les sources s
 
 ### Utilisateur dédié (`setuid`)
 
-L’image Docker et l’add-on Home Assistant exécutent Meshloom en root, et Docker n’autorise pas bubblewrap. Les extensions tournent sous un compte séparé, `meshloom-plugin`, qui ne peut ni ouvrir la base de données ni lire la mémoire du serveur. Pour que ce soit vrai, Meshloom resserre au démarrage les droits de son dossier de données : le dossier passe en `0711` et ses fichiers en `0600` (lisibles par root seulement) ; les dossiers des extensions restent lisibles. Si vous ouvrez la base depuis l’hôte avec un autre compte, faites-le en root. À ce niveau, une extension qui contournerait les garde-fous internes de Meshloom pourrait encore atteindre le réseau, y compris le proxy radio de Meshloom sur la même machine, par lequel elle pourrait envoyer plus de messages que ses limites ne le permettent. Le compte a l’uid et le gid fixes 10002.
+L’image Docker et l’add-on Home Assistant exécutent Meshloom en root, et Docker n’autorise pas bubblewrap. Les extensions tournent sous un compte séparé, `meshloom-plugin`, qui ne peut ni ouvrir la base de données ni lire la mémoire du serveur. Pour que ce soit vrai, Meshloom resserre au démarrage les droits de son dossier de données : le dossier passe en `0711` et ses fichiers en `0600` (lisibles par root seulement) ; les dossiers des extensions restent lisibles. Si vous ouvrez la base depuis l’hôte avec un autre compte, faites-le en root. À ce niveau, une extension qui contournerait les garde-fous internes de Meshloom pourrait encore atteindre le réseau, y compris le proxy radio de Meshloom sur la même machine, par lequel elle pourrait envoyer plus de messages que ses limites ne le permettent. Le compte a l’uid et le gid fixes 10002. Avec `MESHLOOM_RUN_AS_USER`, Meshloom ne garde que les trois droits nécessaires pour exécuter les extensions sous ce compte : les extensions restent à ce niveau, et le dossier de données appartient alors au compte que vous avez choisi.
 
 ### Hooks seulement (`none`)
 
@@ -79,7 +79,6 @@ Aucun des deux n’est disponible : il ne reste que les garde-fous de Meshloom �
 
 - bubblewrap n’est pas installé (le paquet Linux le recommande ; `sudo apt install bubblewrap` ou `sudo dnf install bubblewrap` l’ajoute) ;
 - le système refuse les espaces de noms utilisateur dont bubblewrap a besoin (Ubuntu 24.04 et suivantes les restreignent ; un noyau durci peut les désactiver) ;
-- l’image Docker tourne avec `MESHLOOM_RUN_AS_USER`, qui renonce aux droits nécessaires pour passer au compte des extensions ;
 - Meshloom tourne sous macOS ou Windows.
 
 ### Vérifier votre niveau

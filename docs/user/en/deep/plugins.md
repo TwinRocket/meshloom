@@ -71,7 +71,7 @@ The Linux package, the Raspberry Pi image and a source install on Linux use [bub
 
 ### Dedicated user (`setuid`)
 
-The Docker image and the Home Assistant add-on run Meshloom as root, and Docker does not allow bubblewrap. Plugins run as a separate account, `meshloom-plugin`, that cannot open the database or read the server's memory. To make that true, Meshloom tightens the permissions of its data folder at startup: the folder becomes `0711` and the files in it `0600` (readable by root only); the plugin folders stay readable. If you open the database from the host with another account, do it as root. At this level a plugin that breaks out of Meshloom's own guards could still reach the network, including Meshloom's radio proxy on the same machine, through which it could send more messages than its limits allow. The account has the fixed uid and gid 10002.
+The Docker image and the Home Assistant add-on run Meshloom as root, and Docker does not allow bubblewrap. Plugins run as a separate account, `meshloom-plugin`, that cannot open the database or read the server's memory. To make that true, Meshloom tightens the permissions of its data folder at startup: the folder becomes `0711` and the files in it `0600` (readable by root only); the plugin folders stay readable. If you open the database from the host with another account, do it as root. At this level a plugin that breaks out of Meshloom's own guards could still reach the network, including Meshloom's radio proxy on the same machine, through which it could send more messages than its limits allow. The account has the fixed uid and gid 10002. With `MESHLOOM_RUN_AS_USER`, Meshloom keeps only the three rights it needs to run plugins under that account, so plugins stay at this level; the data folder then belongs to the account you chose.
 
 ### Hooks only (`none`)
 
@@ -79,7 +79,6 @@ Neither of the above is available, so only Meshloom's own guards inside the plug
 
 - bubblewrap is not installed (the Linux package recommends it; `sudo apt install bubblewrap` or `sudo dnf install bubblewrap` adds it);
 - the system refuses the user namespaces bubblewrap needs (Ubuntu 24.04 and later restrict them; a hardened kernel may disable them);
-- the Docker image runs with `MESHLOOM_RUN_AS_USER`, which gives up the rights needed to switch to the plugin account;
 - Meshloom runs on macOS or Windows.
 
 ### Check your level

@@ -32,9 +32,11 @@ The installer picks the first method that works on your machine:
 A package installation creates:
 
 - a systemd service called `meshloom`, running as a dedicated `meshloom` user that can use serial and Bluetooth devices;
-- the program in `/opt/meshloom`;
+- the program in `/opt/meshloom`, which the service can read but not change;
 - the settings file `/etc/meshloom/meshloom.env`, where bots are **disabled** by default;
 - the database and your data in `/var/lib/meshloom`.
+
+The package also recommends bubblewrap, which keeps plugins in a sandbox (see [Plugins](/en/docs/deep/plugins/)), and the service may run at most 512 processes and threads in total, plugins included.
 
 Check it with:
 
@@ -90,7 +92,7 @@ The image is `ghcr.io/twinrocket/meshloom`. The repository contains `docker-comp
 - `devices:`, to give the container a USB radio. The file contains an example path that does not exist on your machine: replace it with the path of your radio, or delete the two lines if your radio is on the network or on Bluetooth, otherwise the container does not start. The radio itself is chosen in the web interface.
 - `MESHCORE_DATABASE_PATH: data/meshcore.db`, and `restart: unless-stopped`.
 
-The container runs as root by default. To run it as user number 10001 instead, set `MESHLOOM_RUN_AS_USER: "10001"`. At startup, the container hands `./data` to that user and gives it the groups of the serial devices. If the radio still cannot be opened that way, Meshloom stays root and writes a warning in its log. Do not use it with Bluetooth. Bluetooth needs more manual setup, described in [Radio transports](/en/docs/deep/transports/).
+The container runs as root by default. To run it as user number 10001 instead, set `MESHLOOM_RUN_AS_USER: "10001"`. At startup, the container hands `./data` to that user and gives it the groups of the serial devices. If the radio still cannot be opened that way, Meshloom stays root and writes a warning in its log. As user 10001, Meshloom keeps only the three rights it needs to run plugins under their own account (`CAP_SETUID`, `CAP_SETGID`, `CAP_KILL`). This mode is the default for new Docker installations with a USB radio. It protects you against mistakes and against plugins, which never get those rights. It does not stop a real attack on Meshloom itself: someone who takes over the Meshloom process could use these rights to become root again inside the container, though not on the host. There is no setting that removes them while keeping plugins under their own account. Without the line, Meshloom runs fully as root, which is no safer. Before opening Meshloom to the Internet, read [Security](/en/docs/deep/security/). Do not use it with Bluetooth. Bluetooth needs more manual setup, described in [Radio transports](/en/docs/deep/transports/).
 
 A Compose file written by hand cannot be updated from the interface. The installer's Docker mode adds a small helper that runs as root on the host: it pins the image by its signed digest in `.env` and installs updates when you ask in **Settings → Updates**. It never edits `docker-compose.yml`. Docker Desktop and rootless Docker get no helper: the stack follows `:latest`.
 

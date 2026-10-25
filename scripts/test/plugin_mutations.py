@@ -59,6 +59,14 @@ MUTANTS = [
         RUNNER_TESTS,
         "serves_under_each_isolation_level",
     ),
+    (
+        "seccomp filter",
+        RUNNER,
+        "            seccomp.apply(prctl, required=os.geteuid() == 0)\n",
+        "            pass\n",
+        RUNNER_TESTS,
+        "serves_under_each_isolation_level",
+    ),
     ("gc events refused", RUNNER, '        "gc.get_objects",\n', "", CORPUS, "gc_objects"),
     ("setrlimit refused", RUNNER, '        "resource.setrlimit",\n', "", CORPUS, "rlimit_raise"),
     (

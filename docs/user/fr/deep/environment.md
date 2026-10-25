@@ -64,7 +64,7 @@ Voir [Meshloom Community](/docs/deep/community/).
 | Variable | Défaut | Description |
 |----------|--------|-------------|
 | `MESHCORE_DISABLE_BOTS` | `false` | Désactive le système de bots au démarrage. Les bots exécutent du code Python avec un accès complet à la machine. Le paquet Linux la met à `true` dans `meshloom.env` |
-| `MESHCORE_DISABLE_PLUGINS` | `false` | Verrou d'hôte du système d'extensions : à `true`, aucune extension ne démarre, quels que soient les réglages. Indépendant de `MESHCORE_DISABLE_BOTS` |
+| `MESHCORE_DISABLE_PLUGINS` | `false` | Verrou d'hôte du système d'extensions : à `true`, aucune extension ne démarre, quels que soient les réglages. Indépendant de `MESHCORE_DISABLE_BOTS`. Dans l'add-on Home Assistant, c'est l'option `disable_plugins` |
 
 À partir de la 5.0 `MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD` sont retirées (voir aussi **Variables retirées**) : quand les deux sont définies et que Meshloom n’a encore aucun compte, le premier démarrage en crée le compte administrateur, puis elles ne sont plus lues et un avertissement est journalisé à chaque démarrage tant qu’elles sont définies (retirez-les ; les comptes se gèrent dans **Réglages → Utilisateurs et accès**). En définir une seule n’importe rien et n’empêche plus Meshloom de démarrer. `Authorization: Basic` avec le nom et le mot de passe d’un compte reste accepté jusqu’à la 5.2, puis sera retiré. Un nom d’utilisateur de plus de 64 caractères ne peut pas devenir un compte : l’import est ignoré avec une erreur dans le journal, et vous créez l’administrateur avec le code d’installation imprimé dans le journal. Ce que chaque option protège, et ce qu’elle ne protège pas, est expliqué dans [Sécurité](/docs/deep/security/).
 
