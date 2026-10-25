@@ -292,33 +292,41 @@ def _in_container() -> bool:
     return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
 
 
-def _default_gateways(
+def _default_routes(
     route: str = "/proc/net/route", route6: str = "/proc/net/ipv6_route"
-) -> frozenset[IPAddress]:
-    """The default routes' gateways from ``/proc/net/route`` and ``/proc/net/ipv6_route``
-    (Linux; empty elsewhere or when unreadable)."""
-    gateways: set[IPAddress] = set()
+) -> list[tuple[str, IPAddress]]:
+    """The default routes as ``(interface, gateway)`` from ``/proc/net/route`` and
+    ``/proc/net/ipv6_route`` (Linux; empty elsewhere or when unreadable)."""
+    routes: list[tuple[str, IPAddress]] = []
     try:
         with open(route, encoding="ascii") as f:
             for line in f.readlines()[1:]:
                 fields = line.split()
                 # Iface Destination Gateway Flags ...: hex, little-endian; 0x2 = RTF_GATEWAY.
                 if len(fields) > 3 and fields[1] == "00000000" and int(fields[3], 16) & 0x2:
-                    gateways.add(ipaddress.IPv4Address(int(fields[2], 16).to_bytes(4, "little")))
+                    gateway = ipaddress.IPv4Address(int(fields[2], 16).to_bytes(4, "little"))
+                    routes.append((fields[0], gateway))
     except (OSError, ValueError):
         pass
     try:
         with open(route6, encoding="ascii") as f:
             for line in f:
                 fields = line.split()
-                # dest prefix src prefix next_hop ...: 32 hex digits each.
+                # dest prefix src prefix next_hop metric refcnt use flags iface: hex.
                 if len(fields) > 4 and fields[0] == "0" * 32 and fields[1] == "00":
                     hop = ipaddress.IPv6Address(int(fields[4], 16))
                     if hop != ipaddress.IPv6Address(0):
-                        gateways.add(hop)
+                        routes.append((fields[-1] if len(fields) > 9 else "", hop))
     except (OSError, ValueError):
         pass
-    return frozenset(gateways)
+    return routes
+
+
+def _default_gateways(
+    route: str = "/proc/net/route", route6: str = "/proc/net/ipv6_route"
+) -> frozenset[IPAddress]:
+    """The default routes' gateways (``_default_routes``)."""
+    return frozenset(gateway for _, gateway in _default_routes(route, route6))
 
 
 # The Home Assistant supervisor network (``hassio`` bridge, ``homeassistant`` alias): its
@@ -331,16 +339,47 @@ _HOST_NETWORK_IFACE = re.compile(
 )
 
 
-def _host_networking(dev: str = "/proc/net/dev") -> bool:
-    """True when this container shares the host's network namespace: it then lists the
-    engine's bridges (``docker0``, ``hassio``, ``br-*``) or veth ends, which a bridged
-    container never sees. Unreadable or no match: False (the gateway stays refused)."""
+def _own_link(iface: str, sys_net: str) -> bool:
+    """True when ``iface`` is its own link (``iflink == ifindex`` in sysfs): a physical
+    NIC, a bridge, Wi-Fi, a WireGuard tunnel. A bridged container's ``eth0`` is a veth
+    (or macvlan) whose link is its peer in another namespace: False. Unreadable:
+    False."""
+    if not iface or "/" in iface or iface in (".", ".."):
+        return False
+    try:
+        base = os.path.join(sys_net, iface)
+        with open(os.path.join(base, "ifindex"), encoding="ascii") as f:
+            ifindex = int(f.read().strip())
+        with open(os.path.join(base, "iflink"), encoding="ascii") as f:
+            iflink = int(f.read().strip())
+    except (OSError, ValueError):
+        return False
+    return ifindex == iflink
+
+
+def _host_networking(
+    dev: str = "/proc/net/dev",
+    sys_net: str = "/sys/class/net",
+    route: str = "/proc/net/route",
+    route6: str = "/proc/net/ipv6_route",
+) -> bool:
+    """True when this container shares the host's network namespace. Two signals,
+    both required: it lists the engine's bridges (``docker0``, ``hassio``, ``br-*``)
+    or veth ends, which a bridged container never sees; and every default route
+    leaves through an interface that is its own link (``_own_link``), never a veth
+    whose peer is elsewhere. The second rules out a bridged container that runs its
+    own engine (Docker-in-Docker shows ``docker0`` but routes through its veth
+    ``eth0``, and its gateway is the real host). Unreadable, no default route or no
+    match: False (the gateway stays refused)."""
     try:
         with open(dev, encoding="ascii", errors="replace") as f:
             names = [line.split(":", 1)[0].strip() for line in f.readlines()[2:] if ":" in line]
     except OSError:
         return False
-    return any(_HOST_NETWORK_IFACE.match(n) for n in names)
+    if not any(_HOST_NETWORK_IFACE.match(n) for n in names):
+        return False
+    ifaces = {iface for iface, _ in _default_routes(route, route6)}
+    return bool(ifaces) and all(_own_link(iface, sys_net) for iface in ifaces)
 
 
 def _gateway_is_host(ip: IPAddress) -> bool:

@@ -135,7 +135,9 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
   metadata and documentation `egress_private_address`; an address of the
   Meshloom host itself (`is_self_address`: bind probe, plus the default gateways
   inside a bridged container, MSHL-330; with host networking only the Home Assistant
-  supervisor gateway, MSHL-336) raises `egress_self_address`. A host in neither
+  supervisor gateway, MSHL-336; host networking needs the engine's interfaces and
+  default routes through interfaces that are their own link, so Docker-in-Docker
+  stays bridged, MSHL-340) raises `egress_self_address`. A host in neither
   list raises `egress_host_not_allowed` before the scheme check and the lookup.
   `follow_checked_redirects(..., lan_verify_tls=False)` turns the certificate
   check off only on the hops that reach a `lan_hosts` host (self-signed LAN

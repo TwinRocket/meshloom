@@ -263,13 +263,20 @@ covered by `tests/test_egress_guard_lan_hosts.py` and `tests/test_plugin_http_la
   failing probe counts as local), and inside a container (`/.dockerenv`,
   `/run/.containerenv`) the default gateways from `/proc/net/route` and
   `/proc/net/ipv6_route`, which are the Docker or Home Assistant host in
-  bridge networking. With `network_mode: host` (`_host_networking`: the
-  container lists the engine's `docker0`, `hassio`, `br-*` or `veth*`
-  interfaces in `/proc/net/dev`) the gateway is the LAN router and is allowed;
-  only the Home Assistant supervisor gateway (`172.30.32.0/23`) stays refused
-  there, and the host's own addresses are caught by the bind probe. Host
-  networking that shows none of those interfaces is not recognised and fails
-  closed (the router stays refused). This keeps
+  bridge networking. With `network_mode: host` (`_host_networking`, both
+  signals required: the container lists the engine's `docker0`, `hassio`,
+  `br-*` or `veth*` interfaces in `/proc/net/dev`, and every default route
+  leaves through an interface that is its own link, `iflink == ifindex` in
+  `/sys/class/net`) the gateway is the LAN router and is allowed; only the Home
+  Assistant supervisor gateway (`172.30.32.0/23`) stays refused there, and the
+  host's own addresses are caught by the bind probe. The second signal rules out
+  a bridged container that runs its own engine (Docker-in-Docker lists
+  `docker0` but routes through its veth `eth0`, whose peer is on the real host;
+  MSHL-340). Comparing network namespace inodes with PID 1 does not work: a
+  container's PID 1 shares its network namespace in both modes. Host networking
+  that shows none of those interfaces, routes through a VLAN, macvlan or veth
+  uplink, or whose `/sys` cannot be read is not recognised and fails closed (the
+  router stays refused). This keeps
   plugins away from the radio proxy (5051, `0.0.0.0`, no authentication) and the
   app's own port.
 - Redirects: every hop is checked again against `hosts` and `lan_hosts`; a hop
