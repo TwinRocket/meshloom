@@ -142,6 +142,13 @@ same checks in check mode, so an unformatted file passes locally and fails in CI
 if you do not commit the autofix. Prettier checks every file under
 `frontend/src/`, Markdown included.
 
+Backend lint is a plain `uv run ruff check` over the whole repo (so `scripts/`
+is linted too); the format check covers `app/ meshloom_plugin/ tests/ scripts/`
+(not Markdown, which `ruff format` would also rewrite). The backend CI job runs
+pytest quietly with `-rfE --tb=short`, appends the failed tests to the job
+summary (`scripts/ci/junit_summary.py`) and uploads `pytest-report.xml` as an
+artifact, so a failure stays visible even if the raw log is cut short.
+
 Targeted runs:
 
 ```bash
