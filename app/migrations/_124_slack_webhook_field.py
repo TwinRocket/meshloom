@@ -4,7 +4,7 @@ Builds of 5.0.0 before MSHL-365 stored a Slack channel as ``token_a``/``token_b`
 config) and ``token_c`` (secret). The preset now has a single write-only ``webhook`` field
 (``https://hooks.slack.com/services/A/B/C``). A channel with all three valid parts is joined
 into it; any other Slack row is left without the old keys, disabled and flagged
-``secret_missing`` so the user types the webhook again (the old keys would be refused by the
+``secret_pending`` so the user types the webhook again (the old keys would be refused by the
 new model).
 """
 

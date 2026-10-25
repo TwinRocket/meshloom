@@ -1,8 +1,8 @@
 """Instance identity and share tokens (MSHL-230, app/services/instance_identity.py).
 
 Provenance: tests/fixtures/links_files_vectors.json is a byte-for-byte copy of
-TwinRocket/meshloom-community docs/contracts/vectors/links-files.json on the
-branch of PR #141 (commit ef87c55b, to be re-pinned to its merge commit on main; vectors
+TwinRocket/meshloom-community docs/contracts/vectors/links-files.json on main
+at the merge commit of PR #141 (3856ca17; vectors
 version 1, MSHL-370), rules in docs/contracts/links-files.md,
 "Instance JWT". sha256 below. To update, copy the file again and change the
 hash; never edit the copy to make a test pass.
