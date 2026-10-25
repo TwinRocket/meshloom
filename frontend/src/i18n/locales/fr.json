@@ -372,7 +372,17 @@
       "test": "Tester",
       "unsubscribeDevice": "Désabonner cet appareil",
       "deviceRemoved": "Appareil retiré",
-      "defaults": "Notifications par défaut",
+      "mine": {
+        "title": "Mes notifications",
+        "help": "Choisissez quels événements notifient les appareils de votre compte. Chaque ligne suit la valeur par défaut de l'administrateur tant que vous ne la changez pas. L'e-mail, les webhooks et les autres destinations partagées restent gérés par l'administrateur.",
+        "followDefaultOn": "Par défaut : notifier",
+        "followDefaultOff": "Par défaut : ne pas notifier",
+        "on": "Me notifier toujours",
+        "off": "Ne jamais me notifier",
+        "reset": "Revenir aux valeurs par défaut",
+        "saveFailed": "Impossible d'enregistrer vos règles de notification"
+      },
+      "defaults": "Valeurs par défaut pour tous les comptes",
       "defaultsHelp": "Choisissez où livrer chaque événement. Les alertes de première apparition sont envoyées après le réglage radio lorsqu’un nouveau compagnon, répéteur ou capteur apparaît sur le mesh. Les nœuds inconnus et les serveurs de salon ne déclenchent jamais cette alerte. Les alertes télémétrie se règlent dans Alertes.",
       "defaultsType": "Type",
       "mediaPush": "Push",

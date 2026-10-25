@@ -209,7 +209,7 @@ These hold for every section; a restore function must keep them:
    Keep secrets out of log lines and exception messages, and register the
    section as `sensitive`.
 
-## Accounts (`users`, `api_tokens`)
+## Accounts (`users`, `api_tokens`, `notification_user_rules`)
 
 `app/services/backup_accounts.py` registers the `users` section (Access T65,
 `sensitive`, version 3) and the `api_tokens` section (Access T27, below),
@@ -230,7 +230,7 @@ imported by `services/backup.py`.
   (with the setup code hash and the known-device cookie key). Keys a file adds to a row are dropped
   (`BackupUser`, `extra="ignore"`, `hide_input_in_errors`).
 - **Include accounts.** `ACCOUNT_SECTIONS` lists the sections the export box
-  covers (`users` and `api_tokens`). Checked by default; unchecked, none of them is
+  covers (`users`, `api_tokens` and `notification_user_rules`). Checked by default; unchecked, none of them is
   exported and the restore of that file keeps the current accounts (rule 1).
 - **Restore.** The file's accounts replace the instance's, ids kept, in the
   section's transaction. A section with no enabled administrator **who can sign
@@ -277,6 +277,16 @@ imported by `services/backup.py`.
   not touched (`section_skipped:api_tokens`). A `users` restore without this
   section leaves no token (the replaced accounts' rows cascade). The sockets of
   the replaced tokens close at once.
+- **Notification choices.** The `notification_user_rules` section (MSHL-321,
+  registered in `services/backup_notifications.py`, not `sensitive`,
+  `restore_with="users"`, in `ACCOUNT_SECTIONS`) holds `{"accounts": [{user_id,
+  rules}]}`: what each account forced on or off for its own devices
+  (`app/notifications/user_rules.py`, `sanitize_override`). Its restore replaces
+  every row in the accounts' transaction, right after them, and drops a row whose
+  account does not exist (`notification_user_rules_dropped:<id>`); with the accounts
+  kept it is not touched, and a `users` restore without this section leaves every
+  account on the admin defaults (the replaced accounts' rows cascade). The admin
+  defaults stay in the `notifications` section's rules.
 - **Extension point.** Account material goes inside `users` as a new version
   of its `data`, as the recovery codes (version 2, T50) and the passkeys
   (version 3, T52) did. The SQLite snapshot keeps `webauthn_credentials`

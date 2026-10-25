@@ -48,6 +48,7 @@ async def patched_database(path: str = ":memory:"):
         repeater_telemetry,
         settings,
         telemetry_alert_state,
+        user_notification_rules,
     )
     from app.repository import fanout as fanout_repo
 
@@ -74,6 +75,7 @@ async def patched_database(path: str = ":memory:"):
         contact_telemetry,
         push_subscriptions,
         telemetry_alert_state,
+        user_notification_rules,
     ]
     originals = [(mod, mod.db) for mod in submodules]
 

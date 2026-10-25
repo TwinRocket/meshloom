@@ -346,6 +346,104 @@ async def test_push(subscription_id: str, request: Request) -> dict:
         raise HTTPException(status_code=422, detail=_coded("push_delivery_failed")) from None
 
 
+# ── My notification rules (MSHL-321) ─────────────────────────────────────
+#
+# The admin defaults are ``/api/notifications/rules``. These routes are the caller's own
+# choices for its own devices: per event, and per contact type for ``contact.first_seen``,
+# "follow the defaults" (no entry), on or off (``app/notifications/user_rules.py``). They
+# touch nobody else's choices and no instance channel.
+
+
+class MyRulesPatch(BaseModel):
+    """``null`` clears a choice (back to the defaults)."""
+
+    events: dict[str, bool | None] = Field(default_factory=dict, max_length=64)
+    contact_types: dict[str, bool | None] = Field(default_factory=dict, max_length=8)
+
+
+def _my_user_id(request: Request) -> int:
+    principal = _caller(request)
+    if principal.user_id is None:
+        raise forbidden("send")
+    return principal.user_id
+
+
+async def _my_rules_view(user_id: int) -> dict:
+    from app.notifications.rules import load_rules
+    from app.notifications.user_rules import (
+        CONTACT_KIND_NAMES,
+        FIRST_SEEN_EVENT,
+        OVERRIDABLE_EVENTS,
+        default_state,
+    )
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    rules = await load_rules()
+    mine = await UserNotificationRulesRepository.get(user_id)
+    chosen_events = mine.get("events") or {}
+    chosen_types = mine.get("contact_types") or {}
+    return {
+        "events": {
+            event_id: {
+                "default": default_state(rules, event_id),
+                "choice": chosen_events.get(event_id),
+            }
+            for event_id in OVERRIDABLE_EVENTS
+        },
+        "contact_types": {
+            kind: {
+                "default": default_state(rules, FIRST_SEEN_EVENT, kind),
+                "choice": chosen_types.get(kind),
+            }
+            for kind in CONTACT_KIND_NAMES
+        },
+    }
+
+
+@router.get("/my-rules", dependencies=[Depends(require("send"))])
+async def get_my_rules(request: Request) -> dict:
+    """What reaches the caller's devices: per event (and contact type) the admin default and
+    the caller's own choice (``null`` follows the default)."""
+    return await _my_rules_view(_my_user_id(request))
+
+
+@router.patch("/my-rules", dependencies=[Depends(require("send"))])
+async def patch_my_rules(body: MyRulesPatch, request: Request) -> dict:
+    from app.notifications.user_rules import CONTACT_KIND_NAMES, OVERRIDABLE_EVENTS
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    user_id = _my_user_id(request)
+    unknown = [e for e in body.events if e not in OVERRIDABLE_EVENTS] + [
+        k for k in body.contact_types if k not in CONTACT_KIND_NAMES
+    ]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "notification_rule_unknown", "params": {"ids": unknown}},
+        )
+    mine = await UserNotificationRulesRepository.get(user_id)
+    events = dict(mine.get("events") or {})
+    types = dict(mine.get("contact_types") or {})
+    for target, patch in ((events, body.events), (types, body.contact_types)):
+        for key, value in patch.items():
+            if value is None:
+                target.pop(key, None)
+            else:
+                target[key] = value
+    await UserNotificationRulesRepository.set(user_id, {"events": events, "contact_types": types})
+    return await _my_rules_view(user_id)
+
+
+@router.delete("/my-rules", dependencies=[Depends(require("send"))])
+async def reset_my_rules(request: Request) -> dict:
+    """Forget the caller's choices: its devices follow the admin defaults again."""
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+    user_id = _my_user_id(request)
+    await UserNotificationRulesRepository.set(user_id, {})
+    return await _my_rules_view(user_id)
+
+
 # ── Preferences (deprecated shims) ───────────────────────────────────────
 #
 # Removed in 5.2.0 (MSHL-111): the data is read and written through

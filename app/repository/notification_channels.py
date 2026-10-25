@@ -50,6 +50,10 @@ _orphans_logged: set[str] = set()
 def invalidate_cache() -> None:
     global _cache
     _cache = None
+    # The per-account overrides are notification state too (MSHL-321): one reset for both.
+    from app.repository import user_notification_rules
+
+    user_notification_rules.invalidate_cache()
 
 
 def _loads(raw: object) -> dict[str, Any]:

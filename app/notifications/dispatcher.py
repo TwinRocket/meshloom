@@ -77,6 +77,7 @@ from app.notifications.limits import (
     effective_limits,
 )
 from app.notifications.transports.base import Delivery, SendResult, Transport
+from app.notifications.user_rules import PushAudience, build_audience
 
 logger = logging.getLogger(__name__)
 
@@ -285,13 +286,22 @@ class Dispatcher:
         is_open: bool | None = None,
         muted: bool = False,
         blocked: bool = False,
+        per_account: bool = False,
+        push_mention: tuple[NotificationEvent, Mapping[str, Any]] | None = None,
     ) -> int:
         """Queue ``event`` for each channel the rules give it (minus ``exclude``, the
         channels a producer rules out, such as a blocked sender's message), or for
         ``targets`` when the caller already decided. A producer that already loaded the
         rules or knows whether the conversation is a Public or ``#`` channel passes them
         (``rules``, ``is_open``) to spare the lookups, and tells whether the conversation is
-        muted or the sender blocked (``muted``, ``blocked``: ``rules.event_channel_ids``). Returns how many channels it queued
+        muted or the sender blocked (``muted``, ``blocked``: ``rules.event_channel_ids``).
+
+        Web Push is decided per account (``user_rules``): without ``targets`` the admin rules and
+        each account's own choices give its audience, and ``builtin:push`` is queued when anyone
+        wants the event. A producer that routes only Web Push with ``targets`` asks for the same
+        with ``per_account``; ``push_mention`` is the ``message.mention`` version of a channel
+        message that names the radio, which the accounts that want mentions get instead of
+        ``event``. Returns how many channels it queued
         the event for (paused, disabled and unknown channels do not count). Never raises,
         never waits on a send."""
         try:
@@ -304,6 +314,8 @@ class Dispatcher:
                 is_open=is_open,
                 muted=muted,
                 blocked=blocked,
+                per_account=per_account,
+                push_mention=push_mention,
             )
         except Exception:
             logger.exception("notification dispatch failed")
@@ -320,6 +332,8 @@ class Dispatcher:
         is_open: bool | None = None,
         muted: bool = False,
         blocked: bool = False,
+        per_account: bool = False,
+        push_mention: tuple[NotificationEvent, Mapping[str, Any]] | None = None,
     ) -> int:
         if payload is None:
             if event is None:
@@ -341,6 +355,22 @@ class Dispatcher:
             )
         else:
             channel_ids = list(targets)
+        audience: PushAudience | None = None
+        if (
+            event is not None
+            and (targets is None or per_account)
+            and BUILTIN_PUSH_ID not in exclude
+        ):
+            channel_ids, audience = await self._push_per_account(
+                channel_ids,
+                rules,
+                event,
+                payload,
+                push_mention,
+                is_open=bool(is_open),
+                muted=muted,
+                blocked=blocked,
+            )
         channel_ids = [c for c in channel_ids if c not in exclude]
         channels = await self._channels(channel_ids, allow_legacy=targets is not None)
         decided = rules_mod.apply_pauses(
@@ -351,7 +381,7 @@ class Dispatcher:
             channel_paused_until={c.id: c.paused_until for c in channels},
             now=self._wall(),
         )
-        delivery = Delivery(name=name, payload=dict(payload), event=event)
+        delivery = Delivery(name=name, payload=dict(payload), event=event, audience=audience)
         dedup_key = event.dedup_key if event is not None else ""
         by_id = {c.id: c for c in channels}
         queued = 0
@@ -363,6 +393,46 @@ class Dispatcher:
             if await self._admit(by_id[target.channel_id], job, rules):
                 queued += 1
         return queued
+
+    async def _push_per_account(
+        self,
+        channel_ids: list[str],
+        rules: Mapping[str, Any],
+        event: NotificationEvent,
+        payload: Mapping[str, Any],
+        push_mention: tuple[NotificationEvent, Mapping[str, Any]] | None,
+        *,
+        is_open: bool,
+        muted: bool,
+        blocked: bool,
+    ) -> tuple[list[str], PushAudience | None]:
+        """Let each account's rules decide Web Push (``user_rules``, MSHL-321).
+
+        Returns the channel ids with ``builtin:push`` present when someone wants the event and
+        absent otherwise, and the audience to carry (None while nobody has an override and no
+        mention version exists: every device then gets ``payload``, as before)."""
+        from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+        try:
+            overrides = await UserNotificationRulesRepository.all_overrides()
+        except Exception:
+            logger.debug("account notification rules unreadable", exc_info=True)
+            overrides = {}
+        audience = build_audience(
+            rules,
+            overrides,
+            event,
+            payload,
+            mention=push_mention,
+            is_public_or_hashtag=is_open,
+            muted=muted,
+            blocked=blocked,
+        )
+        listed = BUILTIN_PUSH_ID in channel_ids
+        if audience.empty:
+            return [c for c in channel_ids if c != BUILTIN_PUSH_ID], None
+        ids = channel_ids if listed else [*channel_ids, BUILTIN_PUSH_ID]
+        return ids, (audience if overrides or push_mention is not None else None)
 
     # -- admission --------------------------------------------------------------
 
@@ -1020,6 +1090,8 @@ async def emit(
     is_open: bool | None = None,
     muted: bool = False,
     blocked: bool = False,
+    per_account: bool = False,
+    push_mention: tuple[NotificationEvent, Mapping[str, Any]] | None = None,
 ) -> int:
     return await notification_dispatcher().emit(
         event,
@@ -1030,6 +1102,8 @@ async def emit(
         is_open=is_open,
         muted=muted,
         blocked=blocked,
+        per_account=per_account,
+        push_mention=push_mention,
     )
 
 

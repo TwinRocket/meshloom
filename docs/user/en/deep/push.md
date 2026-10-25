@@ -7,7 +7,7 @@ order: 18
 
 Web Push can tell your browser about an incoming message while Meshloom's tab is closed. This page covers what is specific to browsers: HTTPS, the contact address (VAPID), subscribing and the list of devices. Everything else, meaning channels, events, the rules table, Do not disturb, mentions, the bell, backups and the other ways to be notified (e-mail, webhook, ntfy, Discord, Telegram, Gotify, Home Assistant, Apprise), is on [Notifications](/en/docs/deep/notifications/).
 
-Web Push is one channel among the others (the built-in **Web Push** channel). Each browser has its own subscription, which belongs to the account that subscribed it, while the rules (what to notify, and for which conversations) are shared by the whole installation and by every channel. It is separate from [fanout](/en/docs/deep/fanout/). There are no pop-ups from the open tab itself: Web Push is the only way Meshloom notifies a browser. Over plain HTTP, ntfy, Gotify or Home Assistant on your network are the answer.
+Web Push is one channel among the others (the built-in **Web Push** channel). Each browser has its own subscription, which belongs to the account that subscribed it, while the rules (what to notify, and for which conversations) are the administrator's defaults for the whole installation and every channel; each account can override them for its own devices (see [Your own rules](/en/docs/deep/notifications/#your-own-rules)). It is separate from [fanout](/en/docs/deep/fanout/). There are no pop-ups from the open tab itself: Web Push is the only way Meshloom notifies a browser. Over plain HTTP, ntfy, Gotify or Home Assistant on your network are the answer.
 
 ## What you need
 
@@ -31,13 +31,15 @@ See [Apple's documentation](https://developer.apple.com/documentation/usernotifi
 
 In **Settings → Notifications → Channels**, open **Devices and Web Push settings** on the Web Push card and choose **Subscribe This Browser**. The list of registered devices then shows each browser, with a **Test** button and a way to unsubscribe.
 
-A browser's subscription only decides whether that browser receives notifications. The rules are shared: if you switch on a conversation from your phone, it is on for every subscribed browser. What to notify is chosen in [Notifications](/en/docs/deep/notifications/#the-rules-table), the bell and Do not disturb included.
+A browser's subscription only decides whether that browser receives notifications. The conversation exceptions are shared: if you switch on a conversation from your phone, it is on for every subscribed browser. Which events notify your devices can be adjusted for your account only (see [Your own rules](/en/docs/deep/notifications/#your-own-rules)). What to notify is chosen in [Notifications](/en/docs/deep/notifications/#the-rules-table), the bell and Do not disturb included.
 
 ### Whose devices
 
 Each account sees and manages only its own devices: **Your devices** lists the browsers you subscribed, and no other account can rename, test or remove them. A browser shared by two accounts belongs to the last one that subscribed it.
 
 An administrator also sees **Other accounts' devices**: each device's label, its account and the push service it goes through (never its full address, which works as a password for that browser), with a button to remove it, for a lost phone or a former member. Renaming or testing a device is left to its owner.
+
+Which events reach your devices follows the administrator's defaults unless you changed them in **My notifications**; nobody else's choices affect your devices.
 
 A device receives notifications only while its account is enabled and may send messages (member or administrator). A viewer or a kiosk cannot subscribe; the devices of a disabled account stay silent until it is enabled again, and deleting an account deletes its devices. Devices registered before accounts owned them (before Meshloom 5.0, or restored from a backup) belong to the first administrator.
 
@@ -55,6 +57,9 @@ A device receives notifications only while its account is enabled and may send m
 | PATCH | `/api/push/subscriptions/{id}` | Change the label or the language of one of your subscriptions |
 | DELETE | `/api/push/subscriptions/{id}` | Delete one of your subscriptions (an administrator: any) |
 | POST | `/api/push/subscriptions/{id}/test` | Send a test notification to one of your subscriptions |
+| GET | `/api/push/my-rules` | Your own notification rules: per event (and node type) the administrator's default and your choice |
+| PATCH | `/api/push/my-rules` | Set (`true`, `false`) or clear (`null`) your choice for events and node types |
+| DELETE | `/api/push/my-rules` | Clear all your choices |
 | GET | `/api/push/preferences` | **Deprecated.** Defaults, exceptions and VAPID subject |
 | PATCH | `/api/push/preferences` | **Deprecated.** Change defaults and/or the VAPID subject |
 | PUT | `/api/push/preferences/conversations/{key}` | **Deprecated.** Set or clear an exception for a conversation |

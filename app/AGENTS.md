@@ -792,7 +792,8 @@ be wrong, because historical decryption inserts old messages with new ids.
   `users.totp_secret` and `auth_settings.setup_code_hash` set to NULL and
   `sessions`, `recovery_codes`, `pairing_codes` and `plugin_secrets` emptied (under `secure_delete`): instance identity seeds and
   login secrets are never exported. The accounts travel in the JSON full
-  backup's `users` section, the API tokens in its `api_tokens` section
+  backup's `users` section, the API tokens in its `api_tokens` section and each account's notification
+  choices in `notification_user_rules`
   (`services/backup_accounts.py`, `docs/dev/backup.md`,
   "Accounts"; the export's `include_accounts`, true by default, leaves
   `ACCOUNT_SECTIONS` out): its restore replaces the accounts, deletes every
@@ -1176,7 +1177,9 @@ first admin's when read (`_OWNER_SQL`; reads never write). An empty label on sub
 the stored one unless the row changes owner. `UserRepository.delete` also deletes the rows
 explicitly (no reliance on the cascade alone). Sends go to `PushSubscriptionRepository.deliverable()` only: owner enabled and holding
 `send` in `ROLE_PERMISSIONS` (kiosk and viewer own nothing deliverable; a token acts for its
-user). The rules stay instance-wide. `restore_users` unowns rows before replacing the accounts
+user). The rules are the admin defaults, and each account may override them for its own
+devices (`user_notification_rules`, migration 123, MSHL-321; `app/notifications/AGENTS.md`,
+"Per-account rules"; routes `GET/PATCH/DELETE /push/my-rules`, `send`). `restore_users` unowns rows before replacing the accounts
 so the cascade keeps them, then gives each back to the account of the same `username_key`
 (unowned when none). The full backup carries each subscription's owner by username
 (`BackupPushSubscription.owner`, MSHL-320, never the id); `_restore_push` and, after the

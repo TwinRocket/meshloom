@@ -5,9 +5,9 @@ level: deep
 order: 17
 ---
 
-Meshloom can tell you about what it hears and about its own health without you looking at the interface: a direct message, a mention, a repeater that goes quiet, the radio that drops off. Each place it sends to is a **channel**. What goes to which channel is decided by one table of **rules**, shared by the whole installation.
+Meshloom can tell you about what it hears and about its own health without you looking at the interface: a direct message, a mention, a repeater that goes quiet, the radio that drops off. Each place it sends to is a **channel**. What goes to which channel is decided by one table of **rules**, the administrator's defaults for the whole installation. Each account can then adjust, for its own Web Push devices only, which events reach them: see [Your own rules](#your-own-rules).
 
-Everything is in **Settings → Notifications** (administrators only). Nothing here needs an environment variable. Browser-specific matters (HTTPS, the VAPID contact address, subscribing a browser) are on [Push notifications](/en/docs/deep/push/); this page covers everything else.
+Everything is in **Settings → Notifications** (administrators only, except [My notifications](#your-own-rules)). Nothing here needs an environment variable. Browser-specific matters (HTTPS, the VAPID contact address, subscribing a browser) are on [Push notifications](/en/docs/deep/push/); this page covers everything else.
 
 The notification channels are separate from [fanout](/en/docs/deep/fanout/), which forwards every message of the conversations you pick to machines (MQTT, webhooks, SQS). Notifications are for people and tell you about events.
 
@@ -136,9 +136,22 @@ The destinations you had before the check existed (4.18.x) are allowed to stay w
 
 ## The rules table
 
-**Settings → Notifications → Default notifications** is a table: one row per event, grouped (Messages, Nodes, Radio, Telemetry, Meshloom), one column per channel (Web Push and the channels you added; a switched-off channel is greyed but keeps its ticks) and an **Always deliver** column that lets an event through the pause. Tick a box to send that event to that channel. The first column stays in view when the table scrolls sideways on a phone. Every box has a label, so the table can be used with the keyboard and a screen reader. **New node seen** has no box of its own, only one sub-row per node type (companions, repeaters, sensors). **Channel changed** always goes to Web Push (locked). **Mentions** has a **Match whole words only** tick. Web Push is on for the usual events at the start.
+**Settings → Notifications → Defaults for all accounts** is a table: one row per event, grouped (Messages, Nodes, Radio, Telemetry, Meshloom), one column per channel (Web Push and the channels you added; a switched-off channel is greyed but keeps its ticks) and an **Always deliver** column that lets an event through the pause. Tick a box to send that event to that channel. The first column stays in view when the table scrolls sideways on a phone. Every box has a label, so the table can be used with the keyboard and a screen reader. **New node seen** has no box of its own, only one sub-row per node type (companions, repeaters, sensors). **Channel changed** always goes to Web Push (locked). **Mentions** has a **Match whole words only** tick. Web Push is on for the usual events at the start.
 
 A new channel is filled in for you by the last step of the add dialog, **What to receive here?**: **Like Push** (the events Web Push receives, the default), **Alerts only** or **Everything**. The urgent events (radio offline, telemetry alerts, channel changed) are always delivered, even during **Do not disturb**.
+
+## Your own rules
+
+The table above holds the **defaults**. Web Push is the one channel whose recipients are people (every device belongs to an account), so under **Settings → Notifications → My notifications** each account (member or administrator) sees one line per event, and one per node type for *New node seen*. Each line follows the administrator's default (the list says whether that is *notify* or *do not notify*) until you choose **Always notify me** or **Never notify me**; **Follow the defaults again** clears all your choices. Your choices apply only to the devices of your account, and nobody else sees or edits them.
+
+- *Never notify me* wins over everything for your devices, conversation exceptions included.
+- *Always notify me* still respects what belongs to the installation: the administrator's exceptions for a conversation, a muted channel, the block lists and **Do not disturb**.
+- E-mail, webhook, ntfy, Telegram and the other channels are shared destinations that the administrator owns: they keep following the table, whatever your choices.
+- A mention reaches your devices as a mention when your rules give you *Mentions*, else as an ordinary channel message, never both.
+- The summaries sent when a channel is over its limit (see [Limits and grouping](#limits-and-grouping)), and the notice that a destination changed, reach every device.
+- Until you change something, nothing differs from the table, and an upgrade to this version changes nothing for anyone.
+
+The same choices are available through `GET`, `PATCH` and `DELETE /api/push/my-rules` (see [Web Push](/en/docs/deep/push/)).
 
 ## Events
 
@@ -234,7 +247,7 @@ Tests are limited: one every 5 seconds per channel, one every 2 seconds for a co
 
 ## Backups
 
-The **full backup** (Settings → Database) has a *Notifications* part: every channel (type, name, options, limits, language, text policy) and the rules (events, conversation exceptions and the options of the rules table), **without any secret**. Passwords, tokens, a Discord or Apprise address, a ntfy topic, a webhook URL and its HMAC secret never leave Meshloom. The e-mail, webhook and Apprise destinations of the old settings are also written without their secrets. The block lists travel with the settings. The delivery journal and counters are not saved, and neither is a pause: *Do not disturb* is never restored. The Web Push keys and subscriptions are a separate part, restored only on a Meshloom with no subscription of its own.
+The **full backup** (Settings → Database) has a *Notifications* part: every channel (type, name, options, limits, language, text policy) and the rules (events, conversation exceptions and the options of the rules table), **without any secret**. Each account's own choices (see [Your own rules](#your-own-rules)) travel with the accounts, so they come back when **Include accounts** is checked. Passwords, tokens, a Discord or Apprise address, a ntfy topic, a webhook URL and its HMAC secret never leave Meshloom. The e-mail, webhook and Apprise destinations of the old settings are also written without their secrets. The block lists travel with the settings. The delivery journal and counters are not saved, and neither is a pause: *Do not disturb* is never restored. The Web Push keys and subscriptions are a separate part, restored only on a Meshloom with no subscription of its own.
 
 **Restoring.** A channel that lost any secret comes back **switched off** and marked *Secret missing after a restore*; Meshloom never sends with a missing secret. Open it in **Settings → Notifications → Channels**, type each secret again (or clear it on purpose), then switch it on. If the same channel already exists here with the same destination, its stored secrets are kept. Restoring merges the channels (one the file does not name stays) and replaces the rules. A backup made by Meshloom 4.18 restores into the same channels and rules (Web Push, e-mail, webhook, Apprise, the exceptions of each conversation).
 

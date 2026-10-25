@@ -14,9 +14,11 @@ from typing import Any
 
 from app.channel_constants import is_public_channel_key
 from app.notifications import rules as rules_mod
+from app.notifications.channels import BUILTIN_PUSH_ID
 from app.notifications.dispatcher import emit
-from app.notifications.events import event_from_payload
+from app.notifications.events import NotificationEvent, event_from_payload
 from app.notifications.mention import is_mention
+from app.notifications.user_rules import build_audience
 
 logger = logging.getLogger(__name__)
 
@@ -65,37 +67,64 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
     rules = await rules_mod.load_rules()
     blocked = await rules_mod.message_blocked(payload)
     mentioned: list[str] = []
+    push_mention: tuple[NotificationEvent, dict[str, Any]] | None = None
     if msg_type == "CHAN" and is_mention(
         str(payload.get("text") or ""),
         _radio_name(),
         whole_word=bool(rules.get("mention_whole_word")),
     ):
-        mentioned = await _mention_channels(rules, key, is_open, muted, blocked)
+        mention_payload = payload | {"mention": True}
+        mention_event = event_from_payload(mention_payload)
+        if mention_event is not None:
+            # Web Push is decided per account (``user_rules``): the dispatcher gives each
+            # account the mention or the plain version from its own rules, so it stays out of
+            # the instance-wide split below.
+            push_mention = (mention_event, mention_payload)
+            mentioned = [
+                c
+                for c in await _mention_channels(rules, key, is_open, muted, blocked)
+                if c != BUILTIN_PUSH_ID
+            ]
+            if mentioned:
+                await emit(
+                    mention_event,
+                    payload=mention_payload,
+                    targets=mentioned,
+                    rules=rules,
+                    muted=muted,
+                    blocked=blocked,
+                )
+    from app.repository.user_notification_rules import UserNotificationRulesRepository
+
     candidates = rules_mod.event_channel_ids(
         rules, event, is_public_or_hashtag=is_open, muted=muted, blocked=blocked
     )
-    plain = [c for c in candidates if c not in mentioned]
-    if mentioned:
-        mention_payload = payload | {"mention": True}
-        mention_event = event_from_payload(mention_payload)
-        await emit(
-            mention_event,
-            payload=mention_payload,
-            targets=mentioned,
-            rules=rules,
-            muted=muted,
-            blocked=blocked,
-        )
-    if plain:
-        await emit(
-            event,
-            payload=payload,
-            exclude=mentioned,
-            rules=rules,
-            is_open=is_open,
-            muted=muted,
-            blocked=blocked,
-        )
+    audience = build_audience(
+        rules,
+        await UserNotificationRulesRepository.all_overrides(),
+        event,
+        payload,
+        mention=push_mention,
+        is_public_or_hashtag=is_open,
+        muted=muted,
+        blocked=blocked,
+    )
+    # Nobody to reach: no instance channel left after the mention split, and no account's
+    # Web Push wants it.
+    if audience.empty and not [
+        c for c in candidates if c not in mentioned and c != BUILTIN_PUSH_ID
+    ]:
+        return
+    await emit(
+        event,
+        payload=payload,
+        exclude=mentioned,
+        rules=rules,
+        is_open=is_open,
+        muted=muted,
+        blocked=blocked,
+        push_mention=push_mention,
+    )
 
 
 def _radio_name() -> str | None:

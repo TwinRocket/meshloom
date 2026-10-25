@@ -488,12 +488,16 @@ class UserRepository:
             # without PRAGMA foreign_keys (migration tests, scripts).
             await conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
             await conn.execute("DELETE FROM push_subscriptions WHERE user_id = ?", (user_id,))
+            await conn.execute("DELETE FROM user_notification_rules WHERE user_id = ?", (user_id,))
             await conn.execute("DELETE FROM recovery_codes WHERE user_id = ?", (user_id,))
             async with conn.execute("DELETE FROM users WHERE id = ?", (user_id,)) as cursor:
                 deleted = cursor.rowcount > 0
             if deleted and keep_an_admin and await _count_enabled_admins(conn) == 0:
                 raise LastAdminError("the last enabled administrator must stay")
-            return deleted
+        from app.repository import user_notification_rules
+
+        user_notification_rules.invalidate_cache()
+        return deleted
 
 
 class TotpState(BaseModel):

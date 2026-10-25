@@ -4,6 +4,7 @@
       "warnings": {
         "notification_secrets_missing": "{{value}} notification channel(s) were restored disabled: secrets never leave Meshloom, so enter them again in Settings > Notifications, then turn the channel on.",
         "notification_channel_dropped": "A notification channel ({{value}}) of the backup could not be restored and was left out.",
+        "notification_user_rules_dropped": "A notification choice of the backup named an account that does not exist here and was left out.",
         "notification_rules_dropped": "The notification rules of the backup are too large and were not restored.",
         "notification_destination_secrets_missing": "The e-mail, webhook or Apprise destination secrets were not in the backup: enter them again in Settings > Notifications.",
         "notification_rules_sanitized": "Some notification rules of the backup were malformed and were left out."
