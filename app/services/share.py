@@ -229,10 +229,24 @@ def is_share_host(host: str) -> bool:
     return host.lower().rstrip(".") in {h.lower() for h in SHARE_HOSTS}
 
 
+def share_terms_current(settings: Any) -> bool:
+    """The owner accepted the current version of the share terms."""
+    return settings.share_terms_version == SHARE_TERMS_VERSION
+
+
+def share_is_effective(settings: Any) -> bool:
+    """Sharing is actually on: consent given and the accepted terms are current.
+
+    The single definition behind ``share_egress_state()``, ``GET /api/share/status``
+    (``enabled``) and ``GET /api/settings`` (``share_effective``).
+    """
+    return bool(settings.share_enabled) and share_terms_current(settings)
+
+
 async def share_egress_state() -> ShareEgress | None:
     """The share egress config when sharing is on, else None (no connection)."""
     settings = await AppSettingsRepository.get()
-    if not settings.share_enabled or settings.share_terms_version != SHARE_TERMS_VERSION:
+    if not share_is_effective(settings):
         return None
     return ShareEgress(host=SHARE_HOST)
 

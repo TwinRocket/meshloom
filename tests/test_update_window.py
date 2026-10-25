@@ -161,3 +161,12 @@ class TestDstSwitch:
     def test_naive_datetime_after_switch_uses_its_own_offset(self, paris):
         naive = datetime(2026, 10, 25, 12, 0)  # CET by then
         assert in_window(naive, "08:00", "18:00", [6]) is True
+
+    def test_spring_gap_window_start_resolves_after_the_gap(self, paris):
+        # 02:30 does not exist on 2026-03-29 (02:00 -> 03:00): the start lands at 03:30 CEST.
+        now = _paris(2026, 3, 28, 12)  # Saturday
+        nxt = next_window_start(now, "02:30", "06:00", [6])
+        assert nxt is not None
+        assert nxt.date().isoformat() == "2026-03-29"
+        assert (nxt.hour, nxt.minute) == (3, 30)
+        assert nxt.utcoffset() == timedelta(hours=2)
