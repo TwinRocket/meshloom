@@ -1,0 +1,53 @@
+{
+  "manifest": 1,
+  "id": "meshloom.echo",
+  "version": "1.0.0",
+  "name": {
+    "en": "Echo",
+    "fr": "Écho"
+  },
+  "summary": {
+    "en": "Answers !pling with Plong! (the reference plugin)",
+    "fr": "Répond Plong! à !pling (le plugin de référence)"
+  },
+  "authors": [
+    {
+      "name": "Meshloom"
+    }
+  ],
+  "license": "MIT",
+  "categories": [
+    "fun"
+  ],
+  "icon": "message-circle",
+  "runtime": {
+    "type": "python",
+    "api": 1,
+    "python": ">=3.11"
+  },
+  "compat": {
+    "meshloom": ">=5.0.0"
+  },
+  "entry": "plugin.py:Echo",
+  "hooks": [
+    "message"
+  ],
+  "permissions": {
+    "messages.read": {
+      "channels": "public",
+      "direct": true,
+      "outgoing": false
+    },
+    "messages.send": {
+      "targets": "reply"
+    }
+  },
+  "privacy": {
+    "sends_to_third_parties": [],
+    "stores_message_content": false
+  },
+  "readme": {
+    "en": "README.md",
+    "fr": "README.fr.md"
+  }
+}

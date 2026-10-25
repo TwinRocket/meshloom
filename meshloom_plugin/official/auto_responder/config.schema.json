@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "title": {
+    "en": "Auto-responder",
+    "fr": "Auto-répondeur"
+  },
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 5,
+        "maxLength": 400
+      },
+      "maxItems": 50,
+      "default": [
+        "keyword: hello => Hello {sender}!",
+        "prefix: !ping => Pong!"
+      ],
+      "title": {
+        "en": "Rules",
+        "fr": "Règles"
+      },
+      "description": {
+        "en": "One rule per line: trigger, then a colon, the text to look for, an arrow and the reply. Triggers: keyword (the word or phrase appears in the message), prefix (the message starts with it), regex (a pattern, 100 characters at most). Options go after the trigger: keyword,channel=#test,cooldown=120: ... The reply may use {sender}, {channel} and {text}. Example: prefix: !ping => Pong, {sender}!",
+        "fr": "Une règle par ligne : le déclencheur, deux-points, le texte à chercher, une flèche et la réponse. Déclencheurs : keyword (le mot ou la phrase apparaît dans le message), prefix (le message commence par ce texte), regex (un motif, 100 caractères au plus). Les options se placent après le déclencheur : keyword,channel=#test,cooldown=120: ... La réponse peut contenir {sender}, {channel} et {text}. Exemple : prefix: !ping => Pong, {sender}!"
+      }
+    },
+    "case_sensitive": {
+      "type": "boolean",
+      "default": false,
+      "title": {
+        "en": "Respect upper and lower case",
+        "fr": "Respecter les majuscules et minuscules"
+      }
+    },
+    "answer_direct_messages": {
+      "type": "boolean",
+      "default": true,
+      "title": {
+        "en": "Answer direct messages",
+        "fr": "Répondre aux messages directs"
+      },
+      "description": {
+        "en": "When off, only the messages of public channels are answered.",
+        "fr": "Désactivé, seuls les messages des canaux publics reçoivent une réponse."
+      }
+    },
+    "cooldown_seconds": {
+      "type": "integer",
+      "minimum": 30,
+      "maximum": 86400,
+      "default": 120,
+      "title": {
+        "en": "Pause between two answers of a rule to the same person (seconds)",
+        "fr": "Pause entre deux réponses d'une règle à la même personne (secondes)"
+      },
+      "description": {
+        "en": "A rule can set its own with cooldown=N. Meshloom itself never lets a plugin answer the same person more than once every 30 seconds.",
+        "fr": "Une règle peut fixer la sienne avec cooldown=N. Meshloom ne laisse de toute façon jamais un plugin répondre plus d'une fois toutes les 30 secondes à la même personne."
+      }
+    },
+    "max_replies_per_hour": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60,
+      "default": 20,
+      "title": {
+        "en": "Most answers per hour",
+        "fr": "Nombre maximal de réponses par heure"
+      },
+      "description": {
+        "en": "Kept under the limit Meshloom already puts on every plugin (30 per hour by default), so the plugin stops by itself before it is refused.",
+        "fr": "Maintenu sous la limite que Meshloom impose déjà à tout plugin (30 par heure par défaut), pour que le plugin s'arrête de lui-même avant d'être refusé."
+      }
+    }
+  }
+}

@@ -92,10 +92,17 @@ Escaping these walls is a security bug: report it as described in the project's 
 
 Administrators manage plugins in **Settings → Extensions** (the interface calls them extensions). The top of the page shows the isolation level in force and what it means. The **Installed** tab lists each copy with its status, a badge when it needs attention (settings required, permissions to review, consent needed), whether it is bundled, an on/off switch and arrows to reorder. **Store** and **Updates** are placeholders for now.
 
-- **Add a bundled extension** shows what it may do in plain words, the servers it talks to and its privacy declaration. When it can read private messages (direct messages or every channel) and reach the internet, a warning says it can send your private messages to those servers. Nothing is installed until you tick the box and confirm.
+- **Add a bundled extension** lists the extensions that come with Meshloom (see below), works without internet, and shows what it may do in plain words, the servers it talks to and its privacy declaration. When it can read private messages (direct messages or every channel) and reach the internet, a warning says it can send your private messages to those servers. Nothing is installed until you tick the box and confirm.
 - A **revoked** or **incompatible** extension cannot be turned on. One that needs a review stays off until you open it and choose **Accept and enable**.
 - The detail drawer lets you untick permissions, choose the conversations it may read, lower its sending limits (never above what it asks for), read its log, restart it, **copy a diagnostic** for a bug report (no setting values, no secrets) and uninstall it, keeping its stored data or not.
 - The **Settings** block of the drawer is generated from the extension's own description of its settings (required fields are starred). A secret setting (an API key, a password) is never shown, not even after you save it: the drawer only says a value is set, and you can **Replace** it (leave the field empty to keep the current value) or **Clear** it. Only what you change is sent. An extension waiting for required settings stays off; its drawer has a **Go to the settings** button.
+
+### Bundled extensions
+
+Two extensions ship with Meshloom and install without any network:
+
+- **Echo** answers `!pling` with `Plong!`. It reads public channels and your direct messages and only replies. Its code is the reference for writing your own.
+- **Auto-responder** answers messages from rules you write, with no code. One rule per line, in its **Rules** setting: `trigger: text => reply`. The trigger is `keyword` (the word appears in the message), `prefix` (the message starts with it) or `regex` (a pattern of at most 100 characters). Add options after the trigger, separated by commas: `channel=#name` (or `channel=dm`) to limit a rule to one channel, `cooldown=300` for a pause in seconds before answering the same person again. The reply may contain `{sender}`, `{channel}` and `{text}`. For example `prefix,channel=#test: !ping => Pong, {sender}!`. The first rule that matches decides; a rule that cannot be read is skipped and written to the log. Other settings: respect upper and lower case, answer direct messages or not, the default pause (120 seconds) and the most answers per hour (20). Beyond them, the limits above always apply, including one answer every 30 seconds to the same person.
 
 ### Local extensions
 

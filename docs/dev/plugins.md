@@ -6,8 +6,8 @@ bot shim, the supervisor, the capability API v1, the OS isolation and `http.fetc
 isolation: `docs/dev/plugins-security.md`, "OS isolation"). The server starts one
 supervised child per enabled instance, isolated by the OS, and answers its requests
 (see "Capabilities"); the global send budgets and loop guards
-(Store T6b) and the UI are later tickets; the REST API is described in "API" (MSHL-185), and no
-bundled package ships yet (Store T26). Like every doc here, this
+(Store T6b) and the UI are later tickets; the REST API is described in "API" (MSHL-185), and
+two bundled packages ship (Store T26, "Bundled plugins"). Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
 ## Package and manifest
@@ -592,6 +592,42 @@ What the supervisor (MSHL-179) must provide, as the SDK uses it:
 
 Tests: `tests/test_plugin_sdk.py` (the test is the server, over a real child).
 
+## Bundled plugins
+
+`meshloom_plugin/official/<dir>/` holds the packages shipped with the release
+(`meshloom_plugin/official/README.md`), installed offline from Settings → Extensions →
+Installed ("Add a bundled extension") through `POST /plugins/install` and
+`installer.install_bundled`. They are ordinary packages: validated with `origin =
+"bundled"` (id `meshloom.*`), the same sandbox, quotas and host guards as any third
+party plugin, no special permission, not listed in any index. The directory is copied
+along with the rest of `meshloom_plugin/` by the Dockerfile and the packages. A package's
+`version` changes only with its files; `install_bundled` is a no-op for the same
+version and replaces `<data>/plugins/<id>/` for another. Nothing yet re-installs an
+existing instance after a Meshloom upgrade (open item). `tests/test_official_plugins.py` runs `dev check` on both
+(`--origin bundled`), tests the rules, installs them through the API and runs the
+two-host simulation.
+
+- `meshloom.echo` (`echo/plugin.py`) is the documented reference: a `Plugin` subclass,
+  `on_message`, `self.reply`. `!pling` answers `Plong!`. It replaces the example that
+  the legacy bot editor (`DEFAULT_BOT_CODE`) still shows until the bots go.
+- `meshloom.auto-responder` (`auto_responder/`) is the no-code option. The config schema
+  subset allows arrays of strings only, so each rule is one string,
+  `trigger[,option=value]: text => reply`: triggers `keyword` (whole words), `prefix`
+  and `regex`; options `channel=#name|dm` and `cooldown=30..86400`; the reply takes
+  `{sender}`, `{channel}`, `{text}` (substituted, never `format`ted). Other settings:
+  `case_sensitive`, `answer_direct_messages`, `cooldown_seconds` (default 120),
+  `max_replies_per_hour` (default 20, below the instance's 30). The first rule that
+  matches decides, even when its cooldown keeps it silent. Cooldowns are per rule and
+  per sender and live in memory; the hourly stamps are kept in `storage` so a restart
+  keeps the cap. Regex safety, since `re` has no timeout: at most 100 characters, a
+  group that repeats and is repeated or a back-reference is refused when the rule is
+  read, the compile time is capped at 100 ms, and the pattern only sees the first 200
+  characters of the message. A rule that does not parse is skipped and logged with its
+  line number. `language` is the standard instance field (the status line is localised).
+  The host guards (`SendGuard`) stay the authority: the plugin's own limits only keep it
+  below them, and the two-host simulation in the tests shows two auto-responders
+  answering each other stop within a few messages.
+
 ## Legacy bots (`meshloom_plugin.compat`)
 
 `legacy_bot(source)` returns a `Plugin` class that runs a 4.18.x `bot(...)` source,
@@ -809,7 +845,7 @@ everywhere. While the host lock or the platform turns the system off, every writ
 | Route | Role | Behaviour |
 |---|---|---|
 | `GET /plugins` | member | Instances with the live status (`summary`, `restarts`, `dropped_events`); secrets read `********`. |
-| `GET /plugins/bundled` | member | The valid packages of `meshloom_plugin/official/*` (`app/plugins/installer.py`, `BUNDLED_ROOT`): manifest texts, declared permissions, `privacy` declaration (shown on the consent screen), config schema, instance count. Empty today. |
+| `GET /plugins/bundled` | member | The valid packages of `meshloom_plugin/official/*` (`app/plugins/installer.py`, `BUNDLED_ROOT`): manifest texts, declared permissions, `privacy` declaration (shown on the consent screen), config schema, instance count: `meshloom.echo` and `meshloom.auto-responder` ("Bundled plugins"). |
 | `POST /plugins/install` | admin | `{kind: "bundled", plugin_id, label?, granted_permissions, config?}`. 404 `plugin_not_bundled`; 400 `consent_required` (`params.missing`: the declared permissions the grant does not cover in full); 400 `config_invalid` (`params.issues`: code and field); a required field missing creates the instance **disabled**, `status: needs_attention`, `attention: {type: "config_required", fields}`, no process. Otherwise it is enabled and started; 409 `instance_cap_reached` deletes it again. The code is copied (validated like an archive, origin `bundled`) to `<data>/plugins/<plugin_id>/` once per version, shared by the instances. Other kinds (`custom`, `store`) are M2. |
 | `POST /plugins` | admin | A local plugin: `{label, hooks?, permissions?, template: "echo"\|"blank"}`; the manifest is built and validated (`origin=local`, id `local.<slug>-<hex>`), the permissions are declared and granted together, created disabled. 400 `manifest_invalid`. |
 | `PATCH /plugins/{id}` | admin | `enabled` starts or stops the process (409 `config_required`, 409 `instance_cap_reached`: `enabled` is put back to false); a change of `config`, `scope`, `granted_permissions`, `quotas` or `label` restarts a running instance. `config` **replaces** the plain fields and merges the secrets (omitted, null or `********` keep, `""` clears; 400 `secret_required` for a mask with no stored value), validated against the stored schema (400 `config_invalid`; unknown fields refused; `language` is always allowed). `granted_permissions` must be a subset of the manifest (400 `permission_exceeds_manifest`); `quotas` only `messages.send.per_hour|per_day`, 1 to the caps 60 and 500 (400 `quota_invalid`); `scope` is `{messages: all\|none\|{channels, contacts}}` (400 `scope_invalid`). Completing a `config_required` config clears the attention. The required fields are re-checked from the stored config on every enable and restart (409 `config_required`); clearing one on a stopped instance sets `needs_attention`/`config_required`. A `revoked` or `incompatible` instance never starts (409 `plugin_revoked`/`plugin_incompatible`); `needs_attention` for another reason (`review_permissions`, `consent_required`...) is 409 `attention_required` until the request resends `granted_permissions` (the acknowledgement). For a `local` plugin `granted_permissions` rewrites the manifest's `permissions` and `hooks` its `hooks` (both revalidated, 400 `manifest_invalid`; `hooks` on another kind is 409 `not_local`), and the instance restarts when enabled. |
