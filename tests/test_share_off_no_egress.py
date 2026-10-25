@@ -36,11 +36,17 @@ SERVICE_CALLS = {
     "create_link": lambda: share.create_link("https://example.com/a"),
     "get_meta": lambda: share.get_meta("AbCdEfG"),
     "fetch_object": lambda: share.fetch_object("AbCdEfG"),
+    "read_object": lambda: share.read_object("AbCdEfG"),
     "report_object": lambda: share.report_object("AbCdEfG", "spam", "details"),
     "share_request": lambda: share.share_request("GET", "/v1/meta/AbCdEfG", binding=None),
 }
 # Coroutine functions of the module that never connect.
-_LOCAL = {"share_egress_state"}
+_LOCAL = {"share_egress_state", "clear_object_cache"}
+# A valid 1x1 PNG (the links-files vectors' ``png_1x1``): read_object checks it.
+PNG_1X1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+    "0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082"
+)
 
 
 def _answer(request: httpx.Request) -> httpx.Response:
@@ -53,7 +59,7 @@ def _answer(request: httpx.Request) -> httpx.Response:
         return json_response(200, {"id": "AbCdEfG", "kind": "link", "target_host": "example.com"})
     if path == "/v1/reports":
         return httpx.Response(202)
-    return httpx.Response(200, content=b"\x89PNG", headers={"Content-Type": "image/png"})
+    return httpx.Response(200, content=PNG_1X1, headers={"Content-Type": "image/png"})
 
 
 def _share_routes() -> list[tuple[str, str]]:

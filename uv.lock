@@ -760,6 +760,15 @@ wheels = [
 ]
 
 [[package]]
+name = "diskcache"
+version = "5.6.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", size = 67916, upload-time = "2023-08-31T06:12:00.316Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", size = 45550, upload-time = "2023-08-31T06:11:58.822Z" },
+]
+
+[[package]]
 name = "execnet"
 version = "2.1.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1116,6 +1125,15 @@ wheels = [
 ]
 
 [[package]]
+name = "imagesize"
+version = "1.5.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/59/4b0dd64676aa6fb4986a755790cb6fc558559cf0084effad516820208ec3/imagesize-1.5.0.tar.gz", hash = "sha256:8bfc5363a7f2133a89f0098451e0bcb1cd71aba4dc02bbcecb39d99d40e1b94f", size = 1281127, upload-time = "2026-03-03T01:59:54.651Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/b1/a0662b03103c66cf77101a187f396ea91167cd9b7d5d3a2e465ad2c7ee9b/imagesize-1.5.0-py2.py3-none-any.whl", hash = "sha256:32677681b3f434c2cb496f00e89c5a291247b35b1f527589909e008057da5899", size = 5763, upload-time = "2026-03-03T01:59:52.343Z" },
+]
+
+[[package]]
 name = "iniconfig"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1196,8 +1214,10 @@ dependencies = [
     { name = "bleak" },
     { name = "boto3" },
     { name = "dbus-fast", marker = "sys_platform == 'linux'" },
+    { name = "diskcache" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "imagesize" },
     { name = "jsonschema" },
     { name = "meshcore" },
     { name = "packaging" },
@@ -1235,8 +1255,10 @@ requires-dist = [
     { name = "bleak", specifier = ">=2.1,<4" },
     { name = "boto3", specifier = ">=1.38.0" },
     { name = "dbus-fast", marker = "sys_platform == 'linux'", specifier = ">=3.1" },
+    { name = "diskcache", specifier = ">=5.6.3,<6" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "imagesize", specifier = ">=1.4.1,<2" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "meshcore", specifier = "==2.3.17" },
     { name = "packaging", specifier = ">=26.3" },

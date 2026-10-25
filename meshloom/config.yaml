@@ -51,6 +51,11 @@ host_dbus: true
 map:
   - addon_config:rw
 
+# The shared images cache (<addon_config>/share-cache, up to 200 MiB) is
+# rebuilt on demand: keep it out of Home Assistant backups.
+backup_exclude:
+  - share-cache
+
 options:
   log_level: INFO
   proxy_port: 5051

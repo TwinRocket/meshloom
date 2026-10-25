@@ -3431,9 +3431,26 @@ class ShareLinkResponse(BaseModel):
 
 
 class ShareMetaResponse(BaseModel):
+    """``GET /api/share/{id}/meta``: a link (``target_host``) or a file.
+
+    File members are null for a link. ``name`` is null for a public file (the
+    contract stores none); ``decryptable`` is true for a public file (nothing to
+    decrypt) and null until encrypted files exist.
+    """
+
     kind: str
     target_host: str | None = None
     expires_at: int | None = None
+    created_at: int | None = None
+    mode: str | None = None
+    content_type: str | None = None
+    size: int | None = None
+    name: str | None = None
+    decryptable: bool | None = None
+
+
+class ShareCacheClearResponse(BaseModel):
+    freed_bytes: int
 
 
 class StoreStatus(BaseModel):

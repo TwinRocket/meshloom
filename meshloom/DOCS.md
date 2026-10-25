@@ -168,7 +168,8 @@ Details: <https://meshloom.app/en/docs/deep/community/>.
 
 The database, keys and settings are kept in the add-on's own configuration
 folder (`addon_config`), which survives updates and is included in Home Assistant
-backups. Updating Meshloom is done from Home Assistant's add-on page: the
+backups, except the `share-cache` folder (shared images already downloaded, at
+most 200 MiB, rebuilt when needed). Updating Meshloom is done from Home Assistant's add-on page: the
 in-app updater only tells you a new version exists.
 
 ## Recovering access
