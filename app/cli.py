@@ -34,6 +34,7 @@ import argparse
 import asyncio
 import getpass
 import json
+import signal
 import sqlite3
 import sys
 from collections.abc import Awaitable, Callable, Sequence
@@ -518,8 +519,17 @@ async def _run(args: argparse.Namespace) -> int:
         await conn.close()
 
 
+def _on_sigterm(signum: int, frame: object) -> None:
+    raise KeyboardInterrupt
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # The package wrapper runs this in a session of its own (runuser -c): on Ctrl-C runuser
+    # prints "Session terminated, killing shell..." and sends SIGTERM, then SIGKILL after
+    # about 2 s, so SIGINT never reaches us. Treat SIGTERM like Ctrl-C: the database
+    # connection closes (an open transaction rolls back) and getpass restores the terminal.
+    signal.signal(signal.SIGTERM, _on_sigterm)
     try:
         return asyncio.run(_run(args))
     except CliError as exc:
@@ -527,7 +537,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     except KeyboardInterrupt:
         print("meshloom-admin: interrupted", file=sys.stderr)
-        return 1
+        return 130
 
 
 if __name__ == "__main__":

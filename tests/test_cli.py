@@ -641,3 +641,54 @@ def test_rotate_device_key_refuses_an_unmigrated_database(dbfile, capsys):
     conn.close()
     assert run(dbfile, "rotate-device-key") == 1
     assert "device_cookie_key" in capsys.readouterr().err
+
+
+def test_sigterm_ends_the_cli_like_ctrl_c_and_getpass_works_with_stdout_piped(dbfile):
+    """The wrapper's child runs in its own session (runuser -c): no controlling terminal, and
+    Ctrl-C reaches it as SIGTERM. With stdout and stderr piped and only stdin on a terminal
+    (no runuser --pty), getpass must still prompt (it falls back from /dev/tty to stdin and
+    prompts on stderr), and SIGTERM must give a clean message, exit code 130, no traceback."""
+    import select
+    import signal
+    import time
+
+    _add_user(dbfile, "alice")
+    primary, secondary = pty.openpty()
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "app.cli", "--db", str(dbfile), "reset-password", "alice"],
+        cwd=ROOT,
+        stdin=secondary,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,  # no controlling terminal, like runuser -c
+    )
+    os.close(secondary)
+    try:
+        err = b""
+        deadline = time.monotonic() + 20
+        assert proc.stderr is not None
+        while b"New password for alice: " not in err and time.monotonic() < deadline:
+            if select.select([proc.stderr], [], [], 0.2)[0]:
+                chunk = os.read(proc.stderr.fileno(), 4096)
+                if not chunk:
+                    break
+                err += chunk
+        assert b"New password for alice: " in err, err
+        os.write(primary, (PASSWORD + "\n").encode())
+        while b"Repeat the password: " not in err and time.monotonic() < deadline:
+            if select.select([proc.stderr], [], [], 0.2)[0]:
+                chunk = os.read(proc.stderr.fileno(), 4096)
+                if not chunk:
+                    break
+                err += chunk
+        assert b"Repeat the password: " in err, err
+        proc.send_signal(signal.SIGTERM)
+        out, rest = proc.communicate(timeout=20)
+    finally:
+        os.close(primary)
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 130
+    assert b"meshloom-admin: interrupted" in rest
+    assert b"Traceback" not in rest
+    assert out == b""
