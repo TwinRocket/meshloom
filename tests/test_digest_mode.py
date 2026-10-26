@@ -415,3 +415,124 @@ def test_the_digestible_events():
         "notify.heartbeat",
     ):
         assert not qh.digestible(name)
+
+
+# -- review follow-ups ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_the_summary_title_is_pinned_in_both_languages(test_db):
+    data = {"event": "quiet_digest", "scope": "digest", "count": 1, "conversations": 1}
+    assert event_notification_text(data, "en")[0] == "Periodic summary"
+    assert event_notification_text(data, "fr")[0] == "Résumé périodique"
+    quiet = {**data, "scope": "quiet_hours"}
+    assert event_notification_text(quiet, "en")[0] == "Quiet hours summary"
+
+
+@pytest.mark.asyncio
+async def test_a_summary_the_limits_refuse_is_put_back_and_sent_later(test_db, monkeypatch):
+    await _add(test_db, "email-1", 300)
+    wall = Wall(T0)
+    dispatcher, stub = _make(wall)
+    for n in range(3):
+        await dispatcher.emit(None, payload=_dm(n), targets=["email-1"])
+    real = dispatcher._admit
+    refused: list[str] = []
+
+    async def admit(channel, job, rules):
+        if job.delivery.name == "quiet_digest" and not refused:
+            refused.append(channel.id)
+            return False
+        return await real(channel, job, rules)
+
+    monkeypatch.setattr(dispatcher, "_admit", admit)
+    wall.now = T0 + 300
+    assert await dispatcher.digest_tick() == 0
+    assert refused == ["email-1"]
+    assert list((await _state(test_db, qh.DIGEST_PREFIX)).values()) == ["3"]  # kept
+    assert list((await _state(test_db, qh.DIGEST_DUE_PREFIX)).values()) == [str(int(T0 + 300))]
+    wall.now = T0 + 360
+    assert await dispatcher.digest_tick() == 1
+    await _settle(dispatcher)
+    assert stub.payloads[0]["count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_an_event_after_a_restart_keeps_the_open_window_end(test_db):
+    await _add(test_db, "email-1", 600)
+    wall = Wall(T0)
+    first, _ = _make(wall)
+    await first.emit(None, payload=_dm(1), targets=["email-1"])
+    due = await _state(test_db, qh.DIGEST_DUE_PREFIX)
+    assert list(due.values()) == [str(int(T0 + 600))]
+    wall.now = T0 + 200
+    second, stub = _make(wall)  # a restart: nothing cached in memory
+    await second.emit(None, payload=_dm(2), targets=["email-1"])
+    assert await _state(test_db, qh.DIGEST_DUE_PREFIX) == due  # not pushed to T0 + 800
+    wall.now = T0 + 600
+    assert await second.digest_tick() == 1
+    await _settle(second)
+    assert stub.payloads[0]["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_shortening_the_interval_clamps_the_open_window(test_db):
+    await _add(test_db, "email-1", 86400)
+    wall = Wall(T0)
+    dispatcher, stub = _make(wall)
+    await dispatcher.emit(None, payload=_dm(1), targets=["email-1"])
+    assert list((await _state(test_db, qh.DIGEST_DUE_PREFIX)).values()) == [str(int(T0 + 86400))]
+    await _add(test_db, "email-1", 300)
+    wall.now = T0 + 100
+    assert await dispatcher.digest_tick() == 0
+    assert list((await _state(test_db, qh.DIGEST_DUE_PREFIX)).values()) == [str(int(T0 + 400))]
+    wall.now = T0 + 400
+    assert await dispatcher.digest_tick() == 1
+
+
+@pytest.mark.asyncio
+async def test_a_keyword_alert_reaches_a_digest_channel_at_once_and_is_not_counted(
+    test_db, monkeypatch
+):
+    from app.notifications import producers
+    from app.repository.notification_channels import NotificationChannelRepository as Repo
+
+    await _add(test_db, "email-1", 300)
+    wall = Wall(T0)
+    dispatcher, stub = _make(wall)
+
+    async def emit(event, **kw):
+        return await dispatcher.emit(event, **kw)
+
+    monkeypatch.setattr(producers, "emit", emit)
+    monkeypatch.setattr(producers, "notification_dispatcher", lambda: dispatcher)
+    monkeypatch.setattr(producers, "_radio_name", lambda: "Bob")
+    rules = await Repo.get_rules()
+    rules["events"]["message.channel"]["channels"] = ["email-1"]
+    rules["keywords"] = [
+        {
+            "id": "r1",
+            "pattern": "secours",
+            "match": "contains",
+            "scope": "all",
+            "channels": ["email-1"],
+            "cooldown_s": 0,
+        }
+    ]
+    await Repo.set_rules(rules)
+
+    await producers.emit_message(
+        _chan(text="Léa: au secours", conversation_key="8B3387E9C5CDEA6AC9E5EDBAA115CD72")
+    )
+    await _settle(dispatcher)
+    assert stub.calls == [("email-1", "message.keyword")]  # at once; the message waits
+    counters = await _state(test_db, qh.DIGEST_PREFIX)
+    assert [qh.parse_counter_key(k, qh.DIGEST_PREFIX)[2] for k in counters] == [
+        "message.channel"
+    ]  # the alert is not counted
+    assert list(counters.values()) == ["1"]  # and the message only once
+
+    wall.now = T0 + 300
+    assert await dispatcher.digest_tick() == 1
+    await _settle(dispatcher)
+    assert stub.payloads[-1]["count"] == 1

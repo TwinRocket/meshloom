@@ -116,7 +116,7 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
     if not audience.empty:
         receiving.add(BUILTIN_PUSH_ID)
     if not (muted or blocked):
-        await _emit_keywords(payload, rules, receiving, is_open)
+        await _emit_keywords(payload, rules, receiving, is_open, set(mentioned))
     # Nobody to reach: no instance channel left after the mention split, and no account's
     # Web Push wants it.
     if audience.empty and not [
@@ -135,17 +135,29 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
     )
 
 
+async def _digest_channels() -> set[str]:
+    """Ids of the channels in digest mode (``digest_interval_s`` > 0)."""
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    try:
+        return {c.id for c in await NotificationChannelRepository.list_all() if c.digest_interval_s}
+    except Exception:
+        logger.debug("notification channels unreadable", exc_info=True)
+        return set()
+
+
 async def _emit_keywords(
     payload: Mapping[str, Any],
     rules: Mapping[str, Any],
     receiving: set[str],
     is_open: bool,
+    mentioned: frozenset[str] | set[str] = frozenset(),
 ) -> None:
     """``message.keyword`` for each keyword rule the message triggers (``keywords.py``).
 
     Only on the rule's channels that do not already receive this message (``receiving``: the
     channels of ``message.dm`` / ``message.channel`` / ``message.mention`` for it, so no channel
-    gets it twice). The caller skips muted conversations and blocked senders; the dispatcher
+    gets it twice; a digest-mode channel is not counted as receiving it, MSHL-136). The caller skips muted conversations and blocked senders; the dispatcher
     applies the pauses. A rule fires once per message (dedup key per rule and message) and
     starts its cooldown per rule and per rule and sender, only when it reaches a channel.
     A match is never urgent: the text is forgeable."""
@@ -153,6 +165,11 @@ async def _emit_keywords(
         hits = keywords_mod.matching_rules(rules, payload)
         if not hits:
             return
+        # A channel in digest mode only counts the message in its summary (MSHL-136), so it
+        # does not "already receive" it: the keyword alert still reaches it at once. The
+        # message stays counted once in the summary; the alert itself is never counted. Read
+        # only here, so a message with no keyword hit costs no lookup.
+        receiving = receiving - (await _digest_channels() - mentioned)
         sender = dedup_hash(keywords_mod.sender_id(payload))
         for rule in hits:
             rule_id = str(rule.get("id") or "")

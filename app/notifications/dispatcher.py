@@ -742,6 +742,13 @@ class Dispatcher:
                 self._digest_open.add(channel_id)
                 continue
             if channel.digest_interval_s > 0 and due is not None and due > now:
+                if due > now + channel.digest_interval_s:
+                    # The interval was shortened while a window was open: it ends one new
+                    # interval from now, not up to 24 h away.
+                    await repo.state_set(
+                        quiet.DIGEST_DUE_PREFIX + channel_id,
+                        str(int(now) + channel.digest_interval_s),
+                    )
                 continue
             if is_quiet and not channel.quiet_hours_exempt:
                 continue  # sent once the window is closed
