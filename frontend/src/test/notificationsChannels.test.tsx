@@ -631,9 +631,9 @@ describe('fanout duplicates (MSHL-134)', () => {
       fanout_duplicates: [{ id: 'ap-1', name: 'Old feed' }],
     });
     vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(RULES);
-    const convert = vi
-      .spyOn(api, 'convertFanoutToChannel')
-      .mockResolvedValue({} as Awaited<ReturnType<typeof api.convertFanoutToChannel>>);
+    const convert = vi.spyOn(api, 'convertFanoutToChannel').mockResolvedValue({
+      notes: ['private_channels_need_exception', 'pending_channel_kept'],
+    } as Awaited<ReturnType<typeof api.convertFanoutToChannel>>);
 
     const picker = await openAdd();
     fireEvent.click(within(picker).getByText('ntfy'));
@@ -656,7 +656,13 @@ describe('fanout duplicates (MSHL-134)', () => {
       })
     );
     await waitFor(() => expect(convert).toHaveBeenCalledWith('ap-1', 'ntfy-dddddddd'));
-    await waitFor(() => expect(toastMocks.success).toHaveBeenCalled());
+    // A pending channel the conversion kept is named in the toast (MSHL-403).
+    await waitFor(() =>
+      expect(toastMocks.success).toHaveBeenCalledWith(expect.any(String), {
+        description: t('settings.fanout.convert.notes.pending_channel_kept'),
+        duration: 15000,
+      })
+    );
     await waitFor(() =>
       expect(screen.queryByTestId('fanout-duplicate-prompt')).not.toBeInTheDocument()
     );

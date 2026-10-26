@@ -141,13 +141,22 @@ export function AddChannelDialog({
     if (!createdId) return;
     setBusy(true);
     try {
+      const notes = new Set<string>();
       for (const row of duplicates) {
-        await api.convertFanoutToChannel(row.id, createdId);
+        const result = await api.convertFanoutToChannel(row.id, createdId);
+        for (const note of result?.notes ?? []) notes.add(note);
       }
+      // Only the notes about the channels themselves (MSHL-403): the scope notes describe
+      // the target channel's rules, which the owner set up in this dialog.
+      const description = [...notes]
+        .filter((note) => note === 'pending_channel_kept')
+        .map((note) => t(`settings.fanout.convert.notes.${note}`))
+        .join(' ');
       toast.success(
         t('settings.notifications.channels.fanoutDuplicate.converted', {
           count: duplicates.length,
-        })
+        }),
+        description ? { description, duration: 15000 } : undefined
       );
       onCreated();
       onClose();

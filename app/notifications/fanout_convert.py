@@ -29,8 +29,11 @@ that reproduce the row's scope, then disables the row and stores ``config.conver
   ``converting_to`` (the new channel's id) before the channel is created: a retry after a
   failure between the steps reuses that channel, or creates it under that id, never a second. ``into`` (the duplicate prompt) attaches the row to an
   existing channel instead: only the rules are added, the channel's settings stay. A channel
-  an interrupted conversion left under ``converting_to`` is deleted first (MSHL-403), with its
-  secrets and rules, unless it is the ``into`` channel itself.
+  an interrupted conversion left under ``converting_to`` (unless it is the ``into`` channel)
+  is deleted first, with its secrets and rules, while it is untouched: same settings and
+  secrets as the conversion writes, no other fanout row marked with it, no rule but the
+  conversion's own (MSHL-403). Otherwise it is kept and ``notes`` carries
+  ``pending_channel_kept``; either way the row loses the mark.
 
 **Duplicates.** ``fanout_duplicates`` compares a channel's destination with the active
 (enabled, not converted) fanout Apprise rows. A converted row turned back on (the UI asks
@@ -267,12 +270,98 @@ async def _disable_row(row: dict[str, Any], channel_id: str) -> dict[str, Any]:
     return updated
 
 
-async def _drop_pending_channel(channel_id: str) -> None:
-    """Delete the channel an interrupted conversion created (``CONVERTING_TO``) when the
-    duplicate prompt attaches the row elsewhere: it would be left orphaned. The row keeps the
-    mark until ``_disable_row``, so a retry finds the channel gone and deletes nothing."""
+async def _pending_untouched(row: dict[str, Any], channel_id: str) -> bool:
+    """Whether the pending channel ``channel_id`` is still exactly what the conversion of
+    ``row`` creates: same settings and secrets as ``_channel_body`` rebuilds now, referenced by
+    no other fanout row and by no rule but the ones the conversion adds. Anything else (an
+    edit, another row converted into it, a rule added by hand) keeps the channel."""
+    import copy
+
+    from app.fanout.manager import is_reserved_fanout_id
+    from app.repository.fanout import FanoutConfigRepository
+    from app.repository.notification_channels import (
+        NotificationChannelRepository,
+        _split_config,
+        strip_channel_from_rules,
+    )
+
+    for other in await FanoutConfigRepository.get_all():
+        if str(other["id"]) == str(row["id"]) or is_reserved_fanout_id(str(other["id"])):
+            continue
+        marks = other.get("config") or {}
+        if channel_id in (marks.get(CONVERTED_TO), marks.get(CONVERTING_TO)):
+            return False
+    found = await NotificationChannelRepository.get_for_send(channel_id)
+    if found is None:
+        return False
+    channel, stored = found
+    try:
+        body = _channel_body(row, [])
+        entry = get_type(body.type, body.preset)
+        public, wanted = _split_config(entry, body.config)
+    except (ConversionError, ChannelError):
+        return False
+    expected = {
+        "type": entry.row_type,
+        "preset": body.preset,
+        "name": body.name.strip(),
+        "enabled": body.enabled,
+        "language": body.language,
+        "config": public,
+        "allow_private_network": body.allow_private_network,
+        "include_message_text": body.include_message_text or entry.include_message_text_for(public),
+        "verify_tls": body.verify_tls,
+        "template_dm": body.template_dm or "",
+        "template_channel": body.template_channel or "",
+        "heartbeat_interval_s": body.heartbeat_interval_s,
+        "heartbeat_method": body.heartbeat_method,
+        "digest_interval_s": body.digest_interval_s,
+        "quiet_hours_exempt": entry.quiet_hours_exempt_default
+        if body.quiet_hours_exempt is None
+        else body.quiet_hours_exempt,
+        "rate_per_min": body.rate_per_min,
+        "rate_per_hour": body.rate_per_hour,
+        "rate_per_day": body.rate_per_day,
+    }
+    if any(getattr(channel, key) != value for key, value in expected.items()):
+        return False
+    if channel.secret_unreadable or not hmac.compare_digest(
+        _secrets_digest(stored), _secrets_digest(wanted)
+    ):
+        return False
+    # Rules: once the conversion's own references are taken out, none may remain.
+    events, exceptions, _notes = scope_to_rules(row.get("scope") or {})
+    rules = copy.deepcopy(await NotificationChannelRepository.get_rules())
+    for event_id in events:
+        entry_rules = (rules.get("events") or {}).get(event_id)
+        if isinstance(entry_rules, dict) and isinstance(entry_rules.get("channels"), list):
+            entry_rules["channels"] = [i for i in entry_rules["channels"] if i != channel_id]
+    conversations = rules.get("conversations") or {}
+    for key, value in exceptions.items():
+        mine = conversations.get(key)
+        if isinstance(mine, dict) and mine.get(channel_id) is value:
+            del mine[channel_id]
+    return not strip_channel_from_rules(rules, channel_id)
+
+
+def _secrets_digest(values: dict[str, str]) -> bytes:
+    canonical = "\n".join(f"{k}={v}" for k, v in sorted(values.items()))
+    return hmac.new(_FINGERPRINT_KEY, canonical.encode(), sha256).digest()
+
+
+async def _drop_pending_channel(row: dict[str, Any], channel_id: str, notes: list[str]) -> None:
+    """The channel an interrupted conversion created (``CONVERTING_TO``), when the duplicate
+    prompt attaches the row elsewhere (MSHL-403): deleted while untouched
+    (``_pending_untouched``), else kept with the note ``pending_channel_kept``. The row keeps
+    the mark until ``_disable_row``, so a retry finds the channel gone and deletes nothing."""
     from app.repository.notification_channels import NotificationChannelRepository
 
+    if await NotificationChannelRepository.get(channel_id) is None:
+        return
+    if not await _pending_untouched(row, channel_id):
+        notes.append("pending_channel_kept")
+        logger.info("Pending conversion channel %s kept (changed or in use)", channel_id)
+        return
     try:
         await NotificationChannelRepository.delete(channel_id)
     except ChannelError as exc:
@@ -318,7 +407,7 @@ async def convert_fanout_row(config_id: str, *, into: str | None = None) -> Conv
             raise ConversionError("channel_missing", 404)
         pending = config.get(CONVERTING_TO)
         if isinstance(pending, str) and pending and pending != channel.id:
-            await _drop_pending_channel(pending)
+            await _drop_pending_channel(row, pending, notes)
     else:
         body = _channel_body(row, notes)
         pending = config.get(CONVERTING_TO)

@@ -320,7 +320,9 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   `message.dm`/`message.channel` channels and conversation exceptions (`set_rules` then
   `legacy_sync.sync_columns()`), then disables the row with `config.converted_to` (write-ahead `config.converting_to` before the
   channel is created, so a retry never makes a second channel; `channel_id` (the duplicate prompt)
-  on a still-marked row deletes that pending channel first unless it is the target). Answer:
+  on a still-marked row deletes that pending channel first unless it is the target, but only
+  while untouched: same settings and secrets, no other fanout row marked with it, no rule but
+  the conversion's; otherwise kept with the note `pending_channel_kept`). Answer:
   `{channel: {id, name, type, preset, enabled}, fanout: {id, name, type, enabled, converted_to},
   already_converted, notes}`, no `config`; a converted row turned back on is never reported as a
   duplicate (the owner confirmed keeping both); errors `fanout_missing` (404),

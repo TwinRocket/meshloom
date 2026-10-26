@@ -517,3 +517,122 @@ async def test_the_duplicate_prompt_into_the_pending_channel_reuses_it(
     done = await FanoutConfigRepository.get(row["id"])
     assert done["config"]["converted_to"] == pending
     assert "converting_to" not in done["config"]
+
+
+async def _target(client):
+    created = await client.post(
+        "/api/notifications/channels",
+        json={"type": "apprise", "name": "Same", "config": {"urls": JSON_URL}},
+    )
+    assert created.status_code == 201, created.text
+    return created.json()["id"]
+
+
+async def _assert_kept(client, row, pending, target):
+    merged = await client.post(CONVERT.format(row["id"]), json={"channel_id": target})
+    assert merged.status_code == 200, merged.text
+    _assert_no_url_or_secret(merged.json(), [JSON_URL])
+    assert "pending_channel_kept" in merged.json()["notes"]
+    assert await NotificationChannelRepository.get(pending) is not None
+    done = await FanoutConfigRepository.get(row["id"])
+    assert done["config"]["converted_to"] == target
+    assert "converting_to" not in done["config"]
+
+
+async def test_the_duplicate_prompt_keeps_an_edited_pending_channel(test_db, client, monkeypatch):
+    row, pending = await _interrupted(monkeypatch)
+    renamed = await client.patch(
+        f"/api/notifications/channels/{pending}", json={"name": "Renamed by hand"}
+    )
+    assert renamed.status_code == 200, renamed.text
+    await _assert_kept(client, row, pending, await _target(client))
+    assert (await NotificationChannelRepository.get(pending)).name == "Renamed by hand"
+
+
+async def test_the_duplicate_prompt_keeps_a_pending_channel_with_a_hand_made_rule(
+    test_db, client, monkeypatch
+):
+    row, pending = await _interrupted(monkeypatch)
+    rules = await NotificationChannelRepository.get_rules()
+    conversations = dict(rules.get("conversations") or {})
+    conversations["contact-abcdef"] = {pending: True}
+    await NotificationChannelRepository.set_rules({**rules, "conversations": conversations})
+    await _assert_kept(client, row, pending, await _target(client))
+
+
+async def test_the_duplicate_prompt_keeps_a_pending_channel_another_row_uses(
+    test_db, client, monkeypatch
+):
+    row, pending = await _interrupted(monkeypatch)
+    other = await _row(urls="json://hooks.example.org/path/elsewhere")
+    joined = await client.post(CONVERT.format(other["id"]), json={"channel_id": pending})
+    assert joined.status_code == 200, joined.text
+    await _assert_kept(client, row, pending, await _target(client))
+    assert (await FanoutConfigRepository.get(other["id"]))["config"]["converted_to"] == pending
+
+
+async def test_a_retry_after_the_pending_channel_is_deleted_attaches_the_row(
+    test_db, client, monkeypatch
+):
+    from app.notifications import fanout_convert
+
+    row, pending = await _interrupted(monkeypatch)
+    target = await _target(client)
+    real = fanout_convert._disable_row
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(fanout_convert, "_disable_row", broken)
+    with pytest.raises(RuntimeError):
+        await fanout_convert.convert_fanout_row(row["id"], into=target)
+    assert await NotificationChannelRepository.get(pending) is None
+    assert (await FanoutConfigRepository.get(row["id"]))["config"]["converting_to"] == pending
+
+    monkeypatch.setattr(fanout_convert, "_disable_row", real)
+    merged = await client.post(CONVERT.format(row["id"]), json={"channel_id": target})
+    assert merged.status_code == 200, merged.text
+    assert "pending_channel_kept" not in merged.json()["notes"]
+    done = await FanoutConfigRepository.get(row["id"])
+    assert done["config"]["converted_to"] == target
+    assert "converting_to" not in done["config"]
+
+
+async def test_a_pending_channel_deleted_concurrently_is_not_an_error(test_db, client, monkeypatch):
+    from app.notifications.channels import ChannelError
+
+    row, pending = await _interrupted(monkeypatch)
+    target = await _target(client)
+    real = NotificationChannelRepository.delete
+
+    async def raced(channel_id):
+        await real(channel_id)
+        raise ChannelError("channel_missing", 404)
+
+    monkeypatch.setattr(NotificationChannelRepository, "delete", staticmethod(raced))
+    merged = await client.post(CONVERT.format(row["id"]), json={"channel_id": target})
+    assert merged.status_code == 200, merged.text
+    assert (await FanoutConfigRepository.get(row["id"]))["config"]["converted_to"] == target
+
+
+@pytest.mark.parametrize("error", ["runtime", "builtin_channel"])
+async def test_a_failed_pending_deletion_leaves_the_row_marked(test_db, client, monkeypatch, error):
+    from app.notifications import fanout_convert
+    from app.notifications.channels import ChannelError
+
+    row, pending = await _interrupted(monkeypatch)
+    target = await _target(client)
+
+    async def broken(channel_id):
+        if error == "runtime":
+            raise RuntimeError("database is locked")
+        raise ChannelError(error, 403)
+
+    monkeypatch.setattr(NotificationChannelRepository, "delete", staticmethod(broken))
+    with pytest.raises((RuntimeError, ChannelError)):
+        await fanout_convert.convert_fanout_row(row["id"], into=target)
+    still = await FanoutConfigRepository.get(row["id"])
+    assert still["enabled"] is True
+    assert still["config"]["converting_to"] == pending
+    assert "converted_to" not in still["config"]
+    assert await NotificationChannelRepository.get(pending) is not None

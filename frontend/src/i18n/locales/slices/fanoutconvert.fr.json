@@ -16,7 +16,8 @@
           "include_outgoing_unsupported": "Vos propres messages sortants ne sont pas notifiés : les canaux de notification n’ont pas d’équivalent.",
           "private_channels_need_exception": "Les canaux à clé propre ne sont notifiés que par une exception par conversation : ajoutez-la dans les réglages de notification de la conversation.",
           "template_dm_dropped": "Le format des messages privés était trop long pour un modèle et n’a pas été repris.",
-          "template_channel_dropped": "Le format des messages de canal était trop long pour un modèle et n’a pas été repris."
+          "template_channel_dropped": "Le format des messages de canal était trop long pour un modèle et n’a pas été repris.",
+          "pending_channel_kept": "Un canal laissé par une conversion interrompue a été conservé, car il a été modifié ou sert ailleurs. Supprimez-le dans Notifications si vous n’en avez plus besoin."
         }
       }
     },
