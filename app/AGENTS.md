@@ -501,8 +501,8 @@ Community guard.
   `cross-site` (defence in depth: the auth gate already refuses unsafe
   cross-origin requests that are not bearer-token ones). Tests:
   `tests/test_share_routes.py`.
-- **Roles and audit (MSHL-248).** Writes (`/links`, `/files`, `/mine`, `DELETE /{id}`,
-  `/{id}/report`) are `send` (member, admin); `/cache/clear` and the share settings
+- **Roles and audit (MSHL-248).** Member+ routes (`send`: `POST /links`, `POST /files`,
+  `GET /mine`, `DELETE /{id}`, `/{id}/report`; member, admin); `/cache/clear` and the share settings
   (`PATCH /api/settings`) are `admin`; status and the two reads are `read` (every role,
   kiosk limited to channel messages as above). Audit rows (`app/auth/audit.py`), actor
   from `RequestActor`: `share.enabled` / `share.disabled` from `PATCH /api/settings` only
