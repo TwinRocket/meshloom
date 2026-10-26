@@ -45,7 +45,7 @@ Meshloom vérifie l’adresse avant de l’envoyer et **n’envoie jamais** une 
 
 ## Lire les liens courts
 
-Un lien court dans un message ressemble à n’importe quel autre lien, et c’est une adresse `https://` ordinaire pour les autres applications MeshCore : elles l’ouvrent dans un navigateur, sans Meshloom. Dans Meshloom, le survoler ou lui donner le focus affiche une petite indication, `→ example.org`, avec l’hôte vers lequel il mène, **sans suivre le lien**. L’indication est demandée une seule fois par lien et gardée dix minutes, et l’hôte est nettoyé de ses caractères de contrôle ; un nom international s’affiche sous sa forme ASCII.
+Un lien court dans un message ressemble à n’importe quel autre lien, et c’est une adresse `https://` ordinaire pour les autres applications MeshCore : elles l’ouvrent dans un navigateur, sans Meshloom. Dans Meshloom, le survoler ou lui donner le focus affiche une petite indication, `→ example.org`, avec l’hôte vers lequel il mène, **sans suivre le lien**. L’indication est demandée une seule fois par lien et gardée dix minutes (trente secondes si le service n’a pas pu être joint), et l’hôte est nettoyé de ses caractères de contrôle ; un nom international s’affiche sous sa forme ASCII.
 
 Le service propose aussi, pour chaque lien, une **page d’aperçu** : ajoutez `+` à la fin de l’adresse (`https://meshl.ink/Ab3dE9x+`) pour voir la destination en texte brut, jamais sous forme de lien, avec ses dates et un bouton **Signaler**, avant de décider de l’ouvrir. Tout le monde peut s’en servir, dans un navigateur, depuis n’importe quel appareil.
 

@@ -619,8 +619,8 @@ at 255); failures are the usual `ApiError`, shown as `errors.share_*` toasts). M
 classes the conversation `public` | `hashtag_derived` | `private` | `dm` | `room`; only `private` and `dm` are
 `encryptable` (an unknown `key_derived` counts as derived; a room server is refused by the backend). An
 encryptable target shows a Public / Encrypted radiogroup (`file-tab-mode`), encrypted by default, the last choice
-kept in `localStorage` `meshloom-share-mode` (`utils/shareMode.ts`); encrypted is disabled in a DM while
-`dm_encryption_available` is false and for a private channel without `share_conversation_id`, with a hint.
+kept in `localStorage` `meshloom-share-mode` (`utils/shareMode.ts`); encrypted is disabled in a DM unless
+`dm_encryption_available` is `true` (missing or false keeps it off) and for a private channel without `share_conversation_id`, with a hint.
 A non-encryptable target shows no selector, one line (`chat.fileTab.mode.clear.<class>`) that never uses the
 word "private"; a null target (no conversation) shows neither. An upload is reused on retry only for the same
 mode and conversation. Send = upload once, then `sendPayload(suggested text + caption)`, so the reply
@@ -762,7 +762,9 @@ key}`); they are not `Message.conversation_key`.
   destination hint (`-> host`) comes from `GET /api/share/{id}/meta` on hover or
   focus only (never while the message's shared image may not load yet:
   `contexts/ShareLinkGateContext.ts`, provided by `MessageBody`), through `stores/shareMetaStore.ts` (one request per id, 10-minute
-  memory capped at 200 ids, negative entries kept; once fetched, the hint stays
+  memory capped at 200 ids that never evicts an entry a mounted card subscribes to; failures
+  (error, timeout, an encrypted file with `decryptable: null`) are kept only
+  `META_FAILURE_TTL_MS` (30 s), a 410 for the full ten minutes; once fetched, the hint stays
   visible for every instance of that id until the memory expires). The remote host
   is never shown raw: `displayShareHost` strips control and bidi characters, shows
   an IDN as punycode and cuts it, and the anchor renders it in a `<bdi dir=ltr>`. The store asks `/api/share/status` (local, no
@@ -797,13 +799,18 @@ key}`); they are not `Message.conversation_key`.
   `sharePayload.gone`; any other failure, a link object, a non-public file or an
   image `onError` draws nothing (the raw link stays). Encrypted files (MSHL-256): a `🔒`
   body asks the meta with `?message_id=` and caches it per `(id, message)`
-  (`shareMetaKey`; a `📷` body keeps the id alone, shared with the anchor's hover). An
+  (`shareMetaKey`; a `📷` body keeps the id alone, shared with the anchor's hover, and when
+  that meta says `mode: encrypted` and the card has a message, it is asked again with the
+  message id and shown like a `🔒` one, MSHL-384). An
   encrypted file with `decryptable: true` is shown like a public one under a lock badge
   (`share-payload-lock`: decrypted name in a `<bdi>`, type label); `decryptable: false`
   shows `sharePayload.encryptedElsewhere`; unknown (`null`), a failed meta or a failed
-  image shows `sharePayload.encryptedUnavailable`; the raw link always stays. A meta
-  unanswered after `META_TIMEOUT_MS` (20 s) is aborted and kept as a failure, so no card
-  spins forever. The card's Report button (only with `canSend`: viewer and kiosk get 403) opens `ShareReportDialog` (8 contract reasons,
+  image shows `sharePayload.encryptedUnavailable` with a `sharePayload.retry` button
+  (`requestShareMeta(id, messageId, {force: true})`, bypassing the failure memory); the raw link
+  always stays. Every loading path ends in a final state: a meta unanswered after
+  `META_TIMEOUT_MS` (20 s) is aborted and kept as a failure, the local status request is
+  aborted after `STATUS_TIMEOUT_MS` (10 s) and leaves a `missing` entry for a waiting card,
+  and a card whose entry was dropped asks again. The card's Report button (only with `canSend`: viewer and kiosk get 403) opens `ShareReportDialog` (8 contract reasons,
   details up to 2000) and calls `api.reportShare` (`POST /api/share/{id}/report`),
   toast on success, `errors.share_*` on failure except `share_quota_key`, which
   is the report limit (5 per instance key and day): `sharePayload.report.quota`. Strings: slice `sp`

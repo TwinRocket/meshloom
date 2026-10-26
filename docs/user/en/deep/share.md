@@ -45,7 +45,7 @@ Meshloom checks the address before sending it and **never sends** one the servic
 
 ## Reading short links
 
-A short link in a message looks like any other link, and is an ordinary `https://` address to other MeshCore apps: they open it in a browser, with no Meshloom involved. In Meshloom, hovering over it or giving it focus shows a small hint, `→ example.org`, with the host it leads to, **without following the link**. The hint is asked once per link and remembered for ten minutes, and the host is cleaned of control characters; an international name is shown in its ASCII form.
+A short link in a message looks like any other link, and is an ordinary `https://` address to other MeshCore apps: they open it in a browser, with no Meshloom involved. In Meshloom, hovering over it or giving it focus shows a small hint, `→ example.org`, with the host it leads to, **without following the link**. The hint is asked once per link and remembered for ten minutes (thirty seconds if the service could not be reached), and the host is cleaned of control characters; an international name is shown in its ASCII form.
 
 The service also has, for each link, a **preview page**: add `+` at the end of the address (`https://meshl.ink/Ab3dE9x+`) to see the destination as plain text, never as a link, with its dates and a **Report** button, before deciding to open it. Anyone can use it, in a browser, from any device.
 
