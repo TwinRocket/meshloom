@@ -766,12 +766,16 @@ async def test_watched_nodes_are_restored_through_the_api_checks_and_capped_at_5
 ):
     nodes = [{"public_key": f"{i:064x}", "channels": [], "cooldown_s": 60} for i in range(60)]
     nodes[1]["public_key"] = nodes[0]["public_key"].upper()  # a duplicate, case aside
-    nodes[2]["cooldown_s"] = -1  # refused by the API
+    nodes[2]["silence_s"] = 1  # refused by the API
     nodes[3]["channels"] = ["builtin:push"]  # refused (Web Push is per account)
+    del nodes[5]["cooldown_s"]  # absent: the 3600 s default, not the minimum
+    nodes[4]["cooldown_s"] = 0  # a legacy row: restored with the 60 s minimum, not dropped
     section = BackupSection(data={"channels": [], "rules": {"watched_nodes": nodes}})
     warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
     assert "notification_rules_sanitized" in warnings
     kept = (await client.get("/api/notifications/rules")).json()["watched_nodes"]
     assert len(kept) == 50
     assert kept[0]["public_key"] == f"{0:064x}" and kept[0]["silence_s"] == 86_400
+    assert kept[1]["public_key"] == f"{4:064x}" and kept[1]["cooldown_s"] == 60
+    assert kept[2]["public_key"] == f"{5:064x}" and kept[2]["cooldown_s"] == 3600
     assert {n["public_key"] for n in kept}.isdisjoint({f"{i:064x}" for i in (1, 2, 3)})

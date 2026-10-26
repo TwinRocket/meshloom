@@ -7,7 +7,7 @@ message) from a watched key arrives, :func:`observe_sighting` decides:
 * ``contact.node_back`` when the previous sighting is at least ``silence_s`` old,
 * ``contact.node_seen`` otherwise,
 
-and only when the node's cooldown (``cooldown_s``) is over: one notification per node and per
+and only when the node's cooldown (``cooldown_s``, 60 s to 30 days) is over: one notification per node and per
 cooldown, whichever event it is. A node that is not watched costs one read of the rules and
 nothing else.
 
@@ -35,6 +35,7 @@ MAX_WATCHED = 50
 MAX_RULE_CHANNELS = 50
 DEFAULT_COOLDOWN_S = 3600
 DEFAULT_SILENCE_S = 86_400
+MIN_COOLDOWN_S = 60  # a notification per advert is never wanted: adverts repeat every few minutes
 MAX_COOLDOWN_S = 30 * 86_400
 MIN_SILENCE_S = 60
 MAX_SILENCE_S = 365 * 86_400
@@ -87,7 +88,10 @@ def clean_entry(raw: object, *, known_channels: Collection[str] | None = None) -
         "public_key": key.strip().lower(),
         "channels": channels,
         "cooldown_s": _int_in(
-            raw.get("cooldown_s", DEFAULT_COOLDOWN_S), 0, MAX_COOLDOWN_S, "cooldown_s"
+            raw.get("cooldown_s", DEFAULT_COOLDOWN_S),
+            MIN_COOLDOWN_S,
+            MAX_COOLDOWN_S,
+            "cooldown_s",
         ),
         "silence_s": _int_in(
             raw.get("silence_s", DEFAULT_SILENCE_S), MIN_SILENCE_S, MAX_SILENCE_S, "silence_s"
@@ -105,6 +109,28 @@ def clean_entries(
     if len({e["public_key"] for e in entries}) != len(entries):
         raise WatchedNodeError("public_key")
     return entries
+
+
+def effective_cooldown(value: object) -> int:
+    """The cooldown a stored value stands for: legacy rows (below the minimum, ``0``, not an
+    integer) behave as ``MIN_COOLDOWN_S``, so an advert never notifies each time (MSHL-401)."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        return MIN_COOLDOWN_S
+    return min(max(value, MIN_COOLDOWN_S), MAX_COOLDOWN_S)
+
+
+def normalize_stored(stored: object) -> list[Any]:
+    """The stored list as the API returns it (an absent ``cooldown_s`` stays absent, so the
+    default applies as before): rows written before the minimum existed get a
+    valid ``cooldown_s``, so the client can send the list back unchanged."""
+    if not isinstance(stored, list):
+        return []
+    return [
+        {**e, "cooldown_s": effective_cooldown(e["cooldown_s"])}
+        if isinstance(e, Mapping) and "cooldown_s" in e
+        else e
+        for e in stored
+    ]
 
 
 def watched_entry(rules: Mapping[str, Any], public_key: str) -> Mapping[str, Any] | None:
@@ -216,9 +242,11 @@ async def _observe(
     from app.notifications.dispatcher import emit, notification_dispatcher
     from app.notifications.events import event_from_payload
 
-    cooldown = entry.get("cooldown_s")
     if not await notification_dispatcher().claim_cooldown(
-        (f"{COOLDOWN_KEY}{public_key}", cooldown if isinstance(cooldown, int) else 0)
+        (
+            f"{COOLDOWN_KEY}{public_key}",
+            effective_cooldown(entry.get("cooldown_s", DEFAULT_COOLDOWN_S)),
+        )
     ):
         return
     if not name:

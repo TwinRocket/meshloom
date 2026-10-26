@@ -215,7 +215,7 @@ The same choices are available through `GET`, `PATCH` and `DELETE /api/push/my-r
 | Channel messages | A message arrives on the Public channel or a `#` channel. A channel with its own key stays silent unless it has an exception |
 | Mentions | A channel message names you, see [Mentions](#mentions) |
 | Keyword | A message holds the pattern of a keyword rule, see [Keywords](#keywords). Set in its own card, not in this table |
-| Watched node heard / back | A node you watch is heard (its advert or a direct message), or comes back after a long silence, see [Watched nodes](#watched-nodes). Set in its own card, not in this table |
+| Watched node heard / back | A node you watch is heard (its advert or a direct message, whichever way Meshloom receives it), or comes back after a long silence, see [Watched nodes](#watched-nodes). Set in its own card, not in this table |
 | New node seen | A node is heard for the first time, with one sub-row per type: **Companions** (a person's radio), **Repeaters** and **Sensors**. Only a new contact added after the radio finished its start-up counts: a node you already know, an unknown node and a room server never trigger it |
 | Channel found | Meshloom finds a new hashtag channel |
 | Telemetry alert | A tracked repeater or contact crosses an alert threshold. The thresholds and the channels that receive them (a chip per channel) are set on the **Alerts** page |
@@ -268,7 +268,7 @@ A **watched node** notifies a channel when a particular node is heard again, or 
 
 - **Heard.** A node is *heard* when its advert arrives or when a direct message from it is decoded. The notification reads "Hilltop heard" (`contact.node_seen`).
 - **Back.** When the previous sighting is older than the **silence threshold** (24 hours by default, 1 minute to 365 days), the notification reads "Hilltop is back after 2 d" (`contact.node_back`) instead.
-- **Cooldown.** A node notifies at most once per cooldown (1 hour by default, 0 to 30 days), whichever of the two it is, so a node that adverts every few minutes never floods a channel. A sighting inside the cooldown is not notified but still counts as the latest sighting for the silence.
+- **Cooldown.** A node notifies at most once per cooldown (1 hour by default, 1 minute to 30 days; the server refuses less, also when a backup is restored), whichever of the two it is, so a node that adverts every few minutes never floods a channel. A sighting inside the cooldown is not notified but still counts as the latest sighting for the silence.
 - **Channels.** Pick the channels per node. **Web Push is not offered**: it is decided account by account, and a watched node is an instance setting. A node with no channel sends nothing.
 - **Limits.** At most 50 nodes, enforced by the server (`watched_nodes` in `PATCH /api/notifications/rules`) and when a backup is restored. Only watched nodes are remembered (last sighting and cooldown, kept across restarts); an advert from any other node costs nothing.
 

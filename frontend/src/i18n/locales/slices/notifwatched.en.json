@@ -26,7 +26,7 @@
         "channels": "Notify these channels",
         "channelsHelp": "Web Push is not offered: it is decided per account.",
         "cooldown": "Cooldown (minutes)",
-        "cooldownHelp": "After a notification, this node stays quiet for this long. 0 turns the cooldown off.",
+        "cooldownHelp": "After a notification, this node stays quiet for this long (1 minute at least, 30 days at most).",
         "silence": "Silence before “back” (hours)",
         "silenceHelp": "A sighting after at least this long without hearing the node is reported as back.",
         "save": "Save",

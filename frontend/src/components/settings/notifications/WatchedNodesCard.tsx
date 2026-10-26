@@ -20,6 +20,7 @@ import { channelLabel, toggledChannels } from './rulesShared';
 import {
   WATCHED_EXCLUDED_CHANNEL,
   WATCHED_MAX_COOLDOWN_S,
+  WATCHED_MIN_COOLDOWN_S,
   WATCHED_MAX_NODES,
   WATCHED_MAX_SILENCE_S,
   watchedError,
@@ -195,7 +196,7 @@ function WatchedDialog({
             <Input
               id="watched-cooldown"
               type="number"
-              min={0}
+              min={WATCHED_MIN_COOLDOWN_S / 60}
               max={WATCHED_MAX_COOLDOWN_S / 60}
               step={1}
               value={Number.isNaN(cooldownMin) ? '' : cooldownMin}

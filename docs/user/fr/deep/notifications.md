@@ -215,7 +215,7 @@ Les mêmes choix sont disponibles par `GET`, `PATCH` et `DELETE /api/push/my-rul
 | Messages de canal | Un message arrive sur le salon Public ou sur un salon `#`. Un salon à clé privée reste muet sans exception qui l’active |
 | Mentions | Un message de salon vous nomme, voir [Les mentions](#les-mentions) |
 | Mot-clé | Un message contient le texte d’une règle de mot-clé, voir [Les mots-clés](#les-mots-clés). Réglé dans sa propre carte, pas dans ce tableau |
-| Nœud surveillé entendu / de retour | Un nœud que vous surveillez est entendu (son annonce ou un message privé), ou revient après un long silence, voir [Les nœuds surveillés](#les-nœuds-surveillés). Réglé dans sa propre carte, pas dans ce tableau |
+| Nœud surveillé entendu / de retour | Un nœud que vous surveillez est entendu (son annonce ou un message privé, quelle que soit la façon dont Meshloom le reçoit), ou revient après un long silence, voir [Les nœuds surveillés](#les-nœuds-surveillés). Réglé dans sa propre carte, pas dans ce tableau |
 | Nouveau nœud vu | Un nœud est entendu pour la première fois, avec une sous-ligne par type : **Compagnons** (la radio d’une personne), **Répéteurs** et **Capteurs**. Seul compte un nouveau contact ajouté une fois le démarrage de la radio terminé : un nœud déjà connu, un nœud inconnu et un serveur de salon ne le déclenchent jamais |
 | Canal trouvé | Meshloom trouve un nouveau salon hashtag |
 | Alerte de télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils et les canaux qui les reçoivent (une pastille par canal) se règlent sur la page **Alertes** |
@@ -268,7 +268,7 @@ Un **nœud surveillé** notifie un canal quand un nœud précis est de nouveau e
 
 - **Entendu.** Un nœud est *entendu* quand son annonce arrive ou qu’un message privé de sa part est déchiffré. La notification est « Hilltop entendu » (`contact.node_seen`).
 - **De retour.** Quand l’observation précédente remonte à plus que le **seuil de silence** (24 heures par défaut, de 1 minute à 365 jours), la notification est « Hilltop est de retour après 2 j » (`contact.node_back`).
-- **Délai de récupération.** Un nœud notifie au plus une fois par délai (1 heure par défaut, de 0 à 30 jours), quelle que soit la notification, si bien qu’un nœud qui s’annonce toutes les quelques minutes n’inonde jamais un canal. Une observation pendant le délai n’est pas notifiée mais compte quand même comme la dernière observation pour le silence.
+- **Délai de récupération.** Un nœud notifie au plus une fois par délai (1 heure par défaut, de 1 minute à 30 jours ; le serveur refuse moins, y compris à la restauration d’une sauvegarde), quelle que soit la notification, si bien qu’un nœud qui s’annonce toutes les quelques minutes n’inonde jamais un canal. Une observation pendant le délai n’est pas notifiée mais compte quand même comme la dernière observation pour le silence.
 - **Canaux.** Choisissez les canaux de chaque nœud. **Web Push n’est pas proposé** : il se décide compte par compte, et un nœud surveillé est un réglage d’instance. Un nœud sans canal n’envoie rien.
 - **Limites.** 50 nœuds au plus, imposés par le serveur (`watched_nodes` dans `PATCH /api/notifications/rules`) et à la restauration d’une sauvegarde. Seuls les nœuds surveillés sont retenus (dernière observation et délai, conservés après un redémarrage) : l’annonce d’un autre nœud ne coûte rien.
 

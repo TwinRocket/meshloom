@@ -26,7 +26,7 @@
         "channels": "Notifier ces canaux",
         "channelsHelp": "Web Push n’est pas proposé : il se décide par compte.",
         "cooldown": "Délai de récupération (minutes)",
-        "cooldownHelp": "Après une notification, ce nœud reste silencieux pendant ce délai. 0 désactive le délai.",
+        "cooldownHelp": "Après une notification, ce nœud reste silencieux pendant ce délai (1 minute au moins, 30 jours au plus).",
         "silence": "Silence avant « de retour » (heures)",
         "silenceHelp": "Un nœud entendu après au moins ce temps sans l’avoir entendu est signalé comme de retour.",
         "save": "Enregistrer",
