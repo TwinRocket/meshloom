@@ -68,6 +68,8 @@ With Community on and a code saved, your server sends:
 
 Meshloom never sends your radio's private key to Community. It is only used to sign the short-lived passes that prove to Community who is calling. Anyone who can reach your Meshloom can still read the key back, through the API and in the full backup (see [Security](/en/docs/deep/security/#the-nodes-private-key)). Your radio's public key is your account: rotating the key of the radio starts a new history and drops the code you bound.
 
+The extension Store is independent from Community: it has its own switch, off by default, and talks to other servers (GitHub, see [What leaves your instance](/en/docs/deep/plugins/#what-leaves-your-instance)). Turning Community on or off changes nothing for the Store, and the other way round.
+
 ## Leaving
 
 **Leave Meshloom Community** (in the settings, or **Leave Community** in the waiting banner's explanation) first shows what leaving means:

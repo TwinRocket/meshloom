@@ -33,6 +33,8 @@ Jusqu’à la 4.18, le seul verrou était un identifiant HTTP Basic partagé (`M
 
 `MESHCORE_DISABLE_PLUGINS=true` verrouille le système d’extensions au démarrage. Aucune extension ne peut être installée, modifiée ni démarrée, quels que soient les réglages ; vous pouvez encore les consulter, les supprimer et tout mettre en pause. Les extensions restaurées depuis une sauvegarde reviennent éteintes. Le paquet Linux la laisse non définie (commentée dans `/etc/meshloom/meshloom.env`). Voir [Extensions](/docs/deep/plugins/) pour les autres façons d’arrêter des extensions.
 
+Le Store en ligne, qui télécharge des extensions depuis GitHub, est une sortie à part avec son propre interrupteur, désactivé par défaut : voir [Ce qui quitte votre instance](/docs/deep/plugins/#ce-qui-quitte-votre-instance).
+
 ## La clé privée du nœud
 
 Meshloom lit la clé privée de la radio à chaque connexion à la radio, si le firmware de la radio le permet, et la garde dans la mémoire du serveur uniquement. Meshloom ne l’écrit jamais dans sa base. Si le firmware refuse, Meshloom fonctionne sans elle, mais ne peut plus déchiffrer les messages directs sur le serveur, et une sauvegarde ne contient alors aucune identité. Les photos chiffrées des messages directs s’en servent aussi : Meshloom en dérive, en mémoire, le secret partagé avec le contact (voir [Fichiers chiffrés](/docs/deep/share/#fichiers-chiffrés)).
