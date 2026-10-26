@@ -166,7 +166,7 @@ Le serveur sert `frontend/dist` s’il existe, sinon `frontend/prebuilt` (une in
 
 `MESHCORE_DATABASE_PATH` la déplace. Une mise à jour ne remplace jamais votre base : sa structure est mise à niveau au démarrage, étape par étape.
 
-À côté de la base, le dossier `share-cache` garde les images partagées que Meshloom a déjà téléchargées (par exemple `/var/lib/meshloom/share-cache`) : un second affichage n’envoie aucune requête. Il contient environ 200 Mio au plus (les images, leur index et le journal de la base ; la limite est approximative), retire d’abord les images vues le moins récemment et garde chacune 1 heure au plus. Le supprimer est sans danger, et les sauvegardes de Home Assistant l’excluent.
+À côté de la base, le dossier `share-cache` garde les images partagées que Meshloom a déjà téléchargées (par exemple `/var/lib/meshloom/share-cache`) : un second affichage n’envoie aucune requête. Il contient environ 200 Mio au plus (les images, leur index et le journal de la base ; la limite est approximative), retire d’abord les images vues le moins récemment et garde chacune 1 heure au plus. Une photo chiffrée n’y est gardée que sous forme d’octets scellés, jamais en clair. Le supprimer est sans danger, et les sauvegardes de Home Assistant l’excluent.
 
 Le dossier `share-tmp`, juste à côté, ne contient une image que le temps de la partager : Meshloom la vérifie là (type, taille, dimensions) avant de l’envoyer, puis la supprime, que l’envoi ait réussi ou non. Seul Meshloom peut le lire, il est vidé à chaque démarrage, et les sauvegardes de Home Assistant l’excluent.
 
