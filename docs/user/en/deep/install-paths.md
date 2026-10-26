@@ -166,6 +166,10 @@ The server serves `frontend/dist` if it exists, otherwise `frontend/prebuilt` (a
 
 `MESHCORE_DATABASE_PATH` moves it. An update never replaces your database: the structure is upgraded at startup, step by step.
 
+Next to the database, the `secrets.key` file holds the key that encrypts the secrets of your notification channels and integrations in the database (passwords, tokens, webhook and Apprise addresses). Meshloom creates it at its first start, readable by its own user only (mode 0600), and never shows it. The database alone cannot decrypt those secrets.
+
+**Move an installation.** Stop Meshloom, then copy `meshcore.db` **and** `secrets.key` (the whole data folder is simplest) to the new place. Without `secrets.key`, Meshloom still starts and everything else works, but each notification channel and integration with a stored secret is switched off and marked *cannot be decrypted*: put the file back next to the database and restart, or type those secrets again. Meshloom then creates a new `secrets.key`. There is no way to change the key, and losing it loses only those secrets.
+
 Next to the database, the `share-cache` folder keeps the shared images Meshloom has already downloaded (for example `/var/lib/meshloom/share-cache`), so a second view sends no request. It holds about 200 MiB at most (the images, their index and the database journal; the limit is approximate), drops the least recently viewed images first and keeps each one for 1 hour at most. An encrypted photo is kept there as sealed bytes only, never in clear. Deleting it is harmless, and Home Assistant backups leave it out.
 
 The `share-tmp` folder, next to it, holds an image only while you share it: Meshloom checks it there (type, size, dimensions) before sending it, then deletes it, whether the upload worked or not. It is readable by Meshloom alone, emptied at every startup, and Home Assistant backups leave it out.

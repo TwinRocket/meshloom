@@ -146,6 +146,11 @@ def secret_keys(kind: str) -> tuple[str, ...]:
     return FANOUT_SECRET_KEYS.get(kind, ())
 
 
+def derived_keys(kind: str) -> tuple[str, ...]:
+    """The display-only keys ``redact_config`` adds for ``kind`` (never stored)."""
+    return _DERIVED_KEYS.get(kind, ())
+
+
 def _redact_value(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {name: _redact_value(item) for name, item in value.items()}

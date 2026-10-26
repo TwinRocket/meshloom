@@ -78,7 +78,12 @@ BACKUP_FORMAT_V2 = "meshloom-backup-v2"
 
 PRIVATE_KEY_WARNING = (
     "The radio private key is NOT in this file (Meshloom keeps it in memory only). "
-    "The full backup in Settings > Database includes it."
+    "The full backup in Settings > Database includes it. "
+    # MSHL-133: the HTTP header must stay ASCII.
+    "The notification channel and integration secrets in this file are encrypted with "
+    "secrets.key (in the data folder, not in this file): copy it with the database, or "
+    "type those secrets again. MeshCore channel keys, the push (VAPID) private key and "
+    "the 4.18 notification destinations stay in plain text in this file."
 )
 
 CoverageDecision = Literal["included", "excluded"]
@@ -287,7 +292,8 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
     ),
     # Notification channels (MSHL-108, MSHL-117): the ``notifications`` backup section
     # (services/backup_notifications.py) holds the channels without their secrets and the
-    # rules. The SQLite download carries the secrets, like ``notification_destinations``.
+    # rules. The SQLite download carries the secrets, encrypted with ``secrets.key`` (not in
+    # the download, MSHL-133); ``notification_destinations`` stays in plain text.
     "app_settings.notification_rules": (
         "included",
         "notifications section (services/backup_notifications.py)",

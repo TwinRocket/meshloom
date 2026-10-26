@@ -95,3 +95,7 @@ If **Settings > Updates** says you must update Meshloom by hand, follow the step
 Home Assistant add-ons update inside Home Assistant, not with this button.
 
 Meshloom Community is off on a new database, like on every other install. You join it by entering an airport code in **Settings > Meshloom Community**; nothing is published before that.
+
+## Move to another card
+
+To move Meshloom to a new card or another machine, stop it (`sudo systemctl stop meshloom`), then copy the whole `/var/lib/meshloom` folder, or at least `meshcore.db` **and** `secrets.key`: that file decrypts the secrets of your notification channels and integrations. Without it, those channels and integrations come back switched off until you type their secrets again (see [Other install paths](/en/docs/deep/install-paths/#database-and-updates)). The full backup in **Settings → Database** is the other way: see [Back up your radio](/en/docs/backup/).

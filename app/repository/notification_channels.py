@@ -1,7 +1,10 @@
 """Repository for the notification channels and their journal, counters and state.
 
 Reads never return a secret: ``Channel`` carries ``secret_fields_set`` (names only).
-``get_for_send`` is the one reader of the secret values, for the dispatcher. The public
+``get_for_send`` is the one reader of the secret values, for the dispatcher. The values
+are stored encrypted (``app.secret_store``, MSHL-133): ``encode_secrets`` on every write,
+``decode_secrets`` on every read; a value the key cannot open makes the channel read as
+off with ``last_error = "secret_unreadable"`` until the secret is typed again. The public
 channels are cached in memory; every write invalidates the cache, so the next
 evaluation sees a PATCH.
 """
@@ -15,6 +18,7 @@ from typing import Any
 import aiosqlite
 from pydantic import ValidationError
 
+from app import secret_store
 from app.database import db
 from app.net.apprise_urls import AppriseUrlRefused, split_apprise_urls, validate_apprise_urls
 from app.net.egress_guard import (
@@ -71,6 +75,39 @@ def _loads(raw: object) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+SECRETS_TABLE = "notification_channels"
+
+
+def decode_secrets(raw: object, channel_id: str) -> tuple[dict[str, Any], list[str]]:
+    """The stored secrets of a channel, decrypted, and the names the key cannot open.
+
+    Tolerant read: a value that is not a ``v1:`` token (a row an older build wrote) is
+    returned as it is. An unreadable value is left out of the dict, never raised."""
+    readable: dict[str, Any] = {}
+    unreadable: list[str] = []
+    for name, value in _loads(raw).items():
+        try:
+            readable[name] = secret_store.decrypt(
+                value, secret_store.aad(SECRETS_TABLE, channel_id, name)
+            )
+        except secret_store.SecretUnreadable:
+            unreadable.append(name)
+    return readable, sorted(unreadable)
+
+
+def encode_secrets(secrets: dict[str, Any], channel_id: str) -> str:
+    """The ``secrets`` column for ``secrets``: every non-empty string value encrypted,
+    bound to the channel id and the field name."""
+    stored: dict[str, Any] = {}
+    for name, value in secrets.items():
+        if isinstance(value, str) and value:
+            # Fails closed: ``SecretStoreUnavailable`` propagates without a usable key
+            # (503 ``secret_store_unavailable``); a secret is never stored plain.
+            value = secret_store.encrypt(value, secret_store.aad(SECRETS_TABLE, channel_id, name))
+        stored[name] = value
+    return json.dumps(stored, sort_keys=True)
+
+
 def _read_config(row: aiosqlite.Row) -> dict[str, Any]:
     """The stored config with the type's read-time defaults for keys an older version
     did not write (``ChannelType.stored_defaults``, e.g. a 4.18.x webhook reads as ``v1``)."""
@@ -80,16 +117,19 @@ def _read_config(row: aiosqlite.Row) -> dict[str, Any]:
 
 
 def _row_to_channel(row: aiosqlite.Row) -> Channel:
-    secrets = _loads(row["secrets"])
+    secrets, unreadable = decode_secrets(row["secrets"], row["id"])
     return Channel(
         id=row["id"],
         type=row["type"],
         preset=row["preset"],
         name=row["name"],
-        enabled=bool(row["enabled"]),
+        # An unreadable secret reads as off, without touching the row: the matching
+        # secrets.key brings the channel back as it was.
+        enabled=bool(row["enabled"]) and not unreadable,
         language=row["language"],
         config=_read_config(row),
         secret_fields_set=sorted(k for k, v in secrets.items() if v),
+        secret_unreadable=unreadable,
         allow_private_network=bool(row["allow_private_network"]),
         include_message_text=row["include_message_text"],
         verify_tls=bool(row["verify_tls"]),
@@ -100,7 +140,7 @@ def _row_to_channel(row: aiosqlite.Row) -> Channel:
         sort_order=row["sort_order"] or 0,
         created_at=row["created_at"] or 0,
         last_ok_at=row["last_ok_at"],
-        last_error=row["last_error"],
+        last_error=secret_store.SECRET_UNREADABLE if unreadable else row["last_error"],
         failure_count=row["failure_count"] or 0,
         paused_until=row["paused_until"],
         deletable=not is_builtin(row["id"]),
@@ -290,7 +330,8 @@ class NotificationChannelRepository:
             row = await _fetch(conn, channel_id)
         if row is None:
             return None
-        secrets = {k: v for k, v in _loads(row["secrets"]).items() if isinstance(v, str) and v}
+        decoded, _unreadable = decode_secrets(row["secrets"], channel_id)
+        secrets = {k: v for k, v in decoded.items() if isinstance(v, str) and v}
         return _row_to_channel(row), secrets
 
     @staticmethod
@@ -346,7 +387,7 @@ class NotificationChannelRepository:
                     1 if body.enabled else 0,
                     body.language,
                     json.dumps(public, sort_keys=True),
-                    json.dumps(secrets, sort_keys=True),
+                    encode_secrets(secrets, channel_id),
                     1 if body.allow_private_network else 0,
                     body.include_message_text or entry.include_message_text_for(public),
                     1 if body.verify_tls else 0,
@@ -407,7 +448,14 @@ class NotificationChannelRepository:
                 if kept:
                     raise ChannelError("secret_required", fields=kept)
             public, secrets = _split_config(entry, merged)
+        # A stored secret the key cannot open (MSHL-133) counts as present while the config
+        # is not edited: a PATCH of the name, the switch, the limits... is saved and the
+        # channel keeps reading as off (``secret_unreadable``) until the config is saved
+        # again with its secrets, or the matching secrets.key comes back.
         missing = _required_missing(entry, public, secrets)
+        if not config_changed:
+            # An unreadable secret is still stored (the matching key opens it again).
+            missing = [f for f in missing if f not in current.secret_unreadable]
         if missing:
             raise ChannelError("config_required", fields=missing)
 
@@ -443,7 +491,7 @@ class NotificationChannelRepository:
         sets: dict[str, Any] = {}
         if config_changed:
             sets["config"] = json.dumps(public, sort_keys=True)
-            sets["secrets"] = json.dumps(secrets, sort_keys=True)
+            sets["secrets"] = encode_secrets(secrets, channel_id)
         for column in (
             "name",
             "enabled",
@@ -543,7 +591,7 @@ class NotificationChannelRepository:
             for channel_id, channel in by_id.items():
                 config, secrets = (
                     json.dumps(channel["config"], sort_keys=True),
-                    json.dumps(channel["secrets"], sort_keys=True),
+                    encode_secrets(channel["secrets"], channel_id),
                 )
                 if await _fetch(conn, channel_id) is not None:
                     await conn.execute(

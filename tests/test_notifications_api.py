@@ -1066,3 +1066,171 @@ async def test_webhook_body_type_is_v1_or_v2(test_db, client):
     )
     assert response.status_code == 200, response.text
     assert response.json()["config"]["body_type"] == "v1"
+
+
+# ── Secrets at rest (MSHL-133) ──────────────────────────────────────────
+
+
+@pytest.fixture
+def other_key(tmp_path):
+    """Swap the secrets key, as a database copied without its secrets.key would see it."""
+    from app import secret_store
+    from app.repository import notification_channels
+
+    def swap():
+        secret_store.reset()
+        assert secret_store.ensure_key(tmp_path / "other" / secret_store.KEY_FILENAME)
+        notification_channels.invalidate_cache()
+
+    yield swap
+    secret_store.reset()
+    notification_channels.invalidate_cache()
+
+
+async def _raw_secrets(test_db, channel_id):
+    async with test_db.tx() as conn:
+        async with conn.execute(
+            "SELECT secrets FROM notification_channels WHERE id = ?", (channel_id,)
+        ) as cursor:
+            return (await cursor.fetchone())[0]
+
+
+async def test_channel_secrets_are_stored_encrypted(test_db, client):
+    from app import secret_store
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    created = await create(client, webhook())
+    raw = await _raw_secrets(test_db, created["id"])
+    assert WEBHOOK_URL not in raw and "hmac-secret-1" not in raw
+    assert all(secret_store.is_encrypted(v) for v in json.loads(raw).values())
+    _channel, secrets = await NotificationChannelRepository.get_for_send(created["id"])
+    assert secrets == {"url": WEBHOOK_URL, "hmac_secret": "hmac-secret-1"}
+
+
+async def test_a_legacy_plain_secret_is_read_and_encrypted_on_the_next_write(test_db, client):
+    from app import secret_store
+    from app.repository import notification_channels
+
+    created = await create(client, email())
+    cid = created["id"]
+    async with test_db.tx() as conn:
+        await conn.execute(
+            "UPDATE notification_channels SET secrets = ? WHERE id = ?",
+            (json.dumps({"password": "smtp-pass-1"}), cid),
+        )
+    notification_channels.invalidate_cache()
+    fetched = (await client.get(f"/api/notifications/channels/{cid}")).json()
+    assert fetched["secret_fields"] == ["password"] and fetched["enabled"] is True
+    found = await notification_channels.NotificationChannelRepository.get_for_send(cid)
+    assert found[1] == {"password": "smtp-pass-1"}
+
+    patched = await client.patch(
+        f"/api/notifications/channels/{cid}", json={"config": {"to": "b@example.org"}}
+    )
+    assert patched.status_code == 200, patched.text
+    stored = json.loads(await _raw_secrets(test_db, cid))["password"]
+    assert secret_store.is_encrypted(stored)
+    aad = secret_store.aad("notification_channels", cid, "password")
+    assert secret_store.decrypt(stored, aad) == "smtp-pass-1"
+
+
+async def test_an_unreadable_secret_turns_the_channel_off_until_it_is_typed_again(
+    test_db, client, other_key, caplog
+):
+    created = await create(client, webhook())
+    cid = created["id"]
+    other_key()
+
+    listed = {c["id"]: c for c in (await client.get("/api/notifications/channels")).json()}
+    channel = listed[cid]
+    assert channel["enabled"] is False
+    assert channel["status"]["last_error"] == "secret_unreadable"
+    assert channel["secret_fields"] == []
+
+    # A PATCH that does not touch the secrets is saved, but the channel stays off.
+    enable = await client.patch(f"/api/notifications/channels/{cid}", json={"enabled": True})
+    assert enable.status_code == 200, enable.text
+    assert enable.json()["enabled"] is False
+    assert enable.json()["status"]["last_error"] == "secret_unreadable"
+    tested = await client.post(f"/api/notifications/channels/{cid}/test")
+    assert tested.status_code == 409 and code_of(tested) == "secret_unreadable"
+    renamed = await client.patch(f"/api/notifications/channels/{cid}", json={"name": "Renamed"})
+    assert renamed.status_code == 200 and renamed.json()["enabled"] is False
+
+    saved = await client.patch(
+        f"/api/notifications/channels/{cid}",
+        json={"config": {"url": WEBHOOK_URL, "hmac_secret": "hmac-secret-1"}},
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["enabled"] is True and body["secret_fields"] == ["hmac_secret", "url"]
+    assert body["status"]["last_error"] != "secret_unreadable"
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    _channel, secrets = await NotificationChannelRepository.get_for_send(cid)
+    assert secrets["url"] == WEBHOOK_URL  # encrypted again with the new key
+    for response in (enable, tested, renamed, saved):
+        assert_no_secret(response)
+    assert all(value not in caplog.text for value in SECRETS)
+
+
+async def test_the_matching_key_brings_an_unreadable_channel_back(test_db, client, other_key):
+    from app import secret_store
+    from app.repository import notification_channels
+
+    created = await create(client, webhook())
+    other_key()
+    assert (await client.get(f"/api/notifications/channels/{created['id']}")).json()[
+        "enabled"
+    ] is False
+    secret_store.reset()  # the database's own secrets.key again
+    notification_channels.invalidate_cache()
+    back = (await client.get(f"/api/notifications/channels/{created['id']}")).json()
+    assert back["enabled"] is True and back["secret_fields"] == ["hmac_secret", "url"]
+
+
+def _lose_the_key(tmp_path, monkeypatch):
+    """No usable secrets key: its folder is a file, so the key can be neither read nor created."""
+    from app import secret_store
+
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("")
+    monkeypatch.setattr(secret_store, "key_path", lambda: blocker / secret_store.KEY_FILENAME)
+    secret_store.reset()
+    assert secret_store.ensure_key() is False
+
+
+async def test_without_a_key_a_secret_is_never_stored_in_plain_text(
+    test_db, client, tmp_path, monkeypatch, caplog
+):
+    from app import secret_store
+    from app.repository import notification_channels
+
+    existing = await create(client, email())
+    before = await _raw_secrets(test_db, existing["id"])
+    key_path = secret_store.key_path
+    _lose_the_key(tmp_path, monkeypatch)
+    try:
+        notification_channels.invalidate_cache()
+        created = await client.post("/api/notifications/channels", json=webhook())
+        assert created.status_code == 503 and code_of(created) == "secret_store_unavailable"
+        assert_no_secret(created)
+
+        patched = await client.patch(
+            f"/api/notifications/channels/{existing['id']}",
+            json={"config": {"password": "new-smtp-pass-1"}},
+        )
+        assert patched.status_code == 503 and code_of(patched) == "secret_store_unavailable"
+        assert "new-smtp-pass-1" not in patched.text
+    finally:
+        monkeypatch.setattr(secret_store, "key_path", key_path)
+        secret_store.reset()
+
+    async with test_db.tx() as conn:
+        async with conn.execute("SELECT id, secrets FROM notification_channels") as cursor:
+            rows = dict(await cursor.fetchall())
+    assert set(rows) == {"builtin:push", existing["id"]}  # the webhook was not created
+    assert rows[existing["id"]] == before  # nor the typed password stored
+    dump = json.dumps(rows)
+    assert WEBHOOK_URL not in dump and "new-smtp-pass-1" not in dump
+    assert "new-smtp-pass-1" not in caplog.text and WEBHOOK_URL not in caplog.text

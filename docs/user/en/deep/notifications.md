@@ -298,6 +298,8 @@ The **full backup** (Settings → Database) has a *Notifications* part: every ch
 
 **Restoring.** A channel that lost any secret comes back **switched off** and marked *Secret missing after a restore*; Meshloom never sends with a missing secret. Open it in **Settings → Notifications → Channels**, type each secret again (or clear it on purpose), then switch it on. If the same channel already exists here with the same destination, its stored secrets are kept. Restoring merges the channels (one the file does not name stays) and replaces the rules. A backup made by Meshloom 4.18 restores into the same channels and rules (Web Push, e-mail, webhook, Apprise, the exceptions of each conversation).
 
+**Moved without its key.** In the database the secrets of the channels are encrypted with the `secrets.key` file that sits next to it. A database copied or restored without that file (or with another one) cannot open them: Meshloom starts anyway, and each affected channel stays switched off with a message saying the secret cannot be decrypted. Put the original `secrets.key` back next to the database and restart, or type the secret again. See [Other install paths](/en/docs/deep/install-paths/#database-and-updates).
+
 Encrypt the full backup with a passphrase anyway: it still holds the Web Push private key and subscriptions, the secrets of your integrations (MQTT, fanout webhooks, SQS) and, if you include them, the accounts. See [Back up your radio](/en/docs/backup/) and [Security](/en/docs/deep/security/#integration-and-notification-secrets).
 
 ## Configure channels from a trusted network

@@ -3,6 +3,7 @@
 import logging
 import re
 import string
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -18,7 +19,14 @@ from app.net.apprise_urls import (
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
 from app.plugins import bot_conversion
 from app.repository.fanout import FanoutConfigRepository
-from app.secret_fields import SecretRequiredError, merge_secrets, redact_config
+from app.secret_fields import (
+    REDACTED,
+    SecretRequiredError,
+    derived_keys,
+    merge_secrets,
+    redact_config,
+    secret_keys,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/fanout", tags=["fanout"])
@@ -549,6 +557,35 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
     return present_fanout_config(cfg)
 
 
+def _is_new_secret(value: Any) -> bool:
+    """Whether a secret value in a PATCH types something new (not kept with ``********``)."""
+    if value is None or value == REDACTED:
+        return False
+    if isinstance(value, dict):
+        return not any(v == REDACTED for v in value.values())
+    return True
+
+
+def _sends_unreadable_secrets(config: dict | None, unreadable: list[str]) -> bool:
+    """Whether ``config`` types a new value for every secret the key cannot open."""
+    if config is None:
+        return False
+    return all(key in config and _is_new_secret(config[key]) for key in unreadable)
+
+
+def _config_edited(existing: dict, config: dict) -> bool:
+    """Whether ``config`` changes anything in ``existing``: a non-secret setting, or a
+    secret typed anew (the editor sends a kept secret back as ``********``)."""
+    secret = set(secret_keys(existing["type"]))
+    shown_only = set(derived_keys(existing["type"]))
+    current = existing.get("config") or {}
+    return any(
+        _is_new_secret(v) if k in secret else current.get(k) != v
+        for k, v in config.items()
+        if k not in shown_only
+    )
+
+
 @router.patch("/{config_id}", dependencies=[Depends(require("admin"))])
 async def update_fanout_config(
     config_id: str,
@@ -573,6 +610,21 @@ async def update_fanout_config(
         kwargs["enabled"] = body.enabled
     if body.scope is not None:
         kwargs["scope"] = _enforce_scope(existing["type"], body.scope)
+
+    unreadable = existing.get("secret_unreadable") or []
+    if unreadable and not _sends_unreadable_secrets(body.config, unreadable):
+        # A stored secret the key cannot open (MSHL-133): the config cannot be checked
+        # without it. An edit that leaves the config as it is (name, switch, scope) is
+        # saved; the module stays stopped with ``secret_unreadable`` until the secret is
+        # typed again. Changing other settings needs the secret too: 409.
+        if body.config is not None and _config_edited(existing, body.config):
+            raise HTTPException(status_code=409, detail="secret_unreadable")
+        updated = await FanoutConfigRepository.update(config_id, **kwargs)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Fanout config not found")
+        await fanout_manager.reload_config(config_id)
+        logger.info("Updated fanout config %s (unreadable secret kept)", config_id)
+        return present_fanout_config(updated)
 
     # Secrets are write-only: ``********`` or an omitted key keeps the stored
     # value, ``""`` clears it. Merged before validation, so the grandfathered

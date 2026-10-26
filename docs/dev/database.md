@@ -199,7 +199,8 @@ demand and on identity change.
 
 One row per fanout integration (MQTT, webhooks, Apprise, SQS, map upload; no `bot` row since migration 122):
 PK `id` (text), `type`, `name`, `enabled`, `config` (JSON), `scope` (JSON),
-`sort_order`, `created_at`. `FanoutConfigRepository` (`fanout.py`), used by the fanout
+`sort_order`, `created_at`. The secret keys of `config` are sealed `v1:` tokens since
+migration 129. `FanoutConfigRepository` (`fanout.py`), used by the fanout
 manager and its router. See `app/fanout/AGENTS.md`.
 
 ### `notification_channels`
@@ -208,7 +209,7 @@ One row per notification channel (migration 113): PK `id` (`builtin:push`,
 `legacy:email|webhook|apprise` from the import, else `<type>-<8 hex>`; an id is never
 reused), `type` (immutable: `web_push`, `email`, `webhook`, `apprise`), `preset`, `name`,
 `enabled`, `language` (`auto`, `fr`, `en`), `config` (JSON, public fields), `secrets`
-(JSON, plain text in this version, never returned by any read path),
+(JSON, each value a `v1:` AES-256-GCM token since migration 129, see `app/AGENTS.md`, "Secrets at rest"; never returned by any read path),
 `allow_private_network`, `include_message_text`, `verify_tls`, `quiet_hours_exempt`,
 `rate_per_min`, `rate_per_hour`, `rate_per_day` (NULL: the type's default), `sort_order`,
 `created_at`, `last_ok_at`, `last_error`, `failure_count`, `paused_until`.

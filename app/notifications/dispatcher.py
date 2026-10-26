@@ -1358,6 +1358,9 @@ class Dispatcher:
         for channel in [*channels, *extra]:
             live = self._live.get(channel.id) or _Live()
             last_error = live.last_error if live.failure_count is not None else channel.last_error
+            if channel.secret_unreadable:
+                # The secrets key cannot open a stored secret (MSHL-133): that is the reason.
+                last_error = channel.last_error
             out[channel.id] = {
                 "status": _status_of(channel, live, now),
                 "last_error": last_error,

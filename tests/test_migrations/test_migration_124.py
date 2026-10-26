@@ -8,7 +8,7 @@ import pytest
 from app.database import Database
 from app.migrations import run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION
+from .conftest import LATEST_SCHEMA_VERSION, opened_secrets
 
 
 async def _insert(conn, channel_id, config, secrets):
@@ -46,7 +46,7 @@ async def test_the_three_parts_are_joined_and_an_incomplete_channel_is_disabled(
             ).fetchall()
         }
         assert json.loads(rows["ok"][0]) == {}
-        assert json.loads(rows["ok"][1]) == {
+        assert opened_secrets(rows["ok"][1], "ok") == {
             "webhook": "https://hooks.slack.com/services/TDUMMY1/BDUMMY2/dummysecret"
         }
         assert rows["ok"][2] == 1

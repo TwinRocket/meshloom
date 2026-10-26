@@ -398,6 +398,9 @@ async def test_channel(channel_id: str) -> TestResult:
     if found is None:
         raise fail("channel_missing", 404)
     channel, secrets = found
+    if channel.secret_unreadable:
+        # The secrets key cannot open a stored secret (MSHL-133): type it again first.
+        raise fail("secret_unreadable", 409, fields=channel.secret_unreadable)
     if not await api_support.take_test_slot(channel_id):
         raise fail(
             "rate_limited", 429, headers={"Retry-After": str(int(api_support.TEST_PERIOD_S))}

@@ -95,3 +95,7 @@ Si **Réglages > Mises à jour** indique qu’il faut mettre à jour Meshloom à
 Les add-ons Home Assistant se mettent à jour dans Home Assistant, pas avec ce bouton.
 
 Meshloom Community est désactivé sur une nouvelle base, comme sur toute autre installation. Vous le rejoignez en saisissant un code d’aéroport dans **Réglages > Meshloom Community** ; rien n’est publié avant.
+
+## Changer de carte
+
+Pour passer Meshloom sur une nouvelle carte ou une autre machine, arrêtez-le (`sudo systemctl stop meshloom`), puis copiez tout le dossier `/var/lib/meshloom`, ou au moins `meshcore.db` **et** `secrets.key` : ce fichier déchiffre les secrets de vos canaux de notification et de vos intégrations. Sans lui, ces canaux et intégrations reviennent désactivés jusqu’à ce que vous saisissiez leurs secrets à nouveau (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour)). L’autre voie est la sauvegarde complète de **Réglages → Base de données** : voir [Sauvegarder la radio](/docs/backup/).

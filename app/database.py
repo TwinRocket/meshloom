@@ -664,11 +664,27 @@ class Database:
         await self._connection.commit()
         logger.debug("Database tables initialized")
 
+        # The secrets key file (MSHL-133) exists before the migrations, so the
+        # one that encrypts the stored secrets has a key. Never raises: without
+        # a key the secrets stay as they are and read as unreadable.
+        from app import secret_store
+
+        secret_store.ensure_key()
+
         # Run any pending migrations before creating indexes, so that
         # legacy databases have all required columns first.
         from app.migrations import run_migrations
 
         await run_migrations(self._connection)
+
+        # Secrets left plain (migration 129 ran without a key, or a row written by an
+        # older build): encrypted as soon as a key is available. Never blocks startup.
+        from app.services.secrets_backfill import encrypt_plain_secrets
+
+        try:
+            await encrypt_plain_secrets(self._connection)
+        except Exception as exc:
+            logger.error("The stored secrets could not be encrypted (%s)", type(exc).__name__)
 
         await self._connection.executescript(SCHEMA_INDEXES)
         await self._connection.commit()

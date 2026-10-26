@@ -10,7 +10,7 @@ import pytest
 from app.database import Database
 from app.migrations import get_version, run_migrations, set_version
 
-from .conftest import LATEST_SCHEMA_VERSION
+from .conftest import LATEST_SCHEMA_VERSION, opened_secrets
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "notifications_418_settings.json"
 TABLES = (
@@ -152,15 +152,15 @@ async def test_418_database_with_smtp_apprise_and_overrides_is_imported_lossless
         "from": "meshloom@example.org",
         "to": "me@example.org,you@example.org",
     }
-    assert json.loads(email["secrets"]) == {"password": "smtp-pass-1"}
+    assert opened_secrets(email["secrets"], "legacy:email") == {"password": "smtp-pass-1"}
     webhook = channels["legacy:webhook"]
-    assert json.loads(webhook["secrets"]) == {
+    assert opened_secrets(webhook["secrets"], "legacy:webhook") == {
         "url": "http://192.168.1.20:8080/hook?token=abc",
         "hmac_secret": "hmac-secret-1",
     }
     assert webhook["allow_private_network"] == 1 and webhook["quiet_hours_exempt"] == 0
     apprise = channels["legacy:apprise"]
-    assert json.loads(apprise["secrets"]) == {
+    assert opened_secrets(apprise["secrets"], "legacy:apprise") == {
         "urls": "ntfy://ntfy.example.org/topic-secret\ntgram://123456:AAbbCC/987654"
     }
     assert json.loads(apprise["config"]) == {"format": "markdown"}

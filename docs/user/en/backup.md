@@ -29,7 +29,7 @@ The group holds:
 
 - **Full backup (radio and Meshloom)**: the file described on this page.
 - **Restore a backup**: restores a full backup, or an older Meshloom-only backup.
-- **Download meshcore.db**: a copy of the whole database (message history included). It never contains the radio's private key, the Bluetooth PIN or the keys described under "Not included" below, and is not restored from the interface. If you put such a copy back in place of the database yourself, Meshloom treats it as a restore when it next starts (see [What the backup contains](#what-the-backup-contains), "Not included").
+- **Download meshcore.db**: a copy of the whole database (message history included). It never contains the radio's private key, the Bluetooth PIN or the keys described under "Not included" below, and is not restored from the interface. The secrets of the notification channels and integrations are encrypted in it with the `secrets.key` file of the data folder, which the download does not include: keep a copy of that file with it, or type those secrets again after putting the copy back (see [Other install paths](/en/docs/deep/install-paths/#database-and-updates)). If you put such a copy back in place of the database yourself, Meshloom treats it as a restore when it next starts (see [What the backup contains](#what-the-backup-contains), "Not included").
 
 ## Restore after reflashing
 

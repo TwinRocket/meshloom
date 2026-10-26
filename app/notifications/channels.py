@@ -485,6 +485,9 @@ class Channel(BaseModel):
     language: ChannelLanguage = "auto"
     config: dict[str, Any] = Field(default_factory=dict)
     secret_fields_set: list[str] = Field(default_factory=list)
+    # Names of the stored secrets the secrets key cannot open (MSHL-133): the channel
+    # reads as off with ``last_error = "secret_unreadable"`` until they are typed again.
+    secret_unreadable: list[str] = Field(default_factory=list)
     allow_private_network: bool = False
     include_message_text: IncludeMessageText = "always"
     verify_tls: bool = True

@@ -8,6 +8,7 @@ from typing import Any
 
 from app.fanout.base import FanoutModule
 from app.secret_fields import config_secret_values, scrub_error
+from app.secret_store import SECRET_UNREADABLE
 
 logger = logging.getLogger(__name__)
 _DISPATCH_TIMEOUT_SECONDS = 30.0
@@ -229,6 +230,18 @@ class FanoutManager:
         cls = _MODULE_TYPES.get(config_type)
         if cls is None:
             logger.warning("Unknown fanout type %r for config %s, skipping", config_type, config_id)
+            return
+
+        unreadable = cfg.get("secret_unreadable")
+        if unreadable:
+            # The secrets key cannot open a stored secret (database moved without its
+            # secrets.key, MSHL-133): the module stays stopped until it is typed again.
+            logger.warning(
+                "Fanout module %s not started: %d stored secret(s) cannot be decrypted",
+                config_id,
+                len(unreadable),
+            )
+            self._set_module_error(config_id, SECRET_UNREADABLE)
             return
 
         try:
