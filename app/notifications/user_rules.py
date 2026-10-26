@@ -69,6 +69,18 @@ ADMIN_ONLY_EVENTS = frozenset(
         "notify.heartbeat",
     }
 )
+# Events of an instance-wide rule the admin manages in ``app_settings.notification_rules``
+# (MSHL-400): keyword rules (``keywords.py``) and watched nodes (``watched_nodes.py``). No
+# account owns them, so on Web Push they reach the administrators' devices only, as the admin
+# who configured them; an account's own pause and conversation exception still apply to its
+# devices. Fail closed like ``ADMIN_ONLY_EVENTS``: no administrator device, or owners unreadable,
+# means no Web Push at all.
+INSTANCE_RULE_EVENTS = frozenset({"message.keyword", "contact.node_seen", "contact.node_back"})
+# Every event whose Web Push reaches administrators' devices only.
+ADMIN_PUSH_EVENTS = ADMIN_ONLY_EVENTS | INSTANCE_RULE_EVENTS
+# The legacy payload names (``event`` of the dicts ``PushManager.dispatch_event`` gets) of
+# the watched-node events; a keyword alert is a ``message`` payload carrying ``keyword``.
+_WATCHED_LEGACY = frozenset({"node_seen", "node_back"})
 OVERRIDABLE_EVENTS: tuple[str, ...] = tuple(e for e in EVENT_IDS if e not in LOCKED_EVENTS)
 FIRST_SEEN_EVENT = "contact.first_seen"
 # ``channel-<key>`` / ``contact-<pubkey>``: the state key of ``rules.py`` (hex keys).
@@ -267,6 +279,68 @@ def admin_audience(admin_ids: Iterable[int], payload: Mapping[str, Any]) -> Push
     return PushAudience(default=None, per_user=per_user) if per_user else None
 
 
+def admin_push_payload(data: Mapping[str, Any]) -> bool:
+    """Whether a legacy push payload belongs to an ``ADMIN_PUSH_EVENTS`` event (what
+    ``PushManager.dispatch_event`` checks again per device, MSHL-399 / MSHL-400)."""
+    event = data.get("event")
+    return (
+        event in ADMIN_ONLY_EVENTS
+        or event in _WATCHED_LEGACY
+        or (is_message_payload(data) and bool(data.get("keyword")))
+    )
+
+
+def is_message_payload(data: Mapping[str, Any]) -> bool:
+    """Whether a legacy push payload is a message (a direct or channel message, a mention or
+    a keyword alert): no ``event`` key, or ``message``, and a ``PRIV`` / ``CHAN`` type."""
+    return data.get("event") in (None, "message") and data.get("type") in ("PRIV", "CHAN")
+
+
+def instance_rule_audience(
+    admin_ids: Iterable[int],
+    overrides: Mapping[int, Mapping[str, Any]],
+    event: NotificationEvent,
+    payload: Mapping[str, Any],
+    *,
+    already: PushAudience | None = None,
+    now: float | None = None,
+) -> PushAudience | None:
+    """The Web Push audience of an ``INSTANCE_RULE_EVENTS`` event (MSHL-400): ``payload`` for
+    each administrator, minus an administrator whose own pause holds it (the event is never
+    urgent), whose conversation exception is ``false`` for that conversation (a keyword alert
+    is a ``message.*`` event), or who already gets the message itself (``already``: the
+    message's own audience, so nobody is notified twice). ``default`` is None, so no other
+    account gets it. None when nobody is left."""
+    per_user: dict[int, Mapping[str, Any] | None] = {}
+    for uid in admin_ids:
+        override = overrides.get(uid) or {}
+        if is_paused(override, now) and not event.urgent:
+            continue
+        if _conversation_choice(override, event) is False:
+            continue
+        if already is not None and already.payload_for(uid) is not None:
+            continue
+        per_user[uid] = payload
+    return PushAudience(default=None, per_user=per_user) if per_user else None
+
+
+def may_read_message(role: object, data: Mapping[str, Any]) -> bool:
+    """Whether an account of ``role`` may read the message of a ``message`` push payload in
+    the app: a direct message needs ``read_private``, a channel message ``read``
+    (``app/auth/permissions.py``). False for an unknown role (fail closed)."""
+    from app.auth.permissions import ROLE_PERMISSIONS
+
+    granted = next((p for r, p in ROLE_PERMISSIONS.items() if r == role), frozenset())
+    return ("read_private" if data.get("type") == "PRIV" else "read") in granted
+
+
+def redact_message(data: Mapping[str, Any]) -> dict[str, Any]:
+    """A ``message`` push payload with nothing of the message left (text, sender, channel
+    name, keyword): ``build_push_payload`` then shows a generic FR/EN notice (MSHL-400)."""
+    kept = ("event", "type", "conversation_key", "keyword_id", "mention")
+    return {**{k: data[k] for k in kept if k in data}, "redacted": True}
+
+
 def requester_audience(user_id: int, payload: Mapping[str, Any]) -> PushAudience:
     """The audience of a ``notify.test`` on Web Push (MSHL-407): ``payload`` for the devices
     of the account that pressed **Test**, nothing for anyone else."""
@@ -323,20 +397,27 @@ def default_state(rules: Mapping[str, Any], event_id: str, kind: str | None = No
 
 __all__ = [
     "ADMIN_ONLY_EVENTS",
+    "ADMIN_PUSH_EVENTS",
     "CONTACT_KIND_NAMES",
+    "INSTANCE_RULE_EVENTS",
     "LOCKED_EVENTS",
     "MENTION_EVENT",
     "OVERRIDABLE_EVENTS",
     "PUSH_ID",
     "PushAudience",
     "admin_audience",
+    "admin_push_payload",
     "build_audience",
     "conversation_state_key",
     "default_state",
+    "instance_rule_audience",
     "is_admin_owner",
+    "is_message_payload",
     "is_paused",
+    "may_read_message",
     "pause_until",
     "push_wanted",
+    "redact_message",
     "requester_audience",
     "sanitize_override",
 ]

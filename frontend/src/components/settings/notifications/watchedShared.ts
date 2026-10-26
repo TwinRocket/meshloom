@@ -8,8 +8,6 @@ export const WATCHED_MIN_COOLDOWN_S = 60;
 export const WATCHED_MAX_COOLDOWN_S = 30 * 86_400;
 export const WATCHED_MIN_SILENCE_S = 60;
 export const WATCHED_MAX_SILENCE_S = 365 * 86_400;
-/** Web Push is decided per account: a watched node cannot name it (the server refuses it). */
-export const WATCHED_EXCLUDED_CHANNEL = 'builtin:push';
 
 export function findWatched(
   nodes: NotificationWatchedNode[],
@@ -23,7 +21,7 @@ export function findWatched(
 export function newWatched(publicKey: string, channels: string[]): NotificationWatchedNode {
   return {
     public_key: publicKey.toLowerCase(),
-    channels: channels.filter((c) => c !== WATCHED_EXCLUDED_CHANNEL),
+    channels,
     cooldown_s: WATCHED_DEFAULT_COOLDOWN_S,
     silence_s: WATCHED_DEFAULT_SILENCE_S,
   };

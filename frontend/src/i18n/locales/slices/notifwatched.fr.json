@@ -13,7 +13,7 @@
     "notifications": {
       "watched": {
         "title": "Nœuds surveillés",
-        "help": "Notifie un canal quand un nœud est entendu (son annonce ou un message privé) et quand il revient après un long silence. Ajoutez un nœud avec « Notifier quand il est entendu » dans sa fiche contact. Web Push n’est pas disponible pour les nœuds surveillés (il se décide par compte).",
+        "help": "Notifie un canal quand un nœud est entendu (son annonce ou un message privé) et quand il revient après un long silence. Ajoutez un nœud avec « Notifier quand il est entendu » dans sa fiche contact. Web Push n’atteint que les appareils des administrateurs.",
         "empty": "Aucun nœud surveillé pour l’instant.",
         "count": "{{count}} nœud(s) sur {{max}}",
         "full": "Limite atteinte ({{max}} nœuds).",
@@ -24,7 +24,7 @@
         "editTitle": "Nœud surveillé : {{name}}",
         "dialogHelp": "Un nœud entendu notifie au plus une fois par délai de récupération. Entendu de nouveau après le seuil de silence, il notifie « de retour ».",
         "channels": "Notifier ces canaux",
-        "channelsHelp": "Web Push n’est pas proposé : il se décide par compte.",
+        "channelsHelp": "Web Push n’atteint que les appareils des administrateurs.",
         "cooldown": "Délai de récupération (minutes)",
         "cooldownHelp": "Après une notification, ce nœud reste silencieux pendant ce délai (1 minute au moins, 30 jours au plus).",
         "silence": "Silence avant « de retour » (heures)",

@@ -7,8 +7,6 @@ export const KEYWORD_MAX_RULES = 20;
 export const KEYWORD_MAX_PATTERN = 64;
 export const KEYWORD_MAX_COOLDOWN_S = 86_400;
 export const KEYWORD_DEFAULT_COOLDOWN_S = 300;
-/** Web Push is decided per account: a keyword rule cannot name it (the server refuses it). */
-export const KEYWORD_EXCLUDED_CHANNEL = 'builtin:push';
 
 export type KeywordDraft = {
   id?: string;
@@ -69,7 +67,7 @@ export function inputOf(draft: KeywordDraft): NotificationKeywordInput {
     pattern: cleanPattern(draft.pattern),
     match: draft.match,
     scope: draft.scopeKind === 'chosen' ? draft.scopeKeys : draft.scopeKind,
-    channels: draft.channels.filter((c) => c !== KEYWORD_EXCLUDED_CHANNEL),
+    channels: draft.channels,
     cooldown_s: draft.cooldownMin * 60,
   };
 }

@@ -168,10 +168,9 @@ def clean_rule(raw: object, *, known_channels: Collection[str] | None = None) ->
     """One rule as stored, or ``KeywordError`` naming the field. A missing ``id`` is generated.
 
     ``known_channels`` (the API; the backup restore checks channels itself) refuses an unknown
-    channel id. Web Push (``builtin:push``) is always refused: it is decided per account
-    (``user_rules.py``) and a keyword rule is an instance setting."""
-    from app.notifications.channels import BUILTIN_PUSH_ID
-
+    channel id. Web Push (``builtin:push``) is accepted since MSHL-400: a keyword rule is an
+    instance setting, so its push reaches administrators' devices only (``user_rules.
+    INSTANCE_RULE_EVENTS``)."""
     if not isinstance(raw, Mapping):
         raise KeywordError("keywords")
     rule_id = raw.get("id") or f"kw_{secrets.token_hex(4)}"
@@ -184,7 +183,7 @@ def clean_rule(raw: object, *, known_channels: Collection[str] | None = None) ->
     if (
         not isinstance(channels, list)
         or len(channels) > MAX_RULE_CHANNELS
-        or not all(isinstance(c, str) and c and c != BUILTIN_PUSH_ID for c in channels)
+        or not all(isinstance(c, str) and c for c in channels)
     ):
         raise KeywordError("channels")
     channels = list(dict.fromkeys(channels))

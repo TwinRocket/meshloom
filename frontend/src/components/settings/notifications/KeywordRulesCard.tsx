@@ -21,7 +21,6 @@ import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
 import { conversationName } from './ConversationExceptions';
 import {
-  KEYWORD_EXCLUDED_CHANNEL,
   KEYWORD_MAX_COOLDOWN_S,
   KEYWORD_MAX_PATTERN,
   KEYWORD_MAX_RULES,
@@ -60,7 +59,7 @@ export function KeywordRulesCard({
   const { t } = useTranslation();
   const [editing, setEditing] = useState<KeywordDraft | null>(null);
   const full = rules.length >= KEYWORD_MAX_RULES;
-  const targets = channels.filter((c) => c.id !== KEYWORD_EXCLUDED_CHANNEL);
+  const targets = channels;
 
   const scopeText = (rule: NotificationKeywordRule): string => {
     if (rule.scope === 'all') return t('settings.notifications.keywords.scopeAll');

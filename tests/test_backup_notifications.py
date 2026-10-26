@@ -748,7 +748,7 @@ def test_restored_keyword_rules_go_through_the_api_checks():
             {**good, "id": "a"},  # duplicate id
             {**good, "id": "b", "pattern": "x" * 65},
             {**good, "id": "c", "match": "regex"},
-            {**good, "id": "d", "channels": ["builtin:push"]},
+            {**good, "id": "d", "channels": ["builtin:push"]},  # accepted since MSHL-400
             {"channels": ["x"], "text": "no pattern"},
         ]
         + [{**good, "id": f"z{i}"} for i in range(30)]
@@ -756,7 +756,8 @@ def test_restored_keyword_rules_go_through_the_api_checks():
     warnings: list[str] = []
     kept = sanitize_rules(raw, warnings)["keywords"]
     assert len(kept) == 20 and kept[0]["pattern"] == "sos" and kept[0]["cooldown_s"] == 300
-    assert [k["id"] for k in kept[:2]] == ["a", "z0"]
+    assert [k["id"] for k in kept[:3]] == ["a", "d", "z0"]
+    assert kept[1]["channels"] == ["builtin:push"]
     assert warnings == ["notification_rules_sanitized"]
 
 
@@ -767,7 +768,8 @@ async def test_watched_nodes_are_restored_through_the_api_checks_and_capped_at_5
     nodes = [{"public_key": f"{i:064x}", "channels": [], "cooldown_s": 60} for i in range(60)]
     nodes[1]["public_key"] = nodes[0]["public_key"].upper()  # a duplicate, case aside
     nodes[2]["silence_s"] = 1  # refused by the API
-    nodes[3]["channels"] = ["builtin:push"]  # refused (Web Push is per account)
+    nodes[3]["channels"] = "x"  # refused (not a list)
+    nodes[6]["channels"] = ["builtin:push"]  # accepted since MSHL-400
     del nodes[5]["cooldown_s"]  # absent: the 3600 s default, not the minimum
     nodes[4]["cooldown_s"] = 0  # a legacy row: restored with the 60 s minimum, not dropped
     section = BackupSection(data={"channels": [], "rules": {"watched_nodes": nodes}})
@@ -778,4 +780,5 @@ async def test_watched_nodes_are_restored_through_the_api_checks_and_capped_at_5
     assert kept[0]["public_key"] == f"{0:064x}" and kept[0]["silence_s"] == 86_400
     assert kept[1]["public_key"] == f"{4:064x}" and kept[1]["cooldown_s"] == 60
     assert kept[2]["public_key"] == f"{5:064x}" and kept[2]["cooldown_s"] == 3600
+    assert kept[3]["public_key"] == f"{6:064x}" and kept[3]["channels"] == ["builtin:push"]
     assert {n["public_key"] for n in kept}.isdisjoint({f"{i:064x}" for i in (1, 2, 3)})
