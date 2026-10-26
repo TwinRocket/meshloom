@@ -12,7 +12,12 @@ import pytest
 from app.notifications import events as ev
 from app.notifications import failures
 from app.notifications.dispatcher import Dispatcher
-from app.notifications.render import PUSH_BODY_MAX, PUSH_TITLE_MAX, build_push_payload
+from app.notifications.render import (
+    PUSH_BODY_MAX,
+    PUSH_PAYLOAD_MAX_BYTES,
+    PUSH_TITLE_MAX,
+    build_push_payload,
+)
 from app.notifications.transports.base import SendResult
 from app.notifications.user_rules import (
     PushAudience,
@@ -125,6 +130,9 @@ def test_the_device_side_check_knows_the_instance_rule_payloads():
     assert not admin_push_payload({"event": "oss_update"})
 
 
+# -- the dispatcher ----------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [_keyword(), _node("node_seen"), _node("node_back")])
 async def test_instance_rule_pushes_reach_only_admin_devices(test_db, payload):
@@ -187,9 +195,7 @@ async def test_unreadable_owners_fail_closed(test_db, monkeypatch):
 # -- the producer ------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_a_keyword_rule_routes_web_push_with_the_message_audience(test_db, monkeypatch):
-    from app.notifications.producers import emit_message
+async def _keyword_rule_to_push(monkeypatch) -> list[dict]:
     from app.repository.notification_channels import NotificationChannelRepository
 
     seen: list[dict] = []
@@ -212,13 +218,94 @@ async def test_a_keyword_rule_routes_web_push_with_the_message_audience(test_db,
         }
     ]
     await NotificationChannelRepository.set_rules(rules)
+    return seen
 
-    await emit_message(
-        {"type": "CHAN", "conversation_key": KEY, "text": "Léa: secours", "sender_name": "Léa"}
-    )
+
+_SECOURS = {"type": "CHAN", "conversation_key": KEY, "text": "Léa: secours", "sender_name": "Léa"}
+
+
+@pytest.mark.asyncio
+async def test_a_keyword_rule_routes_web_push_with_the_message_audience(test_db, monkeypatch):
+    from app.notifications.producers import emit_message
+
+    admin = await _device("root", "admin", "https://push.example/root")
+    seen = await _keyword_rule_to_push(monkeypatch)
+
+    await emit_message(dict(_SECOURS))
     [keyword] = [s for s in seen if s["event"] == "message.keyword"]
     assert keyword["targets"] == ["builtin:push"]
-    assert isinstance(keyword["already"], PushAudience)
+    # The message's own Web Push audience: every account's default (the message itself), so
+    # the administrator already gets it and the keyword alert skips them.
+    already = keyword["already"]
+    assert isinstance(already, PushAudience) and already.per_user == {}
+    assert already.default is not None and already.default["text"] == "Léa: secours"
+    assert already.payload_for(admin) is not None
+    event = ev.event_from_payload(_keyword())
+    assert event is not None
+    assert instance_rule_audience([admin], {}, event, _keyword(), already=already) is None
+
+
+@pytest.mark.asyncio
+async def test_a_digest_mode_web_push_still_gets_the_keyword_alert(test_db, monkeypatch):
+    from app.notifications.producers import emit_message
+
+    admin = await _device("root", "admin", "https://push.example/root")
+    seen = await _keyword_rule_to_push(monkeypatch)
+
+    async def digest() -> set[str]:
+        return {"builtin:push"}
+
+    # Web Push in digest mode only counts the message in its summary (MSHL-136): the
+    # administrator the message targets does not "already" get it, so the alert reaches them.
+    monkeypatch.setattr("app.notifications.producers._digest_channels", digest)
+    await emit_message(dict(_SECOURS))
+    [keyword] = [s for s in seen if s["event"] == "message.keyword"]
+    assert keyword["targets"] == ["builtin:push"]
+    assert keyword["already"] is None
+    event = ev.event_from_payload(_keyword())
+    assert event is not None
+    audience = instance_rule_audience(
+        [admin], {}, event, _keyword(), already=keyword["already"], now=T0
+    )
+    assert audience is not None and set(audience.per_user) == {admin}
+
+
+@pytest.mark.asyncio
+async def test_a_watched_node_routes_web_push_to_admin_devices(test_db, monkeypatch):
+    from app.notifications import dispatcher as dispatcher_module
+    from app.notifications import watched_nodes as wn
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    admin = await _device("root", "admin", "https://push.example/root")
+    member = await _device("bob", "member", "https://push.example/bob")
+    transport = Capture()
+    dispatcher = _dispatcher(transport)
+    now = [float(T0)]
+    dispatcher_module.notification_dispatcher()._dedup._wall = lambda: now[0]
+
+    async def real_emit(event, **kw):
+        return await dispatcher.emit(event, **kw)
+
+    monkeypatch.setattr("app.notifications.dispatcher.emit", real_emit)
+    rules = await NotificationChannelRepository.get_rules()
+    rules["watched_nodes"] = [
+        {"public_key": NODE, "channels": ["builtin:push"], "cooldown_s": 3600, "silence_s": 86_400}
+    ]
+    await NotificationChannelRepository.set_rules(rules)
+
+    await wn.observe_sighting(NODE, name="Relay", contact_type=2, now=T0)
+    now[0] = float(T0 + 2 * 86_400)
+    await wn.observe_sighting(NODE, name="Relay", contact_type=2, now=T0 + 2 * 86_400)
+    await dispatcher.wait_idle()
+
+    assert [(c, name) for c, name, _ in transport.calls] == [
+        ("builtin:push", "contact.node_seen"),
+        ("builtin:push", "contact.node_back"),
+    ]
+    for _c, _n, audience in transport.calls:
+        assert isinstance(audience, PushAudience) and audience.default is None
+        assert audience.payload_for(admin) is not None
+        assert audience.payload_for(member) is None
 
 
 # -- the device side -----------------------------------------------------------------------
@@ -272,6 +359,9 @@ async def test_the_device_side_never_sends_an_instance_rule_push_to_a_member(mon
     # Even an audience that names the member (a demotion between emit and send).
     await pm.dispatch_event(payload, PushAudience(default=payload, per_user={2: payload}))
     assert list(sent) == ["a"]
+
+
+# -- privacy and size ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -336,7 +426,27 @@ def test_a_long_message_is_clipped_for_the_push_service():
     assert len(rendered["title"]) <= PUSH_TITLE_MAX
     assert len(rendered["body"]) <= PUSH_BODY_MAX
     assert rendered["body"].endswith("…")
-    assert len(json.dumps(rendered).encode()) < 3000
+    assert len(json.dumps(rendered).encode()) <= PUSH_PAYLOAD_MAX_BYTES
+
+
+@pytest.mark.parametrize("unit", ["é", "😀", "👩‍👩‍👧", '"', "\\", "\u0001"])
+@pytest.mark.parametrize("lang", ["en", "fr"])
+def test_the_serialized_push_fits_the_byte_budget(unit, lang):
+    """Accents, emojis and JSON escapes count in bytes, not characters ("é" is 6 bytes and
+    "😀" 12 once escaped): the payload as sent stays within the budget, valid JSON with no
+    split code point."""
+    long = unit * 5000
+    raw = build_push_payload(_keyword(text=long, channel_name="#" + long, sender_name=long), lang)
+    assert len(raw.encode()) <= PUSH_PAYLOAD_MAX_BYTES
+    rendered = json.loads(raw)
+    assert rendered["title"]
+    if unit.isprintable():  # a control character is not shown at all
+        assert rendered["body"].endswith("…") and len(rendered["body"]) > 100
+
+
+def test_a_short_accented_message_is_sent_whole():
+    rendered = json.loads(build_push_payload(_keyword(text="Léa: café à 8 h 😀"), "fr"))
+    assert rendered["body"] == "Léa: café à 8 h 😀"
 
 
 # -- eviction --------------------------------------------------------------------------

@@ -336,8 +336,12 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   the app (`may_read_message`: `read_private` for a DM, `read` for a channel; an unknown role
   may not). Any other device gets `redact_message()`: `build_push_payload` then renders a generic
   FR/EN notice ("New message" / "Keyword alert", "Open Meshloom to see it.") with no text, sender,
-  channel or keyword. A message push clips its title to `PUSH_TITLE_MAX` (120) and its body to
-  `PUSH_BODY_MAX` (1000) characters so it stays far below the ~4 KB Web Push limit.
+  channel or keyword. Keyword alerts only reach admins, so
+  their redaction is defense in depth. A message push clips its title to `PUSH_TITLE_MAX` (120)
+  and its body to `PUSH_BODY_MAX` (1000) characters, then `_fit_push_payload` shortens the body
+  (then the title) until the JSON as sent (`json.dumps`, ASCII-escaped: "é" is
+  6 bytes, "😀" 12) is at most `PUSH_PAYLOAD_MAX_BYTES` (3000) bytes, below the 4096-byte
+  encrypted Web Push limit whatever the accents or emojis.
 - **Fanout duplicates and conversion** (`fanout_convert.py`, MSHL-134): `POST /channels`
   answers `fanout_duplicates: [{id, name}]`, the enabled, unconverted Apprise fanout rows whose
   URLs match the new channel's (presets compiled, generic Apprise `urls`, Discord `webhook_url`).

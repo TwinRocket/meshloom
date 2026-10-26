@@ -3,7 +3,7 @@
     "notifications": {
       "keywords": {
         "title": "Mots-clés",
-        "help": "Notifie un canal quand un message contient un mot ou une expression, en plus des notifications habituelles. Un canal qui reçoit déjà le message ne l’a pas deux fois. Un mot-clé ne rend jamais une notification urgente, et les conversations en sourdine, bloquées ou en pause restent silencieuses. Web Push n’atteint que les appareils des administrateurs, sans le texte du message sur un appareil dont le titulaire ne peut pas le lire.",
+        "help": "Notifie un canal quand un message contient un mot ou une expression, en plus des notifications habituelles. Un canal qui reçoit déjà le message ne l’a pas deux fois. Un mot-clé ne rend jamais une notification urgente, et les conversations en sourdine, bloquées ou en pause restent silencieuses. Web Push n’atteint que les appareils des administrateurs.",
         "forgery": "N’importe qui à portée peut écrire un mot-clé dans un canal : les messages de canal ne sont pas authentifiés, un message qui correspond peut donc être forgé. Ne vous fiez pas à un mot-clé seul pour quoi que ce soit de critique. Chaque règle a un délai de récupération, et un même expéditeur ne peut pas redéclencher la même règle avant 15 minutes.",
         "empty": "Aucune règle de mot-clé pour l’instant.",
         "count": "{{count}} règle(s) sur {{max}}",

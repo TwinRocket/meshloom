@@ -659,7 +659,7 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
     else:
         url_hash = f"#channel/{conversation_key}"
 
-    return json.dumps(
+    return _fit_push_payload(
         {
             "title": _clip(title, PUSH_TITLE_MAX),
             "body": _clip(body, PUSH_BODY_MAX),
@@ -674,17 +674,58 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
     )
 
 
-# A Web Push payload must stay under about 4 KB once encrypted (RFC 8291; push services refuse
-# more): a mesh message is far shorter, but the title and body of a message are clipped anyway
-# (MSHL-400), so a long channel name, sender or text never makes a push service drop it.
+# A Web Push payload must stay under 4096 bytes once encrypted (RFC 8291 aes128gcm: 86 bytes of
+# header, a 16-byte tag and a padding delimiter; push services refuse more). A message push
+# (MSHL-400) clips its title and body to a readable length in characters, then
+# `_fit_push_payload` shortens the body (then the title) until the JSON as sent fits
+# `PUSH_PAYLOAD_MAX_BYTES`, whatever the script or the emojis: `json.dumps` escapes every
+# non-ASCII character, so one counts 6 bytes ("é") to 12 ("😀"), not one.
 PUSH_TITLE_MAX = 120
 PUSH_BODY_MAX = 1000
+PUSH_PAYLOAD_MAX_BYTES = 3000
 
 
 def _clip(text: str, limit: int) -> str:
     """``text`` cut to ``limit`` characters (an ellipsis replacing the end): never splits a
     code point, so the JSON stays valid."""
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _json_len(text: str) -> int:
+    """Bytes ``text`` takes inside a ``json.dumps`` string (ASCII escapes, no quotes)."""
+    return len(json.dumps(text)) - 2
+
+
+def _clip_json(text: str, max_len: int) -> str:
+    """``text`` cut so it takes at most ``max_len`` bytes once JSON-escaped, an ellipsis (6
+    bytes, ``\\u2026``) replacing the end; a code point is kept or dropped whole. Too small a
+    budget gives ``""``."""
+    if _json_len(text) <= max_len:
+        return text
+    budget, kept = max_len - _json_len("…"), 0
+    for index, char in enumerate(text):
+        budget -= _json_len(char)
+        if budget < 0:
+            kept = index
+            break
+    return text[:kept] + "…" if kept else ""
+
+
+def _fit_push_payload(payload: dict[str, str]) -> str:
+    """``payload`` as sent (``json.dumps``, ASCII only, so bytes are characters) of at most
+    ``PUSH_PAYLOAD_MAX_BYTES``: the body, then the title, shrink by the excess until it fits.
+    Each pass strictly shortens the field, so the loop ends."""
+    for field in ("body", "title"):
+        while True:
+            encoded = json.dumps(payload)
+            over = len(encoded) - PUSH_PAYLOAD_MAX_BYTES
+            if over <= 0:
+                return encoded
+            text = payload[field]
+            if not text:
+                break
+            payload[field] = _clip_json(text, _json_len(text) - over)
+    return json.dumps(payload)
 
 
 def _redacted_push_payload(data: Mapping[str, Any], lang: str) -> str:
