@@ -286,7 +286,8 @@ async def _open_envelope(
 ) -> tuple[ShareObject, str]:
     """The image sealed in an encrypted object, checked like a public one, and its name.
 
-    The name's extension is forced to the checked type (``_served_name``). The secret comes from the conversation of ``message`` only: no message, no
+    The name's extension is forced to the checked type (``_served_name``). The
+    secret comes from the conversation of ``message`` only: no message, no
     resolvable secret, or a failed authentication is 422 ``share_undecryptable``
     (no partial output). The decrypted type is sender-controlled: it must be an
     allowlisted image whose magic bytes and header agree (``checked_object``),
