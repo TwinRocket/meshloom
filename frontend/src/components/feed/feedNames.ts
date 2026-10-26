@@ -2,6 +2,7 @@ import type { Channel, Contact, Message } from '../../types';
 import { isPendingChannel } from '../../utils/channelMembership';
 import { parseSenderFromText } from '../../utils/messageParser';
 import { getContactDisplayName } from '../../utils/pubkey';
+import { isPrivateChannel } from '../../utils/sharePayload';
 
 export interface FeedRowLabels {
   /** Channel name, or contact display name, as shown in the row header. */
@@ -14,6 +15,8 @@ export interface FeedRowLabels {
   content: string;
   /** The channel is not adopted yet: its media must not load. */
   pendingChannel: boolean;
+  /** A DM or a private channel (key not derived from the name), for the share preview policy. */
+  privateConversation?: boolean;
 }
 
 export interface FeedNameResolver {
@@ -57,6 +60,7 @@ export function createFeedNameResolver(
         senderKey: row.sender_key ? row.sender_key.slice(0, CONTACT_KEY_PREFIX) : null,
         content: parsed.sender ? parsed.content : row.text,
         pendingChannel: isPendingChannel(channel),
+        privateConversation: isPrivateChannel(channel),
       };
     }
     return {
@@ -68,6 +72,7 @@ export function createFeedNameResolver(
       senderKey: null,
       content: row.text,
       pendingChannel: false,
+      privateConversation: true,
     };
   };
   return (row) => {

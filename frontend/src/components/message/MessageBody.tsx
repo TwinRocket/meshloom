@@ -1,6 +1,6 @@
 import { useRichPayloads } from '../../contexts/RichPayloadContext';
 import { renderTextWithMentions } from '../../utils/messageText';
-import { renderMeshcoreOpenPayload } from './richPayloads';
+import { renderMeshcoreOpenPayload, SharePayload, type ShareMessageContext } from './richPayloads';
 
 interface MessageBodyProps {
   /** Message text without the channel "Sender: " prefix. */
@@ -12,11 +12,21 @@ interface MessageBodyProps {
    * its raw text. Defaults to true, the conversation behaviour.
    */
   remoteMedia?: boolean;
+  /**
+   * The message, for a shared image: its id (`?message_id=`) and the sender, matched
+   * against the block lists. Without it a shared image never loads on its own.
+   */
+  message?: ShareMessageContext;
+  /**
+   * A DM or a private channel (key not derived from the name): the `private` preview
+   * policy loads a shared image there without a tap. Defaults to false.
+   */
+  privateConversation?: boolean;
 }
 
 /**
  * The one place that renders a message's text and rich payloads (GIF, location,
- * reactions, links, mentions, #channel references). The conversation, search
+ * reactions, links, mentions, #channel references, shared images). The conversation, search
  * results and the feed all go through it so a message looks the same everywhere.
  */
 export function MessageBody({
@@ -24,6 +34,8 @@ export function MessageBody({
   radioName,
   onChannelReferenceClick,
   remoteMedia = true,
+  message,
+  privateConversation = false,
 }: MessageBodyProps) {
   const { renderRichPayloads } = useRichPayloads();
   return (
@@ -41,6 +53,12 @@ export function MessageBody({
             {i < arr.length - 1 && <br />}
           </span>
         ))}
+      <SharePayload
+        content={content}
+        message={message}
+        privateConversation={privateConversation}
+        remoteMedia={remoteMedia && !!message}
+      />
     </div>
   );
 }

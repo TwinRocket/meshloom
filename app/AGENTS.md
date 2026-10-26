@@ -430,7 +430,13 @@ Community guard.
   `EnvelopeError`; only its code is logged); the decrypted type must be an allowlisted
   image passing `checked_object`, else 415/413; served `inline` with the sanitised name
   in `filename*=UTF-8''...` (percent-encoded)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
-  sharing off, no egress), `POST /files` (`send`; raw image body, not multipart; checks in
+  sharing off, no egress), `POST /{id}/report` (`send`; MSHL-246; body
+  `ShareReportRequest` `{reason, details?}`, `extra=forbid`, the contract's 8 reasons,
+  details up to 2000, else 422 with no request; then off `share_disabled`, bad id
+  `share_invalid_id`, then `share.report_object` (JWT bound to `id\nreason`, so the
+  service records the instance key); 202 `{received: true}`, service errors coded
+  (`share_quota_key`, `share_banned`...); tests `tests/test_share_report.py`),
+  `POST /files` (`send`; raw image body, not multipart; checks in
   order: off `share_disabled`, a mode other than `public`/`encrypted` or a
   `Transfer-Encoding` 400, a type outside `IMAGE_CONTENT_TYPES` 415, `Content-Length`
   missing/malformed 400 or over the type cap 413 before reading, `X-Share-Name`
@@ -1233,6 +1239,11 @@ Mechanics and constants: `docs/dev/community-client.md`. Contracts:
 - **Hashtag names** are published only for a `#` channel whose key is derived
   from its name (`is_public_hashtag_channel`); a `#` name on a channel with its
   own secret is private and never leaves.
+- **`Channel.key_derived`** (MSHL-246): a pydantic `computed_field` on the `Channel`
+  model, `is_public_hashtag_channel(name, key)`, so every channel payload (REST and WS)
+  carries it and input ignores it; never stored. The Public channel is `false` (its
+  key is not name-derived): the frontend treats it apart (`isPublicChannelKey`).
+  Tests: `tests/test_channel_key_derived.py`.
 - **Parsing.** An unknown `position_precision` parses as `null`, so a successful
   bind never turns into a 500.
 - **Live relay** (`community_live.py`): one process-wide upstream socket; frames go

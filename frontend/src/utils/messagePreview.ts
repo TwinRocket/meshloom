@@ -6,12 +6,13 @@ import {
   parseMeshCoreOneReaction,
   parseReaction,
   richMessageBody,
+  splitReplyMention,
   type ParsedReaction,
 } from './meshcoreOpenPayloads';
 import { parseSenderFromText } from './messageParser';
 import i18n from '../i18n';
 import { getShareStatusSnapshot } from '../stores/shareMetaStore';
-import { DEFAULT_SHARE_HOSTS, splitShareLinkBody } from './shareLinks';
+import { DEFAULT_SHARE_HOSTS, parseShareLink, splitShareLinkBody } from './shareLinks';
 
 const EXCERPT_MAX = 40;
 
@@ -70,16 +71,36 @@ export function describeMessagePreview(text: string, context: MessagePreviewCont
   if (reaction) return describeReactionPreview(reaction, sender, context);
 
   // From the text only: no network, no request for the link's meta.
-  const shared = splitShareLinkBody(
-    payload,
-    getShareStatusSnapshot()?.hosts ?? DEFAULT_SHARE_HOSTS
-  );
+  const hosts = getShareStatusSnapshot()?.hosts ?? DEFAULT_SHARE_HOSTS;
+  const file = sharedFileKind(payload, hosts);
+  if (file) {
+    const line =
+      file === 'image'
+        ? `📷 ${i18n.t('messagePreview.shareImage')}`
+        : `🔒 ${i18n.t('messagePreview.shareEncrypted')}`;
+    return sender ? `${sender}: ${line}` : line;
+  }
+  const shared = splitShareLinkBody(payload, hosts);
   if (shared) {
     const line = `🔗 ${shared.caption || i18n.t('messagePreview.shareLink')}`;
     return sender ? `${sender}: ${line}` : line;
   }
 
   return text;
+}
+
+/**
+ * A shared file message, from its text: `📷 <service link>` is an image, `🔒 <service
+ * link>` an encrypted file (its key may follow the link as a `#fragment`). An optional
+ * reply mention (`@[Name] `) comes first.
+ */
+function sharedFileKind(payload: string, hosts: readonly string[]): 'image' | 'encrypted' | null {
+  const body = splitReplyMention(payload)?.body ?? payload;
+  const match = /^(📷|🔒)\s+(\S+)/u.exec(body);
+  if (!match) return null;
+  const url = match[2].replace(/#.*$/, '');
+  if (!parseShareLink(url, hosts)) return null;
+  return match[1] === '📷' ? 'image' : 'encrypted';
 }
 
 const TIGHT_REACTION = /^(.+):(r:[0-9a-f]{4}:[0-9a-f]{2})$/;

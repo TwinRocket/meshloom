@@ -1,0 +1,36 @@
+{
+  "messagePreview": {
+    "shareImage": "Image",
+    "shareEncrypted": "Encrypted file"
+  },
+  "sharePayload": {
+    "tapToLoad": "Tap to load the image",
+    "tapToLoadHint": "Nothing is downloaded until you tap",
+    "loading": "Loading the image…",
+    "gone": "This image expired or was removed.",
+    "imageAlt": "Shared image",
+    "openImage": "Open the image in a new tab",
+    "download": "Download the image",
+    "tooLarge": "Too large to show here ({{size, number}} MiB)",
+    "report": {
+      "button": "Report",
+      "title": "Report this image",
+      "description": "The report goes to the share service, signed with this Meshloom's key. Its moderators review it.",
+      "reason": "Reason",
+      "details": "Details (optional)",
+      "submit": "Send the report",
+      "cancel": "Cancel",
+      "sent": "Report sent. Thank you.",
+      "reasons": {
+        "illegal": "Illegal content",
+        "child_abuse": "Child sexual abuse",
+        "phishing": "Phishing or scam",
+        "malware": "Malware",
+        "spam": "Spam",
+        "copyright": "Copyright infringement",
+        "privacy": "Privacy violation",
+        "other": "Other"
+      }
+    }
+  }
+}

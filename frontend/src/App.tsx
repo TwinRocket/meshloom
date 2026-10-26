@@ -37,6 +37,7 @@ import type { MessageInputHandle } from './components/MessageInput';
 import { DistanceUnitProvider } from './contexts/DistanceUnitContext';
 import { PathHopWidthProvider } from './contexts/PathHopWidthContext';
 import { RichPayloadProvider } from './contexts/RichPayloadContext';
+import { BlockedSendersProvider } from './contexts/BlockedSendersContext';
 import { NotificationStatusProvider } from './contexts/NotificationStatusContext';
 import { messageContainsMention } from './utils/messageParser';
 import { getStateKey } from './utils/conversationState';
@@ -86,6 +87,8 @@ export function resolveUnreadMarkerId(
   return oldestLoaded.id;
 }
 
+/** Stable empty block list, so the provider value does not change on every render. */
+const NO_BLOCKED: readonly string[] = [];
 export function App() {
   const { t } = useTranslation();
   const quoteSearchOperatorValue = useCallback((value: string) => {
@@ -916,51 +919,56 @@ export function App() {
         renderRichPayloads={renderRichPayloads}
         setRenderRichPayloads={setRenderRichPayloads}
       >
-        <PathHopWidthProvider
-          showPathHopWidth={showPathHopWidth}
-          setShowPathHopWidth={setShowPathHopWidth}
+        <BlockedSendersProvider
+          blockedKeys={appSettings?.blocked_keys ?? NO_BLOCKED}
+          blockedNames={appSettings?.blocked_names ?? NO_BLOCKED}
         >
-          <NotificationStatusProvider statuses={health?.notification_statuses}>
-            <AppShell
-              navRailOrder={appSettings?.ui_preferences?.nav_rail}
-              serverLabel={serverLabel}
-              showNewMessage={showNewMessage}
-              showBulkAddResults={bulkAddResult !== null}
-              showSettings={showSettings}
-              settingsSection={settingsSection}
-              sidebarOpen={sidebarOpen}
-              showCracker={showCracker}
-              onSettingsSectionChange={setSettingsSection}
-              onSidebarOpenChange={setSidebarOpen}
-              onCrackerRunningChange={setCrackerRunning}
-              onToggleSettingsView={handleToggleSettingsView}
-              onClearActiveConversation={() => {
-                // The hash has to go with it: left behind, the router reads it on the
-                // next pass and reopens the conversation that was just closed.
-                updateUrlHash(null);
-                setActiveConversation(null);
-              }}
-              onCloseSettingsView={handleCloseSettingsView}
-              onCloseNewMessage={handleCloseNewMessage}
-              onCloseBulkAddResults={handleCloseBulkAddResults}
-              statusProps={statusProps}
-              sidebarProps={sidebarProps}
-              conversationPaneProps={conversationPaneProps}
-              searchProps={searchProps}
-              settingsProps={settingsProps}
-              crackerProps={crackerProps}
-              newMessageModalProps={newMessageModalProps}
-              bulkAddChannelResultModalProps={bulkAddChannelResultModalProps}
-              contactInfoPaneProps={contactInfoPaneProps}
-              channelInfoPaneProps={channelInfoPaneProps}
-              onRepeaterAutoLogin={handleRepeaterAutoLogin}
-              onIdentityAdopted={handleIdentityAdopted}
-              conversationListCollapsed={desktopSidebarCollapsed}
-              onToggleConversationList={handleToggleDesktopSidebar}
-              onExpandConversationList={handleExpandDesktopSidebar}
-            />
-          </NotificationStatusProvider>
-        </PathHopWidthProvider>
+          <PathHopWidthProvider
+            showPathHopWidth={showPathHopWidth}
+            setShowPathHopWidth={setShowPathHopWidth}
+          >
+            <NotificationStatusProvider statuses={health?.notification_statuses}>
+              <AppShell
+                navRailOrder={appSettings?.ui_preferences?.nav_rail}
+                serverLabel={serverLabel}
+                showNewMessage={showNewMessage}
+                showBulkAddResults={bulkAddResult !== null}
+                showSettings={showSettings}
+                settingsSection={settingsSection}
+                sidebarOpen={sidebarOpen}
+                showCracker={showCracker}
+                onSettingsSectionChange={setSettingsSection}
+                onSidebarOpenChange={setSidebarOpen}
+                onCrackerRunningChange={setCrackerRunning}
+                onToggleSettingsView={handleToggleSettingsView}
+                onClearActiveConversation={() => {
+                  // The hash has to go with it: left behind, the router reads it on the
+                  // next pass and reopens the conversation that was just closed.
+                  updateUrlHash(null);
+                  setActiveConversation(null);
+                }}
+                onCloseSettingsView={handleCloseSettingsView}
+                onCloseNewMessage={handleCloseNewMessage}
+                onCloseBulkAddResults={handleCloseBulkAddResults}
+                statusProps={statusProps}
+                sidebarProps={sidebarProps}
+                conversationPaneProps={conversationPaneProps}
+                searchProps={searchProps}
+                settingsProps={settingsProps}
+                crackerProps={crackerProps}
+                newMessageModalProps={newMessageModalProps}
+                bulkAddChannelResultModalProps={bulkAddChannelResultModalProps}
+                contactInfoPaneProps={contactInfoPaneProps}
+                channelInfoPaneProps={channelInfoPaneProps}
+                onRepeaterAutoLogin={handleRepeaterAutoLogin}
+                onIdentityAdopted={handleIdentityAdopted}
+                conversationListCollapsed={desktopSidebarCollapsed}
+                onToggleConversationList={handleToggleDesktopSidebar}
+                onExpandConversationList={handleExpandDesktopSidebar}
+              />
+            </NotificationStatusProvider>
+          </PathHopWidthProvider>
+        </BlockedSendersProvider>
       </RichPayloadProvider>
     </DistanceUnitProvider>
   );

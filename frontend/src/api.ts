@@ -159,6 +159,7 @@ import type {
   UnreadCounts,
   ShareLink,
   ShareMeta,
+  ShareReportRequest,
   PluginInstance,
   ShareFile,
   ShareStatus,
@@ -1360,6 +1361,11 @@ export const api = {
     fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),
   uploadShareFile,
   getShareMeta: (id: string) => fetchJson<ShareMeta>(`/share/${encodeURIComponent(id)}/meta`),
+  reportShare: (id: string, body: ShareReportRequest) =>
+    fetchJson<{ received: boolean }>(`/share/${encodeURIComponent(id)}/report`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   // Notifications (admin). The push preference routes below are deprecated shims, removed
   // in 5.2.0: use the rules.
   getNotificationTypes: () => fetchJson<NotificationTypeInfo[]>('/notifications/types'),

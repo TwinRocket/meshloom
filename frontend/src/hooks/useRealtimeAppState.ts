@@ -47,6 +47,7 @@ import type {
   RadioWifiState,
   RawPacket,
 } from '../types';
+import { isMessageBlocked } from '../utils/messageBlocking';
 
 interface UseRealtimeAppStateArgs {
   prevHealthRef: MutableRefObject<HealthStatus | null>;
@@ -87,27 +88,6 @@ interface UseRealtimeAppStateArgs {
   removeMessage: (messageId: number) => void;
   /** Buffer cap override. Defaults to the store's own cap; tests use it to force eviction. */
   maxRawPackets?: number;
-}
-
-function isMessageBlocked(msg: Message, blockedKeys: string[], blockedNames: string[]): boolean {
-  if (msg.outgoing) {
-    return false;
-  }
-
-  if (blockedKeys.length > 0) {
-    if (msg.type === 'PRIV' && blockedKeys.includes(msg.conversation_key.toLowerCase())) {
-      return true;
-    }
-    if (
-      msg.type === 'CHAN' &&
-      msg.sender_key &&
-      blockedKeys.includes(msg.sender_key.toLowerCase())
-    ) {
-      return true;
-    }
-  }
-
-  return blockedNames.length > 0 && !!msg.sender_name && blockedNames.includes(msg.sender_name);
 }
 
 /** Keys changed by WebSocket deltas while a reconnect REST snapshot is in flight. */

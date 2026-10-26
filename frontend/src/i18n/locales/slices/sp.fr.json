@@ -1,0 +1,36 @@
+{
+  "messagePreview": {
+    "shareImage": "Image",
+    "shareEncrypted": "Fichier chiffré"
+  },
+  "sharePayload": {
+    "tapToLoad": "Toucher pour charger l'image",
+    "tapToLoadHint": "Rien n'est téléchargé avant que vous touchiez",
+    "loading": "Chargement de l'image…",
+    "gone": "Cette image a expiré ou a été supprimée.",
+    "imageAlt": "Image partagée",
+    "openImage": "Ouvrir l'image dans un nouvel onglet",
+    "download": "Télécharger l'image",
+    "tooLarge": "Trop lourde pour s'afficher ici ({{size, number}} Mio)",
+    "report": {
+      "button": "Signaler",
+      "title": "Signaler cette image",
+      "description": "Le signalement part vers le service de partage, signé avec la clé de ce Meshloom. Ses modérateurs l'examinent.",
+      "reason": "Motif",
+      "details": "Précisions (facultatif)",
+      "submit": "Envoyer le signalement",
+      "cancel": "Annuler",
+      "sent": "Signalement envoyé. Merci.",
+      "reasons": {
+        "illegal": "Contenu illégal",
+        "child_abuse": "Abus sexuel sur mineur",
+        "phishing": "Hameçonnage ou arnaque",
+        "malware": "Logiciel malveillant",
+        "spam": "Spam",
+        "copyright": "Atteinte au droit d'auteur",
+        "privacy": "Atteinte à la vie privée",
+        "other": "Autre"
+      }
+    }
+  }
+}

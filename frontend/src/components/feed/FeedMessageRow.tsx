@@ -228,6 +228,8 @@ export const FeedMessageRow = memo(function FeedMessageRow({
         content={labels.content}
         radioName={radioName}
         remoteMedia={remoteMedia && !labels.pendingChannel}
+        message={row}
+        privateConversation={labels.privateConversation ?? false}
       />
     </div>
   );
