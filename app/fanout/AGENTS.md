@@ -170,7 +170,11 @@ reach every module.
   guard), the scope becomes rules, the row is disabled and marked
   `config.converted_to = <channel id>`. Before creating the channel it writes
   `config.converting_to = <new channel id>` (write-ahead): a retry after a failure in
-  between reuses that channel or creates it under that id, never a second one. Clients
+  between reuses that channel or creates it under that id, never a second one. If the
+  duplicate prompt then attaches the still-marked row to another channel, the pending
+  channel is deleted first (with its secrets and rules) while untouched (same settings and
+  secrets, no other row marked with it, no hand-made rule), else kept with the note
+  `pending_channel_kept`. Clients
   cannot set or clear either key (create drops them, update keeps the stored values);
   backup and restore carry them as part of `config`. A second call is a no-op
   (`already_converted`). The answer has no `config` at all (channel and row by id,

@@ -16,7 +16,8 @@
           "include_outgoing_unsupported": "Your own outgoing messages are not notified: notification channels have no equivalent.",
           "private_channels_need_exception": "Channels with their own key are notified only through a per-conversation exception: add one in the conversation’s notification settings.",
           "template_dm_dropped": "The DM format was too long for a template and was not kept.",
-          "template_channel_dropped": "The channel message format was too long for a template and was not kept."
+          "template_channel_dropped": "The channel message format was too long for a template and was not kept.",
+          "pending_channel_kept": "A channel left by an earlier, interrupted conversion was kept because it was changed or is used elsewhere. Delete it under Notifications if you no longer need it."
         }
       }
     },
