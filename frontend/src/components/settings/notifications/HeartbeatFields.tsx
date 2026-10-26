@@ -81,9 +81,7 @@ export function HeartbeatFields({
               autoComplete="off"
               disabled={disabled || draft.heartbeat_url_clear}
               placeholder={
-                urlSet
-                  ? t('settings.notifications.heartbeat.urlKept')
-                  : 'https://hc-ping.com/…'
+                urlSet ? t('settings.notifications.heartbeat.urlKept') : 'https://hc-ping.com/…'
               }
               onChange={(event) => onChange({ heartbeat_url: event.target.value })}
             />
