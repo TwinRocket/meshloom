@@ -452,3 +452,68 @@ async def test_clients_cannot_set_or_clear_the_write_ahead_mark(test_db, client,
     patched = await client.patch(f"/api/fanout/{row['id']}", json={"config": edited})
     assert patched.status_code == 200, patched.text
     assert (await FanoutConfigRepository.get(row["id"]))["config"]["converting_to"] == mark
+
+
+async def _interrupted(monkeypatch):
+    """A row whose conversion created its channel but failed to disable it (still marked)."""
+    from app.notifications import fanout_convert
+
+    row = await _row()
+    real = fanout_convert._disable_row
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(fanout_convert, "_disable_row", broken)
+    with pytest.raises(RuntimeError):
+        await fanout_convert.convert_fanout_row(row["id"])
+    monkeypatch.setattr(fanout_convert, "_disable_row", real)
+    pending = (await FanoutConfigRepository.get(row["id"]))["config"]["converting_to"]
+    assert await NotificationChannelRepository.get(pending) is not None
+    return row, pending
+
+
+async def test_the_duplicate_prompt_deletes_the_pending_channel_of_a_marked_row(
+    test_db, client, monkeypatch
+):
+    """MSHL-403: attaching a still-marked row elsewhere leaves no orphan channel, no secret."""
+    from app.repository.notification_channels import strip_channel_from_rules
+
+    row, pending = await _interrupted(monkeypatch)
+    created = await client.post(
+        "/api/notifications/channels",
+        json={"type": "apprise", "name": "Same", "config": {"urls": JSON_URL}},
+    )
+    assert created.status_code == 201, created.text
+    target = created.json()["id"]
+    assert created.json()["fanout_duplicates"] == [{"id": row["id"], "name": "Alerts"}]
+
+    for _ in range(2):  # a retry is a no-op
+        merged = await client.post(CONVERT.format(row["id"]), json={"channel_id": target})
+        assert merged.status_code == 200, merged.text
+        _assert_no_url_or_secret(merged.json(), [JSON_URL])
+        assert merged.json()["channel"]["id"] == target
+    assert await NotificationChannelRepository.get(pending) is None
+    assert [
+        c.id for c in await NotificationChannelRepository.list_all() if c.id in (pending, target)
+    ] == [target]
+    done = await FanoutConfigRepository.get(row["id"])
+    assert done["enabled"] is False
+    assert done["config"]["converted_to"] == target
+    assert "converting_to" not in done["config"]
+    # Neither its rules nor its row (with the sealed secret, checked above) survive.
+    rules = await _rules(client)
+    assert not strip_channel_from_rules(rules, pending)
+
+
+async def test_the_duplicate_prompt_into_the_pending_channel_reuses_it(
+    test_db, client, monkeypatch
+):
+    row, pending = await _interrupted(monkeypatch)
+    merged = await client.post(CONVERT.format(row["id"]), json={"channel_id": pending})
+    assert merged.status_code == 200, merged.text
+    assert merged.json()["channel"]["id"] == pending
+    assert sum(c.name == "Alerts" for c in await NotificationChannelRepository.list_all()) == 1
+    done = await FanoutConfigRepository.get(row["id"])
+    assert done["config"]["converted_to"] == pending
+    assert "converting_to" not in done["config"]

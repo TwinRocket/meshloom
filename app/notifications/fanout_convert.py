@@ -28,7 +28,9 @@ that reproduce the row's scope, then disables the row and stores ``config.conver
   channel returned, nothing created. Not atomic across the two tables, so the row is marked
   ``converting_to`` (the new channel's id) before the channel is created: a retry after a
   failure between the steps reuses that channel, or creates it under that id, never a second. ``into`` (the duplicate prompt) attaches the row to an
-  existing channel instead: only the rules are added, the channel's settings stay.
+  existing channel instead: only the rules are added, the channel's settings stay. A channel
+  an interrupted conversion left under ``converting_to`` is deleted first (MSHL-403), with its
+  secrets and rules, unless it is the ``into`` channel itself.
 
 **Duplicates.** ``fanout_duplicates`` compares a channel's destination with the active
 (enabled, not converted) fanout Apprise rows. A converted row turned back on (the UI asks
@@ -265,6 +267,21 @@ async def _disable_row(row: dict[str, Any], channel_id: str) -> dict[str, Any]:
     return updated
 
 
+async def _drop_pending_channel(channel_id: str) -> None:
+    """Delete the channel an interrupted conversion created (``CONVERTING_TO``) when the
+    duplicate prompt attaches the row elsewhere: it would be left orphaned. The row keeps the
+    mark until ``_disable_row``, so a retry finds the channel gone and deletes nothing."""
+    from app.repository.notification_channels import NotificationChannelRepository
+
+    try:
+        await NotificationChannelRepository.delete(channel_id)
+    except ChannelError as exc:
+        if exc.code != "channel_missing":
+            raise
+        return
+    logger.info("Pending conversion channel %s deleted (row attached elsewhere)", channel_id)
+
+
 async def convert_fanout_row(config_id: str, *, into: str | None = None) -> Conversion:
     """Convert one fanout Apprise row (module doc). Raises ``ConversionError`` or
     ``ChannelError`` (the channel checks), coded, never with a URL."""
@@ -299,6 +316,9 @@ async def convert_fanout_row(config_id: str, *, into: str | None = None) -> Conv
         channel = await NotificationChannelRepository.get(into)
         if channel is None:
             raise ConversionError("channel_missing", 404)
+        pending = config.get(CONVERTING_TO)
+        if isinstance(pending, str) and pending and pending != channel.id:
+            await _drop_pending_channel(pending)
     else:
         body = _channel_body(row, notes)
         pending = config.get(CONVERTING_TO)
