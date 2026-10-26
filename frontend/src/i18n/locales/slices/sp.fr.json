@@ -33,6 +33,10 @@
         "other": "Autre"
       },
       "quota": "Les signalements sont limités à 5 par jour pour ce Meshloom. Réessayez demain."
-    }
+    },
+    "encrypted": "Chiffré",
+    "encryptedHint": "Scellé pour cette conversation ; Meshloom l'a déchiffré ici.",
+    "encryptedElsewhere": "Chiffré pour une autre conversation : il ne peut pas être ouvert ici.",
+    "encryptedUnavailable": "Ce fichier chiffré ne peut pas être lu pour le moment."
   }
 }

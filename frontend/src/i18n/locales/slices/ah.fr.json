@@ -21,6 +21,9 @@
     "share_upload_timeout": "L’envoi a mis trop de temps à arriver sur ce Meshloom. Vérifiez la connexion puis réessayez.",
     "share_storage_failed": "Ce Meshloom n’a pas pu enregistrer le fichier (disque plein ou dossier temporaire inutilisable). Un administrateur doit vérifier le dossier de données.",
     "share_not_owner": "Ce lien ou ce fichier n'a pas été partagé depuis ce Meshloom : il ne peut pas être supprimé ici.",
-    "share_object_blocked": "Le service de partage a bloqué ce lien ou ce fichier. Il ne peut pas être supprimé ; contactez le service si vous contestez ce blocage."
+    "share_object_blocked": "Le service de partage a bloqué ce lien ou ce fichier. Il ne peut pas être supprimé ; contactez le service si vous contestez ce blocage.",
+    "share_mode_not_allowed": "Les fichiers chiffrés ne sont pas possibles dans cette conversation : envoyez la photo en mode public.",
+    "share_radio_key_unavailable": "La clé de la radio n'a pas encore été lue : les fichiers chiffrés en message direct sont indisponibles. Réessayez plus tard ou envoyez en mode public.",
+    "share_undecryptable": "Ce fichier chiffré ne peut pas être déchiffré dans cette conversation."
   }
 }

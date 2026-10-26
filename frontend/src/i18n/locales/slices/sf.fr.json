@@ -25,6 +25,20 @@
         "unsupported": "Ce fichier n'est pas une photo partageable. Utilisez une image JPEG, PNG, WebP ou GIF.",
         "tooLarge": "Ce fichier est trop volumineux pour être partagé (10 Mio au plus une fois préparé, 5 Mio pour un GIF).",
         "decode": "Ce navigateur ne sait pas lire cette image."
+      },
+      "mode": {
+        "label": "Qui peut ouvrir la photo",
+        "public": "Public",
+        "encrypted": "Chiffré",
+        "publicHint": "Toute personne ayant le lien peut ouvrir la photo.",
+        "encryptedHint": "Scellée pour cette conversation : seuls ses membres peuvent ouvrir la photo.",
+        "dmUnavailable": "Les photos chiffrées en message direct ont besoin de la clé de la radio, que ce Meshloom n'a pas encore lue. Seul l'envoi public est possible pour l'instant.",
+        "noConversationId": "Ce Meshloom n'a pas donné d'identifiant de partage à ce canal : seul l'envoi public est possible.",
+        "clear": {
+          "public": "La clé du canal Public est connue de tous : les fichiers sont publiés en clair.",
+          "hashtag_derived": "La clé de ce canal est calculée à partir de son nom : les fichiers sont publiés en clair.",
+          "room": "Un serveur de salon lit toutes les publications : les fichiers sont publiés en clair."
+        }
       }
     }
   }

@@ -33,6 +33,10 @@
         "other": "Other"
       },
       "quota": "Reports are limited to 5 per day for this Meshloom. Try again tomorrow."
-    }
+    },
+    "encrypted": "Encrypted",
+    "encryptedHint": "Sealed for this conversation; Meshloom decrypted it here.",
+    "encryptedElsewhere": "Encrypted for another conversation: it cannot be opened here.",
+    "encryptedUnavailable": "This encrypted file cannot be read right now."
   }
 }

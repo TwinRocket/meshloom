@@ -7,11 +7,11 @@ order: 23
 
 A MeshCore message holds 156 bytes, and a web address often takes more than that. The **sharing service** turns a long address into a short link such as `https://meshl.ink/Ab3dE9x` (25 bytes), which fits in a message and which anybody can open. It is run by the Meshloom project on its own domain, `meshl.ink`, and it is **optional and off by default**: until an administrator turns it on, this Meshloom never contacts it, not even to look up its name.
 
-This version shortens **web addresses** and sends **photos** as public links from the composer's **Send a photo** panel: anyone who has such a link can open the photo. It can also send images encrypted for a channel or a contact; their full description is still to come. The sections below only describe what exists.
+This version shortens **web addresses** and sends **photos** from the composer's **Send a photo** panel. A public photo can be opened by anyone who has its link. In a private channel or a direct message the panel can also send the photo encrypted for that conversation, which the conversation's members open in Meshloom; on the Public channel, a channel whose key comes from its name and a room server, photos are always public. The sections below only describe what exists.
 
 ## Turning it on
 
-Open **Settings > Share: links and files** (administrators; a member sees only **My uploads**, see below). The section shows whether sharing is on, whether this Meshloom's sharing identity is ready, and whether encrypted files for direct messages are available (they are not used yet).
+Open **Settings > Share: links and files** (administrators; a member sees only **My uploads**, see below). The section shows whether sharing is on, whether this Meshloom's sharing identity is ready, and whether encrypted files for direct messages are available.
 
 Ticking **Turn on link and file sharing** always opens a consent window. It lists what leaves this Meshloom, who runs the service and for how long things are kept, links to the service's terms of use and privacy policy, and asks you to tick that you accept the terms. Cancelling, closing the window or leaving the box unticked changes nothing. Your acceptance is recorded on this Meshloom, with the version of the terms and the date: if the terms change in a later version, sharing stays off and the section tells you, until an administrator reads and accepts the new terms by turning it on again. Turning sharing off needs no consent and takes effect at once: requests already on their way are stopped.
 
@@ -55,7 +55,7 @@ In push notifications and e-mails a shared image or link never shows its address
 
 ## Opening an encrypted file in a browser
 
-Meshloom can send encrypted images (their full description is still to come), and the service has the page that opens them. An encrypted image shared in a **private channel** can be opened by the channel's members, from any device, at `https://meshl.ink/<id>/decrypt` (the file's page links to it): paste the channel's key, its 32 hexadecimal characters or the channel's `meshcore://` link. The browser decrypts the file: the key is not sent to the service, put in the address or saved, and the only request is the download of the encrypted file. A wrong key shows an error and nothing else.
+The service also has a page that opens encrypted files outside Meshloom. An encrypted image shared in a **private channel** can be opened by the channel's members, from any device, at `https://meshl.ink/<id>/decrypt` (the file's page links to it): paste the channel's key, its 32 hexadecimal characters or the channel's `meshcore://` link. The browser decrypts the file: the key is not sent to the service, put in the address or saved, and the only request is the download of the encrypted file. A wrong key shows an error and nothing else.
 
 Files shared in a **direct message** cannot be opened there: their key never leaves the Meshloom radio base. Open them in Meshloom.
 

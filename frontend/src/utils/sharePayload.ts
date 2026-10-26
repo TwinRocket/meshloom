@@ -8,21 +8,34 @@ export const SHARE_INLINE_MAX_BYTES = 8 * 1024 * 1024;
 
 /** Prefix the composer puts before an uploaded image link (`share_upload.suggested_text`). */
 export const SHARE_IMAGE_PREFIX = '📷';
+/** Prefix of an encrypted file's link (`suggested_text(..., encrypted=True)`). */
+export const SHARE_ENCRYPTED_PREFIX = '🔒';
 
 /**
- * The id of the shared image a message body carries, or null. Purely syntactic.
+ * The shared file a message body carries, or null. Purely syntactic.
  *
- * The form is the composer's: `📷 <service link>[ caption]`, optionally behind a
- * reply mention (`@[Name] 📷 …`). A bare service link (a shortened URL) is not an
- * image and stays a plain anchor.
+ * The form is the composer's: `📷 <service link>[ caption]` (public) or
+ * `🔒 <service link>[ caption]` (encrypted), optionally behind a reply mention
+ * (`@[Name] 📷 …`). A bare service link (a shortened URL) is not a file and stays
+ * a plain anchor. `encrypted` only says what the sender claimed; the meta decides.
  */
-export function shareImageId(content: string, hosts: readonly string[]): string | null {
+export function sharePayloadLink(
+  content: string,
+  hosts: readonly string[]
+): { id: string; encrypted: boolean } | null {
   const trimmed = content.trim();
   const body = splitReplyMention(trimmed)?.body ?? trimmed;
-  if (!body.startsWith(SHARE_IMAGE_PREFIX)) return null;
-  const rest = body.slice(SHARE_IMAGE_PREFIX.length);
+  const prefix = [SHARE_IMAGE_PREFIX, SHARE_ENCRYPTED_PREFIX].find((p) => body.startsWith(p));
+  if (!prefix) return null;
+  const rest = body.slice(prefix.length);
   if (!/^\s/.test(rest)) return null;
-  return splitShareLinkBody(rest, hosts)?.id ?? null;
+  const id = splitShareLinkBody(rest, hosts)?.id;
+  return id ? { id, encrypted: prefix === SHARE_ENCRYPTED_PREFIX } : null;
+}
+
+/** The id of the shared file a message body carries (`sharePayloadLink`), or null. */
+export function shareImageId(content: string, hosts: readonly string[]): string | null {
+  return sharePayloadLink(content, hosts)?.id ?? null;
 }
 
 /**

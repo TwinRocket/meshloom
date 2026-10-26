@@ -21,6 +21,9 @@
     "share_upload_timeout": "The upload took too long to reach this Meshloom. Check the connection and try again.",
     "share_storage_failed": "This Meshloom could not store the file (disk full or temporary folder unusable). An administrator should check the data folder.",
     "share_not_owner": "This link or file was not shared from this Meshloom, so it cannot be deleted here.",
-    "share_object_blocked": "The share service blocked this link or file. It cannot be deleted; contact the service if you disagree."
+    "share_object_blocked": "The share service blocked this link or file. It cannot be deleted; contact the service if you disagree.",
+    "share_mode_not_allowed": "Encrypted files are not possible in this conversation: send the photo in public mode.",
+    "share_radio_key_unavailable": "The radio's key has not been read yet, so encrypted direct-message files are unavailable. Try again later or send in public mode.",
+    "share_undecryptable": "This encrypted file cannot be decrypted in this conversation."
   }
 }

@@ -14,11 +14,22 @@ import type { ShareMeta, ShareStatus } from '../types';
  * link received in a channel never costs a request, and with sharing off nothing
  * leaves at all. One request per id: answers (and failures, kept as negative
  * entries) are remembered for ten minutes and concurrent calls share one request.
+ * An encrypted file's meta depends on the message it was seen in (the backend
+ * decrypts it with that conversation's secret), so it is asked and remembered per
+ * `(id, messageId)` (`shareMetaKey`). A request that does not answer within
+ * `META_TIMEOUT_MS` is dropped as a failure: a card never waits forever.
  */
 export const META_TTL_MS = 10 * 60 * 1000;
 export const STATUS_TTL_MS = 60 * 1000;
 /** Most ids remembered; the least recently used is dropped first. */
 export const META_MAX_ENTRIES = 200;
+/** A meta request still unanswered after this is abandoned (entry `missing`). */
+export const META_TIMEOUT_MS = 20 * 1000;
+
+/** The cache key of a meta: the id, or the id seen in one message (encrypted files). */
+export function shareMetaKey(id: string, messageId?: number): string {
+  return messageId ? `${id}@${messageId}` : id;
+}
 
 /** `gone`: the service answered 410 (expired or removed), not merely unreachable. */
 export type ShareMetaEntry =
@@ -101,32 +112,40 @@ export function useShareStatus(): ShareStatus | null {
 
 /**
  * Fetch the meta of a link once; call from hover/focus or a user's tap (or a shared
- * image the preview policy lets load), never from a plain render.
+ * image the preview policy lets load), never from a plain render. `messageId` (an
+ * encrypted file) asks the backend to decrypt it for that message's conversation;
+ * the entry is then stored under `shareMetaKey(id, messageId)`.
  */
-export async function requestShareMeta(id: string): Promise<void> {
+export async function requestShareMeta(id: string, messageId?: number): Promise<void> {
   const current =
     status && Date.now() - statusAt < STATUS_TTL_MS ? status : await loadShareStatus();
   if (!current?.enabled) return;
+  const key = shareMetaKey(id, messageId);
   const now = Date.now();
-  const stored = metas.get(id);
+  const stored = metas.get(key);
   if (stored && (stored.entry.state === 'loading' || now - stored.at < META_TTL_MS)) return;
-  remember(id, { state: 'loading' }, now);
-  emit(id);
+  remember(key, { state: 'loading' }, now);
+  emit(key);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), META_TIMEOUT_MS);
   try {
-    const meta = await api.getShareMeta(id);
-    remember(id, { state: 'ready', meta }, Date.now());
+    const meta = await api.getShareMeta(id, { messageId, signal: controller.signal });
+    remember(key, { state: 'ready', meta }, Date.now());
   } catch (err) {
     const gone = err instanceof ApiError && err.status === 410;
-    remember(id, gone ? { state: 'missing', gone } : { state: 'missing' }, Date.now());
+    remember(key, gone ? { state: 'missing', gone } : { state: 'missing' }, Date.now());
+  } finally {
+    clearTimeout(timer);
   }
-  emit(id);
+  emit(key);
 }
 
+/** The entry of a cache key (`shareMetaKey`; a plain id for a link or a public file). */
 export function getShareMetaEntry(id: string): ShareMetaEntry | null {
   return metas.get(id)?.entry ?? null;
 }
 
-/** The entry of one id; re-renders when it changes. */
+/** The entry of one cache key (`shareMetaKey`); re-renders when it changes. */
 export function useShareMetaEntry(id: string | null): ShareMetaEntry | null {
   const read = () => (id ? getShareMetaEntry(id) : null);
   const sub = (listener: () => void) => (id ? subscribeMeta(id, listener) : () => {});

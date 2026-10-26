@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { ComposerEmojiPicker } from './ComposerEmojiPicker';
 import { ComposerFileTab, type IncomingFile } from './ComposerFileTab';
+import type { ShareTarget } from '../utils/channelClass';
 import { GifPicker } from './GifPicker';
 import { cn } from '@/lib/utils';
 
@@ -22,6 +23,8 @@ interface ComposerAttachPickerProps {
   fileByteLimit: number | null;
   incomingFile: IncomingFile | null;
   onIncomingFileConsumed: () => void;
+  /** The conversation's share class: decides the File tab's Public / Encrypted offer. */
+  fileTarget?: ShareTarget | null;
   disabled?: boolean;
   hasShareableLocation: boolean;
   locationLabel?: string | null;
@@ -38,6 +41,7 @@ export function ComposerAttachPicker({
   fileByteLimit,
   incomingFile,
   onIncomingFileConsumed,
+  fileTarget = null,
   disabled = false,
   hasShareableLocation,
   locationLabel,
@@ -101,6 +105,7 @@ export function ComposerAttachPicker({
           incoming={incomingFile}
           onIncomingConsumed={onIncomingFileConsumed}
           disabled={disabled}
+          target={fileTarget}
         />
       )}
       <div className="flex items-center justify-around border-t border-border px-2 py-1">

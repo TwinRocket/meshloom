@@ -30,6 +30,7 @@ import type {
 } from '../types';
 import { CONTACT_TYPE_REPEATER, CONTACT_TYPE_ROOM, CONTACT_TYPE_SENSOR } from '../types';
 import { isPendingChannel } from '../utils/channelMembership';
+import { channelShareTarget, contactShareTarget, type ShareTarget } from '../utils/channelClass';
 import { DiscoveredChannelsView } from './DiscoveredChannelsView';
 import {
   getContactDisplayName,
@@ -288,6 +289,17 @@ export function ConversationPane({
   const isPrefixOnlyActiveContact = activeContact
     ? isPrefixOnlyContact(activeContact.public_key)
     : false;
+  // Whether the File tab may offer encrypted files here (MSHL-256).
+  const shareTarget = useMemo((): ShareTarget | null => {
+    if (activeConversation?.type === 'channel') {
+      const channel = channels.find((candidate) => candidate.key === activeConversation.id);
+      return channel ? channelShareTarget(channel) : null;
+    }
+    if (activeConversation?.type === 'contact') {
+      return contactShareTarget(activeConversation.id, activeContactIsRoom);
+    }
+    return null;
+  }, [activeConversation, channels, activeContactIsRoom]);
   const isUnknownFullKeyActiveContact =
     activeContact !== null &&
     !isPrefixOnlyActiveContact &&
@@ -717,6 +729,7 @@ export function ConversationPane({
               senderName={config?.name}
               radioLat={config?.lat}
               radioLon={config?.lon}
+              shareTarget={shareTarget}
               placeholder={
                 !health?.radio_connected
                   ? t('chat.radioNotConnected')

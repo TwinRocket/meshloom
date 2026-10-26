@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
-import { Download, Flag, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Download, Flag, Image as ImageIcon, Loader2, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api, ApiError, formatApiError, getApiErrorCode } from '../../api';
 import { useCapabilities } from '../../auth/SessionProvider';
 import { useBlockedSenders } from '../../contexts/BlockedSendersContext';
-import { requestShareMeta, useShareMetaEntry, useShareStatus } from '../../stores/shareMetaStore';
+import {
+  requestShareMeta,
+  shareMetaKey,
+  useShareMetaEntry,
+  useShareStatus,
+} from '../../stores/shareMetaStore';
 import {
   SHARE_REPORT_DETAILS_MAX,
   SHARE_REPORT_REASONS,
@@ -14,8 +19,8 @@ import {
 import { isMessageBlocked, type BlockableMessage } from '../../utils/messageBlocking';
 import {
   SHARE_INLINE_MAX_BYTES,
-  shareImageId,
   shareMediaAutoLoads,
+  sharePayloadLink,
 } from '../../utils/sharePayload';
 import { Button } from '../ui/button';
 import {
@@ -47,6 +52,8 @@ export interface ShareImageOptions {
 /** The shared image of a message body and whether it may load (tapped or auto). */
 export interface ShareImageState {
   id: string;
+  /** The body is the encrypted form (`🔒 <link>`): its meta is asked for the message. */
+  encrypted: boolean;
   load: boolean;
   tap: () => void;
 }
@@ -66,8 +73,9 @@ export function useShareImage({
   const status = useShareStatus();
   const { blockedKeys, blockedNames, loaded } = useBlockedSenders();
   const [tappedId, setTappedId] = useState<string | null>(null);
-  const id = status?.enabled ? shareImageId(content, status.hosts) : null;
-  if (!id || !status) return null;
+  const link = status?.enabled ? sharePayloadLink(content, status.hosts) : null;
+  if (!link || !status) return null;
+  const { id, encrypted } = link;
   const blocked = !loaded || (!!message && isMessageBlocked(message, blockedKeys, blockedNames));
   const auto = shareMediaAutoLoads({
     policy: status.preview_policy,
@@ -75,7 +83,7 @@ export function useShareImage({
     remoteMedia: remoteMedia && !!message,
     blocked,
   });
-  return { id, load: auto || tappedId === id, tap: () => setTappedId(id) };
+  return { id, encrypted, load: auto || tappedId === id, tap: () => setTappedId(id) };
 }
 
 export interface SharePayloadProps {
@@ -87,15 +95,23 @@ export interface SharePayloadProps {
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
-/** A public image file the proxy serves inline; anything else stays a plain link here. */
-function isPublicImage(meta: ShareMeta): boolean {
-  return (
-    meta.kind === 'file' &&
-    meta.mode === 'public' &&
-    !!meta.content_type &&
-    IMAGE_TYPES.has(meta.content_type)
-  );
+/**
+ * A file the proxy serves inline as an image: a public one, or an encrypted one
+ * this conversation decrypts (`decryptable` true; type and name come decrypted).
+ */
+function isShownImage(meta: ShareMeta): boolean {
+  if (meta.kind !== 'file' || !meta.content_type || !IMAGE_TYPES.has(meta.content_type)) {
+    return false;
+  }
+  return meta.mode === 'public' || (meta.mode === 'encrypted' && meta.decryptable === true);
 }
+
+const TYPE_LABEL: Record<string, string> = {
+  'image/jpeg': 'JPEG',
+  'image/png': 'PNG',
+  'image/gif': 'GIF',
+  'image/webp': 'WebP',
+};
 
 function objectUrl(id: string, messageId: number | undefined): string {
   const path = `./api/share/${encodeURIComponent(id)}`;
@@ -106,7 +122,10 @@ function objectUrl(id: string, messageId: number | undefined): string {
  * A shared image under a message, rendered after the text; the anchor stays. Nothing
  * is requested, the meta included, until the image may load (`useShareImage`).
  * Errors fall back to the raw link (nothing is drawn here), a 410 says the image
- * expired or was removed.
+ * expired or was removed. An encrypted file shows a lock badge with its decrypted
+ * name and type; one this conversation cannot decrypt (`decryptable` false) says it
+ * is encrypted for another conversation, and one that cannot be read now (unknown,
+ * failed or timed out) says so: the raw link stays and nothing spins.
  */
 export function SharePayload({ image, message, interactive }: SharePayloadProps) {
   if (!image) return null;
@@ -114,6 +133,7 @@ export function SharePayload({ image, message, interactive }: SharePayloadProps)
     <SharePayloadCard
       key={image.id}
       id={image.id}
+      encrypted={image.encrypted}
       load={image.load}
       onTap={image.tap}
       message={message}
@@ -124,12 +144,14 @@ export function SharePayload({ image, message, interactive }: SharePayloadProps)
 
 function SharePayloadCard({
   id,
+  encrypted,
   load,
   onTap,
   message,
   interactive,
 }: {
   id: string;
+  encrypted: boolean;
   load: boolean;
   onTap: () => void;
   message?: ShareMessageContext;
@@ -139,11 +161,14 @@ function SharePayloadCard({
   const { canSend } = useCapabilities();
   const [imageFailed, setImageFailed] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const entry = useShareMetaEntry(load ? id : null);
+  // A public file's meta is the same in every message (shared with the anchor's hover);
+  // an encrypted one is decrypted for this message's conversation.
+  const metaMessageId = encrypted ? message?.id : undefined;
+  const entry = useShareMetaEntry(load ? shareMetaKey(id, metaMessageId) : null);
 
   useEffect(() => {
-    if (load) void requestShareMeta(id);
-  }, [load, id]);
+    if (load) void requestShareMeta(id, metaMessageId);
+  }, [load, id, metaMessageId]);
 
   if (!load) {
     if (!interactive) {
@@ -188,7 +213,7 @@ function SharePayloadCard({
   }
 
   if (entry.state === 'missing') {
-    if (!entry.gone) return null;
+    if (!entry.gone) return encrypted ? <EncryptedNotice reason="unavailable" /> : null;
     return (
       <div className="mt-1 text-xs italic text-muted-foreground" data-testid="share-payload-gone">
         {t('sharePayload.gone')}
@@ -197,12 +222,34 @@ function SharePayloadCard({
   }
 
   const { meta } = entry;
-  if (!isPublicImage(meta) || imageFailed) return null;
+  const isEncrypted = meta.kind === 'file' && meta.mode === 'encrypted';
+  if (isEncrypted && meta.decryptable === false) return <EncryptedNotice reason="elsewhere" />;
+  if (isEncrypted && (meta.decryptable !== true || imageFailed)) {
+    return <EncryptedNotice reason="unavailable" />;
+  }
+  if (!isShownImage(meta) || imageFailed) return null;
   const url = objectUrl(id, message?.id);
   const tooLarge = typeof meta.size === 'number' && meta.size > SHARE_INLINE_MAX_BYTES;
+  const typeLabel = meta.content_type ? (TYPE_LABEL[meta.content_type] ?? '') : '';
 
   return (
     <div className="mt-1 flex flex-col items-start gap-1" data-testid="share-payload">
+      {isEncrypted && (
+        <span
+          className="inline-flex max-w-full items-center gap-1 text-[0.6875rem] text-muted-foreground"
+          data-testid="share-payload-lock"
+          title={t('sharePayload.encryptedHint')}
+        >
+          <Lock className="h-3 w-3 shrink-0 text-primary" aria-hidden="true" />
+          <span className="font-medium">{t('sharePayload.encrypted')}</span>
+          {meta.name && (
+            <bdi className="min-w-0 truncate" data-testid="share-payload-name">
+              {meta.name}
+            </bdi>
+          )}
+          {typeLabel && <span>{typeLabel}</span>}
+        </span>
+      )}
       {tooLarge ? (
         <a
           href={url}
@@ -254,6 +301,22 @@ function SharePayloadCard({
           <ShareReportDialog id={id} open={reportOpen} onOpenChange={setReportOpen} />
         </>
       )}
+    </div>
+  );
+}
+
+/** Why an encrypted file is not shown: sealed for another conversation, or unreadable now. */
+function EncryptedNotice({ reason }: { reason: 'elsewhere' | 'unavailable' }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="mt-1 inline-flex items-center gap-1.5 text-xs italic text-muted-foreground"
+      data-testid={`share-payload-encrypted-${reason}`}
+    >
+      <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      {reason === 'elsewhere'
+        ? t('sharePayload.encryptedElsewhere')
+        : t('sharePayload.encryptedUnavailable')}
     </div>
   );
 }
