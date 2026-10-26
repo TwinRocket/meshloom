@@ -12,15 +12,22 @@ import type { ShareMeta, ShareStatus } from '../types';
  * called on hover or focus, or by a shared image once the user taps it (or the
  * preview policy lets it load), and does nothing unless sharing is on, so a
  * link received in a channel never costs a request, and with sharing off nothing
- * leaves at all. One request per id: answers (and failures, kept as negative
- * entries) are remembered for ten minutes and concurrent calls share one request.
+ * leaves at all. One request per id: answers are remembered for ten minutes, failures
+ * (and an encrypted file that cannot be decrypted yet) only for `META_FAILURE_TTL_MS`,
+ * and concurrent calls share one request.
  * An encrypted file's meta depends on the message it was seen in (the backend
  * decrypts it with that conversation's secret), so it is asked and remembered per
  * `(id, messageId)` (`shareMetaKey`). A request that does not answer within
- * `META_TIMEOUT_MS` is dropped as a failure: a card never waits forever.
+ * `META_TIMEOUT_MS` is dropped as a failure, and so is a status request that does
+ * not answer within `STATUS_TIMEOUT_MS`: a card never waits forever. An entry a
+ * mounted card still shows is never evicted.
  */
 export const META_TTL_MS = 10 * 60 * 1000;
+/** A failed meta (timeout, error, `decryptable: null`) is retried after this, not after ten minutes. */
+export const META_FAILURE_TTL_MS = 30 * 1000;
 export const STATUS_TTL_MS = 60 * 1000;
+/** The local status request is abandoned after this (the answer stays the last known one). */
+export const STATUS_TIMEOUT_MS = 10 * 1000;
 /** Most ids remembered; the least recently used is dropped first. */
 export const META_MAX_ENTRIES = 200;
 /** A meta request still unanswered after this is abandoned (entry `missing`). */
@@ -70,12 +77,25 @@ function subscribeMeta(id: string, listener: () => void): () => void {
   };
 }
 
+/** How long an entry is trusted: a definitive answer (a 410 included) ten minutes, a failure briefly. */
+function ttlOf(entry: ShareMetaEntry): number {
+  if (entry.state === 'missing') return entry.gone ? META_TTL_MS : META_FAILURE_TTL_MS;
+  if (entry.state === 'ready') {
+    const { meta } = entry;
+    const undecided = meta.kind === 'file' && meta.mode === 'encrypted' && meta.decryptable == null;
+    return undecided ? META_FAILURE_TTL_MS : META_TTL_MS;
+  }
+  return META_TTL_MS;
+}
+
 function remember(id: string, entry: ShareMetaEntry, at: number): void {
   metas.delete(id); // re-insert last: Map order is the LRU order
   metas.set(id, { entry, at });
   for (const key of metas.keys()) {
     if (metas.size <= META_MAX_ENTRIES) break;
-    if (metas.get(key)?.entry.state !== 'loading') metas.delete(key);
+    // A pending request and an entry a card is showing (it has subscribers) stay.
+    if (metas.get(key)?.entry.state === 'loading' || metaListeners.has(key)) continue;
+    metas.delete(key);
   }
 }
 
@@ -87,8 +107,10 @@ export function getShareStatusSnapshot(): ShareStatus | null {
 export function loadShareStatus(force = false): Promise<ShareStatus | null> {
   if (statusPending) return statusPending;
   if (!force && status && Date.now() - statusAt < STATUS_TTL_MS) return Promise.resolve(status);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STATUS_TIMEOUT_MS);
   statusPending = api
-    .getShareStatus()
+    .getShareStatus(controller.signal)
     .then((next) => {
       status = next;
       statusAt = Date.now();
@@ -101,6 +123,7 @@ export function loadShareStatus(force = false): Promise<ShareStatus | null> {
       return status;
     })
     .finally(() => {
+      clearTimeout(timer);
       statusPending = null;
     });
   return statusPending;
@@ -116,14 +139,28 @@ export function useShareStatus(): ShareStatus | null {
  * encrypted file) asks the backend to decrypt it for that message's conversation;
  * the entry is then stored under `shareMetaKey(id, messageId)`.
  */
-export async function requestShareMeta(id: string, messageId?: number): Promise<void> {
+export async function requestShareMeta(
+  id: string,
+  messageId?: number,
+  options: { force?: boolean } = {}
+): Promise<void> {
+  const key = shareMetaKey(id, messageId);
   const current =
     status && Date.now() - statusAt < STATUS_TTL_MS ? status : await loadShareStatus();
-  if (!current?.enabled) return;
-  const key = shareMetaKey(id, messageId);
+  if (!current?.enabled) {
+    // Sharing off or the status unknown: nothing leaves, but a card that waits for this
+    // key must reach a final state, so a short-lived negative entry is left for it.
+    const waiting = metas.get(key);
+    if (metaListeners.has(key) && (!waiting || waiting.entry.state === 'loading')) {
+      remember(key, { state: 'missing' }, Date.now());
+      emit(key);
+    }
+    return;
+  }
   const now = Date.now();
   const stored = metas.get(key);
-  if (stored && (stored.entry.state === 'loading' || now - stored.at < META_TTL_MS)) return;
+  if (stored?.entry.state === 'loading') return;
+  if (stored && !options.force && now - stored.at < ttlOf(stored.entry)) return;
   remember(key, { state: 'loading' }, now);
   emit(key);
   const controller = new AbortController();

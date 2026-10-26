@@ -37,6 +37,7 @@
     "encrypted": "Chiffré",
     "encryptedHint": "Scellé pour cette conversation ; Meshloom l'a déchiffré ici.",
     "encryptedElsewhere": "Chiffré pour une autre conversation : il ne peut pas être ouvert ici.",
-    "encryptedUnavailable": "Ce fichier chiffré ne peut pas être lu pour le moment."
+    "encryptedUnavailable": "Ce fichier chiffré ne peut pas être lu pour le moment.",
+    "retry": "Réessayer"
   }
 }

@@ -283,6 +283,12 @@ describe('File tab mode', () => {
     );
   });
 
+  it('keeps encryption off in a DM while the status does not say the key is there', () => {
+    open(DM, { dm_encryption_available: undefined as unknown as boolean });
+    expect(screen.getByTestId('file-tab-mode-encrypted')).toBeDisabled();
+    expect(checked('public')).toBe('true');
+  });
+
   it('uploads sealed for the conversation, with the file name', async () => {
     open(PRIVATE);
     fireEvent.change(screen.getByTestId('file-tab-input'), {

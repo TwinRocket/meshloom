@@ -1383,7 +1383,8 @@ export const api = {
     fetchJson<void>(`/plugins/${encodeURIComponent(id)}?keep_data=${keepData}`, {
       method: 'DELETE',
     }),
-  getShareStatus: () => fetchJson<ShareStatus>('/share/status'),
+  getShareStatus: (signal?: AbortSignal) =>
+    fetchJson<ShareStatus>('/share/status', signal ? { signal } : undefined),
   shortenLink: (url: string) =>
     fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),
   uploadShareFile,

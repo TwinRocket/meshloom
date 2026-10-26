@@ -178,7 +178,8 @@ export function ComposerFileTab({
 
   // Encryption only where it protects something (a private channel, a DM), and only
   // when the upload can name the conversation (a DM also needs the radio key).
-  const dmKeyMissing = target?.class === 'dm' && status?.dm_encryption_available === false;
+  // Anything but a confirmed `true` (an answer without the field included) keeps it off.
+  const dmKeyMissing = target?.class === 'dm' && status?.dm_encryption_available !== true;
   const encryptAvailable = !!target?.encryptable && !!target.conversation && !dmKeyMissing;
   const mode: ShareMode = encryptAvailable ? savedMode : 'public';
   const uploadKey = mode === 'encrypted' ? `encrypted:${target?.conversation?.id}` : 'public';

@@ -260,6 +260,55 @@ describe('SharePayload', () => {
       expect(screen.getByTestId('share-payload-encrypted-unavailable')).toBeTruthy();
     });
 
+    it('refetches with the message id when a photo-prefixed file is really encrypted', async () => {
+      fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/share/status')) return jsonResponse(status('private'));
+        if (url.endsWith(`/share/${ID}/meta`)) {
+          return jsonResponse({
+            ...ENCRYPTED_META,
+            name: null,
+            content_type: null,
+            decryptable: null,
+          });
+        }
+        if (url.endsWith(`/share/${ID}/meta?message_id=42`)) return jsonResponse(ENCRYPTED_META);
+        return jsonResponse({});
+      });
+      renderBody(message());
+      const img = await screen.findByTestId('share-payload-image');
+      expect(img.getAttribute('src')).toBe(`./api/share/${ID}?message_id=42`);
+      expect(screen.getByTestId('share-payload-name')).toHaveTextContent('summit.jpg');
+      expect(screen.queryByTestId('share-payload-encrypted-elsewhere')).toBeNull();
+      const metaCalls = fetchSpy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((u) => u.includes('/meta'));
+      expect(metaCalls).toEqual([`./api/share/${ID}/meta`, `./api/share/${ID}/meta?message_id=42`]);
+    });
+
+    it('a 📷 file of another conversation still says so after the refetch', async () => {
+      metaResponse = () =>
+        jsonResponse({ ...ENCRYPTED_META, name: null, content_type: null, decryptable: false });
+      renderBody(message());
+      expect(await screen.findByTestId('share-payload-encrypted-elsewhere')).toBeTruthy();
+      expect(screen.queryByTestId('share-payload-loading')).toBeNull();
+    });
+
+    it('offers Try again on an unreadable file and recovers on the tap', async () => {
+      let healthy = false;
+      metaResponse = () =>
+        healthy
+          ? jsonResponse(ENCRYPTED_META)
+          : jsonResponse({ detail: { code: 'share_unavailable', params: {} } }, { status: 503 });
+      renderBody(message(), { content: LOCKED });
+      const retry = await screen.findByTestId('share-payload-retry');
+      expect(retry).toHaveTextContent(i18n.t('sharePayload.retry'));
+      healthy = true;
+      fireEvent.click(retry);
+      expect(await screen.findByTestId('share-payload-image')).toBeTruthy();
+      expect(screen.queryByTestId('share-payload-encrypted-unavailable')).toBeNull();
+    });
+
     it('never spins forever: an unanswered meta ends in the fallback', async () => {
       vi.useFakeTimers();
       fetchSpy.mockImplementation(
