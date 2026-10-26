@@ -1079,7 +1079,7 @@ async def test_notification_destinations(
     """Deprecated (removed in 5.2.0): ``POST /api/notifications/channels/{id}/test`` on
     ``legacy:email``, ``legacy:webhook`` or ``legacy:apprise``, which this calls (same
     dispatcher, egress guard, rate limit and coded errors)."""
-    from app.routers.notifications import test_channel
+    from app.routers.notifications import test_saved_channel
 
     channel_id = f"legacy:{request.channel}"
     if await NotificationChannelRepository.get(channel_id) is None:
@@ -1087,7 +1087,7 @@ async def test_notification_destinations(
         raise HTTPException(
             status_code=400, detail={"code": "invalid_config", "params": {"fields": []}}
         )
-    await test_channel(channel_id)
+    await test_saved_channel(channel_id, requester_id=None)  # legacy:* only, never Web Push
     return NotificationDestTestResponse(status="ok", channel=request.channel)
 
 

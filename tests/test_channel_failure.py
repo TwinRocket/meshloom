@@ -316,6 +316,7 @@ async def test_an_unsubscribed_browser_is_announced_once(test_db, monkeypatch):
     payload, targets = emitted[0]
     assert payload == {
         "event": "notify.channel_failed",
+        "urgent": True,
         "channel_id": "builtin:push",
         "name": "Pixel",
         "error": failures.PUSH_UNSUBSCRIBED,
@@ -552,6 +553,7 @@ async def test_evicted_and_refused_browsers_are_announced(
     assert emitted == [
         {
             "event": "notify.channel_failed",
+            "urgent": True,
             "channel_id": "builtin:push",
             "name": "Pixel",
             "error": code,
@@ -590,3 +592,235 @@ def test_removed_browser_notices_are_rendered_in_both_languages(code, lang):
     title, fragment = _REMOVED_TEXTS[(code, lang)]
     assert rendered["title"] == title
     assert fragment in rendered["body"]
+
+
+# -- test and heartbeat audiences on Web Push (MSHL-407) ---------------------------------
+
+
+async def _push_channel():
+    found = await Channels.get_for_send("builtin:push")
+    assert found is not None
+    return found
+
+
+@pytest.mark.asyncio
+async def test_a_push_test_reaches_only_the_requester(test_db):
+    admin = await _device("root", "admin", "https://push.example/root")
+    member = await _device("bob", "member", "https://push.example/bob")
+    other = await _device("eve", "member", "https://push.example/eve")
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+    channel, secrets = await _push_channel()
+
+    for requester in (member, admin):
+        transport.calls.clear()
+        result = await dispatcher.send_test(channel, secrets, requester_id=requester)
+        assert result.ok
+        [(_, name, audience)] = transport.calls
+        assert name == "notify.test"
+        assert audience.default is None
+        assert audience.payload_for(requester) is not None
+        assert all(
+            audience.payload_for(uid) is None
+            for uid in (admin, member, other, None)
+            if uid != requester
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_push_probe_reaches_only_admins_and_fails_closed(test_db, monkeypatch):
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+
+    admin = await _device("root", "admin", "https://push.example/root")
+    member = await _device("bob", "member", "https://push.example/bob")
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+    channel, secrets = await _push_channel()
+
+    assert (await dispatcher.send_test(channel, secrets)).ok
+    [(_, _, audience)] = transport.calls
+    assert audience.payload_for(admin) is not None
+    assert audience.payload_for(member) is None and audience.payload_for(None) is None
+
+    async def broken():
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(PushSubscriptionRepository, "deliverable", staticmethod(broken))
+    transport.calls.clear()
+    result = await dispatcher.send_test(channel, secrets)
+    assert (result.status, result.error_code) == ("skipped", "no_push_device")
+    assert not result.ok and transport.calls == []  # nothing sent to anyone
+
+
+@pytest.mark.asyncio
+async def test_a_test_on_another_channel_carries_no_audience(test_db):
+    await _add("ntfy-ok")
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+    channel, secrets = await Channels.get_for_send("ntfy-ok")
+
+    assert (await dispatcher.send_test(channel, secrets, requester_id=7)).ok
+    assert transport.calls == [("ntfy-ok", "notify.test", None)]
+
+
+@pytest.mark.asyncio
+async def test_the_push_test_route_targets_the_caller(test_db, client, monkeypatch):
+    from app.push import manager as manager_module
+
+    seen: list = []
+
+    async def dispatch_event(data, audience=None):
+        seen.append((data.get("event"), audience))
+        return manager_module.PushOutcome(total=1, delivered=1)
+
+    monkeypatch.setattr(manager_module.push_manager, "dispatch_event", dispatch_event)
+    response = await client.post("/api/notifications/channels/builtin:push/test")
+    assert response.status_code == 200, response.text
+    [(_, audience)] = seen  # the test payload (``notify.TEST_ALERT_PAYLOAD``)
+    assert set(audience.per_user) == {1} and audience.default is None  # the signed-in admin
+
+
+@pytest.mark.asyncio
+async def test_a_heartbeat_reaches_only_admin_devices_on_web_push(test_db, monkeypatch):
+    from app.notifications.render import HEARTBEAT_EVENT
+
+    payload = {"event": HEARTBEAT_EVENT, "instance": "x", "uptime_s": 5, "version": "5.0.0"}
+    pm, sent = _role_push_manager(monkeypatch)
+    await pm.dispatch_event(payload)
+    assert sent == ["a"]
+
+    admin = await _device("root", "admin", "https://push.example/root")
+    member = await _device("bob", "member", "https://push.example/bob")
+    await _add("ntfy-ok")
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+    await dispatcher.emit(None, payload=payload, targets=["builtin:push", "ntfy-ok"])
+    await dispatcher.wait_idle()
+    by_channel = {c: audience for c, _, audience in transport.calls}
+    audience = by_channel["builtin:push"]
+    assert audience.payload_for(admin) is not None and audience.payload_for(member) is None
+
+
+@pytest.mark.asyncio
+async def test_a_heartbeat_skips_web_push_when_owners_are_unreadable(test_db, monkeypatch):
+    from app.notifications.render import HEARTBEAT_EVENT
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+
+    await _device("root", "admin", "https://push.example/root")
+    await _add("ntfy-ok")
+
+    async def broken():
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(PushSubscriptionRepository, "deliverable", staticmethod(broken))
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+    payload = {"event": HEARTBEAT_EVENT, "instance": "x", "uptime_s": 5, "version": "5.0.0"}
+    await dispatcher.emit(None, payload=payload, targets=["builtin:push", "ntfy-ok"])
+    await dispatcher.wait_idle()
+    assert [c for c, _, _ in transport.calls] == ["ntfy-ok"]
+
+
+def test_channel_failed_is_urgent():
+    from app.notifications.events import event_from_payload
+
+    event = event_from_payload(_notice())
+    assert event is not None and event.urgent
+
+
+async def _pause_push(paused_until: int, failure_count: int, step: str) -> None:
+    async with db.tx() as conn:
+        await conn.execute(
+            "UPDATE notification_channels SET paused_until = ?, failure_count = ? WHERE id = ?",
+            (paused_until, failure_count, "builtin:push"),
+        )
+    await Journal.state_set(failures.autopause_key("builtin:push"), step)
+    invalidate_cache()
+
+
+@pytest.mark.asyncio
+async def test_a_push_probe_that_reaches_nobody_changes_nothing(test_db):
+    """No administrator device: the probe sends nothing, and an untested channel is neither
+    resumed nor counted as failing again (the pause, counters, backoff step and status stay)."""
+    await _device("bob", "member", "https://push.example/bob")
+    await _pause_push(T0 - 10, 5, "1")
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+    before = (await dispatcher.statuses())["builtin:push"]
+
+    assert await dispatcher.probe_tick() == 0
+    assert transport.calls == []
+    channel = await Channels.get("builtin:push")
+    assert (channel.paused_until, channel.failure_count) == (T0 - 10, 5)
+    assert await Journal.state_get(failures.autopause_key("builtin:push")) == "1"
+    after = (await dispatcher.statuses())["builtin:push"]
+    assert after == before and after["status"] != "connected"
+
+
+@pytest.mark.asyncio
+async def test_a_push_test_that_reaches_no_device_says_nothing_was_sent(
+    test_db, client, monkeypatch
+):
+    from app.push import manager as manager_module
+
+    async def dispatch_event(data, audience=None):
+        return manager_module.PushOutcome()  # the caller has no device
+
+    monkeypatch.setattr(manager_module.push_manager, "dispatch_event", dispatch_event)
+    await _pause_push(T0 - 10, 5, "2")
+    response = await client.post("/api/notifications/channels/builtin:push/test")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "no_push_device"
+    channel = await Channels.get("builtin:push")
+    assert (channel.paused_until, channel.failure_count) == (T0 - 10, 5)
+    assert await Journal.state_get(failures.autopause_key("builtin:push")) == "2"
+
+
+@pytest.mark.asyncio
+async def test_an_unsaved_push_test_targets_the_caller(test_db, client, monkeypatch):
+    from app.push import manager as manager_module
+
+    seen: list = []
+
+    async def dispatch_event(data, audience=None):
+        seen.append(audience)
+        return manager_module.PushOutcome(total=1, delivered=1)
+
+    monkeypatch.setattr(manager_module.push_manager, "dispatch_event", dispatch_event)
+    response = await client.post(
+        "/api/notifications/channels/test",
+        json={"type": "web_push", "name": "Push", "config": {}},
+    )
+    assert response.status_code == 200, response.text
+    [audience] = seen
+    assert set(audience.per_user) == {1} and audience.default is None  # the signed-in admin
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lang", ["fr", "en"])
+async def test_a_channel_failed_e_mail_is_marked_urgent(test_db, lang):
+    """The e-mail subject reads ``payload["urgent"]``: the payload ``failures.announce`` emits
+    and the one a rebuilt event gives the transports both carry it."""
+    from app.email_template import email_subject
+    from app.notifications.events import event_from_payload
+
+    emitted: list[dict] = []
+
+    async def emit_fn(_event, *, payload, targets):
+        emitted.append(payload)
+        return len(targets)
+
+    assert await failures.announce(
+        "smtp-bad",
+        channel_id="smtp-bad",
+        name="Mail",
+        error="timeout",
+        exclude=["smtp-bad"],
+        now=T0,
+        emit_fn=emit_fn,
+    )
+    [payload] = emitted
+    rebuilt = event_from_payload(payload)
+    assert rebuilt is not None
+    for sent in (payload, rebuilt.to_payload()):
+        assert email_subject(sent, lang).startswith("[URGENT] ")

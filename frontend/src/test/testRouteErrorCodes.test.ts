@@ -36,6 +36,7 @@ const M_CODES = [
   'timeout',
   'tls_error',
   'service_error',
+  'no_push_device',
 ] as const;
 const CODES = [...K_CODES, ...M_CODES];
 

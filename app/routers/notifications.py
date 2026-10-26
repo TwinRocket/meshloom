@@ -22,7 +22,8 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from app.auth.permissions import require
+from app.auth.permissions import forbidden, require
+from app.auth.principal import get_principal
 from app.notifications import api_support, templates, ws_frame
 from app.notifications import watched_nodes as watched_mod
 from app.notifications.channels import (
@@ -73,7 +74,9 @@ NOT_CONFIGURABLE = frozenset(
         "contact.node_back",
     }
 )
-URGENT_EVENTS = frozenset({"radio.offline", "telemetry.alert", "notify.channel_changed"})
+URGENT_EVENTS = frozenset(
+    {"radio.offline", "telemetry.alert", "notify.channel_changed", "notify.channel_failed"}
+)
 MAX_PAUSE_S = 366 * 86400
 LEGACY_CHANNELS = frozenset(MEDIUM_IDS - {BUILTIN_PUSH_ID})
 CONVERSATION_KEY = re.compile(r"^(contact|channel)-[0-9A-Za-z]{1,128}$")
@@ -346,12 +349,26 @@ async def _reconcile_heartbeats(restart: str | None = None) -> None:
     await notification_dispatcher().heartbeats.reconcile(restart)
 
 
-async def _run_test(channel: Channel, secrets: dict[str, str], *, record: bool) -> TestResult:
+def _requester_id(request: Request) -> int:
+    """The account that pressed **Test**: a Web Push test reaches its devices only (MSHL-407)."""
+    principal = get_principal(request)
+    if principal is None:  # the router's ``admin`` declaration already refused it
+        raise forbidden("admin")
+    return principal.user_id
+
+
+async def _run_test(
+    channel: Channel, secrets: dict[str, str], *, record: bool, requester_id: int | None
+) -> TestResult:
     from app.notifications.dispatcher import notification_dispatcher
 
-    result = await notification_dispatcher().send_test(channel, secrets, record=record)
+    result = await notification_dispatcher().send_test(
+        channel, secrets, record=record, requester_id=requester_id
+    )
     if result.ok:
         return TestResult()
+    # A skipped test (Web Push with nobody to reach) is reported as an error too: the
+    # caller must see that nothing was sent, not a green "test sent".
     status, code = api_support.test_failure(result.error_code)
     logger.info("Notification test on a %s channel failed: %s", channel.type, code)
     raise fail(code, status)
@@ -377,7 +394,7 @@ def _draft_channel(body: ChannelCreate, public: dict[str, Any]) -> Channel:
 
 
 @router.post("/channels/test")
-async def test_unsaved_channel(body: ChannelCreate) -> TestResult:
+async def test_unsaved_channel(body: ChannelCreate, request: Request) -> TestResult:
     """Test a configuration before saving it: the same validations and codes as a save and
     as ``POST /channels/{id}/test``; nothing is persisted. One test every two seconds, and
     the limit is taken before any validation, so the DNS lookups of the egress checks
@@ -392,7 +409,9 @@ async def test_unsaved_channel(body: ChannelCreate) -> TestResult:
         _entry, public, secrets = await NotificationChannelRepository.prepare(body)
     except ChannelError as exc:
         raise _as_http(exc) from None
-    return await _run_test(_draft_channel(body, public), secrets, record=False)
+    return await _run_test(
+        _draft_channel(body, public), secrets, record=False, requester_id=_requester_id(request)
+    )
 
 
 class TemplatePreviewIn(BaseModel):
@@ -506,8 +525,15 @@ async def delete_channel(channel_id: str, request: Request) -> dict[str, bool]:
 
 
 @router.post("/channels/{channel_id}/test")
-async def test_channel(channel_id: str) -> TestResult:
-    """Send a test notification on a saved channel (one per 5 s per channel, 429 after)."""
+async def test_channel(channel_id: str, request: Request) -> TestResult:
+    """Send a test notification on a saved channel (one per 5 s per channel, 429 after). On
+    Web Push it reaches the caller's devices only."""
+    return await test_saved_channel(channel_id, requester_id=_requester_id(request))
+
+
+async def test_saved_channel(channel_id: str, *, requester_id: int | None) -> TestResult:
+    """The body of ``POST /channels/{id}/test``, also called by the deprecated
+    ``POST /api/settings/notification-destinations/test`` (``legacy:*`` channels)."""
     found = await NotificationChannelRepository.get_for_send(channel_id)
     if found is None:
         raise fail("channel_missing", 404)
@@ -519,7 +545,7 @@ async def test_channel(channel_id: str) -> TestResult:
         raise fail(
             "rate_limited", 429, headers={"Retry-After": str(int(api_support.TEST_PERIOD_S))}
         )
-    return await _run_test(channel, secrets, record=True)
+    return await _run_test(channel, secrets, record=True, requester_id=requester_id)
 
 
 @router.post("/channels/{channel_id}/resume")

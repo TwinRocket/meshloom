@@ -55,12 +55,19 @@ LOCKED_EVENTS = frozenset(
         "notify.test",
     }
 )
-# Operational notices about the instance's notification setup (MSHL-399): on Web Push they
-# reach only the devices of administrators, as ``/api/health`` keeps channel health for them
-# and the ``notification_event`` frame of a ``notify.*`` event reaches admin sockets only.
-# Fail closed: a device whose owner's role is unknown never gets one.
+# Operational notices about the instance's notification setup (MSHL-399), and the heartbeat
+# of a channel (MSHL-407): on Web Push they reach only the devices of administrators, as
+# ``/api/health`` keeps channel health for them and the ``notification_event`` frame of a
+# ``notify.*`` event reaches admin sockets only. Fail closed: a device whose owner's role is
+# unknown never gets one. ``notify.test`` on Web Push goes to the requester's devices only
+# (``requester_audience``).
 ADMIN_ONLY_EVENTS = frozenset(
-    {"notify.channel_changed", "notify.channel_failed", "notify.destination_changed"}
+    {
+        "notify.channel_changed",
+        "notify.channel_failed",
+        "notify.destination_changed",
+        "notify.heartbeat",
+    }
 )
 OVERRIDABLE_EVENTS: tuple[str, ...] = tuple(e for e in EVENT_IDS if e not in LOCKED_EVENTS)
 FIRST_SEEN_EVENT = "contact.first_seen"
@@ -260,6 +267,12 @@ def admin_audience(admin_ids: Iterable[int], payload: Mapping[str, Any]) -> Push
     return PushAudience(default=None, per_user=per_user) if per_user else None
 
 
+def requester_audience(user_id: int, payload: Mapping[str, Any]) -> PushAudience:
+    """The audience of a ``notify.test`` on Web Push (MSHL-407): ``payload`` for the devices
+    of the account that pressed **Test**, nothing for anyone else."""
+    return PushAudience(default=None, per_user={user_id: payload})
+
+
 def build_audience(
     rules: Mapping[str, Any],
     overrides: Mapping[int, Mapping[str, Any]],
@@ -324,5 +337,6 @@ __all__ = [
     "is_paused",
     "pause_until",
     "push_wanted",
+    "requester_audience",
     "sanitize_override",
 ]

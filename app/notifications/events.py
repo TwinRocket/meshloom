@@ -375,6 +375,7 @@ class ChannelChangedEvent(NotificationEvent):
 
         return {
             "event": CHANNEL_CHANGED_EVENT,
+            "urgent": self.urgent,
             "action": self.data.action,
             "channel_type": self.data.channel_type,
             "name": self.data.name,
@@ -384,7 +385,8 @@ class ChannelChangedEvent(NotificationEvent):
 @dataclass(frozen=True, kw_only=True)
 class ChannelFailedEvent(NotificationEvent):
     """``notify.channel_failed``: a channel keeps failing, or a push service unsubscribed a
-    browser (``app/notifications/failures.py``). Never sent to the failing channel."""
+    browser (``app/notifications/failures.py``). Never sent to the failing channel. Urgent
+    (MSHL-407): it goes through quiet hours and the pauses at once, not in their summary."""
 
     data: ChannelFailedData
 
@@ -393,6 +395,7 @@ class ChannelFailedEvent(NotificationEvent):
 
         return {
             "event": CHANNEL_FAILED_EVENT,
+            "urgent": self.urgent,
             "channel_id": self.data.channel_id,
             "name": self.data.name,
             "error": self.data.error,
@@ -625,6 +628,7 @@ def event_from_payload(
         return ChannelFailedEvent(
             event="notify.channel_failed",
             dedup_key=dedup_hash("notify.channel_failed", channel_id, uuid.uuid4().hex),
+            urgent=True,
             data=ChannelFailedData(
                 channel_id=channel_id,
                 name=_s(payload.get("name")),

@@ -76,6 +76,7 @@ _PASS_THROUGH: dict[str, int] = {
     "timeout": 504,
     "rate_limited": 429,
     "quota_exceeded": 429,
+    "no_push_device": 409,  # a Web Push test that reached nobody: nothing was sent
 }
 _LINE_CODE = re.compile(r"^line \d+(?: \([^)]*\))?: (?P<code>[a-z0-9_]+)$")
 
@@ -167,6 +168,7 @@ async def announce_channel_change(request: Any, action: str, channel: Channel) -
             None,
             payload={
                 "event": CHANNEL_CHANGED_EVENT,
+                "urgent": True,  # the e-mail subject's [URGENT] reads it
                 "action": action,
                 "channel_type": channel.type,
                 "name": channel.name,

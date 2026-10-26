@@ -14,6 +14,7 @@
     "egress_userinfo": "The address must not contain a user name or password.",
     "timeout": "The destination did not answer in time.",
     "tls_error": "The secure (TLS) connection failed: check the certificate, or use http:// if the destination has no TLS.",
+    "no_push_device": "Nothing was sent: no device is registered for push notifications. Turn on notifications in this browser or app first.",
     "service_error": "The destination answered with HTTP error {{status}}."
   },
   "settings": {

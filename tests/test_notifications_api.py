@@ -176,6 +176,13 @@ async def test_events_catalogue(test_db, client):
     ids = {e["id"]: e for e in body["events"]}
     assert body["contract_version"] == 1
     assert ids["radio.offline"]["urgent"] is True
+    # The events quiet hours and the pauses never hold (channel_failed since MSHL-407).
+    assert {i for i, e in ids.items() if e["urgent"]} == {
+        "radio.offline",
+        "telemetry.alert",
+        "notify.channel_changed",
+        "notify.channel_failed",
+    }
     assert ids["notify.channel_changed"]["locked_channels"] == ["builtin:push"]
     assert ids["notify.test"]["configurable"] is False
 

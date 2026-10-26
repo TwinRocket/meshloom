@@ -271,7 +271,15 @@ A preset is an Apprise service described as data, no code per service: a `Preset
 - **Tests.** `POST /channels/test` runs `NotificationChannelRepository.prepare()` (the checks of
   a creation) and sends through `Dispatcher.send_test()`: the channel's own transport, so the
   egress guard, with no queue, retry, journal row or counter; for a saved channel the answer
-  also updates its status. `api_support.test_failure()` maps a `SendResult.error_code` to
+  also updates its status. On Web Push (MSHL-407) the routes pass the caller's id
+  (`requester_id`) and the test reaches that account's devices only
+  (`user_rules.requester_audience`); without one (`probe_tick`) it goes to the administrators'
+  devices (`_admin_push_audience`). When nobody can be reached (owners unreadable, or no
+  device in the audience) nothing is sent and the result is `SendResult("skipped",
+  "no_push_device")`: neither success nor failure, so `record=True` leaves the pause, failure
+  counters, backoff step and status as they were, `probe_tick` does not count it and probes
+  again next tick, and the routes answer 409 `no_push_device` ("nothing was sent"). The deprecated `/api/settings/notification-destinations/test` calls
+  `test_saved_channel(requester_id=None)` for `legacy:*` only. `api_support.test_failure()` maps a `SendResult.error_code` to
   `(status, code)` (401/403 `auth_failed` 502, timeout 504, 429 `rate_limited`, anything it does
   not know `service_error` 502). Limits: `AsyncLimiter(1, 5)` per channel id, 1 per 2 s for
   the unsaved test (taken before `prepare()`, so before any DNS lookup) and 10 a minute for all
@@ -285,7 +293,7 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   cannot be taken off the rule: 403 `builtin_channel`) and to the rule's channels, every other
   enabled one by default, never to the channel that changed. `notify.destination_changed` stays
   as it was for the legacy settings route (push only).
-- **`notify.channel_failed`** (MSHL-130, not urgent, not configurable, locked for accounts): on the
+- **`notify.channel_failed`** (MSHL-130, urgent since MSHL-407, not configurable, locked for accounts): on the
   3rd consecutive failure of a channel (and every later one, but `failures.announce` claims
   `notification_state` key `channel_failed:<id>` with a 1-day TTL through `state_claim`, so at
   most once a day per channel, across restarts), and when `PushManager._record_outcomes` drops
@@ -295,11 +303,14 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   removals (`_SendResult.invalid`, error `push_refused`), same key. Emitted with `targets` =
   `builtin:push` and every enabled channel, minus the failing one. Payload `channel_id`, `name`,
   `error` (`safe_error_code`). Not digestible (`quiet.digestible` takes `message.*`/`contact.*`
-  only), so a channel in digest mode gets it at once; quiet hours and pauses still hold it (not
-  urgent).
+  only), so a channel in digest mode gets it at once. Urgent (MSHL-407, `urgent=True` in
+  `event_from_payload`, listed in the router's `URGENT_EVENTS`): quiet hours and the global
+  pause never hold it, it is never in their summary, it passes a full bucket once like the other
+  urgent events; a channel's own auto-pause still holds it.
 - **Admin-only notices on Web Push** (MSHL-399): `user_rules.ADMIN_ONLY_EVENTS`
-  (`notify.channel_changed`, `notify.channel_failed`, `notify.destination_changed`) name channels
-  and devices, admin-level data (`/api/health` details and the `notification_event` frame of
+  (`notify.channel_changed`, `notify.channel_failed`, `notify.destination_changed`, and since
+  MSHL-407 `notify.heartbeat`, which no Web Push loop sends today but a rule or a direct
+  `dispatch_event` could) name channels and devices, admin-level data (`/api/health` details and the `notification_event` frame of
   `notify.*` are admin-only too). `_emit` replaces the `builtin:push` audience with
   `admin_audience()`: the admins owning a deliverable device (`owner_role == "admin"`), `default`
   None so no other account gets it, and held counters are per admin account. No admin device, or
