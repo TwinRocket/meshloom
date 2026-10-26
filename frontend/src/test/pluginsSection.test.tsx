@@ -585,6 +585,13 @@ describe('re-consent, reorder and admin gate', () => {
         'settings.extensions.attention.review_permissions_privacy.badge',
         'settings.extensions.attention.review_permissions_privacy.text',
         'errors.plugin_code_mismatch',
+        'settings.extensions.attention.config_dropped.badge',
+        'settings.extensions.attention.config_dropped.text',
+        'pluginStore.updates.dropped',
+        'pluginStore.updates.droppedWarning',
+        'pluginStore.updates.autoHeld.consent_required',
+        'pluginStore.updates.autoHeld.config_required',
+        'pluginStore.updates.autoHeld.config_dropped',
       ]) {
         expect(i18n.exists(key, { lng })).toBe(true);
       }

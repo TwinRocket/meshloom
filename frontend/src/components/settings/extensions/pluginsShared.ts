@@ -90,6 +90,18 @@ export function attentionFields(instance: Pick<PluginInstance, 'attention'>): st
 }
 
 /**
+ * The config fields an update reset because the new schema rejected their value: the
+ * notice `attention: {type: "config_dropped", fields}` of a running instance, or
+ * `attention.config_dropped` of a held one. Saving the config clears them.
+ */
+export function droppedFields(instance: Pick<PluginInstance, 'attention'>): string[] {
+  const attention = instance.attention;
+  const raw =
+    attentionType(instance) === 'config_dropped' ? attention?.fields : attention?.config_dropped;
+  return Array.isArray(raw) ? raw.filter((f): f is string => typeof f === 'string') : [];
+}
+
+/**
  * An instance restored from a backup without its code (`attention.type = "reinstall"`):
  * it never starts until reinstalled (the API answers 409 `plugin_reinstall_required`).
  */

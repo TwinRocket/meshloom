@@ -114,6 +114,41 @@ describe('plugin config form', () => {
     expect(toastMocks.success).toHaveBeenCalledWith(t('settings.extensions.config.saved'));
   });
 
+  it('shows the settings an update reset, and drops the notice once the config is saved', async () => {
+    const notice = instance({
+      attention: {
+        type: 'config_dropped',
+        fields: ['city'],
+        from_version: '1.0.0',
+        to_version: '1.1.0',
+      },
+    });
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([notice]);
+    vi.spyOn(api, 'patchPlugin').mockResolvedValue(instance({ updated_at: 2 }));
+    render(<SettingsExtensionsSection health={health} />);
+    // A notice, not a hold: the instance keeps running.
+    expect(
+      await screen.findByText(t('settings.extensions.attention.config_dropped.badge'))
+    ).toBeVisible();
+    await openDrawer('Weather');
+    expect(await screen.findByTestId('plugin-config-dropped')).toHaveTextContent('city');
+    fireEvent.click(screen.getByRole('button', { name: t('settings.extensions.config.save') }));
+    await waitFor(() => expect(screen.queryByTestId('plugin-config-dropped')).toBeNull());
+  });
+
+  it('lists the settings an update reset on a held instance too', async () => {
+    vi.spyOn(api, 'getPlugins').mockResolvedValue([
+      instance({
+        enabled: false,
+        status: 'needs_attention',
+        attention: { type: 'consent_required', permissions: ['http'], config_dropped: ['city'] },
+      }),
+    ]);
+    render(<SettingsExtensionsSection health={health} />);
+    await openDrawer('Weather');
+    expect(await screen.findByTestId('plugin-config-dropped')).toHaveTextContent('city');
+  });
+
   it('replaces a secret only when asked and clears the typed value after the save', async () => {
     vi.spyOn(api, 'getPlugins').mockResolvedValue([instance()]);
     const patch = vi.spyOn(api, 'patchPlugin').mockResolvedValue(instance({ updated_at: 2 }));

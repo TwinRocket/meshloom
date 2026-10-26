@@ -6,7 +6,9 @@ request goes through ``app.plugins.store_egress`` (``store_fetch``).
 - ``GET /store/status``: what the activation card says. No egress.
 - ``GET /store/repositories``: the custom GitHub repositories (MSHL-196) with the
   catalogue entry of each one's last good release (tier ``custom``, ``signed: false``,
-  the warning) and the instances installed from it. No egress.
+  the warning) and the instances installed from it, each with its ``auto_update`` switch
+  and, when that release updates it, the same ``hold`` / ``auto_hold`` /
+  ``dropped_fields`` as ``GET /store/updates``. No egress.
 - ``POST /store/repositories``: add ``owner/name``. Refused (403 ``plugins_disabled``)
   while the host lock or the platform turns plugins off, and (409 ``store_offline``)
   before any request while the Store is off; otherwise the latest release is read and
@@ -24,8 +26,9 @@ request goes through ``app.plugins.store_egress`` (``store_fetch``).
   newly added repository can be browsed): ``ran`` is then false and the cached releases stand.
 - ``GET /store/updates?lang=``: the installed plugins with a newer compatible release
   cached by their source (MSHL-197, ``app/plugins/updates.py``), with the changelog in
-  ``lang`` when the source has one, the permission and config schema diffs and the
-  hold each instance would get. No egress.
+  ``lang`` when the source has one, the permission and config schema diffs, the
+  hold each instance would get and why auto-update would leave it for a manual update
+  (``auto_hold``, MSHL-393). No egress.
 
 Installing from a repository is ``POST /api/plugins/install`` with ``kind: custom``
 and ``repository``; updating is ``POST /api/plugins/{instance_id}/update``.
@@ -109,10 +112,21 @@ class CustomCatalogueEntry(BaseModel):
     warning_text: dict[str, str]
 
 
+AutoHold = Literal["consent_required", "config_required", "config_dropped"]
+
+
 class RepositoryInstance(BaseModel):
     instance_id: str
     label: str
     version: str
+    auto_update: bool = False
+    hold: Literal["consent_required", "config_required"] | None = Field(
+        default=None, description="As in ``GET /store/updates`` (None: no update or no hold)."
+    )
+    auto_hold: AutoHold | None = Field(
+        default=None, description="As in ``GET /store/updates`` (None: no update or no hold)."
+    )
+    dropped_fields: list[str] = Field(default_factory=list)
 
 
 class RepositoryView(BaseModel):
@@ -162,6 +176,11 @@ class UpdateInstance(BaseModel):
         description="Config fields whose value the new schema rejects: dropped and reported "
         "(attention ``config_dropped``), never silently.",
     )
+    auto_hold: AutoHold | None = Field(
+        default=None,
+        description="Why auto-update leaves this update for a manual one: ``hold``, else "
+        "``config_dropped`` when a stored value would be dropped (None: it may auto-update).",
+    )
 
 
 class PluginUpdate(BaseModel):
@@ -182,11 +201,27 @@ class PluginUpdate(BaseModel):
 async def _views() -> list[RepositoryView]:
     rows = await custom_repos.list_rows()
     custom = [r for r in await PluginRepository.get_all() if r.get("kind") == "custom"]
+    # The update each instance would take from its repository's cached release (no request).
+    pending = {
+        i["instance_id"]: i
+        for entry in await updates.available_updates()
+        for i in entry["instances"]
+    }
     views = []
     for row in rows:
         entry = custom_repos.catalogue_entry(row)
         instances = [
-            RepositoryInstance(instance_id=r["instance_id"], label=r["label"], version=r["version"])
+            RepositoryInstance(
+                instance_id=r["instance_id"],
+                label=r["label"],
+                version=r["version"],
+                auto_update=bool(r.get("auto_update")),
+                **{
+                    k: pending[r["instance_id"]][k]
+                    for k in ("hold", "auto_hold", "dropped_fields")
+                    if r["instance_id"] in pending
+                },
+            )
             for r in custom
             if r.get("repository") == row["repository"]
             and (row["plugin_id"] is None or r["plugin_id"] == row["plugin_id"])

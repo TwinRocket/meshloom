@@ -137,8 +137,10 @@ and the OpenAPI page (`/docs`), not a table here.
   no egress), `update_plugin()` (`POST /api/plugins/{id}/update`: the install pipeline,
   every instance of the plugin together, config/secrets/KV kept, new permissions hold
   `consent_required`, new required fields `config_required`, a rejected optional value
-  dropped and reported as `config_dropped`), `auto_update()` (a Store refresher, so only
-  every 6 h, per-instance `auto_update`, inside the app update window, never on a hold)
+  dropped and reported as `config_dropped`), `auto_update()` (a Store evaluator: hourly on
+  the cached releases, per-instance `auto_update`, inside the app update window, never on
+  a hold nor when a stored value would be dropped, `auto_hold` in the listing; a failed or
+  held try is not retried for `REFRESH_INTERVAL_S`)
   and `mark_compat()` (from `lifecycle.start()` before `load_from_db`: out of
   `compat.meshloom` is `incompatible`, back in range is `installed`, or
   `needs_attention` when its kept attention is a hold).
@@ -565,9 +567,16 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   `REFRESH_INTERVAL_S` (6 h), and once when turned on, but never twice within
   `MIN_REFRESH_GAP_S` (10 min; a tick skipped by that gap waits only the rest of it),
   it runs the steps registered with
-  `register_store_refresher()`, and only when at least one `custom` or `store` instance
-  is installed. Registered: `custom_repos.refresh_repositories` (MSHL-196), then
-  `updates.auto_update` (MSHL-197, registered by `lifecycle.start()`).
+  `register_store_refresher()`, then those registered with `register_store_evaluator()`,
+  and only when at least one `custom` or `store` instance is installed. Exception: the
+  manual **Refresh** button (`POST /api/store/refresh`) runs even with nothing installed,
+  still gated by `store_online` and the 10-minute gap. Between refreshes the loop runs the
+  evaluators alone every `EVALUATE_INTERVAL_S` (1 h, `run_store_evaluation()`): same
+  consent and installed-instance gates, never the gap nor `last_refresh_at`, and an
+  evaluator must not fetch on its own (it reads the cache; applying an update goes
+  through the usual install pipeline). The lock is created lazily (`_lock()`).
+  Registered: `custom_repos.refresh_repositories` (MSHL-196) as a refresher,
+  `updates.auto_update` (MSHL-197/393, registered by `lifecycle.start()`) as an evaluator.
 - **Custom repositories** (`plugins/custom_repos.py`, MSHL-196, `docs/dev/plugins.md`,
   "Custom repositories"): GitHub `owner/name` read through `store_fetch` with
   `CUSTOM_REPO_HOSTS` (the GitHub hosts only), the `releases/latest` redirect never

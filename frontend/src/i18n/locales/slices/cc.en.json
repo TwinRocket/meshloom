@@ -72,6 +72,10 @@
           "badge": "To reinstall",
           "text": "This extension was restored from a backup without its code. It cannot start until it is installed again; you can also uninstall it."
         },
+        "config_dropped": {
+          "badge": "Settings reset",
+          "text": "The last update reset settings whose value the new version no longer accepts: {{fields}}. Check them and save the settings to clear this notice."
+        },
         "other": {
           "badge": "Needs review",
           "text": "This extension waits for you to review it before it can start."

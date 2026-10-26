@@ -131,6 +131,10 @@ export function UpdatesTab({
           {updates.map((update) => {
             const name = localizedText(update.name, i18n.language) || update.plugin_id;
             const holds = update.instances.filter((i) => i.hold !== null);
+            // An automatic update waits for a manual one: say why, once per plugin.
+            const autoHeld = update.instances.every((i) => i.auto_update)
+              ? (update.instances.find((i) => i.auto_hold)?.auto_hold ?? null)
+              : null;
             return (
               <li
                 key={update.plugin_id}
@@ -163,6 +167,28 @@ export function UpdatesTab({
                     {t(`pluginStore.updates.hold.${i.hold}`, { label: i.label })}
                   </p>
                 ))}
+                {update.instances
+                  .filter((i) => (i.dropped_fields?.length ?? 0) > 0)
+                  .map((i) => (
+                    <p
+                      key={`dropped-${i.instance_id}`}
+                      className="text-xs text-muted-foreground break-words"
+                      data-testid="plugin-update-dropped"
+                    >
+                      {t('pluginStore.updates.dropped', {
+                        label: i.label,
+                        fields: i.dropped_fields.join(', '),
+                      })}
+                    </p>
+                  ))}
+                {autoHeld && (
+                  <p
+                    className="text-xs text-muted-foreground break-words"
+                    data-testid="plugin-update-auto-held"
+                  >
+                    {t(`pluginStore.updates.autoHeld.${autoHeld}`)}
+                  </p>
+                )}
               </li>
             );
           })}

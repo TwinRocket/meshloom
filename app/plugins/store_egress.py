@@ -28,7 +28,16 @@ default, never restored from a backup and reset to 0 in a database copy.
   restore (JSON or SQLite snapshot) re-reads the consent (``on_restore`` hook). The
   refresh work itself (update checks, revocations) registers with
   ``register_store_refresher`` (custom repositories: ``custom_repos.refresh_repositories``,
-  MSHL-196); each refresher sends through ``store_fetch``.
+  MSHL-196); each refresher sends through ``store_fetch``. The manual Refresh button
+  (``run_store_refresh(manual=True)``) runs even with nothing installed, still gated by
+  the consent and the 10 min gap.
+- Between two refreshes the same loop runs the evaluators every ``EVALUATE_INTERVAL_S``
+  (1 h; MSHL-393), under the same conditions (consent on, an online instance): steps
+  registered with ``register_store_evaluator`` that read only what the last refresh
+  cached and make no request of their own (``updates.auto_update``: a short update
+  window is not missed). They also run right after each refresh tick. An evaluation
+  never fetches release data and never moves ``last_refresh_at``; applying an update it
+  decides on downloads the archive through ``store_fetch`` like any update.
 - ``store_status()`` builds ``GET /api/store/status`` from the same constants, so
   the activation card names exactly the hosts the guard allows.
 """
@@ -68,6 +77,8 @@ STORE_ALLOWLIST = HostAllowlist.of(*STORE_HOSTS)
 STORE_SCHEMES = frozenset({"https"})
 
 REFRESH_INTERVAL_S = 6 * 3600
+# Between refreshes, the evaluators (cached data only, no request of their own) run this often.
+EVALUATE_INTERVAL_S = 3600
 # However often the consent is toggled, two refresh ticks are at least this far apart.
 MIN_REFRESH_GAP_S = 10 * 60
 STORE_TIMEOUT = httpx.Timeout(10.0, read=30.0)
@@ -95,13 +106,22 @@ class _State:
     generation: int = 0
     inflight: set[asyncio.Future] = field(default_factory=set)
     refreshers: list[Refresher] = field(default_factory=list)
+    # Steps that read only cached data: run after each refresh and every EVALUATE_INTERVAL_S.
+    evaluators: list[Refresher] = field(default_factory=list)
     last_refresh_at: int | None = None
     # One tick at a time: the gap check and the timestamp are a critical section.
-    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Created on first use (``_lock()``), not at import.
+    lock: asyncio.Lock | None = None
     clock: Callable[[], float] = time.time
 
 
 _state = _State()
+
+
+def _lock() -> asyncio.Lock:
+    if _state.lock is None:
+        _state.lock = asyncio.Lock()
+    return _state.lock
 
 
 def store_user_agent() -> str:
@@ -190,6 +210,18 @@ def unregister_store_refresher(refresher: Refresher) -> None:
         _state.refreshers.remove(refresher)
 
 
+def register_store_evaluator(evaluator: Refresher) -> None:
+    """Add a step that reads only what the refresh cached (no request of its own): it
+    runs after each refresh tick and every ``EVALUATE_INTERVAL_S`` in between."""
+    if evaluator not in _state.evaluators:
+        _state.evaluators.append(evaluator)
+
+
+def unregister_store_evaluator(evaluator: Refresher) -> None:
+    if evaluator in _state.evaluators:
+        _state.evaluators.remove(evaluator)
+
+
 async def has_online_instances() -> bool:
     """At least one installed instance updates from the network (custom or store)."""
     from app.repository.plugins import PluginRepository
@@ -201,10 +233,10 @@ async def run_store_refresh(*, manual: bool = False) -> bool:
     """One refresh tick. True when it ran (consent on, an online instance, a refresher,
     and no tick in the last ``MIN_REFRESH_GAP_S``). ``manual`` (the Refresh button)
     does not need an installed instance: the repositories listed are read as well, so
-    a newly added one can be browsed. Ticks are serialised, so two calls at once run
-    one tick and the other is held by the gap."""
-    async with _state.lock:
-        if not _state.refreshers:
+    a newly added one can be browsed. The evaluators run after the refreshers. Ticks are
+    serialised, so two calls at once run one tick and the other is held by the gap."""
+    async with _lock():
+        if not _state.refreshers and not _state.evaluators:
             return False
         last = _state.last_refresh_at
         if last is not None and _state.clock() - last < MIN_REFRESH_GAP_S:
@@ -213,17 +245,37 @@ async def run_store_refresh(*, manual: bool = False) -> bool:
             return False
         if not manual and not await has_online_instances():
             return False
-        for refresher in list(_state.refreshers):
-            try:
-                await refresher()
-            except StoreOffline:
-                return False
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Store refresh step failed")
+        if not await _run_steps(_state.refreshers):
+            return False
         _state.last_refresh_at = int(_state.clock())
+        await _run_steps(_state.evaluators)
         return True
+
+
+async def run_store_evaluation() -> bool:
+    """One evaluation between refreshes: the evaluators only (cached data, no request
+    of their own), when the consent is on and an online instance is installed. Shares
+    the refresh lock, never the gap, never ``last_refresh_at``. True when it ran."""
+    async with _lock():
+        if not _state.evaluators:
+            return False
+        if not await store_egress_allowed() or not await has_online_instances():
+            return False
+        return await _run_steps(_state.evaluators)
+
+
+async def _run_steps(steps: list[Refresher]) -> bool:
+    """Run each step; a failing one is logged. False when the consent went off."""
+    for step in list(steps):
+        try:
+            await step()
+        except StoreOffline:
+            return False
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Store refresh step failed")
+    return True
 
 
 async def _refresh_loop() -> None:
@@ -237,7 +289,23 @@ async def _refresh_loop() -> None:
             raise
         except Exception:
             logger.exception("Store refresh failed")
-        await asyncio.sleep(_next_delay(ran))
+        await _wait_evaluating(_next_delay(ran))
+
+
+async def _wait_evaluating(delay: float) -> None:
+    """Sleep ``delay``, running the evaluators every ``EVALUATE_INTERVAL_S`` meanwhile."""
+    while delay > EVALUATE_INTERVAL_S:
+        await asyncio.sleep(EVALUATE_INTERVAL_S)
+        delay -= EVALUATE_INTERVAL_S
+        if not await store_egress_allowed():
+            return
+        try:
+            await run_store_evaluation()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Store evaluation failed")
+    await asyncio.sleep(delay)
 
 
 def _next_delay(ran: bool) -> float:
@@ -335,5 +403,7 @@ async def reset_store_egress_for_tests() -> None:
         send.cancel()
     _state.inflight.clear()
     _state.refreshers.clear()
+    _state.evaluators.clear()
     _state.last_refresh_at = None
+    _state.lock = None
     _state.generation = 0
