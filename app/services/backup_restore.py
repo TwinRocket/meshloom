@@ -1099,12 +1099,13 @@ async def check_v1_secret_store(request: BackupExport) -> None:
 
 async def secret_store_blocks_restore(doc: BackupV1Document | BackupExportV2) -> bool:
     """For the inspection: a restore of this file with the default steps would be refused
-    with ``backup_secret_store_unavailable`` (MSHL-398). Reads only; the key is loaded,
-    or created, only when the file needs it, as the restore itself would."""
+    with ``backup_secret_store_unavailable`` (MSHL-398). Reads only: it uses the
+    read-only ``secret_store.probe_available()``, which never creates ``secrets.key``
+    nor changes its mode (MSHL-405); the restore keeps its own ``available()`` check."""
     from app import secret_store
 
     options = RestoreOptions(steps=BackupRestoreSteps())
-    return await restore_needs_secret_store(doc, options) and not secret_store.available()
+    return await restore_needs_secret_store(doc, options) and not secret_store.probe_available()
 
 
 async def start_restore_backup_v2(

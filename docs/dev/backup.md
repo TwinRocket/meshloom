@@ -138,6 +138,12 @@ version below 1 raises `ValueError`.
   secrets. The inspection reports it ahead as `secret_store_unavailable`
   (`secret_store_blocks_restore`, default steps), which the summary shows
   (`settings.fullRestore.secretStoreUnavailable`) while the Meshloom step is on.
+  The inspection writes nothing: it asks the read-only
+  `secret_store.probe_available()`, which never creates `secrets.key` (or its
+  folder) nor changes its mode (MSHL-405). It mirrors `_load` (a key file
+  readable by others counts as readable for its owner, who would set it to
+  0600) and is a best effort: a case it misses, such as a read-only file
+  system refusing that `chmod`, is still refused by the restore itself.
 - **`requires`.** `register_backup_section(name, ..., requires=["users"])`:
   the named sections are restored first, in the same restore. When one of them
   is missing from the file, too new or failed, this section is skipped
