@@ -530,7 +530,9 @@ silence_s (default 86400, 60 s to 365 d)}`, validated by `watched_nodes.clean_en
 the whole list, unknown channels refused) and, per entry, by `clean_entry` in the backup `sanitize_rules` (cap `MAX_WATCHED`, unique keys). Web Push
 (`builtin:push`) is refused, as for keywords. The hook is a service, `observe_sighting()` (never raises), called from the contact paths of
 `packet_processor.py`: a new advert packet (after the upsert, `previous_seen` = the contact's `last_seen` before it, pinned by a test) and an incoming decoded DM, and from
-`event_handlers.on_contact_message` (the `CONTACT_MSG_RECV` fallback) when it stored the DM of a known contact.
+`event_handlers.on_contact_message` (the `CONTACT_MSG_RECV` fallback) for a known contact. One DM counts once (MSHL-408): a stored DM when it is stored
+(a duplicate reception is not counted); a decoded-but-never-stored one (a repeater contact's reply, a `txt_type` 1 CLI response) once per
+(sender, sender timestamp, text) through `claim_unstored_dm()`, a bounded in-memory set shared by both paths. Outgoing echoes never count.
 It reads the rules, ignores an unwatched key (nothing stored), takes the previous sighting from `notification_state` `watch:heard:<key>`
 (else `previous_seen`), records the new one, claims the node's cooldown through `Dispatcher.claim_cooldown` (`dedup:cooldown:watch:<key>`, only
 when the entry has a channel, one cooldown for both events), then emits `contact.node_back` (`NodeBackEvent`, previous sighting at least

@@ -347,7 +347,7 @@ async def test_the_advert_path_passes_last_seen_read_before_the_upsert(clock, em
 
 async def test_a_fallback_direct_message_counts_as_a_sighting(clock, emitted, test_db):
     """MSHL-401: a DM stored by the CONTACT_MSG_RECV fallback is a sighting, as on the
-    packet-processor path; a CLI response and a duplicate are not."""
+    packet-processor path; a duplicate is not (a CLI response is, MSHL-408)."""
     from unittest.mock import patch
 
     from app.event_handlers import on_contact_message
@@ -372,10 +372,9 @@ async def test_a_fallback_direct_message_counts_as_a_sighting(clock, emitted, te
         patch("app.event_handlers.broadcast_event"),
         patch("app.event_handlers.time.time", return_value=float(T0)),
     ):
-        await on_contact_message(Event(txt_type=1))  # CLI response: skipped
-        assert emitted == []
-        await on_contact_message(Event())
+        await on_contact_message(Event(txt_type=1))  # CLI response: not stored, still heard
         assert [e["event"] for e in emitted] == ["contact.node_back"]
+        await on_contact_message(Event())  # stored: a sighting, inside the cooldown
         await on_contact_message(Event())  # exact duplicate: not stored, not counted
         # The cooldown would hide a second emit, so check the stored sighting directly.
         stamp = await Journal.state_get(f"{wn.HEARD_PREFIX}{KEY}", T0 + 1)
@@ -385,6 +384,158 @@ async def test_a_fallback_direct_message_counts_as_a_sighting(clock, emitted, te
             await on_contact_message(Event())  # still a duplicate
         assert await Journal.state_get(f"{wn.HEARD_PREFIX}{KEY}", T0 + 10_001) == str(T0)
     assert len(emitted) == 1
+
+
+async def _packet_dm(at: int, raw: bytes, *, flags=0, outgoing=False, text="hello"):
+    """Receive one DM from KEY through the packet-processor path (decryption mocked)."""
+    from unittest.mock import MagicMock, patch
+
+    from app.decoder import DecryptedDirectMessage
+    from app.packet_processor import _process_direct_message
+    from app.repository.raw_packets import RawPacketRepository
+
+    our_pub = bytes([0xFA]) + b"\x01" * 31
+    first = int(KEY[:2], 16)
+    dest, src = (first, 0xFA) if outgoing else (0xFA, first)
+    decrypted = DecryptedDirectMessage(
+        timestamp=T0, flags=flags, message=text, dest_hash=f"{dest:02x}", src_hash=f"{src:02x}"
+    )
+    packet_info = MagicMock()
+    packet_info.payload = bytes([dest, src, 0, 0]) + b"\x00" * 20
+    packet_info.path = b""
+    packet_info.path_length = 0
+    pkt_id, _ = await RawPacketRepository.create(raw, at)
+    with (
+        patch("app.packet_processor.has_private_key", return_value=True),
+        patch("app.packet_processor.get_private_key", return_value=b"\x00" * 32),
+        patch("app.packet_processor.get_public_key", return_value=our_pub),
+        patch("app.packet_processor.try_decrypt_dm", return_value=decrypted),
+        patch("app.packet_processor.broadcast_event"),
+    ):
+        return await _process_direct_message(b"\x00" * 40, pkt_id, at, packet_info)
+
+
+async def _fallback_dm(at: int, *, txt_type=0, text="hello"):
+    from unittest.mock import patch
+
+    from app.event_handlers import on_contact_message
+
+    class Event:
+        payload = {"public_key": KEY, "text": text, "txt_type": txt_type, "sender_timestamp": T0}
+
+    with (
+        patch("app.event_handlers.broadcast_event"),
+        patch("app.event_handlers.time.time", return_value=float(at)),
+    ):
+        await on_contact_message(Event())
+
+
+async def _heard() -> str | None:
+    return await Journal.state_get(f"{wn.HEARD_PREFIX}{KEY}", T0 + 100_000)
+
+
+async def _watched_contact(type_: int):
+    from app.models import ContactUpsert
+    from app.repository.contacts import ContactRepository
+
+    wn._UNSTORED_SEEN.clear()
+    await ContactRepository.upsert(
+        ContactUpsert(public_key=KEY, name="Hilltop", type=type_, last_seen=T0 - 5 * 86_400)
+    )
+    await _watch(_node(silence_s=86_400))
+
+
+async def test_a_packet_path_direct_message_counts_once_per_stored_message(clock, emitted, test_db):
+    """MSHL-408: the packet-processor path records a sighting for the stored DM only, not for each
+    duplicate reception heard via another repeater (same semantics as the fallback path)."""
+    await _watched_contact(1)
+    assert await _packet_dm(T0, b"dm-reception-1") is not None
+    assert [e["event"] for e in emitted] == ["contact.node_back"]
+    assert await _heard() == str(T0)
+
+    # The same DM heard again later via another repeater: not a new sighting. The cooldown would
+    # hide a second emit, so check the stored sighting directly.
+    clock[0] += 10_000
+    await _packet_dm(T0 + 10_000, b"dm-reception-2")
+    assert await _heard() == str(T0)
+    assert len(emitted) == 1
+
+
+async def test_an_outgoing_echo_is_not_a_sighting(clock, emitted, test_db):
+    """MSHL-408: our own DM heard back (outgoing) says nothing about the node."""
+    await _watched_contact(1)
+    assert await _packet_dm(T0, b"echo-1", outgoing=True) is not None
+    assert emitted == []
+    assert await _heard() is None
+
+
+@pytest.mark.parametrize("kind", ["repeater", "cli"])
+async def test_a_decoded_but_unstored_dm_counts_once_on_the_packet_path(
+    clock, emitted, test_db, kind
+):
+    """MSHL-408: a watched repeater's reply or a CLI response is never stored but the node was
+    heard; several receptions of it count once."""
+    await _watched_contact(2 if kind == "repeater" else 1)
+    flags = 4 if kind == "cli" else 0
+    await _packet_dm(T0, b"un-1", flags=flags)
+    assert [e["event"] for e in emitted] == ["contact.node_back"]
+    assert await _heard() == str(T0)
+    clock[0] += 10_000
+    await _packet_dm(T0 + 10_000, b"un-2", flags=flags)
+    assert await _heard() == str(T0)
+    assert len(emitted) == 1
+
+
+@pytest.mark.parametrize("kind", ["repeater", "cli"])
+async def test_a_decoded_but_unstored_dm_counts_once_on_the_fallback_lane(
+    clock, emitted, test_db, kind
+):
+    await _watched_contact(2 if kind == "repeater" else 1)
+    txt_type = 1 if kind == "cli" else 0
+    await _fallback_dm(T0, txt_type=txt_type)
+    assert [e["event"] for e in emitted] == ["contact.node_back"]
+    assert await _heard() == str(T0)
+    clock[0] += 10_000
+    await _fallback_dm(T0 + 10_000, txt_type=txt_type)
+    assert await _heard() == str(T0)
+    assert len(emitted) == 1
+
+
+async def test_an_unstored_dm_seen_on_both_paths_counts_once(clock, emitted, test_db):
+    await _watched_contact(2)
+    await _packet_dm(T0, b"both-1")
+    clock[0] += 10_000
+    await _fallback_dm(T0 + 10_000)
+    assert await _heard() == str(T0)
+
+
+def test_claim_unstored_dm_is_bounded_and_evicts_the_oldest():
+    """MSHL-408: the memory of unstored DMs never exceeds its bound; the oldest key goes first."""
+    wn._UNSTORED_SEEN.clear()
+    cap = wn._UNSTORED_SEEN_MAX
+    for i in range(cap + 10):
+        assert wn.claim_unstored_dm(KEY, i, "x") is True
+    assert len(wn._UNSTORED_SEEN) == cap
+    # The oldest ten were evicted: they claim again; the newest are still remembered.
+    assert wn.claim_unstored_dm(KEY, cap + 9, "x") is False
+    assert wn.claim_unstored_dm(KEY, 0, "x") is True
+    wn._UNSTORED_SEEN.clear()
+
+
+def test_claim_unstored_dm_ignores_the_case_of_the_key():
+    wn._UNSTORED_SEEN.clear()
+    assert wn.claim_unstored_dm(KEY.upper(), T0, "hi") is True
+    assert wn.claim_unstored_dm(KEY.lower(), T0, "hi") is False
+    wn._UNSTORED_SEEN.clear()
+
+
+def test_claim_unstored_dm_text_is_part_of_the_key():
+    """Two different messages from one sender in the same second each count."""
+    wn._UNSTORED_SEEN.clear()
+    assert wn.claim_unstored_dm(KEY, T0, "one") is True
+    assert wn.claim_unstored_dm(KEY, T0, "two") is True
+    assert wn.claim_unstored_dm(KEY, T0, "one") is False
+    wn._UNSTORED_SEEN.clear()
 
 
 def test_effective_cooldown_clamps_legacy_values():

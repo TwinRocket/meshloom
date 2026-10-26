@@ -44,6 +44,28 @@ def cleanup_expired_acks() -> None:
     dm_ack_tracker.cleanup_expired_acks()
 
 
+async def _observe_unstored_dm(contact: Contact | None, payload: dict, received_at: int) -> None:
+    """A DM that is decoded but never stored (a repeater's reply, a CLI response) is still a
+    sighting of a watched node, counted once per (sender, timestamp, text) across both ingest
+    paths (MSHL-408). A prefix-only sender has no full key and cannot be watched."""
+    if contact is None:
+        return
+    from app.notifications.watched_nodes import claim_unstored_dm, observe_sighting
+
+    ts = payload.get("sender_timestamp")
+    if not claim_unstored_dm(
+        contact.public_key, ts if ts is not None else received_at, payload.get("text", "")
+    ):
+        return
+    await observe_sighting(
+        contact.public_key,
+        name=contact.name or "",
+        contact_type=contact.type or 0,
+        previous_seen=contact.last_seen,
+        now=received_at,
+    )
+
+
 async def on_contact_message(event: "Event") -> None:
     """Handle incoming direct messages from MeshCore library.
 
@@ -66,6 +88,14 @@ async def on_contact_message(event: "Event") -> None:
     txt_type = payload.get("txt_type", 0)
     if txt_type == 1:
         logger.debug("Skipping CLI response from %s (txt_type=1)", payload.get("pubkey_prefix"))
+        # Not stored, but the node was heard (MSHL-408). Only a known contact can be watched.
+        prefix = payload.get("public_key") or payload.get("pubkey_prefix", "")
+        if prefix:
+            try:
+                known = await ContactRepository.get_by_key_or_prefix(prefix.lower())
+            except Exception:
+                known = None
+            await _observe_unstored_dm(known, payload, int(time.time()))
         return
 
     # Get full public key if available, otherwise use prefix
@@ -84,6 +114,7 @@ async def on_contact_message(event: "Event") -> None:
             "Skipping message from repeater %s (not stored in chat history)",
             context.conversation_key[:12],
         )
+        await _observe_unstored_dm(context.contact, payload, received_at)
         return
 
     # Try to create or reconcile the message via the shared DM ingest service.
