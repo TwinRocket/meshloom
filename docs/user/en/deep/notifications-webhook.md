@@ -460,6 +460,32 @@ These bodies are produced by Meshloom's own code (radio named `Base`, channel in
 }
 ```
 
+### `notify.channel_failed`
+
+```json
+{
+  "version": 2,
+  "event": "notify.channel_failed",
+  "event_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "occurred_at": 1767225600,
+  "dedup_key": "a1757b3036b2657f",
+  "urgent": false,
+  "instance": {
+    "name": "Base",
+    "radio_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "data": {
+    "channel_id": "ntfy-1a2b3c",
+    "name": "ntfy",
+    "error": "auth_failed"
+  },
+  "rendered": {
+    "title": "Notification channel failing",
+    "body": "Channel \"ntfy\" keeps failing (auth_failed). Check it in the settings."
+  }
+}
+```
+
 ### `summary.grouped`
 
 ```json

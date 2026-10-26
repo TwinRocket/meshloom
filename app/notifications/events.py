@@ -37,6 +37,7 @@ EVENT_IDS: tuple[str, ...] = (
     "notify.destination_changed",
     "notify.channel_changed",
     "notify.test",
+    "notify.channel_failed",
 )
 
 _DEDUP_LENGTH = 16
@@ -118,6 +119,13 @@ class ChannelChangedData:
     action: str = ""  # created | changed | enabled | disabled | deleted
     channel_type: str = ""
     name: str = ""
+
+
+@dataclass(frozen=True)
+class ChannelFailedData:
+    channel_id: str = ""
+    name: str = ""
+    error: str = ""  # a short code (``failures.safe_error_code``), never a secret
 
 
 @dataclass(frozen=True)
@@ -302,6 +310,24 @@ class ChannelChangedEvent(NotificationEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
+class ChannelFailedEvent(NotificationEvent):
+    """``notify.channel_failed``: a channel keeps failing, or a push service unsubscribed a
+    browser (``app/notifications/failures.py``). Never sent to the failing channel."""
+
+    data: ChannelFailedData
+
+    def to_payload(self) -> dict[str, Any]:
+        from app.notifications.render import CHANNEL_FAILED_EVENT
+
+        return {
+            "event": CHANNEL_FAILED_EVENT,
+            "channel_id": self.data.channel_id,
+            "name": self.data.name,
+            "error": self.data.error,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
 class TestEvent(NotificationEvent):
     """``notify.test``: the "send a test" button of a destination."""
 
@@ -448,7 +474,24 @@ def event_from_payload(
             data=AppUpdateData(current=_s(payload.get("current")), latest=latest),
             **common,
         )
-    from app.notifications.render import CHANNEL_CHANGED_EVENT, DESTINATION_CHANGED_EVENT
+    from app.notifications.render import (
+        CHANNEL_CHANGED_EVENT,
+        CHANNEL_FAILED_EVENT,
+        DESTINATION_CHANGED_EVENT,
+    )
+
+    if kind == CHANNEL_FAILED_EVENT:
+        channel_id = _s(payload.get("channel_id"))
+        return ChannelFailedEvent(
+            event="notify.channel_failed",
+            dedup_key=dedup_hash("notify.channel_failed", channel_id, uuid.uuid4().hex),
+            data=ChannelFailedData(
+                channel_id=channel_id,
+                name=_s(payload.get("name")),
+                error=_s(payload.get("error")),
+            ),
+            **common,
+        )
 
     if kind == CHANNEL_CHANGED_EVENT:
         return ChannelChangedEvent(

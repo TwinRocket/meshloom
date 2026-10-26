@@ -35,8 +35,15 @@ delays itself.
   written only for ``failed``, ``rate_limited``, ``aggregated``, ``paused``,
   ``aborted``, ``suppressed_quiet`` (quiet hours, ``quiet_hours.py``), and carry the
   event id, the hashed ``dedup_key`` and a code: never the message text.
-- **Status.** ``notification_statuses()`` is the health payload's map; a change of
-  a channel's status or error broadcasts ``health``.
+- **A channel that keeps failing** (MSHL-130, ``failures.py``): from the third
+  consecutive failure ``notify.channel_failed`` goes to every other enabled channel, once
+  a day per channel; from the twentieth the channel is paused (``paused_until``) for 5 min,
+  15 min, 1 h, then 6 h, and ``probe_tick`` (every ``QUIET_TICK_S``) sends it a test once
+  the pause ran out: a success resumes it, a failure pauses it for the next step.
+  ``resume`` (the Resume button) clears the pause and the failures.
+- **Status.** ``notification_statuses()`` is the health payload's map and
+  ``notifications_failing()`` its flag (a channel failing, paused or with a secret the key
+  cannot open); a change of a channel's status or error broadcasts ``health``.
 - **Shutdown.** ``drain_background_tasks`` cancels the workers, the long retries
   and the first-seen flushers; each records what it still held as ``aborted``,
   and the counter loop flushes once more.
@@ -58,6 +65,7 @@ from typing import Any, Literal
 from aiolimiter import AsyncLimiter
 from tenacity import AsyncRetrying, RetryCallState, retry_if_result, stop_after_attempt
 
+from app.notifications import failures
 from app.notifications import quiet_hours as quiet
 from app.notifications import rules as rules_mod
 from app.notifications.channels import (
@@ -613,6 +621,12 @@ class Dispatcher:
                 raise
             except Exception:
                 logger.exception("quiet hours digest failed")
+            try:
+                await self.probe_tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("paused channel probe failed")
 
     async def quiet_tick(self) -> int:
         """Send the digests that are due and clear their counters: the pause summary once the
@@ -1145,6 +1159,8 @@ class Dispatcher:
         if failing:
             live.failure_count, live.last_error = 0, None
             await self._write_status(channel.id, ok=True)
+        if channel.paused_until is not None:
+            channel = await self._unpause(channel)
         self._start_counter_loop()
         self._report(channel)
 
@@ -1156,9 +1172,124 @@ class Dispatcher:
         error = scrub_error(code or "send_failed", (secrets or {}).values())
         live = self._live.setdefault(channel.id, _Live())
         base = live.failure_count if live.failure_count is not None else channel.failure_count
-        live.failure_count, live.last_error = base + 1, error
+        count = base + 1
+        live.failure_count, live.last_error = count, error
         await self._write_status(channel.id, ok=False, error=error)
+        if count >= failures.PAUSE_AFTER:
+            channel = await self._pause_if_running(channel)
         self._report(channel)
+        if count == failures.FAILED_EVENT_AFTER:
+            self._broadcast_health()  # notifications_failing turns on
+        if count >= failures.FAILED_EVENT_AFTER:
+            await failures.announce(
+                channel.id,
+                channel_id=channel.id,
+                name=channel.name,
+                error=error,
+                exclude={channel.id},
+                now=int(self._wall()),
+                emit_fn=self.emit,
+            )
+
+    async def _pause_if_running(self, channel: Channel) -> Channel:
+        """Pause ``channel`` for its next backoff step unless a pause already holds it."""
+        from app.repository.notification_channels import NotificationChannelRepository
+
+        try:
+            fresh = await NotificationChannelRepository.get(channel.id)
+        except Exception:
+            logger.debug("channel not read for the auto-pause", exc_info=True)
+            return channel
+        if fresh is None:
+            return channel  # a legacy medium without a row: nothing to pause
+        now = int(self._wall())
+        if fresh.paused_until is not None and fresh.paused_until > now:
+            return channel.model_copy(update={"paused_until": fresh.paused_until})
+        return await self._pause(channel, now)
+
+    async def _pause(self, channel: Channel, now: int) -> Channel:
+        from app.repository.notification_channels import (
+            NotificationChannelRepository,
+            NotificationJournalRepository,
+        )
+
+        key = failures.autopause_key(channel.id)
+        try:
+            previous = await NotificationJournalRepository.state_get(key)
+            step = int(previous) + 1 if previous is not None else 0
+        except (TypeError, ValueError):
+            step = 0
+        until = now + failures.backoff_s(step)
+        await NotificationJournalRepository.state_set(key, str(step))
+        await NotificationChannelRepository.set_paused_until(channel.id, until)
+        logger.warning(
+            "Notification channel %s paused for %d s after repeated failures",
+            channel.id,
+            until - now,
+        )
+        return channel.model_copy(update={"paused_until": until})
+
+    async def _unpause(self, channel: Channel) -> Channel:
+        from app.repository.notification_channels import (
+            NotificationChannelRepository,
+            NotificationJournalRepository,
+        )
+
+        try:
+            await NotificationJournalRepository.state_delete(failures.autopause_key(channel.id))
+            await NotificationChannelRepository.set_paused_until(channel.id, None)
+        except Exception:
+            logger.debug("channel pause not cleared", exc_info=True)
+            return channel
+        logger.info("Notification channel %s resumed", channel.id)
+        return channel.model_copy(update={"paused_until": None})
+
+    async def resume(self, channel_id: str) -> Channel | None:
+        """The Resume button: clear the pause, the backoff step and the failures (the next
+        failure counts from one). Returns the channel, ``None`` when it does not exist."""
+        from app.repository.notification_channels import NotificationChannelRepository
+
+        channel = await NotificationChannelRepository.get(channel_id)
+        if channel is None:
+            return None
+        await self._unpause(channel)
+        await NotificationChannelRepository.clear_failures(channel_id)
+        live = self._live.setdefault(channel_id, _Live())
+        live.failure_count, live.last_error = 0, None
+        channel = await NotificationChannelRepository.get(channel_id) or channel
+        self._report(channel)
+        self._broadcast_health()
+        return channel
+
+    async def probe_tick(self) -> int:
+        """Send a test to each auto-paused channel whose pause ran out: a success resumes
+        it, a failure pauses it for the next backoff step. Returns the probes sent."""
+        from app.repository.notification_channels import (
+            NotificationChannelRepository,
+            NotificationJournalRepository,
+        )
+
+        now = int(self._wall())
+        sent = 0
+        for channel in await NotificationChannelRepository.list_all():
+            if not channel.enabled or channel.secret_unreadable:
+                continue
+            if channel.paused_until is None or channel.paused_until > now:
+                continue
+            key = failures.autopause_key(channel.id)
+            if await NotificationJournalRepository.state_get(key) is None:
+                continue  # not an auto-pause
+            loaded = await NotificationChannelRepository.get_for_send(channel.id)
+            if loaded is None:
+                continue
+            fresh, secrets = loaded
+            result = await self.send_test(fresh, secrets, record=True)
+            sent += 1
+            if not result.ok:
+                after = await NotificationChannelRepository.get(channel.id)
+                if after is not None and (after.paused_until or 0) <= now:
+                    self._report(await self._pause(after, now))  # a failure that did not count
+        return sent
 
     async def _failed(
         self,
@@ -1336,6 +1467,8 @@ class Dispatcher:
                 if failing:
                     live.failure_count, live.last_error = 0, None
                     await self._write_status(channel.id, ok=True)
+                if channel.paused_until is not None:
+                    channel = await self._unpause(channel)
                 self._report(channel)
             else:
                 await self._record_failure(channel, result.error_code, secrets)
@@ -1367,6 +1500,23 @@ class Dispatcher:
                 "last_ok_at": live.last_ok_at or channel.last_ok_at,
             }
         return out
+
+    async def failing(self) -> bool:
+        """Whether a channel needs a look: ``FAILED_EVENT_AFTER`` failures or more, paused,
+        or a stored secret the key cannot open (MSHL-133). The health ``notifications_failing``."""
+        from app.repository.notification_channels import NotificationChannelRepository
+
+        now = self._wall()
+        for channel in await NotificationChannelRepository.list_all():
+            if channel.secret_unreadable:
+                return True
+            if not channel.enabled:
+                continue
+            live = self._live.get(channel.id) or _Live()
+            count = live.failure_count if live.failure_count is not None else channel.failure_count
+            if count >= failures.FAILED_EVENT_AFTER or _status_of(channel, live, now) == "paused":
+                return True
+        return False
 
     async def wait_idle(self) -> None:
         """Until every queue is empty and every worker stopped (tests)."""
@@ -1475,6 +1625,15 @@ def notifications_capped() -> bool:
     try:
         return bool(_instance is not None and _instance.capped)
     except Exception:
+        return False
+
+
+async def notifications_failing() -> bool:
+    """The health payload's ``notifications_failing`` (never raises)."""
+    try:
+        return await notification_dispatcher().failing()
+    except Exception:
+        logger.debug("notification failing flag unavailable", exc_info=True)
         return False
 
 

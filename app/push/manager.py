@@ -5,7 +5,8 @@ A subscription is deliverable while its owner is enabled and holds ``send``
 
 Which events reach Web Push is decided by the notification rules and the dispatcher
 (``app/notifications``); this manager only sends (``dispatch_event``) and keeps the
-subscriptions healthy.
+subscriptions healthy. A subscription its push service drops (403/404/410) is removed and
+announced with ``notify.channel_failed`` (``app/notifications/failures.py``, MSHL-130).
 """
 
 from __future__ import annotations
@@ -165,14 +166,17 @@ class PushManager:
             *(self._send_one(sub, payload_for_sub(sub), vapid_key, allow_private) for sub in subs),
             return_exceptions=True,
         )
-        await self._record_outcomes(results)
+        await self._record_outcomes(results, {sub["id"]: sub.get("label") or "" for sub in subs})
         delivered = sum(1 for r in results if isinstance(r, _SendResult) and r.success)
         return PushOutcome(total=len(subs), delivered=delivered)
 
-    async def _record_outcomes(self, results: list[Any]) -> None:
+    async def _record_outcomes(
+        self, results: list[Any], labels: dict[str, str] | None = None
+    ) -> None:
         success_ids: list[str] = []
         failure_ids: list[str] = []
         remove_ids: list[str] = []
+        unsubscribed: list[str] = []
         for r in results:
             if isinstance(r, _SendResult):
                 if r.invalid:
@@ -182,6 +186,7 @@ class PushManager:
                     continue  # kept, and never counted toward the eviction threshold
                 if r.expired:
                     remove_ids.append(r.sub_id)
+                    unsubscribed.append(r.sub_id)
                 elif r.success:
                     success_ids.append(r.sub_id)
                 else:
@@ -193,6 +198,15 @@ class PushManager:
                 )
             except Exception:
                 logger.debug("Push dispatch: failed to record outcomes", exc_info=True)
+        if unsubscribed:
+            # The push service dropped these browsers (403/404/410): tell the admin once a
+            # day per browser on every channel (``notify.channel_failed``, MSHL-130).
+            from app.notifications.failures import announce_push_unsubscribed
+
+            names = labels or {}
+            await announce_push_unsubscribed(
+                [(sub_id, names.get(sub_id, "")) for sub_id in unsubscribed], int(time.time())
+            )
 
     async def _send_one(
         self, sub: dict, payload: str, vapid_key: str, allow_private: bool = False

@@ -43,8 +43,16 @@ PUSH_ID = BUILTIN_PUSH_ID
 CONTACT_KINDS: dict[int, str] = {1: "companion", 2: "repeater", 4: "sensor"}
 CONTACT_KIND_NAMES = tuple(CONTACT_KINDS.values())
 # Events no account can switch off: the proof of a change to the notification destinations
-# (``notify.channel_changed``, ``notify.destination_changed``), and the test button.
-LOCKED_EVENTS = frozenset({"notify.channel_changed", "notify.destination_changed", "notify.test"})
+# (``notify.channel_changed``, ``notify.destination_changed``), the notice of a failing channel
+# (``notify.channel_failed``), and the test button.
+LOCKED_EVENTS = frozenset(
+    {
+        "notify.channel_changed",
+        "notify.destination_changed",
+        "notify.channel_failed",
+        "notify.test",
+    }
+)
 OVERRIDABLE_EVENTS: tuple[str, ...] = tuple(e for e in EVENT_IDS if e not in LOCKED_EVENTS)
 FIRST_SEEN_EVENT = "contact.first_seen"
 # ``channel-<key>`` / ``contact-<pubkey>``: the state key of ``rules.py`` (hex keys).

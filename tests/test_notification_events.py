@@ -60,6 +60,12 @@ PAYLOADS = {
         "event": "notify.destination_changed",
         "kinds": ["email"],
     },
+    "notify.channel_failed": {
+        "event": "notify.channel_failed",
+        "channel_id": "ntfy-1",
+        "name": "ntfy",
+        "error": "auth_failed",
+    },
 }
 
 

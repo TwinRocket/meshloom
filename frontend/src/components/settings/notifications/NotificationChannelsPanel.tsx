@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus } from 'lucide-react';
 
-import { useNotificationsCapped } from '../../../contexts/NotificationStatusContext';
+import {
+  useNotificationsCapped,
+  useNotificationsFailing,
+} from '../../../contexts/NotificationStatusContext';
 
 import { api, formatApiError } from '../../../api';
 import type { NotificationChannel } from '../../../notifications/types';
@@ -14,6 +17,7 @@ import { AddChannelDialog } from './AddChannelDialog';
 import { ChannelEditDialog } from './ChannelEditDialog';
 import { ChannelList } from './ChannelList';
 import { DeliveryLogSheet } from './DeliveryLogSheet';
+import { FailingChannelsBanner } from './FailingChannelsBanner';
 import { entryOfChannel } from './notificationsShared';
 import { LegacyDestinationForm } from './LegacyDestinationForm';
 import { PushDevicesBlock } from './PushDevicesBlock';
@@ -37,6 +41,15 @@ export function NotificationChannelsPanel({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [logging, setLogging] = useState<NotificationChannel | null>(null);
   const capped = useNotificationsCapped();
+  const failing = useNotificationsFailing();
+  // The health flag flipped (a channel started failing, was paused or resumed): re-read the
+  // channels so the banner and the badges follow.
+  const lastFailing = useRef(failing);
+  useEffect(() => {
+    if (lastFailing.current === failing) return;
+    lastFailing.current = failing;
+    void reload();
+  }, [failing, reload]);
   const stats = useDeliveryStats(channels, channels);
 
   const run = async (
@@ -58,6 +71,14 @@ export function NotificationChannelsPanel({
     }
   };
 
+  const testChannel = (channel: NotificationChannel) =>
+    void run(
+      channel,
+      () => api.testNotificationChannel(channel.id),
+      t('settings.notifications.channels.testFailed', { name: channel.name }),
+      t('settings.notifications.channels.testSent')
+    );
+
   const editEntry = editing ? entryOfChannel(types, editing) : undefined;
 
   return (
@@ -78,6 +99,21 @@ export function NotificationChannelsPanel({
         >
           {t('settings.notifications.cappedBanner')}
         </p>
+      )}
+      {!loading && !error && (
+        <FailingChannelsBanner
+          channels={channels}
+          busyId={busyId}
+          onTest={testChannel}
+          onResume={(channel) =>
+            void run(
+              channel,
+              () => api.resumeNotificationChannel(channel.id),
+              t('settings.notifications.attention.resumeFailed', { name: channel.name }),
+              t('settings.notifications.attention.resumed', { name: channel.name })
+            )
+          }
+        />
       )}
       {error ? (
         <p role="alert" className="text-sm text-destructive">
@@ -121,14 +157,7 @@ export function NotificationChannelsPanel({
               t('settings.notifications.channels.quietExemptFailed', { name: channel.name })
             )
           }
-          onTest={(channel) =>
-            void run(
-              channel,
-              () => api.testNotificationChannel(channel.id),
-              t('settings.notifications.channels.testFailed', { name: channel.name }),
-              t('settings.notifications.channels.testSent')
-            )
-          }
+          onTest={testChannel}
           onEdit={setEditing}
           onDelete={(channel) =>
             void run(

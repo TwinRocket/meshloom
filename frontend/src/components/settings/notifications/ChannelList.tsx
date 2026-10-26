@@ -8,7 +8,12 @@ import { Button } from '../../ui/button';
 import { Checkbox } from '../../ui/checkbox';
 import { Label } from '../../ui/label';
 import type { ChannelDeliveryStats } from './deliveryStats';
-import { iconFor, isLegacyChannel, STATUS_DOT_CLASS } from './notificationsShared';
+import {
+  channelAttention,
+  iconFor,
+  isLegacyChannel,
+  STATUS_DOT_CLASS,
+} from './notificationsShared';
 
 export function ChannelList({
   channels,
@@ -62,6 +67,7 @@ export function ChannelList({
         const builtin = channel.id === BUILTIN_PUSH_ID;
         const legacy = isLegacyChannel(channel.id);
         const status = channel.status.status;
+        const attention = channelAttention(channel);
         const busy = busyId === channel.id;
         const expanded = open === channel.id;
         const typeName = t(`settings.notifications.types.${channel.preset ?? channel.type}.name`, {
@@ -83,6 +89,14 @@ export function ChannelList({
                   <span className="text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
                     {typeName}
                   </span>
+                  {attention && (
+                    <span
+                      className="rounded border border-warning/40 bg-warning/10 px-1.5 text-[0.625rem] font-medium"
+                      data-testid={`channel-attention-${channel.id}`}
+                    >
+                      {t(`settings.notifications.attention.badge.${attention}`)}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span

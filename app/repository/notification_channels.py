@@ -692,6 +692,17 @@ class NotificationChannelRepository:
         invalidate_cache()
 
     @staticmethod
+    async def clear_failures(channel_id: str) -> None:
+        """The Resume button: the failure count and the last error start over."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE notification_channels SET failure_count = 0, last_error = NULL "
+                "WHERE id = ?",
+                (channel_id,),
+            )
+        invalidate_cache()
+
+    @staticmethod
     async def set_paused_until(channel_id: str, until: int | None) -> None:
         async with db.tx() as conn:
             await conn.execute(
@@ -1016,6 +1027,28 @@ class NotificationJournalRepository:
                 "DELETE FROM notification_state WHERE expires_at IS NOT NULL AND expires_at <= ?",
                 (int(time.time()) if now is None else now,),
             )
+
+    @staticmethod
+    async def state_claim(key: str, expires_at: int, now: int) -> bool:
+        """Take ``key`` until ``expires_at`` unless a live row holds it: True for the caller
+        that took it (an expired row is replaced). Atomic, so two callers never both win."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "DELETE FROM notification_state WHERE key = ? "
+                "AND expires_at IS NOT NULL AND expires_at <= ?",
+                (key, now),
+            )
+            async with conn.execute(
+                "INSERT OR IGNORE INTO notification_state (key, value, expires_at) "
+                "VALUES (?, '1', ?)",
+                (key, expires_at),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def state_delete(key: str) -> None:
+        async with db.tx() as conn:
+            await conn.execute("DELETE FROM notification_state WHERE key = ?", (key,))
 
     @staticmethod
     async def state_trim_prefix(prefix: str, keep: int) -> None:

@@ -1477,6 +1477,10 @@ export const api = {
     fetchJson<{ status: string }>(`/notifications/channels/${encodeURIComponent(id)}/test`, {
       method: 'POST',
     }),
+  resumeNotificationChannel: (id: string) =>
+    fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}/resume`, {
+      method: 'POST',
+    }),
   getNotificationRules: () => fetchJson<NotificationRules>('/notifications/rules'),
   patchNotificationRules: (body: NotificationRulesPatch) =>
     fetchJson<NotificationRules>('/notifications/rules', {

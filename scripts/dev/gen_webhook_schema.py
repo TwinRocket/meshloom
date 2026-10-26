@@ -100,6 +100,12 @@ SAMPLES: dict[str, dict[str, Any]] = {
         "channel_type": "webhook",
         "name": "Node-RED",
     },
+    "notify.channel_failed": {
+        "event": "notify.channel_failed",
+        "channel_id": "ntfy-1a2b3c",
+        "name": "ntfy",
+        "error": "auth_failed",
+    },
     "summary.grouped": {
         "event": "notifications_grouped",
         "count": 7,

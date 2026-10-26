@@ -61,6 +61,23 @@ export const STATUS_DOT_CLASS: Record<string, string> = {
   disconnected: 'bg-muted-foreground/50',
 };
 
+/** Consecutive failures after which a channel is flagged (the server's `FAILED_EVENT_AFTER`). */
+export const FAILING_AFTER = 3;
+
+export type ChannelAttention = 'secret_unreadable' | 'paused' | 'failing';
+
+/**
+ * Why a channel needs a look (MSHL-130), or `null`: a stored secret the key cannot open, an
+ * auto-pause after repeated failures, or `FAILING_AFTER` failures in a row.
+ */
+export function channelAttention(channel: NotificationChannel): ChannelAttention | null {
+  if (channel.secret_unreadable) return 'secret_unreadable';
+  if (!channel.enabled) return null;
+  if (channel.status.status === 'paused') return 'paused';
+  if (channel.failure_count >= FAILING_AFTER) return 'failing';
+  return null;
+}
+
 /** `legacy:*` channels still decided by the 4.18.x settings (MSHL-112). */
 export function isLegacyChannel(id: string): boolean {
   return id.startsWith('legacy:');

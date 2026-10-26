@@ -191,6 +191,28 @@
       "title": "ChannelChangedData",
       "type": "object"
     },
+    "ChannelFailedData": {
+      "additionalProperties": false,
+      "properties": {
+        "channel_id": {
+          "default": "",
+          "title": "Channel Id",
+          "type": "string"
+        },
+        "error": {
+          "default": "",
+          "title": "Error",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "title": "ChannelFailedData",
+      "type": "object"
+    },
     "ChannelFoundBody": {
       "additionalProperties": false,
       "description": "A # channel found active.",
@@ -786,6 +808,62 @@
         "rendered"
       ],
       "title": "NotifyChannelChangedBody",
+      "type": "object"
+    },
+    "NotifyChannelFailedBody": {
+      "additionalProperties": false,
+      "description": "A channel keeps failing, or a push service unsubscribed a browser.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ChannelFailedData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "notify.channel_failed",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "NotifyChannelFailedBody",
       "type": "object"
     },
     "NotifyDestinationChangedBody": {
@@ -1405,6 +1483,7 @@
       "message.dm": "#/$defs/MessageDmBody",
       "message.mention": "#/$defs/MessageMentionBody",
       "notify.channel_changed": "#/$defs/NotifyChannelChangedBody",
+      "notify.channel_failed": "#/$defs/NotifyChannelFailedBody",
       "notify.destination_changed": "#/$defs/NotifyDestinationChangedBody",
       "notify.test": "#/$defs/NotifyTestBody",
       "radio.offline": "#/$defs/RadioOfflineBody",
@@ -1455,6 +1534,9 @@
     },
     {
       "$ref": "#/$defs/NotifyTestBody"
+    },
+    {
+      "$ref": "#/$defs/NotifyChannelFailedBody"
     },
     {
       "$ref": "#/$defs/SummaryGroupedBody"

@@ -36,6 +36,8 @@ AppLanguage = Literal["fr", "en"]
 # Proof of modification: sent to every subscription, not configurable.
 DESTINATION_CHANGED_EVENT = "notify.destination_changed"
 CHANNEL_CHANGED_EVENT = "notify.channel_changed"
+# A channel keeps failing, or a push service dropped a browser (``failures.py``).
+CHANNEL_FAILED_EVENT = "notify.channel_failed"
 
 
 def _first_seen_titles(data: dict, lang: str) -> tuple[str, str]:
@@ -431,6 +433,39 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
                 "title": title,
                 "body": body,
                 "tag": "meshcore-channel-changed",
+                "url_hash": "#settings/notifications",
+            }
+        )
+
+    if data.get("event") == CHANNEL_FAILED_EVENT:
+        name = str(data.get("name") or "")
+        error = str(data.get("error") or "send_failed")
+        if error == "push_unsubscribed":
+            if lang == "en":
+                title = "Browser unsubscribed"
+                body = (
+                    f'Browser "{name}" was unsubscribed by its push service. '
+                    "Turn notifications on again on that device."
+                )
+            else:
+                title = "Navigateur désabonné"
+                body = (
+                    f"Le navigateur « {name} » a été désabonné par son service push. "
+                    "Réactivez les notifications sur cet appareil."
+                )
+        elif lang == "en":
+            title = "Notification channel failing"
+            body = f'Channel "{name}" keeps failing ({error}). Check it in the settings.'
+        else:
+            title = "Canal de notification en échec"
+            body = (
+                f"Le canal « {name} » échoue sans cesse ({error}). Vérifiez-le dans les réglages."
+            )
+        return json.dumps(
+            {
+                "title": title,
+                "body": body,
+                "tag": f"meshcore-channel-failed-{data.get('channel_id') or ''}",
                 "url_hash": "#settings/notifications",
             }
         )
