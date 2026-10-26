@@ -9,7 +9,12 @@ import pytest
 
 from app.repository import AppSettingsRepository
 from app.services import share
-from app.services.share_cache import CachedObject, ShareCache, share_cache
+from app.services.share_cache import (
+    CachedObject,
+    ShareCache,
+    reset_share_cache_for_tests,
+    share_cache,
+)
 from tests.share_fakes import Dns, Recorder, json_response
 
 _RealAsyncClient = httpx.AsyncClient
@@ -289,6 +294,15 @@ class TestDelete:
             return fetched
 
         monkeypatch.setattr(share, "fetch_object", slow_fetch)
+        cache = share_cache()
+        real_set = cache.set
+        stores: list[str] = []
+
+        async def spy_set(key: str, obj: CachedObject) -> None:
+            stores.append(key)
+            await real_set(key, obj)
+
+        monkeypatch.setattr(cache, "set", spy_set)
         read = asyncio.create_task(share.read_object("AcTiVe1"))
         await fetching.wait()
         await share.delete_object("AcTiVe1")
@@ -296,7 +310,91 @@ class TestDelete:
         with pytest.raises(share.ShareError) as exc:
             await read
         assert exc.value.code == "share_gone"
+        # The post-fetch check refuses it before the store, not after.
+        assert stores == []
         assert await share_cache().get("AcTiVe1") is None
+
+    async def test_a_deleted_id_never_reads_the_disk_cache(self, on, client, monkeypatch):
+        assert (await client.get("/api/share/AcTiVe1")).status_code == 200
+        monkeypatch.setattr(ShareCache, "_delete", lambda self, key: False)  # left on disk
+        await share.delete_object("AcTiVe1")
+        cache = share_cache()
+        real_get = cache.get
+        reads: list[str] = []
+
+        async def spy_get(key: str):
+            reads.append(key)
+            return await real_get(key)
+
+        monkeypatch.setattr(cache, "get", spy_get)
+        with pytest.raises(share.ShareError) as exc:
+            await share.read_object("AcTiVe1")
+        assert exc.value.code == "share_gone"
+        # Answered by the pre-read check: the disk cache is not even opened.
+        assert reads == []
+
+    async def test_a_meta_fetch_racing_the_delete_is_gone_and_not_cached(
+        self, on, client, monkeypatch
+    ):
+        real_request = share.share_request
+        fetching, release = asyncio.Event(), asyncio.Event()
+
+        async def slow_request(method: str, path: str, **kwargs):
+            response = await real_request(method, path, **kwargs)
+            if path.startswith("/v1/meta/"):  # answered before the delete
+                fetching.set()
+                await release.wait()
+            return response
+
+        monkeypatch.setattr(share, "share_request", slow_request)
+        meta = asyncio.create_task(share.get_meta("AcTiVe1"))
+        await fetching.wait()
+        await share.delete_object("AcTiVe1")
+        release.set()
+        with pytest.raises(share.ShareError) as exc:
+            await meta
+        assert exc.value.code == "share_gone"
+        # Not re-cached: once the negative cache has expired, still gone, no request.
+        assert share._state.meta.get("AcTiVe1", share._state.clock()) is None
+        on.requests.clear()
+        now = share._state.clock() + share.NEGATIVE_CACHE_S + 1
+        monkeypatch.setattr(share._state, "clock", lambda: now)
+        with pytest.raises(share.ShareError) as exc:
+            await share.get_meta("AcTiVe1")
+        assert exc.value.code == "share_gone"
+        assert on.requests == []
+
+    async def test_a_failed_disk_delete_is_not_served_after_a_restart(
+        self, on, client, monkeypatch, tmp_path, request
+    ):
+        directory = tmp_path / "share-cache"
+        reset_share_cache_for_tests(ShareCache(directory))
+        request.addfinalizer(reset_share_cache_for_tests)
+        assert (await client.get("/api/share/AcTiVe1")).status_code == 200
+        cache = share_cache()
+        disk = cache._open()
+        real_delete = type(disk).delete
+
+        def failing_delete(self, key, *args, **kwargs):
+            if key == "AcTiVe1":
+                raise OSError(5, "Input/output error")
+            return real_delete(self, key, *args, **kwargs)
+
+        monkeypatch.setattr(type(disk), "delete", failing_delete)
+        await share.delete_object("AcTiVe1")
+        monkeypatch.setattr(type(disk), "delete", real_delete)
+        assert disk.get("AcTiVe1") is not None  # the bytes are still on disk
+        # Restart: the in-memory tombstone is gone, the disk cache reopened.
+        cache.close()
+        share._state = share._State(share._state.clock)
+        reopened = ShareCache(directory)
+        try:
+            assert await reopened.get("AcTiVe1") is None
+            assert reopened._open().get("AcTiVe1") is None  # dropped on that access
+            await reopened.set("AcTiVe1", CachedObject(content=PNG_1X1, content_type="image/png"))
+            assert reopened._open().get("AcTiVe1") is None  # never stored again
+        finally:
+            reopened.close()
 
     async def test_a_store_racing_the_delete_is_dropped(self, on, client, monkeypatch):
         cache = share_cache()
