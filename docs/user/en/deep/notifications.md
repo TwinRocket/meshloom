@@ -266,7 +266,7 @@ The rules travel in the full backup (*Notifications* part), checked like the API
 
 A **watched node** notifies a channel when a particular node is heard again, or comes back after a long silence: a repeater on a hill, a friend's radio. Turn on **Notify when heard** in the node's contact sheet (administrators; the channels you can reach are listed as chips, all of them but Web Push start selected), then adjust each node in **Settings → Notifications → Watched nodes**.
 
-- **Heard.** A node is *heard* when its advert arrives or when a direct message from it is decoded. The notification reads "Hilltop heard" (`contact.node_seen`).
+- **Heard.** A node is *heard* when its advert arrives or when a direct message from it is decoded, including a repeater's reply or a command response that is not kept in the chat history. One message counts once, however many repeaters relay it. The notification reads "Hilltop heard" (`contact.node_seen`).
 - **Back.** When the previous sighting is older than the **silence threshold** (24 hours by default, 1 minute to 365 days), the notification reads "Hilltop is back after 2 d" (`contact.node_back`) instead.
 - **Cooldown.** A node notifies at most once per cooldown (1 hour by default, 1 minute to 30 days; the server refuses less, also when a backup is restored), whichever of the two it is, so a node that adverts every few minutes never floods a channel. A sighting inside the cooldown is not notified but still counts as the latest sighting for the silence.
 - **Channels.** Pick the channels per node. **Web Push is not offered**: it is decided account by account, and a watched node is an instance setting. A node with no channel sends nothing.
