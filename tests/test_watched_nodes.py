@@ -414,3 +414,13 @@ async def test_legacy_rows_are_returned_normalised_and_can_be_sent_back(test_db,
     rows = [{**r, "channels": []} for r in rows]
     again = await client.patch("/api/notifications/rules", json={"watched_nodes": rows})
     assert again.status_code == 200
+
+
+async def test_a_stored_row_without_cooldown_keeps_the_default(clock, emitted, test_db):
+    row = {"public_key": KEY, "channels": ["k"], "silence_s": 86_400}
+    assert wn.normalize_stored([row]) == [row]  # read path: absent stays absent
+    await _watch(row)
+    await _hear(now=T0)
+    clock[0] += 61
+    await _hear(now=T0 + 61)
+    assert len(emitted) == 1  # the 3600 s default holds, not the 60 s minimum

@@ -120,13 +120,14 @@ def effective_cooldown(value: object) -> int:
 
 
 def normalize_stored(stored: object) -> list[Any]:
-    """The stored list as the API returns it: rows written before the minimum existed get a
+    """The stored list as the API returns it (an absent ``cooldown_s`` stays absent, so the
+    default applies as before): rows written before the minimum existed get a
     valid ``cooldown_s``, so the client can send the list back unchanged."""
     if not isinstance(stored, list):
         return []
     return [
-        {**e, "cooldown_s": effective_cooldown(e.get("cooldown_s"))}
-        if isinstance(e, Mapping)
+        {**e, "cooldown_s": effective_cooldown(e["cooldown_s"])}
+        if isinstance(e, Mapping) and "cooldown_s" in e
         else e
         for e in stored
     ]
@@ -242,7 +243,10 @@ async def _observe(
     from app.notifications.events import event_from_payload
 
     if not await notification_dispatcher().claim_cooldown(
-        (f"{COOLDOWN_KEY}{public_key}", effective_cooldown(entry.get("cooldown_s")))
+        (
+            f"{COOLDOWN_KEY}{public_key}",
+            effective_cooldown(entry.get("cooldown_s", DEFAULT_COOLDOWN_S)),
+        )
     ):
         return
     if not name:
