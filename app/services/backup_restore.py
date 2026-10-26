@@ -13,8 +13,9 @@ import logging
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import Any, Literal
 
 from app.auth import audit
 from app.models import (
@@ -957,13 +958,133 @@ async def _run_restore(run: _Run) -> None:
         )
 
 
+def _fanout_needs_key(doc: BackupExportV2) -> bool:
+    """A fanout config of the file holds a value at a secret key
+    (``secret_fields.FANOUT_SECRET_KEYS``): ``seal_config`` encrypts it."""
+    from app.fanout.manager import is_reserved_fanout_id
+    from app.secret_fields import secret_keys
+
+    if doc.meshloom_extra is None:
+        return False
+    for entry in doc.meshloom_extra.fanout_configs:
+        if is_reserved_fanout_id(entry.id):
+            continue
+        for key in secret_keys(entry.type):
+            if entry.config.get(key) not in (None, "", {}, []):
+                return True
+    return False
+
+
+def _has_secret(secrets: Mapping[str, Any]) -> bool:
+    return any(isinstance(v, str) and v for v in secrets.values())
+
+
+async def _destinations_need_key(doc: BackupV1Document | BackupExportV2) -> bool:
+    """The file's 4.18.x ``notification_destinations``, merged with the current ones the
+    way the restore writes them, give a ``legacy:*`` channel a secret: ``sync_destinations``
+    encrypts it (and swallows the failure, so the channel would silently go missing)."""
+    from app.migrations import _113_notification_channels as import_113
+    from app.notifications.legacy_sync import LEGACY_IDS
+    from app.repository import AppSettingsRepository
+    from app.secret_fields import SecretRequiredError
+    from app.services.backup import _restorable_destinations
+    from app.telemetry_alerts import merge_notification_destinations
+
+    settings = doc.settings
+    if settings is None or "notification_destinations" not in settings.model_fields_set:
+        return False
+    restored = await _restorable_destinations(settings.notification_destinations, [])
+    current = (await AppSettingsRepository.get()).notification_destinations
+    try:
+        merged = merge_notification_destinations(current, restored)
+    except SecretRequiredError:
+        merged = restored
+    built = import_113.build_channels(merged.model_dump(by_alias=True), int(time.time()))
+    return any(c["id"] in LEGACY_IDS and _has_secret(c["secrets"]) for c in built)
+
+
+async def _notification_channels_need_key(doc: BackupExportV2) -> bool:
+    """A channel of the ``notifications`` section matches a row whose stored secret the
+    restore keeps: ``encode_secrets`` encrypts it again. The file itself never carries a
+    channel secret; a kept value the current key cannot open is dropped, not encrypted."""
+    from pydantic import ValidationError
+
+    from app.database import db
+    from app.repository.notification_channels import decode_secrets
+    from app.services.backup_notifications import BackupNotificationsData
+
+    section = (doc.sections or {}).get("notifications")
+    if section is None:
+        return False
+    try:
+        data = BackupNotificationsData.model_validate(section.data)
+    except ValidationError:
+        return False  # the section fails on its own, before any write
+    ids = sorted({c.id for c in data.channels if not c.id.startswith(("legacy:", "builtin:"))})
+    if not ids:
+        return False
+    async with db.readonly() as conn:
+        async with conn.execute(
+            "SELECT id, secrets FROM notification_channels"
+            f" WHERE id IN ({', '.join('?' for _ in ids)})",  # noqa: S608
+            ids,
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return any(_has_secret(decode_secrets(row["secrets"], row["id"])[0]) for row in rows)
+
+
+async def restore_needs_secret_store(
+    doc: BackupV1Document | BackupExportV2, options: RestoreOptions
+) -> bool:
+    """The Meshloom step would encrypt a secret (``secret_store.encrypt``):
+
+    - a fanout config of the file with a value at a secret key;
+    - 4.18.x notification destinations that give a ``legacy:*`` channel a secret
+      (v1 and v2 files);
+    - a ``notifications`` section channel that keeps the secret of the matching row.
+
+    Conservative on purpose: a ``True`` that the job would not have needed only refuses
+    a restore that can run once ``secrets.key`` is usable."""
+    if not options.steps.meshloom:
+        return False
+    if isinstance(doc, BackupExportV2) and _fanout_needs_key(doc):
+        return True
+    if await _destinations_need_key(doc):
+        return True
+    return isinstance(doc, BackupExportV2) and await _notification_channels_need_key(doc)
+
+
+async def check_secret_store(
+    doc: BackupV1Document | BackupExportV2, options: RestoreOptions
+) -> None:
+    """Refuse the whole restore, before anything is written, when it would have to
+    encrypt a secret and ``secrets.key`` cannot be read or created (MSHL-397).
+
+    Without this check the fanout or notification channel write would raise
+    ``SecretStoreUnavailable`` in the middle of the Meshloom step (or the legacy channel
+    mirror would swallow it), after the identity, contacts, channels and settings were
+    already applied."""
+    from app import secret_store
+
+    if await restore_needs_secret_store(doc, options) and not secret_store.available():
+        raise BackupError(
+            "backup_secret_store_unavailable",
+            status=503,
+            message=(
+                "Nothing was restored: the backup holds integration or notification secrets and the "
+                "secrets key file cannot be read or created"
+            ),
+        )
+
+
 async def start_restore_backup_v2(
     doc: BackupV1Document | BackupExportV2, options: RestoreOptions
 ) -> str:
     """Check what can be checked before writing anything, then start the job.
 
-    Refusals (another restore running, a missing identity confirmation) are
-    raised here, synchronously, before any write.
+    Refusals (another restore running, an unusable secrets key when the file
+    holds secrets, a missing identity confirmation) are raised here,
+    synchronously, before any write.
     """
     from app.background_tasks import spawn
 
@@ -980,6 +1101,7 @@ async def start_restore_backup_v2(
     # must see it while the identity check below reads the radio.
     _set_running(job.job_id)
     try:
+        await check_secret_store(doc, options)
         if options.steps.identity and backup_public_key(doc) is not None:
             inputs = await gather_identity_inputs()
             check_identity_confirmations(
