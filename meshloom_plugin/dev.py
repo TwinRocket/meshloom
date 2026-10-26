@@ -366,9 +366,15 @@ def _await_response(
             raise ConnectionError(f"invalid message from the plugin: {exc}") from None
         if "method" in message:
             params = message.get("params")
-            report.calls.append(
-                {"method": message["method"], "params": params, "notification": "id" not in message}
-            )
+            notification = "id" not in message
+            call: dict[str, Any] = {
+                "method": message["method"],
+                "params": params,
+                "notification": notification,
+            }
+            if notification and message["method"] != "log":
+                call["ignored"] = True  # the server drops every notification but `log`
+            report.calls.append(call)
             if "id" in message:
                 try:
                     reply = rpc.result(message["id"], respond(message))
@@ -597,6 +603,10 @@ class FakeHost:
         """Answer one request (or notification) of the plugin; prints it and the reply."""
         method, params = message["method"], message.get("params")
         self.trace(f"    -> {method} {json.dumps(params, ensure_ascii=False)}")
+        if "id" not in message and method != "log":
+            # Like the server (PluginHost._on_child_notification): only `log` is read.
+            self.trace("       notification ignored (the server only reads `log` notifications)")
+            return None
         try:
             value = self.loop.run_until_complete(self.dispatch(method, params))
         except HostMethodError as exc:

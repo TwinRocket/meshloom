@@ -400,7 +400,7 @@ answered from the fixture or `fetch_failed`), the `timer.set` pending-timer cap 
 and timer firing, the `status.set` 2 s spacing and sanitising, the `log` rate, event
 queueing and the 30 s event budget of the supervisor, the pause and restart behaviour,
 the persisted quota windows (a replay starts empty), process isolation. Every trace line
-is printed, notifications (`log`, `status.set` without an id) included. Exit status 0 when the run completed without error, 1 on any error (package,
+is printed; notifications are traced too, but like the server only `log` is executed, any other notification (a `status.set` or `messages.send` sent without an id) is marked ignored. Exit status 0 when the run completed without error, 1 on any error (package,
 init, handler), 2 for a bad fixture or path.
 
 **`pack`** runs `check` (a failed check writes nothing; `--skip-run` leaves out the
@@ -590,7 +590,7 @@ Errors: `-32601` unknown method, `-32000` the handler raised (`data:
 Child → server: `await meshloom_plugin.host().call(method, params)` sends a
 request with an integer id and returns its `result`, or raises
 `meshloom_plugin.errors.HostError` carrying the `error` object;
-`host().notify(method, params)` sends a notification. The methods themselves
+`host().notify(method, params)` sends a notification; the server reads only `log` notifications and drops all others (use `call` for anything that must act). The methods themselves
 (`messages.send`, `storage.*`...) and their checks are the host's (see
 "Capabilities"). The SDK wraps `host()`.
 
