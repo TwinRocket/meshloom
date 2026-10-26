@@ -101,4 +101,49 @@ describe('fanout screen: secret_store_unavailable', () => {
       expect(toast.error).toHaveBeenCalledWith(i18n.t('errors.secret_store_unavailable'))
     );
   });
+
+  it.each(['fr', 'en'])(
+    'shows the translated message when a rename is refused (%s)',
+    async (lang) => {
+      await i18n.changeLanguage(lang);
+      mockedApi.updateFanoutConfig.mockRejectedValue(unavailable());
+      render(<SettingsFanoutSection health={health} onHealthRefresh={vi.fn(async () => {})} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Broker' }));
+      const input = await screen.findByRole('textbox', {
+        name: i18n.t('settings.fanout.list.editNameAria', { name: 'Broker' }),
+      });
+      fireEvent.change(input, { target: { value: 'Renamed broker' } });
+      fireEvent.blur(input);
+
+      await waitFor(() =>
+        expect(mockedApi.updateFanoutConfig).toHaveBeenCalledWith('mq-1', {
+          name: 'Renamed broker',
+        })
+      );
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(i18n.t('errors.secret_store_unavailable'))
+      );
+      expect(toast.error).not.toHaveBeenCalledWith(RAW);
+    }
+  );
+
+  it.each(['fr', 'en'])(
+    'shows the translated message when a delete is refused (%s)',
+    async (lang) => {
+      await i18n.changeLanguage(lang);
+      mockedApi.deleteFanoutConfig.mockRejectedValue(unavailable());
+      render(<SettingsFanoutSection health={health} onHealthRefresh={vi.fn(async () => {})} />);
+      await waitFor(() => expect(screen.getByText('Broker')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.fanout.list.edit') }));
+      fireEvent.click(
+        await screen.findByRole('button', { name: i18n.t('settings.fanout.list.delete') })
+      );
+
+      await waitFor(() => expect(mockedApi.deleteFanoutConfig).toHaveBeenCalledWith('mq-1'));
+      await waitFor(() =>
+        expect(toast.error).toHaveBeenCalledWith(i18n.t('errors.secret_store_unavailable'))
+      );
+      expect(toast.error).not.toHaveBeenCalledWith(RAW);
+    }
+  );
 });

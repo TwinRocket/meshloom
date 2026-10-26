@@ -792,7 +792,9 @@ run as root).
   `secret_store_unavailable` (handler in `main.py`, FR+EN `errors.secret_store_unavailable`)
   to any save that carries a secret. The full restore job checks first
   (`secret_store.available()`, `check_secret_store` in `services/backup_restore.py`): a
-  file whose fanout configs hold a secret is refused with 503
+  file whose fanout configs hold a secret, whose 4.18.x notification destinations give a
+  `legacy:*` channel a secret, or whose `notifications` section matches a channel with a
+  stored secret, is refused with 503
   `backup_secret_store_unavailable` before any step runs, so nothing is half applied
   (MSHL-397). Reads, and saves without a secret, still work.
 - Backups: the SQLite download carries ciphertext without the key (the

@@ -217,7 +217,7 @@
     "backup_identity_needs_radio": "Connectez la radio, puis restaurez.",
     "backup_use_full_restore": "Ce fichier est une sauvegarde complète : restaurez-la depuis Réglages > Base de données.",
     "backup_restore_running": "Une restauration est déjà en cours.",
-    "backup_secret_store_unavailable": "Rien n'a été restauré : cette sauvegarde contient des secrets d'intégrations et le fichier secrets.key à côté de la base ne peut être ni lu ni créé. Vérifiez que Meshloom peut écrire dans le dossier de données, puis relancez la restauration.",
+    "backup_secret_store_unavailable": "Rien n’a été restauré : cette sauvegarde contient des secrets d’intégrations ou de notifications et le fichier secrets.key à côté de la base ne peut être ni lu ni créé. Vérifiez que Meshloom peut écrire dans le dossier de données, puis relancez la restauration.",
     "backup_confirm_required": "Confirmez d’abord la restauration.",
     "backup_restore_job_not_found": "Cette restauration n’est plus connue (le serveur a redémarré).",
     "private_key_import_disabled": "Le firmware de la radio n’accepte pas l’import d’une clé privée : l’identité ne peut pas être restaurée.",

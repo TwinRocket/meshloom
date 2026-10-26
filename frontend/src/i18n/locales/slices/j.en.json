@@ -217,7 +217,7 @@
     "backup_identity_needs_radio": "Connect the radio, then restore.",
     "backup_use_full_restore": "This file is a full backup: restore it from Settings > Database.",
     "backup_restore_running": "A restore is already running.",
-    "backup_secret_store_unavailable": "Nothing was restored: this backup holds integration secrets and the secrets.key file next to the database cannot be read or created. Check that the data folder is writable by Meshloom, then restore again.",
+    "backup_secret_store_unavailable": "Nothing was restored: this backup holds integration or notification secrets and the secrets.key file next to the database cannot be read or created. Check that the data folder is writable by Meshloom, then restore again.",
     "backup_confirm_required": "Confirm the restore first.",
     "backup_restore_job_not_found": "This restore is no longer known (the server restarted).",
     "private_key_import_disabled": "The radio firmware does not accept importing a private key: the identity cannot be restored.",
