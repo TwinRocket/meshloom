@@ -22,6 +22,7 @@ from app.repository.notification_channels import invalidate_cache
 pytestmark = pytest.mark.async_notifications
 
 T0 = 1_800_000_000
+HASH = "$argon2id$v=19$m=65536,t=2,p=1$YWRtaW5zYWx0$YWRtaW5oYXNo"
 db = None
 
 
@@ -99,8 +100,18 @@ def _app_update(n: int) -> dict:
 # -- the notice ---------------------------------------------------------------------
 
 
+async def _device(username: str, role: str, endpoint: str) -> int:
+    from app.repository.auth import UserRepository
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+
+    user = await UserRepository.create(username, role, password_hash=HASH)
+    await PushSubscriptionRepository.create(endpoint, "k", "a", label=username, user_id=user.id)
+    return user.id
+
+
 @pytest.mark.asyncio
 async def test_three_failures_send_one_notice_to_the_others_once_a_day(test_db):
+    await _device("root", "admin", "https://push.example/root")
     await _add("smtp-bad", secrets={"password": "hunter2-secret"})
     await _add("ntfy-ok")
     await _add("off", enabled=0)
@@ -314,3 +325,268 @@ async def test_an_unsubscribed_browser_is_announced_once(test_db, monkeypatch):
 
     await push_manager._record_outcomes([_SendResult(sub_id, expired=True)], {sub_id: "Pixel"})
     assert len(emitted) == 1
+
+
+# -- admin-only notices (MSHL-399) -----------------------------------------------------
+
+
+class Capture:
+    """Records each send with the Web Push audience it carried."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, object]] = []
+
+    async def send(self, channel, rendered, event, secrets) -> SendResult:
+        self.calls.append((channel.id, event.name, event.audience))
+        return SendResult("ok")
+
+
+def _notice() -> dict:
+    return {
+        "event": "notify.channel_failed",
+        "channel_id": "smtp",
+        "name": "smtp",
+        "error": "auth_failed",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _notice(),
+        {
+            "event": "notify.channel_changed",
+            "action": "deleted",
+            "channel_type": "ntfy",
+            "name": "x",
+        },
+    ],
+)
+async def test_admin_notices_reach_only_admin_devices_on_web_push(test_db, payload):
+    admin = await _device("root", "admin", "https://push.example/root")
+    member = await _device("bob", "member", "https://push.example/bob")
+    await _add("ntfy-ok")
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+
+    await dispatcher.emit(None, payload=payload, targets=["builtin:push", "ntfy-ok"])
+    await dispatcher.wait_idle()
+
+    by_channel = {c: audience for c, _, audience in transport.calls}
+    assert set(by_channel) == {"builtin:push", "ntfy-ok"}
+    audience = by_channel["builtin:push"]
+    assert audience is not None and audience.default is None
+    assert audience.payload_for(admin) is not None
+    assert audience.payload_for(member) is None
+    assert audience.payload_for(None) is None
+
+
+@pytest.mark.asyncio
+async def test_admin_notice_skips_web_push_without_an_admin_device(test_db):
+    await _device("bob", "member", "https://push.example/bob")
+    await _add("ntfy-ok")
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+
+    await dispatcher.emit(None, payload=_notice(), targets=["builtin:push", "ntfy-ok"])
+    await dispatcher.wait_idle()
+    assert [c for c, _, _ in transport.calls] == ["ntfy-ok"]
+
+
+@pytest.mark.asyncio
+async def test_admin_notice_fails_closed_when_owners_are_unreadable(test_db, monkeypatch):
+    from app.repository.push_subscriptions import PushSubscriptionRepository
+
+    await _device("root", "admin", "https://push.example/root")
+    await _add("ntfy-ok")
+
+    async def broken():
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(PushSubscriptionRepository, "deliverable", staticmethod(broken))
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+
+    await dispatcher.emit(None, payload=_notice(), targets=["builtin:push", "ntfy-ok"])
+    await dispatcher.wait_idle()
+    assert [c for c, _, _ in transport.calls] == ["ntfy-ok"]
+
+
+@pytest.mark.asyncio
+async def test_admin_notice_is_not_folded_into_a_digest(test_db):
+    async with db.tx() as conn:
+        await conn.execute(
+            "INSERT INTO notification_channels (id, type, name, enabled, config, secrets, "
+            "created_at, digest_interval_s) VALUES ('digest', 'webhook', 'digest', 1, '{}', "
+            "'{}', 1, 3600)"
+        )
+    invalidate_cache()
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+
+    await dispatcher.emit(None, payload=_notice(), targets=["digest"])
+    await dispatcher.wait_idle()
+    assert [c for c, _, _ in transport.calls] == ["digest"]
+
+
+def _role_push_manager(monkeypatch) -> tuple[object, list[str]]:
+    """A PushManager over an admin (1), a member (2) and an ownerless device (3)."""
+    from app.push import manager as manager_module
+    from app.push.manager import PushManager, _SendResult
+
+    subs = [
+        {"id": "a", "user_id": 1, "owner_role": "admin", "label": "", "language": "en"},
+        {"id": "m", "user_id": 2, "owner_role": "member", "label": "", "language": "en"},
+        {"id": "u", "user_id": 3, "owner_role": None, "label": "", "language": "en"},
+    ]
+
+    async def deliverable():
+        return subs
+
+    monkeypatch.setattr(
+        manager_module.PushSubscriptionRepository, "deliverable", staticmethod(deliverable)
+    )
+    monkeypatch.setattr(manager_module, "get_vapid_private_key", lambda: "key")
+    sent: list[str] = []
+    pm = PushManager()
+
+    async def send_one(sub, payload, vapid_key, allow_private=False):
+        sent.append(sub["id"])
+        return _SendResult(sub["id"], success=True)
+
+    async def no_outcomes(results, labels=None):
+        return None
+
+    monkeypatch.setattr(pm, "_send_one", send_one)
+    monkeypatch.setattr(pm, "_record_outcomes", no_outcomes)
+    monkeypatch.setattr(manager_module.AppSettingsRepository, "get", staticmethod(_raise_settings))
+    return pm, sent
+
+
+@pytest.mark.asyncio
+async def test_push_manager_never_sends_an_admin_notice_to_a_member_device(monkeypatch):
+    pm, sent = _role_push_manager(monkeypatch)
+
+    await pm.dispatch_event(_notice())
+    assert sent == ["a"]
+    sent.clear()
+    await pm.dispatch_event({"event": "app.update", "version": "9"})
+    assert sorted(sent) == ["a", "m", "u"]
+
+
+async def _raise_settings():
+    raise RuntimeError("no settings")
+
+
+@pytest.mark.asyncio
+async def test_an_audience_never_sends_an_admin_notice_to_a_member_device(monkeypatch):
+    # The member may have been demoted between the emit and the send: the role is
+    # checked again on the device, whatever the audience says.
+    from app.notifications.user_rules import PushAudience
+
+    pm, sent = _role_push_manager(monkeypatch)
+    payload = _notice()
+
+    await pm.dispatch_event(payload, PushAudience(default=None, per_user={2: payload}))
+    assert sent == []
+    await pm.dispatch_event(payload, PushAudience(default=payload, per_user={}))
+    assert sent == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_a_destination_change_never_reaches_a_member_device(monkeypatch):
+    import app.background_tasks as background_tasks
+    from app.models import NotificationDestinations
+    from app.notify import notify_destination_changed
+    from app.push import manager as manager_module
+
+    pm, sent = _role_push_manager(monkeypatch)
+    monkeypatch.setattr(manager_module, "push_manager", pm)
+    spawned: list = []
+    monkeypatch.setattr(background_tasks, "spawn", lambda coro, name=None: spawned.append(coro))
+    before = NotificationDestinations()
+    after = before.model_copy(
+        update={"webhook": before.webhook.model_copy(update={"url": "https://hooks.example/n"})}
+    )
+
+    notify_destination_changed(before, after)
+    assert len(spawned) == 1
+    await spawned[0]
+    assert sent == ["a"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("result_kwargs", "code"),
+    [({"invalid": True, "refused": True}, failures.PUSH_REFUSED), ({}, failures.PUSH_EVICTED)],
+)
+async def test_evicted_and_refused_browsers_are_announced(
+    test_db, monkeypatch, result_kwargs, code
+):
+    import app.notifications.dispatcher as dispatcher_module
+    from app.push.manager import _SendResult, push_manager
+    from app.repository.push_subscriptions import (
+        MAX_CONSECUTIVE_FAILURES,
+        PushSubscriptionRepository,
+    )
+
+    emitted: list[dict] = []
+
+    async def capture(event, *, payload=None, targets=None, **_kwargs):
+        emitted.append(payload)
+        return len(targets or [])
+
+    monkeypatch.setattr(dispatcher_module, "emit", capture)
+    await PushSubscriptionRepository.create("https://push.example/a", "k", "a")
+    sub_id = (await PushSubscriptionRepository.get_all())[0]["id"]
+    if code == failures.PUSH_EVICTED:
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE push_subscriptions SET failure_count = ?",
+                (MAX_CONSECUTIVE_FAILURES - 1,),
+            )
+
+    await push_manager._record_outcomes([_SendResult(sub_id, **result_kwargs)], {sub_id: "Pixel"})
+    assert await PushSubscriptionRepository.get_all() == []
+    assert emitted == [
+        {
+            "event": "notify.channel_failed",
+            "channel_id": "builtin:push",
+            "name": "Pixel",
+            "error": code,
+        }
+    ]
+
+
+_REMOVED_TEXTS = {
+    ("push_unsubscribed", "en"): ("Browser unsubscribed", "unsubscribed by its push service"),
+    ("push_unsubscribed", "fr"): ("Navigateur désabonné", "désabonné par son service push"),
+    ("push_evicted", "en"): ("Browser removed", "failed 15 pushes in a row and was removed"),
+    ("push_evicted", "fr"): ("Navigateur retiré", "a échoué 15 envois de suite et a été retiré"),
+    ("push_refused", "en"): ("Browser removed", "refused by the network guard"),
+    ("push_refused", "fr"): ("Navigateur retiré", "refusée par la protection réseau"),
+}
+
+
+@pytest.mark.parametrize("code", ["push_unsubscribed", "push_evicted", "push_refused"])
+@pytest.mark.parametrize("lang", ["fr", "en"])
+def test_removed_browser_notices_are_rendered_in_both_languages(code, lang):
+    from app.notifications.render import build_push_payload
+
+    rendered = json.loads(
+        build_push_payload(
+            {
+                "event": "notify.channel_failed",
+                "channel_id": "builtin:push",
+                "name": "Pixel",
+                "error": code,
+            },
+            lang,
+        )
+    )
+    assert "Pixel" in rendered["body"]
+    assert code not in rendered["body"]
+    title, fragment = _REMOVED_TEXTS[(code, lang)]
+    assert rendered["title"] == title
+    assert fragment in rendered["body"]

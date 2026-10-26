@@ -197,7 +197,8 @@ def notify_destination_changed(
     before: NotificationDestinations, after: NotificationDestinations
 ) -> None:
     """Proof of modification: a change of any destination pushes a notification
-    to every subscription. Not configurable; never raises."""
+    to the administrators' Web Push subscriptions only (MSHL-399). Not configurable;
+    never raises."""
     kinds = destination_kinds_changed(before, after)
     if not kinds:
         return

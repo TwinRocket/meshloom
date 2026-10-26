@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -54,6 +54,13 @@ LOCKED_EVENTS = frozenset(
         "notify.heartbeat",
         "notify.test",
     }
+)
+# Operational notices about the instance's notification setup (MSHL-399): on Web Push they
+# reach only the devices of administrators, as ``/api/health`` keeps channel health for them
+# and the ``notification_event`` frame of a ``notify.*`` event reaches admin sockets only.
+# Fail closed: a device whose owner's role is unknown never gets one.
+ADMIN_ONLY_EVENTS = frozenset(
+    {"notify.channel_changed", "notify.channel_failed", "notify.destination_changed"}
 )
 OVERRIDABLE_EVENTS: tuple[str, ...] = tuple(e for e in EVENT_IDS if e not in LOCKED_EVENTS)
 FIRST_SEEN_EVENT = "contact.first_seen"
@@ -240,6 +247,19 @@ class PushAudience:
         return self.default is None and not any(p is not None for p in self.per_user.values())
 
 
+def is_admin_owner(sub: Mapping[str, Any]) -> bool:
+    """Whether a push subscription's owner (``owner_role`` of
+    ``PushSubscriptionRepository.deliverable``) is an administrator. False when unknown."""
+    return sub.get("owner_role") == "admin"
+
+
+def admin_audience(admin_ids: Iterable[int], payload: Mapping[str, Any]) -> PushAudience | None:
+    """The audience of an ``ADMIN_ONLY_EVENTS`` notice: ``payload`` for each administrator,
+    nothing for anyone else (``default`` is None). None when there is no administrator."""
+    per_user = dict.fromkeys(admin_ids, payload)
+    return PushAudience(default=None, per_user=per_user) if per_user else None
+
+
 def build_audience(
     rules: Mapping[str, Any],
     overrides: Mapping[int, Mapping[str, Any]],
@@ -289,15 +309,18 @@ def default_state(rules: Mapping[str, Any], event_id: str, kind: str | None = No
 
 
 __all__ = [
+    "ADMIN_ONLY_EVENTS",
     "CONTACT_KIND_NAMES",
     "LOCKED_EVENTS",
     "MENTION_EVENT",
     "OVERRIDABLE_EVENTS",
     "PUSH_ID",
     "PushAudience",
+    "admin_audience",
     "build_audience",
     "conversation_state_key",
     "default_state",
+    "is_admin_owner",
     "is_paused",
     "pause_until",
     "push_wanted",

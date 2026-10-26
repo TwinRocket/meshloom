@@ -41,6 +41,10 @@ delays itself.
   15 min, 1 h, then 6 h, and ``probe_tick`` (every ``QUIET_TICK_S``) sends it a test once
   the pause ran out: a success resumes it, a failure pauses it for the next step.
   ``resume`` (the Resume button) clears the pause and the failures.
+- **Admin-only notices** (MSHL-399): ``notify.channel_changed``, ``notify.channel_failed`` and
+  ``notify.destination_changed`` reach on Web Push only the devices of administrators
+  (``user_rules.ADMIN_ONLY_EVENTS``); without one, or when the owners cannot be read, Web Push
+  is left out.
 - **Status.** ``notification_statuses()`` is the health payload's map and
   ``notifications_failing()`` its flag (a channel failing, paused or with a secret the key
   cannot open); a change of a channel's status or error broadcasts ``health``.
@@ -97,7 +101,13 @@ from app.notifications.limits import (
     effective_limits,
 )
 from app.notifications.transports.base import Delivery, SendResult, Transport
-from app.notifications.user_rules import PushAudience, build_audience
+from app.notifications.user_rules import (
+    ADMIN_ONLY_EVENTS,
+    PushAudience,
+    admin_audience,
+    build_audience,
+    is_admin_owner,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -475,6 +485,15 @@ class Dispatcher:
                 muted=muted,
                 blocked=blocked,
             )
+        if (
+            event is not None
+            and event.event in ADMIN_ONLY_EVENTS
+            and BUILTIN_PUSH_ID in channel_ids
+        ):
+            # An operational notice reaches administrators' devices only (MSHL-399).
+            audience = await self._admin_push_audience(payload)
+            if audience is None:
+                channel_ids = [c for c in channel_ids if c != BUILTIN_PUSH_ID]
         channel_ids = [c for c in channel_ids if c not in exclude]
         channels = await self._channels(channel_ids, allow_legacy=targets is not None)
         if event is not None and any(c.enabled for c in channels):
@@ -570,6 +589,22 @@ class Dispatcher:
             return [c for c in channel_ids if c != BUILTIN_PUSH_ID], None
         ids = channel_ids if listed else [*channel_ids, BUILTIN_PUSH_ID]
         return ids, (audience if overrides or push_mention is not None else None)
+
+    async def _admin_push_audience(self, payload: Mapping[str, Any]) -> PushAudience | None:
+        """The Web Push audience of an ``ADMIN_ONLY_EVENTS`` notice: the administrators who own
+        a deliverable device. None (no Web Push) when there is none or the owners cannot be
+        read: fail closed, a non-admin device never gets the notice."""
+        from app.repository.push_subscriptions import PushSubscriptionRepository
+
+        try:
+            subs = await PushSubscriptionRepository.deliverable()
+        except Exception:
+            logger.debug("push owners unreadable, admin notice not pushed", exc_info=True)
+            return None
+        admins = dict.fromkeys(
+            int(sub["user_id"]) for sub in subs if is_admin_owner(sub) and sub.get("user_id")
+        )
+        return admin_audience(admins, payload)
 
     async def claim_cooldown(self, *claims: tuple[str, int]) -> bool:
         """Start the cooldowns ``(key, seconds)`` unless one is still running: all or nothing,

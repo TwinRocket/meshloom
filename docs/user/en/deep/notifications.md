@@ -194,7 +194,7 @@ The table above holds the **defaults**. Web Push is the one channel whose recipi
 - *Always notify me* still respects what belongs to the installation: the administrator's exceptions for a conversation, a muted channel, the block lists and **Do not disturb**.
 - E-mail, webhook, ntfy, Telegram and the other channels are shared destinations that the administrator owns: they keep following the table, whatever your choices.
 - A mention reaches your devices as a mention when your rules give you *Mentions*, else as an ordinary channel message, never both.
-- The summaries sent when a channel is over its limit (see [Limits and grouping](#limits-and-grouping)) follow your rules too: you only get one when at least one of the notifications it replaces was meant for you, and its counts only include those. The notice that a destination changed reaches every device.
+- The summaries sent when a channel is over its limit (see [Limits and grouping](#limits-and-grouping)) follow your rules too: you only get one when at least one of the notifications it replaces was meant for you, and its counts only include those. The notices about the notification setup (**Channel changed**, **Channel failing**, **Destination changed**) reach only the devices of administrators, whatever their choices.
 - Until you change something, nothing differs from the table, and an upgrade to this version changes nothing for anyone.
 
 ### Your own conversation exceptions
@@ -223,9 +223,9 @@ The same choices are available through `GET`, `PATCH` and `DELETE /api/push/my-r
 | Radio offline | The radio has been unreachable for longer than the delay set below the table (60 s by default). Sent as urgent (the e-mail subject starts with `[URGENT]`), once per outage |
 | Radio back online | The radio is reachable again after a **Radio offline** notification, with how long it was down |
 | Meshloom started | Meshloom has just started: its version, whether the radio connected and how fast. On by default for push |
-| Channel changed | A notification channel is created, deleted, switched on or off, or changed in its settings (a new address, server or webhook, other options; not a rename or a new password). It always goes to Web Push and cannot be taken off; other channels follow the table, and the channel that changed never hears of it |
-| Channel failing | A channel failed 3 times in a row, or a browser was unsubscribed by its push service. It goes to Web Push and every other enabled channel and cannot be taken off; the failing channel never hears of it. At most once a day per channel. The error is a code, never a password, a token or an address |
-| Destination changed | An e-mail, webhook or Apprise destination is changed through the 4.18.x settings. Web Push only |
+| Channel changed | A notification channel is created, deleted, switched on or off, or changed in its settings (a new address, server or webhook, other options; not a rename or a new password). It always goes to Web Push (administrators' devices only) and cannot be taken off; other channels follow the table, and the channel that changed never hears of it |
+| Channel failing | A channel failed 3 times in a row, or a browser was removed: unsubscribed by its push service, failing 15 times in a row, or with a push address the network protection refuses for good. It goes to Web Push (administrators' devices only) and every other enabled channel and cannot be taken off; the failing channel never hears of it. At most once a day per channel. The error is a code, never a password, a token or an address |
+| Destination changed | An e-mail, webhook or Apprise destination is changed through the 4.18.x settings. Web Push only, administrators' devices only |
 
 **Radio offline** and **Radio back online** never fire for a reboot Meshloom started itself (clock fix, Wi-Fi change) nor while the connection is paused in **Settings → Radio**; pausing ends an outage without a notification. Nothing is sent before the radio has connected once since Meshloom started, nor during the same delay right after a start, so an update or a restart does not raise a false alarm. Set the delay under the **Radio offline** row of the table (`radio_offline_grace_s` in `/api/settings`; 0 notifies at once, up to 3600 s). The radio is checked about every 5 seconds, and a reconnect attempt in progress can delay the check, so the notification may arrive a little after the delay. If Meshloom restarts during an outage, the downtime still counts from the real start.
 
@@ -320,7 +320,7 @@ Messages from a blocked contact or name, and messages on a muted channel (until 
 
 ## Proof of change
 
-Creating, deleting, switching on or off a channel, or changing where it sends writes a line in the audit log and sends the **Channel changed** notification to every subscribed browser and, by default, to the other enabled channels, naming what changed. The Web Push copy cannot be turned off: if you did not make the change, someone else did. Changing a 4.18.x destination through the old settings sends **Notification destination changed** to Web Push in the same way.
+Creating, deleting, switching on or off a channel, or changing where it sends writes a line in the audit log and sends the **Channel changed** notification to every browser an administrator subscribed and, by default, to the other enabled channels, naming what changed. The Web Push copy cannot be turned off: if you did not make the change, someone else did. Changing a 4.18.x destination through the old settings sends **Notification destination changed** to Web Push in the same way. Other accounts' devices never get these notices, nor **Channel failing**: they name channels and devices, which only administrators manage.
 
 ## How notifications are sent
 
@@ -376,7 +376,7 @@ Encrypt the full backup with a passphrase anyway: it still holds the Web Push pr
 
 ## Configure channels from a trusted network
 
-A channel decides where your messages go. Whoever can create or edit one can send a copy of your notifications to a service of their choice. That is why every route under `/api/notifications` needs an **administrator**: other roles can neither see nor change a channel (a member only subscribes its own browser to push). Give the administrator role only to people you trust with the node, sign in over [HTTPS](/en/docs/deep/https/) beyond a network you trust, and keep your [Allowed origins](/en/docs/deep/security/) list short. Any change to a channel's destination sends a Web Push notification to every subscribed browser (see [Proof of change](#proof-of-change)).
+A channel decides where your messages go. Whoever can create or edit one can send a copy of your notifications to a service of their choice. That is why every route under `/api/notifications` needs an **administrator**: other roles can neither see nor change a channel (a member only subscribes its own browser to push). Give the administrator role only to people you trust with the node, sign in over [HTTPS](/en/docs/deep/https/) beyond a network you trust, and keep your [Allowed origins](/en/docs/deep/security/) list short. Any change to a channel's destination sends a Web Push notification to every browser an administrator subscribed (see [Proof of change](#proof-of-change)).
 
 On a Meshloom older than 5.0 there was no sign-in at all: anyone who could reach the page could configure a channel. Configure channels from a network you trust.
 

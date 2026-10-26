@@ -5,8 +5,10 @@ A subscription is deliverable while its owner is enabled and holds ``send``
 
 Which events reach Web Push is decided by the notification rules and the dispatcher
 (``app/notifications``); this manager only sends (``dispatch_event``) and keeps the
-subscriptions healthy. A subscription its push service drops (403/404/410) is removed and
-announced with ``notify.channel_failed`` (``app/notifications/failures.py``, MSHL-130).
+subscriptions healthy. A subscription its push service drops (403/404/410), whose endpoint the
+egress guard refuses for good, or that failed ``MAX_CONSECUTIVE_FAILURES`` times in a row is
+removed and announced to the administrators with ``notify.channel_failed``
+(``app/notifications/failures.py``, MSHL-130 / MSHL-399).
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from typing import Any
 from pywebpush import WebPushException
 
 from app.net.egress_guard import EgressBlocked
+from app.notifications.failures import PUSH_EVICTED, PUSH_REFUSED, PUSH_UNSUBSCRIBED
 from app.notifications.render import (  # noqa: F401  (re-exported: callers import them from here)
     DESTINATION_CHANGED_EVENT,
     build_push_payload,
@@ -32,7 +35,7 @@ from app.notifications.render import (  # noqa: F401  (re-exported: callers impo
     neutralise_mentions,
     state_key_for_message,
 )
-from app.notifications.user_rules import PushAudience
+from app.notifications.user_rules import ADMIN_ONLY_EVENTS, PushAudience, is_admin_owner
 from app.push.send import send_push
 from app.push.vapid import get_vapid_claims, get_vapid_private_key
 from app.repository.push_subscriptions import PushSubscriptionRepository
@@ -122,18 +125,26 @@ class PushManager:
     async def dispatch_event(self, data: dict, audience: PushAudience | None = None) -> PushOutcome:
         """Send a push payload to every deliverable subscription. Not a WebSocket event.
 
+        An ``ADMIN_ONLY_EVENTS`` notice (MSHL-399) reaches administrators' devices only,
+        whatever the caller passed: a device whose owner's role is unknown is skipped.
+
         With ``audience`` (MSHL-321) each device gets the payload its owner's rules give it
         (``app/notifications/user_rules.py``), and a device whose owner wants none is skipped.
         """
+        admin_only = data.get("event") in ADMIN_ONLY_EVENTS
         if audience is None:
             return await self._send_to_all_subscriptions(
-                lambda sub: build_push_payload(data, sub.get("language") or "fr")
+                lambda sub: build_push_payload(data, sub.get("language") or "fr"),
+                wanted=is_admin_owner if admin_only else None,
             )
         return await self._send_to_all_subscriptions(
             lambda sub: build_push_payload(
                 dict(audience.payload_for(sub.get("user_id")) or data), sub.get("language") or "fr"
             ),
-            wanted=lambda sub: audience.payload_for(sub.get("user_id")) is not None,
+            wanted=lambda sub: (
+                audience.payload_for(sub.get("user_id")) is not None
+                and (not admin_only or is_admin_owner(sub))
+            ),
         )
 
     async def _send_to_all_subscriptions(
@@ -176,36 +187,42 @@ class PushManager:
         success_ids: list[str] = []
         failure_ids: list[str] = []
         remove_ids: list[str] = []
-        unsubscribed: list[str] = []
+        # (subscription id, notice error code) of every device removed here.
+        removed: list[tuple[str, str]] = []
         for r in results:
             if isinstance(r, _SendResult):
                 if r.invalid:
                     remove_ids.append(r.sub_id)
+                    removed.append((r.sub_id, PUSH_REFUSED))
                     continue
                 if r.refused:
                     continue  # kept, and never counted toward the eviction threshold
                 if r.expired:
                     remove_ids.append(r.sub_id)
-                    unsubscribed.append(r.sub_id)
+                    removed.append((r.sub_id, PUSH_UNSUBSCRIBED))
                 elif r.success:
                     success_ids.append(r.sub_id)
                 else:
                     failure_ids.append(r.sub_id)
         if success_ids or failure_ids or remove_ids:
             try:
-                await PushSubscriptionRepository.batch_record_outcomes(
+                evicted = await PushSubscriptionRepository.batch_record_outcomes(
                     success_ids, failure_ids, remove_ids
                 )
             except Exception:
                 logger.debug("Push dispatch: failed to record outcomes", exc_info=True)
-        if unsubscribed:
-            # The push service dropped these browsers (403/404/410): tell the admin once a
-            # day per browser on every channel (``notify.channel_failed``, MSHL-130).
-            from app.notifications.failures import announce_push_unsubscribed
+                evicted = []
+            removed += [(sub_id, PUSH_EVICTED) for sub_id in evicted or ()]
+        if removed:
+            # A push service dropped the browser (403/404/410), the egress guard refused its
+            # endpoint for good, or it failed MAX_CONSECUTIVE_FAILURES times in a row: tell the
+            # admins once a day per browser (``notify.channel_failed``, MSHL-130 / MSHL-399).
+            from app.notifications.failures import announce_push_removed
 
             names = labels or {}
-            await announce_push_unsubscribed(
-                [(sub_id, names.get(sub_id, "")) for sub_id in unsubscribed], int(time.time())
+            await announce_push_removed(
+                [(sub_id, names.get(sub_id, ""), code) for sub_id, code in removed],
+                int(time.time()),
             )
 
     async def _send_one(

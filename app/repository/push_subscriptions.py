@@ -235,8 +235,9 @@ class PushSubscriptionRepository:
     @staticmethod
     async def batch_record_outcomes(
         success_ids: list[str], failure_ids: list[str], remove_ids: list[str]
-    ) -> None:
-        """Batch-update delivery outcomes in a single transaction."""
+    ) -> list[str]:
+        """Batch-update delivery outcomes in a single transaction. Returns the ids evicted for
+        reaching ``MAX_CONSECUTIVE_FAILURES`` (``remove_ids`` excluded), for their notice."""
         now = int(time.time())
         async with db.tx() as conn:
             if remove_ids:
@@ -260,7 +261,13 @@ class PushSubscriptionRepository:
                     failure_ids,
                 )
             # Evict subscriptions that have exceeded the failure threshold
+            async with conn.execute(
+                "SELECT id FROM push_subscriptions WHERE failure_count >= ?",
+                (MAX_CONSECUTIVE_FAILURES,),
+            ) as cursor:
+                evicted = [row[0] for row in await cursor.fetchall()]
             await conn.execute(
                 "DELETE FROM push_subscriptions WHERE failure_count >= ?",
                 (MAX_CONSECUTIVE_FAILURES,),
             )
+        return evicted
