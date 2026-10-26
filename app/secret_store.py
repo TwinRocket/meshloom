@@ -12,6 +12,8 @@ other settings stay in plain text.
   0600 by ``ensure_key()`` at startup, before the migrations. An existing file
   is never overwritten; one of the wrong size is moved aside
   (``secrets.key.invalid-<time>``) and a new key is made. No rotation.
+  ``probe_available()`` tells, without creating or changing anything, whether a
+  key could be loaded or made (previews such as the backup inspection).
 - **Token.** ``v1:`` + base64(12-byte nonce + ciphertext + 16-byte tag), a fresh
   random nonce per encryption. The AAD names the table, the row id and the
   field (``aad()``): a ciphertext copied to another row or field fails to
@@ -35,6 +37,7 @@ import json
 import logging
 import os
 import secrets
+import stat
 import threading
 import time
 from pathlib import Path
@@ -160,6 +163,41 @@ def available() -> bool:
     Lets a multi-step write such as the backup restore refuse up front instead of
     failing with ``SecretStoreUnavailable`` halfway through."""
     return _current_key() is not None
+
+
+def _can_create_in(folder: Path) -> bool:
+    """Whether ``_load`` could make ``folder`` (when missing) and a file in it."""
+    probe = folder
+    while not probe.exists():
+        if probe.parent == probe:
+            return False
+        probe = probe.parent
+    return probe.is_dir() and os.access(probe, os.W_OK | os.X_OK)
+
+
+def probe_available() -> bool:
+    """Read-only twin of ``available()`` for previews such as the backup inspection.
+
+    Answers whether ``available()`` would succeed, without creating ``secrets.key``,
+    its folder or a moved-aside copy, without changing the file mode and without
+    loading the key into memory (MSHL-405). Never logs. The answer is a best effort
+    (permission bits through ``os.access``): the restore itself still calls
+    ``available()`` and refuses when it fails."""
+    if _key is not None:
+        return True
+    path = key_path()
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return _can_create_in(path.parent)
+    except OSError:
+        return False
+    if not stat.S_ISREG(st.st_mode):
+        return False
+    if st.st_size == KEY_BYTES:
+        return os.access(path, os.R_OK)
+    # A file of the wrong size is moved aside and replaced by a new key.
+    return _can_create_in(path.parent)
 
 
 def aad(table: str, row_id: str, field: str) -> str:

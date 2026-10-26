@@ -360,6 +360,52 @@ async def test_inspection_with_a_usable_key_reports_nothing(backup_db, client, p
     assert (await _inspect(client, secret_doc))["secret_store_unavailable"] is False
 
 
+@pytest.mark.asyncio
+async def test_inspection_never_creates_the_key_file(
+    backup_db, client, public_dns, tmp_path, monkeypatch
+):
+    """MSHL-405: the inspection writes nothing, ``secrets.key`` included."""
+    key_path = secret_store.key_path
+    path = tmp_path / "fresh" / secret_store.KEY_FILENAME
+    monkeypatch.setattr(secret_store, "key_path", lambda: path)
+    secret_store.reset()
+    try:
+        secret_doc = _doc([_fanout(password=FILE_SECRET)])
+        for backup in (secret_doc, V1_4_18):
+            assert (await _inspect(client, backup))["secret_store_unavailable"] is False
+        assert not path.exists()
+        assert not path.parent.exists()
+    finally:
+        monkeypatch.setattr(secret_store, "key_path", key_path)
+        secret_store.reset()
+
+
+def test_probe_available_is_read_only(tmp_path, monkeypatch):
+    """The probe answers like ``available()`` without touching the file or its mode."""
+    path = tmp_path / secret_store.KEY_FILENAME
+    monkeypatch.setattr(secret_store, "key_path", lambda: path)
+    secret_store.reset()
+    try:
+        assert secret_store.probe_available() is True
+        assert not path.exists()
+        path.write_bytes(b"\0" * secret_store.KEY_BYTES)
+        path.chmod(0o644)
+        assert secret_store.probe_available() is True
+        assert path.stat().st_mode & 0o777 == 0o644
+        path.write_bytes(b"short")
+        assert secret_store.probe_available() is True
+        assert path.read_bytes() == b"short"
+        assert list(tmp_path.iterdir()) == [path]
+        blocker = tmp_path / "not-a-folder"
+        blocker.write_text("")
+        monkeypatch.setattr(
+            secret_store, "key_path", lambda: blocker / "sub" / secret_store.KEY_FILENAME
+        )
+        assert secret_store.probe_available() is False
+    finally:
+        secret_store.reset()
+
+
 async def _kept_channel_without_secret(db) -> None:
     """``ntfy-0f0f0f0f`` exists but stores no secret: the restore keeps nothing to encrypt."""
     await _plain_kept_channel(db)
