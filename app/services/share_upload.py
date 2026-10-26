@@ -16,6 +16,13 @@ the instance before every local check passed.
   GIF): 413 ``share_too_large`` before reading. While streaming, one byte more
   than declared stops the read at once, as does a short body (400
   ``share_invalid_request``).
+- **Receive deadline.** The whole body must arrive within
+  ``RECEIVE_TIMEOUT_S`` (uvicorn has no body read timeout): a client that
+  announces 10 MiB and trickles bytes would otherwise hold an upload slot
+  forever. Past it: 408 ``share_upload_timeout``, file removed.
+- **Disk errors.** A local ``OSError`` while staging or checking (``ENOSPC``,
+  ``share-tmp`` replaced by a link or a file) is 500 ``share_storage_failed``
+  (coded, logged with its errno only), file removed.
 - **Checks** (``check_staged``), on the file, before any egress: the magic bytes
   must name the declared type (``share.sniff_image_type``, else 415
   ``share_type_refused``) and ``imagesize`` must read the dimensions from the
@@ -66,6 +73,8 @@ MAX_CONCURRENT_UPLOADS = 2
 READ_CHUNK = 64 * 1024
 # Bytes the magic number check needs (WebP: 12).
 SNIFF_BYTES = 16
+# Seconds the whole request body may take to arrive (10 MiB at ~85 KiB/s).
+RECEIVE_TIMEOUT_S = 120.0
 STAGED_PREFIX = "upload-"
 # Longest Content-Length accepted as text (far above any cap).
 _LENGTH_DIGITS = 12
@@ -191,8 +200,18 @@ def _new_file() -> tuple[Path, int]:
 
 
 def _remove(path: Path) -> None:
-    with contextlib.suppress(FileNotFoundError):
+    try:
         path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        # Never mask the answer; the startup cleanup gets it later.
+        logger.warning("Could not remove a staged share upload: errno %s", exc.errno)
+
+
+def _storage_failed(exc: OSError) -> ShareError:
+    logger.warning("Share upload staging failed: errno %s", exc.errno)
+    return ShareError("share_storage_failed")
 
 
 @contextlib.asynccontextmanager
@@ -202,21 +221,32 @@ async def staged_upload(
     """The body written to a private file of ``share-tmp/``, removed on exit.
 
     Reads exactly ``length`` bytes: one more stops the read at once, and a
-    short body is refused too (400 ``share_invalid_request``).
+    short body is refused too (400 ``share_invalid_request``). The body must
+    arrive within ``RECEIVE_TIMEOUT_S`` (408 ``share_upload_timeout``); a disk
+    error is 500 ``share_storage_failed``.
     """
-    path, fd = await asyncio.to_thread(_new_file)
+    try:
+        path, fd = await asyncio.to_thread(_new_file)
+    except OSError as exc:
+        raise _storage_failed(exc) from None
     try:
         digest = hashlib.sha256()
         size = 0
-        with os.fdopen(fd, "wb") as out:
-            async for chunk in chunks:
-                if not chunk:
-                    continue
-                size += len(chunk)
-                if size > length:
-                    raise ShareError("share_invalid_request")
-                digest.update(chunk)
-                await asyncio.to_thread(out.write, chunk)
+        try:
+            async with asyncio.timeout(RECEIVE_TIMEOUT_S):
+                with os.fdopen(fd, "wb") as out:
+                    async for chunk in chunks:
+                        if not chunk:
+                            continue
+                        size += len(chunk)
+                        if size > length:
+                            raise ShareError("share_invalid_request")
+                        digest.update(chunk)
+                        await asyncio.to_thread(out.write, chunk)
+        except TimeoutError:
+            raise ShareError("share_upload_timeout") from None
+        except OSError as exc:
+            raise _storage_failed(exc) from None
         if size != length:
             raise ShareError("share_invalid_request")
         yield StagedFile(path=path, size=size, sha256=digest.hexdigest(), content_type=content_type)
@@ -231,8 +261,11 @@ def check_staged(staged: StagedFile) -> None:
     dimensions (415 ``share_type_refused``); a GIF stays within its cap and the
     image within ``MAX_IMAGE_PIXELS`` (413 ``share_too_large``).
     """
-    with open(staged.path, "rb") as f:
-        head = f.read(SNIFF_BYTES)
+    try:
+        with open(staged.path, "rb") as f:
+            head = f.read(SNIFF_BYTES)
+    except OSError as exc:
+        raise _storage_failed(exc) from None
     if share.sniff_image_type(head) != staged.content_type:
         raise ShareError("share_type_refused")
     if staged.size > max_bytes_for(staged.content_type):

@@ -296,22 +296,29 @@ Community guard.
     instance): three consecutive failures (transport error, timeout, guard
     refusal, 5xx, a non-JSON 4xx) open it for 5 min (`BREAKER_OPEN_SECONDS`);
     while open every call answers `share_unavailable` locally; then one trial
-    decides. A contract 4xx closes it.
+    decides. A contract 4xx closes it, and so does a JSON 503 `kill_switch` (a
+    received status is authoritative: httpcore reads an answer sent before the
+    upload body was read, so an early kill switch is not a write failure).
 - **Functions.** `create_link`, `get_meta`, `fetch_object`, `read_object`,
-  `report_object` (and `share_request` underneath); `clear_object_cache` and
-  `share_egress_state` are local (`_LOCAL` in the sweep). Every new network function must be added to
-  `SERVICE_CALLS` in `tests/test_share_off_no_egress.py` (the test finds them
-  from the module and fails otherwise); `/api/share/*` routes are found from
+  `report_object` (and `share_request` underneath), plus `share_upload.upload_file`;
+  `clear_object_cache` and `share_egress_state` are local (`_LOCAL` in the sweep).
+  Every new network function must be added to `SERVICE_CALLS` in
+  `tests/test_share_off_no_egress.py` (the test finds them from `services/share.py`
+  and `services/share_upload.py` and fails otherwise); `/api/share/*` routes are found from
   `app.routes` and swept too.
-- **Uploads (`services/share_upload.py`, MSHL-243).** `upload_file` (`POST /v1/files`,
-  public mode) lives outside `services/share.py`, so it is not in `SERVICE_CALLS`; its
-  route is in the `/api/share/*` sweep and `tests/test_share_upload.py` asserts no request
+- **Uploads (`services/share_upload.py`, MSHL-243, MSHL-375).** `upload_file`
+  (`POST /v1/files`, public mode) is in `SERVICE_CALLS`; its route is in the
+  `/api/share/*` sweep and `tests/test_share_upload.py` asserts no request
   and no DNS lookup for every local refusal. The body is staged, never read whole into
   memory: `staged_upload` streams `request.stream()` to `<data dir>/share-tmp/`
   (`tmp_directory()`, next to `MESHCORE_DATABASE_PATH`, mode 0700 enforced on every use;
   each file 0600, `O_EXCL | O_NOFOLLOW`, random name) and computes the sha256 on the way;
   one byte past the declared `Content-Length` stops the read, a short body is refused
-  (400 `share_invalid_request`); the file is removed in `finally`, and
+  (400 `share_invalid_request`); the whole body must arrive within `RECEIVE_TIMEOUT_S`
+  (120 s; uvicorn has no body read timeout, so a trickled body would hold a slot), else
+  408 `share_upload_timeout`; a local `OSError` while staging or checking (`ENOSPC`,
+  `share-tmp` replaced by a link or a file) is 500 `share_storage_failed` (errno logged
+  only); the file is removed in `finally` in every case, and
   `clean_tmp_directory()` empties the folder at startup (`main.py` lifespan; files and
   links unlinked, never followed). `check_staged` runs before any egress: magic bytes =
   declared type, else 415 `share_type_refused`; `imagesize` (2.x, `exif_rotation=False`)

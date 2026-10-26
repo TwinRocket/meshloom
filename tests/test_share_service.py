@@ -396,6 +396,18 @@ class TestBreaker:
         await _raises(create_link(URL))
         assert share_breaker().failures == 0
 
+    async def test_a_kill_switch_is_an_answer_not_an_outage(self, share_on, monkeypatch):
+        """A JSON 503 ``kill_switch`` never opens the breaker; a bare 503 still counts."""
+        recorder = Recorder(monkeypatch, lambda request: _err("kill_switch", 503))
+        for _ in range(5):
+            assert (await _raises(create_link(URL))).code == "share_unavailable"
+        assert share_breaker().failures == 0
+        assert not share_breaker().is_open
+        assert len(recorder.requests) == 5
+        recorder.handler = lambda request: httpx.Response(503, text="down")
+        await _raises(create_link(URL))
+        assert share_breaker().failures == 1
+
     async def test_community_breaker_is_separate(self, share_on, monkeypatch):
         from app.services.meshloom_community import community_breaker
 
