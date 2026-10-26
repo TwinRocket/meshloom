@@ -75,6 +75,43 @@ Ce que contient un message : son type (direct ou salon), la clé de la conversat
 
 Les bots Python n’existent plus en 5.0.0 : ce sont des **extensions**. Ajoutez, écrivez et gérez-les dans **Réglages → Extensions** (l’extension fournie **Echo**, qui répond `Plong!` à `!pling`, est l’exemple pour commencer). Les bots que vous aviez ont été convertis en extensions locales qui attendent votre relecture avant de démarrer. Voir [Extensions](/docs/deep/plugins/) pour les permissions et les limites, et [Les bots de la 4.18](/docs/deep/plugins/#les-bots-de-la-418-et-avant).
 
+### Partager un lien ou une image depuis un script
+
+Les extensions (les successeurs des bots) n’ont pas encore de permission de partage et ne détiennent aucun jeton d’API : elles ne peuvent donc ni raccourcir un lien ni envoyer une image. Un script qui tourne hors de Meshloom le peut, avec un [jeton d’API](/docs/deep/access/#les-jetons-dapi-et-dappareil) de portée `send`, par les deux mêmes routes que l’interface. Le partage doit être activé (**Réglages > Partage : liens et fichiers**) : le consentement de l’administrateur couvre aussi les scripts, et les quotas sont ceux de ce Meshloom, pas ceux du script. Une requête refusée répond par un code `share_*` (`share_disabled`, `share_quota_exceeded`, `share_rate_limited`, `share_invalid_url`…) décrit dans la page [Liens courts](/docs/deep/share/#quand-quelque-chose-ne-va-pas).
+
+```python
+import httpx
+
+api = httpx.Client(
+    base_url="http://meshloom.local:8000/api",
+    headers={"Authorization": "Bearer mlt_..."},
+)
+
+# Un lien court : JSON {"url": ...}, répond 201 {"id", "url", "expires_at"}.
+link = api.post("/share/links", json={"url": "https://example.org/a/very/long/address"})
+link.raise_for_status()
+
+# Une image : les octets bruts en corps (pas de multipart), son Content-Type
+# (jpeg, png, gif ou webp) et X-Share-Mode: public. Répond 201
+# {"id", "url", "expires_at", "size", "mode", "text"} ; "text" est le message
+# proposé par la zone de saisie, "📷 <url>".
+with open("photo.jpg", "rb") as f:
+    image = api.post(
+        "/share/files",
+        content=f.read(),
+        headers={"Content-Type": "image/jpeg", "X-Share-Mode": "public"},
+    )
+image.raise_for_status()
+
+# Aucune des deux routes n'envoie quoi que ce soit par radio : postez le texte vous-même.
+api.post(
+    "/messages/channel",
+    json={"channel_key": "0123456789abcdef0123456789abcdef", "text": image.json()["text"]},
+)
+```
+
+Une image chiffrée (`X-Share-Mode: encrypted`) demande aussi `X-Share-Conversation-Type` (`channel` ou `contact`) et `X-Share-Conversation-Id` (le `share_conversation_id` du canal, dans `GET /api/channels`, ou la clé publique du contact) ; son message commence par `🔒`. Meshloom affiche un tel message `[image]`, `[fichier chiffré]` ou `[lien]` dans les notifications push et les e-mails, jamais l’adresse (voir [Notifications](/docs/deep/notifications/)). Le webhook du fanout, MQTT et les autres intégrations pour machines gardent le texte du message tel qu’il a été envoyé.
+
 ## Webhooks
 
 Il y a deux webhooks dans Meshloom, et ils ne sont pas les mêmes. Celui-ci, le **webhook du fanout**, est une intégration pour les machines : il envoie **chaque message** du périmètre choisi, en JSON, à un script, Node-RED ou n8n. Le **webhook de notification** (un canal *Webhook* des [Notifications](/docs/deep/notifications/#destinations-e-mail-et-webhook)) envoie les **événements** que vous cochez dans le tableau des règles (un message direct, radio hors ligne, une alerte de télémétrie…), avec sa propre signature et ses propres en-têtes (`X-Webhook-Id`, `X-Webhook-Timestamp`). Utilisez le webhook du fanout pour alimenter un système avec le trafic, celui des notifications pour être prévenu d’événements.

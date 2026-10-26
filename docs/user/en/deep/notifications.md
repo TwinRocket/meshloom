@@ -146,6 +146,8 @@ When you send other people's messages to such a service, **you**, the operator o
 
 Text from the mesh is unauthenticated: anyone in range can write anything. The shared renderer therefore breaks `@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@`, `<!` and `<#` with an invisible character in every notification sent through the ntfy, Discord, Apprise and preset channels (Telegram, Gotify, Home Assistant, Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat, SMS), plain text or Markdown. In Markdown (Discord, Matrix, Mattermost, ntfy with Markdown on, Apprise in Markdown format) it also escapes Markdown punctuation so a message cannot inject a link or a heading. E-mail, Web Push and webhook carry the text as it is: no chat service reads a mention there (the e-mail is HTML-escaped). The Discord channel also sends `allowed_mentions: {"parse": []}`, so it pings nobody.
 
+**Shared images and links.** A message that is only a short link or a shared image (`📷 https://meshl.ink/…`, `🔒 …`, see [Short links](/en/docs/deep/share/)) never reaches a push notification, an e-mail, or an Apprise, ntfy.sh or Discord message as an address: it reads `[image]`, `[encrypted file]` or `[link]` (with the caption, if any). This comes from the text alone: Meshloom fetches nothing to write it, and any `#fragment` after a link is dropped, never shown. In a channel the sender stays: `Léa: [image]`. The webhook channel sends the raw event, text included.
+
 The list of secrets is below in [Backups](#backups). In short: the secrets of channels are write-only, the API never returns them, and no backup contains them (the full backup does hold the Web Push private key and the subscriptions, see [Backups](#backups)).
 
 ## Destinations on your network
