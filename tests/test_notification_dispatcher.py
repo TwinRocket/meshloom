@@ -877,3 +877,63 @@ async def test_a_paused_event_still_sends_its_frame(test_db, monkeypatch):
     await _settle(dispatcher)
     assert [f[1]["event"] for f in frames] == ["contact.first_seen"]
     assert transport.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_mention_on_a_private_key_channel_never_reaches_a_kiosk(test_db, monkeypatch):
+    """End to end: the dispatcher marks a mention on a channel with its own key as not
+    open, and the per-socket filter keeps it from a kiosk (a viewer and an admin get it)."""
+    import asyncio
+    import json
+    from unittest.mock import AsyncMock
+
+    from app.auth.models import User
+    from app.auth.principal import Principal
+    from app.websocket import WebSocketManager
+
+    manager = WebSocketManager()
+    monkeypatch.setattr("app.websocket.ws_manager", manager)
+    sockets = {}
+    for role in ("kiosk", "viewer", "admin"):
+        ws = AsyncMock()
+        user = User(id=3, username=role, role=role, created_at=0, updated_at=0)  # type: ignore[arg-type]
+        await manager.connect(ws, Principal(user=user, via="lan", credential="session"))
+        sockets[role] = ws
+
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules({**RULES, "events": {"message.mention": {"channels": ["ntfy-1"]}}})
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    private_key = "5A" * 16  # neither Public nor a # channel
+    await dispatcher.emit(
+        event_from_payload(
+            {
+                "event": "message",
+                "type": "CHAN",
+                "conversation_key": private_key,
+                "text": "secret plan @[Base]",
+                "sender_name": "Bob",
+                "channel_name": "Club",
+                "id": 7,
+                "mention": True,
+            }
+        )
+    )
+    await _settle(dispatcher)
+    for _ in range(1000):
+        if all(c.queue.empty() for c in manager.active_connections.values()):
+            break
+        await asyncio.sleep(0)
+    for _ in range(20):
+        await asyncio.sleep(0)
+
+    def frames(role: str) -> list[dict]:
+        sent = [json.loads(c.args[0]) for c in sockets[role].send_text.await_args_list]
+        return [f["data"] for f in sent if f["type"] == "notification_event"]
+
+    for role in ("viewer", "admin"):
+        [frame] = frames(role)
+        assert (frame["event"], frame["conversation_key"]) == ("message.mention", private_key)
+        assert (frame["conversation_type"], frame["conversation_open"]) == ("CHAN", False)
+    assert frames("kiosk") == []
+    for ws in sockets.values():
+        await manager.disconnect(ws)

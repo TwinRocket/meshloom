@@ -414,6 +414,8 @@ class TestWebSocketDelivery:
             frame(9, "notify.channel_failed"),
             frame(10, "not.in.the.catalogue"),
             frame(11, "message.mention", **chan, conversation_open=True),
+            # The event id alone marks a DM, whatever the other fields claim.
+            frame(12, "message.dm", conversation_type="CHAN"),
         ]
         for f in frames:
             manager.broadcast_nowait(WsEvent.NOTIFICATION_EVENT, f)
@@ -428,8 +430,8 @@ class TestWebSocketDelivery:
             ]
 
         assert ids(kiosk) == [1, 2, 3, 11]
-        assert ids(viewer) == [1, 2, 3, 4, 5, 6, 7, 8, 11]
-        assert ids(admin) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+        assert ids(viewer) == [1, 2, 3, 4, 5, 6, 7, 8, 11, 12]
+        assert ids(admin) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         assert all(
             f["type"] != "notification_event" or isinstance(f["data"], dict) for f in _sent(kiosk)
         )
