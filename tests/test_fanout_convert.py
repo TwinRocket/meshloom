@@ -40,6 +40,17 @@ def _quiet_manager(monkeypatch):
     monkeypatch.setattr("app.fanout.manager.FanoutManager.reload_config", reload)
 
 
+@pytest.fixture(autouse=True)
+def _no_announce(monkeypatch):
+    """Creating a channel announces it to the other enabled channels; here those send to a
+    test address, so the announcement would wait on the network."""
+
+    async def announce(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr("app.notifications.api_support.announce_channel_change", announce)
+
+
 async def _row(urls=JSON_URL, scope=None, enabled=True, **config):
     return await FanoutConfigRepository.create(
         "apprise",
@@ -55,6 +66,50 @@ def _no_secret(text: str) -> None:
         assert secret not in text
 
 
+async def _channel(client, channel_id):
+    response = await client.get(f"/api/notifications/channels/{channel_id}")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _walk_strings(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield str(key)
+            yield from _walk_strings(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk_strings(item)
+    elif value is not None:
+        yield str(value)
+
+
+def _assert_no_url_or_secret(payload, urls) -> None:
+    """No secret part, no URL (whole or with its scheme) and no ``config`` anywhere."""
+    from app.net.apprise_urls import url_secret_parts
+
+    needles = set(SECRETS)
+    for url in urls:
+        needles.add(url)
+        needles.add(url.split("://", 1)[1])
+        needles.update(p for p in url_secret_parts(url) if len(p) >= 4)
+    for text in _walk_strings(payload):
+        assert "://" not in text, text
+        for needle in needles:
+            assert needle not in text, needle
+    assert "config" not in list(_walk_keys(payload))
+
+
+def _walk_keys(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield from _walk_keys(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _walk_keys(item)
+
+
 async def _rules(client):
     return (await client.get("/api/notifications/rules")).json()
 
@@ -66,15 +121,15 @@ async def test_all_scope_creates_a_generic_channel_on_both_events(test_db, clien
     assert response.status_code == 200, response.text
     _no_secret(response.text)
     body = response.json()
-    channel = body["channel"]
-    assert channel["type"] == "apprise" and channel["preset"] is None
+    assert body["channel"]["type"] == "apprise" and body["channel"]["preset"] is None
+    channel = await _channel(client, body["channel"]["id"])
     assert channel["config"]["format"] == "text"
     assert channel["include_message_text"] == "always"
     assert body["already_converted"] is False
     assert "include_outgoing_unsupported" in body["notes"]
     assert "private_channels_need_exception" in body["notes"]
     assert body["fanout"]["enabled"] is False
-    assert body["fanout"]["config"]["converted_to"] == channel["id"]
+    assert body["fanout"]["converted_to"] == channel["id"]
 
     rules = await _rules(client)
     assert channel["id"] in rules["events"]["message.dm"]["channels"]
@@ -120,8 +175,9 @@ def test_scope_to_rules_shapes():
 async def test_templates_are_mapped_and_a_long_one_dropped(test_db, client):
     row = await _row(body_format_dm="**{sender_name}**: {text}", body_format_channel="x" * 600)
     body = (await client.post(CONVERT.format(row["id"]))).json()
-    assert body["channel"]["template_dm"] == "**{sender_name}**: {text}"
-    assert body["channel"]["template_channel"] == ""
+    channel = await _channel(client, body["channel"]["id"])
+    assert channel["template_dm"] == "**{sender_name}**: {text}"
+    assert channel["template_channel"] == ""
     assert "template_channel_dropped" in body["notes"]
 
 
@@ -203,7 +259,7 @@ async def test_duplicate_detection_on_channel_creation(test_db, client):
     merged = await client.post(CONVERT.format(row["id"]), json={"channel_id": created["id"]})
     assert merged.status_code == 200, merged.text
     assert merged.json()["channel"]["id"] == created["id"]
-    assert merged.json()["fanout"]["config"]["converted_to"] == created["id"]
+    assert merged.json()["fanout"]["converted_to"] == created["id"]
     other = await client.post(
         "/api/notifications/channels",
         json={"type": "apprise", "name": "Again", "config": {"urls": JSON_URL}},
@@ -228,3 +284,171 @@ async def test_backup_round_trips_the_converted_row(test_db, client):
     assert restored["enabled"] is False
     assert restored["config"]["converted_to"] == channel_id
     assert restored["config"]["urls"] == JSON_URL
+
+
+# ── Secret handling and atomicity (review of PR #400) ───────────────────────
+
+
+@pytest.mark.parametrize("urls", [JSON_URL, TELEGRAM, f"{JSON_URL}\n{TELEGRAM}"])
+async def test_convert_response_has_no_config_and_no_url(test_db, client, urls):
+    row = await _row(urls=urls)
+    for _ in range(2):  # the first conversion, then the already-converted answer
+        response = await client.post(CONVERT.format(row["id"]))
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert set(body["channel"]) == {"id", "name", "type", "preset", "enabled"}
+        assert set(body["fanout"]) == {"id", "name", "type", "enabled", "converted_to"}
+        _assert_no_url_or_secret(body, urls.split("\n"))
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        "json://hooks.example.org/path/secret-path-8",  # same host, other token
+        "json://hooks.example.org/other/secret-path-7",  # same host, other path
+        "json://hooks.example.org/path",  # a prefix of the path
+        "json://hooks.example.org/path/secret-path-7?x=1",  # other query
+        "json://user:pw@hooks.example.org/path/secret-path-7",  # other credentials
+    ],
+)
+async def test_same_host_other_path_or_token_is_not_a_duplicate(test_db, client, other):
+    await _row(urls=other)
+    response = await client.post(
+        "/api/notifications/channels",
+        json={"type": "apprise", "name": "Same host", "config": {"urls": JSON_URL}},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["fanout_duplicates"] == []
+
+
+async def test_every_refusal_carries_no_config_or_url(test_db, client, monkeypatch):
+    urls = [JSON_URL, TELEGRAM]
+    apprise = await _row(urls="\n".join(urls))
+    hook = await FanoutConfigRepository.create(
+        "webhook", "Hook", {"url": JSON_URL.replace("json://", "https://")}, {"messages": "all"}
+    )
+    private = await _row(urls="json://192.168.1.20/path/secret-path-7")
+    unreadable = await _row()
+
+    real_get = FanoutConfigRepository.get
+
+    async def get(config_id):
+        found = await real_get(config_id)
+        if found is not None and config_id == unreadable["id"]:
+            found = {**found, "secret_unreadable": True}
+        return found
+
+    monkeypatch.setattr(FanoutConfigRepository, "get", staticmethod(get))
+    cases = [
+        (CONVERT.format("nope"), None, 404, "fanout_missing"),
+        (CONVERT.format("system:meshloom-stats"), None, 404, "fanout_missing"),
+        (CONVERT.format(hook["id"]), None, 400, "fanout_not_apprise"),
+        (CONVERT.format(unreadable["id"]), None, 409, "secret_unreadable"),
+        (CONVERT.format(apprise["id"]), {"channel_id": "apprise-missing0"}, 404, "channel_missing"),
+        # The channel checks refuse a private destination: the guard's code, no host.
+        (CONVERT.format(private["id"]), None, None, None),
+    ]
+    for path, payload, status, code in cases:
+        response = await client.post(path, json=payload) if payload else await client.post(path)
+        assert response.status_code >= 400, (path, response.text)
+        if status is not None:
+            assert response.status_code == status, response.text
+            assert response.json()["detail"]["code"] == code
+        body = response.json()
+        _assert_no_url_or_secret(body, [*urls, "json://192.168.1.20/path/secret-path-7"])
+        assert "192.168.1.20" not in response.text
+    # Nothing was converted by the refusals.
+    assert "converted_to" not in (await FanoutConfigRepository.get(apprise["id"]))["config"]
+
+
+async def test_a_converted_row_turned_back_on_is_not_reported_as_a_duplicate(test_db, client):
+    """Chosen behaviour: re-enabling a converted row is a confirmed choice to keep both, and
+    its channel exists already, so the duplicate prompt does not offer it again."""
+    row = await _row()
+    await client.post(CONVERT.format(row["id"]))
+    # The UI's confirm path is a plain PATCH with enabled=true.
+    patched = await client.patch(f"/api/fanout/{row['id']}", json={"enabled": True})
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["enabled"] is True
+    response = await client.post(
+        "/api/notifications/channels",
+        json={"type": "apprise", "name": "Again", "config": {"urls": JSON_URL}},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["fanout_duplicates"] == []
+
+
+async def test_a_failure_after_the_channel_exists_never_makes_a_second_one(
+    test_db, client, monkeypatch
+):
+    from app.notifications import fanout_convert
+
+    row = await _row()
+    real = fanout_convert._disable_row
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(fanout_convert, "_disable_row", broken)
+    with pytest.raises(RuntimeError):
+        await fanout_convert.convert_fanout_row(row["id"])
+    first = [c for c in await NotificationChannelRepository.list_all() if c.name == "Alerts"]
+    assert len(first) == 1
+    pending = await FanoutConfigRepository.get(row["id"])
+    assert pending["enabled"] is True
+    assert pending["config"]["converting_to"] == first[0].id
+
+    monkeypatch.setattr(fanout_convert, "_disable_row", real)
+    response = await client.post(CONVERT.format(row["id"]))
+    assert response.status_code == 200, response.text
+    assert response.json()["channel"]["id"] == first[0].id
+    channels = [c for c in await NotificationChannelRepository.list_all() if c.name == "Alerts"]
+    assert [c.id for c in channels] == [first[0].id]
+    done = await FanoutConfigRepository.get(row["id"])
+    assert done["enabled"] is False
+    assert done["config"]["converted_to"] == first[0].id
+    assert "converting_to" not in done["config"]
+    rules = await _rules(client)
+    assert rules["events"]["message.dm"]["channels"].count(first[0].id) == 1
+
+
+async def test_a_failure_before_the_channel_exists_creates_it_under_the_marked_id(
+    test_db, client, monkeypatch
+):
+    from app.notifications import fanout_convert
+
+    row = await _row()
+    real = NotificationChannelRepository.create
+
+    async def broken(body):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(NotificationChannelRepository, "create", staticmethod(broken))
+    with pytest.raises(RuntimeError):
+        await fanout_convert.convert_fanout_row(row["id"])
+    marked = (await FanoutConfigRepository.get(row["id"]))["config"]["converting_to"]
+
+    monkeypatch.setattr(NotificationChannelRepository, "create", staticmethod(real))
+    response = await client.post(CONVERT.format(row["id"]))
+    assert response.status_code == 200, response.text
+    assert response.json()["channel"]["id"] == marked
+    assert sum(c.name == "Alerts" for c in await NotificationChannelRepository.list_all()) == 1
+
+
+async def test_clients_cannot_set_or_clear_the_write_ahead_mark(test_db, client, monkeypatch):
+    from app.notifications import fanout_convert
+
+    row = await _row()
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(fanout_convert, "_disable_row", broken)
+    with pytest.raises(RuntimeError):
+        await fanout_convert.convert_fanout_row(row["id"])
+    mark = (await FanoutConfigRepository.get(row["id"]))["config"]["converting_to"]
+    shown = (await client.get(f"/api/fanout/{row['id']}")).json()["config"]
+    edited = {k: v for k, v in shown.items() if k not in ("converting_to", "converted_to")}
+    patched = await client.patch(f"/api/fanout/{row['id']}", json={"config": edited})
+    assert patched.status_code == 200, patched.text
+    assert (await FanoutConfigRepository.get(row["id"]))["config"]["converting_to"] == mark

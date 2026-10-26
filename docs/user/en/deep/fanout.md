@@ -156,7 +156,7 @@ Each Apprise integration shows **Convert to a notification channel**. After you 
 - The scope becomes rules: **All messages** notifies direct messages and channel messages; **Only listed channels/contacts** becomes one exception per conversation; **All except listed channels/contacts** notifies everything but the listed conversations. Channels with their own key are notified only through a conversation exception: add one if you need it.
 - **Forward Meshloom-sent messages** has no equivalent in notifications and is not kept.
 
-The integration stays in the list, turned off, with a **Converted** badge. Turning it back on asks first, since you would then be notified twice. Converting it again does nothing. A backup keeps the converted state: after a restore the integration comes back off and still marked. Adding a notification channel that sends to the same place as an active Apprise integration offers the same conversion (see [Notifications](/en/docs/deep/notifications/#adding-a-channel)).
+The integration stays in the list, turned off, with a **Converted** badge. Turning it back on asks first, since you would then be notified twice; the duplicate prompt below does not offer it again. Converting it again does nothing. A backup keeps the converted state: after a restore the integration comes back off and still marked. Adding a notification channel that sends to the same place as an active Apprise integration offers the same conversion (see [Notifications](/en/docs/deep/notifications/#adding-a-channel)).
 
 ## Amazon SQS
 

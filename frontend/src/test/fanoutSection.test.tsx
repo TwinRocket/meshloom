@@ -604,7 +604,13 @@ describe('SettingsFanoutSection', () => {
     mockedApi.getFanoutConfigs.mockResolvedValueOnce([row]).mockResolvedValue([converted]);
     mockedApi.convertFanoutToChannel.mockResolvedValue({
       channel: { id: 'ch-1', name: 'Apprise Feed' } as never,
-      fanout: converted,
+      fanout: {
+        id: 'ap-1',
+        name: 'Apprise Feed',
+        type: 'apprise',
+        enabled: false,
+        converted_to: 'ch-1',
+      },
       already_converted: false,
       notes: [],
     });

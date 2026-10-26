@@ -25,11 +25,14 @@ that reproduce the row's scope, then disables the row and stores ``config.conver
 - The channel keeps the row's text (``include_message_text: always``), its
   ``allow_private_network`` and its on/off state.
 - Idempotent: a row whose ``converted_to`` channel still exists is disabled again and that
-  channel returned, nothing created. ``into`` (the duplicate prompt) attaches the row to an
+  channel returned, nothing created. Not atomic across the two tables, so the row is marked
+  ``converting_to`` (the new channel's id) before the channel is created: a retry after a
+  failure between the steps reuses that channel, or creates it under that id, never a second. ``into`` (the duplicate prompt) attaches the row to an
   existing channel instead: only the rules are added, the channel's settings stay.
 
 **Duplicates.** ``fanout_duplicates`` compares a channel's destination with the active
-(enabled, not converted) fanout Apprise rows. URLs are compared through an HMAC keyed per
+(enabled, not converted) fanout Apprise rows. A converted row turned back on (the UI asks
+first) is not reported: the owner chose to keep both, and its channel already exists. URLs are compared through an HMAC keyed per
 process (``_fingerprints``) and ``hmac.compare_digest``: no URL or token is returned or
 logged, only the matching row's id and name.
 """
@@ -40,17 +43,23 @@ import hmac
 import logging
 import re
 import secrets as secrets_mod
+import uuid
 from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import Any
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit
 
 from app.net.apprise_urls import split_apprise_urls
-from app.notifications.channels import Channel, ChannelCreate, ChannelError
+from app.notifications.channels import Channel, ChannelCreate, ChannelError, get_type
 
 logger = logging.getLogger(__name__)
 
 CONVERTED_TO = "converted_to"
+# Write-ahead mark: the id of the channel a conversion is creating, set on the row before the
+# channel exists and dropped once the row is disabled. A retry after a failure in between
+# reuses (or creates under) that id instead of making a second channel.
+CONVERTING_TO = "converting_to"
+CONVERSION_KEYS = (CONVERTED_TO, CONVERTING_TO)
 # The conversation keys the rules accept (``routers/notifications.CONVERSATION_KEY``).
 _CONVERSATION_KEY = re.compile(r"^(contact|channel)-[0-9A-Za-z]{1,128}$")
 _FINGERPRINT_KEY = secrets_mod.token_bytes(32)
@@ -72,6 +81,8 @@ class Conversion:
     fanout: dict[str, Any]
     already_converted: bool = False
     notes: list[str] = field(default_factory=list)
+    # True only when this call created the channel (a retry that found it is False).
+    created: bool = False
 
 
 class ConversionError(Exception):
@@ -246,6 +257,7 @@ async def _disable_row(row: dict[str, Any], channel_id: str) -> dict[str, Any]:
     from app.repository.fanout import FanoutConfigRepository
 
     config = {**(row.get("config") or {}), CONVERTED_TO: channel_id}
+    config.pop(CONVERTING_TO, None)
     updated = await FanoutConfigRepository.update(row["id"], enabled=False, config=config)
     await fanout_manager.reload_config(row["id"])
     if updated is None:
@@ -282,16 +294,37 @@ async def convert_fanout_row(config_id: str, *, into: str | None = None) -> Conv
     events, exceptions, scope_notes = scope_to_rules(row.get("scope") or {})
     notes.extend(scope_notes)
 
+    created = False
     if into is not None:
         channel = await NotificationChannelRepository.get(into)
         if channel is None:
             raise ConversionError("channel_missing", 404)
     else:
-        channel = await NotificationChannelRepository.create(_channel_body(row, notes))
+        body = _channel_body(row, notes)
+        pending = config.get(CONVERTING_TO)
+        channel = (
+            await NotificationChannelRepository.get(pending)
+            if isinstance(pending, str) and pending
+            else None
+        )
+        if channel is None:
+            if isinstance(pending, str) and pending:
+                channel_id = pending
+            else:
+                channel_id = f"{get_type(body.type, body.preset).id}-{uuid.uuid4().hex[:8]}"
+                # Write-ahead: mark the row before the channel exists (CONVERTING_TO).
+                marked = {**config, CONVERTING_TO: channel_id}
+                if await FanoutConfigRepository.update(row["id"], config=marked) is None:
+                    raise ConversionError("fanout_missing", 404)
+                row = {**row, "config": marked}
+            channel = await NotificationChannelRepository.create(
+                body.model_copy(update={"id": channel_id})
+            )
+            created = True
     await _add_rules(channel.id, events, exceptions)
     fanout = await _disable_row(row, channel.id)
     logger.info("Fanout Apprise row %s converted to channel %s", config_id, channel.id)
-    return Conversion(channel, fanout, notes=list(dict.fromkeys(notes)))
+    return Conversion(channel, fanout, notes=list(dict.fromkeys(notes)), created=created)
 
 
 # ── Duplicates ───────────────────────────────────────────────────────────

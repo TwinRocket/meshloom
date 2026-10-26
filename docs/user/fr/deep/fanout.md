@@ -156,7 +156,7 @@ Chaque intégration Apprise affiche **Convertir en canal de notification**. Apr�
 - La portée devient des règles : **Tous les messages** notifie les messages directs et les messages de salon ; **Uniquement les canaux/contacts listés** devient une exception par conversation ; **Tous sauf les canaux/contacts listés** notifie tout sauf les conversations listées. Les salons à clé propre ne sont notifiés que par une exception de conversation : ajoutez-en une si besoin.
 - **Transférer les messages envoyés par Meshloom** n’a pas d’équivalent dans les notifications et n’est pas conservé.
 
-L’intégration reste dans la liste, désactivée, avec un badge **Converti**. La réactiver demande d’abord confirmation, puisque vous seriez alors prévenu deux fois. La convertir de nouveau ne fait rien. Une sauvegarde garde l’état converti : après une restauration, l’intégration revient désactivée et toujours marquée. Ajouter un canal de notification qui envoie au même endroit qu’une intégration Apprise active propose la même conversion (voir les [Notifications](/docs/deep/notifications/#ajouter-un-canal)).
+L’intégration reste dans la liste, désactivée, avec un badge **Converti**. La réactiver demande d’abord confirmation, puisque vous seriez alors prévenu deux fois ; la proposition de conversion décrite plus bas ne la propose plus. La convertir de nouveau ne fait rien. Une sauvegarde garde l’état converti : après une restauration, l’intégration revient désactivée et toujours marquée. Ajouter un canal de notification qui envoie au même endroit qu’une intégration Apprise active propose la même conversion (voir les [Notifications](/docs/deep/notifications/#ajouter-un-canal)).
 
 ## Amazon SQS
 

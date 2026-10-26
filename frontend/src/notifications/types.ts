@@ -96,9 +96,10 @@ export interface NotificationChannelCreated extends NotificationChannel {
 }
 
 /** `POST /fanout/{id}/convert-to-notification-channel` (MSHL-134). */
+/** The convert answer: ids, names and state only, never a config (no URL or secret). */
 export interface FanoutConversion {
-  channel: NotificationChannel;
-  fanout: FanoutConfig;
+  channel: Pick<NotificationChannel, 'id' | 'name' | 'type' | 'preset' | 'enabled'>;
+  fanout: Pick<FanoutConfig, 'id' | 'name' | 'type' | 'enabled'> & { converted_to: string | null };
   already_converted: boolean;
   /** `include_outgoing_unsupported`, `private_channels_need_exception`,
    * `template_dm_dropped`, `template_channel_dropped`. */

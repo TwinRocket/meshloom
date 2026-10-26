@@ -304,8 +304,11 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   `channel_id` merges into that one, maps `body_format_dm`/`body_format_channel` to
   `template_dm`/`template_channel` (invalid ones dropped with a note), turns the scope into
   `message.dm`/`message.channel` channels and conversation exceptions (`set_rules` then
-  `legacy_sync.sync_columns()`), then disables the row with `config.converted_to`. Answer:
-  `{channel, fanout, already_converted, notes}`; errors `fanout_missing` (404),
+  `legacy_sync.sync_columns()`), then disables the row with `config.converted_to` (write-ahead `config.converting_to` before the
+  channel is created, so a retry never makes a second channel). Answer:
+  `{channel: {id, name, type, preset, enabled}, fanout: {id, name, type, enabled, converted_to},
+  already_converted, notes}`, no `config`; a converted row turned back on is never reported as a
+  duplicate (the owner confirmed keeping both); errors `fanout_missing` (404),
   `fanout_not_apprise`, `secret_unreadable` (409), `channel_missing` (404).
 - **Resume** (`POST /channels/{id}/resume`, admin like the whole router): clears the auto-pause
   (`paused_until`, `autopause:<id>` state), `failure_count` and `last_error`, then broadcasts

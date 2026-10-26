@@ -17,7 +17,7 @@ from app.net.apprise_urls import (
     validate_apprise_urls,
 )
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
-from app.notifications.fanout_convert import CONVERTED_TO
+from app.notifications.fanout_convert import CONVERSION_KEYS, CONVERTED_TO
 from app.plugins import bot_conversion
 from app.repository.fanout import FanoutConfigRepository
 from app.secret_fields import (
@@ -546,7 +546,8 @@ async def create_fanout_config(body: FanoutConfigCreate, response: Response) -> 
     # A new row has no stored secret: a sentinel sent back reads as unset.
     config = merge_secrets(body.type, None, body.config)
     # Only a conversion marks a row converted (a restore keeps the mark: backup.py).
-    config.pop(CONVERTED_TO, None)
+    for key in CONVERSION_KEYS:
+        config.pop(key, None)
     normalized_config, scope = prepare_fanout_config(body.type, config, body.scope)
     if body.enabled:
         await _check_destinations(body.type, normalized_config)
@@ -650,11 +651,12 @@ async def update_fanout_config(
         raise HTTPException(status_code=400, detail=exc.detail()) from None
     normalized_config = _validate_and_normalize_config(existing["type"], config_to_validate)
     _carry_grandfathered_flag(existing["type"], normalized_config, existing["config"])
-    # A converted row stays marked (MSHL-134) whatever config an edit sends.
-    if existing["config"].get(CONVERTED_TO):
-        normalized_config[CONVERTED_TO] = existing["config"][CONVERTED_TO]
-    else:
-        normalized_config.pop(CONVERTED_TO, None)
+    # A converted (or converting) row stays marked (MSHL-134) whatever config an edit sends.
+    for key in CONVERSION_KEYS:
+        if existing["config"].get(key):
+            normalized_config[key] = existing["config"][key]
+        else:
+            normalized_config.pop(key, None)
     # A disabled row sends nothing: it can be saved (or turned off) while its
     # host does not resolve. Enabling it runs the check.
     will_be_enabled = body.enabled if body.enabled is not None else bool(existing["enabled"])
@@ -687,11 +689,12 @@ async def convert_to_notification_channel(
 ) -> dict:
     """Convert a fanout Apprise row into a notification channel (MSHL-134,
     ``app/notifications/fanout_convert.py``). Idempotent. The response carries the channel
-    (secrets ``********``), the disabled row, ``already_converted`` and ``notes``: never a URL."""
+    and the row by id, name, type and state only (no ``config``, so no URL, secret or
+    redacted URL), ``already_converted`` and ``notes``."""
     from app.notifications import api_support
     from app.notifications.channels import ChannelError
     from app.notifications.fanout_convert import ConversionError, convert_fanout_row
-    from app.routers.notifications import _present_one, _reconcile_heartbeats
+    from app.routers.notifications import _reconcile_heartbeats
 
     try:
         result = await convert_fanout_row(config_id, into=body.channel_id if body else None)
@@ -701,12 +704,26 @@ async def convert_to_notification_channel(
         ) from None
     except ChannelError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from None
-    if not result.already_converted and not (body and body.channel_id):
+    if result.created:
         await api_support.announce_channel_change(request, "created", result.channel)
         await _reconcile_heartbeats()
+    channel, row = result.channel, result.fanout
+    row_config = row.get("config") or {}
     return {
-        "channel": (await _present_one(result.channel)).model_dump(),
-        "fanout": present_fanout_config(result.fanout),
+        "channel": {
+            "id": channel.id,
+            "name": channel.name,
+            "type": channel.type,
+            "preset": channel.preset,
+            "enabled": channel.enabled,
+        },
+        "fanout": {
+            "id": str(row["id"]),
+            "name": str(row.get("name") or ""),
+            "type": row.get("type"),
+            "enabled": bool(row.get("enabled")),
+            CONVERTED_TO: row_config.get(CONVERTED_TO),
+        },
         "already_converted": result.already_converted,
         "notes": result.notes,
     }
