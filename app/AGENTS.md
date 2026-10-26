@@ -496,8 +496,11 @@ Community guard.
   radio private key or DM shared secret, hex or raw, in any request),
   `tests/test_share_encrypted.py` (encrypted round trips, refused conversations,
   retries, no secret in requests, logs, access log, answers or cache). Fakes: `tests/share_fakes.py`. User docs:
-  `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans and what is
-  not implemented yet must follow this section).
+  `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans, photo
+  sizes and types, quotas, retention and the encrypted-mode limits must follow this
+  section; its numbers are the constants above and the service defaults in
+  `meshloom-website/links/src/settings.ts`). `messages.md`, `trust.md`,
+  `deep/security.md` and `deep/install-paths.md` repeat parts of it.
 
 ## Store egress (`plugins/store_egress.py`)
 

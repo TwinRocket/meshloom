@@ -584,7 +584,7 @@ error, refresh and "Show more" (`next_cursor`). Strings: slice `ar`
 `settings.share.uploads.*`).
 Never rename a slice. `preview_policy` (setting `share_preview_policy`) decides whether a
 shared image in a message loads without a tap (Message rendering, `SharePayload`). Tests: `src/test/settingsShareSection.test.tsx`, `src/test/shareUploadsList.test.tsx`. User docs:
-`docs/user/{en,fr}/deep/share.md`.
+`docs/user/{en,fr}/deep/share.md` (also `messages.md`, `trust.md`, `deep/security.md`).
 
 **Composer shortening.** `MessageInput` reads `useShareStatus()` (local, no egress;
 off or `shorten_mode: never` means no button, no request). Pure helpers in

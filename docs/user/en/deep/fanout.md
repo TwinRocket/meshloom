@@ -77,7 +77,7 @@ Python bots no longer exist in 5.0.0: they are **extensions** now. Add, write an
 
 ### Sharing a link or an image from a script
 
-Extensions (the successors of the bots) have no sharing permission yet and hold no API token, so they cannot shorten links or upload images. A script that runs outside Meshloom can, with an [API token](/en/docs/deep/access/#api-and-device-tokens) of the `send` scope, through the same two routes as the interface. Sharing must be on (**Settings > Share: links and files**): the administrator's consent covers scripts too, and the quotas are those of the Meshloom, not of the script. A refused request answers with a `share_*` code (`share_disabled`, `share_quota_exceeded`, `share_rate_limited`, `share_invalid_url`...) described on the [Short links](/en/docs/deep/share/#when-something-goes-wrong) page.
+Extensions (the successors of the bots) have no sharing permission yet and hold no API token, so they cannot shorten links or upload images. A script that runs outside Meshloom can, with an [API token](/en/docs/deep/access/#api-and-device-tokens) of the `send` scope, through the same two routes as the interface. Sharing must be on (**Settings > Share: links and files**): the administrator's consent covers scripts too, and the quotas are those of the Meshloom, not of the script. A refused request answers with a `share_*` code (`share_disabled`, `share_quota_exceeded`, `share_rate_limited`, `share_invalid_url`...) described on the [Short links and photos](/en/docs/deep/share/#when-something-goes-wrong) page.
 
 ```python
 import httpx

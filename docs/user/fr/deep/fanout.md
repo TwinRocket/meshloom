@@ -77,7 +77,7 @@ Les bots Python n’existent plus en 5.0.0 : ce sont des **extensions**. Ajoutez
 
 ### Partager un lien ou une image depuis un script
 
-Les extensions (les successeurs des bots) n’ont pas encore de permission de partage et ne détiennent aucun jeton d’API : elles ne peuvent donc ni raccourcir un lien ni envoyer une image. Un script qui tourne hors de Meshloom le peut, avec un [jeton d’API](/docs/deep/access/#les-jetons-dapi-et-dappareil) de portée `send`, par les deux mêmes routes que l’interface. Le partage doit être activé (**Réglages > Partage : liens et fichiers**) : le consentement de l’administrateur couvre aussi les scripts, et les quotas sont ceux de ce Meshloom, pas ceux du script. Une requête refusée répond par un code `share_*` (`share_disabled`, `share_quota_exceeded`, `share_rate_limited`, `share_invalid_url`…) décrit dans la page [Liens courts](/docs/deep/share/#quand-quelque-chose-ne-va-pas).
+Les extensions (les successeurs des bots) n’ont pas encore de permission de partage et ne détiennent aucun jeton d’API : elles ne peuvent donc ni raccourcir un lien ni envoyer une image. Un script qui tourne hors de Meshloom le peut, avec un [jeton d’API](/docs/deep/access/#les-jetons-dapi-et-dappareil) de portée `send`, par les deux mêmes routes que l’interface. Le partage doit être activé (**Réglages > Partage : liens et fichiers**) : le consentement de l’administrateur couvre aussi les scripts, et les quotas sont ceux de ce Meshloom, pas ceux du script. Une requête refusée répond par un code `share_*` (`share_disabled`, `share_quota_exceeded`, `share_rate_limited`, `share_invalid_url`…) décrit dans la page [Liens courts et photos](/docs/deep/share/#quand-quelque-chose-ne-va-pas).
 
 ```python
 import httpx
