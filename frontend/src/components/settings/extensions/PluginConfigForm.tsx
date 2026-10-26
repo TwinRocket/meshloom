@@ -1,14 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { api, ApiError, formatApiError, getApiErrorCode } from '../../../api';
+import { api, formatApiError } from '../../../api';
 import { SchemaForm } from '../../forms/SchemaForm';
-import {
-  groupFieldErrors,
-  languageMapResolver,
-  type FieldErrors,
-} from '../../forms/schemaFormModel';
+import { languageMapResolver, type FieldErrors } from '../../forms/schemaFormModel';
 import { toast } from '../../ui/sonner';
+import { configIssueErrors } from './configErrors';
 import { attentionFields } from './pluginsShared';
 import type { PluginInstance } from './pluginsTypes';
 
@@ -52,22 +49,9 @@ export function PluginConfigForm({
       onChanged(await api.patchPlugin(instance.instance_id, { config: values }));
       toast.success(t('settings.extensions.config.saved'));
     } catch (err) {
-      const detail = err instanceof ApiError ? getApiErrorCode(err.detail) : null;
-      const issues = detail?.params.issues;
-      if (detail?.code === 'config_invalid' && Array.isArray(issues)) {
-        setErrors(
-          groupFieldErrors(
-            issues.map((issue: { code?: string; path?: string }) => ({
-              path: String(issue.path ?? ''),
-              message: t(`settings.extensions.config.issue.${issue.code}`, {
-                defaultValue: t('settings.extensions.config.issue.config_value_invalid'),
-              }),
-            }))
-          )
-        );
-      } else {
-        setGeneral(formatApiError(err, t));
-      }
+      const fieldErrors = configIssueErrors(err, t);
+      if (fieldErrors) setErrors(fieldErrors);
+      else setGeneral(formatApiError(err, t));
       throw err;
     }
   };

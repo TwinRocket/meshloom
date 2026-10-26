@@ -10,6 +10,7 @@ import {
 import { RadioStatusChip } from './RadioStatusChip';
 import type { HealthStatus } from '../types';
 import { cn } from '../lib/utils';
+import { usePluginUpdateCount } from '../stores/pluginUpdatesStore';
 
 /**
  * The settings index, for phones.
@@ -66,6 +67,7 @@ export function SettingsIndexView({
 }: Props) {
   const { t } = useTranslation();
   const capabilities = useCapabilities();
+  const pluginUpdates = usePluginUpdateCount();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -139,6 +141,14 @@ export function SettingsIndexView({
                           )}
                         >
                           <span className="truncate">{t(SETTINGS_SECTION_LABELS[section])}</span>
+                          {section === 'extensions' && pluginUpdates > 0 && (
+                            <span
+                              className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary"
+                              data-testid="extensions-updates-badge"
+                            >
+                              {t('pluginStore.navBadge', { count: pluginUpdates })}
+                            </span>
+                          )}
                           {section === 'updates' && updateAvailable && (
                             <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-primary">
                               {t('updates.badgeLabel')}

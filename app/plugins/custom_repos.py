@@ -58,7 +58,12 @@ import httpx
 from app.net.egress_guard import CheckedResponse, EgressBlocked, HostAllowlist
 from app.plugins import store_egress
 from app.plugins.errors import PluginValidationError
-from app.plugins.installer import InstallError, RemoteArchiveSource, register_resolver
+from app.plugins.installer import (
+    InstallError,
+    RemoteArchiveSource,
+    compatible,
+    register_resolver,
+)
 from app.plugins.manifest import MANIFEST_MAX_BYTES, Manifest, load_manifest_json
 from app.plugins.package import MAX_COMPRESSED_BYTES, validate_package
 from app.plugins.store_egress import (
@@ -126,6 +131,8 @@ class Release:
     size: int | None
     # The archive's config schema ({} without one); None when the archive was not read.
     config_schema: dict[str, Any] | None = None
+    # The archive's README files by language ({} none); None when it was not read.
+    readme: dict[str, str] | None = None
 
 
 def parse_repository(text: object) -> Repository:
@@ -230,6 +237,25 @@ def _archive_schema(archive: bytes, path: str | None) -> dict[str, Any]:
     return schema if isinstance(schema, dict) else {}
 
 
+README_TOTAL_MAX_BYTES = 600 * 1024  # all the cached languages together
+
+
+def _archive_readme(archive: bytes, manifest: Manifest) -> dict[str, str]:
+    """The README of each language of the manifest, as text (``validate_package`` already
+    capped each file), kept up to ``README_TOTAL_MAX_BYTES`` in all. Data only: the UI
+    shows it as plain text."""
+    readme: dict[str, str] = {}
+    total = 0
+    with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+        for lang, path in sorted(manifest.readme.items()):
+            text = zf.read(path).decode("utf-8", errors="replace")
+            total += len(text.encode("utf-8"))
+            if total > README_TOTAL_MAX_BYTES:
+                break
+            readme[lang] = text
+    return readme
+
+
 def parse_sha256(raw: bytes) -> str:
     """The first 64-hex token of a ``.sha256`` file (``sha256sum`` output or the bare
     digest), lowercase; ``repository_sha256_invalid`` otherwise."""
@@ -269,6 +295,7 @@ async def fetch_release(repo: Repository, *, with_archive: bool) -> Release:
     sha256 = parse_sha256(sha_raw)
     size: int | None = None
     config_schema: dict[str, Any] | None = None
+    readme: dict[str, str] | None = None
     if archive is not None:
         if not hmac.compare_digest(hashlib.sha256(archive).hexdigest(), sha256):
             raise InstallError("archive_mismatch", fields=["sha256"])
@@ -282,7 +309,8 @@ async def fetch_release(repo: Repository, *, with_archive: bool) -> Release:
             raise InstallError("archive_mismatch", fields=mismatched)
         size = len(archive)
         config_schema = _archive_schema(archive, package.manifest.config_schema)
-    return Release(tag, display, entry, sha256, size, config_schema)
+        readme = _archive_readme(archive, package.manifest)
+    return Release(tag, display, entry, sha256, size, config_schema, readme)
 
 
 # --- Storage (``StoreRepositoriesRepository``) --------------------------------------
@@ -306,6 +334,7 @@ async def _save_release(key: str, release: Release, now: int) -> None:
         archive_sha256=release.sha256,
         archive_size=release.size,
         config_schema=release.config_schema,
+        readme=release.readme,
     )
 
 
@@ -376,8 +405,10 @@ def catalogue_entry(row: dict[str, Any]) -> dict[str, Any] | None:
         "permissions": manifest.get("permissions") or {},
         "privacy": manifest.get("privacy"),
         "compat": manifest.get("compat"),
+        "compatible": compatible(manifest),
         "archive_sha256": row["archive_sha256"],
         "archive_size": row["archive_size"],
+        "config_schema": row.get("config_schema") or {},
         "warning": CUSTOM_WARNING_CODE,
         "warning_text": dict(CUSTOM_WARNING),
     }

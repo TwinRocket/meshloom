@@ -1,0 +1,106 @@
+{
+  "pluginStore": {
+    "navBadge_one": "{{count}} update",
+    "navBadge_other": "{{count}} updates",
+    "activation": {
+      "title": "Turn on the Store",
+      "intro": "The Store is off: Meshloom contacts nobody to look for plugins or their updates. Turning it on lets this Meshloom reach the hosts below. Plugins you already installed keep working either way.",
+      "sendsTitle": "What leaves when it is on",
+      "sends": {
+        "ip_address": "Your Meshloom's public IP address, as for any internet request.",
+        "user_agent": "The User-Agent {{userAgent}} (the application and its version)."
+      },
+      "sendsNone": "Nothing else: no account, no key, no message, no radio or contact data.",
+      "hostsTitle": "Hosts it may reach",
+      "cadence": "Releases are checked every {{hours}} hours, and only while a plugin installed from a repository exists or when you press Refresh.",
+      "missedTitle": "What you do not receive while it is off",
+      "missed": {
+        "updates": "Notices and installation of plugin updates.",
+        "revocation_alerts": "Online revocation alerts for plugins."
+      }
+    },
+    "refresh": {
+      "button": "Refresh",
+      "last": "Store online. Last refresh: {{time}}.",
+      "never": "Store online. No refresh since this Meshloom started.",
+      "done": "Releases checked.",
+      "skipped": "Checked less than 10 minutes ago: showing the stored releases."
+    },
+    "card": {
+      "custom": "Custom repository",
+      "unreviewed": "Not reviewed, not signed",
+      "incompatible": "This release does not support this version of Meshloom: it cannot be installed.",
+      "incompatibleBadge": "Not compatible",
+      "details": "Details",
+      "disabledLocked": "Extensions are turned off on this server: installing is disabled.",
+      "checkedAt": "Last checked: {{time}}",
+      "neverChecked": "Not checked yet."
+    },
+    "install": {
+      "next": "Next",
+      "configIntro": "This plugin asks for settings. Fill them in, then install; you can change them later."
+    },
+    "page": {
+      "close": "Close",
+      "readme": "README",
+      "readmeNote": "Text written by the plugin's author, shown as plain text (language: {{lang}}). Nothing in it is run or opened.",
+      "noReadme": "This release has no README to show.",
+      "permissions": "What it may do",
+      "hosts": "Hosts it connects to",
+      "hostsNone": "It declares no host to connect to.",
+      "versions": "Versions",
+      "latest": "Latest release: v{{version}} ({{tag}}).",
+      "installedVersion": "Installed: {{label}}, v{{version}}.",
+      "notInstalled": "Not installed.",
+      "reportTitle": "Report this plugin",
+      "reportIssues": "Report a problem to its author on its issue tracker:",
+      "reportMail": "Report a problem with this plugin by writing to",
+      "reportAddress": " To report abuse, write to {{address}}.",
+      "copyDiagnostic": "Copy diagnostic",
+      "diagnosticCopied": "Diagnostic copied."
+    },
+    "updates": {
+      "title": "Plugin updates",
+      "intro": "Newer releases found by the last Store refresh, for plugins installed from a repository. Listing them makes no request.",
+      "adminOnly": "Only an administrator can see and apply plugin updates.",
+      "offline": "The Store is off: updates are not looked for and cannot be installed. Turn it on in the Store tab.",
+      "none": "Every plugin installed from a repository is up to date.",
+      "review": "Review and update",
+      "update": "Update",
+      "hold": {
+        "consent_required": "{{label}} would wait for you to accept new permissions.",
+        "config_required": "{{label}} would wait for settings it now requires."
+      },
+      "dialogTitle": "Update {{name}}",
+      "dialogIntro": "From v{{from}} to v{{to}}.",
+      "changelog": "Changelog",
+      "noChangelog": "This source provides no changelog.",
+      "permissionsTitle": "Permissions",
+      "noPermissionChange": "No change in permissions.",
+      "permAdded": "New:",
+      "permChanged": "Changed:",
+      "permRemoved": "No longer asked:",
+      "privacyWidened": "Its privacy declaration is wider than before.",
+      "settingsTitle": "Settings",
+      "schemaUnknown": "The settings of this release were not read yet: refresh the Store to see what changes.",
+      "noSettingChange": "No change in settings.",
+      "fieldsAdded": "New settings: {{fields}}",
+      "fieldsRequired": "Now required: {{fields}}",
+      "fieldsRemoved": "Removed settings: {{fields}}",
+      "sharedNote": "Every instance of this plugin is updated together. The permissions and settings you give here apply to one of them; the others wait for their own review in the Installed tab.",
+      "reviewLater": "This release is no longer the one the Store holds, so its settings cannot be asked here. It will be installed and wait for your review in the Installed tab.",
+      "consentTitle": "Accept the permissions of this release",
+      "configIntro": "Fill in the settings this release needs.",
+      "updated": "{{name}} updated to v{{version}}.",
+      "autoTitle": "Automatic updates",
+      "autoIntro": "Applies new releases on its own inside the update window of Settings > Updates, per instance. It never applies one that needs new permissions or settings.",
+      "autoToggle": "Update {{name}} automatically",
+      "openMeshloomUpdates": "Meshloom updates",
+      "openExtensionUpdates": "Plugin updates",
+      "linkCount_one": "{{count}} plugin has an update.",
+      "linkCount_other": "{{count}} plugins have an update.",
+      "linkNone": "No plugin update is waiting.",
+      "consentUnavailable": "The Store no longer holds the release this update targets, so its permissions cannot be shown and accepted here. Refresh the Store (Store tab), then review the update again."
+    }
+  }
+}

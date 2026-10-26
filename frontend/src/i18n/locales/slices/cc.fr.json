@@ -19,8 +19,7 @@
         "installed": "Installées",
         "store": "Store",
         "updates": "Mises à jour",
-        "storeSoon": "Le Store n'est pas encore disponible.",
-        "updatesSoon": "Les mises à jour ne sont pas encore disponibles."
+        "storeSoon": "Le Store n'est pas encore disponible."
       },
       "kind": {
         "bundled": "Fournie",
@@ -214,8 +213,8 @@
       },
       "store": {
         "title": "Dépôts personnalisés",
-        "intro": "Ajoutez un plugin publié sur GitHub sous la forme propriétaire/nom. Sa dernière release doit contenir manifest.json, plugin.zip et plugin.zip.sha256.",
-        "warning": "Les dépôts personnalisés ne sont ni relus ni signés par Meshloom : vous les installez à vos risques. Le fichier plugin.zip.sha256 vient du même endroit que l'archive : il vérifie seulement que le téléchargement est intact (intégrité), pas qui l'a produit. Ces plugins ne bénéficient d'aucune révocation en ligne.",
+        "intro": "Ajoutez une extension publiée sur GitHub sous la forme propriétaire/nom. Sa dernière release doit contenir manifest.json, plugin.zip et plugin.zip.sha256.",
+        "warning": "Les dépôts personnalisés ne sont ni relus ni signés par Meshloom : vous les installez à vos risques. Le fichier plugin.zip.sha256 vient du même endroit que l'archive : il vérifie seulement que le téléchargement est intact (intégrité), pas qui l'a produit. Ces extensions ne bénéficient d'aucune révocation en ligne.",
         "offline": "Le Store est hors ligne : rien n'est téléchargé depuis GitHub tant que vous ne le mettez pas en ligne.",
         "goOnline": "Mettre le Store en ligne",
         "repositoryLabel": "Dépôt GitHub (propriétaire/nom)",
@@ -227,10 +226,10 @@
         "install": "Installer",
         "remove": "Retirer",
         "removeTitle": "Retirer {{repository}} ?",
-        "removeIntro": "Les plugins déjà installés depuis ce dépôt restent installés et continuent de fonctionner ; leurs mises à jour ne seront plus vérifiées.",
+        "removeIntro": "Les extensions déjà installées depuis ce dépôt restent installées et continuent de fonctionner ; leurs mises à jour ne seront plus vérifiées.",
         "updateAvailable": "mise à jour disponible",
         "checkFailed": "La dernière vérification a échoué.",
-        "accept": "Je comprends que ce plugin n'est ni relu ni signé par Meshloom, et j'accepte ces permissions.",
+        "accept": "Je comprends que cette extension n'est ni relue ni signé par Meshloom, et j'accepte ces permissions.",
         "adminOnly": "Seul un administrateur peut voir et gérer les dépôts personnalisés."
       }
     },

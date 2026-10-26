@@ -66,6 +66,8 @@ export interface PluginPatch {
   scope?: Record<string, unknown>;
   granted_permissions?: Record<string, unknown>;
   quotas?: Record<string, unknown>;
+  /** Apply releases of the instance's source on their own (inside the update window). */
+  auto_update?: boolean;
   sort_order?: number;
   /** A local plugin's subscriptions. */
   hooks?: string[];
@@ -160,6 +162,10 @@ export interface CustomCatalogueEntry {
   permissions: Record<string, Record<string, unknown>>;
   privacy?: Record<string, unknown> | null;
   compat?: Record<string, unknown> | null;
+  /** `compat.meshloom` admits this Meshloom; false: it would install as `incompatible`. */
+  compatible: boolean;
+  /** The release's `config.schema.json` ({} without one): the form asked before the install. */
+  config_schema: Record<string, unknown>;
   archive_sha256: string | null;
   archive_size: number | null;
   /** `custom_unsigned`: the UI shows its own i18n copy of the warning. */
@@ -188,4 +194,77 @@ export interface StoreRepositories {
   warning: string;
   warning_text: Record<string, string>;
   repositories: StoreRepository[];
+}
+
+/** `GET /api/store/status`: what the activation card says. Makes no request. */
+export interface StoreStatus {
+  enabled: boolean;
+  /** Every host a Store request may reach (the server's own allowlist). */
+  hosts: string[];
+  sends: Array<'ip_address' | 'user_agent'>;
+  user_agent: string;
+  refresh_interval_s: number;
+  missed_when_disabled: Array<'updates' | 'revocation_alerts'>;
+  refresh_running: boolean;
+  last_refresh_at: number | null;
+}
+
+/** `GET /api/store/repositories/{owner}/{name}/readme`: untrusted text, shown as plain text. */
+export interface StoreReadme {
+  lang: string | null;
+  text: string;
+  languages: string[];
+}
+
+export interface StoreRefreshResult {
+  ran: boolean;
+  last_refresh_at: number | null;
+}
+
+export interface PermissionDiff {
+  added: string[];
+  changed: string[];
+  removed: string[];
+  privacy_widened: boolean;
+}
+
+export interface SchemaDiff {
+  added: string[];
+  removed: string[];
+  required_added: string[];
+}
+
+export interface PluginUpdateInstance {
+  instance_id: string;
+  label: string;
+  version: string;
+  auto_update: boolean;
+  /** What the update would hold this instance for (null: it runs on). */
+  hold: 'consent_required' | 'config_required' | null;
+  /** The permissions it would ask consent for. */
+  permissions: string[];
+  /** New required config fields it lacks. */
+  missing_fields: string[];
+}
+
+/** One entry of `GET /api/store/updates`. */
+export interface PluginUpdate {
+  plugin_id: string;
+  kind: string;
+  repository: string | null;
+  from_version: string;
+  to_version: string;
+  name: Record<string, string>;
+  /** In the requested language when the source has one; custom sources have none. */
+  changelog: string | null;
+  permissions: PermissionDiff;
+  /** Null when the cached release predates the schema cache. */
+  config_schema: SchemaDiff | null;
+  instances: PluginUpdateInstance[];
+}
+
+export interface PluginUpdateRequest {
+  version?: string;
+  granted_permissions?: Record<string, unknown>;
+  config?: Record<string, unknown>;
 }

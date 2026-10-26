@@ -96,6 +96,8 @@ class _State:
     inflight: set[asyncio.Future] = field(default_factory=set)
     refreshers: list[Refresher] = field(default_factory=list)
     last_refresh_at: int | None = None
+    # One tick at a time: the gap check and the timestamp are a critical section.
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     clock: Callable[[], float] = time.time
 
 
@@ -195,27 +197,33 @@ async def has_online_instances() -> bool:
     return any(row.get("kind") in ONLINE_KINDS for row in await PluginRepository.get_all())
 
 
-async def run_store_refresh() -> bool:
+async def run_store_refresh(*, manual: bool = False) -> bool:
     """One refresh tick. True when it ran (consent on, an online instance, a refresher,
-    and no tick in the last ``MIN_REFRESH_GAP_S``)."""
-    if not _state.refreshers:
-        return False
-    last = _state.last_refresh_at
-    if last is not None and _state.clock() - last < MIN_REFRESH_GAP_S:
-        return False
-    if not await store_egress_allowed() or not await has_online_instances():
-        return False
-    for refresher in list(_state.refreshers):
-        try:
-            await refresher()
-        except StoreOffline:
+    and no tick in the last ``MIN_REFRESH_GAP_S``). ``manual`` (the Refresh button)
+    does not need an installed instance: the repositories listed are read as well, so
+    a newly added one can be browsed. Ticks are serialised, so two calls at once run
+    one tick and the other is held by the gap."""
+    async with _state.lock:
+        if not _state.refreshers:
             return False
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Store refresh step failed")
-    _state.last_refresh_at = int(_state.clock())
-    return True
+        last = _state.last_refresh_at
+        if last is not None and _state.clock() - last < MIN_REFRESH_GAP_S:
+            return False
+        if not await store_egress_allowed():
+            return False
+        if not manual and not await has_online_instances():
+            return False
+        for refresher in list(_state.refreshers):
+            try:
+                await refresher()
+            except StoreOffline:
+                return False
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Store refresh step failed")
+        _state.last_refresh_at = int(_state.clock())
+        return True
 
 
 async def _refresh_loop() -> None:

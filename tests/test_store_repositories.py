@@ -209,6 +209,8 @@ async def test_add_list_and_remove(api, net, online, tmp_path):
     assert (entry["plugin_id"], entry["version"], entry["tag"]) == ("acme.echo", "1.0.0", "v1.0.0")
     assert entry["archive_sha256"] == hashlib.sha256(data).hexdigest()
     assert entry["archive_size"] == len(data)
+    assert isinstance(entry["compatible"], bool)
+    assert entry["config_schema"] == {}
     assert entry["permissions"] == entry_of(data)["permissions"]
     # github.com for each lookup, then the asset host: nothing else.
     assert set(hosts(net)) == {"github.com", "objects.githubusercontent.com"}
@@ -514,3 +516,100 @@ async def test_install_pinned_to_a_stale_version_is_refused(
     assert (
         await api.post("/api/plugins/install", json=body | {"version": "1.0.0"})
     ).status_code == 201
+
+
+async def test_readme_and_config_schema_are_served_from_the_cache(api, net, online, tmp_path):
+    """MSHL-198: the Store page reads the README and the install form from the cached
+    release; no request is made. The README is untrusted text, returned as is."""
+    hostile = "# Echo\n<script>alert(1)</script>\n[x](javascript:alert(1))\n"
+    schema = {"type": "object", "properties": {"token": {"type": "string"}}, "required": ["token"]}
+    data = build_archive(tmp_path, schema=schema)
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as src, zipfile.ZipFile(buf, "w") as out:
+        for info in src.infolist():
+            body = hostile.encode() if info.filename == "README.md" else src.read(info)
+            out.writestr(info, body)
+    data = buf.getvalue()
+    publish(net, data)
+    added = await api.post("/api/store/repositories", json={"repository": REPO})
+    assert added.status_code == 201, added.text
+    assert added.json()["entry"]["config_schema"] == schema
+    before = len(net.requests)
+
+    got = await api.get("/api/store/repositories/acme/echo/readme", params={"lang": "fr"})
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["text"] == hostile
+    assert body["lang"] in body["languages"]
+    assert len(net.requests) == before
+
+    missing = await api.get("/api/store/repositories/acme/nope/readme")
+    assert (missing.status_code, detail(missing)["code"]) == (404, "repository_not_found")
+    bad = await api.get("/api/store/repositories/acme/echo/readme", params={"lang": "x"})
+    assert bad.status_code == 422
+
+
+async def test_refresh_route_reads_the_listings_once_per_gap(
+    api, net, online, tmp_path, monkeypatch
+):
+    """MSHL-198: the Refresh button reads the listed repositories again (no installed
+    instance needed, so a new repository can be browsed), at most once per gap."""
+    now = [1_000_000.0]
+    monkeypatch.setattr(store_egress._state, "clock", lambda: now[0])
+    publish(net, build_archive(tmp_path))
+    assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
+    before = len(net.requests)
+    first = await api.post("/api/store/refresh")
+    assert first.json() == {"ran": True, "last_refresh_at": 1_000_000}
+    assert len(net.requests) > before
+    again = await api.post("/api/store/refresh")
+    assert again.json() == {"ran": False, "last_refresh_at": 1_000_000}
+    now[0] += store_egress.MIN_REFRESH_GAP_S
+    assert (await api.post("/api/store/refresh")).json()["ran"] is True
+
+
+async def test_concurrent_refreshes_run_one_tick(api, net, online, tmp_path, monkeypatch):
+    import asyncio
+
+    publish(net, build_archive(tmp_path))
+    assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
+    calls = []
+
+    async def slow():
+        calls.append(1)
+        await asyncio.sleep(0.05)
+
+    store_egress.register_store_refresher(slow)
+    try:
+        results = await asyncio.gather(*[api.post("/api/store/refresh") for _ in range(4)])
+    finally:
+        store_egress.unregister_store_refresher(slow)
+    assert sorted(r.json()["ran"] for r in results) == [False, False, False, True]
+    assert len(calls) == 1
+
+
+async def test_refresh_does_nothing_while_the_store_is_off(api, net, tmp_path):
+    response = await api.post("/api/store/refresh")
+    assert response.json() == {"ran": False, "last_refresh_at": None}
+    assert net.requests == []
+
+
+def test_readme_total_cap(monkeypatch):
+    """All the cached languages together stay under README_TOTAL_MAX_BYTES."""
+    import io
+    import zipfile
+    from types import SimpleNamespace
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name in ("a", "b", "c"):
+            zf.writestr(f"{name}.md", name * 100)
+    manifest = SimpleNamespace(readme={"de": "a.md", "en": "b.md", "fr": "c.md"})
+    monkeypatch.setattr(custom_repos, "README_TOTAL_MAX_BYTES", 250)
+    kept = custom_repos._archive_readme(buf.getvalue(), manifest)
+    assert kept == {"de": "a" * 100, "en": "b" * 100}
+    monkeypatch.setattr(custom_repos, "README_TOTAL_MAX_BYTES", 10_000)
+    assert len(custom_repos._archive_readme(buf.getvalue(), manifest)) == 3

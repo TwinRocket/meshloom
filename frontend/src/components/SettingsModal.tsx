@@ -38,6 +38,7 @@ import { SettingsStatisticsSection } from './settings/SettingsStatisticsSection'
 import { SettingsAboutSection } from './settings/SettingsAboutSection';
 import { SettingsUpdatesSection } from './settings/SettingsUpdatesSection';
 import { getSettingsHash } from '../utils/urlHash';
+import { requestExtensionsTab } from '../stores/pluginUpdatesStore';
 import { useCapabilities } from '../auth/SessionProvider';
 
 const SettingsAccessSection = lazy(() =>
@@ -84,6 +85,8 @@ interface SettingsModalBaseProps {
   updates?: OssUpdateStatus | null;
   onOpenUpdate?: () => void;
   onOpenUpdates?: () => void;
+  /** Opens another Settings section (links between Extensions and Meshloom's Updates). */
+  onOpenSection?: (section: SettingsSection) => void;
   onApplyUpdate?: () => void;
   onAutoUpdateChange?: (enabled: boolean) => void;
   onCheckUpdates?: () => void;
@@ -136,6 +139,7 @@ export function SettingsModal(props: SettingsModalProps) {
     onToggleTrackedTelemetryContact,
     updates,
     onOpenUpdates,
+    onOpenSection,
     onApplyUpdate,
     onAutoUpdateChange,
     onCheckUpdates,
@@ -146,6 +150,11 @@ export function SettingsModal(props: SettingsModalProps) {
   } = props;
   const { t } = useTranslation();
   const capabilities = useCapabilities();
+  const openSection =
+    onOpenSection ??
+    ((section: SettingsSection) => {
+      window.location.hash = getSettingsHash(section);
+    });
   const externalSidebarNav = props.externalSidebarNav === true;
   const desktopSection = props.externalSidebarNav ? props.desktopSection : undefined;
 
@@ -367,6 +376,14 @@ export function SettingsModal(props: SettingsModalProps) {
                 })
               }
               onOpenManualHelp={onOpenManualHelp}
+              onOpenExtensionUpdates={
+                capabilities.isAdmin
+                  ? () => {
+                      requestExtensionsTab('updates');
+                      openSection('extensions');
+                    }
+                  : undefined
+              }
               checking={updatesChecking}
               applying={updatesApplying}
               className={sectionContentClass}
@@ -404,6 +421,7 @@ export function SettingsModal(props: SettingsModalProps) {
               className={sectionContentClass}
               health={health}
               onHealthRefresh={onHealthRefresh}
+              onOpenSection={openSection}
             />
           )}
         </section>

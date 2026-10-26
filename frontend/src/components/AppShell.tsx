@@ -20,6 +20,7 @@ import { ConversationListView } from './ConversationListView';
 import { DesktopListSplit } from './DesktopListSplit';
 import { ToolsView } from './ToolsView';
 import { SettingsIndexView } from './SettingsIndexView';
+import { usePluginUpdateBadge } from '../stores/pluginUpdatesStore';
 import type { NavigationData } from './navigationData';
 import { countUnreadConversations } from '../utils/unreadConversations';
 import { isPendingChannel, pendingChannels } from '../utils/channelMembership';
@@ -226,6 +227,11 @@ export function AppShell({
     enabled: canAdminister,
   });
   const updateAvailable = ossUpdates.status?.update_available === true;
+  // The Extensions row of the Settings index shows how many plugins have an update.
+  const pluginStatusSignature = JSON.stringify(
+    Object.entries(statusProps.health?.plugin_statuses ?? {}).map(([id, s]) => [id, s.status])
+  );
+  usePluginUpdateBadge(canAdminister, pluginStatusSignature);
   const activeType = conversationPaneProps.activeConversation?.type;
   const activeId = conversationPaneProps.activeConversation?.id;
 
@@ -598,6 +604,7 @@ export function AppShell({
                     updates={ossUpdates.status}
                     onOpenUpdate={() => setUpdateDialogOpen(true)}
                     onOpenUpdates={() => handleOpenSettings('updates')}
+                    onOpenSection={handleOpenSettings}
                     onApplyUpdate={() => void ossUpdates.apply()}
                     onAutoUpdateChange={(enabled) => void ossUpdates.setAutoUpdate(enabled)}
                     onCheckUpdates={() => void ossUpdates.checkNow()}

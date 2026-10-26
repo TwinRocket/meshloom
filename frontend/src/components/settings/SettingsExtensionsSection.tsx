@@ -17,12 +17,15 @@ import { toast } from '../ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { AddBundledDialog } from './extensions/AddBundledDialog';
 import { CreateLocalDialog } from './extensions/CreateLocalDialog';
-import { CustomRepositoriesPanel } from './extensions/CustomRepositoriesPanel';
 import { InstalledTab } from './extensions/InstalledTab';
 import { InstanceDrawer } from './extensions/InstanceDrawer';
 import { MigrationBanner } from './extensions/MigrationBanner';
+import { StoreTab } from './extensions/StoreTab';
+import { UpdatesTab } from './extensions/UpdatesTab';
 import type { PluginInstance, PluginPauseState } from './extensions/pluginsTypes';
 import { SettingsGroupHeader } from './settingsPrimitives';
+import { takeRequestedExtensionsTab, usePluginUpdateCount } from '../../stores/pluginUpdatesStore';
+import type { SettingsSection } from './settingsConstants';
 
 // The lease files of the setuid level (app/plugins/isolation/uid_lease.py, LEASE_DIR_NAME).
 const UID_LEASE_DIR = '/.meshloom-plugin-uids/';
@@ -37,10 +40,13 @@ export function SettingsExtensionsSection({
   className,
   health,
   onHealthRefresh,
+  onOpenSection,
 }: {
   className?: string;
   health: HealthStatus | null;
   onHealthRefresh?: () => Promise<void>;
+  /** Opens another Settings section (the link to Meshloom's own Updates). */
+  onOpenSection?: (section: SettingsSection) => void;
 }) {
   const { t, i18n } = useTranslation();
   const { isAdmin } = useCapabilities();
@@ -50,6 +56,8 @@ export function SettingsExtensionsSection({
   const [adding, setAdding] = useState(false);
   const [creating, setCreating] = useState(false);
 
+  const [tab, setTab] = useState<string>(() => takeRequestedExtensionsTab() ?? 'installed');
+  const pluginUpdates = usePluginUpdateCount();
   const [reloadTick, setReloadTick] = useState(0);
   const reload = useCallback(() => setReloadTick((n) => n + 1), []);
 
@@ -274,11 +282,22 @@ export function SettingsExtensionsSection({
         </p>
       )}
 
-      <Tabs defaultValue="installed">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="h-auto w-full flex-wrap justify-start">
           <TabsTrigger value="installed">{t('settings.extensions.tabs.installed')}</TabsTrigger>
           <TabsTrigger value="store">{t('settings.extensions.tabs.store')}</TabsTrigger>
-          <TabsTrigger value="updates">{t('settings.extensions.tabs.updates')}</TabsTrigger>
+          <TabsTrigger value="updates">
+            {t('settings.extensions.tabs.updates')}
+            {pluginUpdates > 0 && (
+              <span
+                className="ml-1.5 rounded-full bg-primary px-1.5 text-[0.625rem] font-medium text-primary-foreground"
+                data-testid="updates-tab-badge"
+                aria-label={t('pluginStore.navBadge', { count: pluginUpdates })}
+              >
+                {pluginUpdates}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="installed" className="mt-3">
           {error && (
@@ -303,10 +322,22 @@ export function SettingsExtensionsSection({
           )}
         </TabsContent>
         <TabsContent value="store" className="mt-3">
-          <CustomRepositoriesPanel canManage={isAdmin} locked={locked} onInstalled={reload} />
+          <StoreTab
+            canManage={isAdmin}
+            locked={locked}
+            onInstalled={reload}
+            reloadKey={`${statusSignature}|${reloadTick}`}
+          />
         </TabsContent>
-        <TabsContent value="updates" className="mt-3 text-sm text-muted-foreground">
-          {t('settings.extensions.tabs.updatesSoon')}
+        <TabsContent value="updates" className="mt-3">
+          <UpdatesTab
+            instances={instances ?? []}
+            canManage={isAdmin}
+            locked={locked}
+            reloadKey={`${statusSignature}|${reloadTick}`}
+            onChanged={reload}
+            onOpenMeshloomUpdates={onOpenSection ? () => onOpenSection('updates') : undefined}
+          />
         </TabsContent>
       </Tabs>
 

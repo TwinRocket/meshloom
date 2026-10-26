@@ -8,6 +8,7 @@ import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
+import { usePluginUpdateCount } from '../../stores/pluginUpdatesStore';
 
 const ISO_WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
@@ -55,6 +56,7 @@ export function SettingsUpdatesSection({
   onApply,
   onPatchSettings,
   onOpenManualHelp,
+  onOpenExtensionUpdates,
   checking = false,
   applying = false,
   className,
@@ -64,11 +66,14 @@ export function SettingsUpdatesSection({
   onApply?: () => void;
   onPatchSettings?: (settings: OssUpdateSettingsPatch) => void;
   onOpenManualHelp?: () => void;
+  /** Admins: opens Settings > Extensions > Updates (the plugin updates). */
+  onOpenExtensionUpdates?: () => void;
   checking?: boolean;
   applying?: boolean;
   className?: string;
 }) {
   const { t } = useTranslation();
+  const pluginUpdates = usePluginUpdateCount();
   const applySupported = updates?.apply_supported === true;
   const updateAvailable = updates?.update_available === true;
   const kind = updates?.install_kind;
@@ -170,6 +175,24 @@ export function SettingsUpdatesSection({
           </p>
         ) : null}
       </SettingsGroup>
+
+      {onOpenExtensionUpdates && (
+        <SettingsGroup id="settings-updates-extensions">
+          <div
+            className="flex flex-wrap items-center gap-3 text-sm"
+            data-testid="updates-extensions-link"
+          >
+            <p className="min-w-0 flex-1 text-muted-foreground">
+              {pluginUpdates > 0
+                ? t('pluginStore.updates.linkCount', { count: pluginUpdates })
+                : t('pluginStore.updates.linkNone')}
+            </p>
+            <Button size="sm" variant="outline" onClick={onOpenExtensionUpdates}>
+              {t('pluginStore.updates.openExtensionUpdates')}
+            </Button>
+          </div>
+        </SettingsGroup>
+      )}
 
       <SettingsGroup id="settings-updates-actions">
         <SettingsGroupHeader

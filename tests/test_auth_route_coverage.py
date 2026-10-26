@@ -150,6 +150,9 @@ def test_classification_of_representative_routes():
         ("GET", "/api/share/mine"): "send",
         ("DELETE", "/api/share/{share_id}"): "send",
         ("GET", "/api/store/status"): "admin",
+        ("POST", "/api/store/refresh"): "admin",
+        ("GET", "/api/store/repositories/{owner}/{name}/readme"): "admin",
+        ("GET", "/api/store/updates"): "admin",
         ("WS", "/api/ws"): "read",
     }
     found: dict[tuple[str, str], str] = {}
