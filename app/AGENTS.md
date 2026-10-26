@@ -331,6 +331,25 @@ Community guard.
   through `share_request(body=StreamedBody(...))`; the answer must keep the id grammar,
   a share host, `url == https://<host>/<id>` and the sent size, else 502
   `share_unavailable`. The HA add-on keeps `share-tmp` out of backups.
+- **Encrypted envelope v1 (`services/share_crypto.py`, MSHL-254).** Pure crypto, no
+  egress, not wired to a route yet (T28). Implements the contract's "Encrypted envelope
+  v1" with pycryptodome: `derive_file_key` (HKDF-SHA256, salt `meshloom-share-v1`, info
+  = id), `encrypt_envelope` (fresh `secrets.token_bytes(12)` nonce per call, AES-256-GCM,
+  AAD `MLF1 || id`), `decrypt_envelope` (single shot, `decrypt_and_verify` before any
+  plaintext is used, then the contract's checks in order) returning `EnvelopeContent`
+  with the name already through `sanitize_name` (empty falls back to the id plus the
+  type's extension). Every failure raises `EnvelopeError` with the contract code in
+  `.code` (`EnvelopeAuthError` for `auth_failed`); a secret that is not 16 or 32 bytes,
+  or the all-zero DM secret (constant-time check), is `refused_secret` before HKDF.
+  The decrypted `content_type` is sender-controlled: the caller applies the image
+  allowlist and magic-byte checks. Async callers use `encrypt_envelope_async` /
+  `decrypt_envelope_async` (default executor), never the sync functions on the event
+  loop: 10 MiB of AES-GCM stalls a Pi 4. `MAX_DATA_BYTES` / `MAX_ENVELOPE_BYTES` equal
+  `share.MAX_IMAGE_BYTES` / `share.MAX_ENVELOPE_BYTES` (pinned by
+  `tests/test_share_crypto.py`). Vectors: `tests/test_share_vectors.py` runs the
+  `envelope` section of `tests/fixtures/links_files_vectors.json` (same sha256 pin as
+  `tests/test_share_identity.py`); refresh the copy from meshloom-community in a
+  `CONTRACTS:` commit, never edit it.
 - **Meta cache.** `get_meta` replays a good answer for `META_CACHE_S` (10 min,
   256 ids), after the opt-in check; turning sharing off clears it.
 - **Objects (`read_object`, MSHL-244).** Opt-in check first (off answers
