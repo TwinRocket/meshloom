@@ -356,7 +356,8 @@ Community guard.
   `meshloom-share-conversation-v1\0` and the key bytes; a pydantic `computed_field` on
   every channel payload, never stored, null for a malformed key), resolved by scanning
   `ChannelRepository.get_all()` with `hmac.compare_digest`; a raw 32-hex key never
-  matches. A contact is named by its public key. A private channel gives its 16-byte
+  matches, and an id matching more than one channel (a duplicate key row) matches none
+  (MSHL-382). A contact is named by its public key. A private channel gives its 16-byte
   `Channel.key`; a contact gives the 32-byte X25519 shared secret
   (`decoder.derive_shared_secret` of the keystore private key and the contact key).
   Malformed or unknown is 400 `share_invalid_request`; the Public channel, a
@@ -425,7 +426,7 @@ Community guard.
   public file; for an encrypted one the route fetches and decrypts it with the secret
   of `message_id`'s conversation: true with the decrypted `content_type`, `name` and
   `size`, false with those null when that fails or there is no message, null when the
-  object cannot be fetched now)), `GET /{id}` (`read`; the object bytes:
+  object cannot be fetched now); always `Cache-Control: no-store`, MSHL-382), `GET /{id}` (`read`; the object bytes:
   bad id 400 `share_invalid_id` with no request, then off `share_disabled`;
   headers `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src
   'none'; sandbox`, `Cache-Control: private, max-age=3600` (a public object),
@@ -438,7 +439,8 @@ Community guard.
   `Cache-Control: no-store` (plaintext never reaches the browser's disk cache) and the
   sanitised name in `filename*=UTF-8''...` (percent-encoded), its extension forced to
   the checked type by `_served_name` (`x.html` on a PNG/HTML polyglot is served
-  `x.png`; `jpg`/`jpeg` and any case are kept; the meta `name` is the same; MSHL-378)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
+  `x.png`; `jpg`/`jpeg` and any case are kept; the meta `name` is the same; MSHL-378;
+  the stem is shortened so the name stays within `share_crypto.NAME_MAX`, MSHL-382)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
   sharing off, no egress), `POST /{id}/report` (`send`; MSHL-246; body
   `ShareReportRequest` `{reason, details?}`, `extra=forbid`, the contract's 8 reasons,
   details up to 2000, else 422 with no request; then off `share_disabled`, bad id

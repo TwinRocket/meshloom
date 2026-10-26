@@ -253,7 +253,11 @@ def _served_name(name: str, content_type: str) -> str:
     if dot and suffix.lower() in _NAME_EXTENSIONS.get(content_type, frozenset()):
         return name
     base = stem if dot and stem else name
-    return f"{base}.{share.OBJECT_EXTENSIONS[content_type]}"
+    extension = share.OBJECT_EXTENSIONS[content_type]
+    # A longer replacement extension (.gif -> .webp) must not push the name past
+    # the envelope's own bound: shorten the stem, never the extension.
+    base = base[: share_crypto.NAME_MAX - len(extension) - 1].rstrip(" .") or "image"
+    return f"{base}.{extension}"
 
 
 def _checked_read_query(request: Request) -> None:
@@ -348,10 +352,13 @@ async def _encrypted_meta(share_id: str, message: Message | None) -> dict[str, o
 )
 async def get_share_meta(
     request: Request,
+    response: Response,
     share_id: str,
     message_id: int | None = Query(default=None, ge=1, le=MESSAGE_ID_MAX),
 ) -> ShareMetaResponse:
     _checked_read_query(request)
+    # The answer may name a decrypted file: never kept in a browser or proxy cache.
+    response.headers["Cache-Control"] = "no-store"
     message = None
     if share.is_share_id(share_id) and await share.share_egress_state() is not None:
         message = await _check_message(request, share_id, message_id)

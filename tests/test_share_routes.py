@@ -223,6 +223,8 @@ class TestMeta:
         share.reset_share_client_for_tests(lambda: now[0])
         first = await client.get("/api/share/AbCdEfG/meta")
         assert first.status_code == 200
+        # MSHL-382: the answer may describe a decrypted file, never cached downstream.
+        assert first.headers["cache-control"] == "no-store"
         assert first.json() == {
             "kind": "link",
             "target_host": "example.com",
