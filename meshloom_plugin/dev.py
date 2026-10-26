@@ -27,6 +27,7 @@ Exit status: 0 passed, 1 failed, 2 usage error (a bad path included). `--json` p
 
 import argparse
 import asyncio
+import contextlib
 import hashlib
 import io
 import json
@@ -47,17 +48,19 @@ from types import SimpleNamespace
 from typing import Any
 
 from app.channel_constants import PUBLIC_CHANNEL_KEY
-from app.message_limits import DM_HARD_LIMIT, byte_length, channel_text_allowance
 from app.plugins.attention import scan_source
 from app.plugins.capabilities import (
     REGISTRY,
     Call,
     CapabilityError,
+    channels,
+    contacts,
     invalid_params,
     messages,
     storage,
     timer,
 )
+from app.plugins.capabilities.base import require_permission
 from app.plugins.capabilities.grants import (
     effective_permissions,
     hook_allowed,
@@ -65,6 +68,7 @@ from app.plugins.capabilities.grants import (
     message_visible,
 )
 from app.plugins.errors import HostMethodError, PluginIssue, PluginValidationError
+from app.plugins.kv_rules import KV_QUOTA_BYTES, PluginStoreError, check_kv_key, encode_kv_value
 from app.plugins.launch import popen_kwargs, prepare_work_dir, runner_command, runner_params
 from app.plugins.manifest import Manifest
 from app.plugins.package import validate_package
@@ -76,7 +80,6 @@ from app.plugins.quotas import (
     SendQuota,
     effective_send_limits,
 )
-from app.region_scope import is_unscoped, normalize_region_scope
 from meshloom_plugin import rpc
 
 INIT_TIMEOUT = 20.0  # cadrage §4: cold start on a Raspberry Pi 3
@@ -136,6 +139,7 @@ class CheckReport:
     calls: list[dict[str, Any]] = field(default_factory=list)
     ran: bool = False
     stderr: str = ""
+    skipped: list[str] = field(default_factory=list)  # left out of the archive
 
     @property
     def ok(self) -> bool:
@@ -151,6 +155,7 @@ class CheckReport:
             "plugin": {"id": self.plugin_id, "version": self.version},
             "errors": [f.to_json() for f in self.errors],
             "warnings": [f.to_json() for f in self.warnings],
+            "skipped": self.skipped,
             "dry_run": {
                 "isolation": "none (development only)",
                 "ran": self.ran,
@@ -163,26 +168,54 @@ class CheckReport:
 # --- stage 1: package ---------------------------------------------------------
 
 
+def _left_out(name: str, *, is_dir: bool) -> bool:
+    """What never goes into an archive: hidden entries (`.git/`, `.env*`, `.venv/`,
+    `.DS_Store`...: history, secrets and editor litter), `__pycache__` and bytecode."""
+    if name.startswith("."):
+        return True
+    return name in SKIPPED_DIRS if is_dir else name.endswith((".pyc", ".pyo"))
+
+
+def collect_files(root: Path) -> tuple[list[str], list[str]]:
+    """`(included, skipped)` relative paths of the plugin tree, both sorted. A skipped
+    directory is listed once, with a trailing `/`. A symlink among the included entries
+    is refused (`ValueError`): the server refuses them in an archive and zipping would
+    silently follow it."""
+    included: list[str] = []
+    skipped: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        base = Path(dirpath)
+        kept = []
+        for d in sorted(dirnames):
+            rel = (base / d).relative_to(root).as_posix()
+            if _left_out(d, is_dir=True):
+                skipped.append(rel + "/")
+            else:
+                kept.append(d)
+        dirnames[:] = kept
+        for name in [*kept, *filenames]:
+            full = base / name
+            rel = full.relative_to(root).as_posix()
+            if name in filenames and _left_out(name, is_dir=False):
+                skipped.append(rel)
+            elif full.is_symlink():
+                raise ValueError(f"{rel} is a symbolic link")
+            elif full.is_file():
+                included.append(rel)
+    return sorted(included), sorted(skipped)
+
+
 def zip_directory(root: Path) -> bytes:
     """The directory as the archive `pack` builds: files at the root, mode 0644.
 
     Reproducible: entries sorted by path, the ZIP epoch (1980-01-01) as timestamp, a
     fixed creator system, so the same tree always gives the same bytes (and hash).
-    A symlink is refused (`ValueError`): the server refuses them in an archive and
-    zipping would silently follow it. `__pycache__` is left out.
+    `collect_files` decides what is left out (hidden entries, `__pycache__`, bytecode).
     """
-    names: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIPPED_DIRS)
-        for name in [*dirnames, *filenames]:
-            full = Path(dirpath) / name
-            if full.is_symlink():
-                raise ValueError(f"{full.relative_to(root).as_posix()} is a symbolic link")
-            if full.is_file():
-                names.append(full.relative_to(root).as_posix())
+    names, _ = collect_files(root)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rel in sorted(names):
+        for rel in names:
             info = zipfile.ZipInfo(rel)  # date_time defaults to 1980-01-01 00:00:00
             info.create_system = 3
             info.external_attr = 0o644 << 16
@@ -196,6 +229,7 @@ def _package_stage(
 ) -> tuple[Manifest, list[str]] | None:
     try:
         data = zip_directory(root)
+        report.skipped = collect_files(root)[1]
     except (OSError, ValueError) as exc:
         report.errors.append(Finding("package", "package_unreadable", str(exc)))
         return None
@@ -341,6 +375,9 @@ def _await_response(
                 except HostMethodError as exc:
                     reply = rpc.error(message["id"], exc.code, str(exc), exc.data)
                 child.send(reply)
+            elif respond is not _host_reply:
+                with contextlib.suppress(HostMethodError):
+                    respond(message)  # a notification gets no answer, but is traced
         elif message.get("id") == msg_id:
             return message
 
@@ -578,12 +615,7 @@ class FakeHost:
         entry = REGISTRY.get(method)
         if entry is None:
             raise HostMethodError(rpc.METHOD_NOT_FOUND, f"{method} is not available")
-        if entry.permission is not None and entry.permission not in self.permissions:
-            raise CapabilityError(
-                "permission_denied",
-                f"{method} needs the {entry.permission} permission",
-                {"permission": entry.permission},
-            )
+        require_permission(method, entry.permission, self.permissions)
         if not isinstance(params, dict):
             params = {}
         handler = getattr(self, "do_" + method.replace(".", "_"), None)
@@ -601,7 +633,9 @@ class FakeHost:
                     "target_not_allowed", "the event has no conversation to reply to"
                 )
             assert self.event is not None
-            target.row = SimpleNamespace(name=self.event.params.get("channel_name"))
+            # Known unless the fixture lists the channels/contacts and this one is not there.
+            if self._exists(target):
+                target.row = SimpleNamespace(name=self.event.params.get("channel_name"))
             return target
         if isinstance(params.to, messages._ChannelTo):
             target = messages.Target(False, params.to.channel_key.upper())
@@ -615,26 +649,25 @@ class FakeHost:
                     target.row = SimpleNamespace(name=entry.get("name"))
         return target
 
+    def _exists(self, target: messages.Target) -> bool:
+        listed = self.fixture.get("contacts" if target.is_dm else "channels")
+        if listed is None:
+            return True
+        field = "public_key" if target.is_dm else "key"
+        return any(str(e.get(field, "")).lower() == target.key.lower() for e in listed)
+
     def _check_region(self, params: Any, target: messages.Target) -> None:
-        if target.is_dm or "region" not in params.model_fields_set:
-            return
-        if params.region is None or is_unscoped(params.region):
-            return
-        known = {normalize_region_scope(r) for r in self.fixture.get("known_regions", [])}
-        known.discard("")
-        if normalize_region_scope(params.region) not in known:
-            raise CapabilityError("region_unknown", "unknown region")
+        named, _ = messages.region_request(params, target)
+        if named:
+            messages.check_region(
+                params.region,
+                target,
+                self.fixture.get("known_regions", []),
+                self.fixture.get("flood_scope", ""),
+            )
 
     def _reply_context(self, target: messages.Target) -> tuple[str | None, int | None]:
-        # `messages._reply_context`, with this host's guard.
-        event = self.event
-        if event is not None and event.hook == "message" and not event.params.get("is_outgoing"):
-            received = event.params.get("received_at")
-            return SendGuard.sender_of(event.params), received if type(received) is int else None
-        last = self.guard.last_inbound(
-            self.instance.instance_id, is_dm=target.is_dm, key=target.key
-        )
-        return (last[0], last[1]) if last is not None else (None, None)
+        return messages.reply_context(self.guard, self.instance.instance_id, self.event, target)
 
     async def do_messages_send(self, raw: dict[str, Any]) -> dict[str, Any]:
         call = Call(self.instance, "messages.send", raw, self.event)  # type: ignore[arg-type]
@@ -643,33 +676,13 @@ class FakeHost:
         target = self._resolve(call, params)
         messages._check_target(call, permission.get("targets", "reply"), target)
         self._check_region(params, target)
-        limit = (
-            DM_HARD_LIMIT
-            if target.is_dm
-            else channel_text_allowance(self.fixture.get("radio_name"))
-        )
-        size = byte_length(params.text)
-        if size > limit:
-            raise CapabilityError(
-                "message_too_long",
-                f"the message is {size} bytes, the limit is {limit}",
-                {"limit": limit, "bytes": size},
-            )
+        messages.check_size(params.text, target, self.fixture.get("radio_name"))
         instance_id = self.instance.instance_id
         limits = effective_send_limits(permission, self.instance.quotas)
         try:
             await self.quota.check(instance_id, limits)
         except QuotaExceeded as exc:
-            raise CapabilityError(
-                "quota_exceeded",
-                f"at most {exc.limit} messages per {exc.period}",
-                {
-                    "scope": "plugin",
-                    "period": exc.period,
-                    "limit": exc.limit,
-                    "retry_after": exc.retry_after,
-                },
-            ) from None
+            raise messages.quota_refusal(exc) from None
         sender, received_at = self._reply_context(target)
         try:
             await self.guard.check(
@@ -688,34 +701,30 @@ class FakeHost:
 
     # storage, timer, status, log -----------------------------------------------
 
-    @staticmethod
-    def _key(params: dict[str, Any]) -> str:
-        key = params.get("key")
-        if not isinstance(key, str) or not 1 <= len(key.encode("utf-8")) <= 256:
-            raise invalid_params("invalid key", fields=["key"])
-        return key
-
     async def do_storage_get(self, params: dict[str, Any]) -> Any:
-        return self.kv.get(self._key(params))
+        stored = self.kv.get(storage._key(params) or "")
+        return json.loads(stored) if stored is not None else None
 
     async def do_storage_set(self, params: dict[str, Any]) -> None:
-        key = self._key(params)
+        key = storage._key(params)
+        assert key is not None
         if "value" not in params:
             raise invalid_params("value is required", fields=["value"])
         try:
-            json.dumps(params["value"], allow_nan=False)
-        except (TypeError, ValueError):
-            raise invalid_params("the value is not JSON", fields=["value"]) from None
-        self.kv[key] = params["value"]
+            check_kv_key(key)
+            encoded, size = encode_kv_value(key, params["value"])
+            others = sum(len(k.encode()) + len(v.encode()) for k, v in self.kv.items() if k != key)
+            if others + len(key.encode()) + size > KV_QUOTA_BYTES:
+                raise PluginStoreError("kv_quota_exceeded", [key])
+        except PluginStoreError as exc:
+            raise storage._store_error(exc) from None
+        self.kv[key] = encoded
 
     async def do_storage_delete(self, params: dict[str, Any]) -> None:
-        self.kv.pop(self._key(params), None)
+        self.kv.pop(storage._key(params) or "", None)
 
     async def do_storage_list(self, params: dict[str, Any]) -> list[str]:
-        prefix, after = params.get("prefix") or "", params.get("after")
-        limit = params.get("limit", storage.LIST_MAX)
-        if type(limit) is not int or not 1 <= limit <= storage.LIST_MAX:
-            raise invalid_params("invalid limit", fields=["limit"])
+        prefix, after, limit = storage.list_args(params)
         keys = sorted(k for k in self.kv if k.startswith(prefix) and (after is None or k > after))
         return keys[:limit]
 
@@ -746,17 +755,22 @@ class FakeHost:
     # reads and network, answered from the fixture -------------------------------
 
     async def do_contacts_list(self, params: dict[str, Any]) -> list[Any]:
-        return list(self.fixture.get("contacts", []))
+        limit, offset = contacts.list_args(params)
+        return list(self.fixture.get("contacts", []))[offset : offset + limit]
 
     async def do_contacts_get(self, params: dict[str, Any]) -> Any:
-        key = str(params.get("key", "")).lower()
+        key = contacts.key_arg(params).lower()
         for entry in self.fixture.get("contacts", []):
             if str(entry.get("public_key", "")).lower() == key:
                 return entry
         return None
 
     async def do_channels_list(self, params: dict[str, Any]) -> list[Any]:
-        return list(self.fixture.get("channels", []))
+        rows = [
+            SimpleNamespace(**{"key": c.get("key", ""), "name": c.get("name")})
+            for c in self.fixture.get("channels", [])
+        ]
+        return channels.listable(self.permissions, rows)
 
     async def do_http_fetch(self, params: dict[str, Any]) -> Any:
         answer = (self.fixture.get("http") or {}).get(str(params.get("url")))
@@ -1011,6 +1025,8 @@ def _print_text(report: CheckReport) -> None:
     print(f"Checking {label or 'plugin'}")
     for finding in report.errors:
         print(f"  error   [{finding.stage}] {_where(finding)}{finding.code}: {finding.message}")
+    if report.skipped:
+        print(f"  not packed (hidden, __pycache__ or bytecode): {', '.join(report.skipped)}")
     for finding in report.warnings:
         tag = "info   " if finding.informative else "warning"
         print(f"  {tag} [{finding.stage}] {_where(finding)}{finding.message}")

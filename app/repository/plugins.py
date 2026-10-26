@@ -33,7 +33,6 @@ import asyncio
 import json
 import logging
 import time
-import unicodedata
 import uuid
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -43,15 +42,21 @@ import aiosqlite
 
 from app.database import db
 from app.plugins.config_schema import secret_fields
+from app.plugins.kv_rules import (  # noqa: F401  (KV_* are part of this module's API)
+    KV_MAX_KEY_BYTES,
+    KV_MAX_VALUE_BYTES,
+    KV_QUOTA_BYTES,
+    PluginStoreError,
+    check_kv_key,
+    encode_kv_value,
+)
 from app.secret_fields import REDACTED
 
 PluginKind = Literal["bundled", "store", "custom", "local"]
 
 # KV bounds (docs/dev/plugins.md, "Data model"). The `storage` capability enforces
 # the same quota; these are the repository's backstop.
-KV_MAX_KEY_BYTES = 256
-KV_MAX_VALUE_BYTES = 256 * 1024
-KV_QUOTA_BYTES = 5 * 1024 * 1024
+# (the rules live in `app/plugins/kv_rules.py`, imported above)
 
 # In-memory copy of the instances (secrets masked) for status reporting, like
 # ``repository/fanout.py``. Filled by every read and write here.
@@ -78,16 +83,6 @@ _UPDATABLE = (
     "attention",
     "sort_order",
 )
-
-
-class PluginStoreError(ValueError):
-    """A coded refusal of the plugin repository. ``code`` and ``fields`` never
-    hold a value, only field or key names."""
-
-    def __init__(self, code: str, fields: list[str] | None = None) -> None:
-        self.code = code
-        self.fields = fields or []
-        super().__init__(f"{code}: {', '.join(self.fields)}" if self.fields else code)
 
 
 def _loads(value: str | None, default: Any) -> Any:
@@ -607,19 +602,6 @@ class PluginKeptDataRepository:
         return len(expired)
 
 
-def _check_kv_key(key: str) -> None:
-    """A key is 1 to ``KV_MAX_KEY_BYTES`` UTF-8 bytes with no control, format,
-    surrogate or unassigned character."""
-    if not isinstance(key, str) or not key:
-        raise PluginStoreError("kv_key_invalid")
-    try:
-        size = len(key.encode("utf-8"))
-    except UnicodeEncodeError:
-        raise PluginStoreError("kv_key_invalid") from None
-    if size > KV_MAX_KEY_BYTES or any(unicodedata.category(c).startswith("C") for c in key):
-        raise PluginStoreError("kv_key_invalid")
-
-
 class PluginKvRepository:
     """The per-instance key-value store (``storage`` capability). Values are JSON;
     keys and sizes are bounded (``KV_*``, ``PluginStoreError``)."""
@@ -639,14 +621,8 @@ class PluginKvRepository:
         """Store ``value`` (JSON). Refused: an invalid key (``kv_key_invalid``), a
         value over ``KV_MAX_VALUE_BYTES`` (``kv_value_too_large``), or a write that
         takes the instance over ``KV_QUOTA_BYTES`` (``kv_quota_exceeded``)."""
-        _check_kv_key(key)
-        try:
-            encoded = json.dumps(value, ensure_ascii=False, allow_nan=False)
-            value_bytes = len(encoded.encode("utf-8"))
-        except (TypeError, ValueError, UnicodeEncodeError):
-            raise PluginStoreError("kv_value_invalid", [key]) from None
-        if value_bytes > KV_MAX_VALUE_BYTES:
-            raise PluginStoreError("kv_value_too_large", [key])
+        check_kv_key(key)
+        encoded, value_bytes = encode_kv_value(key, value)
         async with db.tx() as conn:
             async with conn.execute(
                 "SELECT COALESCE(SUM(LENGTH(CAST(key AS BLOB)) + LENGTH(CAST(value AS BLOB))), 0)"

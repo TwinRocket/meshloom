@@ -429,3 +429,175 @@ async def test_packed_output_installs_through_the_custom_repository_flow(
     )
     assert response.status_code == 201, response.text
     assert (response.json()["kind"], response.json()["version"]) == ("custom", "1.0.0")
+
+
+# --- hidden files, divergences from the server ---------------------------------------
+
+
+def test_pack_leaves_out_hidden_files_and_lists_them(plugin, tmp_path, capsys):
+    (plugin / ".env").write_text("TOKEN=secret", "utf-8")
+    (plugin / ".env.local").write_text("TOKEN=secret", "utf-8")
+    (plugin / ".git").mkdir()
+    (plugin / ".git" / "config").write_text("[remote]", "utf-8")
+    (plugin / ".venv").mkdir()
+    (plugin / ".venv" / "lib.py").write_text("x = 1", "utf-8")
+    (plugin / "lib").mkdir()
+    (plugin / "lib" / ".DS_Store").write_bytes(b"\0")
+    (plugin / "lib" / "mod.pyc").write_bytes(b"\0")
+    (plugin / "lib" / "mod.py").write_text("Y = 2\n", "utf-8")
+    out = tmp_path / "out"
+    assert dev.main(["pack", str(plugin), "--out", str(out)]) == 0
+    with zipfile.ZipFile(out / "plugin.zip") as zf:
+        names = zf.namelist()
+    assert "lib/mod.py" in names
+    assert not [n for n in names if n.startswith(".") or "/." in n or n.endswith(".pyc")]
+    printed = capsys.readouterr().out
+    for left_out in (".env", ".env.local", ".git/", ".venv/", "lib/.DS_Store", "lib/mod.pyc"):
+        assert left_out in printed
+    assert "secret" not in printed
+
+
+def test_check_json_lists_the_skipped_paths(plugin, capsys):
+    (plugin / ".env").write_text("TOKEN=secret", "utf-8")
+    assert dev.main(["check", str(plugin), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["skipped"] == [".env"]
+
+
+def test_hidden_files_do_not_change_the_archive(plugin, tmp_path):
+    clean = tmp_path / "clean"
+    dev.pack_directory(plugin, clean, dry_run=False)
+    (plugin / ".env").write_text("TOKEN=secret", "utf-8")
+    (plugin / ".git").mkdir()
+    (plugin / ".git" / "config").write_text("x", "utf-8")
+    dirty = tmp_path / "dirty"
+    dev.pack_directory(plugin, dirty, dry_run=False)
+    assert (clean / "plugin.zip").read_bytes() == (dirty / "plugin.zip").read_bytes()
+
+
+def _call_plugin(calls: list[tuple[str, dict]]) -> str:
+    return (
+        "from meshloom_plugin import host\n\n\nasync def on_message(event):\n"
+        + f"    for method, params in {calls!r}:\n"
+        + "        try:\n            await host().call(method, params)\n"
+        + "        except Exception:\n            pass\n"
+    )
+
+
+def _try_calls(plugin: Path, calls, **fixture):
+    (plugin / "plugin.py").write_text(_call_plugin(calls), "utf-8")
+    return replay(plugin, events=[message()], **fixture)
+
+
+def test_channels_list_hides_private_channels_without_channels_all(plugin):
+    _declare(plugin, **{"channels.read": {}})
+    channels = [
+        {"key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72", "name": "Public"},
+        {"key": "CD" * 16, "name": "secret-room"},
+    ]
+    granted = {**READ, "channels.read": {}}
+    report, lines = _try_calls(
+        plugin, [("channels.list", {})], granted_permissions=granted, channels=channels
+    )
+    listed = next(x for x in lines if x.startswith("    <- ") and "Public" in x)
+    assert "secret-room" not in listed and '"is_public": true' in listed
+    everything = {
+        **granted,
+        "messages.read": {"channels": "all", "direct": True},
+    }
+    _declare(plugin, **{"messages.read": {"channels": "all", "direct": True}})
+    _, lines = _try_calls(
+        plugin, [("channels.list", {})], granted_permissions=everything, channels=channels
+    )
+    assert any("secret-room" in x and '"is_public": false' in x for x in lines)
+
+
+def test_contacts_arguments_are_validated_like_the_server(plugin):
+    _declare(plugin, **{"contacts.read": {}})
+    report, _ = _try_calls(
+        plugin,
+        [
+            ("contacts.get", {"key": "nothex"}),
+            ("contacts.list", {"limit": 9999}),
+            ("contacts.list", {"limit": 5, "offset": -1}),
+            ("contacts.get", {"key": "ab" * 32}),
+        ],
+        granted_permissions={**READ, "contacts.read": {}},
+    )
+    assert refusal_codes(report) == ["invalid_params"] * 3
+
+
+def _fake_host(plugin: Path, **permissions) -> dev.FakeHost:
+    """A `FakeHost` driven directly: a plugin cannot send a value over 100 KiB itself."""
+    check = dev.CheckReport()
+    staged = dev._package_stage(plugin, "third_party", check)
+    assert staged is not None
+    fixture = {"granted_permissions": {**READ, **permissions}, "events": []}
+    return dev.FakeHost(staged[0], fixture, dev._Clock(CLOCK), lambda _line: None)
+
+
+def _dispatch(host: dev.FakeHost, method: str, params: dict):
+    return host.loop.run_until_complete(host.dispatch(method, params))
+
+
+def test_storage_limits_are_the_servers(plugin):
+    from app.plugins.capabilities.base import CapabilityError
+
+    _declare(plugin, storage={})
+    host = _fake_host(plugin, storage={})
+    for params in (
+        {"key": "big", "value": "x" * (256 * 1024 + 1)},
+        {"key": "bad\x00key", "value": 1},
+        {"key": "k", "value": float("nan")},
+        {"key": "k"},
+    ):
+        with pytest.raises(CapabilityError) as exc:
+            _dispatch(host, "storage.set", params)
+        assert exc.value.refusal == "invalid_params"
+    with pytest.raises(CapabilityError):
+        _dispatch(host, "storage.list", {"limit": 0})
+    _dispatch(
+        host, "storage.set", {"key": "ok", "value": "x" * (256 * 1024 - 2)}
+    )  # exactly 256 KiB
+    assert _dispatch(host, "storage.get", {"key": "ok"}) == "x" * (256 * 1024 - 2)
+
+
+def test_storage_quota_is_the_servers(plugin):
+    from app.plugins.capabilities.base import CapabilityError
+
+    _declare(plugin, storage={})
+    host = _fake_host(plugin, storage={})
+    chunk = "x" * (200 * 1024)
+    for i in range(25):
+        _dispatch(host, "storage.set", {"key": f"k{i}", "value": chunk})
+    with pytest.raises(CapabilityError) as exc:
+        _dispatch(host, "storage.set", {"key": "k25", "value": chunk})
+    assert exc.value.refusal == "quota_exceeded" and exc.value.params == {"limit": 5 * 1024 * 1024}
+    _dispatch(host, "storage.set", {"key": "k0", "value": "small"})  # an overwrite frees space
+
+
+def test_a_reply_to_an_unknown_channel_is_refused(plugin):
+    report, _ = replay(plugin, channels=[{"key": "AA" * 16, "name": "other"}], events=[message()])
+    assert refusal_codes(report) == ["target_not_allowed"]
+
+
+def test_notifications_are_traced(plugin):
+    (plugin / "plugin.py").write_text(
+        "from meshloom_plugin import host\n\n\nasync def on_message(event):\n"
+        "    host().notify('log', {'level': 'info', 'message': 'hello log'})\n"
+        "    await host().call('status.set', {'summary': 'busy'})\n",
+        "utf-8",
+    )
+    report, lines = replay(plugin, events=[message()])
+    assert any("-> log" in x and "hello log" in x for x in lines), lines
+    assert any("-> status.set" in x for x in lines)
+
+
+def test_the_shared_helpers_are_the_servers_functions():
+    from app.plugins.capabilities import base, channels, contacts, messages, storage
+
+    assert dev.require_permission is base.require_permission
+    assert dev.messages.check_size is messages.check_size
+    assert dev.messages.check_region is messages.check_region
+    assert dev.messages.reply_context is messages.reply_context
+    assert dev.messages.quota_refusal is messages.quota_refusal
+    assert dev.channels is channels and dev.contacts is contacts and dev.storage is storage
