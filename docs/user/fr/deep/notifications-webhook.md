@@ -44,7 +44,7 @@ Le schéma JSON du corps v2 est publié à côté de la page anglaise : [notific
 - `radio_public_key` est la clé publique de votre radio, celle que chaque nœud à portée entend déjà dans ses annonces. Elle permet à un même récepteur de distinguer plusieurs instances Meshloom.
 - `rendered` est dans la **Langue des notifications** du canal.
 - La version 2 peut gagner de nouveaux champs dans `data`. Un récepteur doit ignorer les champs qu’il ne connaît pas. Un changement qui retire ou renomme un champ passera par une version 3.
-- Les trois événements `summary.*` sont les résumés produits par le regroupement et les heures calmes du canal. Leur `event_id` est dérivé de leur contenu : un nouvel essai garde le même identifiant.
+- Les trois événements `summary.*` sont les résumés produits par le regroupement et les heures calmes du canal. Leur `event_id` est dérivé de leur contenu : un nouvel essai garde le même identifiant. Leur `occurred_at` est en revanche l’heure de chaque envoi : le corps d’un résumé change d’un essai à l’autre, donc dédupliquez sur `event_id` ou `X-Webhook-Id`, jamais sur le corps.
 
 ## En-têtes et signature
 
@@ -87,15 +87,20 @@ def verify(secret: str, timestamp: str, body: bytes, signature: str, max_age: in
 
 ### Node-RED
 
-Dans un nœud **function** placé après un nœud **http in** (méthode `POST`). Node-RED décode le corps JSON, donc l’extrait resérialise `msg.payload` : Meshloom envoie du JSON compact, champs dans l’ordre montré ici, ce qui redonne les mêmes octets. Un cas le casse : un champ décimal qui contient un nombre entier (une `value` de télémétrie à `4.0`) revient sous la forme `4`, et la signature échoue alors. Si votre flux peut lire le corps brut, utilisez-le plutôt (l’extrait prend `msg.req.rawBody` quand quelque chose le fournit).
+Dans un nœud **function** placé après un nœud **http in** (méthode `POST`) dont la case **Ne pas analyser le corps de la requête** est cochée. Cette option existe à partir de Node-RED 4.1. La signature couvre les octets exacts envoyés par Meshloom : vérifiez-la sur le corps brut, puis décodez le JSON, comme le fait l’extrait. Jamais sur `msg.payload` décodé puis resérialisé, qui change les octets (une décimale comme une `value` de télémétrie à `4.0` revient sous la forme `4`) et fait échouer la vérification. Avec un Node-RED plus ancien, qui décode toujours un corps JSON, mettez-le à jour, ou vérifiez la signature dans un script ou un service placé devant.
 
 ```javascript
-// Function node, after an "http in" node (POST). Add the `crypto` module in the
-// node's Setup tab, and set the secret in the flow's environment variables.
+// Nœud function après un nœud "http in" (POST) avec "Ne pas analyser le corps de la requête"
+// coché : msg.payload est alors le corps brut (un Buffer). Ajoutez le module `crypto` dans
+// l'onglet Setup du nœud, et le secret dans les variables d'environnement du flux.
 const secret = env.get("MESHLOOM_WEBHOOK_SECRET");
 const timestamp = msg.req.get("X-Webhook-Timestamp") || "";
 const signature = msg.req.get("X-Webhook-Signature") || "";
-const raw = msg.req.rawBody ?? JSON.stringify(msg.payload);
+if (!Buffer.isBuffer(msg.payload)) {
+    node.error("Cochez \"Ne pas analyser le corps de la requête\" sur le nœud http in");
+    return null;
+}
+const raw = msg.payload.toString("utf8");
 
 const age = Math.abs(Date.now() / 1000 - Number(timestamp));
 const expected = "sha256=" + crypto.createHmac("sha256", secret)
@@ -103,9 +108,10 @@ const expected = "sha256=" + crypto.createHmac("sha256", secret)
 const a = Buffer.from(expected);
 const b = Buffer.from(signature);
 if (!(age <= 300 && a.length === b.length && crypto.timingSafeEqual(a, b))) {
-    node.warn("Meshloom webhook: bad signature or stale request");
+    node.warn("Webhook Meshloom : signature invalide ou requête trop ancienne");
     return null;
 }
+msg.payload = JSON.parse(raw);
 return msg;
 ```
 

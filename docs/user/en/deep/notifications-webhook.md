@@ -44,7 +44,7 @@ The JSON Schema of the v2 body is published next to this page: [notifications-we
 - `radio_public_key` is your radio's own public key, the one every node in range already hears in its adverts. It lets one receiver tell several Meshloom instances apart.
 - `rendered` is in the channel's **Language of the notifications**.
 - New fields may be added to `data` within version 2. A receiver should ignore the fields it does not know. A change that removes or renames a field means a version 3.
-- The three `summary.*` events are the summaries the channel's grouping and quiet hours produce. Their `event_id` is derived from their content, so a retry keeps the same id.
+- The three `summary.*` events are the summaries the channel's grouping and quiet hours produce. Their `event_id` is derived from their content, so a retry keeps the same id. Their `occurred_at` is the time of each attempt, though: the body of a summary differs from one retry to the next, so deduplicate on `event_id` or `X-Webhook-Id`, never on the body.
 
 ## Headers and signature
 
@@ -87,15 +87,20 @@ def verify(secret: str, timestamp: str, body: bytes, signature: str, max_age: in
 
 ### Node-RED
 
-In a **function** node placed after an **http in** node (method `POST`). Node-RED parses the JSON body, so the snippet serialises `msg.payload` again: Meshloom sends compact JSON with the fields in the order shown here, which gives back the same bytes. One case breaks it: a decimal field holding a whole number (a telemetry `value` of `4.0`) comes back as `4`, and the signature then fails. If your flow can read the raw body, use it instead (the snippet takes `msg.req.rawBody` when something provides it).
+In a **function** node placed after an **http in** node (method `POST`) whose **Do not parse request body** box is ticked. That option exists from Node-RED 4.1 on. The signature covers the exact bytes Meshloom sent, so check it on the raw body and parse the JSON afterwards, as the snippet does: never on `msg.payload` parsed then serialised again, which changes the bytes (a decimal such as a telemetry `value` of `4.0` comes back as `4`) and makes the check fail. On an older Node-RED, which always parses a JSON body, update it, or check the signature in a script or a service in front of it.
 
 ```javascript
-// Function node, after an "http in" node (POST). Add the `crypto` module in the
-// node's Setup tab, and set the secret in the flow's environment variables.
+// Function node after an "http in" node (POST) with "Do not parse request body" ticked,
+// so msg.payload is the raw body (a Buffer). Add the `crypto` module in the node's
+// Setup tab, and set the secret in the flow's environment variables.
 const secret = env.get("MESHLOOM_WEBHOOK_SECRET");
 const timestamp = msg.req.get("X-Webhook-Timestamp") || "";
 const signature = msg.req.get("X-Webhook-Signature") || "";
-const raw = msg.req.rawBody ?? JSON.stringify(msg.payload);
+if (!Buffer.isBuffer(msg.payload)) {
+    node.error("Tick \"Do not parse request body\" on the http in node");
+    return null;
+}
+const raw = msg.payload.toString("utf8");
 
 const age = Math.abs(Date.now() / 1000 - Number(timestamp));
 const expected = "sha256=" + crypto.createHmac("sha256", secret)
@@ -106,6 +111,7 @@ if (!(age <= 300 && a.length === b.length && crypto.timingSafeEqual(a, b))) {
     node.warn("Meshloom webhook: bad signature or stale request");
     return null;
 }
+msg.payload = JSON.parse(raw);
 return msg;
 ```
 

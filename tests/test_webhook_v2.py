@@ -8,7 +8,9 @@ import hmac
 import ipaddress
 import json
 import re
+import shutil
 import socket
+import subprocess
 import time
 from pathlib import Path
 
@@ -265,6 +267,32 @@ async def test_a_v2_channel_sends_a_signed_v2_body(seen):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("policy", "shown"), [("public_only", False), ("never", False), ("always", True)]
+)
+async def test_the_v2_transport_applies_the_channel_text_policy(seen, policy, shown):
+    """The transport passes the channel's own policy: a private channel's text never leaves
+    a ``public_only`` or ``never`` channel, in ``data`` or in ``rendered``."""
+    channel = Channel(
+        id="webhook-2",
+        type="webhook",
+        name="Hook",
+        language="en",
+        include_message_text=policy,
+        config={"body_type": "v2"},
+    )
+    result = await WebhookTransport().send(channel, None, _delivery(PRIVATE), {"url": SECRET_URL})
+    assert result.ok
+    wire = seen[0].content.decode()
+    body = webhook_v2.WebhookBodyV2.model_validate_json(seen[0].content).root
+    assert body.event == "message.channel"
+    assert ("the private words" in wire) is shown
+    assert ("the private words" in body.rendered.body) is shown
+    assert body.data.text == (PRIVATE["text"] if shown else None)  # type: ignore[attr-defined]
+    assert PRIVATE["conversation_key"] not in wire.upper()
+
+
+@pytest.mark.asyncio
 async def test_a_v2_channel_refuses_a_payload_it_has_no_model_for(seen):
     channel = Channel(
         id="webhook-2", type="webhook", name="Hook", language="en", config={"body_type": "v2"}
@@ -359,3 +387,57 @@ def test_the_doc_python_snippet_verifies_a_real_request(lang):
     assert not verify("wrong", ts, body, sig)
     stale = str(int(time.time()) - 3600)
     assert not verify(HMAC, stale, body, sign_v2(HMAC, stale, body))
+
+
+_NODE_HARNESS = r"""
+const crypto = require("crypto");
+const fs = require("fs");
+const input = JSON.parse(fs.readFileSync(0, "utf8"));
+const run = new Function("msg", "env", "node", "crypto", input.code);
+const env = { get: () => input.secret };
+const node = { warn: () => {}, error: () => {} };
+const req = (h) => ({ get: (k) => h[k] });
+const raw = Buffer.from(input.body, "utf8");
+const out = {
+  good: run({ payload: raw, req: req(input.headers) }, env, node, crypto),
+  tampered: run({ payload: Buffer.concat([raw, Buffer.from(" ")]), req: req(input.headers) },
+    env, node, crypto),
+  parsed: run({ payload: JSON.parse(input.body), req: req(input.headers) }, env, node, crypto),
+};
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+@pytest.mark.parametrize("lang", ["en", "fr"])
+def test_the_doc_node_red_snippet_checks_the_raw_body(lang):
+    """The Node-RED snippet verifies the raw bytes (http in, "Do not parse request body"),
+    never ``msg.payload`` serialised again: a whole-number float (``4.0``) would break it."""
+    (snippet,) = [b for b in _blocks(lang, "javascript") if "createHmac" in b]
+    assert "JSON.stringify" not in snippet
+    assert "rawBody" not in snippet
+    assert "Buffer.isBuffer(msg.payload)" in snippet
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    payload = dict(SAMPLES["telemetry.alert"], value=4.0, threshold=3.5)
+    model = webhook_v2.build_body(
+        payload, event_from_payload(payload), lang=lang, text_policy="always", instance=INSTANCE
+    )
+    assert model is not None
+    body = webhook_v2.body_bytes(model)
+    assert b'"value":4.0' in body
+    headers = request_headers_v2(model, body, secret=HMAC)
+    run = subprocess.run(
+        [node, "-e", _NODE_HARNESS],
+        input=json.dumps(
+            {"code": snippet, "secret": HMAC, "body": body.decode(), "headers": headers}
+        ),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    out = json.loads(run.stdout)
+    assert out["good"]["payload"]["data"]["value"] == 4
+    assert out["tampered"] is None
+    assert out["parsed"] is None
