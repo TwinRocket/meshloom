@@ -66,6 +66,6 @@ Les messages et erreurs que vous pouvez voir, et leur sens :
 
 ## Conservation, retrait et contact
 
-Un lien court reste valable 365 jours, puis cesse de fonctionner. Cette version de Meshloom n’a pas de bouton pour supprimer ou signaler un lien : pour en signaler un, utilisez le bouton **Signaler** de sa page d’aperçu (ajoutez `+` à l’adresse) ou la page de signalement du service. Pour une demande de retrait ou toute question sur vos données, utilisez les contacts des pages légales du service, `https://meshl.ink/legal` et `https://meshl.ink/privacy`, qui nomment aussi son éditeur.
+Un lien court reste valable 365 jours, puis cesse de fonctionner. Pour supprimer un lien ou un fichier que vous avez partagé, utilisez **Réglages → Partage : liens et fichiers → Mes envois** (membres et administrateurs ; un objet bloqué par le service ne peut pas être supprimé). Cette version de Meshloom n’a pas de bouton pour signaler un lien : pour en signaler un, utilisez le bouton **Signaler** de sa page d’aperçu (ajoutez `+` à l’adresse) ou la page de signalement du service. Pour une demande de retrait ou toute question sur vos données, utilisez les contacts des pages légales du service, `https://meshl.ink/legal` et `https://meshl.ink/privacy`, qui nomment aussi son éditeur.
 
 Pour le côté technique (ce que contient chaque requête, la clé et les jetons), voir [Sécurité](/docs/deep/security/#ce-qui-sort-de-votre-machine).

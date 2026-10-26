@@ -1,0 +1,51 @@
+{
+  "settings": {
+    "share": {
+      "cache": {
+        "title": "Copies locales",
+        "help": "Les images partagées que ce Meshloom a récupérées sont gardées ici pour ne pas les télécharger à nouveau. Les effacer libère de l'espace disque ; elles sont récupérées de nouveau quand quelqu'un les ouvre.",
+        "clear": "Vider le cache",
+        "cleared": "Cache vidé : {{size}} libérés."
+      },
+      "uploads": {
+        "title": "Mes envois",
+        "intro": "Liens et fichiers partagés depuis ce Meshloom. En supprimer un le retire du service de partage et du cache de ce Meshloom.",
+        "off": "Le partage est désactivé : ce Meshloom ne contacte pas le service de partage et ne peut pas lister ce qu'il a partagé. Les liens et fichiers déjà partagés restent en ligne jusqu'à leur expiration.",
+        "refresh": "Actualiser",
+        "loading": "Chargement…",
+        "empty": "Rien n'a encore été partagé depuis ce Meshloom.",
+        "error": "Impossible de charger la liste : {{error}}",
+        "more": "Afficher plus",
+        "columns": {
+          "kind": "Nature",
+          "what": "Type ou site",
+          "size": "Taille",
+          "expires": "Expiration",
+          "status": "État",
+          "actions": "Actions"
+        },
+        "kind": {
+          "link": "Lien",
+          "file": "Fichier",
+          "encrypted": "Fichier chiffré"
+        },
+        "status": {
+          "active": "En ligne",
+          "blocked": "Bloqué : {{category}}"
+        },
+        "blockedHelp": "Bloqué par le service de partage : il ne peut pas être supprimé. <contact>Contactez le service</contact> si vous contestez ce blocage.",
+        "never": "jamais",
+        "unknown": "—",
+        "delete": "Supprimer",
+        "deleteLabel": "Supprimer {{id}}",
+        "confirm": {
+          "title": "Supprimer cet envoi ?",
+          "body": "Il est retiré du service de partage et du cache de ce Meshloom. Les personnes qui ont le lien ne pourront plus l'ouvrir. Cette action est irréversible.",
+          "cancel": "Annuler",
+          "confirm": "Supprimer"
+        },
+        "deleted": "Supprimé."
+      }
+    }
+  }
+}

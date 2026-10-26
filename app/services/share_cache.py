@@ -35,7 +35,8 @@ default executor. No hand-written LRU, index or atomic write.
   so no plaintext and no key material ever reaches the cache. Bytes and strings are stored raw by
   diskcache, never pickled.
 
-Only validated objects are stored (``app/services/share.py``, ``read_object``).
+``delete`` drops one entry when its author deletes the object
+(``DELETE /api/share/{id}``). Only validated objects are stored (``app/services/share.py``, ``read_object``).
 Tests: ``tests/test_share_cache.py``.
 """
 
@@ -105,7 +106,7 @@ class ShareCache:
         self.ttl_s = ttl_s
         self._cache: diskcache.Cache | None = None
         self._lock = threading.Lock()  # opening
-        self._write_lock = threading.Lock()  # serialises _set / _clear
+        self._write_lock = threading.Lock()  # serialises _set / _clear / _delete
         self._lru_ok = True
         self._wal_retry_at = 0.0
 
@@ -264,6 +265,11 @@ class ShareCache:
             cache.clear()
             return max(0, before - cache.volume())
 
+    def _delete(self, key: str) -> bool:
+        cache: Any = self._open()
+        with self._write_lock:
+            return bool(cache.delete(key))
+
     def _count(self) -> int:
         cache: Any = self._open()
         return len(cache)
@@ -282,6 +288,10 @@ class ShareCache:
     async def clear(self) -> int:
         """Empty the cache; the bytes freed (``volume()`` before minus after)."""
         return await self._run(self._clear)
+
+    async def delete(self, key: str) -> bool:
+        """Drop one entry (an object its author deleted); True when one was stored."""
+        return await self._run(self._delete, key)
 
     async def volume(self) -> int:
         return await self._run(self._volume)

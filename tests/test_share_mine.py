@@ -1,0 +1,267 @@
+"""``GET /api/share/mine`` and ``DELETE /api/share/{id}`` (MSHL-247): roles, egress, eviction."""
+
+from __future__ import annotations
+
+import httpx
+import pytest
+
+from app.repository import AppSettingsRepository
+from app.services import share
+from app.services.share_cache import CachedObject, share_cache
+from tests.share_fakes import Dns, Recorder, json_response
+
+_RealAsyncClient = httpx.AsyncClient
+
+PNG_1X1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d4944415478da63f8cfc0f01f0005000201a5f6b1bd0000000049454e44ae426082"
+)
+MINE = {
+    "objects": [
+        {
+            "id": "AcTiVe1",
+            "kind": "file",
+            "status": "active",
+            "blocked_category": None,
+            "created_at": 1791000000,
+            "expires_at": 1791636000,
+            "mode": "public",
+            "content_type": "image/png",
+            "size": 68,
+            "future_member": "ignored",
+        },
+        {
+            "id": "BkQcKed",
+            "kind": "link",
+            "status": "blocked",
+            "blocked_category": "phishing",
+            "created_at": 1790000000,
+            "expires_at": 1798000000,
+            "target_host": "example.com",
+        },
+        {
+            "id": "EnCrYpt",
+            "kind": "file",
+            "status": "blocked",
+            "blocked_category": "a-new-category",
+            "mode": "encrypted",
+            "content_type": "application/octet-stream",
+            "size_kib": 12,
+        },
+        # Outside the contract: dropped, never shown.
+        {"id": "../etc", "kind": "file", "status": "active"},
+        {"id": "WeIrDkd", "kind": "folder", "status": "active"},
+    ],
+    "next_cursor": "c2",
+}
+
+
+def _service(request: httpx.Request) -> httpx.Response:
+    path = request.url.path
+    if path == "/v1/mine":
+        return json_response(200, MINE)
+    if request.method == "DELETE":
+        share_id = path.rsplit("/", 1)[1]
+        if share_id == "BkQcKed":
+            return json_response(410, {"code": "gone"})
+        if share_id == "UtHeRkY":
+            return json_response(403, {"code": "not_owner"})
+        if share_id == "MisSiNg":
+            return json_response(404, {"code": "not_found"})
+        return httpx.Response(204)
+    if path.startswith("/v1/meta/"):
+        return json_response(200, {"id": path.rsplit("/", 1)[1], "kind": "link"})
+    return httpx.Response(200, content=PNG_1X1, headers={"Content-Type": "image/png"})
+
+
+@pytest.fixture
+async def client():
+    from app.main import app
+
+    async with _RealAsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as c:
+        yield c
+
+
+@pytest.fixture
+async def on(test_db, monkeypatch):
+    await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
+    Dns(monkeypatch)
+    return Recorder(monkeypatch, _service)
+
+
+@pytest.fixture
+async def off(test_db, monkeypatch):
+    Dns(monkeypatch)
+    return Recorder(monkeypatch, _service)
+
+
+@pytest.fixture
+def anonymous(monkeypatch):
+    """Requests carry no credentials at all."""
+    from app.auth import middleware
+
+    async def _resolve(scope, headers, via, secure):
+        return middleware._Resolution()
+
+    monkeypatch.setattr(middleware, "resolve", _resolve)
+
+
+def _code(response: httpx.Response) -> str:
+    return response.json()["detail"]["code"]
+
+
+class TestList:
+    async def test_lists_the_contract_objects_only(self, on, client):
+        response = await client.get("/api/share/mine")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        body = response.json()
+        assert body["next_cursor"] == "c2"
+        assert [o["id"] for o in body["objects"]] == ["AcTiVe1", "BkQcKed", "EnCrYpt"]
+        active, blocked, encrypted = body["objects"]
+        assert active["blocked_category"] is None
+        assert "future_member" not in active
+        assert (blocked["status"], blocked["blocked_category"]) == ("blocked", "phishing")
+        assert blocked["target_host"] == "example.com"
+        # A category outside the contract list is shown as "other".
+        assert encrypted["blocked_category"] == "other"
+        assert encrypted["size_kib"] == 12
+        (request,) = on.requests
+        assert request.url.path == "/v1/mine"
+        assert request.url.params["limit"] == "100"
+        # Tokened: the binding is the literal "mine".
+        assert request.headers["authorization"].startswith("Bearer ")
+
+    async def test_passes_limit_and_cursor(self, on, client):
+        response = await client.get("/api/share/mine?limit=20&cursor=abc_-.~=")
+        assert response.status_code == 200
+        params = on.requests[0].url.params
+        assert (params["limit"], params["cursor"]) == ("20", "abc_-.~=")
+
+    @pytest.mark.parametrize(
+        "query",
+        ["?other=1", "?limit=1&limit=2", "?cursor=a%26limit%3D5", "?cursor=a/b"],
+    )
+    async def test_refuses_unexpected_queries_without_a_request(self, on, client, query):
+        response = await client.get(f"/api/share/mine{query}")
+        assert response.status_code == 400
+        assert _code(response) == "share_invalid_request"
+        assert on.requests == []
+
+    @pytest.mark.parametrize("query", ["?limit=0", "?limit=201", f"?cursor={'a' * 513}"])
+    async def test_refuses_out_of_bounds(self, on, client, query):
+        assert (await client.get(f"/api/share/mine{query}")).status_code == 422
+        assert on.requests == []
+
+    async def test_off_is_share_disabled_with_no_egress(self, off, client):
+        response = await client.get("/api/share/mine")
+        assert response.status_code == 403
+        assert _code(response) == "share_disabled"
+        assert off.requests == []
+
+    async def test_a_banned_instance_still_lists(self, on, client):
+        share._note_banned()
+        try:
+            response = await client.get("/api/share/mine")
+            assert response.status_code == 200
+            deleted = await client.delete("/api/share/AcTiVe1")
+            assert deleted.status_code == 403
+            assert _code(deleted) == "share_banned"
+        finally:
+            share.note_share_settings_changed(enabled=True)
+        assert [r.method for r in on.requests] == ["GET"]
+
+
+class TestDelete:
+    async def test_deletes_and_evicts_the_local_copies(self, on, client):
+        assert (await client.get("/api/share/AcTiVe1")).status_code == 200
+        assert (await client.get("/api/share/AcTiVe1/meta")).status_code == 200
+        assert await share_cache().get("AcTiVe1") is not None
+        on.requests.clear()
+        response = await client.delete("/api/share/AcTiVe1")
+        assert response.status_code == 204
+        (request,) = on.requests
+        assert (request.method, request.url.path) == ("DELETE", "/v1/objects/AcTiVe1")
+        assert request.headers["authorization"].startswith("Bearer ")
+        assert await share_cache().get("AcTiVe1") is None
+        # Remembered as gone: neither the bytes nor the meta are asked again.
+        for path in ("/api/share/AcTiVe1", "/api/share/AcTiVe1/meta"):
+            gone = await client.get(path)
+            assert gone.status_code == 410
+        assert len(on.requests) == 1
+
+    async def test_blocked_is_not_deletable_and_is_evicted(self, on, client):
+        await share_cache().set("BkQcKed", CachedObject(content=PNG_1X1, content_type="image/png"))
+        response = await client.delete("/api/share/BkQcKed")
+        assert response.status_code == 409
+        assert _code(response) == "share_object_blocked"
+        assert await share_cache().get("BkQcKed") is None
+
+    async def test_another_keys_object_is_not_owner(self, on, client):
+        await share_cache().set("UtHeRkY", CachedObject(content=PNG_1X1, content_type="image/png"))
+        response = await client.delete("/api/share/UtHeRkY")
+        assert response.status_code == 403
+        assert _code(response) == "share_not_owner"
+        # Not ours, still there: a reader of that message keeps its copy.
+        assert await share_cache().get("UtHeRkY") is not None
+
+    async def test_unknown_is_not_found(self, on, client):
+        response = await client.delete("/api/share/MisSiNg")
+        assert response.status_code == 404
+        assert _code(response) == "share_not_found"
+
+    async def test_bad_id_makes_no_request(self, on, client):
+        response = await client.delete("/api/share/bad-id!")
+        assert response.status_code == 400
+        assert _code(response) == "share_invalid_id"
+        assert on.requests == []
+
+    async def test_off_is_share_disabled_with_no_egress(self, off, client):
+        response = await client.delete("/api/share/AcTiVe1")
+        assert response.status_code == 403
+        assert _code(response) == "share_disabled"
+        assert off.requests == []
+
+    async def test_cross_site_is_refused(self, on, client):
+        response = await client.delete(
+            "/api/share/AcTiVe1", headers={"Sec-Fetch-Site": "cross-site"}
+        )
+        assert response.status_code == 403
+        # The auth middleware's origin check refuses it first; the route guard backs it up.
+        assert _code(response) in {"auth_origin_rejected", "share_cross_site"}
+        assert on.requests == []
+
+
+class TestRoles:
+    @pytest.mark.parametrize(
+        ("role", "allowed"),
+        [("kiosk", False), ("viewer", False), ("member", True), ("admin", True)],
+    )
+    async def test_only_members_and_admins_list_and_delete(
+        self, on, client, sign_in_as, role, allowed
+    ):
+        sign_in_as(role)
+        listed = await client.get("/api/share/mine")
+        deleted = await client.delete("/api/share/AcTiVe1")
+        if allowed:
+            assert (listed.status_code, deleted.status_code) == (200, 204)
+            assert len(on.requests) == 2
+        else:
+            assert (listed.status_code, deleted.status_code) == (403, 403)
+            assert on.requests == []
+
+    async def test_unauthenticated_cannot_list_or_delete(self, on, client, anonymous):
+        listed = await client.get("/api/share/mine")
+        deleted = await client.delete("/api/share/AcTiVe1")
+        assert listed.status_code == 401
+        assert deleted.status_code == 401
+        assert on.requests == []
+
+    async def test_cache_clear_stays_admin_only(self, on, client, sign_in_as):
+        for role in ("kiosk", "viewer", "member"):
+            sign_in_as(role)
+            assert (await client.post("/api/share/cache/clear")).status_code == 403
+        sign_in_as("admin")
+        assert (await client.post("/api/share/cache/clear")).status_code == 200

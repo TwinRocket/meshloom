@@ -1657,6 +1657,36 @@ export interface ShareMeta {
   decryptable?: boolean | null;
 }
 
+/**
+ * One object this instance posted (`GET /api/share/mine`). A link carries `target_host`;
+ * a file `mode`, `content_type` and `size` (bytes, public) or `size_kib` (encrypted).
+ * A blocked object carries `blocked_category` and cannot be deleted by its author.
+ */
+export interface ShareMineObject {
+  id: string;
+  kind: 'link' | 'file';
+  status: 'active' | 'blocked';
+  blocked_category: ShareReportReason | null;
+  created_at: number | null;
+  expires_at: number | null;
+  target_host: string | null;
+  mode: 'public' | 'encrypted' | null;
+  content_type: string | null;
+  size: number | null;
+  size_kib: number | null;
+}
+
+/** One page of `GET /api/share/mine`, newest first; `next_cursor` null on the last. */
+export interface ShareMine {
+  objects: ShareMineObject[];
+  next_cursor: string | null;
+}
+
+/** `POST /api/share/cache/clear` answer (admin). */
+export interface ShareCacheClear {
+  freed_bytes: number;
+}
+
 /** The contract's report reasons (`POST /api/share/{id}/report`). */
 export const SHARE_REPORT_REASONS = [
   'illegal',

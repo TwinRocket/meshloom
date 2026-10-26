@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
-import { formatApiError } from '../../api';
+import { api, formatApiError } from '../../api';
+import { useCapabilities } from '../../auth/SessionProvider';
 import type {
   AppSettingsUpdate,
   SharePreviewPolicy,
@@ -24,6 +25,7 @@ import { Label } from '../ui/label';
 import { Separator } from '../ui/separator';
 import { toast } from '../ui/sonner';
 import { SettingsGroupHeader } from './settingsPrimitives';
+import { formatShareBytes, ShareUploadsList } from './ShareUploadsList';
 
 // Same contact as the Community ban banner (SettingsCommunitySection).
 const SHARE_BAN_CONTACT_EMAIL = 'ban@meshloom.app';
@@ -165,6 +167,69 @@ export function ShareConsentDialog({
   );
 }
 
+/**
+ * Admin: empties the local object cache (`POST /api/share/cache/clear`, no request to the
+ * service, works with sharing off) and says how much it freed.
+ */
+function ShareCacheControl() {
+  const { t, i18n } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [freed, setFreed] = useState<number | null>(null);
+
+  const clear = async () => {
+    setBusy(true);
+    try {
+      const { freed_bytes } = await api.clearShareCache();
+      setFreed(freed_bytes);
+    } catch (err) {
+      toast.error(formatApiError(err, t));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section data-testid="share-cache" className="space-y-1.5">
+      <h4 className="text-[0.8125rem] font-medium">{t('settings.share.cache.title')}</h4>
+      <p className="text-[0.8125rem] text-muted-foreground">{t('settings.share.cache.help')}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void clear()}
+          disabled={busy}
+        >
+          {t('settings.share.cache.clear')}
+        </Button>
+        {freed !== null && (
+          <span
+            role="status"
+            data-testid="share-cache-freed"
+            className="text-[0.8125rem] text-muted-foreground"
+          >
+            {t('settings.share.cache.cleared', { size: formatShareBytes(freed, i18n.language) })}
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** "My uploads" while sharing is on; off, why there is no list. */
+function ShareUploads({ status }: { status: ShareStatus }) {
+  const { t } = useTranslation();
+  if (!status.enabled) {
+    return (
+      <section data-testid="share-uploads-off" className="space-y-1">
+        <h4 className="text-[0.8125rem] font-medium">{t('settings.share.uploads.title')}</h4>
+        <p className="text-[0.8125rem] text-muted-foreground">{t('settings.share.uploads.off')}</p>
+      </section>
+    );
+  }
+  return <ShareUploadsList host={status.host} />;
+}
+
 function StatusLine({ status }: { status: ShareStatus }) {
   const { t, i18n } = useTranslation();
   const yes = t('settings.share.status.yes');
@@ -203,6 +268,7 @@ export function SettingsShareSection({
   onSaveAppSettings: (update: AppSettingsUpdate) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const { isAdmin, canSend } = useCapabilities();
   const status = useShareStatus();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [consentOpen, setConsentOpen] = useState(false);
@@ -238,6 +304,19 @@ export function SettingsShareSection({
         <p className="text-[0.8125rem] text-muted-foreground">
           {loadError ?? t('settings.share.loading')}
         </p>
+      </div>
+    );
+  }
+
+  // A member opens this section for "My uploads" only: every setting is admin-only
+  // (`PATCH /api/settings`, `POST /api/share/cache/clear`) and hidden from them.
+  if (!isAdmin) {
+    return (
+      <div className={className}>
+        <div className="space-y-1">
+          <SettingsGroupHeader title={t('settings.share.title')} storedOn="server" />
+        </div>
+        {canSend && <ShareUploads status={status} />}
       </div>
     );
   }
@@ -365,6 +444,14 @@ export function SettingsShareSection({
           </label>
         ))}
       </fieldset>
+
+      <Separator />
+
+      <ShareCacheControl />
+
+      <Separator />
+
+      <ShareUploads status={status} />
 
       <ShareConsentDialog
         status={status}

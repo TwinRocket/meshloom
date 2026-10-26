@@ -3518,6 +3518,35 @@ class ShareReportResponse(BaseModel):
     received: bool = True
 
 
+class ShareMineItem(BaseModel):
+    """One object this instance posted (``GET /api/share/mine``).
+
+    A link carries ``target_host``; a file ``mode``, ``content_type`` and
+    ``size`` (bytes, public) or ``size_kib`` (encrypted, rounded up). A blocked
+    object carries ``blocked_category`` (one of the report reasons) and cannot
+    be deleted by its author.
+    """
+
+    id: str
+    kind: Literal["link", "file"]
+    status: Literal["active", "blocked"]
+    blocked_category: ShareReportReason | None = None
+    created_at: int | None = None
+    expires_at: int | None = None
+    target_host: str | None = None
+    mode: Literal["public", "encrypted"] | None = None
+    content_type: str | None = None
+    size: int | None = None
+    size_kib: int | None = None
+
+
+class ShareMineResponse(BaseModel):
+    """One page of ``GET /api/share/mine``, newest first; ``next_cursor`` null on the last."""
+
+    objects: list[ShareMineItem]
+    next_cursor: str | None = None
+
+
 class StoreStatus(BaseModel):
     """``GET /api/store/status``: what the Store activation card says. No egress."""
 

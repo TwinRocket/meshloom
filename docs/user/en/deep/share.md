@@ -66,6 +66,6 @@ Messages and errors you may see, and what they mean:
 
 ## Retention, removal and contact
 
-A short link stays valid for 365 days, then stops working. This version of Meshloom has no button to delete or report a link: to report a link, use the **Report** button of its preview page (add `+` to the address) or the service's report page. For a removal request or any question about your data, use the contacts on the service's legal pages, `https://meshl.ink/legal` and `https://meshl.ink/privacy`, which also name its publisher.
+A short link stays valid for 365 days, then stops working. To delete a link or file you shared, use **Settings → Share: links and files → My uploads** (members and administrators; an object the service blocked cannot be deleted). This version of Meshloom has no button to report a link: to report one, use the **Report** button of its preview page (add `+` to the address) or the service's report page. For a removal request or any question about your data, use the contacts on the service's legal pages, `https://meshl.ink/legal` and `https://meshl.ink/privacy`, which also name its publisher.
 
 For the technical side (what each request holds, the key and the tokens), see [Security](/en/docs/deep/security/#what-leaves-your-machine).

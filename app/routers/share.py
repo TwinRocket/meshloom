@@ -27,6 +27,10 @@ ever logged, returned or sent.
 
 ``POST /{id}/report`` forwards a report (``reason``, optional ``details``) to the
 service, signed with the instance key (``share.report_object``).
+
+``GET /mine`` lists what this instance posted and ``DELETE /{id}`` deletes one
+of them (both ``send``, member+; the delete also evicts the local cache entry).
+``POST /cache/clear`` (admin) empties the local object cache.
 """
 
 from __future__ import annotations
@@ -49,6 +53,8 @@ from app.models import (
     ShareLinkRequest,
     ShareLinkResponse,
     ShareMetaResponse,
+    ShareMineItem,
+    ShareMineResponse,
     ShareReportRequest,
     ShareReportResponse,
     ShareStatus,
@@ -342,6 +348,60 @@ async def _encrypted_meta(share_id: str, message: Message | None) -> dict[str, o
         "name": name,
         "size": len(image.content),
     }
+
+
+_MINE_QUERY = frozenset({"limit", "cursor"})
+
+
+# Declared before ``GET /{share_id}``: ``mine`` is never read as an id.
+@router.get(
+    "/mine",
+    response_model=ShareMineResponse,
+    dependencies=[Depends(require("send"))],
+)
+async def list_my_share_objects(
+    request: Request,
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=share.MINE_LIMIT_MAX),
+    cursor: str | None = Query(default=None, min_length=1, max_length=512),
+) -> ShareMineResponse:
+    """What this instance posted (``GET /v1/mine``): active and blocked objects, newest first.
+
+    ``send`` (member+): the list names hosts and files an author posted, so a
+    viewer or kiosk never reads it. Off answers ``share_disabled`` with no request.
+    """
+    keys = [key for key, _ in request.query_params.multi_items()]
+    if any(key not in _MINE_QUERY for key in keys) or len(keys) != len(set(keys)):
+        raise ShareError("share_invalid_request")
+    if await share.share_egress_state() is None:
+        raise ShareError("share_disabled")
+    response.headers["Cache-Control"] = "no-store"
+    page = await share.list_mine(limit, cursor)
+    return ShareMineResponse(
+        objects=[ShareMineItem.model_validate(obj.model_dump()) for obj in page.objects],
+        next_cursor=page.next_cursor,
+    )
+
+
+@router.delete(
+    "/{share_id}",
+    status_code=204,
+    dependencies=[Depends(require("send")), Depends(refuse_cross_site)],
+)
+async def delete_share_object(share_id: str) -> Response:
+    """Delete an object this instance posted (``DELETE /v1/objects/{id}``), then evict it locally.
+
+    A blocked object is 409 ``share_object_blocked`` (the author cannot delete
+    it), another key's 403 ``share_not_owner``. The disk-cache entry and the
+    cached meta go on success and whenever the object is gone or unknown.
+    """
+    # Off first: a disabled instance answers share_disabled whatever the id.
+    if await share.share_egress_state() is None:
+        raise ShareError("share_disabled")
+    if not share.is_share_id(share_id):
+        raise ShareError("share_invalid_id")
+    await share.delete_object(share_id)
+    return Response(status_code=204)
 
 
 @router.get(

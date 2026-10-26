@@ -39,6 +39,10 @@ class TtlLruCache(Generic[K, V]):
         while len(self._data) > self.maxsize:
             self._data.popitem(last=False)
 
+    def pop(self, key: K) -> V | None:
+        item = self._data.pop(key, None)
+        return None if item is None else item[1]
+
     def purge_expired(self, now: float) -> int:
         expired = [key for key, (expires_at, _) in self._data.items() if expires_at <= now]
         for key in expired:

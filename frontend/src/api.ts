@@ -158,7 +158,9 @@ import type {
   TraceResponse,
   UnreadCounts,
   ShareLink,
+  ShareCacheClear,
   ShareMeta,
+  ShareMine,
   ShareReportRequest,
   PluginInstance,
   ShareFile,
@@ -1387,6 +1389,14 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  /** What this instance posted (member+), newest first; `cursor` is the previous `next_cursor`. */
+  listShareMine: (cursor?: string) =>
+    fetchJson<ShareMine>(`/share/mine${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
+  /** Delete one of this instance's objects (member+); a blocked one answers 409. */
+  deleteShare: (id: string) =>
+    fetchJson<void>(`/share/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** Empty the local object cache (admin); no request to the service. */
+  clearShareCache: () => fetchJson<ShareCacheClear>('/share/cache/clear', { method: 'POST' }),
   // Notifications (admin). The push preference routes below are deprecated shims, removed
   // in 5.2.0: use the rules.
   getNotificationTypes: () => fetchJson<NotificationTypeInfo[]>('/notifications/types'),

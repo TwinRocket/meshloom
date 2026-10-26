@@ -30,11 +30,13 @@ const ROLE_CAPABILITIES: Record<AuthRole, readonly Capability[]> = {
 const ACCOUNT_SETTINGS_SECTIONS: readonly SettingsSection[] = ['local', 'access'];
 
 /**
- * Settings sections opened read-only by a role holding `send` (member and up): the
- * plugin list and statuses are member-readable (`GET /plugins`, `GET /plugins/pause`),
- * every write stays admin-only and the section hides it (`SettingsExtensionsSection`).
+ * Settings sections opened by a role holding `send` (member and up): the plugin list and
+ * statuses are member-readable (`GET /plugins`, `GET /plugins/pause`), every write stays
+ * admin-only and the section hides it (`SettingsExtensionsSection`); in `share` a member
+ * sees only "My uploads" (`GET /api/share/mine`, `DELETE /api/share/{id}`, both `send`),
+ * never the settings (`SettingsShareSection`).
  */
-const MEMBER_SETTINGS_SECTIONS: readonly SettingsSection[] = ['extensions'];
+const MEMBER_SETTINGS_SECTIONS: readonly SettingsSection[] = ['extensions', 'share'];
 
 export interface Capabilities {
   /** The role these were derived from; null when nobody is known (tests, previews). */
