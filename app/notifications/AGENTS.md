@@ -93,7 +93,9 @@ This file is a hypothesis: check it against the code.
   invalidate them: it is unsupported, and a change made that way is seen after a restart.
 - **Journal.** 200 `notification_deliveries` rows per channel (trimmed at insert, plus the
   daily `prune_deliveries()`); successes are counted per channel and hour
-  (`notification_counters`); `notification_state` holds the dedup keys (`dedup:*`), the pending secrets of a restored channel, with an expiry.
+  (`notification_counters`); held-by-quiet-hours and grouped rows are also counted per hour in
+  `notification_state` (`stat:<status>:<hour>:<channel>`, same transaction as the journal rows,
+  read by `window_totals()` for `GET /deliveries` `totals`); `notification_state` holds the dedup keys (`dedup:*`), the pending secrets of a restored channel, with an expiry.
 - **The rules decide, the shims keep the 4.18.x columns in step.** The producers emit events
   (`producers.py`) and the rules choose the channels. The deprecated routes
   (`/api/push/preferences*`, `PATCH /api/settings` with `notification_destinations`) still write

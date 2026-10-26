@@ -41,6 +41,12 @@ from app.secret_fields import REDACTED, destination_changed
 logger = logging.getLogger(__name__)
 
 DELIVERIES_PER_CHANNEL = 200
+# Journal statuses counted per channel and hour in ``notification_state`` (keys
+# ``stat:<status>:<hour>:<channel_id>``, expiring after the 24 h window): the cards show
+# exact "held" and "grouped" figures although the ring keeps only 200 rows.
+STAT_PREFIX = "stat:"
+STAT_STATUSES = ("suppressed_quiet", "aggregated")
+STAT_WINDOW_H = 24
 LAST_ERROR_MAX = 200
 
 _cache: dict[str, Channel] | None = None
@@ -491,6 +497,14 @@ class NotificationChannelRepository:
                 "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
             )
             # quiet-hours and pause counters (``quiet_hours.py``), also per account
+            async with conn.execute(
+                "SELECT key FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
+                (_like_prefix(STAT_PREFIX),),
+            ) as cursor:
+                stat_keys = [r[0] for r in await cursor.fetchall()]
+            for key in stat_keys:
+                if key.split(":", 3)[3:] == [channel_id]:
+                    await conn.execute("DELETE FROM notification_state WHERE key = ?", (key,))
             for prefix in ("quiet:", "pause:"):
                 for sep in (":", "@"):
                     await conn.execute(
@@ -711,6 +725,24 @@ class NotificationJournalRepository:
                     for row in rows
                 ],
             )
+            hour = now // 3600
+            tallies: dict[tuple[str, str], int] = {}
+            for row in rows:
+                if row["status"] in STAT_STATUSES:
+                    key = (row["status"], row["channel_id"])
+                    tallies[key] = tallies.get(key, 0) + 1
+            for (status, channel_id), amount in tallies.items():
+                await conn.execute(
+                    "INSERT INTO notification_state (key, value, expires_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET "
+                    "value = CAST(CAST(value AS INTEGER) + ? AS TEXT)",
+                    (
+                        f"{STAT_PREFIX}{status}:{hour}:{channel_id}",
+                        str(amount),
+                        (hour + STAT_WINDOW_H + 1) * 3600,
+                        amount,
+                    ),
+                )
             for channel_id in {row["channel_id"] for row in rows}:
                 await conn.execute(
                     "DELETE FROM notification_deliveries WHERE channel_id = ? AND id NOT IN "
@@ -782,6 +814,30 @@ class NotificationJournalRepository:
         async with db.readonly() as conn:
             async with conn.execute(query + " ORDER BY hour", params) as cursor:
                 return [dict(row) for row in await cursor.fetchall()]
+
+    @staticmethod
+    async def window_totals(channel_id: str | None, now: int | None = None) -> dict[str, int]:
+        """Exact counts of the last 24 hours: ``sent`` (hourly counters), ``suppressed_quiet``
+        (held by the quiet hours) and ``aggregated`` (folded into a summary), for one channel
+        or all of them."""
+        since_hour = (int(time.time()) if now is None else now) // 3600 - (STAT_WINDOW_H - 1)
+        totals = {"sent": 0, **dict.fromkeys(STAT_STATUSES, 0)}
+        for row in await NotificationJournalRepository.hourly_counts(channel_id, since_hour):
+            totals["sent"] += row["sent"]
+        async with db.readonly() as conn:
+            for status in STAT_STATUSES:
+                async with conn.execute(
+                    "SELECT key, value FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
+                    (_like_prefix(f"{STAT_PREFIX}{status}:"),),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                for key, value in rows:
+                    hour_text, _, owner = key[len(STAT_PREFIX) + len(status) + 1 :].partition(":")
+                    if (channel_id is not None and owner != channel_id) or not hour_text.isdigit():
+                        continue
+                    if int(hour_text) >= since_hour:
+                        totals[status] += int(value)
+        return totals
 
     @staticmethod
     async def prune_counters(before_hour: int) -> None:

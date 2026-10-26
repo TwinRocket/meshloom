@@ -272,7 +272,7 @@ Chaque canal a des limites par minute, par heure et, pour certains, par jour. Le
 
 Dans la fenêtre de modification d’un canal, **Avancé** ouvre les limites du canal par minute, par heure et par jour, avec la valeur par défaut du type sous chaque champ (un champ vide la garde), et la case **Exempté des heures calmes** (la même que sur la carte). Le groupe des heures calmes, avec le fuseau horaire de la machine, est dans les règles ; l’en-tête de la colonne **Toujours livrer** du tableau y renvoie.
 
-Chaque carte a un bouton **Journal d’envoi**. Il ouvre un tiroir avec les 50 dernières entrées du journal du canal (heure, événement, pastille d’état comme *Échec*, *Groupée*, *Heures calmes*, *Limitée*, *Limite quotidienne*, et l’erreur sous forme de code court traduit, jamais un texte de message), le nombre de notifications envoyées sur les dernières 24 heures et un bouton **Actualiser**. Sur la carte, une ligne indique, quand il y en a, combien de notifications ont été retenues pendant les heures calmes et combien ont été regroupées en un résumé sur les dernières 24 heures. Quand Meshloom atteint son plafond horaire global (voir plus haut), un bandeau en haut de la liste des canaux l’indique (`notifications_capped` dans `/api/health`).
+Chaque carte a un bouton **Journal d’envoi**. Il ouvre un tiroir avec les 50 dernières entrées du journal du canal (heure, nom de l’événement, pastille d’état comme *Échec*, *Groupée*, *Heures calmes*, *Limitée*, *Limite quotidienne*, et l’erreur sous forme de texte court traduit, jamais un texte de message ; un code sans traduction s’affiche « Échec de l’envoi (code) »), le nombre de notifications envoyées sur les dernières 24 heures et un bouton **Actualiser**. Sur la carte, une ligne indique, quand il y en a, combien de notifications ont été retenues pendant les heures calmes et combien ont été regroupées en un résumé sur les dernières 24 heures. Ces deux chiffres sont exacts (le journal lui-même ne garde que les 200 dernières entrées par canal). Quand Meshloom atteint son plafond horaire global (voir plus haut), un bandeau en haut de la liste des canaux l’indique (`notifications_capped` dans `/api/health`).
 
 ## Tester un canal
 
@@ -339,7 +339,7 @@ Les administrateurs gèrent les canaux sous `/api/notifications` :
 | POST | `/api/notifications/channels/{id}/test` | Envoie un test ; un par 5 secondes et par canal, puis `429 rate_limited` |
 | GET, PATCH | `/api/notifications/rules` | Canaux par événement, `always_deliver`, pause globale (`paused_until`), délai de radio hors ligne |
 | PUT | `/api/notifications/rules/conversations/{key}` | Canaux d’une conversation (`{"channels": {"id": true}}`, ou `null` pour effacer) |
-| GET | `/api/notifications/deliveries` | Le journal des envois (échecs et suppressions, jamais le texte) et les compteurs horaires |
+| GET | `/api/notifications/deliveries` | Le journal des envois (échecs et suppressions, jamais le texte) et les compteurs horaires, plus les `totals` exacts sur 24 h (`sent`, `suppressed_quiet`, `aggregated`) |
 | GET | `/api/notifications/events` | Le catalogue des événements |
 
 

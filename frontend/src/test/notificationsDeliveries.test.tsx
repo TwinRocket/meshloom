@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
@@ -251,6 +252,45 @@ describe('delivery log', () => {
     await waitFor(() => expect(list.mock.calls.length).toBe(calls + 1));
   });
 
+  it('takes the card counters from the exact server totals, not from the rows', async () => {
+    mockApi();
+    vi.spyOn(api, 'getNotificationDeliveries').mockImplementation(async ({ channel } = {}) =>
+      channel === 'ntfy-aaaaaaaa'
+        ? {
+            deliveries: [],
+            counters: [],
+            totals: { sent: 9, suppressed_quiet: 312, aggregated: 41 },
+          }
+        : { deliveries: [], counters: [] }
+    );
+    render(<Harness />);
+    const counters = await screen.findByTestId('channel-counters-ntfy-aaaaaaaa');
+    expect(counters).toHaveTextContent(t('settings.notifications.log.suppressed', { count: 312 }));
+    expect(counters).toHaveTextContent(t('settings.notifications.log.grouped', { count: 41 }));
+  });
+
+  it('falls back to a generic translated text for an unknown error code', async () => {
+    mockApi();
+    const row = { ...DELIVERIES.deliveries[0], id: 20, error: 'brand_new_code' };
+    vi.spyOn(api, 'getNotificationDeliveries').mockResolvedValue({
+      ...DELIVERIES,
+      deliveries: [row],
+    });
+    render(<Harness />);
+    const card = await screen.findByTestId('channel-card-ntfy-aaaaaaaa');
+    fireEvent.click(
+      within(card).getByRole('button', { name: t('settings.notifications.log.open') })
+    );
+    const line = await screen.findByTestId('delivery-row-20');
+    expect(line).toHaveTextContent(
+      t('settings.notifications.log.errorGeneric', { code: 'brand_new_code' })
+    );
+    expect(line).toHaveTextContent('Delivery failed (brand_new_code)');
+    await i18n.changeLanguage('fr');
+    expect(t('settings.notifications.log.errorGeneric', { code: 'x' })).toContain('(x)');
+    expect(t('settings.notifications.log.errorGeneric', { code: 'x' })).not.toContain('Delivery');
+  });
+
   it('shows the empty state', async () => {
     mockApi();
     vi.spyOn(api, 'getNotificationDeliveries').mockResolvedValue({ deliveries: [], counters: [] });
@@ -260,5 +300,49 @@ describe('delivery log', () => {
       within(card).getByRole('button', { name: t('settings.notifications.log.open') })
     );
     expect(await screen.findByText(t('settings.notifications.log.empty'))).toBeInTheDocument();
+  });
+});
+
+describe('delivery log event labels', () => {
+  const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+  /** Every name the dispatcher can write in the journal: the catalogue plus the summaries. */
+  function backendEventNames(): string[] {
+    const events = read('../../../app/notifications/events.py');
+    const block = /EVENT_IDS[^=]*=\s*\(([\s\S]*?)\n\)/.exec(events)?.[1] ?? '';
+    const ids = [...block.matchAll(/"([a-z_.]+)"/g)].map((m) => m[1]);
+    const dispatcher = read('../../../app/notifications/dispatcher.py');
+    const quiet = read('../../../app/notifications/quiet_hours.py');
+    const extra = [
+      /^GROUPED_EVENT = "([a-z_]+)"/m.exec(dispatcher)?.[1],
+      /^FIRST_SEEN_GROUPED_EVENT = "([a-z_]+)"/m.exec(dispatcher)?.[1],
+      /^DIGEST_EVENT = "([a-z_]+)"/m.exec(quiet)?.[1],
+    ];
+    return [...ids, ...extra].filter((id): id is string => Boolean(id));
+  }
+
+  it('has an English and a French label for every event the backend can log', async () => {
+    const names = backendEventNames();
+    expect(names.length).toBeGreaterThanOrEqual(16);
+    for (const lng of ['en', 'fr']) {
+      await i18n.changeLanguage(lng);
+      for (const name of names) {
+        const key = `settings.notifications.log.events.${name.replace(/\./g, '_')}`;
+        expect(i18n.exists(key), `${lng} ${key}`).toBe(true);
+      }
+    }
+  });
+
+  it('shows the translated name in the drawer', async () => {
+    mockApi();
+    vi.spyOn(api, 'getNotificationDeliveries').mockResolvedValue(DELIVERIES);
+    render(<Harness />);
+    const card = await screen.findByTestId('channel-card-ntfy-aaaaaaaa');
+    fireEvent.click(
+      within(card).getByRole('button', { name: t('settings.notifications.log.open') })
+    );
+    const row = await screen.findByTestId('delivery-row-7');
+    expect(row).toHaveTextContent('Mention');
+    expect(row).not.toHaveTextContent('message.mention');
   });
 });

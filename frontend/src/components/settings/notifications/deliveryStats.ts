@@ -22,8 +22,8 @@ export interface ChannelDeliveryStats {
   grouped: number;
 }
 
-export function sentLast24h(counters: NotificationDeliveries['counters']): number {
-  return counters.reduce((sum, row) => sum + row.sent, 0);
+export function sentLast24h(data: Pick<NotificationDeliveries, 'counters' | 'totals'>): number {
+  return data.totals?.sent ?? data.counters.reduce((sum, row) => sum + row.sent, 0);
 }
 
 function inLast24h(row: NotificationDelivery, nowS: number): boolean {
@@ -34,9 +34,18 @@ export function deliveryStats(
   data: NotificationDeliveries,
   nowS: number = Date.now() / 1000
 ): ChannelDeliveryStats {
+  const { totals } = data;
+  if (totals) {
+    // Exact figures of the server (the journal keeps only 200 rows per channel).
+    return {
+      sent24h: sentLast24h(data),
+      suppressed: totals.suppressed_quiet,
+      grouped: totals.aggregated,
+    };
+  }
   const recent = data.deliveries.filter((row) => inLast24h(row, nowS));
   return {
-    sent24h: sentLast24h(data.counters),
+    sent24h: sentLast24h(data),
     suppressed: recent.filter((row) => row.status === 'suppressed_quiet').length,
     grouped: recent.filter((row) => row.status === 'aggregated').length,
   };

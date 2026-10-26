@@ -580,10 +580,12 @@ async def list_deliveries(
     limit: int = Query(50, ge=1, le=DELIVERIES_PER_CHANNEL),
 ) -> dict[str, Any]:
     """The journal (failures, suppressions, groupings: never the text) and the hourly send
-    counters of the last 24 hours, for one channel or all."""
+    counters of the last 24 hours, for one channel or all. ``totals`` holds the exact 24 h
+    figures ``sent``, ``suppressed_quiet`` and ``aggregated`` (the journal keeps 200 rows)."""
     if channel is not None and await NotificationChannelRepository.get(channel) is None:
         raise fail("channel_missing", 404)
     rows = await NotificationJournalRepository.list_deliveries(channel, limit)
     since_hour = int(time.time()) // 3600 - 23
     counters = await NotificationJournalRepository.hourly_counts(channel, since_hour)
-    return {"deliveries": rows, "counters": counters}
+    totals = await NotificationJournalRepository.window_totals(channel)
+    return {"deliveries": rows, "counters": counters, "totals": totals}
