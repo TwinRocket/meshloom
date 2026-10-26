@@ -77,6 +77,7 @@ class MessageData(_Model):
     sender_name: str = ""
     channel_name: str = Field("", description="Empty for a direct message.")
     mention: bool = False
+    keyword: str = Field("", description="message.keyword: the pattern of the rule that fired.")
 
 
 class FirstSeenData(_Model):
@@ -201,6 +202,7 @@ _EVENTS: tuple[tuple[str, type[_Model], str], ...] = (
     ("message.dm", MessageData, "A direct message."),
     ("message.channel", MessageData, "A channel message."),
     ("message.mention", MessageData, "A channel message that names the radio."),
+    ("message.keyword", MessageData, "A message that holds a keyword rule's pattern."),
     ("contact.first_seen", FirstSeenData, "A node heard for the first time."),
     ("channel.found", ChannelFoundData, "A # channel found active."),
     ("telemetry.alert", TelemetryAlertData, "A telemetry rule fired."),
@@ -288,7 +290,7 @@ def _int(value: Any) -> int:
 
 def _event_data(event: ev.NotificationEvent, payload: Mapping[str, Any], policy: str) -> _Model:
     d = event.data
-    if isinstance(event, ev.MessageEvent | ev.MentionEvent):
+    if isinstance(event, ev.MessageEvent | ev.MentionEvent | ev.KeywordEvent):
         withheld = policy == "never" or (
             policy == "public_only" and not message_text_is_public(payload)
         )
@@ -298,6 +300,7 @@ def _event_data(event: ev.NotificationEvent, payload: Mapping[str, Any], policy:
             sender_name=d.sender_name,
             channel_name=d.channel_name,
             mention=bool(d.mention) or isinstance(event, ev.MentionEvent),
+            keyword=d.keyword,
         )
     if isinstance(event, ev.FirstSeenEvent):
         return FirstSeenData(
