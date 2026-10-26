@@ -75,6 +75,8 @@ def test_defaults_and_normalisation():
         ({"channels": ["builtin:push"]}, "channels"),
         ({"channels": "k"}, "channels"),
         ({"cooldown_s": -1}, "cooldown_s"),
+        ({"cooldown_s": 0}, "cooldown_s"),
+        ({"cooldown_s": wn.MIN_COOLDOWN_S - 1}, "cooldown_s"),
         ({"cooldown_s": True}, "cooldown_s"),
         ({"cooldown_s": wn.MAX_COOLDOWN_S + 1}, "cooldown_s"),
         ({"silence_s": 10}, "silence_s"),
@@ -85,6 +87,10 @@ def test_invalid_entries(over, field):
     with pytest.raises(wn.WatchedNodeError) as err:
         wn.clean_entry(_node(**over))
     assert err.value.args[0] == field
+
+
+def test_the_minimum_cooldown_is_accepted():
+    assert wn.clean_entry(_node(cooldown_s=wn.MIN_COOLDOWN_S))["cooldown_s"] == 60
 
 
 def test_the_limit_is_50_and_keys_are_unique():
@@ -222,6 +228,7 @@ async def test_api_roundtrip_and_limits(test_db, client):
         {"public_key": KEY, "channels": [], "cooldown_s": 3600, "silence_s": 86_400}
     ]
     for bad in (
+        [{"public_key": KEY, "cooldown_s": 0}],
         [{"public_key": "nope"}],
         [{"public_key": KEY, "channels": ["missing"]}],
         [{"public_key": KEY, "channels": ["builtin:push"]}],
@@ -287,31 +294,87 @@ def test_titles():
 
 
 async def test_an_advert_from_a_watched_node_goes_through_the_service(clock, emitted, monkeypatch):
+    from app.radio import radio_manager
+
+    monkeypatch.setattr(radio_manager, "_setup_complete", True)
+    await _watch(_node(cooldown_s=60, silence_s=3600))
+    await _advert(OTHER, T0)  # not watched
+    assert emitted == []
+    await _advert(KEY, T0)
+    clock[0] += 7200
+    await _advert(KEY, T0 + 7200)
+    assert [e["event"] for e in emitted] == ["contact.node_seen", "contact.node_back"]
+    assert emitted[0]["payload"]["name"] == "Hilltop"
+
+
+async def _advert(key, at):
     from unittest.mock import MagicMock, patch
 
     from app.decoder import ParsedAdvertisement
     from app.packet_processor import _process_advertisement
+
+    with (
+        patch("app.packet_processor.broadcast_event"),
+        patch("app.packet_processor.parse_advertisement") as parse,
+        patch("app.packet_processor.verify_advert_signature", return_value=True),
+        patch("app.push.first_seen.maybe_notify_contact_first_seen"),
+    ):
+        parse.return_value = ParsedAdvertisement(
+            public_key=key, name="Hilltop", timestamp=at, lat=None, lon=None, device_role=2
+        )
+        await _process_advertisement(
+            b"", timestamp=at, packet_info=MagicMock(path_length=0, path=b"", payload=b"")
+        )
+
+
+async def test_the_advert_path_passes_last_seen_read_before_the_upsert(clock, emitted, monkeypatch):
+    """MSHL-401: with no stored sighting, the contact's ``last_seen`` as it was BEFORE the
+    advert upserted it decides "back"; read after the upsert it would be the advert's own time
+    and the silence would always be zero."""
+    from app.models import ContactUpsert
     from app.radio import radio_manager
+    from app.repository.contacts import ContactRepository
 
     monkeypatch.setattr(radio_manager, "_setup_complete", True)
-    await _watch(_node(cooldown_s=0, silence_s=3600))
-    info = MagicMock(path_length=0, path=b"", payload=b"")
+    await ContactRepository.upsert(
+        ContactUpsert(public_key=KEY, name="Hilltop", type=2, last_seen=T0 - 5 * 86_400)
+    )
+    await _watch(_node(silence_s=86_400))
+    await _advert(KEY, T0)
+    assert [e["event"] for e in emitted] == ["contact.node_back"]
+    assert emitted[0]["payload"]["silent_s"] == 5 * 86_400
 
-    async def advert(key, at):
-        with (
-            patch("app.packet_processor.broadcast_event"),
-            patch("app.packet_processor.parse_advertisement") as parse,
-            patch("app.packet_processor.verify_advert_signature", return_value=True),
-            patch("app.push.first_seen.maybe_notify_contact_first_seen"),
-        ):
-            parse.return_value = ParsedAdvertisement(
-                public_key=key, name="Hilltop", timestamp=at, lat=None, lon=None, device_role=2
-            )
-            await _process_advertisement(b"", timestamp=at, packet_info=info)
 
-    await advert(OTHER, T0)  # not watched
-    assert emitted == []
-    await advert(KEY, T0)
-    await advert(KEY, T0 + 7200)
-    assert [e["event"] for e in emitted] == ["contact.node_seen", "contact.node_back"]
-    assert emitted[0]["payload"]["name"] == "Hilltop"
+async def test_a_fallback_direct_message_counts_as_a_sighting(clock, emitted, test_db):
+    """MSHL-401: a DM stored by the CONTACT_MSG_RECV fallback is a sighting, as on the
+    packet-processor path; a CLI response and a duplicate are not."""
+    from unittest.mock import patch
+
+    from app.event_handlers import on_contact_message
+    from app.models import ContactUpsert
+    from app.repository.contacts import ContactRepository
+
+    await ContactRepository.upsert(
+        ContactUpsert(public_key=KEY, name="Hilltop", type=1, last_seen=T0 - 5 * 86_400)
+    )
+    await _watch(_node(silence_s=86_400))
+
+    class Event:
+        def __init__(self, **over):
+            self.payload = {
+                "public_key": KEY,
+                "text": "hello",
+                "txt_type": 0,
+                "sender_timestamp": T0,
+            } | over
+
+    with (
+        patch("app.event_handlers.broadcast_event"),
+        patch("app.event_handlers.time.time", return_value=float(T0)),
+    ):
+        await on_contact_message(Event(txt_type=1))  # CLI response: skipped
+        assert emitted == []
+        await on_contact_message(Event())
+        assert [e["event"] for e in emitted] == ["contact.node_back"]
+        await on_contact_message(Event())  # exact duplicate: not stored, not counted
+    assert len(emitted) == 1

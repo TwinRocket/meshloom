@@ -136,6 +136,20 @@ async def on_contact_message(event: "Event") -> None:
         "DM from %s handled by event handler (fallback path)", context.conversation_key[:12]
     )
 
+    # Counted as a sighting like on the packet-processor path (MSHL-401). Only reached when this
+    # path stored the message, so one DM never counts twice. A prefix-only sender has no full
+    # key and cannot be watched.
+    if context.contact is not None:
+        from app.notifications.watched_nodes import observe_sighting
+
+        await observe_sighting(
+            context.contact.public_key,
+            name=context.contact.name or "",
+            contact_type=context.contact.type or 0,
+            previous_seen=context.contact.last_seen,
+            now=received_at,
+        )
+
 
 async def on_rx_log_data(event: "Event") -> None:
     """Store raw RF packet data and process via centralized packet processor.

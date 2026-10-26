@@ -3,6 +3,8 @@ import type { NotificationWatchedNode } from '../../../notifications/types';
 export const WATCHED_MAX_NODES = 50;
 export const WATCHED_DEFAULT_COOLDOWN_S = 3600;
 export const WATCHED_DEFAULT_SILENCE_S = 86_400;
+/** One notification per advert is never wanted: the server refuses less (MSHL-401). */
+export const WATCHED_MIN_COOLDOWN_S = 60;
 export const WATCHED_MAX_COOLDOWN_S = 30 * 86_400;
 export const WATCHED_MIN_SILENCE_S = 60;
 export const WATCHED_MAX_SILENCE_S = 365 * 86_400;
@@ -49,7 +51,7 @@ export function withoutWatched(
 export function watchedError(cooldownMin: number, silenceH: number): 'cooldown' | 'silence' | null {
   if (
     !Number.isInteger(cooldownMin) ||
-    cooldownMin < 0 ||
+    cooldownMin * 60 < WATCHED_MIN_COOLDOWN_S ||
     cooldownMin * 60 > WATCHED_MAX_COOLDOWN_S
   ) {
     return 'cooldown';

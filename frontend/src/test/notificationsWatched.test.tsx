@@ -116,7 +116,8 @@ describe('watched nodes helpers', () => {
 
   it('validates the cooldown (minutes) and the silence (hours)', () => {
     expect(watchedError(60, 24)).toBeNull();
-    expect(watchedError(0, 1)).toBeNull();
+    expect(watchedError(1, 1)).toBeNull();
+    expect(watchedError(0, 1)).toBe('cooldown');
     expect(watchedError(-1, 24)).toBe('cooldown');
     expect(watchedError(60 * 24 * 31, 24)).toBe('cooldown');
     expect(watchedError(60, 0)).toBe('silence');

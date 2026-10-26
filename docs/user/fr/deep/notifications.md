@@ -268,7 +268,7 @@ Un **nœud surveillé** notifie un canal quand un nœud précis est de nouveau e
 
 - **Entendu.** Un nœud est *entendu* quand son annonce arrive ou qu’un message privé de sa part est déchiffré. La notification est « Hilltop entendu » (`contact.node_seen`).
 - **De retour.** Quand l’observation précédente remonte à plus que le **seuil de silence** (24 heures par défaut, de 1 minute à 365 jours), la notification est « Hilltop est de retour après 2 j » (`contact.node_back`).
-- **Délai de récupération.** Un nœud notifie au plus une fois par délai (1 heure par défaut, de 0 à 30 jours), quelle que soit la notification, si bien qu’un nœud qui s’annonce toutes les quelques minutes n’inonde jamais un canal. Une observation pendant le délai n’est pas notifiée mais compte quand même comme la dernière observation pour le silence.
+- **Délai de récupération.** Un nœud notifie au plus une fois par délai (1 heure par défaut, de 1 minute à 30 jours ; le serveur refuse moins, y compris à la restauration d’une sauvegarde), quelle que soit la notification, si bien qu’un nœud qui s’annonce toutes les quelques minutes n’inonde jamais un canal. Une observation pendant le délai n’est pas notifiée mais compte quand même comme la dernière observation pour le silence.
 - **Canaux.** Choisissez les canaux de chaque nœud. **Web Push n’est pas proposé** : il se décide compte par compte, et un nœud surveillé est un réglage d’instance. Un nœud sans canal n’envoie rien.
 - **Limites.** 50 nœuds au plus, imposés par le serveur (`watched_nodes` dans `PATCH /api/notifications/rules`) et à la restauration d’une sauvegarde. Seuls les nœuds surveillés sont retenus (dernière observation et délai, conservés après un redémarrage) : l’annonce d’un autre nœud ne coûte rien.
 
