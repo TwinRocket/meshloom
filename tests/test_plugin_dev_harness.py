@@ -592,6 +592,20 @@ def test_notifications_are_traced(plugin):
     assert any("-> status.set" in x for x in lines)
 
 
+def test_a_notified_method_other_than_log_is_ignored_like_the_server(plugin):
+    (plugin / "plugin.py").write_text(
+        "from meshloom_plugin import host\n\n\nasync def on_message(event):\n"
+        "    host().notify('messages.send', {'to': 'reply', 'text': 'hi'})\n"
+        "    host().notify('status.set', {'summary': 'busy'})\n",
+        "utf-8",
+    )
+    report, lines = replay(plugin, events=[message()])
+    assert report.sends == [] and refusal_codes(report) == []
+    sent = [c for c in report.calls if c["method"] == "messages.send"]
+    assert sent and all(c["notification"] and c["ignored"] for c in sent)
+    assert any("notification ignored" in x for x in lines), lines
+
+
 def test_the_shared_helpers_are_the_servers_functions():
     from app.plugins.capabilities import base, channels, contacts, messages, storage
 
