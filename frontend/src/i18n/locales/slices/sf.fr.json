@@ -4,6 +4,8 @@
     "filePicker": "Envoyer une photo",
     "fileTab": {
       "loading": "Vérification du partage...",
+      "statusError": "L'état du partage n'a pas pu être chargé. Vérifiez la connexion à ce Meshloom et réessayez.",
+      "statusRetry": "Réessayer",
       "off": "Le partage est désactivé sur ce Meshloom. Activez-le pour envoyer une photo sous forme de lien que toute la conversation peut ouvrir.",
       "enable": "Activer le partage...",
       "hint": "Déposez une photo ici, collez-en une dans la zone de message ou choisissez un fichier.",

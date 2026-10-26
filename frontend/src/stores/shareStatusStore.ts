@@ -8,13 +8,18 @@ import type { ShareStatus } from '../types';
  * which makes no request to the share service. The settings section reads it and
  * refreshes it after every change of the share settings; later surfaces (composer,
  * message rendering) read the same snapshot. `status` is `null` until something has
- * answered.
+ * answered. `error` is true when the last request failed or timed out (after
+ * `STATUS_TIMEOUT_MS`), so a surface never waits forever; the next success clears it.
  */
 export interface ShareStatusState {
   status: ShareStatus | null;
+  error: boolean;
 }
 
-const INITIAL: ShareStatusState = { status: null };
+/** A status request that has not answered by then is aborted and counts as a failure. */
+export const STATUS_TIMEOUT_MS = 10 * 1000;
+
+const INITIAL: ShareStatusState = { status: null, error: false };
 
 let state: ShareStatusState = INITIAL;
 let pending: Promise<ShareStatus> | null = null;
@@ -38,20 +43,27 @@ export function getShareStatusSnapshot(): ShareStatusState {
 
 /** Store an answer from the backend. */
 export function setShareStatus(status: ShareStatus): void {
-  if (state.status === status) return;
-  emit({ status });
+  if (state.status === status && !state.error) return;
+  emit({ status, error: false });
 }
 
-/** Ask the backend. Concurrent callers share one request; a failure keeps the last state and rejects. */
+/** Ask the backend. Concurrent callers share one request; a failure or a timeout keeps the last status, sets `error` and rejects. */
 export function loadShareStatus(): Promise<ShareStatus> {
   if (pending) return pending;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STATUS_TIMEOUT_MS);
   pending = api
-    .getShareStatus()
+    .getShareStatus(controller.signal)
     .then((status) => {
       setShareStatus(status);
       return status;
     })
+    .catch((err: unknown) => {
+      if (!state.error) emit({ status: state.status, error: true });
+      throw err;
+    })
     .finally(() => {
+      clearTimeout(timer);
       pending = null;
     });
   return pending;
@@ -65,6 +77,12 @@ export function refreshShareStatus(): Promise<ShareStatus | null> {
 export function useShareStatus(): ShareStatus | null {
   return useSyncExternalStore(subscribeShareStatus, getShareStatusSnapshot, getShareStatusSnapshot)
     .status;
+}
+
+/** True when the last status request failed or timed out. */
+export function useShareStatusError(): boolean {
+  return useSyncExternalStore(subscribeShareStatus, getShareStatusSnapshot, getShareStatusSnapshot)
+    .error;
 }
 
 export function resetShareStatusStoreForTests(): void {
