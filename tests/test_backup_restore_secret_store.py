@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -380,30 +381,141 @@ async def test_inspection_never_creates_the_key_file(
         secret_store.reset()
 
 
-def test_probe_available_is_read_only(tmp_path, monkeypatch):
-    """The probe answers like ``available()`` without touching the file or its mode."""
-    path = tmp_path / secret_store.KEY_FILENAME
-    monkeypatch.setattr(secret_store, "key_path", lambda: path)
-    secret_store.reset()
-    try:
-        assert secret_store.probe_available() is True
-        assert not path.exists()
-        path.write_bytes(b"\0" * secret_store.KEY_BYTES)
-        path.chmod(0o644)
-        assert secret_store.probe_available() is True
-        assert path.stat().st_mode & 0o777 == 0o644
-        path.write_bytes(b"short")
-        assert secret_store.probe_available() is True
-        assert path.read_bytes() == b"short"
-        assert list(tmp_path.iterdir()) == [path]
-        blocker = tmp_path / "not-a-folder"
-        blocker.write_text("")
-        monkeypatch.setattr(
-            secret_store, "key_path", lambda: blocker / "sub" / secret_store.KEY_FILENAME
-        )
-        assert secret_store.probe_available() is False
-    finally:
+@pytest.fixture
+def probe_at(tmp_path, monkeypatch):
+    """Point ``secrets.key`` at a path under ``tmp_path`` with no key loaded."""
+
+    def point(path: Path) -> Path:
+        monkeypatch.setattr(secret_store, "key_path", lambda: path)
         secret_store.reset()
+        return path
+
+    yield point
+    secret_store.reset()
+
+
+def _snapshot(root: Path) -> dict:
+    """Names, modes, sizes and mtimes under ``root`` (no read: some are unreadable)."""
+    return {
+        str(p.relative_to(root)): (st.st_mode, st.st_size, st.st_mtime_ns)
+        for p in sorted(root.rglob("*"))
+        for st in (p.lstat(),)
+    }
+
+
+not_root = pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permission bits")
+
+
+def test_probe_with_a_loaded_key_is_true(tmp_path, probe_at, monkeypatch):
+    path = probe_at(tmp_path / secret_store.KEY_FILENAME)
+    assert secret_store.ensure_key(path) is True
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("")
+    # ``available()`` keeps using the loaded key wherever ``key_path`` points now.
+    monkeypatch.setattr(secret_store, "key_path", lambda: blocker / secret_store.KEY_FILENAME)
+    assert secret_store.available() is True
+    assert secret_store.probe_available() is True
+
+
+def test_probe_absent_key_in_a_writable_folder_is_true_and_creates_nothing(tmp_path, probe_at):
+    probe_at(tmp_path / "a" / "b" / secret_store.KEY_FILENAME)
+    assert secret_store.probe_available() is True
+    assert list(tmp_path.iterdir()) == []
+
+
+@not_root
+def test_probe_absent_key_in_an_unwritable_folder_is_false(tmp_path, probe_at):
+    folder = tmp_path / "ro"
+    folder.mkdir()
+    folder.chmod(0o500)
+    try:
+        probe_at(folder / secret_store.KEY_FILENAME)
+        assert secret_store.probe_available() is False
+        probe_at(folder / "missing" / secret_store.KEY_FILENAME)
+        assert secret_store.probe_available() is False
+        assert secret_store.available() is False
+    finally:
+        folder.chmod(0o700)
+
+
+def test_probe_absent_key_under_a_file_is_false(tmp_path, probe_at):
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("")
+    blocker.chmod(0o700)  # writable and "executable", still not a folder
+    probe_at(blocker / "sub" / secret_store.KEY_FILENAME)
+    assert secret_store.probe_available() is False  # ENOTDIR on the key path itself
+    assert secret_store._can_create_in(blocker) is False
+    assert secret_store._can_create_in(blocker / "sub") is False
+
+
+@not_root
+def test_probe_unreadable_key_is_false(tmp_path, probe_at):
+    path = probe_at(tmp_path / secret_store.KEY_FILENAME)
+    path.write_bytes(b"\0" * secret_store.KEY_BYTES)
+    path.chmod(0o000)
+    before = _snapshot(tmp_path)
+    assert secret_store.probe_available() is False
+    assert _snapshot(tmp_path) == before
+    assert secret_store.available() is False
+
+
+@not_root
+def test_probe_unreadable_key_of_the_wrong_size_is_false(tmp_path, probe_at):
+    path = probe_at(tmp_path / secret_store.KEY_FILENAME)
+    path.write_bytes(b"short")
+    path.chmod(0o000)
+    assert secret_store.probe_available() is False
+    assert secret_store.available() is False
+
+
+@not_root
+def test_probe_wrong_size_key_in_an_unwritable_folder_is_false(tmp_path, probe_at):
+    """``_load`` could not move it aside nor make a new key there."""
+    folder = tmp_path / "ro"
+    folder.mkdir()
+    path = probe_at(folder / secret_store.KEY_FILENAME)
+    path.write_bytes(b"short")
+    path.chmod(0o600)
+    folder.chmod(0o500)
+    try:
+        assert secret_store.probe_available() is False
+        assert secret_store.available() is False
+        assert path.read_bytes() == b"short"
+    finally:
+        folder.chmod(0o700)
+
+
+def test_probe_key_readable_by_group_only_is_true(tmp_path, probe_at):
+    """Mode 0044: ``_load`` sets it to 0600 and reads it; the probe changes nothing."""
+    path = probe_at(tmp_path / secret_store.KEY_FILENAME)
+    path.write_bytes(b"\0" * secret_store.KEY_BYTES)
+    path.chmod(0o044)
+    assert secret_store.probe_available() is True
+    assert path.stat().st_mode & 0o777 == 0o044
+    assert secret_store.available() is True
+
+
+def test_probe_valid_and_wrong_size_keys_are_true_and_untouched(tmp_path, probe_at):
+    path = probe_at(tmp_path / secret_store.KEY_FILENAME)
+    path.write_bytes(b"\0" * secret_store.KEY_BYTES)
+    path.chmod(0o644)
+    assert secret_store.probe_available() is True
+    assert path.stat().st_mode & 0o777 == 0o644
+    path.write_bytes(b"short")
+    assert secret_store.probe_available() is True
+    assert path.read_bytes() == b"short"
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize("kind", ["folder", "dangling-symlink"])
+def test_probe_non_regular_key_path_is_false(tmp_path, probe_at, kind):
+    path = probe_at(tmp_path / secret_store.KEY_FILENAME)
+    if kind == "folder":
+        path.mkdir()
+    else:
+        path.symlink_to(tmp_path / "nowhere")
+    assert secret_store.probe_available() is False
+    assert secret_store.available() is False
 
 
 async def _kept_channel_without_secret(db) -> None:

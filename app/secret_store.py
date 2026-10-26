@@ -175,27 +175,46 @@ def _can_create_in(folder: Path) -> bool:
     return probe.is_dir() and os.access(probe, os.W_OK | os.X_OK)
 
 
+def _readable(path: Path, st: os.stat_result) -> bool:
+    """Whether ``_load`` could read the existing key file ``path``.
+
+    ``_load`` first sets a file readable by others to 0600, which works for its owner
+    (or root) and makes it readable to them; otherwise the current mode decides."""
+    euid = os.geteuid()
+    if st.st_mode & 0o077 and euid in (0, st.st_uid):
+        return True
+    return os.access(path, os.R_OK)
+
+
 def probe_available() -> bool:
     """Read-only twin of ``available()`` for previews such as the backup inspection.
 
     Answers whether ``available()`` would succeed, without creating ``secrets.key``,
     its folder or a moved-aside copy, without changing the file mode and without
-    loading the key into memory (MSHL-405). Never logs. The answer is a best effort
-    (permission bits through ``os.access``): the restore itself still calls
-    ``available()`` and refuses when it fails."""
+    loading the key into memory (MSHL-405). Never logs. It mirrors ``_load``: a
+    loaded key, a readable regular file of the right size, a readable file of the
+    wrong size in a writable folder (moved aside, a new key made), or no file in a
+    folder that can be made and written. The answer is a best effort (permission
+    bits through ``os.access``; a read-only file system that refuses the 0600
+    ``chmod`` is not seen): the restore itself still calls ``available()`` and
+    refuses when it fails."""
     if _key is not None:
         return True
     path = key_path()
     try:
-        st = path.stat()
+        path.lstat()
     except FileNotFoundError:
         return _can_create_in(path.parent)
     except OSError:
         return False
-    if not stat.S_ISREG(st.st_mode):
+    try:
+        st = path.stat()  # a dangling symlink fails here, as it does in ``_load``
+    except OSError:
+        return False
+    if not stat.S_ISREG(st.st_mode) or not _readable(path, st):
         return False
     if st.st_size == KEY_BYTES:
-        return os.access(path, os.R_OK)
+        return True
     # A file of the wrong size is moved aside and replaced by a new key.
     return _can_create_in(path.parent)
 
