@@ -52,6 +52,10 @@ export const AUDIT_FAMILIES = {
     'update.triggered',
     'notify.channel_changed',
     'notify.rules_changed',
+    'share.enabled',
+    'share.disabled',
+    'share.object_deleted',
+    'share.report_sent',
   ],
   remote: ['remote.linked', 'remote.enabled', 'remote.disabled'],
 } as const;

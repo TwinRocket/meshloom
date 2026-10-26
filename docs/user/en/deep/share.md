@@ -112,7 +112,9 @@ The page decrypts with code that `meshl.ink` sends each time it is opened, so us
 
 ## Who can do what
 
-Turning sharing on or off and setting the modes needs the **administrator** role. Shortening a link, sending a photo, reporting an object and the **My uploads** list need the **member** role or above. Viewers and kiosks can read the hints and see the photos of the conversations they may read (a kiosk never sees direct messages; see [Accounts and access](/en/docs/deep/access/) for the roles). The server checks this on every request, whatever the interface shows, and refuses a request that the browser marks as coming from another web site.
+Turning sharing on or off, setting the modes and clearing this Meshloom's cache need the **administrator** role. Shortening a link, sending a photo, reporting an object and the **My uploads** list need the **member** role or above. Viewers and kiosks can read the hints and see the photos of the conversations they may read (a kiosk never sees direct messages, nor a photo or link preview shared in one; see [Accounts and access](/en/docs/deep/access/) for the roles). The server checks this on every request, whatever the interface shows, and refuses a request that the browser marks as coming from another web site.
+
+On a Meshloom with several accounts, the [audit log](/en/docs/deep/access/#audit-log) (administrators) records who turned sharing on or off, who deleted a shared object and who reported one, with the reason chosen (never the details typed).
 
 A Meshloom has **one** sharing identity, consent, quota and ban, whoever uses it. On a Meshloom shared by several people, every member sees all that this Meshloom shared in **My uploads**, can delete it, and shares the same daily quota. A ban for one person's abuse stops everybody.
 

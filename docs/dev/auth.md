@@ -223,6 +223,8 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `private_key.imported`, `factory_reset` | `PUT /radio/private-key`, `POST /radio/factory-reset` (`details.identity`: the first 12 hex of the public key) |
   | `notify.channel_changed` | `/api/notifications/channels` (`app/notifications/api_support.py`, `announce_channel_change`): a creation, a change of destination (public settings, a URL secret, `allow_private_network`; not a credential or a rename), an enable or disable, a deletion; target `notification_channel:<id>`, `details = {action, type, name}`, never a setting or a secret |
   | `notify.rules_changed` | `PATCH /notifications/rules`, `PUT /notifications/rules/conversations/{key}`: target `notification_rules`, `details = {fields, events?, paused_until?}` (the global pause is `paused_until`); a refused change writes nothing |
+  | `share.enabled`, `share.disabled` | `PATCH /settings` when `share_enabled` changes (an unchanged value or another field writes nothing); `details.terms_version` on enable; no target (MSHL-248) |
+  | `share.object_deleted`, `share.report_sent` | `DELETE /share/{id}`, `POST /share/{id}/report` (`app/routers/share.py`): target `share:<id>`; `details.reason` for a report (never its free-text details); outcome `failure` when the service or a check refuses. A caller without `send` is refused by the gate and writes no row |
   | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
 
   **Every refusal of the users API is written**, under the route's action
@@ -576,6 +578,12 @@ prompt inside the Home Assistant panel).
 | `viewer` | `read`, `read_private` | `kiosk` plus direct messages and marking read; its own profile and sessions |
 | `member` | `viewer` + `send` | Send, create and edit contacts, channels and contact groups, favourites, pins, mutes, its own push subscriptions (owner `user_id`, MSHL-290) and its own notification choices, conversation exceptions and pause (`/api/push/my-rules`, `/api/push/my-pause`, MSHL-321, 362, 363), trace and path discovery |
 | `admin` | all, `repeater_admin` included | Settings, radio, repeaters and rooms, fanout and plugins, backup and restore, private key, updates, Community, push preferences, every account's push devices (`GET /api/push/subscriptions?scope=all` redacted to the origin, DELETE; never PATCH or test), debug |
+
+**Sharing (`/api/share`, MSHL-248).** Shortening, uploading, *My uploads*, deleting
+and reporting are `send` (member, admin); `/share/cache/clear` and the share settings
+are `admin`; status and object reads are `read`. An object read tied to a non-channel
+message (`message_id`) needs `read_private`: a `kiosk` gets 403 `share_role_forbidden`
+before any cache read or request to the service.
 
 `GET /settings/view` (`read`, so every role including `kiosk`) is the one readable
 settings route: `AppSettingsView` in `app/models.py` is an allowlist of display

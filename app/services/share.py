@@ -184,6 +184,7 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_upload_timeout": (408, "The upload took too long to arrive"),
     "share_storage_failed": (500, "The upload could not be stored on this instance"),
     "share_not_owner": (403, "This shared object was not posted by this instance"),
+    "share_role_forbidden": (403, "This account cannot read the message this object was shared in"),
     "share_object_blocked": (
         409,
         "This shared object was blocked by the share service and cannot be deleted",

@@ -31,6 +31,14 @@ service, signed with the instance key (``share.report_object``).
 ``GET /mine`` lists what this instance posted and ``DELETE /{id}`` deletes one
 of them (both ``send``, member+; the delete also evicts the local cache entry).
 ``POST /cache/clear`` (admin) empties the local object cache.
+
+Roles (MSHL-248, ``docs/dev/auth.md``, "Permissions"): every write is ``send``
+(member and admin) except the cache clear (``admin``); ``status``, ``{id}`` and
+``{id}/meta`` are ``read`` (every role, kiosk included), and a kiosk never reads
+an object through a direct message (403 ``share_role_forbidden``). The share
+settings are fields of ``PATCH /api/settings`` (``admin``). A delete and a report
+are audited (``share.object_deleted``, ``share.report_sent``); turning sharing on
+or off is audited by ``PATCH /api/settings`` (``share.enabled``, ``share.disabled``).
 """
 
 from __future__ import annotations
@@ -44,7 +52,8 @@ from urllib.parse import quote, urlsplit
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app import keystore
-from app.auth.permissions import can_read_private, forbidden, require
+from app.auth.audit import SYSTEM_ACTOR, RequestActor, audited
+from app.auth.permissions import can_read_private, require
 from app.log_redaction import secret_scope
 from app.models import (
     Message,
@@ -277,7 +286,9 @@ async def _check_message(request: Request, share_id: str, message_id: int | None
 
     A missing message, or one that does not carry the id, is ``share_not_found``
     (it says nothing of other messages); a direct message without
-    ``read_private`` is the usual 403. None without ``message_id``.
+    ``read_private`` (a kiosk) is 403 ``share_role_forbidden``, before any cache
+    read or egress. Muted and pending channels resolve like any channel. None
+    without ``message_id``.
     """
     if message_id is None:
         return None
@@ -285,7 +296,7 @@ async def _check_message(request: Request, share_id: str, message_id: int | None
     if message is None:
         raise ShareError("share_not_found")
     if message.type != "CHAN" and not can_read_private(request):
-        raise forbidden("read_private")
+        raise ShareError("share_role_forbidden")
     if share_id not in (message.text or ""):
         raise ShareError("share_not_found")
     return message
@@ -388,19 +399,22 @@ async def list_my_share_objects(
     status_code=204,
     dependencies=[Depends(require("send")), Depends(refuse_cross_site)],
 )
-async def delete_share_object(share_id: str) -> Response:
+async def delete_share_object(share_id: str, actor: RequestActor = SYSTEM_ACTOR) -> Response:
     """Delete an object this instance posted (``DELETE /v1/objects/{id}``), then evict it locally.
 
     A blocked object is 409 ``share_object_blocked`` (the author cannot delete
     it), another key's 403 ``share_not_owner``. The disk-cache entry and the
-    cached meta go on success and whenever the object is gone or unknown.
+    cached meta go on success and whenever the object is gone or unknown. The
+    service call writes one ``share.object_deleted`` audit row (target
+    ``share:<id>``), whatever its outcome.
     """
     # Off first: a disabled instance answers share_disabled whatever the id.
     if await share.share_egress_state() is None:
         raise ShareError("share_disabled")
     if not share.is_share_id(share_id):
         raise ShareError("share_invalid_id")
-    await share.delete_object(share_id)
+    async with audited(actor, "share.object_deleted", target=f"share:{share_id}"):
+        await share.delete_object(share_id)
     return Response(status_code=204)
 
 
@@ -454,18 +468,25 @@ async def get_share_meta(
     status_code=202,
     dependencies=[Depends(require("send")), Depends(refuse_cross_site)],
 )
-async def report_share_object(share_id: str, body: ShareReportRequest) -> ShareReportResponse:
+async def report_share_object(
+    share_id: str, body: ShareReportRequest, actor: RequestActor = SYSTEM_ACTOR
+) -> ShareReportResponse:
     """Report an object to the service (``POST /v1/reports``, JWT variant).
 
     The token is minted for ``id + "\\n" + reason`` with the instance key, so the
-    service records the reporter by that key. ``details`` travels unbound.
+    service records the reporter by that key. ``details`` travels unbound. The
+    service call writes one ``share.report_sent`` audit row (target ``share:<id>``,
+    ``details.reason``; never the free-text details), whatever its outcome.
     """
     # Off first: a disabled instance answers share_disabled whatever the id.
     if await share.share_egress_state() is None:
         raise ShareError("share_disabled")
     if not share.is_share_id(share_id):
         raise ShareError("share_invalid_id")
-    await share.report_object(share_id, body.reason, body.details)
+    async with audited(
+        actor, "share.report_sent", target=f"share:{share_id}", details={"reason": body.reason}
+    ):
+        await share.report_object(share_id, body.reason, body.details)
     return ShareReportResponse()
 
 
