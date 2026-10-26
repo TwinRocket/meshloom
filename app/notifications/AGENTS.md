@@ -452,6 +452,10 @@ create and update models and by the backup restore, which drops a bad value to 0
   window whose end is further than one (new) interval away, because the interval was shortened, is clamped to now + the new interval. A refused summary is put back with the due row set to now (same `QUIET_DIGEST_RETRIES` budget).
 - **Restart safety.** Counters and due rows are in `notification_state` (no expiry): a window survives a
   restart and an overdue one is flushed at the first tick. No text, sender or name is stored.
+- **Latency (MSHL-404, decided).** A summary leaves up to `QUIET_TICK_S` (60 s) after its window end. No per-window
+  timer: it would add scheduling state to restore after a restart, a second path next to the minute loop that must not
+  double-send, and shortened/disabled/paused-channel cases to re-arm, to save under a minute on windows of 5 min to 24 h.
+  The latency is stated in the user docs (en and fr, "Digest mode"). Revisit only if the minimum interval drops below 5 min.
 - Tests: `tests/test_digest_mode.py` (fake `wall_clock`, `digest_tick()` by hand),
   `tests/test_migrations/test_migration_132.py`.
 

@@ -536,3 +536,44 @@ async def test_a_keyword_alert_reaches_a_digest_channel_at_once_and_is_not_count
     assert await dispatcher.digest_tick() == 1
     await _settle(dispatcher)
     assert stub.payloads[-1]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_keyword_hit_on_a_mentioned_digest_channel_does_not_alert_twice(
+    test_db, monkeypatch
+):
+    """MSHL-404: a digest channel that gets the mention already receives the message at once,
+    so the keyword rule must not send a second immediate alert for it."""
+    from app.notifications import producers
+    from app.repository.notification_channels import NotificationChannelRepository as Repo
+
+    await _add(test_db, "email-1", 300)
+    wall = Wall(T0)
+    dispatcher, stub = _make(wall)
+
+    async def emit(event, **kw):
+        return await dispatcher.emit(event, **kw)
+
+    monkeypatch.setattr(producers, "emit", emit)
+    monkeypatch.setattr(producers, "notification_dispatcher", lambda: dispatcher)
+    monkeypatch.setattr(producers, "_radio_name", lambda: "Bob")
+    rules = await Repo.get_rules()
+    rules["events"]["message.channel"]["channels"] = ["email-1"]
+    rules["events"]["message.mention"]["channels"] = ["email-1"]
+    rules["keywords"] = [
+        {
+            "id": "r1",
+            "pattern": "secours",
+            "match": "contains",
+            "scope": "all",
+            "channels": ["email-1"],
+            "cooldown_s": 0,
+        }
+    ]
+    await Repo.set_rules(rules)
+
+    await producers.emit_message(
+        _chan(text="Léa: @[Bob] au secours", conversation_key="8B3387E9C5CDEA6AC9E5EDBAA115CD72")
+    )
+    await _settle(dispatcher)
+    assert stub.calls == [("email-1", "message.mention")]  # one alert, not mention + keyword
