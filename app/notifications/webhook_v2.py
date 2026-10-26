@@ -132,6 +132,12 @@ class ChannelChangedData(_Model):
     name: str = ""
 
 
+class ChannelFailedData(_Model):
+    channel_id: str = ""
+    name: str = ""
+    error: str = ""
+
+
 class TestData(_Model):
     pass
 
@@ -199,6 +205,11 @@ _EVENTS: tuple[tuple[str, type[_Model], str], ...] = (
     ("notify.destination_changed", DestinationChangedData, "A notification destination changed."),
     ("notify.channel_changed", ChannelChangedData, "A notification channel changed."),
     ("notify.test", TestData, "The test button of a channel."),
+    (
+        "notify.channel_failed",
+        ChannelFailedData,
+        "A channel keeps failing, or a push service unsubscribed a browser.",
+    ),
     ("summary.grouped", GroupedData, "Notifications the rate limiter held back."),
     ("summary.first_seen", FirstSeenGroupedData, "First-seen nodes over the hourly cap."),
     ("summary.digest", DigestData, "What quiet hours or a pause held."),
@@ -316,6 +327,8 @@ def _event_data(event: ev.NotificationEvent, payload: Mapping[str, Any], policy:
             channel_type=d.channel_type,
             name=d.name,
         )
+    if isinstance(event, ev.ChannelFailedEvent):
+        return ChannelFailedData(channel_id=d.channel_id, name=d.name, error=d.error)
     return TestData()
 
 

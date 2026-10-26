@@ -967,8 +967,13 @@ text shown as `log.errorGeneric`, "sent in 24 h" = `totals.sent`). The cards' "h
 exact `totals` of the response, with a row count only as a fallback for a server without `totals`; a failed
 read hides the line). A test checks every backend event name has an EN and FR label.
 `health.notifications_capped` reaches the panel through `NotificationStatusProvider`'s `capped`
-prop (`useNotificationsCapped`) and shows a banner; the `notifications_failing` banner waits for
-the backend field (MSHL-130). Tests: `notificationsQuietHours.test.tsx`, `notificationsDeliveries.test.tsx`.
+prop (`useNotificationsCapped`) and shows a banner. `health.notifications_failing` arrives the same
+way (`failing`, `useNotificationsFailing`, MSHL-130): when it flips the panel reloads the channels,
+and `FailingChannelsBanner` lists the ones `channelAttention()` (`notificationsShared.ts`) flags
+(`secret_unreadable`, then an enabled channel with status `paused`, then `failure_count >= 3`),
+with **Test** and **Resume** (`api.resumeNotificationChannel`; not offered for an unreadable
+secret); `ChannelList` shows the same state as a badge. Tests: `notificationsQuietHours.test.tsx`,
+`notificationsDeliveries.test.tsx`, `notificationsFailingBanner.test.tsx`.
 
 The rules half (`NotificationRulesPanel`, same state hook, `setRules` takes each `PATCH /rules` /
 `PUT /rules/conversations/{key}` answer) renders, in order: `GlobalPauseControl` (1 h / 8 h /

@@ -836,6 +836,7 @@ async def test_every_notifications_route_is_admin_only(test_db, client, sign_in_
         ("patch", "/api/notifications/channels/builtin:push", {"name": "x"}),
         ("delete", "/api/notifications/channels/builtin:push", None),
         ("post", "/api/notifications/channels/builtin:push/test", None),
+        ("post", "/api/notifications/channels/builtin:push/resume", None),
         ("get", "/api/notifications/rules", None),
         ("patch", "/api/notifications/rules", {}),
         ("put", "/api/notifications/rules/conversations/contact-ab", {"channels": None}),

@@ -25,6 +25,11 @@ This file is a hypothesis: check it against the code.
   never a URL or a `#fragment`). The webhook transport sends the raw text (v1: the raw payload;
   v2: `data.text` and `rendered.body`, both subject to the channel's text policy).
 
+- `failures.py`: a channel that keeps failing (MSHL-130). Constants (`FAILED_EVENT_AFTER` 3,
+  `PAUSE_AFTER` 20, `BACKOFF_S` 300/900/3600/21600), `safe_error_code` (the notice carries a
+  bare code such as `http_503` or `timeout`, never `last_error` as stored: no token, password,
+  URL or host), `announce()` (the once-a-day `notify.channel_failed`) and
+  `announce_push_unsubscribed()`. The dispatcher owns the counting, the pause and the probes.
 - `channels.py`: the channel models and the type registry. A type declares a Pydantic
   config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`, `NtfyConfig`, `DiscordConfig`); secret
   fields are `SecretStr` with `writeOnly: true` in `json_schema_extra`, labels and help are
@@ -259,6 +264,17 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   cannot be taken off the rule: 403 `builtin_channel`) and to the rule's channels, every other
   enabled one by default, never to the channel that changed. `notify.destination_changed` stays
   as it was for the legacy settings route (push only).
+- **`notify.channel_failed`** (MSHL-130, not urgent, not configurable, locked for accounts): on the
+  3rd consecutive failure of a channel (and every later one, but `failures.announce` claims
+  `notification_state` key `channel_failed:<id>` with a 1-day TTL through `state_claim`, so at
+  most once a day per channel, across restarts), and when `PushManager._record_outcomes` drops
+  a subscription its push service expired (403/404/410; key `channel_failed:push:<sub id>`,
+  `name` = the device label). Emitted with `targets` = `builtin:push` and every enabled channel,
+  minus the failing one. Payload `channel_id`, `name`, `error` (`safe_error_code`). The 15-failure
+  eviction and the egress-guard removals of push subscriptions do not announce.
+- **Resume** (`POST /channels/{id}/resume`, admin like the whole router): clears the auto-pause
+  (`paused_until`, `autopause:<id>` state), `failure_count` and `last_error`, then broadcasts
+  `health`; 404 `channel_missing`. No audit row.
 - **Rules** (`GET/PATCH /rules`): `events[id]` (`channels`, `always_deliver`, `contact_types`),
   `paused_until` (epoch seconds, `null` resumes, a past value is a resume), `quiet_hours` (partial
   object, see "Quiet hours"; 400 `invalid_config` with `fields: ["quiet_hours.<field>"]`), `mention_whole_word`
@@ -272,13 +288,14 @@ A preset is an Apprise service described as data, no code per service: a `Preset
 - **Entry.** `emit(event, *, payload=None, targets=None)` never raises and never waits on a
   send. Without `targets` the rules choose the channels (`rules.event_channel_ids`), minus the
   channels in `exclude` (a producer ruling a channel out); `targets` is for a caller that
-  already decided (`notify.channel_changed`, tests). Unknown and disabled channels are skipped
-  without a journal row. Producers never call `emit` with `targets`: see "Producers".
+  already decided (`notify.channel_changed`, `notify.channel_failed`, tests). Unknown and disabled
+  channels are skipped without a journal row. Producers never call `emit` with `targets`: see "Producers".
 - **Rules** (`rules.py`). A stored conversation exception wins either way; else a DM follows
   `message.dm`, a Public or `#` channel `message.channel`, a channel with its own key no
   one; `contact.first_seen` follows `contact_types` (1 companion, 2 repeater, 4 sensor; a
-  room or an unknown type never). The global `paused_until` and a channel's own
-  `paused_until` hold everything but urgent and `always_deliver` events (journal `paused`).
+  room or an unknown type never). The global `paused_until` holds everything but urgent and
+  `always_deliver` events; a channel's own `paused_until` (the auto-pause, MSHL-130) holds
+  everything, urgent included (journal `paused`).
   `conversation_channel_enabled(state_key, message_type, rules, channel_id, is_hashtag, is_public)`
   is the per-channel predicate (plus `muted`, `blocked` and `now` for the pause: they cut
   everything but an `always_deliver` event); its cases are the shared fixture
@@ -303,7 +320,8 @@ wall clock in host-local time (an overnight window belongs to its opening weekda
 - **Precedence in `Dispatcher._emit`**: (1) the rules, mutes and block lists and, on Web Push, each
   account's own choices, conversation exceptions and pause decide who wants the event: an event nobody
   wants is never counted; (2) the global and the channel `paused_until` (`paused` row, dropped; the
-  global one is also counted in `pause:*` counters for the resume summary, below); (3) quiet hours. `urgent` events and `always_deliver` ones skip (2) and (3); a channel with
+  global one is also counted in `pause:*` counters for the resume summary, below); (3) quiet hours. `urgent` events and `always_deliver` ones skip (2) and (3), except a
+  channel's own `paused_until`, which holds them too; a channel with
   `quiet_hours_exempt` (registry default true for `webhook`, false otherwise; the imported `legacy:*`
   rows keep 0 on purpose, MSHL-368: 4.18.x had no quiet hours and they are off until enabled, and the
   card's box flips it, `legacy:*` included) skips (3); an account's *Always notify me* does not skip (3). The synthetic
@@ -433,6 +451,16 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
   secrets). `notification_deliveries` rows only for `failed`, `rate_limited`, `quota_exceeded`, `aggregated`,
   `paused`, `suppressed_quiet`, `aborted`, batched in one transaction;
   a row holds the event id, the hashed `dedup_key`, a code and the attempts, never the text.
+- **Failing channels** (MSHL-130). `_record_failure` counts consecutive failures; at 3 it
+  broadcasts `health` and from 3 on calls `failures.announce` (rate-limited, above). At 20
+  (`_pause_if_running`) it sets `paused_until` = now + `BACKOFF_S[step]` and stores the step in
+  `notification_state` `autopause:<id>` (no expiry; both survive a restart; `delete()` drops the key). `probe_tick()`,
+  run by the quiet loop every 60 s, sends a `send_test(record=True)` to each enabled channel
+  whose pause has expired and that holds an `autopause:` key (a `paused_until` without that
+  key is never probed); a failure re-pauses at the next step (5 min, 15 min, 1 h, then 6 h), a success
+  (probe, test button or a real send) clears the pause and the key. `failing()` /
+  `notifications_failing()` is the health flag `notifications_failing`: a channel with
+  `secret_unreadable`, an enabled one with `failure_count >= 3`, or an auto-paused one.
 - **Status.** `notification_statuses()` is the health payload's `notification_statuses`:
   `{channel id: {status, last_error, last_ok_at}}`, `status` one of `connected`, `error`,
   `paused`, `disconnected` (disabled); `secret_unreadable` is added with the encryption at
@@ -527,8 +555,8 @@ without redefining anything.
 - **Id**: `event` is `domain.name`, lower case: `message.dm`, `message.channel`,
   `message.mention` (see "Mentions"), `contact.first_seen`,
   `channel.found`, `telemetry.alert`, `radio.offline`, `radio.online`,
-  `app.started`, `app.update`, `notify.destination_changed`, `notify.channel_changed`, `notify.test`
-  (`EVENT_IDS`). These are notification ids, not WebSocket types
+  `app.started`, `app.update`, `notify.destination_changed`, `notify.channel_changed`, `notify.test`,
+  `notify.channel_failed` (`EVENT_IDS`). These are notification ids, not WebSocket types
   (`app/auth/ws_events.py` stays the only list of those).
 - **Common fields**: `event`, `event_id` (random, per occurrence), `occurred_at`
   (epoch seconds), `dedup_key`, `urgent` (default false; true for `telemetry.alert`,

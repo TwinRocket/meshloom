@@ -220,6 +220,7 @@ The same choices are available through `GET`, `PATCH` and `DELETE /api/push/my-r
 | Radio back online | The radio is reachable again after a **Radio offline** notification, with how long it was down |
 | Meshloom started | Meshloom has just started: its version, whether the radio connected and how fast. On by default for push |
 | Channel changed | A notification channel is created, deleted, switched on or off, or changed in its settings (a new address, server or webhook, other options; not a rename or a new password). It always goes to Web Push and cannot be taken off; other channels follow the table, and the channel that changed never hears of it |
+| Channel failing | A channel failed 3 times in a row, or a browser was unsubscribed by its push service. It goes to Web Push and every other enabled channel and cannot be taken off; the failing channel never hears of it. At most once a day per channel. The error is a code, never a password, a token or an address |
 | Destination changed | An e-mail, webhook or Apprise destination is changed through the 4.18.x settings. Web Push only |
 
 **Radio offline** and **Radio back online** never fire for a reboot Meshloom started itself (clock fix, Wi-Fi change) nor while the connection is paused in **Settings → Radio**; pausing ends an outage without a notification. Nothing is sent before the radio has connected once since Meshloom started, nor during the same delay right after a start, so an update or a restart does not raise a false alarm. Set the delay under the **Radio offline** row of the table (`radio_offline_grace_s` in `/api/settings`; 0 notifies at once, up to 3600 s). The radio is checked about every 5 seconds, and a reconnect attempt in progress can delay the check, so the notification may arrive a little after the delay. If Meshloom restarts during an outage, the downtime still counts from the real start.
@@ -274,7 +275,7 @@ Creating, deleting, switching on or off a channel, or changing where it sends wr
 
 Each channel has its own queue and sends one notification at a time, so a slow or failing service never delays the others, nor push. Sends are spaced: at least 10 seconds apart for e-mail, 3 for Telegram, 10 for the SMS presets, 2 for Discord and Apprise, 1 for ntfy, Pushover and Slack. How many may go out is set by the channel's [limits](#limits-and-grouping). A Web Push or e-mail send is never retried, and Apprise and the presets retry each URL themselves (0, 5 and 30 s) without the later extra try below. For the other types, a send that fails because the service is unreachable, times out, answers a server error or asks to slow down is tried again after 5 s and 30 s (its `Retry-After` is honoured, up to 2 minutes), never when it refuses the request; Web Push and e-mail are not retried. A message notification that still fails is dropped (it would arrive too late); a radio offline or telemetry alert gets one more try 5 minutes later when the service was unreachable, never after it refused the request. Notifications still waiting when Meshloom stops are not sent after the restart.
 
-The state of each destination is in `/api/health`, under `notification_statuses`, keyed by its id (`builtin:push`, `legacy:email`, `legacy:webhook`, `legacy:apprise` and the id of each channel you add): `status` (`connected`, `error`, `paused` or `disconnected`), the last error as a code, never a password or a token (administrators only), and the time of the last successful send. Meshloom keeps a short log of failed, grouped, dropped and cancelled notifications, without their text; successful sends are only counted.
+The state of each destination is in `/api/health`, under `notification_statuses`, keyed by its id (`builtin:push`, `legacy:email`, `legacy:webhook`, `legacy:apprise` and the id of each channel you add): `status` (`connected`, `error`, `paused` or `disconnected`), the last error as a code, never a password or a token (administrators only), and the time of the last successful send. `notifications_failing` is `true` while a channel has failed 3 times in a row, is paused after failures or has a secret that cannot be decrypted. Meshloom keeps a short log of failed, grouped, dropped and cancelled notifications, without their text; successful sends are only counted.
 
 The test of an Apprise channel sends a test notification to every URL; a failure names the URL line and the kind of failure, never the token.
 
@@ -341,11 +342,12 @@ On a Meshloom older than 5.0 there was no sign-in at all: anyone who could reach
 ## When nothing arrives
 
 1. Look at the channel's card in **Settings → Notifications → Channels**: the status dot (working, error, paused, off) and the last error. A channel restored without its secret is off and says *Secret missing after a restore*.
-2. Press **Test** on the card. See [Testing a channel](#testing-a-channel) for the codes. A private network that is not allowed is refused before any connection.
-3. Check the rules table: the event must be ticked for that channel. A mute, a block, a **Do not disturb** in progress and a conversation exception override it (see [Mute and block lists](#mute-and-block-lists)); channels with a private key stay silent unless an exception turns them on.
-4. Is the channel switched on? Is **Do not disturb** active? Only events marked **Always deliver** pass it.
-5. For Web Push, see [When nothing arrives](/en/docs/deep/push/#when-nothing-arrives) on the push page: HTTPS, browser permission, Apple.
-6. Look at the server log and at `GET /api/notifications/deliveries`, which lists failures, notifications dropped and ones skipped during a pause, without their text. See [Troubleshooting](/en/docs/deep/troubleshooting/).
+2. A channel that failed 3 times in a row is listed in a banner at the top of **Channels** and carries a badge, and the other channels receive **Channel failing** (once a day). After 20 failures in a row it is paused and sends nothing, not even urgent events: Meshloom sends it a test after 5 min, 15 min, 1 h, then every 6 h, and the first success resumes it. **Resume** in the banner resumes it at once and resets the count. A channel whose stored secret cannot be decrypted is listed too: enter the secret again in its settings.
+3. Press **Test** on the card. See [Testing a channel](#testing-a-channel) for the codes. A private network that is not allowed is refused before any connection.
+4. Check the rules table: the event must be ticked for that channel. A mute, a block, a **Do not disturb** in progress and a conversation exception override it (see [Mute and block lists](#mute-and-block-lists)); channels with a private key stay silent unless an exception turns them on.
+5. Is the channel switched on? Is **Do not disturb** active? Only events marked **Always deliver** pass it.
+6. For Web Push, see [When nothing arrives](/en/docs/deep/push/#when-nothing-arrives) on the push page: HTTPS, browser permission, Apple.
+7. Look at the server log and at `GET /api/notifications/deliveries`, which lists failures, notifications dropped and ones skipped during a pause, without their text. See [Troubleshooting](/en/docs/deep/troubleshooting/).
 
 ## Endpoints
 
@@ -360,6 +362,7 @@ Administrators manage the channels under `/api/notifications`:
 | POST | `/api/notifications/channels/preview-template` | Render `template_dm` and `template_channel` on a sample direct and channel message (`markdown`, `include_message_text` and `language` are optional); `400 template_too_long` or `template_invalid` for a refused template |
 | GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Read, change (the type cannot change) and delete a channel; `builtin:push` cannot be deleted (`403 builtin_channel`) |
 | POST | `/api/notifications/channels/{id}/test` | Send a test; one per 5 seconds per channel, then `429 rate_limited` |
+| POST | `/api/notifications/channels/{id}/resume` | Resume a channel paused after failures and reset its failure count |
 | GET, PATCH | `/api/notifications/rules` | Channels per event, `always_deliver`, the global pause (`paused_until`), the radio offline delay |
 | PUT | `/api/notifications/rules/conversations/{key}` | Channels of one conversation (`{"channels": {"id": true}}`, or `null` to clear) |
 | GET | `/api/notifications/deliveries` | The delivery journal (failures and suppressions, never the text) and hourly counters, plus exact 24 h `totals` (`sent`, `suppressed_quiet`, `aggregated`) |

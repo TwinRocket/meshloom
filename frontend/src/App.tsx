@@ -931,6 +931,7 @@ export function App() {
             <NotificationStatusProvider
               statuses={health?.notification_statuses}
               capped={health?.notifications_capped === true}
+              failing={health?.notifications_failing === true}
             >
               <AppShell
                 navRailOrder={appSettings?.ui_preferences?.nav_rail}

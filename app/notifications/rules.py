@@ -16,8 +16,9 @@ Pure functions over ``app_settings.notification_rules`` (``app/notifications/AGE
   an unknown type never notifies, as in 4.18.x);
 - Web Push is decided per account over these rules (``user_rules.py``, MSHL-321): the rules
   here are the admin defaults and an account may force an event on or off for its own devices;
-- the global pause (``paused_until``) and a channel's own ``paused_until`` hold
-  every event except ``always_deliver`` ones and urgent ones.
+- the global pause (``paused_until``) holds every event except ``always_deliver`` ones and
+  urgent ones; a channel's own ``paused_until`` (the auto-pause of a channel that keeps
+  failing, MSHL-130) holds every event, since the channel cannot deliver them.
 
 Mute and block lists are applied here, for every channel (``muted`` and ``blocked`` of
 ``event_channel_ids``): the producer (``app/notifications/producers.py``) reads the channel's
@@ -285,12 +286,13 @@ def apply_pauses(
     channel_paused_until: Mapping[str, int | None],
     now: float,
 ) -> list[Target]:
-    """Mark each target paused when the global or its own pause holds this event."""
+    """Mark each target paused when the global pause (not for urgent and ``always_deliver``
+    events) or its own pause (every event: MSHL-130) holds this event."""
     exempt = urgent or always_deliver(rules, name)
     paused_all = not exempt and globally_paused(rules, now)
     targets: list[Target] = []
     for channel_id in dict.fromkeys(channel_ids):
         own = channel_paused_until.get(channel_id)
-        paused = paused_all or (not exempt and own is not None and own > now)
+        paused = paused_all or (own is not None and own > now)
         targets.append(Target(channel_id, paused=paused))
     return targets

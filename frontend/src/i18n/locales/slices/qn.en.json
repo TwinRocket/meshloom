@@ -2,6 +2,22 @@
   "settings": {
     "notifications": {
       "cappedBanner": "Notifications are capped: the hourly limit for the whole instance was reached, so new ones are dropped until the count falls again. Check the delivery log of your channels.",
+      "attention": {
+        "title": "Some notification channels need a look",
+        "help": "The other channels are told when one keeps failing (once a day). After 20 failures in a row a channel is paused and retried with a test after 5 min, 15 min, 1 h, then every 6 h; a success resumes it.",
+        "failing": "{{name}}: keeps failing ({{count}} failures in a row).",
+        "paused": "{{name}}: paused after repeated failures, next try at {{time}}.",
+        "secret_unreadable": "{{name}}: a stored secret cannot be decrypted. Enter it again in the channel's settings.",
+        "test": "Test",
+        "resume": "Resume",
+        "resumed": "{{name}} resumed",
+        "resumeFailed": "Could not resume {{name}}",
+        "badge": {
+          "failing": "Failing",
+          "paused": "Auto-paused",
+          "secret_unreadable": "Secret unreadable"
+        }
+      },
       "advanced": {
         "title": "Advanced",
         "help": "Limits per channel. Over a limit, notifications are grouped into one summary; the daily limit stops sending until midnight (UTC). Leave a field empty to keep the default.",
@@ -36,6 +52,7 @@
           "app_update": "Update available",
           "notify_destination_changed": "Destination changed",
           "notify_channel_changed": "Channel changed",
+          "notify_channel_failed": "Channel failing",
           "notify_test": "Test notification",
           "notifications_grouped": "Summary of grouped notifications",
           "first_seen_grouped": "Summary of new nodes",

@@ -460,6 +460,32 @@ Ces corps sont produits par le code de Meshloom (radio nommée `Base`, canal en 
 }
 ```
 
+### `notify.channel_failed`
+
+```json
+{
+  "version": 2,
+  "event": "notify.channel_failed",
+  "event_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "occurred_at": 1767225600,
+  "dedup_key": "45caca932cfcf0f3",
+  "urgent": false,
+  "instance": {
+    "name": "Base",
+    "radio_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "data": {
+    "channel_id": "ntfy-1a2b3c",
+    "name": "ntfy",
+    "error": "auth_failed"
+  },
+  "rendered": {
+    "title": "Canal de notification en échec",
+    "body": "Le canal « ntfy » échoue sans cesse (auth_failed). Vérifiez-le dans les réglages."
+  }
+}
+```
+
 ### `summary.grouped`
 
 ```json

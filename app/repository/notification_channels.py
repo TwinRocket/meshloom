@@ -40,6 +40,7 @@ from app.notifications.channels import (
     get_type,
     is_builtin,
 )
+from app.notifications.failures import autopause_key
 from app.notifications.presets import PresetError, compile_url
 from app.notifications.templates import check_templates
 from app.secret_fields import REDACTED, destination_changed
@@ -569,6 +570,10 @@ class NotificationChannelRepository:
             await conn.execute(
                 "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
             )
+            # the auto-pause step of a channel that kept failing (MSHL-130)
+            await conn.execute(
+                "DELETE FROM notification_state WHERE key = ?", (autopause_key(channel_id),)
+            )
             # quiet-hours and pause counters (``quiet_hours.py``), also per account
             async with conn.execute(
                 "SELECT key FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
@@ -688,6 +693,17 @@ class NotificationChannelRepository:
                 "UPDATE notification_channels SET last_ok_at = MAX(COALESCE(last_ok_at, 0), ?) "
                 "WHERE id = ?",
                 (at, channel_id),
+            )
+        invalidate_cache()
+
+    @staticmethod
+    async def clear_failures(channel_id: str) -> None:
+        """The Resume button: the failure count and the last error start over."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "UPDATE notification_channels SET failure_count = 0, last_error = NULL "
+                "WHERE id = ?",
+                (channel_id,),
             )
         invalidate_cache()
 
@@ -1016,6 +1032,28 @@ class NotificationJournalRepository:
                 "DELETE FROM notification_state WHERE expires_at IS NOT NULL AND expires_at <= ?",
                 (int(time.time()) if now is None else now,),
             )
+
+    @staticmethod
+    async def state_claim(key: str, expires_at: int, now: int) -> bool:
+        """Take ``key`` until ``expires_at`` unless a live row holds it: True for the caller
+        that took it (an expired row is replaced). Atomic, so two callers never both win."""
+        async with db.tx() as conn:
+            await conn.execute(
+                "DELETE FROM notification_state WHERE key = ? "
+                "AND expires_at IS NOT NULL AND expires_at <= ?",
+                (key, now),
+            )
+            async with conn.execute(
+                "INSERT OR IGNORE INTO notification_state (key, value, expires_at) "
+                "VALUES (?, '1', ?)",
+                (key, expires_at),
+            ) as cursor:
+                return cursor.rowcount > 0
+
+    @staticmethod
+    async def state_delete(key: str) -> None:
+        async with db.tx() as conn:
+            await conn.execute("DELETE FROM notification_state WHERE key = ?", (key,))
 
     @staticmethod
     async def state_trim_prefix(prefix: str, keep: int) -> None:

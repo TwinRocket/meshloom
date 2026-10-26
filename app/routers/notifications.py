@@ -53,9 +53,9 @@ router = APIRouter(
 
 # Events whose proof of modification reaches ``builtin:push`` whatever the rules say.
 LOCKED_PUSH_EVENTS = frozenset({"notify.channel_changed", "notify.destination_changed"})
-# Not rule targets: the test button and the proof events have no user matrix row of
-# their own except the two above.
-NOT_CONFIGURABLE = frozenset({"notify.test"})
+# Not rule targets: the test button, and the failing-channel notice (MSHL-130), which
+# goes to Web Push and every other enabled channel whatever the rules say.
+NOT_CONFIGURABLE = frozenset({"notify.test", "notify.channel_failed"})
 URGENT_EVENTS = frozenset({"radio.offline", "telemetry.alert", "notify.channel_changed"})
 MAX_PAUSE_S = 366 * 86400
 LEGACY_CHANNELS = frozenset(MEDIUM_IDS - {BUILTIN_PUSH_ID})
@@ -452,6 +452,18 @@ async def test_channel(channel_id: str) -> TestResult:
             "rate_limited", 429, headers={"Retry-After": str(int(api_support.TEST_PERIOD_S))}
         )
     return await _run_test(channel, secrets, record=True)
+
+
+@router.post("/channels/{channel_id}/resume")
+async def resume_channel(channel_id: str) -> ChannelOut:
+    """Resume a channel the dispatcher paused after repeated failures (MSHL-130): the pause,
+    its backoff step and the failure count are cleared. Harmless on a running channel."""
+    from app.notifications.dispatcher import notification_dispatcher
+
+    channel = await notification_dispatcher().resume(channel_id)
+    if channel is None:
+        raise fail("channel_missing", 404)
+    return await _present_one(channel)
 
 
 # ── Rules ────────────────────────────────────────────────────────────────

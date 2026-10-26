@@ -530,7 +530,11 @@ async def test_deliveries_never_hold_message_text_and_successes_are_counters(tes
         async with conn.execute(
             "SELECT channel_id, SUM(sent) FROM notification_counters GROUP BY channel_id"
         ) as cursor:
-            assert [tuple(r) for r in await cursor.fetchall()] == [("webhook-ok", 3)]
+            # The third failure also sends notify.channel_failed to the others (MSHL-130).
+            assert sorted(tuple(r) for r in await cursor.fetchall()) == [
+                ("builtin:push", 1),
+                ("webhook-ok", 4),
+            ]
     ok = await Channels.get("webhook-ok")
     assert ok is not None and ok.last_ok_at is not None
 

@@ -8,7 +8,11 @@ from app.auth.permissions import Permission, has_permission, public
 from app.auth.principal import get_principal
 from app.config import settings
 from app.models import RadioHealthState, RadioIdentityInfo, RadioProxyStatus
-from app.notifications.dispatcher import notification_statuses, notifications_capped
+from app.notifications.dispatcher import (
+    notification_statuses,
+    notifications_capped,
+    notifications_failing,
+)
 from app.plugins import bot_conversion
 from app.plugins import lifecycle as plugin_lifecycle
 from app.repository import RawPacketRepository
@@ -143,6 +147,9 @@ class HealthResponse(BaseModel):
     notification_statuses: dict[str, NotificationStatusResponse] = Field(default_factory=dict)
     # The global notification cap (rules ``limits.global_per_hour``) is reached.
     notifications_capped: bool = False
+    # A notification channel keeps failing, is auto-paused, or holds a secret the secrets
+    # key cannot open (MSHL-130): the settings banner lists them.
+    notifications_failing: bool = False
     # Deprecated since 5.0.0 (bots are plugins, MSHL-192): mirrors the plugin system,
     # "paused" for the global pause, "env" for any other hold. Removed in 5.2.0.
     bots_disabled: bool = False
@@ -311,6 +318,7 @@ async def build_health_data(radio_connected: bool, connection_info: str | None) 
         "fanout_statuses": fanout_statuses,
         "notification_statuses": await notification_statuses(),
         "notifications_capped": notifications_capped(),
+        "notifications_failing": await notifications_failing(),
         "bots_disabled": bots_disabled_source is not None,
         "bots_disabled_source": bots_disabled_source,
         "converted_bots": await bot_conversion.notice(),

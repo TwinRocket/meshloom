@@ -430,6 +430,8 @@ export interface HealthStatus {
   notification_statuses?: Record<string, NotificationChannelStatus>;
   /** The notification dispatcher hit its global hourly cap (`limits.global_per_hour`). */
   notifications_capped?: boolean;
+  /** A notification channel keeps failing, is auto-paused or has an unreadable secret. */
+  notifications_failing?: boolean;
   /** Legacy bots converted into extensions; non-null until an admin acknowledges it. */
   converted_bots?: { converted: number; attention: number } | null;
   /** Plugin host: isolation level, why it is off (null when on), and each instance. */
