@@ -313,12 +313,15 @@ Community guard.
   `next_cursor` outside `MINE_CURSOR_RE` is dropped. `delete_object(id)` is
   `DELETE /v1/objects/{id}` (binding = id; a ban refuses it locally, `share_banned`);
   success, `not_found` or `gone`
-  evict the local copies (`_forget_object`: `ShareCache.delete`, the meta cache entry,
-  and a negative `gone` for both read keys, so the next read answers 410 with no
-  request). `gone` (blocked by the service) is re-raised as 409 `share_object_blocked`;
-  `not_owner` is 403 `share_not_owner` and keeps the local copy. A local eviction
-  failure after a successful service delete is logged (exception type only) and the
-  delete still succeeds.
+  evict the local copies (`_forget_object`: first, with no await, a tombstone in
+  `_state.deleted` for `ShareCache.ttl_s`, the meta cache entry dropped and a negative
+  `gone` for both read keys; then `ShareCache.delete`). `read_object` checks the
+  tombstone before and after the disk cache read and around its store, so the next
+  read answers 410 with no request, even when the disk delete failed or a read raced
+  it (MSHL-383). `gone` (blocked by the service) is re-raised as 409
+  `share_object_blocked`; `not_owner` is 403 `share_not_owner` and keeps the local
+  copy. A disk eviction failure is logged (exception type only) and never fails the
+  delete.
   Every new network function must be added to `SERVICE_CALLS` in
   `tests/test_share_off_no_egress.py` (the test finds them from `services/share.py`,
   `services/share_secrets.py` and `services/share_upload.py` and fails otherwise); `/api/share/*` routes are found from

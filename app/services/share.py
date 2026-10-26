@@ -52,7 +52,11 @@ the Community guard.
   contract list becomes ``other``). ``delete_object`` sends
   ``DELETE /v1/objects/{id}`` (binding = the id), then drops the disk-cache
   entry and the cached meta and records the id as gone in the negative cache,
-  so the next read answers ``share_gone`` without a request. A 410 (the operator
+  so the next read answers ``share_gone`` without a request. The in-memory
+  state is updated before the disk delete, and the id is tombstoned for as
+  long as a disk entry can live (``_state.deleted``, checked by
+  ``read_object`` before and after the disk cache), so a failed disk delete or
+  a read racing the delete never serves the object again. A 410 (the operator
   blocked it) is ``share_object_blocked`` and a 403 ``not_owner``
   ``share_not_owner``; the local copies go on a 404 or 410 too.
 
@@ -318,6 +322,10 @@ class _State:
             NEGATIVE_CACHE_SIZE
         )
         self.meta: TtlLruCache[str, ShareMeta] = TtlLruCache(META_CACHE_SIZE)
+        # Ids deleted from this instance, kept as long as a disk-cache entry can
+        # live (``share_cache.TTL_S``): ``read_object`` checks it before the disk
+        # cache, so a failed or racing disk delete never serves a deleted object.
+        self.deleted: TtlLruCache[str, bool] = TtlLruCache(NEGATIVE_CACHE_SIZE)
         self.banned_until: float | None = None
         # Bumped when sharing is turned off: a request that passed the opt-in
         # check before must not leave, and its answer must not be used.
@@ -724,13 +732,29 @@ async def list_mine(limit: int, cursor: str | None) -> ShareMinePage:
     return ShareMinePage(objects=objects, next_cursor=next_cursor)
 
 
+def _deleted(share_id: str) -> bool:
+    return _state.deleted.get(share_id, _state.clock()) is not None
+
+
 async def _forget_object(share_id: str) -> None:
-    """Drop every local copy of a removed object: disk cache, meta, and remember it gone."""
-    await share_cache().delete(share_id)
-    _state.meta.pop(share_id)
+    """Drop every local copy of a removed object and remember it gone.
+
+    The in-memory state goes first, with no await in between: the id is
+    tombstoned for as long as a disk-cache entry can live, the meta dropped and
+    both read keys negatively cached. Only then is the disk entry deleted, so a
+    disk failure (logged, exception type only) or a read racing the delete never
+    serves the object again.
+    """
     now = _state.clock()
+    _state.deleted.set(share_id, True, now + share_cache().ttl_s, now)
+    _state.meta.pop(share_id)
     for key in (f"GET /v1/meta/{share_id}", f"GET /{share_id}"):
         _state.negative.set(key, ("share_gone", {}), now + NEGATIVE_CACHE_S, now)
+    try:
+        await share_cache().delete(share_id)
+    except Exception as exc:  # noqa: BLE001 - the tombstone already hides it
+        # The entry expires on its own (TTL_S); until then the tombstone hides it.
+        logger.warning("Share cache eviction failed after a delete: %s", type(exc).__name__)
 
 
 async def delete_object(share_id: str) -> None:
@@ -739,7 +763,8 @@ async def delete_object(share_id: str) -> None:
     Idempotent on the service (an expired or already deleted object answers 204
     again). A 410 here means the operator blocked it: ``share_object_blocked``,
     the author cannot delete it (the service keeps the evidence). The local
-    copies are dropped on success and whenever the object is gone or unknown.
+    copies are dropped on success and whenever the object is gone or unknown; a
+    local disk error never reports a failure (``_forget_object`` logs it).
     """
     share_id = _checked_id(share_id)
     try:
@@ -750,12 +775,7 @@ async def delete_object(share_id: str) -> None:
         if exc.code == "share_gone":
             raise ShareError("share_object_blocked") from None
         raise
-    try:
-        await _forget_object(share_id)
-    except Exception as exc:  # noqa: BLE001 - the service already deleted it
-        # The object is gone on the service; a local disk error must not report
-        # a failure. The entry expires on its own (1 h).
-        logger.warning("Share cache eviction failed after a delete: %s", type(exc).__name__)
+    await _forget_object(share_id)
 
 
 # Objects --------------------------------------------------------------------
@@ -826,8 +846,13 @@ async def read_object(share_id: str) -> ShareObject:
     share_id = _checked_id(share_id)
     if await share_egress_state() is None:
         raise ShareError("share_disabled")
+    # Deleted here: answered before the disk cache, which may still hold it.
+    if _deleted(share_id):
+        raise ShareError("share_gone")
     cache = share_cache()
     cached = await cache.get(share_id)
+    if _deleted(share_id):  # deleted while the disk cache was read
+        raise ShareError("share_gone")
     if cached is not None:
         return ShareObject(content=cached.content, content_type=cached.content_type)
     fetched = await fetch_object(share_id)
@@ -837,7 +862,15 @@ async def read_object(share_id: str) -> ShareObject:
         logger.warning("Share object refused locally: %s", exc.code)
         _note_refused_object(f"GET /{share_id}", exc.code)
         raise
+    if _deleted(share_id):  # deleted while it was fetched: never store it
+        raise ShareError("share_gone")
     await cache.set(share_id, CachedObject(content=obj.content, content_type=obj.content_type))
+    if _deleted(share_id):  # deleted while it was stored: drop the copy just written
+        try:
+            await cache.delete(share_id)
+        except Exception as exc:  # noqa: BLE001 - the tombstone still hides it
+            logger.warning("Share cache eviction failed after a delete: %s", type(exc).__name__)
+        raise ShareError("share_gone")
     return obj
 
 
