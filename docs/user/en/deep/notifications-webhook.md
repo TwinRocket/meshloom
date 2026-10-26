@@ -486,6 +486,32 @@ These bodies are produced by Meshloom's own code (radio named `Base`, channel in
 }
 ```
 
+### `notify.heartbeat`
+
+```json
+{
+  "version": 2,
+  "event": "notify.heartbeat",
+  "event_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "occurred_at": 1767225600,
+  "dedup_key": "273ccb5e5fd2ae0f",
+  "urgent": false,
+  "instance": {
+    "name": "Base",
+    "radio_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "data": {
+    "instance": "Base Paris",
+    "uptime_s": 93784,
+    "version": "5.0.0"
+  },
+  "rendered": {
+    "title": "Base Paris is running",
+    "body": "Up for 26 h 03, version 5.0.0."
+  }
+}
+```
+
 ### `summary.grouped`
 
 ```json

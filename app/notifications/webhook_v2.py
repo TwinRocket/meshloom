@@ -138,6 +138,12 @@ class ChannelFailedData(_Model):
     error: str = ""
 
 
+class HeartbeatData(_Model):
+    instance: str = ""
+    uptime_s: int = 0
+    version: str = ""
+
+
 class TestData(_Model):
     pass
 
@@ -209,6 +215,11 @@ _EVENTS: tuple[tuple[str, type[_Model], str], ...] = (
         "notify.channel_failed",
         ChannelFailedData,
         "A channel keeps failing, or a push service unsubscribed a browser.",
+    ),
+    (
+        "notify.heartbeat",
+        HeartbeatData,
+        "The periodic heartbeat of a channel: Meshloom is still running.",
     ),
     ("summary.grouped", GroupedData, "Notifications the rate limiter held back."),
     ("summary.first_seen", FirstSeenGroupedData, "First-seen nodes over the hourly cap."),
@@ -329,6 +340,8 @@ def _event_data(event: ev.NotificationEvent, payload: Mapping[str, Any], policy:
         )
     if isinstance(event, ev.ChannelFailedEvent):
         return ChannelFailedData(channel_id=d.channel_id, name=d.name, error=d.error)
+    if isinstance(event, ev.HeartbeatEvent):
+        return HeartbeatData(instance=d.instance, uptime_s=d.uptime_s, version=d.version)
     return TestData()
 
 
