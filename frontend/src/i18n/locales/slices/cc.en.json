@@ -19,8 +19,7 @@
         "installed": "Installed",
         "store": "Store",
         "updates": "Updates",
-        "storeSoon": "The Store is not available yet.",
-        "updatesSoon": "Updates are not available yet."
+        "storeSoon": "The Store is not available yet."
       },
       "kind": {
         "bundled": "Bundled",

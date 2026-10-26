@@ -495,6 +495,43 @@ form strings, `settings.extensions.local.*`). Tests: `src/test/pluginsSection.te
   unsaved) and **Test with a message** (`POST /test`; the page states nothing reached the radio;
   needs the instance enabled and the `message` hook).
 
+### Store and Updates tabs (`components/settings/extensions/`, MSHL-198)
+
+Settings → Extensions → **Store** (`StoreTab`) and **Updates** (`UpdatesTab`), admin-only (the
+routes are; a member gets a notice and no request).
+
+- **Plugin content is plain text, always.** A plugin's README, changelog, name, summary, host and
+  field names are untrusted. Render them as React text (a `<pre>` for the README and the changelog):
+  never `dangerouslySetInnerHTML`, never a Markdown renderer, never an `<a>`/`<img>` built from
+  them. There is no Markdown engine or sanitiser in `package.json` on purpose (owner question Q17,
+  decided with the signed Store in M2b). The only link on the plugin page is the issue tracker
+  built from the **validated** `owner/name` (`issuesUrl`); `src/test/pluginsStore.test.tsx` holds a
+  hostile README (`<script>`, inline HTML, `javascript:` links, images) and a hostile changelog.
+- **Store tab.** `GET /store/status` drives `StoreActivationCard` (hosts, what is sent, what is
+  missed, taken from the server: never hard-code a host) while `enabled` is false; the switch is
+  `PATCH /settings {store_online: true}`. Online, **Refresh** is `POST /store/refresh` (10 minute
+  gap on the server, a 10 s hold in the button). `CustomRepositoriesPanel` lists the repositories
+  (`custom` and `not reviewed, not signed` badges, `compatible`, last check, last error); **Details**
+  opens `PluginPage` (README from `GET /store/repositories/{o}/{n}/readme?lang=`, permissions,
+  hosts, privacy, versions, report and **Copy diagnostic**). `CustomInstallBody` is the consent
+  (warning, permissions, privacy, tick box) then, when `entry.config_schema` has properties, a
+  `SchemaForm` for the settings; `granted_permissions` is `entry.permissions`, the list on screen.
+  Bundled plugins keep `AddBundledDialog` (settings after the install).
+- **Updates tab.** `GET /store/updates?lang=` (no egress) plus `GET /store/repositories` for the
+  release data. `UpdateDialogBody` shows the changelog (`null`: "no changelog", custom sources
+  have none), the permission and schema diffs, and, for a `consent_required` hold, **every**
+  permission of the release; the grant sent is exactly `entry.permissions` of the repository
+  entry whose `version` equals `to_version` (otherwise no consent is offered and the instance is
+  held, reviewed under Installed). A `config_required` hold opens a `SchemaForm` and sends
+  `config`. The consent and config apply to one instance (the first held), as the API does.
+  Per-instance auto-update is `PATCH {auto_update}`.
+- **Badge and links.** `stores/pluginUpdatesStore.ts` holds the update count (`usePluginUpdateBadge`
+  in `AppShell` polls it for admins; `UpdatesTab` writes it); `SettingsIndexView` and the Updates tab
+  trigger show it. `SettingsExtensionsSection` takes `onOpenSection` (Settings → Updates link);
+  `SettingsUpdatesSection` links back through `requestExtensionsTab('updates')`.
+- Strings: slice `pluginstore` (`pluginStore.*`). Tests: `src/test/pluginsStore.test.tsx`,
+  `src/test/customRepositoriesPanel.test.tsx`.
+
 ### Shared `SchemaForm` (`components/forms/`)
 
 `SchemaForm.tsx` renders a form from a JSON Schema; `schemaFormModel.ts` is the pure half

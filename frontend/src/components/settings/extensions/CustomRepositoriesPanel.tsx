@@ -13,7 +13,8 @@ import {
 } from '../../ui/dialog';
 import { Input } from '../../ui/input';
 import { toast } from '../../ui/sonner';
-import { ConsentWarnings, PermissionList } from './PermissionList';
+import { CustomInstallBody } from './CustomInstallBody';
+import { PluginPage } from './PluginPage';
 import { localizedText } from './pluginsShared';
 import type { StoreRepositories, StoreRepository } from './pluginsTypes';
 
@@ -33,10 +34,13 @@ export function CustomRepositoriesPanel({
   canManage,
   locked,
   onInstalled,
+  reloadKey = 0,
 }: {
   canManage: boolean;
   locked: boolean;
   onInstalled: () => void;
+  /** Bumped by the Store tab after a refresh: the list is read again. */
+  reloadKey?: string | number;
 }) {
   const { t, i18n } = useTranslation();
   const [data, setData] = useState<StoreRepositories | null>(null);
@@ -45,6 +49,7 @@ export function CustomRepositoriesPanel({
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState<StoreRepository | null>(null);
   const [installing, setInstalling] = useState<StoreRepository | null>(null);
+  const [viewing, setViewing] = useState<StoreRepository | null>(null);
 
   const [tick, setTick] = useState(0);
   const load = useCallback(() => setTick((n) => n + 1), []);
@@ -63,24 +68,12 @@ export function CustomRepositoriesPanel({
     return () => {
       alive = false;
     };
-  }, [canManage, t, tick]);
+  }, [canManage, t, tick, reloadKey]);
 
   const trimmed = value.trim();
   const valid = REPOSITORY_RE.test(trimmed);
   const online = data?.store_online ?? false;
   const full = data ? data.repositories.length >= data.max_repositories : false;
-
-  const setOnline = async (next: boolean) => {
-    setBusy(true);
-    try {
-      await api.updateSettings({ store_online: next });
-      load();
-    } catch (err) {
-      toast.error(formatApiError(err, t));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const add = async () => {
     if (!valid) return;
@@ -142,19 +135,9 @@ export function CustomRepositoriesPanel({
       )}
 
       {data && !online && (
-        <div
-          className="flex flex-wrap items-center gap-2 rounded-md border border-border p-3"
-          data-testid="store-offline"
-        >
-          <span className="min-w-0 flex-1 text-muted-foreground">
-            {t('settings.extensions.store.offline')}
-          </span>
-          {canManage && (
-            <Button size="sm" variant="outline" onClick={() => setOnline(true)} disabled={busy}>
-              {t('settings.extensions.store.goOnline')}
-            </Button>
-          )}
-        </div>
+        <p className="text-muted-foreground" data-testid="store-offline-note">
+          {t('settings.extensions.store.offline')}
+        </p>
       )}
 
       {data && canManage && (
@@ -214,12 +197,30 @@ export function CustomRepositoriesPanel({
                       {entry && ` · v${entry.version} (${entry.tag})`}
                       {` · ${t('settings.extensions.store.unsigned')}`}
                     </div>
+                    <div className="mt-1 flex flex-wrap gap-1.5" data-testid="custom-repo-badges">
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">
+                        {t('pluginStore.card.custom')}
+                      </span>
+                      <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium">
+                        {t('pluginStore.card.unreviewed')}
+                      </span>
+                      {entry && !entry.compatible && (
+                        <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-xs font-medium text-destructive">
+                          {t('pluginStore.card.incompatibleBadge')}
+                        </span>
+                      )}
+                    </div>
                   </div>
+                  {entry && (
+                    <Button size="sm" variant="outline" onClick={() => setViewing(repo)}>
+                      {t('pluginStore.card.details')}
+                    </Button>
+                  )}
                   {canManage && entry && (
                     <Button
                       size="sm"
                       onClick={() => setInstalling(repo)}
-                      disabled={!online || locked || busy}
+                      disabled={!online || locked || busy || !entry.compatible}
                     >
                       {t('settings.extensions.store.install')}
                     </Button>
@@ -245,6 +246,23 @@ export function CustomRepositoriesPanel({
                     {t('settings.extensions.add.instances', { count: repo.instances.length })}
                     {repo.update_available &&
                       ` · ${t('settings.extensions.store.updateAvailable')}`}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground" data-testid="custom-repo-checked">
+                  {repo.checked_at
+                    ? t('pluginStore.card.checkedAt', {
+                        time: new Date(repo.checked_at * 1000).toLocaleString(i18n.language),
+                      })
+                    : t('pluginStore.card.neverChecked')}
+                </p>
+                {entry && !entry.compatible && (
+                  <p className="text-xs text-destructive" data-testid="custom-repo-incompatible">
+                    {t('pluginStore.card.incompatible')}
+                  </p>
+                )}
+                {entry && online && locked && canManage && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('pluginStore.card.disabledLocked')}
                   </p>
                 )}
                 {repo.last_error && (
@@ -281,10 +299,27 @@ export function CustomRepositoriesPanel({
         </DialogContent>
       </Dialog>
 
+      <Dialog open={viewing !== null} onOpenChange={(o) => !o && setViewing(null)}>
+        <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto">
+          {viewing && (
+            <PluginPage
+              repo={viewing}
+              canManage={canManage}
+              canInstall={online && !locked && !busy}
+              onClose={() => setViewing(null)}
+              onInstall={() => {
+                setInstalling(viewing);
+                setViewing(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={installing !== null} onOpenChange={(o) => !o && setInstalling(null)}>
         <DialogContent className="max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg overflow-y-auto">
           {installing && (
-            <InstallBody
+            <CustomInstallBody
               repo={installing}
               onClose={() => setInstalling(null)}
               onInstalled={() => {
@@ -297,81 +332,5 @@ export function CustomRepositoriesPanel({
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-/** The consent screen of a custom plugin: the warning, then the bundled-plugin consent. */
-function InstallBody({
-  repo,
-  onClose,
-  onInstalled,
-}: {
-  repo: StoreRepository;
-  onClose: () => void;
-  onInstalled: () => void;
-}) {
-  const { t, i18n } = useTranslation();
-  const [accepted, setAccepted] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const entry = repo.entry;
-  if (!entry) return null;
-  const name = localizedText(entry.name, i18n.language) || entry.plugin_id;
-
-  const install = async () => {
-    setBusy(true);
-    try {
-      const instance = await api.installPlugin({
-        kind: 'custom',
-        plugin_id: entry.plugin_id,
-        repository: repo.repository,
-        version: entry.version,
-        granted_permissions: entry.permissions,
-      });
-      toast.success(t('settings.extensions.add.installed', { name: instance.label }));
-      onInstalled();
-    } catch (err) {
-      setError(formatApiError(err, t));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>{t('settings.extensions.add.consentTitle', { name })}</DialogTitle>
-        <DialogDescription>{t('settings.extensions.add.consentIntro')}</DialogDescription>
-      </DialogHeader>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      <div className="space-y-3 text-sm">
-        <p className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
-          {t('settings.extensions.store.warning')}
-        </p>
-        <PermissionList declared={entry.permissions} />
-        <ConsentWarnings permissions={entry.permissions} manifest={{ privacy: entry.privacy }} />
-        <label className="flex items-start gap-2">
-          <input
-            type="checkbox"
-            className="mt-1"
-            checked={accepted}
-            onChange={(e) => setAccepted(e.target.checked)}
-          />
-          <span>{t('settings.extensions.store.accept')}</span>
-        </label>
-      </div>
-      <DialogFooter className="gap-2">
-        <Button variant="outline" onClick={onClose} disabled={busy}>
-          {t('settings.extensions.cancel')}
-        </Button>
-        <Button onClick={install} disabled={!accepted || busy}>
-          {t('settings.extensions.add.install')}
-        </Button>
-      </DialogFooter>
-    </>
   );
 }

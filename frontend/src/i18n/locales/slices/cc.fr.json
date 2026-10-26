@@ -19,8 +19,7 @@
         "installed": "Installées",
         "store": "Store",
         "updates": "Mises à jour",
-        "storeSoon": "Le Store n'est pas encore disponible.",
-        "updatesSoon": "Les mises à jour ne sont pas encore disponibles."
+        "storeSoon": "Le Store n'est pas encore disponible."
       },
       "kind": {
         "bundled": "Fournie",

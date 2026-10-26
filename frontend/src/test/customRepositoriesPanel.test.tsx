@@ -34,6 +34,8 @@ function repo(overrides: Partial<StoreRepository> = {}): StoreRepository {
       permissions: { 'messages.read': { channels: 'public', direct: false, outgoing: false } },
       privacy: { sends_to_third_parties: false, stores_message_content: false },
       compat: null,
+      compatible: true,
+      config_schema: {},
       archive_sha256: 'a'.repeat(64),
       archive_size: 1234,
       warning: 'custom_unsigned',
@@ -120,22 +122,14 @@ describe('CustomRepositoriesPanel', () => {
     );
   });
 
-  it('offline: no add, no install, and a switch to put the Store online', async () => {
-    const get = vi
-      .spyOn(api, 'getStoreRepositories')
-      .mockResolvedValueOnce(payload({ store_online: false }))
-      .mockResolvedValue(payload());
-    const update = vi.spyOn(api, 'updateSettings').mockResolvedValue({} as never);
+  it("offline: no add, no install (the activation card is the Store tab's)", async () => {
+    vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(payload({ store_online: false }));
     renderPanel();
-    await screen.findByTestId('store-offline');
+    await screen.findByTestId('store-offline-note');
     expect(screen.getByRole('button', { name: t('settings.extensions.store.add') })).toBeDisabled();
     expect(
       screen.getByRole('button', { name: t('settings.extensions.store.install') })
     ).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: t('settings.extensions.store.goOnline') }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith({ store_online: true }));
-    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByTestId('store-offline')).not.toBeInTheDocument());
   });
 
   it('removes a repository after a confirmation', async () => {

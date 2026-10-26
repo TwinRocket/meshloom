@@ -18,8 +18,13 @@ import type {
   PluginSourceResult,
   PluginTestRequest,
   PluginTestResult,
+  PluginUpdate,
+  PluginUpdateRequest,
+  StoreReadme,
+  StoreRefreshResult,
   StoreRepositories,
   StoreRepository,
+  StoreStatus,
 } from './components/settings/extensions/pluginsTypes';
 import type {
   MyPushRules,
@@ -1325,6 +1330,23 @@ export const api = {
   resumeMyPush: () => fetchJson<MyPushRules>('/push/my-pause', { method: 'DELETE' }),
   getPlugins: () => fetchJson<PluginInstance[]>('/plugins'),
   getBundledPlugins: () => fetchJson<BundledPlugin[]>('/plugins/bundled'),
+  getStoreStatus: () => fetchJson<StoreStatus>('/store/status', { cache: 'no-store' }),
+  refreshStore: () => fetchJson<StoreRefreshResult>('/store/refresh', { method: 'POST' }),
+  getStoreReadme: (repository: string, lang: string) => {
+    const [owner, name] = repository.split('/');
+    return fetchJson<StoreReadme>(
+      `/store/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/readme?lang=${encodeURIComponent(lang)}`
+    );
+  },
+  getStoreUpdates: (lang: string) =>
+    fetchJson<PluginUpdate[]>(`/store/updates?lang=${encodeURIComponent(lang)}`, {
+      cache: 'no-store',
+    }),
+  updatePlugin: (id: string, body: PluginUpdateRequest) =>
+    fetchJson<PluginInstance>(`/plugins/${encodeURIComponent(id)}/update`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   getStoreRepositories: () => fetchJson<StoreRepositories>('/store/repositories'),
   addStoreRepository: (repository: string) =>
     fetchJson<StoreRepository>('/store/repositories', {
