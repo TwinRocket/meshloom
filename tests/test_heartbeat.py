@@ -16,6 +16,8 @@ import pytest
 
 from app.net.egress_guard import PinnedClient
 from app.notifications import heartbeat as heartbeat_module
+from app.notifications import quiet_hours
+from app.notifications import rules as rules_mod
 from app.notifications.channels import ChannelCreate, ChannelError, ChannelUpdate
 from app.notifications.dispatcher import Dispatcher, notification_dispatcher
 from app.notifications.transports.base import SendResult
@@ -221,25 +223,71 @@ async def test_message_mode_sends_every_interval_with_instance_uptime_version(te
     assert (first["uptime_s"], second["uptime_s"]) == (900, 1800)
 
 
-@pytest.mark.asyncio
-async def test_heartbeat_ignores_global_pause_quiet_hours_and_buckets(test_db):
-    channel = await Channels.create(_webhook(heartbeat_interval_s=300, rate_per_min=1))
-    rules = await Channels.get_rules()
-    rules["paused_until"] = int(time.time()) + 3600
-    rules["quiet_hours"] = {"enabled": True, "start": "00:00", "end": "23:59", "days": []}
-    await Channels.set_rules(rules)
+@pytest.fixture
+def _utc(monkeypatch):
+    """Quiet hours read the host's local time: pin it so the window is known around T0."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("needs time.tzset")
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+async def _beats_while_held(channel_id: str) -> None:
+    """Three heartbeats go although the rules hold regular events at the fake clock's now."""
     transport = Recorder()
-    clock = Clock()
-    dispatcher = _dispatcher(transport, clock)
-
+    dispatcher = _dispatcher(transport, Clock())
     for _ in range(3):
-        result = await dispatcher.heartbeats.beat(channel.id)
+        result = await dispatcher.heartbeats.beat(channel_id)
         assert result is not None and result.ok
-
-    assert len(transport.calls) == 3
+    assert [call[1] for call in transport.calls] == ["notify.heartbeat"] * 3
     # Counted, not journaled.
     assert sum(dispatcher._sent.values()) == 3
-    assert await Journal.list_deliveries(channel_id=channel.id) == []
+    assert all(
+        row["event"] != "notify.heartbeat"
+        for row in await Journal.list_deliveries(channel_id=channel_id)
+    )
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_ignores_the_global_pause(test_db):
+    channel = await Channels.create(_webhook(heartbeat_interval_s=300))
+    rules = await Channels.get_rules()
+    rules["paused_until"] = T0 + 3600
+    await Channels.set_rules(rules)
+    # The pause is active on the fake clock, so a beat that honoured it would not go.
+    assert rules_mod.globally_paused(await Channels.get_rules(), T0)
+    await _beats_while_held(channel.id)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_ignores_quiet_hours(test_db, _utc):
+    channel = await Channels.create(_webhook(heartbeat_interval_s=300))
+    rules = await Channels.get_rules()
+    # T0 is 08:00 UTC: the window 07:00-09:00, every day, holds it.
+    rules["quiet_hours"] = {
+        "enabled": True,
+        "start": "07:00",
+        "end": "09:00",
+        "weekdays": list(range(7)),
+    }
+    await Channels.set_rules(rules)
+    assert quiet_hours.is_quiet(await Channels.get_rules(), T0)
+    await _beats_while_held(channel.id)
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_ignores_the_buckets(test_db):
+    # One a minute and the fake clock never moves: a send that took a token would stall.
+    channel = await Channels.create(_webhook(heartbeat_interval_s=300, rate_per_min=1))
+    transport = Recorder()
+    dispatcher = _dispatcher(transport, Clock())
+    for _ in range(5):
+        result = await dispatcher.heartbeats.beat(channel.id)
+        assert result is not None and result.ok
+    assert len(transport.calls) == 5
 
 
 @pytest.mark.asyncio
@@ -310,6 +358,35 @@ async def test_ping_url_is_encrypted_and_masked(test_db, client):
     assert found is not None and "heartbeat_url" not in found[1]
     # The channel's own secrets were never touched.
     assert found[1]["topic"] == "a-b-c-topic-0123456789"
+
+
+@pytest.mark.asyncio
+async def test_a_ping_url_set_by_patch_is_encrypted_and_masked(test_db, client):
+    created = await client.post(
+        "/api/notifications/channels",
+        json={"type": "webhook", "name": "Hook", "config": {"url": "https://hooks.example.org/x"}},
+    )
+    assert created.status_code == 201, created.text
+    channel_id = created.json()["id"]
+    assert created.json()["heartbeat_url"] == ""
+
+    other = "https://hc-ping.example.org/ffff-patch-token-77"
+    for url, token in ((PING_URL, TOKEN), (other, "patch-token-77")):
+        response = await client.patch(
+            f"/api/notifications/channels/{channel_id}",
+            json={"heartbeat_interval_s": 900, "heartbeat_url": url},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["heartbeat_url"] == "********"
+        assert "heartbeat_url" in response.json()["secret_fields"]
+        assert token not in response.text
+        raw = await _raw_secrets(test_db, channel_id)
+        assert token not in raw  # stored as a v1: token, never in clear
+        assert json.loads(raw)["heartbeat_url"].startswith("v1:")
+        listed = await client.get("/api/notifications/channels")
+        assert token not in listed.text
+        found = await Channels.get_for_send(channel_id)
+        assert found is not None and found[1]["heartbeat_url"] == url
 
 
 @pytest.mark.asyncio
