@@ -7,6 +7,7 @@ import type { NotificationChannel } from '../../../notifications/types';
 import { Button } from '../../ui/button';
 import { Checkbox } from '../../ui/checkbox';
 import { Label } from '../../ui/label';
+import type { ChannelDeliveryStats } from './deliveryStats';
 import { iconFor, isLegacyChannel, STATUS_DOT_CLASS } from './notificationsShared';
 
 export function ChannelList({
@@ -15,6 +16,8 @@ export function ChannelList({
   pushBlock,
   pushOpen = false,
   legacyBlock,
+  stats = {},
+  onLog,
   onToggle,
   onQuietExempt,
   onTest,
@@ -29,6 +32,10 @@ export function ChannelList({
   pushOpen?: boolean;
   /** The 4.18.x destination form of a `legacy:*` channel (its Edit opens it in the card). */
   legacyBlock: (medium: 'email' | 'webhook' | 'apprise') => ReactNode;
+  /** Counters of the last 24 hours, by channel id (absent until read). */
+  stats?: Record<string, ChannelDeliveryStats>;
+  /** Open the delivery log of the channel. */
+  onLog?: (channel: NotificationChannel) => void;
   onToggle: (channel: NotificationChannel, enabled: boolean) => void;
   /** Let the channel through the quiet hours (`quiet_hours_exempt`). */
   onQuietExempt: (channel: NotificationChannel, exempt: boolean) => void;
@@ -97,6 +104,28 @@ export function ChannelList({
                     })}
                   </p>
                 )}
+                {stats[channel.id] &&
+                  (stats[channel.id].suppressed > 0 || stats[channel.id].grouped > 0) && (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid={`channel-counters-${channel.id}`}
+                    >
+                      {[
+                        stats[channel.id].suppressed > 0
+                          ? t('settings.notifications.log.suppressed', {
+                              count: stats[channel.id].suppressed,
+                            })
+                          : null,
+                        stats[channel.id].grouped > 0
+                          ? t('settings.notifications.log.grouped', {
+                              count: stats[channel.id].grouped,
+                            })
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  )}
                 {builtin && !window.isSecureContext && (
                   <p className="text-xs text-muted-foreground" data-testid="push-unavailable-http">
                     {t('settings.notifications.channels.pushUnavailableHttp')}
@@ -143,6 +172,11 @@ export function ChannelList({
               </div>
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
+              {onLog && (
+                <Button variant="ghost" size="sm" onClick={() => onLog(channel)}>
+                  {t('settings.notifications.log.open')}
+                </Button>
+              )}
               {builtin ? (
                 <Button
                   variant="ghost"

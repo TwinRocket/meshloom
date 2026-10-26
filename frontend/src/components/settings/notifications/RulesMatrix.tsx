@@ -81,7 +81,22 @@ export function RulesMatrix({
               {t('settings.notifications.matrix.event')}
             </th>
             <th scope="col" className="px-2 py-2 text-center text-[0.75rem] font-medium">
-              {t('settings.notifications.matrix.alwaysDeliver')}
+              <span title={t('settings.notifications.matrix.alwaysDeliverTip')}>
+                {t('settings.notifications.matrix.alwaysDeliver')}
+              </span>{' '}
+              <button
+                type="button"
+                className="text-[0.625rem] font-normal text-primary underline underline-offset-2"
+                aria-label={t('settings.notifications.matrix.alwaysDeliverTip')}
+                title={t('settings.notifications.matrix.alwaysDeliverTip')}
+                onClick={() =>
+                  document
+                    .getElementById('notification-quiet-hours-section')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+              >
+                {t('settings.notifications.matrix.quietLink')}
+              </button>
             </th>
             {channels.map((channel) => (
               <th

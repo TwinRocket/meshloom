@@ -268,6 +268,12 @@ Chaque canal a des limites par minute, par heure et, pour certains, par jour. Le
 - **Plafond global.** Tous canaux confondus, Meshloom envoie au plus 600 notifications par heure (`limits.global_per_hour` dans les règles). Au-delà, rien n’est envoyé, urgents compris, chacune est inscrite *limitée* dans le journal, et `/api/health` indique `notifications_capped: true` jusqu’à ce que l’heure ait de la place.
 - **Pas de répétition.** Un nouveau contact notifie une fois par jour, une panne de radio une fois, un message une fois, même après un redémarrage. Une alerte de télémétrie n’est limitée que par sa propre hystérésis.
 
+### Réglages avancés et journal d’envoi
+
+Dans la fenêtre de modification d’un canal, **Avancé** ouvre les limites du canal par minute, par heure et par jour, avec la valeur par défaut du type sous chaque champ (un champ vide la garde), et la case **Exempté des heures calmes** (la même que sur la carte). Le groupe des heures calmes, avec le fuseau horaire de la machine, est dans les règles ; l’en-tête de la colonne **Toujours livrer** du tableau y renvoie.
+
+Chaque carte a un bouton **Journal d’envoi**. Il ouvre un tiroir avec les 50 dernières entrées du journal du canal (heure, événement, pastille d’état comme *Échec*, *Groupée*, *Heures calmes*, *Limitée*, *Limite quotidienne*, et l’erreur sous forme de code court traduit, jamais un texte de message), le nombre de notifications envoyées sur les dernières 24 heures et un bouton **Actualiser**. Sur la carte, une ligne indique, quand il y en a, combien de notifications ont été retenues pendant les heures calmes et combien ont été regroupées en un résumé sur les dernières 24 heures. Quand Meshloom atteint son plafond horaire global (voir plus haut), un bandeau en haut de la liste des canaux l’indique (`notifications_capped` dans `/api/health`).
+
 ## Tester un canal
 
 Chaque canal a un bouton **Tester**, et le dialogue d’ajout teste **avant tout enregistrement** (**Envoyer un test et continuer**). Un test passe par l’expéditeur propre au canal et les mêmes vérifications qu’un vrai envoi, sans entrer dans la file, le journal ni les compteurs. Un échec s’affiche sous forme d’un code court, traduit, qui ne contient jamais une adresse, un jeton ni le texte d’erreur du réseau :

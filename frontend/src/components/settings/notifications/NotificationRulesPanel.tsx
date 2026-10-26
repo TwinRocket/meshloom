@@ -77,7 +77,7 @@ export function NotificationRulesPanel({
 
       <Separator />
 
-      <div className="space-y-3">
+      <div className="space-y-3" id="notification-quiet-hours-section">
         <SettingsGroupHeader
           title={t('settings.notifications.quiet.title')}
           storedOn="server"
