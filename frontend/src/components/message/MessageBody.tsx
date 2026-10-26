@@ -1,6 +1,13 @@
+import { useCallback } from 'react';
 import { useRichPayloads } from '../../contexts/RichPayloadContext';
+import { ShareLinkGateContext } from '../../contexts/ShareLinkGateContext';
 import { renderTextWithMentions } from '../../utils/messageText';
-import { renderMeshcoreOpenPayload, SharePayload, type ShareMessageContext } from './richPayloads';
+import {
+  renderMeshcoreOpenPayload,
+  SharePayload,
+  useShareImage,
+  type ShareMessageContext,
+} from './richPayloads';
 
 interface MessageBodyProps {
   /** Message text without the channel "Sender: " prefix. */
@@ -22,6 +29,11 @@ interface MessageBodyProps {
    * policy loads a shared image there without a tap. Defaults to false.
    */
   privateConversation?: boolean;
+  /**
+   * False on a screen nobody interacts with (Feed display mode): a shared image that
+   * may not load shows a plain label, not a tap button. Defaults to true.
+   */
+  interactive?: boolean;
 }
 
 /**
@@ -36,29 +48,35 @@ export function MessageBody({
   remoteMedia = true,
   message,
   privateConversation = false,
+  interactive = true,
 }: MessageBodyProps) {
   const { renderRichPayloads } = useRichPayloads();
+  const image = useShareImage({ content, message, privateConversation, remoteMedia });
+  const imageId = image?.id ?? null;
+  const imageLoads = image?.load ?? false;
+  // The visible link of a shared image must not warm its meta before the image may load.
+  const mayPrefetch = useCallback(
+    (id: string) => id !== imageId || imageLoads,
+    [imageId, imageLoads]
+  );
   return (
     <div className="wrap-break-word whitespace-pre-wrap">
-      {renderMeshcoreOpenPayload(
-        content,
-        radioName,
-        onChannelReferenceClick,
-        renderRichPayloads,
-        remoteMedia
-      ) ||
-        content.split('\n').map((line, i, arr) => (
-          <span key={i}>
-            {renderTextWithMentions(line, radioName, onChannelReferenceClick)}
-            {i < arr.length - 1 && <br />}
-          </span>
-        ))}
-      <SharePayload
-        content={content}
-        message={message}
-        privateConversation={privateConversation}
-        remoteMedia={remoteMedia && !!message}
-      />
+      <ShareLinkGateContext.Provider value={mayPrefetch}>
+        {renderMeshcoreOpenPayload(
+          content,
+          radioName,
+          onChannelReferenceClick,
+          renderRichPayloads,
+          remoteMedia
+        ) ||
+          content.split('\n').map((line, i, arr) => (
+            <span key={i}>
+              {renderTextWithMentions(line, radioName, onChannelReferenceClick)}
+              {i < arr.length - 1 && <br />}
+            </span>
+          ))}
+      </ShareLinkGateContext.Provider>
+      <SharePayload image={image} message={message} interactive={interactive} />
     </div>
   );
 }

@@ -735,7 +735,8 @@ key}`); they are not `Message.conversation_key`.
   `utils/shareLinks.ts`) render through `components/message/ShareLinkAnchor.tsx`
   (re-exported by `richPayloads.tsx`), which `linkifyText` uses for every URL. The
   destination hint (`-> host`) comes from `GET /api/share/{id}/meta` on hover or
-  focus only, through `stores/shareMetaStore.ts` (one request per id, 10-minute
+  focus only (never while the message's shared image may not load yet:
+  `contexts/ShareLinkGateContext.ts`, provided by `MessageBody`), through `stores/shareMetaStore.ts` (one request per id, 10-minute
   memory capped at 200 ids, negative entries kept; once fetched, the hint stays
   visible for every instance of that id until the memory expires). The remote host
   is never shown raw: `displayShareHost` strips control and bidi characters, shows
@@ -748,25 +749,31 @@ key}`); they are not `Message.conversation_key`.
   `richPayloads.tsx`), rendered by `MessageBody` after the text (the anchor stays).
   Only the composer's form is an image: `📷 <service link>[ caption]`, optionally behind
   `@[Name] ` (`utils/sharePayload.ts` `shareImageId`); a bare service link stays an
-  anchor. Whether it loads without a tap is `shareMediaAutoLoads`: `remoteMedia` false
-  or a blocked sender (`utils/messageBlocking.ts` `isMessageBlocked`, lists from
-  `BlockedSendersProvider` in `App.tsx`) means a tap; then `preview_policy` of the
+  anchor. Whether it loads without a tap is `useShareImage` (`MessageBody`
+  holds the tap) over `shareMediaAutoLoads`: `remoteMedia` false, a blocked sender
+  (`utils/messageBlocking.ts` `isMessageBlocked`, lists from `BlockedSendersProvider`
+  in `App.tsx`) or settings not loaded yet (`loaded` false, also outside a provider)
+  means a tap; then `preview_policy` of the
   share status: `always` loads, `private` loads in a DM or a private channel
   (`isPrivateChannel`: `Channel.key_derived === false` and not the Public key; an
   unknown channel is not private), `never` always asks. `MessageBody` takes
   `message` (id for `?message_id=`, sender for the block lists) and
   `privateConversation`; without `message` it always asks. `MessageList` passes
   `isPrivateConversation(msg, channels)`, the feed `FeedRowLabels.privateConversation`.
-  Before the tap nothing is requested, meta included (`src/test/sharePayload.test.tsx`
-  spies `fetch`). On load: meta through `requestShareMeta`; a public image is
+  Before the tap nothing is requested, meta included, and the visible anchor does
+  not warm the meta on hover or focus either (`ShareLinkGateContext`;
+  `src/test/sharePayload.test.tsx` spies `fetch`). `interactive={false}` (Feed
+  display mode, `FeedMessageRow` `readOnly`) shows the plain `sharePayload.notLoaded`
+  label instead of the tap button. On load: meta through `requestShareMeta`; a public image is
   `<img src="./api/share/{id}?message_id=" loading="lazy">` capped at 240x240 opening
   the same URL in a new tab, over 8 MiB (`SHARE_INLINE_MAX_BYTES`, meta `size`) a
   Download card; a 410 meta (`ShareMetaEntry` `missing` with `gone`) shows
   `sharePayload.gone`; any other failure, a link object, a non-public file or an
   image `onError` draws nothing (the raw link stays). Encrypted files and the lock
-  badge: T29. The card's Report button opens `ShareReportDialog` (8 contract reasons,
+  badge: T29. The card's Report button (only with `canSend`: viewer and kiosk get 403) opens `ShareReportDialog` (8 contract reasons,
   details up to 2000) and calls `api.reportShare` (`POST /api/share/{id}/report`),
-  toast on success, `errors.share_*` on failure. Strings: slice `sp`
+  toast on success, `errors.share_*` on failure except `share_quota_key`, which
+  is the report limit (5 per instance key and day): `sharePayload.report.quota`. Strings: slice `sp`
   (`sharePayload.*`, `messagePreview.share*`).
 - `hasUnexpectedControlChars` flags C0 controls, DEL, bidi embeddings, overrides and
   isolates (U+202A-202E, U+2066-2069), ALM (U+061C), U+200B, U+2060 and U+FEFF. It does

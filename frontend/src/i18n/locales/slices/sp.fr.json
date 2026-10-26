@@ -6,6 +6,7 @@
   "sharePayload": {
     "tapToLoad": "Toucher pour charger l'image",
     "tapToLoadHint": "Rien n'est téléchargé avant que vous touchiez",
+    "notLoaded": "Image non chargée",
     "loading": "Chargement de l'image…",
     "gone": "Cette image a expiré ou a été supprimée.",
     "imageAlt": "Image partagée",
@@ -30,7 +31,8 @@
         "copyright": "Atteinte au droit d'auteur",
         "privacy": "Atteinte à la vie privée",
         "other": "Autre"
-      }
+      },
+      "quota": "Les signalements sont limités à 5 par jour pour ce Meshloom. Réessayez demain."
     }
   }
 }

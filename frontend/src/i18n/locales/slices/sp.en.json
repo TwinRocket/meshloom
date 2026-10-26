@@ -6,6 +6,7 @@
   "sharePayload": {
     "tapToLoad": "Tap to load the image",
     "tapToLoadHint": "Nothing is downloaded until you tap",
+    "notLoaded": "Image not loaded",
     "loading": "Loading the image…",
     "gone": "This image expired or was removed.",
     "imageAlt": "Shared image",
@@ -30,7 +31,8 @@
         "copyright": "Copyright infringement",
         "privacy": "Privacy violation",
         "other": "Other"
-      }
+      },
+      "quota": "Reports are limited to 5 per day for this Meshloom. Try again tomorrow."
     }
   }
 }

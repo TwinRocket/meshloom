@@ -14,6 +14,22 @@ import {
 } from '../utils/sharePayload';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
 import i18n from '../i18n';
+import type { AuthRole } from '../auth/types';
+
+const roleRef = vi.hoisted(() => ({ current: null as string | null }));
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+
+vi.mock('../auth/SessionProvider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auth/SessionProvider')>();
+  const { capabilitiesFor } = await import('../auth/capabilities');
+  return {
+    ...actual,
+    useCapabilities: () =>
+      roleRef.current ? capabilitiesFor(roleRef.current as AuthRole) : actual.useCapabilities(),
+  };
+});
+
+vi.mock('../components/ui/sonner', () => ({ toast: toastMock }));
 
 const ID = 'AbCdEfG';
 const BODY = `📷 https://meshl.ink/${ID} sunset`;
@@ -92,18 +108,26 @@ function message(over: Partial<ShareMessageContext> = {}): ShareMessageContext {
 
 function renderBody(
   msg: ShareMessageContext | undefined,
-  opts: { remoteMedia?: boolean; blockedKeys?: string[]; blockedNames?: string[] } = {}
+  opts: {
+    remoteMedia?: boolean;
+    blockedKeys?: string[];
+    blockedNames?: string[];
+    loaded?: boolean;
+    interactive?: boolean;
+  } = {}
 ) {
   return render(
     <BlockedSendersProvider
       blockedKeys={opts.blockedKeys ?? []}
       blockedNames={opts.blockedNames ?? []}
+      loaded={opts.loaded}
     >
       <MessageBody
         content={BODY}
         message={msg}
         privateConversation={msg ? isPrivateConversation(msg, CHANNELS) : false}
         remoteMedia={opts.remoteMedia}
+        interactive={opts.interactive}
       />
     </BlockedSendersProvider>
   );
@@ -154,6 +178,9 @@ describe('SharePayload', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    roleRef.current = null;
+    toastMock.success.mockReset();
+    toastMock.error.mockReset();
   });
 
   describe('policy private', () => {
@@ -311,5 +338,112 @@ describe('SharePayload', () => {
     expect(screen.queryByTestId('share-payload-tap')).toBeNull();
     expect(screen.queryByTestId('share-payload-image')).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  describe('the visible link does not warm the meta before the tap', () => {
+    const link = () => screen.getByRole('link', { name: `https://meshl.ink/${ID}` });
+
+    it.each([
+      ['hover', (el: HTMLElement) => fireEvent.mouseEnter(el)],
+      ['focus', (el: HTMLElement) => fireEvent.focus(el)],
+    ])('policy never, blocked sender in a DM: %s sends nothing', async (_label, act) => {
+      await setup('never');
+      renderBody(message({ type: 'PRIV', conversation_key: 'bb'.repeat(32) }), {
+        blockedNames: ['Alice'],
+      });
+      await settle();
+      act(link());
+      await settle();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(screen.getByTestId('share-payload-tap')).toBeTruthy();
+    });
+
+    it('policy always, blocked sender: hover sends nothing', async () => {
+      await setup('always');
+      renderBody(message({ conversation_key: PUBLIC_CHANNEL_KEY }), {
+        blockedKeys: ['aa'.repeat(32)],
+      });
+      await settle();
+      fireEvent.mouseEnter(link());
+      fireEvent.focus(link());
+      await settle();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('once tapped, hover may use the meta already asked for', async () => {
+      await setup('never');
+      renderBody(message({ type: 'PRIV' }));
+      await settle();
+      fireEvent.click(screen.getByTestId('share-payload-tap'));
+      expect(await screen.findByTestId('share-payload-image')).toBeTruthy();
+      fireEvent.mouseEnter(link());
+      await settle();
+      // The store answers from its cache: still the single meta request of the tap.
+      expect(fetchSpy.mock.calls.map(([u]) => String(u))).toEqual([`./api/share/${ID}/meta`]);
+    });
+
+    it('auto-load: the image and the hover share one meta request', async () => {
+      await setup('always');
+      renderBody(message({ conversation_key: PUBLIC_CHANNEL_KEY }));
+      expect(await screen.findByTestId('share-payload-image')).toBeTruthy();
+      fireEvent.mouseEnter(link());
+      await settle();
+      expect(fetchSpy.mock.calls.map(([u]) => String(u))).toEqual([`./api/share/${ID}/meta`]);
+    });
+  });
+
+  it('policy always does not auto-load before the settings are loaded', async () => {
+    await setup('always');
+    renderBody(message({ conversation_key: PUBLIC_CHANNEL_KEY }), { loaded: false });
+    await settle();
+    expect(screen.getByTestId('share-payload-tap')).toBeTruthy();
+    fireEvent.mouseEnter(screen.getByRole('link', { name: `https://meshl.ink/${ID}` }));
+    await settle();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('display mode shows a plain label, never a tap button', async () => {
+    await setup('never');
+    renderBody(message(), { remoteMedia: false, interactive: false });
+    await settle();
+    expect(screen.queryByTestId('share-payload-tap')).toBeNull();
+    expect(screen.getByTestId('share-payload-placeholder')).toHaveTextContent(
+      i18n.t('sharePayload.notLoaded')
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each(['viewer', 'kiosk'])('hides Report for %s (no send)', async (role) => {
+    await setup('always');
+    roleRef.current = role;
+    renderBody(message({ conversation_key: PUBLIC_CHANNEL_KEY }));
+    expect(await screen.findByTestId('share-payload-image')).toBeTruthy();
+    expect(screen.queryByTestId('share-payload-report')).toBeNull();
+  });
+
+  it('shows Report for a member', async () => {
+    await setup('always');
+    roleRef.current = 'member';
+    renderBody(message({ conversation_key: PUBLIC_CHANNEL_KEY }));
+    expect(await screen.findByTestId('share-payload-report')).toBeTruthy();
+  });
+
+  it('a report quota error names the report limit, not the share quota', async () => {
+    await setup('always');
+    const inner = fetchSpy.getMockImplementation() as (
+      input: RequestInfo | URL,
+      init?: RequestInit
+    ) => Promise<Response>;
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith('/report')
+        ? jsonResponse({ detail: { code: 'share_quota_key', params: {} } }, { status: 429 })
+        : inner(input, init)
+    );
+    renderBody(message({ conversation_key: PUBLIC_CHANNEL_KEY }));
+    fireEvent.click(await screen.findByTestId('share-payload-report'));
+    fireEvent.click(await screen.findByTestId('share-report-submit'));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+    expect(toastMock.error).toHaveBeenCalledWith(i18n.t('sharePayload.report.quota'));
+    expect(i18n.t('sharePayload.report.quota')).not.toBe(i18n.t('errors.share_quota_key'));
   });
 });

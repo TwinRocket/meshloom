@@ -15,7 +15,7 @@ import { renderTextWithMentions } from '../../utils/messageText';
 // Service links are rendered by the anchor linkifyText uses; exposed here with the other payloads.
 export { ShareLinkAnchor } from './ShareLinkAnchor';
 // A shared image (`📷 <service link>`) renders after the text, under the preview policy.
-export { SharePayload, type ShareMessageContext } from './SharePayload';
+export { SharePayload, useShareImage, type ShareMessageContext } from './SharePayload';
 
 // Renders a MeshCore Open GIF payload, falling back to the raw text on load error.
 function GifPayload({ gifId, rawText }: { gifId: string; rawText: string }) {

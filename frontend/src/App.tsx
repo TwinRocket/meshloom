@@ -922,6 +922,7 @@ export function App() {
         <BlockedSendersProvider
           blockedKeys={appSettings?.blocked_keys ?? NO_BLOCKED}
           blockedNames={appSettings?.blocked_names ?? NO_BLOCKED}
+          loaded={appSettings !== null}
         >
           <PathHopWidthProvider
             showPathHopWidth={showPathHopWidth}

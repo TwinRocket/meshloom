@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Download, Flag, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { api, formatApiError } from '../../api';
+import { api, ApiError, formatApiError, getApiErrorCode } from '../../api';
+import { useCapabilities } from '../../auth/SessionProvider';
 import { useBlockedSenders } from '../../contexts/BlockedSendersContext';
 import { requestShareMeta, useShareMetaEntry, useShareStatus } from '../../stores/shareMetaStore';
 import {
@@ -32,15 +33,56 @@ export interface ShareMessageContext extends BlockableMessage {
   id: number;
 }
 
-export interface SharePayloadProps {
+export interface ShareImageOptions {
   /** Message text without the channel "Sender: " prefix. */
   content: string;
-  /** The message, for `?message_id=` and the block lists. Absent: no id, never blocked. */
+  /** The message, for `?message_id=` and the block lists. Absent: no id, never auto-loaded. */
   message?: ShareMessageContext;
   /** A DM or a private channel (key not derived from the name). */
   privateConversation: boolean;
   /** False from the parent forces the tap, whatever the policy. */
   remoteMedia: boolean;
+}
+
+/** The shared image of a message body and whether it may load (tapped or auto). */
+export interface ShareImageState {
+  id: string;
+  load: boolean;
+  tap: () => void;
+}
+
+/**
+ * The shared image a message body carries (`📷 <service link>`) and its load gate.
+ * It auto-loads under the preview policy (`always`; `private` in a DM or a private
+ * channel), never with `remoteMedia` false, from a blocked sender, or before the
+ * settings (and so the block lists) are loaded. Otherwise it waits for a tap.
+ */
+export function useShareImage({
+  content,
+  message,
+  privateConversation,
+  remoteMedia,
+}: ShareImageOptions): ShareImageState | null {
+  const status = useShareStatus();
+  const { blockedKeys, blockedNames, loaded } = useBlockedSenders();
+  const [tappedId, setTappedId] = useState<string | null>(null);
+  const id = status?.enabled ? shareImageId(content, status.hosts) : null;
+  if (!id || !status) return null;
+  const blocked = !loaded || (!!message && isMessageBlocked(message, blockedKeys, blockedNames));
+  const auto = shareMediaAutoLoads({
+    policy: status.preview_policy,
+    privateConversation,
+    remoteMedia: remoteMedia && !!message,
+    blocked,
+  });
+  return { id, load: auto || tappedId === id, tap: () => setTappedId(id) };
+}
+
+export interface SharePayloadProps {
+  image: ShareImageState | null;
+  message?: ShareMessageContext;
+  /** False on a screen nobody interacts with (Feed display mode): no tap button. */
+  interactive: boolean;
 }
 
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
@@ -61,54 +103,42 @@ function objectUrl(id: string, messageId: number | undefined): string {
 }
 
 /**
- * A shared image under a message (`📷 <service link>`), rendered after the text; the
- * anchor stays. Nothing is requested, the meta included, until the user taps, unless
- * the preview policy lets it load: `always`; `private` in a DM or a private channel;
- * never with `remoteMedia` false or from a blocked sender. Errors fall back to the raw
- * link (nothing is drawn here), a 410 says the image expired or was removed.
+ * A shared image under a message, rendered after the text; the anchor stays. Nothing
+ * is requested, the meta included, until the image may load (`useShareImage`).
+ * Errors fall back to the raw link (nothing is drawn here), a 410 says the image
+ * expired or was removed.
  */
-export function SharePayload({
-  content,
-  message,
-  privateConversation,
-  remoteMedia,
-}: SharePayloadProps) {
-  const status = useShareStatus();
-  const id = status?.enabled ? shareImageId(content, status.hosts) : null;
-  if (!id || !status) return null;
+export function SharePayload({ image, message, interactive }: SharePayloadProps) {
+  if (!image) return null;
   return (
     <SharePayloadCard
-      key={id}
-      id={id}
-      policy={status.preview_policy}
+      key={image.id}
+      id={image.id}
+      load={image.load}
+      onTap={image.tap}
       message={message}
-      privateConversation={privateConversation}
-      remoteMedia={remoteMedia}
+      interactive={interactive}
     />
   );
 }
 
 function SharePayloadCard({
   id,
-  policy,
+  load,
+  onTap,
   message,
-  privateConversation,
-  remoteMedia,
+  interactive,
 }: {
   id: string;
-  policy: Parameters<typeof shareMediaAutoLoads>[0]['policy'];
+  load: boolean;
+  onTap: () => void;
   message?: ShareMessageContext;
-  privateConversation: boolean;
-  remoteMedia: boolean;
+  interactive: boolean;
 }) {
   const { t } = useTranslation();
-  const { blockedKeys, blockedNames } = useBlockedSenders();
-  const blocked = !!message && isMessageBlocked(message, blockedKeys, blockedNames);
-  const auto = shareMediaAutoLoads({ policy, privateConversation, remoteMedia, blocked });
-  const [tapped, setTapped] = useState(false);
+  const { canSend } = useCapabilities();
   const [imageFailed, setImageFailed] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const load = auto || tapped;
   const entry = useShareMetaEntry(load ? id : null);
 
   useEffect(() => {
@@ -116,6 +146,17 @@ function SharePayloadCard({
   }, [load, id]);
 
   if (!load) {
+    if (!interactive) {
+      return (
+        <div
+          className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+          data-testid="share-payload-placeholder"
+        >
+          <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          {t('sharePayload.notLoaded')}
+        </div>
+      );
+    }
     return (
       <div className="mt-1">
         <Button
@@ -123,7 +164,7 @@ function SharePayloadCard({
           variant="outline"
           size="sm"
           data-testid="share-payload-tap"
-          onClick={() => setTapped(true)}
+          onClick={onTap}
           title={t('sharePayload.tapToLoadHint')}
         >
           <ImageIcon className="h-4 w-4" aria-hidden="true" />
@@ -199,16 +240,20 @@ function SharePayloadCard({
           />
         </a>
       )}
-      <button
-        type="button"
-        data-testid="share-payload-report"
-        onClick={() => setReportOpen(true)}
-        className="inline-flex items-center gap-1 text-[0.6875rem] text-muted-foreground hover:text-foreground"
-      >
-        <Flag className="h-3 w-3" aria-hidden="true" />
-        {t('sharePayload.report.button')}
-      </button>
-      <ShareReportDialog id={id} open={reportOpen} onOpenChange={setReportOpen} />
+      {canSend && (
+        <>
+          <button
+            type="button"
+            data-testid="share-payload-report"
+            onClick={() => setReportOpen(true)}
+            className="inline-flex items-center gap-1 text-[0.6875rem] text-muted-foreground hover:text-foreground"
+          >
+            <Flag className="h-3 w-3" aria-hidden="true" />
+            {t('sharePayload.report.button')}
+          </button>
+          <ShareReportDialog id={id} open={reportOpen} onOpenChange={setReportOpen} />
+        </>
+      )}
     </div>
   );
 }
@@ -237,7 +282,11 @@ export function ShareReportDialog({
       setDetails('');
       onOpenChange(false);
     } catch (err) {
-      toast.error(formatApiError(err, t));
+      const code = err instanceof ApiError ? getApiErrorCode(err.detail)?.code : undefined;
+      // The service allows a few reports per instance key and day, not the share quota.
+      toast.error(
+        code === 'share_quota_key' ? t('sharePayload.report.quota') : formatApiError(err, t)
+      );
     } finally {
       setBusy(false);
     }
