@@ -342,6 +342,9 @@ async def lifespan(app: FastAPI):
     try:
         await _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager)
     finally:
+        # Process-wide registrations made above: undo them so a second lifespan in the
+        # same process (tests) starts clean.
+        custom_repos.unregister()
         # Always close the DB, even if an earlier step raised or was cancelled,
         # so the WAL is checkpointed and the file is left consistent.
         try:
