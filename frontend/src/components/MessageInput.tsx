@@ -604,6 +604,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
             onSendFile={sendPayload}
             fileByteLimit={fileByteLimit}
             incomingFile={incomingFile}
+            onIncomingFileConsumed={() => setIncomingFile(null)}
             onClose={() => setComposerPanel(null)}
             disabled={disabled || sending}
             hasShareableLocation={hasShareableLocation}

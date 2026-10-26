@@ -18,6 +18,8 @@
     "share_invalid_id": "Cet identifiant d’objet partagé n’est pas valide.",
     "share_invalid_request": "Paramètre inattendu dans une demande de partage.",
     "share_mode_unavailable": "Le partage chiffré n’est pas encore disponible.",
+    "share_upload_timeout": "L’envoi a mis trop de temps à parvenir à Meshloom. Vérifiez la connexion et réessayez.",
+    "share_storage_failed": "Meshloom n’a pas pu stocker l’envoi. Vérifiez l’espace disque libre et réessayez.",
     "share_upload_timeout": "L’envoi a mis trop de temps à arriver sur ce Meshloom. Vérifiez la connexion puis réessayez.",
     "share_storage_failed": "Ce Meshloom n’a pas pu enregistrer le fichier (disque plein ou dossier temporaire inutilisable). Un administrateur doit vérifier le dossier de données."
   }

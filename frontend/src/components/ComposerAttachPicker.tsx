@@ -21,6 +21,7 @@ interface ComposerAttachPickerProps {
   /** Largest file message in bytes (exclusive), reply prefix counted; null: no limit. */
   fileByteLimit: number | null;
   incomingFile: IncomingFile | null;
+  onIncomingFileConsumed: () => void;
   disabled?: boolean;
   hasShareableLocation: boolean;
   locationLabel?: string | null;
@@ -36,6 +37,7 @@ export function ComposerAttachPicker({
   onSendFile,
   fileByteLimit,
   incomingFile,
+  onIncomingFileConsumed,
   disabled = false,
   hasShareableLocation,
   locationLabel,
@@ -97,6 +99,7 @@ export function ComposerAttachPicker({
           onSend={onSendFile}
           byteLimit={fileByteLimit}
           incoming={incomingFile}
+          onIncomingConsumed={onIncomingFileConsumed}
           disabled={disabled}
         />
       )}

@@ -215,3 +215,25 @@ describe('share error messages', () => {
     }
   });
 });
+
+describe('pasted image replay', () => {
+  it('does not replay a consumed paste when the File tab is closed and reopened', async () => {
+    resetShareStatusStoreForTests();
+    setShareStatus(status(true));
+    const prepare = vi.spyOn(downscale, 'downscaleImage').mockResolvedValue(prepared);
+    render(<MessageInput onSend={vi.fn()} disabled={false} conversationType="contact" />);
+    const textarea = document.querySelector('textarea[name="chat-message-input"]')!;
+    const file = new File([new Uint8Array(10)], 'p.jpg', { type: 'image/jpeg' });
+    await act(async () => {
+      fireEvent.paste(textarea, { clipboardData: { files: [file], getData: () => '' } });
+    });
+    await screen.findByTestId('file-tab-summary');
+    expect(prepare).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByLabelText(i18n.t('chat.attachClose')));
+    fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+    fireEvent.click(screen.getByTestId('composer-attach-tab-file'));
+    expect(screen.queryByTestId('file-tab-summary')).toBeNull();
+    expect(prepare).toHaveBeenCalledTimes(1);
+    vi.restoreAllMocks();
+  });
+});

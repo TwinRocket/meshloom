@@ -18,6 +18,8 @@
     "share_invalid_id": "This is not a valid shared object id.",
     "share_invalid_request": "Unexpected parameter in a share request.",
     "share_mode_unavailable": "Encrypted sharing is not available yet.",
+    "share_upload_timeout": "The upload took too long to reach Meshloom. Check the connection and try again.",
+    "share_storage_failed": "Meshloom could not store the upload. Check the free disk space and try again.",
     "share_upload_timeout": "The upload took too long to reach this Meshloom. Check the connection and try again.",
     "share_storage_failed": "This Meshloom could not store the file (disk full or temporary folder unusable). An administrator should check the data folder."
   }

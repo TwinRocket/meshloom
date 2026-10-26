@@ -389,6 +389,15 @@ export function uploadShareFile(
     };
     xhr.onload = () => {
       done();
+      // A response from another origin is the proxy's login page, whatever its status.
+      if (
+        xhr.responseURL &&
+        new URL(xhr.responseURL, window.location.href).origin !== window.location.origin
+      ) {
+        reportEdgeSessionExpired();
+        reject(new ApiError('Authentication required', xhr.status));
+        return;
+      }
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           resolve(JSON.parse(xhr.responseText) as ShareFile);

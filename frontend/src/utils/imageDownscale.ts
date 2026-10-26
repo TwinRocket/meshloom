@@ -208,12 +208,13 @@ export async function downscaleImage(file: File): Promise<PreparedImage> {
   const kind = classifySource(file);
   if (kind === 'heic' || kind === 'unsupported') throw new ImageRefusedError(kind);
   if (file.size > MAX_SOURCE_BYTES) throw new ImageRefusedError('tooLarge');
+  // The GIF cap is known from the size alone: refuse before decoding.
+  if (kind === 'image/gif' && file.size > MAX_GIF_BYTES) throw new ImageRefusedError('tooLarge');
   const decoded = await decode(file);
   try {
     const original = { width: decoded.width, height: decoded.height };
     if (!(original.width > 0 && original.height > 0)) throw new ImageRefusedError('decode');
     if (kind === 'image/gif') {
-      if (file.size > MAX_GIF_BYTES) throw new ImageRefusedError('tooLarge');
       const blob = file.type === 'image/gif' ? file : new Blob([file], { type: 'image/gif' });
       return {
         blob,

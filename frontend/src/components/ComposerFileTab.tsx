@@ -33,6 +33,8 @@ interface ComposerFileTabProps {
   /** Largest message in bytes (exclusive) once the reply prefix is counted; null: no limit. */
   byteLimit: number | null;
   incoming: IncomingFile | null;
+  /** Called once `incoming` is taken, so the owner drops it (reopening the tab must not replay it). */
+  onIncomingConsumed?: () => void;
   disabled?: boolean;
 }
 
@@ -50,7 +52,13 @@ const TYPE_LABEL: Record<string, string> = {
   'image/gif': 'GIF',
 };
 
-export function ComposerFileTab({ onSend, byteLimit, incoming, disabled }: ComposerFileTabProps) {
+export function ComposerFileTab({
+  onSend,
+  byteLimit,
+  incoming,
+  onIncomingConsumed,
+  disabled,
+}: ComposerFileTabProps) {
   const { t } = useTranslation();
   const status = useShareStatus();
   const [phase, setPhase] = useState<Phase>('idle');
@@ -113,12 +121,13 @@ export function ComposerFileTab({ onSend, byteLimit, incoming, disabled }: Compo
     [reset]
   );
 
-  const incomingKey = useRef<number | null>(null);
+  const consumed = useRef<IncomingFile | null>(null);
   useEffect(() => {
-    if (!incoming || incomingKey.current === incoming.key) return;
-    incomingKey.current = incoming.key;
+    if (!incoming || consumed.current === incoming) return;
+    consumed.current = incoming;
     void prepare(incoming.file);
-  }, [incoming, prepare]);
+    onIncomingConsumed?.();
+  }, [incoming, prepare, onIncomingConsumed]);
 
   const onDrop = useCallback(
     (accepted: File[], rejected: FileRejection[]) => {
