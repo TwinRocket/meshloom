@@ -10,9 +10,15 @@
         "notification_rules_sanitized": "Some notification rules of the backup were malformed and were left out.",
         "notification_text_policy_forced": "The message text policy of a notification channel ({{value}}) was set back to its fixed value (never): an SMS service cuts long texts."
       }
+    },
+    "fanout": {
+      "list": {
+        "secretUnreadable": "A stored secret of this integration cannot be decrypted: the database was moved or restored without its secrets.key file. Copy that file back next to the database and restart, or edit the integration and enter the secret again."
+      }
     }
   },
   "errors": {
-    "secret_missing": "Secret missing after a restore: enter it again, then turn the channel on."
+    "secret_missing": "Secret missing after a restore: enter it again, then turn the channel on.",
+    "secret_unreadable": "A stored secret of this channel cannot be decrypted: the database was moved or restored without its secrets.key file. Copy that file back next to the database and restart, or enter the secret again."
   }
 }

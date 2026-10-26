@@ -664,6 +664,13 @@ class Database:
         await self._connection.commit()
         logger.debug("Database tables initialized")
 
+        # The secrets key file (MSHL-133) exists before the migrations, so the
+        # one that encrypts the stored secrets has a key. Never raises: without
+        # a key the secrets stay as they are and read as unreadable.
+        from app import secret_store
+
+        secret_store.ensure_key()
+
         # Run any pending migrations before creating indexes, so that
         # legacy databases have all required columns first.
         from app.migrations import run_migrations

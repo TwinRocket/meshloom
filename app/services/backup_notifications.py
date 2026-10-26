@@ -33,7 +33,7 @@ import aiosqlite
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.models import BackupSection
-from app.repository.notification_channels import PENDING_SECRETS
+from app.repository.notification_channels import PENDING_SECRETS, decode_secrets, encode_secrets
 from app.services.backup_accounts import USER_NOTIFICATION_RULES_SECTION, USERS_SECTION
 from app.services.backup_sections import RestoreSource, register_backup_section, register_on_restore
 
@@ -198,7 +198,7 @@ async def _restore_channel(
             conn, item.id, own if legacy else {k: v for k, v in own.items() if k != "name"}
         )
         if legacy:
-            stored = _loads(row["secrets"])
+            stored, _unreadable = decode_secrets(row["secrets"], item.id)
             if any(not stored.get(name) for name in item.secret_omitted):
                 warnings.append("notification_destination_secrets_missing")
         return False
@@ -235,7 +235,8 @@ async def _restore_channel(
             and bool(row["verify_tls"]) == item.verify_tls
         )
         if same_destination:
-            kept = {k: v for k, v in _loads(row["secrets"]).items() if isinstance(v, str) and v}
+            readable, _unreadable = decode_secrets(row["secrets"], item.id)
+            kept = {k: v for k, v in readable.items() if isinstance(v, str) and v}
 
     wanted = set(item.secret_omitted) | {f for f in entry.required if f in entry.secret_fields}
     missing = sorted(name for name in wanted if name not in kept)
@@ -244,7 +245,7 @@ async def _restore_channel(
         "type": entry.row_type,
         "preset": item.preset,
         "config": json.dumps(public, sort_keys=True),
-        "secrets": json.dumps(kept, sort_keys=True),
+        "secrets": encode_secrets(kept, item.id),
         "allow_private_network": 1 if item.allow_private_network else 0,
     }
     if missing:

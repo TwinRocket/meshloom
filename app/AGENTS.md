@@ -738,12 +738,44 @@ run as root).
 - Migration 119 adds `auth_settings.device_cookie_key` (the HMAC key of the known-device
   cookies, NULL until first use; cleared in the database download; `docs/dev/auth.md`,
   "Known devices").
+- Migration 129 (MSHL-133) encrypts in place the non-empty `notification_channels.secrets`
+  values and the fanout secret keys (frozen copy of `FANOUT_SECRET_KEYS`); idempotent, skips
+  `v1:` tokens, changes nothing without a key (`tests/test_migrations/test_migration_129.py`).
+  Migration tests read secrets through `opened_secrets()`/`opened_config()` in their conftest.
 - Migration 120 adds `app_settings.plugins_paused`, `plugins_paused_at` and
   `plugins_paused_by` (the global plugin pause, `plugins/pause.py`; excluded from backups).
 - Tests: `tests/test_migrations/`.
 - Schema reference (tables, indexes, retention, how to add a migration):
   `docs/dev/database.md`. `tests/test_database_doc.py` fails when its table or
   index list drifts from a freshly migrated database.
+
+## Secrets at rest (`secret_store.py`)
+
+- Scope: `notification_channels.secrets` and the `FANOUT_SECRET_KEYS` of
+  `fanout_configs.config`. Plain on purpose: MeshCore channel keys, the VAPID private
+  key, `app_settings.notification_destinations` (4.18), every other setting. Plugin
+  secrets are scrubbed from downloads, not encrypted here.
+- Key: `<dir of database_path>/secrets.key`, 32 bytes, `O_EXCL` + mode 0600, created by
+  `ensure_key()` in `Database.connect()` before the migrations. Never overwritten; a
+  broader mode is tightened, a wrong size is moved aside (`secrets.key.invalid-<time>`).
+  No rotation. Never log the key or a plain value (errors carry the field name at most).
+- Token `v1:` + base64(nonce 12 + ciphertext + tag 16), AES-256-GCM (pycryptodome), a
+  fresh nonce per call, AAD `meshloom:<table>:<row id>:<field>` (`aad()`). Channel
+  secrets are strings (`encrypt`/`decrypt`); fanout values are JSON (`seal`/`unseal`,
+  the webhook `headers` is an object).
+- Reads are tolerant: a non-`v1:` value is returned as is and encrypted on the next
+  write. A token that does not open raises `SecretUnreadable`; repositories treat the
+  secret as absent and list the field: a channel reads `enabled: false`,
+  `status.last_error: "secret_unreadable"` (no DB write, 409 on enable or test until
+  the secret is typed again); a fanout config carries `secret_unreadable` and the
+  manager does not start it (status error `secret_unreadable`). The matching key brings
+  both back. Startup never fails on it.
+- No key at all (unwritable folder): values are stored plain with a warning.
+- Backups: the SQLite download carries ciphertext without the key (the
+  `X-Private-Key-Warning` header says so); the JSON backup exports plain values as
+  before and a restore encrypts with the local key. Tests: `tests/test_secret_store.py`,
+  `tests/test_fanout_secrets_at_rest.py`, the secrets-at-rest tests of
+  `tests/test_notifications_api.py`.
 
 ## Radio lifecycle
 

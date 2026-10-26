@@ -3594,7 +3594,12 @@ export function SettingsFanoutSection({
                 {group.configs.map((cfg) => {
                   const statusEntry = health?.fanout_statuses?.[cfg.id];
                   const status = cfg.enabled ? statusEntry?.status : undefined;
-                  const lastError = cfg.enabled ? statusEntry?.last_error : null;
+                  const rawLastError = cfg.enabled ? statusEntry?.last_error : null;
+                  // A stored secret the secrets.key file cannot open (MSHL-133).
+                  const lastError =
+                    rawLastError === 'secret_unreadable'
+                      ? t('settings.fanout.list.secretUnreadable')
+                      : rawLastError;
                   const communityConfig = cfg.config as Record<string, unknown>;
                   return (
                     <div

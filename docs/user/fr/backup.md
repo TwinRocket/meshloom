@@ -29,7 +29,7 @@ Le groupe contient :
 
 - **Sauvegarde complète (radio et Meshloom)** : le fichier décrit sur cette page.
 - **Restaurer une sauvegarde** : restaure une sauvegarde complète, ou une ancienne sauvegarde de Meshloom seul.
-- **Télécharger meshcore.db** : une copie de toute la base (historique des messages compris). Elle ne contient jamais la clé privée de la radio, le code PIN Bluetooth ni les clés décrites plus bas dans « Non inclus », et ne se restaure pas depuis l’interface. Si vous remettez vous-même une telle copie à la place de la base, Meshloom la traite comme une restauration à son prochain démarrage (voir [Contenu de la sauvegarde](#contenu-de-la-sauvegarde), « Non inclus »).
+- **Télécharger meshcore.db** : une copie de toute la base (historique des messages compris). Elle ne contient jamais la clé privée de la radio, le code PIN Bluetooth ni les clés décrites plus bas dans « Non inclus », et ne se restaure pas depuis l’interface. Les secrets des canaux de notification et des intégrations y sont chiffrés avec le fichier `secrets.key` du dossier de données, que le téléchargement ne contient pas : gardez une copie de ce fichier avec elle, ou saisissez ces secrets à nouveau après avoir remis la copie en place (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour)). Si vous remettez vous-même une telle copie à la place de la base, Meshloom la traite comme une restauration à son prochain démarrage (voir [Contenu de la sauvegarde](#contenu-de-la-sauvegarde), « Non inclus »).
 
 ## Restaurer la radio
 

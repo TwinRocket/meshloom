@@ -37,6 +37,13 @@ configs are validated on every create and update, enabled or not.
   webhook `headers` are an object secret (`_OBJECT_SECRET_KEYS`): names in
   clear, each value `********` or `""`. `allow_private_network`
   and `private_network_grandfathered` are plain flags, not secrets.
+- At rest these keys are sealed (`v1:` tokens, `app/secret_store.py`, AAD per row and
+  key) by `repository.fanout.seal_config()` on every write and opened by
+  `open_config()` on read; a plain legacy value is read as is and sealed on the next
+  write. A token that does not open is dropped from the config and listed in
+  `secret_unreadable`; the manager does not start that module and reports
+  `secret_unreadable` until the secret is sent again (an update without it keeps the
+  token). Details in `app/AGENTS.md`, "Secrets at rest".
 - Writes go through `merge_secrets()`: a key omitted, `None` or `********`
   keeps the stored value, `""` clears it, anything else replaces it; derived
   keys are dropped. An object secret merges by name: a `********` value keeps

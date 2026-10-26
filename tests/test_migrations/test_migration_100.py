@@ -5,6 +5,8 @@ import pytest
 
 from app.migrations import _refuse_duplicate_numbers, run_migrations, set_version
 
+from .conftest import opened_config
+
 
 async def _with_rows(conn: aiosqlite.Connection, rows: list[tuple[str, str, dict]]) -> None:
     await set_version(conn, 99)
@@ -23,8 +25,9 @@ async def _with_rows(conn: aiosqlite.Connection, rows: list[tuple[str, str, dict
 
 
 async def _config(conn: aiosqlite.Connection, row_id: str) -> dict:
-    cursor = await conn.execute("SELECT config FROM fanout_configs WHERE id = ?", (row_id,))
-    return json.loads((await cursor.fetchone())[0])
+    cursor = await conn.execute("SELECT type, config FROM fanout_configs WHERE id = ?", (row_id,))
+    kind, raw = await cursor.fetchone()
+    return opened_config(kind, row_id, raw)
 
 
 @pytest.mark.asyncio

@@ -298,6 +298,8 @@ La **sauvegarde complète** (Réglages → Base de données) contient une partie
 
 **Restauration.** Un canal qui a perdu un secret revient **désactivé** et marqué *Secret manquant après une restauration* ; Meshloom n’envoie jamais avec un secret manquant. Ouvrez-le dans **Réglages → Notifications → Canaux**, saisissez de nouveau chaque secret (ou effacez-le exprès), puis activez-le. Si le même canal existe déjà ici avec la même destination, ses secrets enregistrés sont conservés. La restauration fusionne les canaux (un canal que le fichier ne nomme pas reste) et remplace les règles. Une sauvegarde faite par Meshloom 4.18 se restaure dans les mêmes canaux et règles (Web Push, e-mail, webhook, Apprise, les exceptions de chaque conversation).
 
+**Déplacée sans sa clé.** Dans la base, les secrets des canaux sont chiffrés avec le fichier `secrets.key` posé à côté d’elle. Une base copiée ou restaurée sans ce fichier (ou avec un autre) ne peut pas les ouvrir : Meshloom démarre quand même, et chaque canal concerné reste désactivé avec un message qui dit que le secret ne peut pas être déchiffré. Remettez le `secrets.key` d’origine à côté de la base et redémarrez, ou saisissez le secret à nouveau. Voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour).
+
 Chiffrez quand même la sauvegarde complète avec une phrase secrète : elle contient encore la clé privée Web Push et les abonnements, les secrets de vos intégrations (MQTT, webhooks du fanout, SQS) et, si vous les incluez, les comptes. Voir [Sauvegarder la radio](/docs/backup/) et [Sécurité](/docs/deep/security/#secrets-des-intégrations-et-des-notifications).
 
 ## Configurer les canaux depuis un réseau de confiance
