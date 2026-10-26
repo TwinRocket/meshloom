@@ -345,6 +345,118 @@
       "title": "ContactFirstSeenBody",
       "type": "object"
     },
+    "ContactNodeBackBody": {
+      "additionalProperties": false,
+      "description": "A watched node is back after a long silence.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NodeSightingData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "contact.node_back",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "ContactNodeBackBody",
+      "type": "object"
+    },
+    "ContactNodeSeenBody": {
+      "additionalProperties": false,
+      "description": "A watched node was heard again.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/NodeSightingData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "contact.node_seen",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "ContactNodeSeenBody",
+      "type": "object"
+    },
     "DestinationChangedData": {
       "additionalProperties": false,
       "properties": {
@@ -836,6 +948,43 @@
         "rendered"
       ],
       "title": "MessageMentionBody",
+      "type": "object"
+    },
+    "NodeSightingData": {
+      "additionalProperties": false,
+      "properties": {
+        "contact_type": {
+          "default": 0,
+          "description": "1 companion, 2 repeater, 3 room, 4 sensor.",
+          "title": "Contact Type",
+          "type": "integer"
+        },
+        "heard_at": {
+          "default": 0,
+          "description": "Epoch seconds of the sighting.",
+          "title": "Heard At",
+          "type": "integer"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "public_key": {
+          "title": "Public Key",
+          "type": "string"
+        },
+        "silent_s": {
+          "default": 0,
+          "description": "contact.node_back: seconds the node had been silent (0 for node_seen).",
+          "title": "Silent S",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "public_key"
+      ],
+      "title": "NodeSightingData",
       "type": "object"
     },
     "NotifyChannelChangedBody": {
@@ -1619,6 +1768,8 @@
       "app.update": "#/$defs/AppUpdateBody",
       "channel.found": "#/$defs/ChannelFoundBody",
       "contact.first_seen": "#/$defs/ContactFirstSeenBody",
+      "contact.node_back": "#/$defs/ContactNodeBackBody",
+      "contact.node_seen": "#/$defs/ContactNodeSeenBody",
       "message.channel": "#/$defs/MessageChannelBody",
       "message.dm": "#/$defs/MessageDmBody",
       "message.keyword": "#/$defs/MessageKeywordBody",
@@ -1652,6 +1803,12 @@
     },
     {
       "$ref": "#/$defs/ContactFirstSeenBody"
+    },
+    {
+      "$ref": "#/$defs/ContactNodeSeenBody"
+    },
+    {
+      "$ref": "#/$defs/ContactNodeBackBody"
     },
     {
       "$ref": "#/$defs/ChannelFoundBody"

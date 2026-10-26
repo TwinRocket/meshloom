@@ -258,6 +258,62 @@ Ces corps sont produits par le code de Meshloom (radio nommée `Base`, canal en 
 }
 ```
 
+### `contact.node_seen`
+
+```json
+{
+  "version": 2,
+  "event": "contact.node_seen",
+  "event_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "occurred_at": 1767225600,
+  "dedup_key": "051c720e0cda5183",
+  "urgent": false,
+  "instance": {
+    "name": "Base",
+    "radio_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "data": {
+    "public_key": "ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab",
+    "name": "Hilltop",
+    "contact_type": 2,
+    "silent_s": 0,
+    "heard_at": 1767225600
+  },
+  "rendered": {
+    "title": "Hilltop entendu",
+    "body": "Hilltop vient d’être entendu sur le mesh"
+  }
+}
+```
+
+### `contact.node_back`
+
+```json
+{
+  "version": 2,
+  "event": "contact.node_back",
+  "event_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "occurred_at": 1767225600,
+  "dedup_key": "0a60758b7424b6d2",
+  "urgent": false,
+  "instance": {
+    "name": "Base",
+    "radio_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "data": {
+    "public_key": "ab12cd34ef560123456789abcdef0123456789abcdef0123456789abcdef0123456789ab",
+    "name": "Hilltop",
+    "contact_type": 2,
+    "silent_s": 176400,
+    "heard_at": 1767225600
+  },
+  "rendered": {
+    "title": "Hilltop est de retour après 2 j",
+    "body": "Hilltop réapparaît sur le mesh après 2 j de silence"
+  }
+}
+```
+
 ### `channel.found`
 
 ```json

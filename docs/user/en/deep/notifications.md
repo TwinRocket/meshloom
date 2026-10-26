@@ -213,6 +213,7 @@ The same choices are available through `GET`, `PATCH` and `DELETE /api/push/my-r
 | Channel messages | A message arrives on the Public channel or a `#` channel. A channel with its own key stays silent unless it has an exception |
 | Mentions | A channel message names you, see [Mentions](#mentions) |
 | Keyword | A message holds the pattern of a keyword rule, see [Keywords](#keywords). Set in its own card, not in this table |
+| Watched node heard / back | A node you watch is heard (its advert or a direct message), or comes back after a long silence, see [Watched nodes](#watched-nodes). Set in its own card, not in this table |
 | New node seen | A node is heard for the first time, with one sub-row per type: **Companions** (a person's radio), **Repeaters** and **Sensors**. Only a new contact added after the radio finished its start-up counts: a node you already know, an unknown node and a room server never trigger it |
 | Channel found | Meshloom finds a new hashtag channel |
 | Telemetry alert | A tracked repeater or contact crosses an alert threshold. The thresholds and the channels that receive them (a chip per channel) are set on the **Alerts** page |
@@ -258,6 +259,18 @@ A muted conversation, a blocked sender, a pending channel, *Do not disturb* and 
 **Keywords can be forged by anyone in range:** channel messages are not authenticated, so anyone who writes the word triggers the rule. That is why a keyword is never urgent and has cooldowns. Do not rely on a keyword alone for anything critical.
 
 The rules travel in the full backup (*Notifications* part), checked like the API does; a rule that would be refused is left out with a warning.
+
+## Watched nodes
+
+A **watched node** notifies a channel when a particular node is heard again, or comes back after a long silence: a repeater on a hill, a friend's radio. Turn on **Notify when heard** in the node's contact sheet (administrators; the channels you can reach are listed as chips, all of them but Web Push start selected), then adjust each node in **Settings → Notifications → Watched nodes**.
+
+- **Heard.** A node is *heard* when its advert arrives or when a direct message from it is decoded. The notification reads "Hilltop heard" (`contact.node_seen`).
+- **Back.** When the previous sighting is older than the **silence threshold** (24 hours by default, 1 minute to 365 days), the notification reads "Hilltop is back after 2 d" (`contact.node_back`) instead.
+- **Cooldown.** A node notifies at most once per cooldown (1 hour by default, 0 to 30 days), whichever of the two it is, so a node that adverts every few minutes never floods a channel. A sighting inside the cooldown is not notified but still counts as the latest sighting for the silence.
+- **Channels.** Pick the channels per node. **Web Push is not offered**: it is decided account by account, and a watched node is an instance setting. A node with no channel sends nothing.
+- **Limits.** At most 50 nodes, enforced by the server (`watched_nodes` in `PATCH /api/notifications/rules`) and when a backup is restored. Only watched nodes are remembered (last sighting and cooldown, kept across restarts); an advert from any other node costs nothing.
+
+*Do not disturb*, the pause of a channel and the message text policies apply as for any notification. Adverts are signed but can be replayed by anyone in range, which is one more reason for the cooldown. The nodes travel in the full backup (*Notifications* part), checked like the API does.
 
 ## Conversations and exceptions
 
@@ -341,7 +354,7 @@ Tests are limited: one every 5 seconds per channel, one every 2 seconds for a co
 
 ## Backups
 
-The **full backup** (Settings → Database) has a *Notifications* part: every channel (type, name, options, limits, language, text policy, message templates) and the rules (events, conversation exceptions and the options of the rules table, quiet hours included), **without any secret**. Each account's own choices (see [Your own rules](#your-own-rules)) travel with the accounts, so they come back when **Include accounts** is checked. Passwords, tokens, a Discord or Apprise address, a ntfy topic, a webhook URL and its HMAC secret, and a heartbeat ping URL never leave Meshloom. The heartbeat interval and method travel with the channel. The e-mail, webhook and Apprise destinations of the old settings are also written without their secrets. The block lists travel with the settings. The delivery journal and counters are not saved, and neither is a pause: *Do not disturb* is never restored. The Web Push keys and subscriptions are a separate part, restored only on a Meshloom with no subscription of its own.
+The **full backup** (Settings → Database) has a *Notifications* part: every channel (type, name, options, limits, language, text policy, message templates) and the rules (events, conversation exceptions, keyword rules, watched nodes and the options of the rules table, quiet hours included), **without any secret**. Each account's own choices (see [Your own rules](#your-own-rules)) travel with the accounts, so they come back when **Include accounts** is checked. Passwords, tokens, a Discord or Apprise address, a ntfy topic, a webhook URL and its HMAC secret, and a heartbeat ping URL never leave Meshloom. The heartbeat interval and method travel with the channel. The e-mail, webhook and Apprise destinations of the old settings are also written without their secrets. The block lists travel with the settings. The delivery journal and counters are not saved, and neither is a pause: *Do not disturb* is never restored. The Web Push keys and subscriptions are a separate part, restored only on a Meshloom with no subscription of its own.
 
 **Restoring.** A channel that lost any secret comes back **switched off** and marked *Secret missing after a restore*; Meshloom never sends with a missing secret. Open it in **Settings → Notifications → Channels**, type each secret again (or clear it on purpose), then switch it on. If the same channel already exists here with the same destination, its stored secrets are kept. Restoring merges the channels (one the file does not name stays) and replaces the rules. A backup made by Meshloom 4.18 restores into the same channels and rules (Web Push, e-mail, webhook, Apprise, the exceptions of each conversation).
 
@@ -389,7 +402,7 @@ Administrators manage the channels under `/api/notifications`:
 | GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Read, change (the type cannot change) and delete a channel; `builtin:push` cannot be deleted (`403 builtin_channel`) |
 | POST | `/api/notifications/channels/{id}/test` | Send a test; one per 5 seconds per channel, then `429 rate_limited` |
 | POST | `/api/notifications/channels/{id}/resume` | Resume a channel paused after failures and reset its failure count |
-| GET, PATCH | `/api/notifications/rules` | Channels per event, `always_deliver`, the global pause (`paused_until`), the radio offline delay |
+| GET, PATCH | `/api/notifications/rules` | Channels per event, `always_deliver`, the global pause (`paused_until`), the radio offline delay, the keyword rules (`keywords`), the watched nodes (`watched_nodes`) |
 | PUT | `/api/notifications/rules/conversations/{key}` | Channels of one conversation (`{"channels": {"id": true}}`, or `null` to clear) |
 | GET | `/api/notifications/deliveries` | The delivery journal (failures and suppressions, never the text) and hourly counters, plus exact 24 h `totals` (`sent`, `suppressed_quiet`, `aggregated`) |
 | GET | `/api/notifications/events` | The event catalogue |

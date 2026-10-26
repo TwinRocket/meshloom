@@ -564,7 +564,8 @@ async def test_malformed_rules_are_sanitized_and_served_in_a_shape_the_ui_reads(
         "radio.offline": {"channels": ["builtin:push"], "always_deliver": True}
     }
     assert body["keywords"] == [] and body["conversations"] == {}
-    assert [w["channels"] for w in body["watched_nodes"]] == [["builtin:push"]]
+    # A watched node without a valid key is not restored (the API refuses it too).
+    assert body["watched_nodes"] == []
 
 
 @pytest.mark.asyncio
@@ -747,3 +748,20 @@ def test_restored_keyword_rules_go_through_the_api_checks():
     assert len(kept) == 20 and kept[0]["pattern"] == "sos" and kept[0]["cooldown_s"] == 300
     assert [k["id"] for k in kept[:2]] == ["a", "z0"]
     assert warnings == ["notification_rules_sanitized"]
+
+
+@pytest.mark.asyncio
+async def test_watched_nodes_are_restored_through_the_api_checks_and_capped_at_50(
+    backup_db, client
+):
+    nodes = [{"public_key": f"{i:064x}", "channels": [], "cooldown_s": 60} for i in range(60)]
+    nodes[1]["public_key"] = nodes[0]["public_key"].upper()  # a duplicate, case aside
+    nodes[2]["cooldown_s"] = -1  # refused by the API
+    nodes[3]["channels"] = ["builtin:push"]  # refused (Web Push is per account)
+    section = BackupSection(data={"channels": [], "rules": {"watched_nodes": nodes}})
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert "notification_rules_sanitized" in warnings
+    kept = (await client.get("/api/notifications/rules")).json()["watched_nodes"]
+    assert len(kept) == 50
+    assert kept[0]["public_key"] == f"{0:064x}" and kept[0]["silence_s"] == 86_400
+    assert {n["public_key"] for n in kept}.isdisjoint({f"{i:064x}" for i in (1, 2, 3)})

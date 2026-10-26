@@ -59,6 +59,22 @@ SAMPLES: dict[str, dict[str, Any]] = {
         "keyword_id": "kw_1a2b3c4d",
         "sender_timestamp": NOW,
     },
+    "contact.node_seen": {
+        "event": "node_seen",
+        "public_key": PUBKEY,
+        "name": "Hilltop",
+        "contact_type": 2,
+        "silent_s": 0,
+        "heard_at": NOW,
+    },
+    "contact.node_back": {
+        "event": "node_back",
+        "public_key": PUBKEY,
+        "name": "Hilltop",
+        "contact_type": 2,
+        "silent_s": 2 * 86400 + 3600,
+        "heard_at": NOW,
+    },
     "contact.first_seen": {
         "event": "first_seen",
         "public_key": PUBKEY,

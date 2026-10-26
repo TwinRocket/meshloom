@@ -43,6 +43,7 @@ import { getMapFocusHash } from '../utils/urlHash';
 import { handleKeyboardActivate } from '../utils/a11y';
 import { ContactAvatar } from './ContactAvatar';
 import { MeshcoreShareQr } from './MeshcoreShareQr';
+import { WatchedNodeToggle } from './WatchedNodeToggle';
 import { LppSensorRow, formatLppLabel } from './repeater/repeaterPaneShared';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
 import { toast } from './ui/sonner';
@@ -133,7 +134,7 @@ export function ContactInfoPane({
   onToggleTrackedTelemetryContact,
 }: ContactInfoPaneProps) {
   const { t } = useTranslation();
-  const { canSend } = useCapabilities();
+  const { canSend, isAdmin } = useCapabilities();
   const { distanceUnit } = useDistanceUnit();
   const isNameOnly = contactKey?.startsWith('name:') ?? false;
   const nameOnlyValue = isNameOnly && contactKey ? contactKey.slice(5) : null;
@@ -536,6 +537,12 @@ export function ContactInfoPane({
                 )}
               </button>
             </div>
+
+            {isAdmin && !isPrefixOnlyContact(contact.public_key) && (
+              <div className="px-5 py-3 border-b border-border">
+                <WatchedNodeToggle publicKey={contact.public_key} />
+              </div>
+            )}
 
             {shareUri && (
               <div className="px-5 py-3 border-b border-border">

@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.auth.permissions import require
 from app.notifications import api_support, templates
+from app.notifications import watched_nodes as watched_mod
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
     HEARTBEAT_URL_KEY,
@@ -60,9 +61,17 @@ LOCKED_PUSH_EVENTS = frozenset({"notify.channel_changed", "notify.destination_ch
 # Not rule targets: the test button, and the failing-channel notice (MSHL-130), which
 # goes to Web Push and every other enabled channel whatever the rules say, and the heartbeat
 # (MSHL-131), set per channel (``heartbeat_interval_s``).
-# ``message.keyword`` is driven by the keyword rules (``rules.keywords``), not the matrix.
+# ``message.keyword`` and ``contact.node_seen`` / ``contact.node_back`` are driven by the keyword
+# rules (``rules.keywords``) and the watched nodes (``rules.watched_nodes``), not the matrix.
 NOT_CONFIGURABLE = frozenset(
-    {"notify.test", "notify.channel_failed", "notify.heartbeat", "message.keyword"}
+    {
+        "notify.test",
+        "notify.channel_failed",
+        "notify.heartbeat",
+        "message.keyword",
+        "contact.node_seen",
+        "contact.node_back",
+    }
 )
 URGENT_EVENTS = frozenset({"radio.offline", "telemetry.alert", "notify.channel_changed"})
 MAX_PAUSE_S = 366 * 86400
@@ -180,6 +189,8 @@ class RulesPatch(BaseModel):
     # The whole list of keyword rules (``keywords.py``): validated server-side, replaces the
     # stored list; a rule without an ``id`` gets one.
     keywords: list[dict[str, Any]] | None = None
+    # The whole list of watched nodes (``watched_nodes.py``): at most 50, validated server-side.
+    watched_nodes: list[dict[str, Any]] | None = None
     push_allow_private_endpoints: bool | None = None
 
 
@@ -561,7 +572,8 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
     hours (``quiet_hours``: ``enabled``, ``start``, ``end``, ``weekdays``, ``digest_at_end``; a
     missing field keeps its value), the global pause (``paused_until``: epoch seconds, ``null`` resumes), the radio offline grace, the
     mention rule, the keyword rules (``keywords``, the whole list: at most 20 rules, patterns of at
-    most 64 characters, no regex) and the private push endpoints."""
+    most 64 characters, no regex), the watched nodes (``watched_nodes``, the whole list: at most
+    50) and the private push endpoints."""
     rules = await NotificationChannelRepository.get_rules()
     known = await _known_channel_ids()
     fields = body.model_fields_set
@@ -613,8 +625,22 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
             rules["keywords"] = clean_keyword_rules(body.keywords, known_channels=known)
         except KeywordError as exc:
             raise fail("invalid_config", 400, fields=[f"keywords.{exc.args[0]}"]) from None
+    removed: set[str] = set()
+    if body.watched_nodes is not None:
+        try:
+            cleaned = watched_mod.clean_entries(body.watched_nodes, known_channels=known)
+        except watched_mod.WatchedNodeError as exc:
+            raise fail("invalid_config", 400, fields=[f"watched_nodes.{exc.args[0]}"]) from None
+        removed = {
+            str(e.get("public_key")).lower()
+            for e in rules.get("watched_nodes") or []
+            if isinstance(e, dict)
+        } - {e["public_key"] for e in cleaned}
+        rules["watched_nodes"] = cleaned
     rules.setdefault("version", 1)
     await NotificationChannelRepository.set_rules(rules)
+    if removed:
+        await watched_mod.forget(removed)
     if body.events:
         await sync_columns()
 

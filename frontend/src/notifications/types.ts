@@ -140,7 +140,8 @@ export interface NotificationRules {
   conversations: Record<string, Record<string, boolean>>;
   /** Keyword rules (`message.keyword`, at most 20). */
   keywords: NotificationKeywordRule[];
-  watched_nodes: unknown[];
+  /** Watched nodes (`contact.node_seen` / `contact.node_back`, at most 50). */
+  watched_nodes: NotificationWatchedNode[];
   radio_offline_grace_s: number;
   mention_whole_word: boolean;
   /** Quiet hours: HH:MM window in the host time zone, ISO weekdays (Monday = 0). */
@@ -169,6 +170,17 @@ export interface NotificationKeywordRule {
   cooldown_s: number;
 }
 
+/** A watched node (`app/notifications/watched_nodes.py`): at most 50. */
+export interface NotificationWatchedNode {
+  /** 64 lowercase hex characters. */
+  public_key: string;
+  channels: string[];
+  /** Quiet period after a notification for this node. */
+  cooldown_s: number;
+  /** A sighting after this much silence is `contact.node_back`. */
+  silence_s: number;
+}
+
 export type NotificationKeywordInput = Omit<NotificationKeywordRule, 'id'> & { id?: string };
 
 export interface NotificationRulesPatch {
@@ -180,6 +192,8 @@ export interface NotificationRulesPatch {
   mention_whole_word?: boolean;
   /** The whole list; a rule without an `id` gets one from the server. */
   keywords?: NotificationKeywordInput[];
+  /** The whole list of watched nodes. */
+  watched_nodes?: NotificationWatchedNode[];
   push_allow_private_endpoints?: boolean;
 }
 

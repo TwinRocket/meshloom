@@ -1,0 +1,43 @@
+{
+  "contactInfo": {
+    "watch": {
+      "toggle": "Notifier quand il est entendu",
+      "help": "Notifie les canaux choisis quand l’annonce de ce nœud ou un message privé de sa part est entendu, et de nouveau quand il est de retour après un long silence.",
+      "full": "Limite atteinte ({{max}} nœuds surveillés). Retirez-en un dans Réglages > Notifications.",
+      "channels": "Canaux à notifier",
+      "noChannel": "Aucun canal n’est choisi : rien ne sera envoyé.",
+      "loadFailed": "Impossible de charger les réglages de notification."
+    }
+  },
+  "settings": {
+    "notifications": {
+      "watched": {
+        "title": "Nœuds surveillés",
+        "help": "Notifie un canal quand un nœud est entendu (son annonce ou un message privé) et quand il revient après un long silence. Ajoutez un nœud avec « Notifier quand il est entendu » dans sa fiche contact. Web Push n’est pas disponible pour les nœuds surveillés (il se décide par compte).",
+        "empty": "Aucun nœud surveillé pour l’instant.",
+        "count": "{{count}} nœud(s) sur {{max}}",
+        "full": "Limite atteinte ({{max}} nœuds).",
+        "noChannel": "aucun canal",
+        "summary": "toutes les {{cooldown}} min au plus · de retour après {{silence}} h",
+        "edit": "Modifier le nœud surveillé {{name}}",
+        "remove": "Ne plus surveiller {{name}}",
+        "editTitle": "Nœud surveillé : {{name}}",
+        "dialogHelp": "Un nœud entendu notifie au plus une fois par délai de récupération. Entendu de nouveau après le seuil de silence, il notifie « de retour ».",
+        "channels": "Notifier ces canaux",
+        "channelsHelp": "Web Push n’est pas proposé : il se décide par compte.",
+        "cooldown": "Délai de récupération (minutes)",
+        "cooldownHelp": "Après une notification, ce nœud reste silencieux pendant ce délai. 0 désactive le délai.",
+        "silence": "Silence avant « de retour » (heures)",
+        "silenceHelp": "Un nœud entendu après au moins ce temps sans l’avoir entendu est signalé comme de retour.",
+        "save": "Enregistrer",
+        "cancel": "Annuler"
+      },
+      "log": {
+        "events": {
+          "contact_node_seen": "Nœud surveillé entendu",
+          "contact_node_back": "Nœud surveillé de retour"
+        }
+      }
+    }
+  }
+}
