@@ -86,6 +86,16 @@ class FirstSeenData(_Model):
     contact_type: int = Field(0, description="1 companion, 2 repeater, 3 room, 4 sensor.")
 
 
+class NodeSightingData(_Model):
+    public_key: str
+    name: str = ""
+    contact_type: int = Field(0, description="1 companion, 2 repeater, 3 room, 4 sensor.")
+    silent_s: int = Field(
+        0, description="contact.node_back: seconds the node had been silent (0 for node_seen)."
+    )
+    heard_at: int = Field(0, description="Epoch seconds of the sighting.")
+
+
 class ChannelFoundData(_Model):
     name: str
     channel_key: str = Field(description="Derived from the # name, so public.")
@@ -204,6 +214,8 @@ _EVENTS: tuple[tuple[str, type[_Model], str], ...] = (
     ("message.mention", MessageData, "A channel message that names the radio."),
     ("message.keyword", MessageData, "A message that holds a keyword rule's pattern."),
     ("contact.first_seen", FirstSeenData, "A node heard for the first time."),
+    ("contact.node_seen", NodeSightingData, "A watched node was heard again."),
+    ("contact.node_back", NodeSightingData, "A watched node is back after a long silence."),
     ("channel.found", ChannelFoundData, "A # channel found active."),
     ("telemetry.alert", TelemetryAlertData, "A telemetry rule fired."),
     ("radio.offline", RadioOfflineData, "The radio stopped answering."),
@@ -305,6 +317,14 @@ def _event_data(event: ev.NotificationEvent, payload: Mapping[str, Any], policy:
     if isinstance(event, ev.FirstSeenEvent):
         return FirstSeenData(
             public_key=d.public_key, name=d.name, contact_type=_int(d.contact_type)
+        )
+    if isinstance(event, ev.NodeSeenEvent):  # and NodeBackEvent
+        return NodeSightingData(
+            public_key=d.public_key,
+            name=d.name,
+            contact_type=_int(d.contact_type),
+            silent_s=_int(d.silent_s),
+            heard_at=_int(d.heard_at),
         )
     if isinstance(event, ev.ChannelFoundEvent):
         return ChannelFoundData(name=d.name, channel_key=d.channel_key)
