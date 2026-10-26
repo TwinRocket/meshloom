@@ -1043,3 +1043,26 @@ async def test_an_apprise_failure_stores_the_line_and_the_code_only(test_db, cli
     listed = (await client.get(f"/api/notifications/channels/{created['id']}")).json()
     assert listed["status"]["last_error"] == "line 1: service_error"
     assert "93.184.216.34" not in json.dumps(listed)
+
+
+async def test_webhook_body_type_is_v1_or_v2(test_db, client):
+    """MSHL-137: an unknown body format is refused on create and on update, like any other
+    invalid config value (400 ``invalid_config`` naming the field, not FastAPI's 422: the
+    config is a free dict at the route and validated by the type's model)."""
+    payload = webhook()
+    payload["config"]["body_type"] = "v3"
+    response = await client.post("/api/notifications/channels", json=payload)
+    assert (response.status_code, code_of(response)) == (400, "invalid_config")
+    assert "body_type" in response.text
+    created = await create(client, webhook())
+    assert created["config"]["body_type"] == "v2"
+    response = await client.patch(
+        f"/api/notifications/channels/{created['id']}", json={"config": {"body_type": "v3"}}
+    )
+    assert (response.status_code, code_of(response)) == (400, "invalid_config")
+    assert "body_type" in response.text
+    response = await client.patch(
+        f"/api/notifications/channels/{created['id']}", json={"config": {"body_type": "v1"}}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["config"]["body_type"] == "v1"

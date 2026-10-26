@@ -14,6 +14,6 @@ Two pages are worth reading before the others:
 - [Variables and settings](/en/docs/deep/environment/) separates what is decided at startup from what lives in the database and is changed in the interface.
 - [Security](/en/docs/deep/security/) says what Meshloom does not protect.
 
-To be told when something happens, read [Notifications](/en/docs/deep/notifications/) (channels, events and rules; ntfy, Telegram, Discord, Home Assistant, e-mail, webhooks) and, for browsers, [Push notifications](/en/docs/deep/push/). To forward every message to another system, read [Fanout](/en/docs/deep/fanout/).
+To be told when something happens, read [Notifications](/en/docs/deep/notifications/) (channels, events and rules; ntfy, Telegram, Discord, Home Assistant, e-mail, webhooks; the webhook body: [Notification webhook](/en/docs/deep/notifications-webhook/)) and, for browsers, [Push notifications](/en/docs/deep/push/). To forward every message to another system, read [Fanout](/en/docs/deep/fanout/).
 
 [Meshloom Community](/en/docs/deep/community/) is off until you join it, so read its page to know what it sends before you do. The same goes for [Short links and photos](/en/docs/deep/share/), the optional sharing service that shortens long web addresses: it is off until an administrator turns it on.

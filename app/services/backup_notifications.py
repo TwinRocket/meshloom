@@ -129,7 +129,9 @@ def _loads(raw: object) -> dict[str, Any]:
 
 def _public_config(entry: Any, config: dict[str, Any]) -> dict[str, Any] | None:
     """The config the type accepts, secret fields removed; None when it does not validate."""
-    public = {k: v for k, v in config.items() if k not in entry.secret_fields}
+    # A backup written before a key existed reads with that key's stored default (an older
+    # webhook restores as ``v1``), written explicitly so the row no longer depends on it.
+    public = entry.read_config({k: v for k, v in config.items() if k not in entry.secret_fields})
     try:
         entry.config_model.model_validate(public)
     except ValidationError:
@@ -140,9 +142,11 @@ def _public_config(entry: Any, config: dict[str, Any]) -> dict[str, Any] | None:
 def _same_config(entry: Any, stored: dict[str, Any], incoming: dict[str, Any]) -> bool:
     """Whether two public configs are the same once the type's defaults are filled in."""
     try:
-        return entry.config_model.model_validate(stored).model_dump(
+        return entry.config_model.model_validate(entry.read_config(stored)).model_dump(
             by_alias=True
-        ) == entry.config_model.model_validate(incoming).model_dump(by_alias=True)
+        ) == entry.config_model.model_validate(entry.read_config(incoming)).model_dump(
+            by_alias=True
+        )
     except ValidationError:
         return False
 

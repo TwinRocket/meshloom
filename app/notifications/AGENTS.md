@@ -22,7 +22,8 @@ This file is a hypothesis: check it against the code.
   them under their old names (tests import `_build_payload` from `push.manager`).
   Message texts go through `message_body_text()`, the one call site of `app/share_text.py`
   (`share_text_summary`: a share link reads `[image]`, `[encrypted file]` or `[link]`; offline,
-  never a URL or a `#fragment`). The webhook transport sends the raw payload.
+  never a URL or a `#fragment`). The webhook transport sends the raw text (v1: the raw payload;
+  v2: `data.text` and `rendered.body`, both subject to the channel's text policy).
 
 - `channels.py`: the channel models and the type registry. A type declares a Pydantic
   config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`, `NtfyConfig`, `DiscordConfig`); secret
@@ -439,11 +440,28 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
   SMTP runs in smtplib inside Apprise: the host is validated by the guard right before the send
   but the connection is not pinned (documented residual). The default text policy of a new e-mail
   channel is `public_only` when `email_is_cloud(config)` (host not clearly local).
-- **Webhook** (`webhook.py`). `body_bytes()` and `sign()` are the 4.18.x v1 body and signature,
-  byte for byte (golden `webhook_body`); `request_headers()` adds `X-Webhook-Id` (the event's
-  `dedup_key`, a body hash for a grouped summary) and `X-Webhook-Timestamp` (per attempt). The
-  signature does not cover the timestamp (v2, MSHL-137); the id and timestamp are unsigned, so no replay protection. `verify_signature()` is constant-time.
-  `app/notify.send_webhook_alert` (legacy) uses the same helpers.
+- **Webhook** (`webhook.py`). `config.body_type` picks the body (MSHL-137). **v1**: `body_bytes()`
+  and `sign()` are the 4.18.x body and signature, byte for byte (golden `webhook_body`, and
+  `tests/fixtures/webhook_v1_golden.json` for the whole request); `request_headers()` adds
+  `X-Webhook-Id` (the event's `dedup_key`, a body hash for a grouped summary) and
+  `X-Webhook-Timestamp` (per attempt), both unsigned, so no replay protection.
+  `verify_signature()` is constant-time. `app/notify.send_webhook_alert` and `legacy:webhook`
+  use the same helpers and stay v1 (the API refuses a config PATCH on a legacy channel).
+  **v2**: `webhook_v2.py` builds the body (one Pydantic model per event, discriminated on
+  `event`; the dispatcher's summaries are `summary.grouped`, `summary.first_seen`,
+  `summary.digest`, with an `event_id` hashed from their content), `body_bytes()` there is
+  `model_dump_json()`; `sign_v2()` is `sha256=` + HMAC(secret, `timestamp + "." + body`),
+  `verify_signature_v2()` is constant-time, `request_headers_v2()` adds `X-Webhook-Version: 2`.
+  An event with no v2 model fails with `v2_unsupported_event`. v2 `data` never carries more than
+  v1: the text follows `include_message_text` (`null` when held back) and no `conversation_key`.
+  The JSON Schema `docs/user/en/deep/notifications-webhook.schema.json` is
+  `webhook_v2.schema_text()`, rewritten by `scripts/dev/gen_webhook_schema.py` (`--check`,
+  `--examples en|fr` prints the doc pages' examples); `tests/test_webhook_v2.py` fails on drift
+  and validates every example of `docs/user/{en,fr}/deep/notifications-webhook.md`.
+  **Default**: `WebhookConfig.body_type` defaults to `v2`, so a new channel stores `v2`; a row
+  stored without the key reads as `v1` through `ChannelType.stored_defaults` /
+  `read_config()` (applied by `repository/notification_channels.py` and the backup's
+  `_public_config` / `_same_config`), no migration.
 - **Markdown escaping** (`markdown.py`, the only copy; `render.py` and `push/manager.py` re-export
   it). `neutralise_mentions()` breaks `@everyone`, `@here`, `@channel`, `@all`, `@room`, `<@`, `<!`, `<#`
   with a zero-width space, `escape_markdown()` backslash-escapes Markdown punctuation; both apply to
@@ -491,12 +509,12 @@ without redefining anything.
 - **Id**: `event` is `domain.name`, lower case: `message.dm`, `message.channel`,
   `message.mention` (see "Mentions"), `contact.first_seen`,
   `channel.found`, `telemetry.alert`, `radio.offline`, `radio.online`,
-  `app.started`, `app.update`, `notify.destination_changed`, `notify.test`
+  `app.started`, `app.update`, `notify.destination_changed`, `notify.channel_changed`, `notify.test`
   (`EVENT_IDS`). These are notification ids, not WebSocket types
   (`app/auth/ws_events.py` stays the only list of those).
 - **Common fields**: `event`, `event_id` (random, per occurrence), `occurred_at`
-  (epoch seconds), `dedup_key`, `urgent` (default false; true for `telemetry.alert`
-  and `radio.offline`; never for `message.*`, whose text is unauthenticated mesh
+  (epoch seconds), `dedup_key`, `urgent` (default false; true for `telemetry.alert`,
+  `radio.offline` and `notify.channel_changed`; never for `message.*`, whose text is unauthenticated mesh
   input), `conversation_key` (messages and `channel.found`, else null), and a typed
   `data` dataclass per event.
 - **`dedup_key`** is `sha256(...)[:16]` of the event id and what identifies the

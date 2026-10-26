@@ -93,6 +93,9 @@ class WebhookConfig(_ConfigBase):
     hmac_secret: SecretStr | None = _field(
         "hmac_secret", default=None, secret=True, max_length=1024
     )
+    # The body sent (MSHL-137): ``v2`` for a new channel; a channel stored without the
+    # key reads as ``v1`` (``ChannelType.stored_defaults``), the 4.18.x body.
+    body_type: Literal["v1", "v2"] = _field("body_type", default="v2", help_key="webhook_body_type")
     # Set by the migration for a webhook saved before the egress guard (one-time banner).
     private_network_grandfathered: bool = Field(
         False, json_schema_extra={"readOnly": True, "hidden": True}
@@ -254,6 +257,14 @@ class ChannelType:
     # The ``Preset`` (``presets.py``) this entry was generated from: its channels are
     # stored as the base type ``apprise`` with ``preset = id``.
     preset: Any = None
+    # (field, value) pairs a stored config without the field reads as, when that value
+    # differs from the model default given to a new channel (webhook ``body_type``).
+    stored_defaults: tuple[tuple[str, Any], ...] = ()
+
+    def read_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """A stored public config with the ``stored_defaults`` of the keys it lacks."""
+        missing = {k: v for k, v in self.stored_defaults if k not in config}
+        return {**missing, **config} if missing else config
 
     @property
     def row_type(self) -> str:
@@ -340,6 +351,7 @@ REGISTRY: dict[str, ChannelType] = {
             quiet_hours_exempt_default=True,
             destination_keys=("url",),
             secret_follows=("hmac_secret",),
+            stored_defaults=(("body_type", "v1"),),
         ),
         ChannelType(
             "discord",

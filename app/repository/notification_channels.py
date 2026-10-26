@@ -27,6 +27,7 @@ from app.notifications.channels import (
     BUILTIN_PUSH_ID,
     DISCORD_HOSTS,
     NTFY_DEFAULT_SERVER,
+    REGISTRY,
     Channel,
     ChannelCreate,
     ChannelError,
@@ -70,6 +71,14 @@ def _loads(raw: object) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def _read_config(row: aiosqlite.Row) -> dict[str, Any]:
+    """The stored config with the type's read-time defaults for keys an older version
+    did not write (``ChannelType.stored_defaults``, e.g. a 4.18.x webhook reads as ``v1``)."""
+    config = _loads(row["config"])
+    entry = REGISTRY.get(row["type"])
+    return entry.read_config(config) if entry is not None else config
+
+
 def _row_to_channel(row: aiosqlite.Row) -> Channel:
     secrets = _loads(row["secrets"])
     return Channel(
@@ -79,7 +88,7 @@ def _row_to_channel(row: aiosqlite.Row) -> Channel:
         name=row["name"],
         enabled=bool(row["enabled"]),
         language=row["language"],
-        config=_loads(row["config"]),
+        config=_read_config(row),
         secret_fields_set=sorted(k for k, v in secrets.items() if v),
         allow_private_network=bool(row["allow_private_network"]),
         include_message_text=row["include_message_text"],

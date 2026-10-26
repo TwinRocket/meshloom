@@ -1,0 +1,1470 @@
+{
+  "$defs": {
+    "AppStartedBody": {
+      "additionalProperties": false,
+      "description": "Meshloom started.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/AppStartedData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "app.started",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "AppStartedBody",
+      "type": "object"
+    },
+    "AppStartedData": {
+      "additionalProperties": false,
+      "properties": {
+        "connect_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Connect S"
+        },
+        "radio_connected": {
+          "default": false,
+          "title": "Radio Connected",
+          "type": "boolean"
+        },
+        "version": {
+          "default": "",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "AppStartedData",
+      "type": "object"
+    },
+    "AppUpdateBody": {
+      "additionalProperties": false,
+      "description": "A new Meshloom version is out.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/AppUpdateData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "app.update",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "AppUpdateBody",
+      "type": "object"
+    },
+    "AppUpdateData": {
+      "additionalProperties": false,
+      "properties": {
+        "current": {
+          "default": "",
+          "title": "Current",
+          "type": "string"
+        },
+        "latest": {
+          "default": "",
+          "title": "Latest",
+          "type": "string"
+        }
+      },
+      "title": "AppUpdateData",
+      "type": "object"
+    },
+    "ChannelChangedData": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "default": "",
+          "enum": [
+            "created",
+            "changed",
+            "enabled",
+            "disabled",
+            "deleted",
+            ""
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "channel_type": {
+          "default": "",
+          "title": "Channel Type",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "title": "ChannelChangedData",
+      "type": "object"
+    },
+    "ChannelFoundBody": {
+      "additionalProperties": false,
+      "description": "A # channel found active.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ChannelFoundData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "channel.found",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "ChannelFoundBody",
+      "type": "object"
+    },
+    "ChannelFoundData": {
+      "additionalProperties": false,
+      "properties": {
+        "channel_key": {
+          "description": "Derived from the # name, so public.",
+          "title": "Channel Key",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "channel_key"
+      ],
+      "title": "ChannelFoundData",
+      "type": "object"
+    },
+    "ContactFirstSeenBody": {
+      "additionalProperties": false,
+      "description": "A node heard for the first time.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/FirstSeenData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "contact.first_seen",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "ContactFirstSeenBody",
+      "type": "object"
+    },
+    "DestinationChangedData": {
+      "additionalProperties": false,
+      "properties": {
+        "kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Kinds",
+          "type": "array"
+        }
+      },
+      "title": "DestinationChangedData",
+      "type": "object"
+    },
+    "DigestData": {
+      "additionalProperties": false,
+      "description": "What quiet hours or a pause held, counted (no text).",
+      "properties": {
+        "contacts": {
+          "default": 0,
+          "title": "Contacts",
+          "type": "integer"
+        },
+        "conversations": {
+          "default": 0,
+          "title": "Conversations",
+          "type": "integer"
+        },
+        "count": {
+          "description": "Notifications held.",
+          "title": "Count",
+          "type": "integer"
+        },
+        "dms": {
+          "default": 0,
+          "title": "Dms",
+          "type": "integer"
+        },
+        "items": {
+          "description": "Named conversations: [name, count], top three.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "more": {
+          "default": 0,
+          "title": "More",
+          "type": "integer"
+        },
+        "others": {
+          "default": 0,
+          "title": "Others",
+          "type": "integer"
+        },
+        "private": {
+          "default": 0,
+          "title": "Private",
+          "type": "integer"
+        },
+        "scope": {
+          "description": "quiet_hours or pause.",
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "count"
+      ],
+      "title": "DigestData",
+      "type": "object"
+    },
+    "FirstSeenData": {
+      "additionalProperties": false,
+      "properties": {
+        "contact_type": {
+          "default": 0,
+          "description": "1 companion, 2 repeater, 3 room, 4 sensor.",
+          "title": "Contact Type",
+          "type": "integer"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "public_key": {
+          "title": "Public Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "public_key"
+      ],
+      "title": "FirstSeenData",
+      "type": "object"
+    },
+    "FirstSeenGroupedData": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "title": "FirstSeenGroupedData",
+      "type": "object"
+    },
+    "GroupedData": {
+      "additionalProperties": false,
+      "description": "What the rate limiter held back during its window, counted (no text).",
+      "properties": {
+        "channels": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Public and # channels: name to count (top three).",
+          "title": "Channels",
+          "type": "object"
+        },
+        "count": {
+          "title": "Count",
+          "type": "integer"
+        },
+        "dms": {
+          "default": 0,
+          "title": "Dms",
+          "type": "integer"
+        },
+        "others": {
+          "default": 0,
+          "title": "Others",
+          "type": "integer"
+        },
+        "private": {
+          "default": 0,
+          "title": "Private",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "title": "GroupedData",
+      "type": "object"
+    },
+    "Instance": {
+      "additionalProperties": false,
+      "description": "The Meshloom that sent the call: its radio's name and public key (null while no\nradio has answered since the start).",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "radio_public_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Radio Public Key"
+        }
+      },
+      "title": "Instance",
+      "type": "object"
+    },
+    "MessageChannelBody": {
+      "additionalProperties": false,
+      "description": "A channel message.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/MessageData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "message.channel",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "MessageChannelBody",
+      "type": "object"
+    },
+    "MessageData": {
+      "additionalProperties": false,
+      "properties": {
+        "channel_name": {
+          "default": "",
+          "description": "Empty for a direct message.",
+          "title": "Channel Name",
+          "type": "string"
+        },
+        "mention": {
+          "default": false,
+          "title": "Mention",
+          "type": "boolean"
+        },
+        "sender_name": {
+          "default": "",
+          "title": "Sender Name",
+          "type": "string"
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The message text; null when the channel's text policy holds it back.",
+          "title": "Text"
+        },
+        "type": {
+          "description": "PRIV: direct message; CHAN: channel.",
+          "enum": [
+            "PRIV",
+            "CHAN"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "title": "MessageData",
+      "type": "object"
+    },
+    "MessageDmBody": {
+      "additionalProperties": false,
+      "description": "A direct message.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/MessageData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "message.dm",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "MessageDmBody",
+      "type": "object"
+    },
+    "MessageMentionBody": {
+      "additionalProperties": false,
+      "description": "A channel message that names the radio.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/MessageData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "message.mention",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "MessageMentionBody",
+      "type": "object"
+    },
+    "NotifyChannelChangedBody": {
+      "additionalProperties": false,
+      "description": "A notification channel changed.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ChannelChangedData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "notify.channel_changed",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "NotifyChannelChangedBody",
+      "type": "object"
+    },
+    "NotifyDestinationChangedBody": {
+      "additionalProperties": false,
+      "description": "A notification destination changed.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/DestinationChangedData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "notify.destination_changed",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "NotifyDestinationChangedBody",
+      "type": "object"
+    },
+    "NotifyTestBody": {
+      "additionalProperties": false,
+      "description": "The test button of a channel.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/TestData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "notify.test",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "NotifyTestBody",
+      "type": "object"
+    },
+    "RadioOfflineBody": {
+      "additionalProperties": false,
+      "description": "The radio stopped answering.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/RadioOfflineData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "radio.offline",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "RadioOfflineBody",
+      "type": "object"
+    },
+    "RadioOfflineData": {
+      "additionalProperties": false,
+      "properties": {
+        "connection": {
+          "default": "",
+          "title": "Connection",
+          "type": "string"
+        },
+        "offline_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Offline S"
+        }
+      },
+      "title": "RadioOfflineData",
+      "type": "object"
+    },
+    "RadioOnlineBody": {
+      "additionalProperties": false,
+      "description": "The radio answers again.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/RadioOnlineData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "radio.online",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "RadioOnlineBody",
+      "type": "object"
+    },
+    "RadioOnlineData": {
+      "additionalProperties": false,
+      "properties": {
+        "connection": {
+          "default": "",
+          "title": "Connection",
+          "type": "string"
+        },
+        "downtime_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Downtime S"
+        }
+      },
+      "title": "RadioOnlineData",
+      "type": "object"
+    },
+    "RenderedText": {
+      "additionalProperties": false,
+      "description": "The notification as a person reads it, in the channel's language and after its\ntext policy: the title and body of the e-mail and ntfy channels.",
+      "properties": {
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ],
+      "title": "RenderedText",
+      "type": "object"
+    },
+    "SummaryDigestBody": {
+      "additionalProperties": false,
+      "description": "What quiet hours or a pause held.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/DigestData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "summary.digest",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "SummaryDigestBody",
+      "type": "object"
+    },
+    "SummaryFirstSeenBody": {
+      "additionalProperties": false,
+      "description": "First-seen nodes over the hourly cap.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/FirstSeenGroupedData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "summary.first_seen",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "SummaryFirstSeenBody",
+      "type": "object"
+    },
+    "SummaryGroupedBody": {
+      "additionalProperties": false,
+      "description": "Notifications the rate limiter held back.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/GroupedData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "summary.grouped",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "SummaryGroupedBody",
+      "type": "object"
+    },
+    "TelemetryAlertBody": {
+      "additionalProperties": false,
+      "description": "A telemetry rule fired.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/TelemetryAlertData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "telemetry.alert",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "TelemetryAlertBody",
+      "type": "object"
+    },
+    "TelemetryAlertData": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "default": "",
+          "title": "Metric",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "op": {
+          "default": "",
+          "title": "Op",
+          "type": "string"
+        },
+        "public_key": {
+          "default": "",
+          "title": "Public Key",
+          "type": "string"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "rule_id"
+      ],
+      "title": "TelemetryAlertData",
+      "type": "object"
+    },
+    "TestData": {
+      "additionalProperties": false,
+      "properties": {},
+      "title": "TestData",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/TwinRocket/meshloom/main/docs/user/en/deep/notifications-webhook.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A v2 webhook body: one model per ``event``.",
+  "discriminator": {
+    "mapping": {
+      "app.started": "#/$defs/AppStartedBody",
+      "app.update": "#/$defs/AppUpdateBody",
+      "channel.found": "#/$defs/ChannelFoundBody",
+      "contact.first_seen": "#/$defs/ContactFirstSeenBody",
+      "message.channel": "#/$defs/MessageChannelBody",
+      "message.dm": "#/$defs/MessageDmBody",
+      "message.mention": "#/$defs/MessageMentionBody",
+      "notify.channel_changed": "#/$defs/NotifyChannelChangedBody",
+      "notify.destination_changed": "#/$defs/NotifyDestinationChangedBody",
+      "notify.test": "#/$defs/NotifyTestBody",
+      "radio.offline": "#/$defs/RadioOfflineBody",
+      "radio.online": "#/$defs/RadioOnlineBody",
+      "summary.digest": "#/$defs/SummaryDigestBody",
+      "summary.first_seen": "#/$defs/SummaryFirstSeenBody",
+      "summary.grouped": "#/$defs/SummaryGroupedBody",
+      "telemetry.alert": "#/$defs/TelemetryAlertBody"
+    },
+    "propertyName": "event"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/MessageDmBody"
+    },
+    {
+      "$ref": "#/$defs/MessageChannelBody"
+    },
+    {
+      "$ref": "#/$defs/MessageMentionBody"
+    },
+    {
+      "$ref": "#/$defs/ContactFirstSeenBody"
+    },
+    {
+      "$ref": "#/$defs/ChannelFoundBody"
+    },
+    {
+      "$ref": "#/$defs/TelemetryAlertBody"
+    },
+    {
+      "$ref": "#/$defs/RadioOfflineBody"
+    },
+    {
+      "$ref": "#/$defs/RadioOnlineBody"
+    },
+    {
+      "$ref": "#/$defs/AppStartedBody"
+    },
+    {
+      "$ref": "#/$defs/AppUpdateBody"
+    },
+    {
+      "$ref": "#/$defs/NotifyDestinationChangedBody"
+    },
+    {
+      "$ref": "#/$defs/NotifyChannelChangedBody"
+    },
+    {
+      "$ref": "#/$defs/NotifyTestBody"
+    },
+    {
+      "$ref": "#/$defs/SummaryGroupedBody"
+    },
+    {
+      "$ref": "#/$defs/SummaryFirstSeenBody"
+    },
+    {
+      "$ref": "#/$defs/SummaryDigestBody"
+    }
+  ],
+  "title": "Meshloom notification webhook body, version 2"
+}

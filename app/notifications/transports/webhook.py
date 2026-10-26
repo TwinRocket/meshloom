@@ -1,4 +1,9 @@
-"""The webhook transport: the v1 JSON body, signed, to a URL pinned to a validated IP.
+"""The webhook transport: a signed JSON body (v1 or v2) to a URL pinned to a validated IP.
+
+The channel's ``body_type`` picks the body (MSHL-137): ``v1`` for a channel stored by
+4.18.x (read-time default, ``ChannelType.stored_defaults``), ``v2`` for a new one.
+
+v1:
 
 The body and ``X-Webhook-Signature`` are the 4.18.x ones, byte for byte: compact JSON
 with sorted keys, ``sha256=`` + HMAC-SHA256 of those bytes under the channel's
@@ -7,9 +12,13 @@ them): ``X-Webhook-Id`` (the event's ``dedup_key``, the same on every retry, so 
 receiver such as Node-RED deduplicates a slow 200 that was delivered twice) and
 ``X-Webhook-Timestamp`` (epoch seconds of this attempt). Neither header is signed: they
 let a receiver drop an honest retry, but anyone holding a captured request can replay it
-with a new id or timestamp, so they are no protection against replay. That needs a
-signature over the id, the timestamp and the body: the v2 body (MSHL-137).
-A signature that covers the timestamp is the v2 body (MSHL-137).
+with a new id or timestamp, so they are no protection against replay.
+
+v2: the typed body of ``app/notifications/webhook_v2.py`` (JSON schema in
+``docs/user/en/deep/notifications-webhook.schema.json``), and a signature over the
+timestamp: ``sha256=`` + HMAC-SHA256 of ``<X-Webhook-Timestamp> + "." + <body bytes>``,
+so a receiver that checks the timestamp's age rejects a replayed request. The message text
+in ``data`` and ``rendered`` follows the channel's text policy (v1 always carries it).
 
 The URL and the secret are write-only channel secrets, never logged. Retries are the
 dispatcher's: this transport answers ``retry`` for a 5xx, a 429, a timeout or a
@@ -33,12 +42,14 @@ from app.net.egress_guard import (
     tls_check_may_be_off,
     validate_destination,
 )
+from app.notifications import webhook_v2
 from app.notifications.channels import Channel
 from app.notifications.render import Rendered, enrich_notification_payload
 from app.notifications.transports.base import (
     SEND_OK,
     Delivery,
     SendResult,
+    channel_language,
     result_from_exception,
 )
 
@@ -90,6 +101,59 @@ def request_headers(
     return headers
 
 
+def sign_v2(secret: str, timestamp: str, body: bytes) -> str:
+    """The v2 ``X-Webhook-Signature``: HMAC-SHA256 of ``timestamp + "." + body``."""
+    digest = hmac.new(secret.encode(), timestamp.encode() + b"." + body, hashlib.sha256)
+    return f"{SIGNATURE_PREFIX}{digest.hexdigest()}"
+
+
+def verify_signature_v2(
+    secret: str, timestamp: str | None, body: bytes, header: str | None
+) -> bool:
+    """Constant-time check of a received v2 signature (the receiver's side; the age of
+    the timestamp is the receiver's own check)."""
+    if not secret or not header or not timestamp:
+        return False
+    return hmac.compare_digest(sign_v2(secret, timestamp, body).encode(), header.encode())
+
+
+def request_headers_v2(
+    body_model: webhook_v2.BodyBase,
+    body: bytes,
+    *,
+    secret: str = "",
+    now: float | None = None,
+) -> dict[str, str]:
+    """Headers of one v2 POST: the timestamp is computed once, sent and signed."""
+    timestamp = str(int(time.time() if now is None else now))
+    headers = {
+        "Content-Type": "application/json",
+        "X-Webhook-Event": body_model.event,  # type: ignore[attr-defined]
+        "X-Webhook-Id": body_model.dedup_key,
+        "X-Webhook-Timestamp": timestamp,
+        "X-Webhook-Version": str(webhook_v2.BODY_VERSION),
+    }
+    if secret:
+        headers["X-Webhook-Signature"] = sign_v2(secret, timestamp, body)
+    return headers
+
+
+async def _v2_request(
+    channel: Channel, event: Delivery, secret: str
+) -> tuple[bytes, dict[str, str]] | None:
+    body_model = webhook_v2.build_body(
+        event.payload,
+        event.event,
+        lang=await channel_language(channel),
+        text_policy=channel.include_message_text,
+        instance=webhook_v2.radio_instance(),
+    )
+    if body_model is None:
+        return None
+    body = webhook_v2.body_bytes(body_model)
+    return body, request_headers_v2(body_model, body, secret=secret)
+
+
 class WebhookTransport:
     async def send(
         self,
@@ -101,13 +165,19 @@ class WebhookTransport:
         url = (secrets.get("url") or "").strip()
         if not url:
             return SendResult("failed", error_code="not_configured")
-        body = body_bytes(event.payload)
-        headers = request_headers(
-            event.payload,
-            body,
-            secret=secrets.get("hmac_secret", ""),
-            dedup_key=event.event.dedup_key if event.event is not None else "",
-        )
+        if channel.config.get("body_type", "v1") == "v2":
+            built = await _v2_request(channel, event, secrets.get("hmac_secret", ""))
+            if built is None:
+                return SendResult("failed", error_code="v2_unsupported_event")
+            body, headers = built
+        else:
+            body = body_bytes(event.payload)
+            headers = request_headers(
+                event.payload,
+                body,
+                secret=secrets.get("hmac_secret", ""),
+                dedup_key=event.event.dedup_key if event.event is not None else "",
+            )
         try:
             target = await validate_destination(
                 url, allow_private_network=channel.allow_private_network
