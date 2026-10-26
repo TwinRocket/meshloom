@@ -12,8 +12,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from app.repository import AppSettingsRepository, MessageRepository
+from app.repository import AppSettingsRepository, ChannelRepository, MessageRepository
 from app.repository.auth import AuthAuditRepository
+from app.share_conversation import channel_conversation_id
 from tests.share_fakes import Dns, Recorder, json_response
 
 # The recorder replaces httpx.AsyncClient: keep the real class for the app client.
@@ -25,6 +26,8 @@ PNG_1X1 = bytes.fromhex(
     "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
     "0000000d4944415478da63f8cfc0f01f0005000201a5f6b1bd0000000049454e44ae426082"
 )
+CHANNEL_KEY = "5F1CA2B7D93E4086A1C2E3F405162738"
+STATES = ("adopted", "muted", "pending", "muted_pending")
 LINK = {"id": "AbCdEfG", "url": "https://meshl.ink/AbCdEfG", "expires_at": 1791636000}
 META = {"id": "PnGokAy", "kind": "link", "target_host": "example.com", "expires_at": 1791636000}
 
@@ -93,15 +96,29 @@ async def _audit(*actions: str):
     return [row for row in rows if row.action in actions]
 
 
-async def _message(msg_type: str, text: str) -> int:
+async def _message(msg_type: str, text: str, conversation_key: str | None = None) -> int:
     message_id = await MessageRepository.create(
         msg_type=msg_type,
         text=text,
         received_at=1791000000,
-        conversation_key="0" * 64 if msg_type == "PRIV" else "1" * 32,
+        conversation_key=conversation_key or ("0" * 64 if msg_type == "PRIV" else "1" * 32),
     )
     assert message_id is not None
     return message_id
+
+
+async def _channel(state: str) -> str:
+    """Create the channel in ``state`` (adopted, muted, pending, muted_pending); its conversation id."""
+    await ChannelRepository.upsert(
+        key=CHANNEL_KEY,
+        name="ops",
+        membership="pending" if "pending" in state else "adopted",
+    )
+    if "muted" in state:
+        await ChannelRepository.set_muted(CHANNEL_KEY, True)
+    conversation = channel_conversation_id(CHANNEL_KEY)
+    assert conversation is not None
+    return conversation
 
 
 class TestRegistry:
@@ -172,6 +189,35 @@ class TestKioskPrivate:
         private = await _message("PRIV", "look https://meshl.ink/PnGokAy")
         sign_in_as(role)
         assert (await client.get(f"/api/share/PnGokAy?message_id={private}")).status_code == 200
+
+
+class TestKioskChannelStates:
+    """The kiosk rule keys on the message type, not on the channel's mute or membership."""
+
+    @pytest.mark.parametrize("state", STATES)
+    async def test_a_kiosk_reads_a_channel_message_in_any_channel_state(
+        self, on, client, sign_in_as, state
+    ):
+        conversation = await _channel(state)
+        channel = await _message("CHAN", "look https://meshl.ink/PnGokAy", conversation)
+        sign_in_as("kiosk")
+        for path in ("/api/share/PnGokAy", "/api/share/PnGokAy/meta"):
+            response = await client.get(f"{path}?message_id={channel}")
+            assert response.status_code == 200, response.text
+
+    @pytest.mark.parametrize("state", STATES)
+    async def test_a_kiosk_is_refused_a_direct_message_in_any_channel_state(
+        self, on, client, sign_in_as, state
+    ):
+        await _channel(state)
+        private = await _message("PRIV", "look https://meshl.ink/PnGokAy")
+        sign_in_as("kiosk")
+        for path in ("/api/share/PnGokAy", "/api/share/PnGokAy/meta"):
+            refused = await client.get(f"{path}?message_id={private}")
+            assert refused.status_code == 403
+            assert _code(refused) == "share_role_forbidden"
+        # Refused before any cache read or egress.
+        assert on.requests == []
 
 
 class TestAudit:
