@@ -3,7 +3,11 @@ import { Globe, Image as ImageIcon, Loader2, Lock, ShieldAlert } from 'lucide-re
 import { useDropzone, type FileRejection } from 'react-dropzone';
 import { useTranslation } from 'react-i18next';
 import { api, formatApiError, isAbortError } from '../api';
-import { refreshShareStatus, useShareStatus } from '../stores/shareStatusStore';
+import {
+  refreshShareStatus,
+  useShareStatus,
+  useShareStatusError,
+} from '../stores/shareStatusStore';
 import type { ShareFile, ShareSettingsUpdate } from '../types';
 import type { ShareTarget } from '../utils/channelClass';
 import { estimatedFileMessageBytes, fileMessage, fitsLimit } from '../utils/fileCaption';
@@ -75,6 +79,7 @@ export function ComposerFileTab({
 }: ComposerFileTabProps) {
   const { t } = useTranslation();
   const status = useShareStatus();
+  const statusError = useShareStatusError();
   const [phase, setPhase] = useState<Phase>('idle');
   const [prepared, setPrepared] = useState<PreparedImage | null>(null);
   const [refusal, setRefusal] = useState<ImageRefusal | null>(null);
@@ -178,7 +183,8 @@ export function ComposerFileTab({
 
   // Encryption only where it protects something (a private channel, a DM), and only
   // when the upload can name the conversation (a DM also needs the radio key).
-  const dmKeyMissing = target?.class === 'dm' && status?.dm_encryption_available === false;
+  // Anything but a confirmed `true` (an answer without the field included) keeps it off.
+  const dmKeyMissing = target?.class === 'dm' && status?.dm_encryption_available !== true;
   const encryptAvailable = !!target?.encryptable && !!target.conversation && !dmKeyMissing;
   const mode: ShareMode = encryptAvailable ? savedMode : 'public';
   const uploadKey = mode === 'encrypted' ? `encrypted:${target?.conversation?.id}` : 'public';
@@ -265,6 +271,29 @@ export function ComposerFileTab({
       setConsentBusy(false);
     }
   };
+
+  if (!status && statusError) {
+    return (
+      <div data-testid="file-tab" className="space-y-3 p-3">
+        <p
+          role="alert"
+          data-testid="file-tab-status-error"
+          className="text-[0.8125rem] text-destructive"
+        >
+          {t('chat.fileTab.statusError')}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          data-testid="file-tab-status-retry"
+          onClick={() => void refreshShareStatus()}
+        >
+          {t('chat.fileTab.statusRetry')}
+        </Button>
+      </div>
+    );
+  }
 
   if (!status) {
     return (

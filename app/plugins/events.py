@@ -69,6 +69,7 @@ async def message_event_params(data: dict[str, Any]) -> dict[str, Any]:
     paths = data.get("paths")
     if path_value is None and isinstance(paths, list) and paths and isinstance(paths[0], dict):
         path_value = paths[0].get("path")
+    # 'public' grants plugin access here, so the stricter '#'-name rule is intentional.
     is_public_channel = bool(
         channel_key
         and (

@@ -15,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.data.meshcore_channels import is_public_hashtag_channel
+from app.data.meshcore_channels import channel_key_is_name_derived
 from app.path_utils import normalize_contact_route, normalize_route_override
 from app.share_conversation import channel_conversation_id
 
@@ -386,14 +386,15 @@ class Channel(BaseModel):
 
     @computed_field(
         description=(
-            "True when the key is the one derived from the '#' name (anyone who knows "
-            "the name can read it). Computed, never stored; the share preview policy "
-            "'private' does not auto-load media in such a channel."
+            "True when the key is SHA256 of the name or of '#' + name (anyone who knows "
+            "the name can read it; a hashtag channel "
+            "renamed without its '#' stays derived). Computed, never stored; the share "
+            "preview policy 'private' does not auto-load media in such a channel."
         )
     )
     @property
     def key_derived(self) -> bool:
-        return is_public_hashtag_channel(self.name, self.key)
+        return channel_key_is_name_derived(self.name, self.key)
 
     @computed_field(
         description=(

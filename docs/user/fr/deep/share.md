@@ -7,7 +7,7 @@ order: 23
 
 Un message MeshCore contient 156 octets, et une adresse web en prend souvent davantage. Le **service de partage** transforme une longue adresse en un lien court comme `https://meshl.ink/Ab3dE9x` (25 octets), qui tient dans un message et que tout le monde peut ouvrir. Il est exploité par le projet Meshloom sur son propre domaine, `meshl.ink`, et il est **optionnel et désactivé par défaut** : tant qu’un administrateur ne l’active pas, ce Meshloom ne le contacte jamais, pas même pour résoudre son nom.
 
-Cette version raccourcit des **adresses web** et envoie des **photos** depuis le panneau **Envoyer une photo** de la zone de saisie. Une photo est soit **publique**, et toute personne qui a son lien peut l’ouvrir, soit, dans un canal privé ou un message direct, **chiffrée** pour cette conversation, et ses membres l’ouvrent dans Meshloom. Le chiffrement n’est proposé que là où il protège quelque chose, et il a des limites qu’il faut connaître : lisez [Fichiers chiffrés](#fichiers-chiffrés) avant de vous y fier. Les sections ci-dessous ne décrivent que ce qui existe.
+Cette version raccourcit des **adresses web** et envoie des **photos** depuis le panneau **Envoyer une photo** de la zone de saisie. Une photo est soit **publique**, et toute personne qui a son lien peut l’ouvrir, soit, dans un canal privé ou un message direct, **chiffrée** pour cette conversation, et ses membres l’ouvrent dans Meshloom. Le chiffrement n’est proposé que là où il protège quelque chose, et il a des limites qu’il faut connaître : lisez [Fichiers chiffrés](#fichiers-chiffrés) avant de vous y fier. Meshloom ne peut pas savoir qu’un canal a été renommé avec une autre casse ou sous un nom sans rapport : sa clé peut rester publique. Les sections ci-dessous ne décrivent que ce qui existe.
 
 ## L’activer
 
@@ -58,7 +58,7 @@ Là où la conversation le permet, un choix **Qui peut ouvrir la photo** propose
 
 Dans Meshloom, une photo partagée s’affiche sous le texte de son message, sur 240 pixels de large ou de haut au plus. Un clic l’ouvre en taille réelle dans un nouvel onglet. Au-delà de 8 Mio, une carte **Télécharger l’image** s’affiche à la place. Une photo expirée ou retirée l’indique. C’est ce serveur qui va chercher la photo, jamais votre navigateur, et il en garde une copie dans un cache local pendant une heure au plus (voir [Autres chemins d’installation](/docs/deep/install-paths/#base-de-données-et-mises-à-jour)). Une photo qui n’apparaît pas n’est pas une erreur de votre part : le service peut être injoignable, ou le partage désactivé.
 
-**Réglages > Partage : liens et fichiers > Aperçus des images et liens partagés** décide quand une photo partagée dans un message se charge d’elle-même : toujours, dans les conversations privées seulement (messages directs et canaux à clé secrète propre ; ni Public, ni les canaux `#nom` ; c’est la valeur par défaut), ou jamais. Sinon la photo affiche un bouton **Toucher pour charger l’image**, et **rien n’est demandé avant que vous touchiez** : ni la photo, ni même une question à son sujet. Les photos des expéditeurs bloqués, et celles de l’écran d’affichage, attendent toujours un toucher. Les aperçus de liens ne sont pas encore récupérés.
+**Réglages > Partage : liens et fichiers > Aperçus des images et liens partagés** décide quand une photo partagée dans un message se charge d’elle-même : toujours, dans les conversations privées seulement (messages directs et canaux à clé secrète propre ; ni Public, ni les canaux dont la clé vient de leur nom ; c’est la valeur par défaut), ou jamais. Sinon la photo affiche un bouton **Toucher pour charger l’image**, et **rien n’est demandé avant que vous touchiez** : ni la photo, ni même une question à son sujet. Les photos des expéditeurs bloqués, et celles de l’écran d’affichage, attendent toujours un toucher. Les aperçus de liens ne sont pas encore récupérés.
 
 Hors de Meshloom, les autres applications MeshCore montrent l’adresse comme du texte. Ouverte dans un navigateur, l’adresse d’une photo publique affiche une page avec la photo, sa taille, sa date d’expiration et un lien **Signaler**. Ajoutez `+` à la fin de l’adresse pour voir seulement son type, sa taille et ses dates, sans afficher la photo. Les moteurs de recherche reçoivent l’instruction de ne pas indexer ces pages.
 
@@ -66,7 +66,7 @@ Hors de Meshloom, les autres applications MeshCore montrent l’adresse comme du
 
 ## Lire les liens courts
 
-Un lien court dans un message ressemble à n’importe quel autre lien, et c’est une adresse `https://` ordinaire pour les autres applications MeshCore : elles l’ouvrent dans un navigateur, sans Meshloom. Dans Meshloom, le survoler ou lui donner le focus affiche une petite indication, `→ example.org`, avec l’hôte vers lequel il mène, **sans suivre le lien**. L’indication est demandée une seule fois par lien et gardée dix minutes, et l’hôte est nettoyé de ses caractères de contrôle ; un nom international s’affiche sous sa forme ASCII.
+Un lien court dans un message ressemble à n’importe quel autre lien, et c’est une adresse `https://` ordinaire pour les autres applications MeshCore : elles l’ouvrent dans un navigateur, sans Meshloom. Dans Meshloom, le survoler ou lui donner le focus affiche une petite indication, `→ example.org`, avec l’hôte vers lequel il mène, **sans suivre le lien**. L’indication est demandée une seule fois par lien et gardée dix minutes (trente secondes si le service n’a pas pu être joint), et l’hôte est nettoyé de ses caractères de contrôle ; un nom international s’affiche sous sa forme ASCII.
 
 Le service propose aussi, pour chaque lien, une **page d’aperçu** : ajoutez `+` à la fin de l’adresse (`https://meshl.ink/Ab3dE9x+`) pour voir la destination en texte brut, jamais sous forme de lien, avec ses dates et un bouton **Signaler**, avant de décider de l’ouvrir. Tout le monde peut s’en servir, dans un navigateur, depuis n’importe quel appareil.
 
@@ -81,7 +81,7 @@ Une photo chiffrée est scellée pour que seules les personnes d’une conversat
 | Conversation | Photo chiffrée ? | Pourquoi |
 |---|---|---|
 | Le canal Public | Non, toujours publique | Sa clé est connue de tout le monde. |
-| Un canal dont la clé vient de son `#nom` (hashtag) | Non, toujours publique | Quiconque connaît ou devine le nom calcule la clé. |
+| Un canal dont la clé vient de son nom (hashtag, avec ou sans `#`) | Non, toujours publique | Quiconque connaît ou devine le nom calcule la clé. |
 | Un canal privé (une clé donnée à ses membres) | Oui | Seules les personnes qui ont la clé peuvent ouvrir la photo. |
 | Un message direct | Oui | La clé vient de la clé de votre radio et de celle de votre contact. |
 | Un serveur de salon | Non, toujours publique | Le serveur lit chaque message. |

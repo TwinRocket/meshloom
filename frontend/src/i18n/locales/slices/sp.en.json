@@ -37,6 +37,7 @@
     "encrypted": "Encrypted",
     "encryptedHint": "Sealed for this conversation; Meshloom decrypted it here.",
     "encryptedElsewhere": "Encrypted for another conversation: it cannot be opened here.",
-    "encryptedUnavailable": "This encrypted file cannot be read right now."
+    "encryptedUnavailable": "This encrypted file cannot be read right now.",
+    "retry": "Try again"
   }
 }

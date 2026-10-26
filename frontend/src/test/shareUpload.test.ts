@@ -82,4 +82,35 @@ describe('uploadShareFile', () => {
     const wire = JSON.stringify(headers).toLowerCase();
     expect(wire).not.toContain(CHANNEL_KEY.toLowerCase());
   });
+
+  describe('X-Share-Name', () => {
+    const blob = () => new Blob(['abcd'], { type: 'image/png' });
+    const conversation = { type: 'channel' as const, id: CONVERSATION_ID };
+
+    it('percent-encodes the name so the header stays ASCII and the backend unquotes it', async () => {
+      vi.stubGlobal('XMLHttpRequest', FakeXhr);
+      const name = 'été à la plage #1 100% 日本語.jpg';
+      await api.uploadShareFile(blob(), { encrypted: conversation, name });
+      const value = FakeXhr.last!.headers['X-Share-Name'];
+      expect(value).toBe(encodeURIComponent(name));
+      expect(value).toMatch(/^[\x20-\x7e]+$/);
+      expect(value).not.toMatch(/[ #]/);
+      // What the backend does with urllib.parse.unquote(raw, encoding='utf-8').
+      expect(decodeURIComponent(value)).toBe(name);
+    });
+
+    it('keeps a plain name readable and leaves the header out without a name', async () => {
+      vi.stubGlobal('XMLHttpRequest', FakeXhr);
+      await api.uploadShareFile(blob(), { encrypted: conversation, name: 'summit.jpg' });
+      expect(FakeXhr.last!.headers['X-Share-Name']).toBe('summit.jpg');
+      await api.uploadShareFile(blob(), { encrypted: conversation });
+      expect(FakeXhr.last!.headers).not.toHaveProperty('X-Share-Name');
+    });
+
+    it('never sends a name in public mode', async () => {
+      vi.stubGlobal('XMLHttpRequest', FakeXhr);
+      await api.uploadShareFile(blob(), { name: 'summit.jpg' });
+      expect(FakeXhr.last!.headers).not.toHaveProperty('X-Share-Name');
+    });
+  });
 });

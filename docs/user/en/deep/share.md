@@ -7,7 +7,7 @@ order: 23
 
 A MeshCore message holds 156 bytes, and a web address often takes more than that. The **sharing service** turns a long address into a short link such as `https://meshl.ink/Ab3dE9x` (25 bytes), which fits in a message and which anybody can open. It is run by the Meshloom project on its own domain, `meshl.ink`, and it is **optional and off by default**: until an administrator turns it on, this Meshloom never contacts it, not even to look up its name.
 
-This version shortens **web addresses** and sends **photos** from the composer's **Send a photo** panel. A photo is either **public**, which anyone who has its link can open, or, in a private channel or a direct message, **encrypted** for that conversation, which its members open in Meshloom. Encryption is offered only where it protects something, and it has honest limits: read [Encrypted files](#encrypted-files) before relying on it. The sections below only describe what exists.
+This version shortens **web addresses** and sends **photos** from the composer's **Send a photo** panel. A photo is either **public**, which anyone who has its link can open, or, in a private channel or a direct message, **encrypted** for that conversation, which its members open in Meshloom. Encryption is offered only where it protects something, and it has honest limits: read [Encrypted files](#encrypted-files) before relying on it. Meshloom cannot tell that a channel was renamed to another letter case or to an unrelated name: its key may still be public. The sections below only describe what exists.
 
 ## Turning it on
 
@@ -58,7 +58,7 @@ Where the conversation allows it, a **Who can open the photo** choice offers **P
 
 In Meshloom, a shared photo shows under the text of its message, 240 pixels wide or high at most. Clicking it opens it full size in a new tab. Beyond 8 MiB a **Download the image** card is shown instead. An expired or removed photo says so. It is this server that fetches the photo, never your browser, and it keeps a copy in a local cache for up to one hour (see [Other install paths](/en/docs/deep/install-paths/#database-and-updates)). A photo that does not appear is not an error of yours: the service may be unreachable, or sharing may be off.
 
-**Settings > Share: links and files > Previews of shared images and links** decides when a shared photo in a message loads by itself: always, in private conversations only (direct messages and channels with their own secret key; not Public, not `#name` channels; this is the default), or never. Otherwise the photo shows a **Tap to load the image** button, and **nothing is requested before you tap**: not the photo, and not even a question about it. Photos from blocked senders, and on the display screen, always wait for a tap. Link previews are not fetched yet.
+**Settings > Share: links and files > Previews of shared images and links** decides when a shared photo in a message loads by itself: always, in private conversations only (direct messages and channels with their own secret key; not Public, not channels whose key comes from their name; this is the default), or never. Otherwise the photo shows a **Tap to load the image** button, and **nothing is requested before you tap**: not the photo, and not even a question about it. Photos from blocked senders, and on the display screen, always wait for a tap. Link previews are not fetched yet.
 
 Outside Meshloom, other MeshCore apps show the address as text. Opened in a browser, the address of a public photo shows a page with the photo, its size, its expiry date and a **Report** link. Add `+` at the end of the address to see only its type, size and dates, without displaying the photo. A search engine is told not to index these pages.
 
@@ -66,7 +66,7 @@ Outside Meshloom, other MeshCore apps show the address as text. Opened in a brow
 
 ## Reading short links
 
-A short link in a message looks like any other link, and is an ordinary `https://` address to other MeshCore apps: they open it in a browser, with no Meshloom involved. In Meshloom, hovering over it or giving it focus shows a small hint, `→ example.org`, with the host it leads to, **without following the link**. The hint is asked once per link and remembered for ten minutes, and the host is cleaned of control characters; an international name is shown in its ASCII form.
+A short link in a message looks like any other link, and is an ordinary `https://` address to other MeshCore apps: they open it in a browser, with no Meshloom involved. In Meshloom, hovering over it or giving it focus shows a small hint, `→ example.org`, with the host it leads to, **without following the link**. The hint is asked once per link and remembered for ten minutes (thirty seconds if the service could not be reached), and the host is cleaned of control characters; an international name is shown in its ASCII form.
 
 The service also has, for each link, a **preview page**: add `+` at the end of the address (`https://meshl.ink/Ab3dE9x+`) to see the destination as plain text, never as a link, with its dates and a **Report** button, before deciding to open it. Anyone can use it, in a browser, from any device.
 
@@ -81,7 +81,7 @@ An encrypted photo is sealed so that only the people of one conversation can ope
 | Conversation | Encrypted photo? | Why |
 |---|---|---|
 | The Public channel | No, always public | Its key is known to everyone. |
-| A channel whose key comes from its `#name` (hashtag) | No, always public | Anyone who knows or guesses the name computes the key. |
+| A channel whose key comes from its name (hashtag, with or without `#`) | No, always public | Anyone who knows or guesses the name computes the key. |
 | A private channel (a key that was given to its members) | Yes | Only the people who hold the key can open the photo. |
 | A direct message | Yes | The key comes from your radio's key and your contact's. |
 | A room server | No, always public | The server reads every post. |

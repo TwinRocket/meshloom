@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import { MessageBody } from '../components/message/MessageBody';
 import {
   __resetShareMetaStoreForTests,
+  META_FAILURE_TTL_MS,
   META_MAX_ENTRIES,
   META_TTL_MS,
+  STATUS_TIMEOUT_MS,
   getShareMetaEntry,
   requestShareMeta,
+  useShareMetaEntry,
 } from '../stores/shareMetaStore';
 import type { ShareStatus } from '../types';
 import { describeMessagePreview } from '../utils/messagePreview';
@@ -146,18 +149,93 @@ describe('shareMetaStore', () => {
     vi.restoreAllMocks();
   });
 
-  it('keeps a negative entry and refetches after ten minutes', async () => {
-    const metaSpy = vi.spyOn(api, 'getShareMeta').mockRejectedValue(new Error('404'));
+  const LINK_META = { kind: 'link', target_host: null, expires_at: null };
+
+  it('keeps a failure briefly: not asked again at once, asked again after 30 seconds', async () => {
+    const metaSpy = vi.spyOn(api, 'getShareMeta').mockRejectedValue(new Error('timeout'));
     await requestShareMeta('AbCdEfG');
     await requestShareMeta('AbCdEfG');
     expect(metaSpy).toHaveBeenCalledTimes(1);
     expect(getShareMetaEntry('AbCdEfG')?.state).toBe('missing');
 
     vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(Date.now() + META_TTL_MS + 1);
-    metaSpy.mockResolvedValue({ kind: 'link', target_host: null, expires_at: null });
+    vi.setSystemTime(Date.now() + META_FAILURE_TTL_MS + 1);
+    metaSpy.mockResolvedValue(LINK_META);
     await requestShareMeta('AbCdEfG');
     expect(metaSpy).toHaveBeenCalledTimes(2);
+    expect(getShareMetaEntry('AbCdEfG')?.state).toBe('ready');
+  });
+
+  it('keeps a good answer, and a 410, for ten minutes', async () => {
+    const metaSpy = vi.spyOn(api, 'getShareMeta').mockResolvedValue(LINK_META);
+    await requestShareMeta('AbCdEfG');
+    metaSpy.mockRejectedValue(new ApiError('Gone', 410));
+    await requestShareMeta('Gone123');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + META_FAILURE_TTL_MS + 1);
+    await requestShareMeta('AbCdEfG');
+    await requestShareMeta('Gone123');
+    expect(metaSpy).toHaveBeenCalledTimes(2);
+    vi.setSystemTime(Date.now() + META_TTL_MS);
+    await requestShareMeta('AbCdEfG');
+    expect(metaSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it('treats an encrypted file that is not decryptable yet as a short answer', async () => {
+    const metaSpy = vi.spyOn(api, 'getShareMeta').mockResolvedValue({
+      ...LINK_META,
+      kind: 'file',
+      mode: 'encrypted',
+      decryptable: null,
+    });
+    await requestShareMeta('AbCdEfG', 7);
+    await requestShareMeta('AbCdEfG', 7);
+    expect(metaSpy).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + META_FAILURE_TTL_MS + 1);
+    metaSpy.mockResolvedValue({ ...LINK_META, kind: 'file', mode: 'encrypted', decryptable: true });
+    await requestShareMeta('AbCdEfG', 7);
+    expect(metaSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks again at once when forced, even inside the failure window', async () => {
+    const metaSpy = vi.spyOn(api, 'getShareMeta').mockRejectedValue(new Error('boom'));
+    await requestShareMeta('AbCdEfG');
+    metaSpy.mockResolvedValue(LINK_META);
+    await requestShareMeta('AbCdEfG', undefined, { force: true });
+    expect(metaSpy).toHaveBeenCalledTimes(2);
+    expect(getShareMetaEntry('AbCdEfG')?.state).toBe('ready');
+  });
+
+  it('never evicts an entry a mounted card subscribes to', async () => {
+    vi.spyOn(api, 'getShareMeta').mockResolvedValue(LINK_META);
+    await requestShareMeta('id0');
+    const { result, unmount } = renderHook(() => useShareMetaEntry('id0'));
+    for (let i = 1; i < META_MAX_ENTRIES + 5; i++) await requestShareMeta(`id${i}`);
+    expect(getShareMetaEntry('id0')?.state).toBe('ready');
+    expect(result.current?.state).toBe('ready');
+    expect(getShareMetaEntry('id1')).toBeNull();
+    unmount();
+  });
+
+  it('ends in a final state when the local status never answers', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(api, 'getShareStatus').mockImplementation(
+      (signal?: AbortSignal) =>
+        new Promise<ShareStatus>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new DOMException('x', 'AbortError')));
+        })
+    );
+    const metaSpy = vi.spyOn(api, 'getShareMeta');
+    const { result } = renderHook(() => useShareMetaEntry('AbCdEfG'));
+    const pending = requestShareMeta('AbCdEfG');
+    expect(result.current).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STATUS_TIMEOUT_MS);
+      await pending;
+    });
+    expect(result.current).toEqual({ state: 'missing' });
+    expect(metaSpy).not.toHaveBeenCalled();
   });
 
   it('keeps at most META_MAX_ENTRIES ids, dropping the oldest', async () => {

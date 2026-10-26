@@ -5,7 +5,11 @@ import { MessageInput } from '../components/MessageInput';
 import { api, ApiError, formatApiError } from '../api';
 import i18n from '../i18n';
 import { toast } from '../components/ui/sonner';
-import { resetShareStatusStoreForTests, setShareStatus } from '../stores/shareStatusStore';
+import {
+  resetShareStatusStoreForTests,
+  setShareStatus,
+  STATUS_TIMEOUT_MS,
+} from '../stores/shareStatusStore';
 import type { ShareFile, ShareStatus } from '../types';
 import * as downscale from '../utils/imageDownscale';
 import type { ShareTarget } from '../utils/channelClass';
@@ -82,6 +86,63 @@ describe('Composer File tab', () => {
     expect(screen.queryByTestId('file-tab-input')).toBeNull();
     fireEvent.click(screen.getByTestId('file-tab-enable'));
     expect(screen.getByTestId('share-consent-dialog')).toBeInTheDocument();
+  });
+
+  describe('status load', () => {
+    function openTab() {
+      render(<MessageInput onSend={onSend} disabled={false} conversationType="contact" />);
+      fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+      fireEvent.click(screen.getByTestId('composer-attach-tab-file'));
+    }
+
+    it('shows a translated error and a retry button when the status request fails', async () => {
+      openTab();
+      expect(await screen.findByTestId('file-tab-status-error')).toHaveTextContent(
+        i18n.t('chat.fileTab.statusError')
+      );
+      expect(screen.queryByTestId('file-tab-input')).toBeNull();
+      expect(screen.queryByTestId('file-tab-mode')).toBeNull();
+    });
+
+    it('retries on the button and shows the tab once the status answers', async () => {
+      const get = vi.spyOn(api, 'getShareStatus').mockRejectedValueOnce(new Error('offline'));
+      get.mockResolvedValueOnce(status(true));
+      openTab();
+      fireEvent.click(await screen.findByTestId('file-tab-status-retry'));
+      expect(await screen.findByTestId('file-tab-input')).toBeInTheDocument();
+      expect(screen.queryByTestId('file-tab-status-error')).toBeNull();
+      expect(get).toHaveBeenCalledTimes(2);
+    });
+
+    it('aborts a hanging request after 10 s and shows the error', async () => {
+      vi.useFakeTimers();
+      try {
+        let signal: AbortSignal | undefined;
+        vi.spyOn(api, 'getShareStatus').mockImplementation(
+          (s?: AbortSignal) =>
+            new Promise((_, reject) => {
+              signal = s;
+              s?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+            })
+        );
+        openTab();
+        expect(screen.getByText(i18n.t('chat.fileTab.loading'))).toBeInTheDocument();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(STATUS_TIMEOUT_MS + 1);
+        });
+        expect(signal?.aborted).toBe(true);
+        expect(screen.getByTestId('file-tab-status-error')).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('has the message and retry labels in both languages', () => {
+      for (const keys of [en.chat.fileTab, fr.chat.fileTab]) {
+        expect(keys.statusError).toBeTruthy();
+        expect(keys.statusRetry).toBeTruthy();
+      }
+    });
   });
 
   it('says a HEIC file is unsupported and uploads nothing', async () => {
@@ -281,6 +342,12 @@ describe('File tab mode', () => {
     expect(screen.getByTestId('file-tab-mode-hint')).toHaveTextContent(
       i18n.t('chat.fileTab.mode.dmUnavailable')
     );
+  });
+
+  it('keeps encryption off in a DM while the status does not say the key is there', () => {
+    open(DM, { dm_encryption_available: undefined as unknown as boolean });
+    expect(screen.getByTestId('file-tab-mode-encrypted')).toBeDisabled();
+    expect(checked('public')).toBe('true');
   });
 
   it('uploads sealed for the conversation, with the file name', async () => {

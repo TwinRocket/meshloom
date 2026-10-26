@@ -7,6 +7,7 @@ import { useBlockedSenders } from '../../contexts/BlockedSendersContext';
 import {
   requestShareMeta,
   shareMetaKey,
+  type ShareMetaEntry,
   useShareMetaEntry,
   useShareStatus,
 } from '../../stores/shareMetaStore';
@@ -113,6 +114,11 @@ const TYPE_LABEL: Record<string, string> = {
   'image/webp': 'WebP',
 };
 
+/** A file the service holds encrypted (the sender's `📷` or `🔒` prefix is only a claim). */
+function isEncryptedFile(entry: ShareMetaEntry | null): boolean {
+  return entry?.state === 'ready' && entry.meta.kind === 'file' && entry.meta.mode === 'encrypted';
+}
+
 function objectUrl(id: string, messageId: number | undefined): string {
   const path = `./api/share/${encodeURIComponent(id)}`;
   return messageId ? `${path}?message_id=${messageId}` : path;
@@ -162,13 +168,25 @@ function SharePayloadCard({
   const [imageFailed, setImageFailed] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   // A public file's meta is the same in every message (shared with the anchor's hover);
-  // an encrypted one is decrypted for this message's conversation.
-  const metaMessageId = encrypted ? message?.id : undefined;
-  const entry = useShareMetaEntry(load ? shareMetaKey(id, metaMessageId) : null);
+  // an encrypted one is decrypted for this message's conversation. A `📷` body whose file
+  // turns out encrypted is asked again with the message (the plain answer cannot decrypt).
+  const plainEntry = useShareMetaEntry(load && !(encrypted && message) ? shareMetaKey(id) : null);
+  const escalate = !!message && (encrypted || isEncryptedFile(plainEntry));
+  const metaMessageId = escalate ? message?.id : undefined;
+  const messageEntry = useShareMetaEntry(load && escalate ? shareMetaKey(id, metaMessageId) : null);
+  const entry = escalate ? messageEntry : plainEntry;
+  // An entry dropped while the card is mounted (null) is asked for again: never a spinner for good.
+  const lost = load && entry === null;
 
   useEffect(() => {
     if (load) void requestShareMeta(id, metaMessageId);
-  }, [load, id, metaMessageId]);
+  }, [load, id, metaMessageId, lost]);
+
+  // A tap on "Try again": ask once more now, whatever the short failure memory says.
+  const retry = () => {
+    setImageFailed(false);
+    void requestShareMeta(id, metaMessageId, { force: true });
+  };
 
   if (!load) {
     if (!interactive) {
@@ -213,7 +231,9 @@ function SharePayloadCard({
   }
 
   if (entry.state === 'missing') {
-    if (!entry.gone) return encrypted ? <EncryptedNotice reason="unavailable" /> : null;
+    if (!entry.gone) {
+      return encrypted ? <EncryptedNotice reason="unavailable" onRetry={() => retry()} /> : null;
+    }
     return (
       <div className="mt-1 text-xs italic text-muted-foreground" data-testid="share-payload-gone">
         {t('sharePayload.gone')}
@@ -225,7 +245,7 @@ function SharePayloadCard({
   const isEncrypted = meta.kind === 'file' && meta.mode === 'encrypted';
   if (isEncrypted && meta.decryptable === false) return <EncryptedNotice reason="elsewhere" />;
   if (isEncrypted && (meta.decryptable !== true || imageFailed)) {
-    return <EncryptedNotice reason="unavailable" />;
+    return <EncryptedNotice reason="unavailable" onRetry={() => retry()} />;
   }
   if (!isShownImage(meta) || imageFailed) return null;
   const url = objectUrl(id, message?.id);
@@ -306,17 +326,33 @@ function SharePayloadCard({
 }
 
 /** Why an encrypted file is not shown: sealed for another conversation, or unreadable now. */
-function EncryptedNotice({ reason }: { reason: 'elsewhere' | 'unavailable' }) {
+function EncryptedNotice({
+  reason,
+  onRetry,
+}: {
+  reason: 'elsewhere' | 'unavailable';
+  onRetry?: () => void;
+}) {
   const { t } = useTranslation();
   return (
     <div
-      className="mt-1 inline-flex items-center gap-1.5 text-xs italic text-muted-foreground"
+      className="mt-1 inline-flex flex-wrap items-center gap-1.5 text-xs italic text-muted-foreground"
       data-testid={`share-payload-encrypted-${reason}`}
     >
       <Lock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       {reason === 'elsewhere'
         ? t('sharePayload.encryptedElsewhere')
         : t('sharePayload.encryptedUnavailable')}
+      {reason === 'unavailable' && onRetry && (
+        <button
+          type="button"
+          data-testid="share-payload-retry"
+          onClick={onRetry}
+          className="not-italic underline hover:text-foreground"
+        >
+          {t('sharePayload.retry')}
+        </button>
+      )}
     </div>
   );
 }
