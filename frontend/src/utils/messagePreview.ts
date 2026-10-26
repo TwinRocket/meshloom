@@ -70,23 +70,32 @@ export function describeMessagePreview(text: string, context: MessagePreviewCont
   const reaction = parseReaction(payload) ?? parseMeshCoreOneReaction(payload);
   if (reaction) return describeReactionPreview(reaction, sender, context);
 
-  // From the text only: no network, no request for the link's meta.
-  const hosts = getShareStatusSnapshot()?.hosts ?? DEFAULT_SHARE_HOSTS;
-  const file = sharedFileKind(payload, hosts);
-  if (file) {
-    const line =
-      file === 'image'
-        ? `📷 ${i18n.t('messagePreview.shareImage')}`
-        : `🔒 ${i18n.t('messagePreview.shareEncrypted')}`;
-    return sender ? `${sender}: ${line}` : line;
-  }
-  const shared = splitShareLinkBody(payload, hosts);
-  if (shared) {
-    const line = `🔗 ${shared.caption || i18n.t('messagePreview.shareLink')}`;
-    return sender ? `${sender}: ${line}` : line;
-  }
+  const share = describeSharePreview(payload);
+  if (share) return sender ? `${sender}: ${share}` : share;
 
   return text;
+}
+
+/**
+ * One line for a share message (an image, an encrypted file or a link), or null for any
+ * other text. From the text alone: no network, no request for the link's meta, and the
+ * link, its path and its `#fragment` (an encrypted file's key) are never in the line. A
+ * link keeps its caption, if any. The Feed and the conversation list share it; the server
+ * counterpart for push and e-mail is `app/share_text.py`.
+ */
+export function describeSharePreview(
+  payload: string,
+  hosts: readonly string[] = getShareStatusSnapshot()?.hosts ?? DEFAULT_SHARE_HOSTS
+): string | null {
+  const file = sharedFileKind(payload, hosts);
+  if (file) {
+    return file === 'image'
+      ? `📷 ${i18n.t('messagePreview.shareImage')}`
+      : `🔒 ${i18n.t('messagePreview.shareEncrypted')}`;
+  }
+  const shared = splitShareLinkBody(payload, hosts);
+  if (shared) return `🔗 ${shared.caption || i18n.t('messagePreview.shareLink')}`;
+  return null;
 }
 
 /**

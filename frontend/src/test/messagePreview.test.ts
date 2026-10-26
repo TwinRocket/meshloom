@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { describeMessagePreview, reactionTargetExcerptFromMessages } from '../utils/messagePreview';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  describeMessagePreview,
+  describeSharePreview,
+  reactionTargetExcerptFromMessages,
+} from '../utils/messagePreview';
 import { formatGif, formatLocation, formatOpenReaction } from '../utils/meshcoreOpenPayloads';
 import i18n from '../i18n';
 
@@ -130,5 +134,27 @@ describe('describeMessagePreview, shared files (text only)', () => {
     expect(describeMessagePreview('📷 https://example.org/AbCdEfG')).toBe(
       '📷 https://example.org/AbCdEfG'
     );
+  });
+});
+
+describe('describeSharePreview (the Feed, no sender prefix)', () => {
+  const LINK = 'https://meshl.ink/AbCdEfG';
+
+  it('summarises the three share forms, never the link or the fragment', () => {
+    expect(describeSharePreview(`📷 ${LINK}`)).toBe(`📷 ${i18n.t('messagePreview.shareImage')}`);
+    const encrypted = describeSharePreview(`🔒 ${LINK}#k=secret`);
+    expect(encrypted).toBe(`🔒 ${i18n.t('messagePreview.shareEncrypted')}`);
+    expect(encrypted).not.toContain('secret');
+    expect(describeSharePreview(`${LINK} read me`)).toBe('🔗 read me');
+    expect(describeSharePreview(LINK)).toBe(`🔗 ${i18n.t('messagePreview.shareLink')}`);
+  });
+
+  it('answers null for anything else, and makes no request', () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(describeSharePreview('hello')).toBeNull();
+    expect(describeSharePreview('📷 https://example.org/AbCdEfG')).toBeNull();
+    expect(describeSharePreview(LINK, ['other.example'])).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 });

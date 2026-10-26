@@ -170,6 +170,16 @@ on opt-out or an IATA change the next `stop()` also clears the retained status, 
 `services/community_status_clear.py` retries a clear that was not acknowledged.
 Detail: `docs/dev/community-client.md`.
 
+## Sharing links and images (no runtime change)
+
+Bots are gone (extensions replaced them) and the fanout runtime is unchanged by sharing. A fanout module
+(webhook, MQTT, SQS, and the fanout Apprise, which formats `{text}` itself) receives the message text as
+stored, `📷 <link>` and `🔒 <link>#<key>` included. Only the notification renderer summarises it
+(`app/share_text.py`, wired once in `app/notifications/render.py` `message_body_text`: Web Push, e-mail,
+ntfy and the notification Apprise channels, never the webhook channel). Extensions have no `share` permission and cannot reach
+`/api/share/*` (the local API is not an allowed destination): a script outside Meshloom, with a `send`
+token, calls `POST /api/share/links` and `POST /api/share/files` (user guide `docs/user/{en,fr}/deep/fanout.md`).
+
 ## Adding a type
 
 1. Write `app/fanout/<type>.py`: subclass `FanoutModule`, keep the constructor

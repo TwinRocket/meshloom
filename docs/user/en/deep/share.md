@@ -51,6 +51,8 @@ The service also has, for each link, a **preview page**: add `+` at the end of t
 
 The hint needs sharing to be on: with sharing off, a short link is just a link and nothing is requested.
 
+In push notifications and e-mails a shared image or link never shows its address: it reads `[image]`, `[encrypted file]` or `[link]`, written from the text alone with no request to the service (see [Notifications](/en/docs/deep/notifications/#privacy-and-what-leaves-your-machine)). A script can create links and images through the API: see [Fanout](/en/docs/deep/fanout/#sharing-a-link-or-an-image-from-a-script).
+
 ## Opening an encrypted file in a browser
 
 This version of Meshloom does not send encrypted files yet, but the service already has the page that opens them. An encrypted image shared in a **private channel** can be opened by the channel's members, from any device, at `https://meshl.ink/<id>/decrypt` (the file's page links to it): paste the channel's key, its 32 hexadecimal characters or the channel's `meshcore://` link. The browser decrypts the file: the key is not sent to the service, put in the address or saved, and the only request is the download of the encrypted file. A wrong key shows an error and nothing else.

@@ -51,6 +51,8 @@ Le service propose aussi, pour chaque lien, une **page d’aperçu** : ajoutez `
 
 L’indication demande que le partage soit activé : quand il est désactivé, un lien court n’est qu’un lien et rien n’est demandé.
 
+Dans les notifications push et les e-mails, une image ou un lien partagé n’affiche jamais son adresse : on lit `[image]`, `[fichier chiffré]` ou `[lien]`, écrit à partir du texte seul, sans aucune requête au service (voir [Notifications](/docs/deep/notifications/#confidentialite-et-ce-qui-quitte-votre-machine)). Un script peut créer des liens et des images par l’API : voir [Fanout](/docs/deep/fanout/#partager-un-lien-ou-une-image-depuis-un-script).
+
 ## Ouvrir un fichier chiffré dans un navigateur
 
 Cette version de Meshloom n’envoie pas encore de fichiers chiffrés, mais le service a déjà la page qui les ouvre. Une image chiffrée partagée dans un **canal privé** peut être ouverte par les membres du canal, depuis n’importe quel appareil, à l’adresse `https://meshl.ink/<id>/decrypt` (la page du fichier y renvoie) : collez la clé du canal, ses 32 caractères hexadécimaux ou le lien `meshcore://` du canal. Le navigateur déchiffre le fichier : la clé n’est ni envoyée au service, ni mise dans l’adresse, ni enregistrée, et la seule requête est le téléchargement du fichier chiffré. Une mauvaise clé affiche une erreur et rien d’autre.

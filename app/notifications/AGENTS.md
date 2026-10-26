@@ -20,6 +20,9 @@ This file is a hypothesis: check it against the code.
   `enrich_notification_payload`) serve the callers that pass dicts; they were moved
   unchanged from `app/push/manager.py` and `app/email_template.py`, which re-export
   them under their old names (tests import `_build_payload` from `push.manager`).
+  Message texts go through `message_body_text()`, the one call site of `app/share_text.py`
+  (`share_text_summary`: a share link reads `[image]`, `[encrypted file]` or `[link]`; offline,
+  never a URL or a `#fragment`). The webhook transport sends the raw payload.
 
 - `channels.py`: the channel models and the type registry. A type declares a Pydantic
   config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`, `NtfyConfig`, `DiscordConfig`); secret

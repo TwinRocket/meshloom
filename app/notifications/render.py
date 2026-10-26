@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from app.channel_constants import is_public_channel_key
 from app.data.meshcore_channels import is_public_hashtag_channel
 from app.notifications.markdown import escape_markdown, neutralise_mentions
+from app.share_text import share_text_summary
 
 if TYPE_CHECKING:
     from app.notifications.events import NotificationEvent
@@ -458,7 +459,7 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
         )
 
     msg_type = data.get("type", "")
-    text = data.get("text", "")
+    text = message_body_text(data.get("text", ""), lang)
     sender_name = data.get("sender_name") or ""
     channel_name = data.get("channel_name") or ""
 
@@ -504,6 +505,17 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
             "url_hash": url_hash,
         }
     )
+
+
+def message_body_text(text: object, lang: str) -> str:
+    """A message text as a notification shows it: a share link becomes its summary.
+
+    The one call site of ``share_text_summary`` (MSHL-250): push, the e-mail lines,
+    the Apprise text and the ntfy body all go through it, so none shows a bare URL
+    or a ``#fragment``. Offline: nothing is fetched. Other texts are unchanged.
+    """
+    raw = str(text or "")
+    return share_text_summary(raw, lang) or raw
 
 
 def _is_message(data: Mapping[str, Any]) -> bool:
@@ -797,7 +809,7 @@ def notification_email_lines(
     if event == "message" or payload.get("type") in ("PRIV", "CHAN"):
         sender = str(payload.get("sender_name") or "").strip()
         channel = str(payload.get("channel_name") or "").strip()
-        text = str(payload.get("text") or "").strip()
+        text = message_body_text(str(payload.get("text") or "").strip(), lang)
         lines = []
         if sender:
             lines.append(f"{copy['sender']} : {sender}")
