@@ -790,13 +790,16 @@ run as root).
 - No key at all (unwritable folder): fail closed. `encrypt`/`seal` raise
   `SecretStoreUnavailable` and no secret is ever written plain: the API answers 503
   `secret_store_unavailable` (handler in `main.py`, FR+EN `errors.secret_store_unavailable`)
-  to any save that carries a secret, including a backup restore that writes one. Reads,
-  and saves without a secret, still work.
+  to any save that carries a secret. The full restore job checks first
+  (`secret_store.available()`, `check_secret_store` in `services/backup_restore.py`): a
+  file whose fanout configs hold a secret is refused with 503
+  `backup_secret_store_unavailable` before any step runs, so nothing is half applied
+  (MSHL-397). Reads, and saves without a secret, still work.
 - Backups: the SQLite download carries ciphertext without the key (the
   `X-Private-Key-Warning` header says so); the JSON backup exports plain values as
   before and a restore encrypts with the local key. Tests: `tests/test_secret_store.py`,
-  `tests/test_fanout_secrets_at_rest.py`, the secrets-at-rest tests of
-  `tests/test_notifications_api.py`.
+  `tests/test_fanout_secrets_at_rest.py`, `tests/test_backup_restore_secret_store.py`,
+  the secrets-at-rest tests of `tests/test_notifications_api.py`.
 
 ## Radio lifecycle
 

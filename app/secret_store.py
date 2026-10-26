@@ -154,6 +154,14 @@ def _current_key() -> bytes | None:
     return _key
 
 
+def available() -> bool:
+    """Whether a secret can be encrypted now (loads or creates the key on first use).
+
+    Lets a multi-step write such as the backup restore refuse up front instead of
+    failing with ``SecretStoreUnavailable`` halfway through."""
+    return _current_key() is not None
+
+
 def aad(table: str, row_id: str, field: str) -> str:
     """The associated data of one stored secret: its table, row id and field."""
     return f"meshloom:{table}:{row_id}:{field}"

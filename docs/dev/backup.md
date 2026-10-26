@@ -120,6 +120,14 @@ version below 1 raises `ValueError`.
   (`settings.fullRestore.warnings.<code>`, with the parameter as `{{value}}`):
   add your codes to the i18n files (fr and en) and to the code list in
   `frontend/src/test/backupRestoreFlow.test.tsx`.
+- **Secrets at rest.** The job refuses up front, with 503
+  `backup_secret_store_unavailable` and before any step, a file it would have
+  to encrypt a secret from (`secret_store.py`) while `secrets.key` cannot be read
+  or created (`check_secret_store` in `app/services/backup_restore.py`, MSHL-397).
+  Today that is a `meshloom_extra.fanout_configs` entry with a value at a secret
+  key. A section whose file data carries a secret to encrypt adds its own test to
+  `restore_needs_secret_store`; otherwise its `SecretStoreUnavailable` only fails
+  that section (`section_failed:<name>`).
 - **`requires`.** `register_backup_section(name, ..., requires=["users"])`:
   the named sections are restored first, in the same restore. When one of them
   is missing from the file, too new or failed, this section is skipped

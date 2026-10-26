@@ -3261,7 +3261,9 @@ export function SettingsFanoutSection({
       await loadConfigs();
       toast.success(t('settings.fanout.toast.nameUpdated'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('settings.fanout.toast.failedUpdateName'));
+      toast.error(
+        err instanceof Error ? formatApiError(err, t) : t('settings.fanout.toast.failedUpdateName')
+      );
     } finally {
       handleCancelInlineEdit();
     }
@@ -3346,7 +3348,9 @@ export function SettingsFanoutSection({
       if (onHealthRefresh) await onHealthRefresh();
       toast.success(t('settings.fanout.toast.deleted'));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('settings.fanout.toast.failedDelete'));
+      toast.error(
+        err instanceof Error ? formatApiError(err, t) : t('settings.fanout.toast.failedDelete')
+      );
     }
   };
 

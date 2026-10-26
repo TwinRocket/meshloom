@@ -957,13 +957,58 @@ async def _run_restore(run: _Run) -> None:
         )
 
 
+def restore_needs_secret_store(
+    doc: BackupV1Document | BackupExportV2, options: RestoreOptions
+) -> bool:
+    """The job would encrypt a secret: the Meshloom step restores a fanout config whose
+    file entry holds a value at a secret key (``secret_fields.FANOUT_SECRET_KEYS``).
+
+    The notifications section never needs it (the file has no channel secret, and a
+    kept secret is one the current key already opened)."""
+    from app.fanout.manager import is_reserved_fanout_id
+    from app.secret_fields import secret_keys
+
+    if not options.steps.meshloom or not isinstance(doc, BackupExportV2):
+        return False
+    if doc.meshloom_extra is None:
+        return False
+    for entry in doc.meshloom_extra.fanout_configs:
+        if is_reserved_fanout_id(entry.id):
+            continue
+        for key in secret_keys(entry.type):
+            if entry.config.get(key) not in (None, "", {}, []):
+                return True
+    return False
+
+
+def check_secret_store(doc: BackupV1Document | BackupExportV2, options: RestoreOptions) -> None:
+    """Refuse the whole restore, before anything is written, when it would have to
+    encrypt a secret and ``secrets.key`` cannot be read or created (MSHL-397).
+
+    Without this check the fanout write would raise ``SecretStoreUnavailable`` in the
+    middle of the Meshloom step, after the identity, contacts, channels and settings
+    were already applied."""
+    from app import secret_store
+
+    if restore_needs_secret_store(doc, options) and not secret_store.available():
+        raise BackupError(
+            "backup_secret_store_unavailable",
+            status=503,
+            message=(
+                "Nothing was restored: the backup holds integration secrets and the "
+                "secrets key file cannot be read or created"
+            ),
+        )
+
+
 async def start_restore_backup_v2(
     doc: BackupV1Document | BackupExportV2, options: RestoreOptions
 ) -> str:
     """Check what can be checked before writing anything, then start the job.
 
-    Refusals (another restore running, a missing identity confirmation) are
-    raised here, synchronously, before any write.
+    Refusals (another restore running, an unusable secrets key when the file
+    holds secrets, a missing identity confirmation) are raised here,
+    synchronously, before any write.
     """
     from app.background_tasks import spawn
 
@@ -980,6 +1025,7 @@ async def start_restore_backup_v2(
     # must see it while the identity check below reads the radio.
     _set_running(job.job_id)
     try:
+        check_secret_store(doc, options)
         if options.steps.identity and backup_public_key(doc) is not None:
             inputs = await gather_identity_inputs()
             check_identity_confirmations(
