@@ -13,7 +13,7 @@ import {
 } from '../../ui/dialog';
 import { toast } from '../../ui/sonner';
 import { ChannelForm } from './ChannelForm';
-import { advancedBody, fieldErrorsOf, templateBody } from './notificationsShared';
+import { advancedBody, fieldErrorsOf, heartbeatBody, templateBody } from './notificationsShared';
 
 /** Edits a saved channel: secrets stay "Unchanged" unless replaced or cleared. */
 export function ChannelEditDialog({
@@ -60,6 +60,7 @@ export function ChannelEditDialog({
                 verify_tls: draft.verify_tls,
                 ...templateBody(entry, draft),
                 ...advancedBody(draft),
+                ...heartbeatBody(entry, draft),
               });
             } catch (err) {
               // A legacy channel answers 409 `legacy_managed`: the 4.18.x setting still decides.

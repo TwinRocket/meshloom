@@ -30,6 +30,7 @@ from app.net.egress_guard import (
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
     DISCORD_HOSTS,
+    HEARTBEAT_URL_KEY,
     NTFY_DEFAULT_SERVER,
     REGISTRY,
     Channel,
@@ -38,9 +39,11 @@ from app.notifications.channels import (
     ChannelType,
     ChannelUpdate,
     get_type,
+    heartbeat_supported,
     is_builtin,
 )
 from app.notifications.failures import autopause_key
+from app.notifications.heartbeat import check_ping_url
 from app.notifications.presets import PresetError, compile_url
 from app.notifications.templates import check_templates
 from app.secret_fields import REDACTED, destination_changed
@@ -137,6 +140,8 @@ def _row_to_channel(row: aiosqlite.Row) -> Channel:
         verify_tls=bool(row["verify_tls"]),
         template_dm=row["template_dm"] or "",
         template_channel=row["template_channel"] or "",
+        heartbeat_interval_s=row["heartbeat_interval_s"] or 0,
+        heartbeat_method="POST" if row["heartbeat_method"] == "POST" else "GET",
         quiet_hours_exempt=bool(row["quiet_hours_exempt"]),
         rate_per_min=row["rate_per_min"],
         rate_per_hour=row["rate_per_hour"],
@@ -289,6 +294,26 @@ def _check_text_policy(entry: ChannelType, wanted: str | None) -> None:
         raise ChannelError("text_policy_locked", policy=entry.include_message_text_default)
 
 
+def _check_heartbeat(entry: ChannelType, interval: int, url: str) -> None:
+    """A heartbeat only on the types that carry one (``heartbeat_supported``, MSHL-131)."""
+    preset = entry.id if entry.preset is not None else None
+    if (interval or url) and not heartbeat_supported(entry.row_type, preset):
+        raise ChannelError("heartbeat_unsupported")
+
+
+def _with_secret(raw: object, channel_id: str, name: str, value: str) -> str:
+    """The stored ``secrets`` column with only ``name`` replaced (or removed when empty): the
+    other values stay as stored, even one the current key cannot open."""
+    stored = _loads(raw)
+    if value:
+        stored[name] = secret_store.encrypt(
+            value, secret_store.aad(SECRETS_TABLE, channel_id, name)
+        )
+    else:
+        stored.pop(name, None)
+    return json.dumps(stored, sort_keys=True)
+
+
 def _utf_trim(value: str | None) -> str | None:
     return value[:LAST_ERROR_MAX] if value else value
 
@@ -353,6 +378,16 @@ class NotificationChannelRepository:
         await _check_destination(
             entry, public, secrets, body.allow_private_network, body.verify_tls
         )
+        heartbeat_url = "" if body.heartbeat_url == REDACTED else body.heartbeat_url.strip()
+        _check_heartbeat(entry, body.heartbeat_interval_s, heartbeat_url)
+        if heartbeat_url:
+            # Through the egress guard now, and again on every ping (``heartbeat.ping``).
+            await check_ping_url(
+                heartbeat_url,
+                allow_private_network=body.allow_private_network,
+                verify_tls=body.verify_tls,
+            )
+            secrets[HEARTBEAT_URL_KEY] = heartbeat_url
         return entry, public, secrets
 
     @staticmethod
@@ -382,8 +417,8 @@ class NotificationChannelRepository:
                      allow_private_network, include_message_text, verify_tls,
                      template_dm, template_channel,
                      quiet_hours_exempt, rate_per_min, rate_per_hour, rate_per_day,
-                     sort_order, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     sort_order, created_at, heartbeat_interval_s, heartbeat_method)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     channel_id,
@@ -411,6 +446,8 @@ class NotificationChannelRepository:
                     body.rate_per_day,
                     sort_order,
                     int(time.time()),
+                    body.heartbeat_interval_s,
+                    body.heartbeat_method,
                 ),
             )
             row = await _fetch(conn, channel_id)
@@ -436,6 +473,8 @@ class NotificationChannelRepository:
 
         public = dict(current.config)
         secrets = dict(stored_secrets)
+        # The heartbeat URL (MSHL-131) shares the secrets column but not the config model.
+        old_url = secrets.pop(HEARTBEAT_URL_KEY, "")
         config_changed = False
         if patch.config is not None:
             config_changed = True
@@ -461,6 +500,19 @@ class NotificationChannelRepository:
                 if kept:
                     raise ChannelError("secret_required", fields=kept)
             public, secrets = _split_config(entry, merged)
+        if patch.heartbeat_url is None or patch.heartbeat_url == REDACTED:
+            new_url = old_url
+        else:
+            new_url = patch.heartbeat_url.strip()
+        url_changed = new_url != old_url
+        if new_url:
+            secrets[HEARTBEAT_URL_KEY] = new_url
+        interval = (
+            current.heartbeat_interval_s
+            if patch.heartbeat_interval_s is None
+            else patch.heartbeat_interval_s
+        )
+        _check_heartbeat(entry, interval, new_url)
         # A stored secret the key cannot open (MSHL-133) counts as present while the config
         # is not edited: a PATCH of the name, the switch, the limits... is saved and the
         # channel keeps reading as off (``secret_unreadable``) until the config is saved
@@ -480,6 +532,8 @@ class NotificationChannelRepository:
             cleared = {
                 k for k, v in (patch.config or {}).items() if k in entry.secret_fields and v == ""
             }
+            if patch.heartbeat_url == "":
+                cleared.add(HEARTBEAT_URL_KEY)
             still_pending = [n for n in pending if not secrets.get(n) and n not in cleared]
             wanted_on = current.enabled if patch.enabled is None else patch.enabled
             if still_pending and wanted_on:
@@ -497,6 +551,14 @@ class NotificationChannelRepository:
             or verify_tls != current.verify_tls
         ):
             await _check_destination(entry, public, secrets, allow_private, verify_tls)
+        if new_url and (
+            url_changed
+            or allow_private != current.allow_private_network
+            or verify_tls != current.verify_tls
+        ):
+            await check_ping_url(
+                new_url, allow_private_network=allow_private, verify_tls=verify_tls
+            )
         if config_changed:
             # The grandfathering banner was about the old destination.
             public.pop("private_network_grandfathered", None)
@@ -516,6 +578,8 @@ class NotificationChannelRepository:
             "rate_per_min",
             "rate_per_hour",
             "rate_per_day",
+            "heartbeat_interval_s",
+            "heartbeat_method",
         ):
             if column in patch.model_fields_set and column != "type":
                 value = getattr(patch, column)
@@ -541,6 +605,10 @@ class NotificationChannelRepository:
                 await conn.execute(
                     "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
                 )
+            if url_changed and not config_changed:
+                stored = await _fetch(conn, channel_id)
+                raw = stored["secrets"] if stored is not None else None
+                sets["secrets"] = _with_secret(raw, channel_id, HEARTBEAT_URL_KEY, new_url)
             if sets:
                 assignments = ", ".join(f"{col} = ?" for col in sets)
                 await conn.execute(

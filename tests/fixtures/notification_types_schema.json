@@ -6,6 +6,7 @@
       "per_hour": 600,
       "per_min": 60
     },
+    "heartbeat": false,
     "include_message_text_default": "always",
     "preset": false,
     "quiet_hours_exempt_default": false,
@@ -27,6 +28,7 @@
       "per_hour": 60,
       "per_min": 6
     },
+    "heartbeat": false,
     "include_message_text_default": "always",
     "preset": false,
     "quiet_hours_exempt_default": false,
@@ -121,6 +123,7 @@
       "per_hour": 600,
       "per_min": 60
     },
+    "heartbeat": true,
     "include_message_text_default": "always",
     "preset": false,
     "quiet_hours_exempt_default": true,
@@ -195,6 +198,7 @@
       "per_hour": 600,
       "per_min": 30
     },
+    "heartbeat": false,
     "include_message_text_default": "public_only",
     "preset": false,
     "quiet_hours_exempt_default": false,
@@ -241,6 +245,7 @@
       "per_hour": 300,
       "per_min": 30
     },
+    "heartbeat": true,
     "include_message_text_default": "always",
     "preset": false,
     "quiet_hours_exempt_default": false,
@@ -290,6 +295,7 @@
       "per_hour": null,
       "per_min": 30
     },
+    "heartbeat": true,
     "include_message_text_default": "public_only",
     "preset": false,
     "quiet_hours_exempt_default": false,
@@ -418,6 +424,7 @@
       "per_hour": 200,
       "per_min": 15
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.telegram.about",
     "include_message_text_default": "public_only",
     "include_message_text_locked": false,
@@ -482,6 +489,7 @@
       "per_hour": null,
       "per_min": 60
     },
+    "heartbeat": true,
     "help_key": "notifications.presets.gotify.about",
     "include_message_text_default": "always",
     "include_message_text_locked": false,
@@ -551,6 +559,7 @@
       "per_hour": null,
       "per_min": 60
     },
+    "heartbeat": true,
     "help_key": "notifications.presets.home_assistant.about",
     "include_message_text_default": "always",
     "include_message_text_locked": false,
@@ -616,6 +625,7 @@
       "per_hour": 100,
       "per_min": 10
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.pushover.about",
     "include_message_text_default": "public_only",
     "include_message_text_locked": false,
@@ -708,6 +718,7 @@
       "per_hour": null,
       "per_min": 30
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.matrix.about",
     "include_message_text_default": "public_only",
     "include_message_text_locked": false,
@@ -781,6 +792,7 @@
       "per_hour": 200,
       "per_min": 20
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.signal.about",
     "include_message_text_default": "always",
     "include_message_text_locked": false,
@@ -863,6 +875,7 @@
       "per_hour": null,
       "per_min": 30
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.slack.about",
     "include_message_text_default": "public_only",
     "include_message_text_locked": false,
@@ -906,6 +919,7 @@
       "per_hour": null,
       "per_min": 30
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.mattermost.about",
     "include_message_text_default": "always",
     "include_message_text_locked": false,
@@ -961,6 +975,7 @@
       "per_hour": null,
       "per_min": 30
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.rocketchat.about",
     "include_message_text_default": "always",
     "include_message_text_locked": false,
@@ -1045,6 +1060,7 @@
       "per_hour": 20,
       "per_min": 2
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.sms_free.about",
     "include_message_text_default": "never",
     "include_message_text_locked": true,
@@ -1100,6 +1116,7 @@
       "per_hour": 20,
       "per_min": 2
     },
+    "heartbeat": false,
     "help_key": "notifications.presets.sms_sfr.about",
     "include_message_text_default": "never",
     "include_message_text_locked": true,

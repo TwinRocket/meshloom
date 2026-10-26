@@ -38,6 +38,8 @@ DESTINATION_CHANGED_EVENT = "notify.destination_changed"
 CHANNEL_CHANGED_EVENT = "notify.channel_changed"
 # A channel keeps failing, or a push service dropped a browser (``failures.py``).
 CHANNEL_FAILED_EVENT = "notify.channel_failed"
+# The periodic "still running" message of a channel with a heartbeat (``heartbeat.py``).
+HEARTBEAT_EVENT = "notify.heartbeat"
 
 
 def _first_seen_titles(data: dict, lang: str) -> tuple[str, str]:
@@ -435,6 +437,20 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
                 "tag": "meshcore-channel-changed",
                 "url_hash": "#settings/notifications",
             }
+        )
+
+    if data.get("event") == HEARTBEAT_EVENT:
+        instance = str(data.get("instance") or "Meshloom")
+        uptime = format_duration(data.get("uptime_s"))
+        version = str(data.get("version") or "")
+        if lang == "en":
+            title = f"{instance} is running"
+            body = f"Up for {uptime}" + (f", version {version}." if version else ".")
+        else:
+            title = f"{instance} fonctionne"
+            body = f"En service depuis {uptime}" + (f", version {version}." if version else ".")
+        return json.dumps(
+            {"title": title, "body": body, "tag": "meshcore-heartbeat", "url_hash": ""}
         )
 
     if data.get("event") == CHANNEL_FAILED_EVENT:

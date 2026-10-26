@@ -155,7 +155,7 @@ automation:
 
 ### Radio offline alert
 
-Meshloom also sends **Radio offline**, **Radio back online** and **Meshloom started** notifications itself (Settings → Notifications; Web Push by default, and any other channel you add: Home Assistant, ntfy, Telegram, e-mail, webhook...), after a delay of 60 s by default. They cannot reach you while Meshloom itself is down (power cut, host reboot): this automation, which runs in Home Assistant, still can. The example below stays valid.
+Meshloom also sends **Radio offline**, **Radio back online** and **Meshloom started** notifications itself (Settings → Notifications; Web Push by default, and any other channel you add: Home Assistant, ntfy, Telegram, e-mail, webhook...), after a delay of 60 s by default. They cannot reach you while Meshloom itself is down (power cut, host reboot): this automation, which runs in Home Assistant, still can. It remains the Home Assistant way to be warned while Meshloom is stopped. A Home Assistant notification channel can also send a periodic **heartbeat** (channel settings → Advanced), but Home Assistant does not alert on a missing message by itself; to be warned on silence without this automation, give the heartbeat a healthchecks-style ping URL (see the notifications guide, *Knowing when Meshloom itself is down*). The example below stays valid.
 
 Notify if the radio has been disconnected for more than 5 minutes.
 

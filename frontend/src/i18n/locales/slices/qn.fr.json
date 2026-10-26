@@ -53,6 +53,7 @@
           "notify_destination_changed": "Destination modifiée",
           "notify_channel_changed": "Canal modifié",
           "notify_channel_failed": "Canal en échec",
+          "notify_heartbeat": "Battement de cœur",
           "notify_test": "Notification de test",
           "notifications_grouped": "Résumé des notifications groupées",
           "first_seen_grouped": "Résumé des nouveaux nœuds",

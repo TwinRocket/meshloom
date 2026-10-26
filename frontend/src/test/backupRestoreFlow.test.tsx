@@ -757,6 +757,7 @@ describe('BackupRestoreFlow', () => {
       'notification_channel_dropped:webhook-1a2b3c4d',
       'notification_rules_dropped',
       'notification_rules_sanitized',
+      'notification_heartbeat_dropped:webhook-1a2b3c4d',
       'notification_destination_secrets_missing',
       'plugins_restored:2',
       'plugins_to_reinstall:1',

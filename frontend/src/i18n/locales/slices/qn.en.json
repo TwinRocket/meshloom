@@ -53,6 +53,7 @@
           "notify_destination_changed": "Destination changed",
           "notify_channel_changed": "Channel changed",
           "notify_channel_failed": "Channel failing",
+          "notify_heartbeat": "Heartbeat",
           "notify_test": "Test notification",
           "notifications_grouped": "Summary of grouped notifications",
           "first_seen_grouped": "Summary of new nodes",

@@ -106,6 +106,12 @@ SAMPLES: dict[str, dict[str, Any]] = {
         "name": "ntfy",
         "error": "auth_failed",
     },
+    "notify.heartbeat": {
+        "event": "notify.heartbeat",
+        "instance": "Base Paris",
+        "uptime_s": 93784,
+        "version": "5.0.0",
+    },
     "summary.grouped": {
         "event": "notifications_grouped",
         "count": 7,

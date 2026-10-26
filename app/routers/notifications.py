@@ -26,6 +26,7 @@ from app.auth.permissions import require
 from app.notifications import api_support, templates
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
+    HEARTBEAT_URL_KEY,
     Channel,
     ChannelCreate,
     ChannelError,
@@ -42,6 +43,7 @@ from app.repository.notification_channels import (
     NotificationJournalRepository,
 )
 from app.repository.settings import AppSettingsRepository
+from app.secret_fields import REDACTED
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +56,9 @@ router = APIRouter(
 # Events whose proof of modification reaches ``builtin:push`` whatever the rules say.
 LOCKED_PUSH_EVENTS = frozenset({"notify.channel_changed", "notify.destination_changed"})
 # Not rule targets: the test button, and the failing-channel notice (MSHL-130), which
-# goes to Web Push and every other enabled channel whatever the rules say.
-NOT_CONFIGURABLE = frozenset({"notify.test", "notify.channel_failed"})
+# goes to Web Push and every other enabled channel whatever the rules say, and the heartbeat
+# (MSHL-131), set per channel (``heartbeat_interval_s``).
+NOT_CONFIGURABLE = frozenset({"notify.test", "notify.channel_failed", "notify.heartbeat"})
 URGENT_EVENTS = frozenset({"radio.offline", "telemetry.alert", "notify.channel_changed"})
 MAX_PAUSE_S = 366 * 86400
 LEGACY_CHANNELS = frozenset(MEDIUM_IDS - {BUILTIN_PUSH_ID})
@@ -112,6 +115,10 @@ class ChannelOut(BaseModel):
     verify_tls: bool
     template_dm: str = ""
     template_channel: str = ""
+    heartbeat_interval_s: int = 0
+    heartbeat_method: str = "GET"
+    # The ping URL is a secret (its path is the check's token): ``********`` when set.
+    heartbeat_url: str = ""
     quiet_hours_exempt: bool
     rate_per_min: int | None
     rate_per_hour: int | None
@@ -198,6 +205,9 @@ def _present(channel: Channel, statuses: dict[str, dict[str, Any]]) -> ChannelOu
         verify_tls=channel.verify_tls,
         template_dm=channel.template_dm,
         template_channel=channel.template_channel,
+        heartbeat_interval_s=channel.heartbeat_interval_s,
+        heartbeat_method=channel.heartbeat_method,
+        heartbeat_url=REDACTED if HEARTBEAT_URL_KEY in channel.secret_fields_set else "",
         quiet_hours_exempt=channel.quiet_hours_exempt,
         rate_per_min=channel.rate_per_min,
         rate_per_hour=channel.rate_per_hour,
@@ -277,7 +287,15 @@ async def create_channel(body: ChannelCreate, request: Request) -> ChannelOut:
     except ChannelError as exc:
         raise _as_http(exc) from None
     await api_support.announce_channel_change(request, "created", channel)
+    await _reconcile_heartbeats()
     return await _present_one(channel)
+
+
+async def _reconcile_heartbeats(restart: str | None = None) -> None:
+    """Start, restart or stop the channels' heartbeat loops after a change (MSHL-131)."""
+    from app.notifications.dispatcher import notification_dispatcher
+
+    await notification_dispatcher().heartbeats.reconcile(restart)
 
 
 async def _run_test(channel: Channel, secrets: dict[str, str], *, record: bool) -> TestResult:
@@ -419,6 +437,7 @@ async def update_channel(channel_id: str, body: ChannelUpdate, request: Request)
         )
     elif after is not None and _destination_of(*after) != _destination_of(*before):
         await api_support.announce_channel_change(request, "changed", channel)
+    await _reconcile_heartbeats(restart=channel_id)
     return await _present_one(channel)
 
 
@@ -434,6 +453,7 @@ async def delete_channel(channel_id: str, request: Request) -> dict[str, bool]:
         raise _as_http(exc) from None
     if channel is not None:
         await api_support.announce_channel_change(request, "deleted", channel)
+    await _reconcile_heartbeats()
     return {"deleted": True}
 
 

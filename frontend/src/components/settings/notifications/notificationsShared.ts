@@ -211,6 +211,11 @@ export interface ChannelDraft {
   rate_per_hour: string;
   rate_per_day: string;
   quiet_hours_exempt: boolean;
+  /** Heartbeat: 0 is off. The URL as typed: '' keeps the saved one unless cleared. */
+  heartbeat_interval_s: number;
+  heartbeat_method: 'GET' | 'POST';
+  heartbeat_url: string;
+  heartbeat_url_clear: boolean;
 }
 
 /** `''` is "use the default" (sent as null); anything else is the integer the server validates. */
@@ -238,6 +243,17 @@ export function templateBody(entry: NotificationTypeInfo, draft: ChannelDraft) {
     : {};
 }
 
+/** The heartbeat of a create or patch body; a type without heartbeat sends none. */
+export function heartbeatBody(entry: NotificationTypeInfo, draft: ChannelDraft) {
+  if (!entry.heartbeat) return {};
+  const url = draft.heartbeat_url.trim();
+  return {
+    heartbeat_interval_s: draft.heartbeat_interval_s,
+    heartbeat_method: draft.heartbeat_method,
+    ...(url ? { heartbeat_url: url } : draft.heartbeat_url_clear ? { heartbeat_url: '' } : {}),
+  };
+}
+
 export function createBody(
   entry: NotificationTypeInfo,
   draft: ChannelDraft,
@@ -255,5 +271,6 @@ export function createBody(
     verify_tls: draft.verify_tls,
     ...templateBody(entry, draft),
     ...advancedBody(draft),
+    ...heartbeatBody(entry, draft),
   };
 }

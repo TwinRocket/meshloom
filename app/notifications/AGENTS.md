@@ -53,6 +53,22 @@ This file is a hypothesis: check it against the code.
   stays. The Apprise, ntfy and Discord transports pass the channel's templates. `POST
   /api/notifications/channels/preview-template` renders a sample DM and channel message through the same
   function. Mention events (`message.mention`) use the templates like other messages.
+- `heartbeat.py`: the per-channel heartbeat (MSHL-131). `notification_channels.heartbeat_interval_s`
+  (migration 131; 0 = off, the default, else `HEARTBEAT_MIN_S`..`HEARTBEAT_MAX_S` = 300..86400) on the
+  types with `heartbeat: true` in `/types` (`webhook`, `apprise` and its `gotify`/`home_assistant` presets,
+  `ntfy`; any other refuses a non-zero value with `heartbeat_unsupported`). `HeartbeatManager`
+  (`dispatcher.heartbeats`) keeps one `background_tasks.spawn` loop per channel (`asyncio.sleep` through the
+  dispatcher's injectable `_sleep`), started by `Dispatcher.start` (`start()` sets `_active`; outside the app
+  nothing runs) and kept in step by `reconcile()`: after each channel create/PATCH/delete/enable, a backup
+  restore and every 60 s in the quiet loop; a changed interval or URL restarts the loop, `stop()` cancels all.
+  Two modes. **Message**: the `notify.heartbeat` event (instance name, uptime, version) one interval after the
+  start, sent through the channel's transport outside the queue: exempt from the global pause, quiet hours and
+  the buckets, counted (`count_sent`) but not journalled; skipped while the channel is auto-paused, and a
+  failure counts like any send. **Ping**: when the encrypted `heartbeat_url` secret is set, a plain GET or POST
+  (`heartbeat_method`, empty body) through `pinned_async_client` (`follow_redirects=False`, a 3xx is
+  `redirect_refused`, `PING_TIMEOUT_S` 10, the answer is never read), at start then every interval, the URL
+  validated by the egress guard on save (`check_ping_url`) and again before every ping; it ignores the
+  auto-pause and a failure is only logged as a code.
 - `app/repository/notification_channels.py`: `NotificationChannelRepository` (CRUD, the
   in-memory cache of the public channels, status updates, `get_rules()`) and
   `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).
@@ -101,7 +117,9 @@ This file is a hypothesis: check it against the code.
 - **Backup.** The `notifications` backup section (`services/backup_notifications.py`) exports
   the channels without secrets and the rules; a restore writes a channel missing a secret
   disabled with `last_error = "secret_missing"`, which `update()` clears once the secret is
-  saved. The accounts' own choices travel in the `notification_user_rules` section. A 4.18.x file reaches the rules and the `legacy:*` channels through `legacy_sync`
+  saved. The heartbeat interval and method travel; the `heartbeat_url` secret does not (kept on the same
+  channel, else pending), and an interval out of range or on a type without heartbeat restores as 0
+  (`notification_heartbeat_dropped:<id>`). The accounts' own choices travel in the `notification_user_rules` section. A 4.18.x file reaches the rules and the `legacy:*` channels through `legacy_sync`
   (the migration 113 builders). See `docs/dev/backup.md`.
 - **Deletion cascade.** `delete()` removes the channel, its deliveries and counters, and its
   id from `events[*].channels`, `contact_types`, `conversations`, `keywords[*].channels`

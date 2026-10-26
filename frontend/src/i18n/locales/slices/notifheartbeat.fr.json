@@ -1,0 +1,28 @@
+{
+  "settings": {
+    "notifications": {
+      "heartbeat": {
+        "title": "Battement de cœur",
+        "off": "Désactivé",
+        "everyMinutes_one": "Chaque minute",
+        "everyMinutes_other": "Toutes les {{count}} minutes",
+        "everyHours_one": "Toutes les heures",
+        "everyHours_other": "Toutes les {{count}} heures",
+        "help": "Envoie un message « Meshloom est en vie » (nom de l’instance, durée de fonctionnement, version) sur ce canal à l’intervalle choisi : une coupure de courant ou un hôte arrêté se voit alors comme un silence. Il ignore les heures calmes, la pause et les limites. ntfy et Gotify ne savent pas alerter sur un message manquant : utilisez un binary_sensor Home Assistant, ou une URL de ping de type healthchecks ci-dessous.",
+        "url": "URL de ping (facultative)",
+        "urlKept": "Enregistrée : laissez vide pour la garder",
+        "urlHelp": "Avec une URL, Meshloom l’appelle (healthchecks.io, push Uptime Kuma, etc.) au lieu d’envoyer un message. Le service vous alerte quand les pings s’arrêtent. L’URL est chiffrée et n’est plus jamais affichée.",
+        "method": "Méthode",
+        "urlClear": "Supprimer l’URL de ping enregistrée"
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "notification_heartbeat_dropped": "Le battement de cœur d’un canal de notification ({{value}}) était hors limites ou non pris en charge par son type, et a été restauré désactivé."
+      }
+    }
+  },
+  "errors": {
+    "heartbeat_unsupported": "Ce type de canal n’a pas de battement de cœur."
+  }
+}

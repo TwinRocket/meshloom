@@ -216,7 +216,9 @@ CREATE TABLE IF NOT EXISTS notification_channels (
     failure_count INTEGER NOT NULL DEFAULT 0,
     paused_until INTEGER,
     template_dm TEXT NOT NULL DEFAULT '',
-    template_channel TEXT NOT NULL DEFAULT ''
+    template_channel TEXT NOT NULL DEFAULT '',
+    heartbeat_interval_s INTEGER NOT NULL DEFAULT 0,
+    heartbeat_method TEXT NOT NULL DEFAULT 'GET'
 );
 
 CREATE TABLE IF NOT EXISTS notification_deliveries (

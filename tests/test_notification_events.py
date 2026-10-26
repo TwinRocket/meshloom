@@ -66,6 +66,12 @@ PAYLOADS = {
         "name": "ntfy",
         "error": "auth_failed",
     },
+    "notify.heartbeat": {
+        "event": "notify.heartbeat",
+        "instance": "Base",
+        "uptime_s": 3600,
+        "version": "5.0.0",
+    },
 }
 
 

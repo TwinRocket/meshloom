@@ -975,6 +975,14 @@ with **Test** and **Resume** (`api.resumeNotificationChannel`; not offered for a
 secret); `ChannelList` shows the same state as a badge. Tests: `notificationsQuietHours.test.tsx`,
 `notificationsDeliveries.test.tsx`, `notificationsFailingBanner.test.tsx`.
 
+Heartbeat (MSHL-131, slice `notifheartbeat`): on a type with `heartbeat: true` in `/types`, the **Advanced**
+`<details>` also renders `HeartbeatFields` (interval select: off, 5 min, 15 min, 1 h, 6 h, 24 h, plus a
+stored custom value; when on, the write-only ping URL with a "saved" placeholder when the channel's
+`heartbeat_url` is `********`, a "remove" box, and the GET/POST method). `heartbeatBody(entry, draft)`
+(`notificationsShared.ts`) adds `heartbeat_interval_s`, `heartbeat_method` and, only when typed or cleared,
+`heartbeat_url` (`""` removes it) to the create and edit bodies; a type without heartbeat sends none.
+Test: `notificationsHeartbeat.test.tsx`.
+
 The rules half (`NotificationRulesPanel`, same state hook, `setRules` takes each `PATCH /rules` /
 `PUT /rules/conversations/{key}` answer) renders, in order: `GlobalPauseControl` (1 h / 8 h /
 tomorrow 08:00 local / resume, writes `paused_until`; reused by the bell), `RulesMatrix` (events

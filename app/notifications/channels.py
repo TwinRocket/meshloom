@@ -28,6 +28,27 @@ ChannelLanguage = Literal["auto", "fr", "en"]
 
 BUILTIN_PUSH_ID = "builtin:push"
 
+# Heartbeat (MSHL-131, ``heartbeat.py``): 0 is off, otherwise an interval in this range.
+HEARTBEAT_MIN_S = 300
+HEARTBEAT_MAX_S = 86400
+HeartbeatMethod = Literal["GET", "POST"]
+# The secret key the optional healthchecks-style ping URL is stored under, next to the
+# type's own secrets (``notification_channels.secrets``): never a config field.
+HEARTBEAT_URL_KEY = "heartbeat_url"
+
+
+def heartbeat_supported(row_type: str, preset: str | None) -> bool:
+    """ntfy, webhook, generic Apprise and its Gotify and Home Assistant presets."""
+    if row_type in ("ntfy", "webhook"):
+        return True
+    return row_type == "apprise" and preset in (None, "gotify", "home_assistant")
+
+
+def _check_heartbeat_interval(value: int | None) -> int | None:
+    if value is None or value == 0 or HEARTBEAT_MIN_S <= value <= HEARTBEAT_MAX_S:
+        return value
+    raise ValueError(f"0 or {HEARTBEAT_MIN_S}..{HEARTBEAT_MAX_S}")
+
 
 class ChannelError(Exception):
     """A refused channel operation. ``code`` is stable (translated by the UI) and
@@ -445,6 +466,7 @@ def types_schema() -> list[dict[str, Any]]:
             "quiet_hours_exempt_default": entry.quiet_hours_exempt_default,
             "include_message_text_default": entry.include_message_text_default,
             "templates": entry.row_type in TEMPLATE_ROW_TYPES,
+            "heartbeat": heartbeat_supported(entry.row_type, None),
         }
         for entry in REGISTRY.values()
     ]
@@ -465,6 +487,7 @@ def types_schema() -> list[dict[str, Any]]:
             "include_message_text_default": entry.include_message_text_default,
             "include_message_text_locked": entry.text_policy_locked,
             "templates": entry.row_type in TEMPLATE_ROW_TYPES,
+            "heartbeat": heartbeat_supported(entry.row_type, entry.id),
             "help_key": entry.preset.help_key,
             "wiki_url": entry.preset.wiki_url,
         }
@@ -497,6 +520,10 @@ class Channel(BaseModel):
     # Message body templates (MSHL-127, ``templates.py``); empty: the renderer's default.
     template_dm: str = ""
     template_channel: str = ""
+    # Heartbeat (MSHL-131): 0 is off. The ping URL itself is a secret (``secret_fields_set``
+    # lists ``heartbeat_url`` when one is stored).
+    heartbeat_interval_s: int = 0
+    heartbeat_method: HeartbeatMethod = "GET"
     quiet_hours_exempt: bool = False
     # ``None``: the registry default of the type.
     rate_per_min: int | None = None
@@ -527,10 +554,16 @@ class ChannelCreate(BaseModel):
     verify_tls: bool = True
     template_dm: str = ""
     template_channel: str = ""
+    heartbeat_interval_s: int = 0
+    heartbeat_method: HeartbeatMethod = "GET"
+    # A healthchecks-style URL pinged instead of a message (write-only, a secret).
+    heartbeat_url: str = Field("", max_length=2048)
     quiet_hours_exempt: bool | None = None
     rate_per_min: int | None = Field(None, ge=1)
     rate_per_hour: int | None = Field(None, ge=1)
     rate_per_day: int | None = Field(None, ge=1)
+
+    _interval = field_validator("heartbeat_interval_s")(_check_heartbeat_interval)
 
 
 class ChannelUpdate(BaseModel):
@@ -551,7 +584,13 @@ class ChannelUpdate(BaseModel):
     # ``""`` clears a template, omitted keeps it.
     template_dm: str | None = None
     template_channel: str | None = None
+    heartbeat_interval_s: int | None = None
+    heartbeat_method: HeartbeatMethod | None = None
+    # Like a config secret: omitted, null or ``********`` keeps it, ``""`` clears it.
+    heartbeat_url: str | None = Field(None, max_length=2048)
     quiet_hours_exempt: bool | None = None
     rate_per_min: int | None = Field(None, ge=1)
     rate_per_hour: int | None = Field(None, ge=1)
     rate_per_day: int | None = Field(None, ge=1)
+
+    _interval = field_validator("heartbeat_interval_s")(_check_heartbeat_interval)

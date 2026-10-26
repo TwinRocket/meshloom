@@ -506,6 +506,28 @@
       "title": "GroupedData",
       "type": "object"
     },
+    "HeartbeatData": {
+      "additionalProperties": false,
+      "properties": {
+        "instance": {
+          "default": "",
+          "title": "Instance",
+          "type": "string"
+        },
+        "uptime_s": {
+          "default": 0,
+          "title": "Uptime S",
+          "type": "integer"
+        },
+        "version": {
+          "default": "",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "HeartbeatData",
+      "type": "object"
+    },
     "Instance": {
       "additionalProperties": false,
       "description": "The Meshloom that sent the call: its radio's name and public key (null while no\nradio has answered since the start).",
@@ -920,6 +942,62 @@
         "rendered"
       ],
       "title": "NotifyDestinationChangedBody",
+      "type": "object"
+    },
+    "NotifyHeartbeatBody": {
+      "additionalProperties": false,
+      "description": "The periodic heartbeat of a channel: Meshloom is still running.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/HeartbeatData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "notify.heartbeat",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "NotifyHeartbeatBody",
       "type": "object"
     },
     "NotifyTestBody": {
@@ -1485,6 +1563,7 @@
       "notify.channel_changed": "#/$defs/NotifyChannelChangedBody",
       "notify.channel_failed": "#/$defs/NotifyChannelFailedBody",
       "notify.destination_changed": "#/$defs/NotifyDestinationChangedBody",
+      "notify.heartbeat": "#/$defs/NotifyHeartbeatBody",
       "notify.test": "#/$defs/NotifyTestBody",
       "radio.offline": "#/$defs/RadioOfflineBody",
       "radio.online": "#/$defs/RadioOnlineBody",
@@ -1537,6 +1616,9 @@
     },
     {
       "$ref": "#/$defs/NotifyChannelFailedBody"
+    },
+    {
+      "$ref": "#/$defs/NotifyHeartbeatBody"
     },
     {
       "$ref": "#/$defs/SummaryGroupedBody"

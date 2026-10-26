@@ -38,6 +38,7 @@ EVENT_IDS: tuple[str, ...] = (
     "notify.channel_changed",
     "notify.test",
     "notify.channel_failed",
+    "notify.heartbeat",
 )
 
 _DEDUP_LENGTH = 16
@@ -126,6 +127,13 @@ class ChannelFailedData:
     channel_id: str = ""
     name: str = ""
     error: str = ""  # a short code (``failures.safe_error_code``), never a secret
+
+
+@dataclass(frozen=True)
+class HeartbeatData:
+    instance: str = ""
+    uptime_s: int = 0
+    version: str = ""
 
 
 @dataclass(frozen=True)
@@ -328,6 +336,25 @@ class ChannelFailedEvent(NotificationEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
+class HeartbeatEvent(NotificationEvent):
+    """``notify.heartbeat``: the periodic "still running" message of a channel with a heartbeat
+    (MSHL-131, ``app/notifications/heartbeat.py``). Sent to that channel only, outside the
+    rules, the pauses, quiet hours and the buckets."""
+
+    data: HeartbeatData
+
+    def to_payload(self) -> dict[str, Any]:
+        from app.notifications.render import HEARTBEAT_EVENT
+
+        return {
+            "event": HEARTBEAT_EVENT,
+            "instance": self.data.instance,
+            "uptime_s": self.data.uptime_s,
+            "version": self.data.version,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
 class TestEvent(NotificationEvent):
     """``notify.test``: the "send a test" button of a destination."""
 
@@ -478,7 +505,24 @@ def event_from_payload(
         CHANNEL_CHANGED_EVENT,
         CHANNEL_FAILED_EVENT,
         DESTINATION_CHANGED_EVENT,
+        HEARTBEAT_EVENT,
     )
+
+    if kind == HEARTBEAT_EVENT:
+        try:
+            uptime = max(0, int(payload.get("uptime_s") or 0))
+        except (TypeError, ValueError):
+            uptime = 0
+        return HeartbeatEvent(
+            event="notify.heartbeat",
+            dedup_key=dedup_hash("notify.heartbeat", uuid.uuid4().hex),
+            data=HeartbeatData(
+                instance=_s(payload.get("instance")),
+                uptime_s=uptime,
+                version=_s(payload.get("version")),
+            ),
+            **common,
+        )
 
     if kind == CHANNEL_FAILED_EVENT:
         channel_id = _s(payload.get("channel_id"))

@@ -11,6 +11,7 @@ import { i18nKeyResolver, type FieldErrors, type JsonObject } from '../../forms/
 import { Checkbox } from '../../ui/checkbox';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
+import { HeartbeatFields } from './HeartbeatFields';
 import { TemplateFields } from './TemplateFields';
 import {
   fieldTextKeys,
@@ -59,6 +60,10 @@ export function initialDraft(
     rate_per_hour: channel?.rate_per_hour?.toString() ?? '',
     rate_per_day: channel?.rate_per_day?.toString() ?? '',
     quiet_hours_exempt: channel?.quiet_hours_exempt ?? entry.quiet_hours_exempt_default ?? false,
+    heartbeat_interval_s: channel?.heartbeat_interval_s ?? 0,
+    heartbeat_method: channel?.heartbeat_method ?? 'GET',
+    heartbeat_url: '',
+    heartbeat_url_clear: false,
   };
 }
 
@@ -281,6 +286,15 @@ export function ChannelForm({
               </p>
             </div>
           </div>
+          {entry.heartbeat && (
+            <HeartbeatFields
+              idPrefix={prefix}
+              draft={draft}
+              urlSet={Boolean(channel?.heartbeat_url)}
+              disabled={disabled}
+              onChange={patch}
+            />
+          )}
         </div>
       </details>
 

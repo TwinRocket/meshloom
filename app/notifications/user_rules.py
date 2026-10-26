@@ -44,12 +44,14 @@ CONTACT_KINDS: dict[int, str] = {1: "companion", 2: "repeater", 4: "sensor"}
 CONTACT_KIND_NAMES = tuple(CONTACT_KINDS.values())
 # Events no account can switch off: the proof of a change to the notification destinations
 # (``notify.channel_changed``, ``notify.destination_changed``), the notice of a failing channel
-# (``notify.channel_failed``), and the test button.
+# (``notify.channel_failed``), the heartbeat of a channel (``notify.heartbeat``, MSHL-131),
+# and the test button.
 LOCKED_EVENTS = frozenset(
     {
         "notify.channel_changed",
         "notify.destination_changed",
         "notify.channel_failed",
+        "notify.heartbeat",
         "notify.test",
     }
 )
