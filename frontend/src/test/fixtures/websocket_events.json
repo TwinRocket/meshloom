@@ -112,5 +112,44 @@
         "checked_at": 1760000000
       }
     }
+  },
+  "notification_event_mention": {
+    "description": "A channel message that names the radio, matched by a rule: the Feed's notification_event frame (typed data, no rendered text)",
+    "notification_payload": {
+      "event": "message",
+      "type": "CHAN",
+      "conversation_key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+      "text": "hello @[Base]",
+      "sender_name": "Alice",
+      "channel_name": "Public",
+      "id": 42,
+      "sender_timestamp": 1700000000,
+      "mention": true
+    },
+    "event_id": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "occurred_at": 1700000000,
+    "is_open": true,
+    "expected_ws_event": {
+      "type": "notification_event",
+      "data": {
+        "version": 1,
+        "event": "message.mention",
+        "event_id": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "occurred_at": 1700000000,
+        "dedup_key": "4f4f8cd1d38b3799",
+        "urgent": false,
+        "conversation_key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+        "conversation_type": "CHAN",
+        "conversation_open": true,
+        "data": {
+          "type": "CHAN",
+          "text": "hello @[Base]",
+          "sender_name": "Alice",
+          "channel_name": "Public",
+          "mention": true,
+          "keyword": ""
+        }
+      }
+    }
   }
 }

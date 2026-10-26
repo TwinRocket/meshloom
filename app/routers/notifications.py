@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.auth.permissions import require
-from app.notifications import api_support, templates
+from app.notifications import api_support, templates, ws_frame
 from app.notifications import watched_nodes as watched_mod
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
@@ -186,6 +186,8 @@ class RulesPatch(BaseModel):
     paused_until: int | None = None
     radio_offline_grace_s: int | None = Field(None, ge=0, le=3600)
     mention_whole_word: bool | None = None
+    # The ``notification_event`` WebSocket frame for the Feed (``ws_frame.py``), default on.
+    emit_ws_events: bool | None = None
     # The whole list of keyword rules (``keywords.py``): validated server-side, replaces the
     # stored list; a rule without an ``id`` gets one.
     keywords: list[dict[str, Any]] | None = None
@@ -543,6 +545,7 @@ async def _rules_view() -> dict[str, Any]:
         "watched_nodes": rules.get("watched_nodes") or [],
         "radio_offline_grace_s": settings.radio_offline_grace_s,
         "mention_whole_word": bool(rules.get("mention_whole_word", False)),
+        "emit_ws_events": ws_frame.enabled(rules),
         "quiet_hours": quiet_hours_of(rules),
         "push_allow_private_endpoints": settings.push_allow_private_endpoints,
         "host_timezone": host_timezone(),
@@ -571,7 +574,7 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
     """Change event rules (per event: channels, ``always_deliver``, contact types), the quiet
     hours (``quiet_hours``: ``enabled``, ``start``, ``end``, ``weekdays``, ``digest_at_end``; a
     missing field keeps its value), the global pause (``paused_until``: epoch seconds, ``null`` resumes), the radio offline grace, the
-    mention rule, the keyword rules (``keywords``, the whole list: at most 20 rules, patterns of at
+    mention rule, the ``notification_event`` WebSocket frame (``emit_ws_events``), the keyword rules (``keywords``, the whole list: at most 20 rules, patterns of at
     most 64 characters, no regex), the watched nodes (``watched_nodes``, the whole list: at most
     50) and the private push endpoints."""
     rules = await NotificationChannelRepository.get_rules()
@@ -620,6 +623,8 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
             raise fail("invalid_config", 400, fields=[f"quiet_hours.{exc.args[0]}"]) from None
     if "mention_whole_word" in fields and body.mention_whole_word is not None:
         rules["mention_whole_word"] = body.mention_whole_word
+    if "emit_ws_events" in fields and body.emit_ws_events is not None:
+        rules["emit_ws_events"] = body.emit_ws_events
     if body.keywords is not None:
         try:
             rules["keywords"] = clean_keyword_rules(body.keywords, known_channels=known)

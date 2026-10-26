@@ -702,6 +702,11 @@ budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Test
   never edited by hand, checked in CI); `KnownWsEventsMatchServer` fails `tsc`
   until `KnownWsEvent` covers exactly those types. The server only sends a
   client the events its role may receive.
+- `notification_event` (MSHL-138, `NotificationEventFrame`): one frame per
+  notification catalogue event that matched a rule, typed data, no rendered text
+  (fixture `notification_event_mention`). Nothing consumes it yet
+  (`useWebSocket` ignores it; the Feed will, deduplicating on `dedup_key`).
+  `rules.emit_ws_events: false` turns it off; there is no UI toggle yet.
 - On connect the server sends only `health`; contacts and channels come from REST.
   After a reconnect `useRealtimeAppState` refetches the REST snapshots; a
   generation counter applies only the newest, and keys already updated by a WS

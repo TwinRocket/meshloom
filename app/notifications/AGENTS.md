@@ -13,6 +13,7 @@ This file is a hypothesis: check it against the code.
   build (`{"event": "first_seen", ...}`) into catalogue events; `to_payload()` goes
   back. The grouped summaries (`notifications_grouped`, `first_seen_grouped`) are
   dispatcher output, not catalogue events.
+- `ws_frame.py`: the `notification_event` WebSocket frame (MSHL-138), see "Dispatcher".
 - `render.py`: the only place notification copy lives. `render(event, lang,
   text_policy=...)` returns `Rendered(title, body_text, body_markdown, body_html,
   tag, url_hash)`. The dict helpers (`build_push_payload`, `event_notification_text`,
@@ -296,6 +297,7 @@ A preset is an Apprise service described as data, no code per service: a `Preset
 - **Rules** (`GET/PATCH /rules`): `events[id]` (`channels`, `always_deliver`, `contact_types`),
   `paused_until` (epoch seconds, `null` resumes, a past value is a resume), `quiet_hours` (partial
   object, see "Quiet hours"; 400 `invalid_config` with `fields: ["quiet_hours.<field>"]`), `mention_whole_word`
+  and `emit_ws_events` (bool, default `true`, see "Dispatcher"; a restore keeps it only as a bool)
   in the rules; `radio_offline_grace_s` and `push_allow_private_endpoints` are the
   `app_settings` columns (one source), `host_timezone` read-only. The summary of the events
   suppressed during a pause (counts per channel on resume) is not implemented: the journal
@@ -308,6 +310,17 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   channels in `exclude` (a producer ruling a channel out); `targets` is for a caller that
   already decided (`notify.channel_changed`, `notify.channel_failed`, tests). Unknown and disabled
   channels are skipped without a journal row. Producers never call `emit` with `targets`: see "Producers".
+- **WebSocket frame** (`ws_frame.py`, MSHL-138). Once the rules, mutes, block lists and
+  exclusions leave at least one enabled channel, and before pauses and quiet hours, `_emit`
+  broadcasts one `notification_event`: `version`, `event`, `event_id`, `occurred_at`,
+  `dedup_key`, `urgent`, `conversation_key`, `conversation_type` (`CHAN`/`PRIV` for a
+  message, `CHAN` for `channel.found`), `conversation_open` (CHAN messages: Public or `#`)
+  and `data` (the webhook v2 typed data, `webhook_v2.event_data(..., "always")`), never
+  rendered text. `rules.emit_ws_events: false` turns it off. No frame for an unmatched or
+  suppressed event, a summary, `notify.heartbeat` or a test send (they skip the rules).
+  `app/websocket.py` filters it per socket: a kiosk never gets DM data, `notify.*` is admin.
+  A mention that reaches only Web Push arrives as `message.channel` (the producers' split);
+  a re-emitted event may give two frames, consumers dedup on `dedup_key`.
 - **Rules** (`rules.py`). A stored conversation exception wins either way; else a DM follows
   `message.dm`, a Public or `#` channel `message.channel`, a channel with its own key no
   one; `contact.first_seen` follows `contact_types` (1 companion, 2 repeater, 4 sensor; a

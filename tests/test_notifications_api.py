@@ -654,6 +654,7 @@ async def test_rules_read_and_validation(test_db, client):
     assert rules["radio_offline_grace_s"] == 60
     assert rules["mention_whole_word"] is False
     assert rules["push_allow_private_endpoints"] is False
+    assert rules["emit_ws_events"] is True
     assert rules["host_timezone"]
     assert "message.dm" in rules["events"]
 
@@ -685,6 +686,7 @@ async def test_rules_patch_events_and_settings(test_db, client):
             "radio_offline_grace_s": 120,
             "mention_whole_word": True,
             "push_allow_private_endpoints": True,
+            "emit_ws_events": False,
         },
     )
     assert patched.status_code == 200, patched.text
@@ -697,6 +699,8 @@ async def test_rules_patch_events_and_settings(test_db, client):
     ]
     assert (body["radio_offline_grace_s"], body["mention_whole_word"]) == (120, True)
     assert body["push_allow_private_endpoints"] is True
+    assert body["emit_ws_events"] is False
+    assert (await _rules(client))["emit_ws_events"] is False
 
 
 async def test_conversation_exception_put_and_clear(test_db, client):

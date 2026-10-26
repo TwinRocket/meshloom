@@ -144,6 +144,8 @@ export interface NotificationRules {
   watched_nodes: NotificationWatchedNode[];
   radio_offline_grace_s: number;
   mention_whole_word: boolean;
+  /** The `notification_event` WebSocket frame for the Feed (default on; no UI yet). */
+  emit_ws_events?: boolean;
   /** Quiet hours: HH:MM window in the host time zone, ISO weekdays (Monday = 0). */
   quiet_hours?: NotificationQuietHours;
   push_allow_private_endpoints: boolean;
@@ -190,6 +192,7 @@ export interface NotificationRulesPatch {
   paused_until?: number | null;
   radio_offline_grace_s?: number;
   mention_whole_word?: boolean;
+  emit_ws_events?: boolean;
   /** The whole list; a rule without an `id` gets one from the server. */
   keywords?: NotificationKeywordInput[];
   /** The whole list of watched nodes. */

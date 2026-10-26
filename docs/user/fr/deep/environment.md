@@ -85,7 +85,7 @@ Les notifications se règlent dans **Réglages → Notifications** et se stocken
 | Réglage | Défaut | Description |
 |---------|--------|-------------|
 | `notification_language` | `auto` | `auto`, `fr` ou `en`. La langue de l’instance pour les notifications (un canal peut avoir la sienne) ; `auto` suit les navigateurs abonnés au push (anglais seulement si une majorité stricte des navigateurs est en anglais, français en cas d’égalité) |
-| `notification_rules` | `{}` | Les règles de notification (quel canal reçoit quel événement, exceptions par conversation). Écrites par l’import 4.18 vers 5.0, le tableau des règles, la cloche, **Ne pas déranger** et la suppression d’un canal ; `paused_until` (la pause) et les options du tableau (`mention_whole_word`) y sont |
+| `notification_rules` | `{}` | Les règles de notification (quel canal reçoit quel événement, exceptions par conversation). Écrites par l’import 4.18 vers 5.0, le tableau des règles, la cloche, **Ne pas déranger** et la suppression d’un canal ; `paused_until` (la pause) et les options du tableau (`mention_whole_word`, `emit_ws_events` : envoyer les événements retenus aux pages web ouvertes, activé par défaut) y sont |
 | `radio_offline_grace_s` | `60` | Secondes pendant lesquelles la radio peut rester injoignable avant l’envoi de **Radio hors ligne** (0 à 3600 ; 0 notifie tout de suite). Se règle sous la ligne **Radio hors ligne** du tableau des règles |
 | `push_allow_private_endpoints` | `false` | Accepte les points d’accès Web Push sur un réseau privé, pour un distributeur UnifiedPush auto-hébergé. Voir [Push](/docs/deep/push/#services-push-sur-un-réseau-privé) |
 

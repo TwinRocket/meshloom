@@ -59,5 +59,44 @@
     "raw_packet_hex": "1500E69C7A89DD0AF6A2D69F5823B88F9720731E4B887C56932BF889255D8D926D99195927144323A42DD8A158F878B518B8304DF55E80501C7D02A9FFD578D3518283156BBA257BF8413E80A237393B2E4149BBBC864371140A9BBC4E23EB9BF203EF0D029214B3E3AAC3C0295690ACDB89A28619E7E5F22C83E16073AD679D25FA904D07E5ACF1DB5A7C77D7E1719FB9AE5BF55541EE0D7F59ED890E12CF0FEED6700818",
     "channel_name": "#six77",
     "expected_behavior": "First packet creates message and broadcasts, second packet is deduplicated (no broadcast)"
+  },
+  "notification_event_mention": {
+    "description": "A channel message that names the radio, matched by a rule: the Feed's notification_event frame (typed data, no rendered text)",
+    "notification_payload": {
+      "event": "message",
+      "type": "CHAN",
+      "conversation_key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+      "text": "hello @[Base]",
+      "sender_name": "Alice",
+      "channel_name": "Public",
+      "id": 42,
+      "sender_timestamp": 1700000000,
+      "mention": true
+    },
+    "event_id": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+    "occurred_at": 1700000000,
+    "is_open": true,
+    "expected_ws_event": {
+      "type": "notification_event",
+      "data": {
+        "version": 1,
+        "event": "message.mention",
+        "event_id": "0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+        "occurred_at": 1700000000,
+        "dedup_key": "4f4f8cd1d38b3799",
+        "urgent": false,
+        "conversation_key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+        "conversation_type": "CHAN",
+        "conversation_open": true,
+        "data": {
+          "type": "CHAN",
+          "text": "hello @[Base]",
+          "sender_name": "Alice",
+          "channel_name": "Public",
+          "mention": true,
+          "keyword": ""
+        }
+      }
+    }
   }
 }

@@ -634,3 +634,32 @@ class TestHistoricalMessageFlag:
             await asyncio.sleep(0)
         mock_fm.broadcast_message.assert_called_once()
         assert "historical" not in mock_fm.broadcast_message.call_args.args[0]
+
+
+class TestNotificationEventFrame:
+    """MSHL-138: the notification_event frame matches its documented fixture."""
+
+    def test_fixture_matches_the_built_frame(self):
+        from pathlib import Path
+
+        from app.auth.ws_events import WsEvent
+        from app.events import dump_ws_event
+        from app.notifications import ws_frame
+        from app.notifications.events import event_from_payload
+        from app.websocket import _DROPPABLE_EVENTS
+
+        fixtures = json.loads(
+            (Path(__file__).parent / "fixtures" / "websocket_events.json").read_text()
+        )
+        case = fixtures["notification_event_mention"]
+        event = event_from_payload(
+            case["notification_payload"],
+            event_id=case["event_id"],
+            occurred_at=case["occurred_at"],
+        )
+        frame = ws_frame.build_frame(event, case["notification_payload"], is_open=case["is_open"])
+        expected = case["expected_ws_event"]
+        assert json.loads(dump_ws_event(WsEvent.NOTIFICATION_EVENT, frame)) == expected
+        assert WsEvent.NOTIFICATION_EVENT not in _DROPPABLE_EVENTS
+        assert ws_frame.enabled({}) is True
+        assert ws_frame.enabled({"emit_ws_events": False}) is False

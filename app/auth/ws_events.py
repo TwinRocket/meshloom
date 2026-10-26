@@ -13,8 +13,9 @@ This enumeration is the only list of event types (cadrage §4.2, MSHL-64):
 A member declares its permission where it is defined, so no type can be added
 without one. A type that is not a member reaches no client (fail closed,
 ``app/websocket.py``). On top of the type's permission, a ``message`` of type
-``PRIV`` and a ``raw_packet`` decrypted from a direct message also need
-``read_private`` (per-event content filter, ``app/websocket.py``).
+``PRIV``, a ``raw_packet`` decrypted from a direct message and a
+``notification_event`` about a direct conversation also need ``read_private``
+(per-event content filter, ``app/websocket.py``).
 """
 
 from __future__ import annotations
@@ -55,6 +56,11 @@ class WsEvent(StrEnum):
     # A notification channel was created, changed, enabled, disabled or deleted:
     # the id, the type and the name, never a setting or a secret.
     NOTIFICATION_CHANNEL_CHANGED = "notification_channel_changed", "admin"
+    # A catalogue event that matched at least one rule (``app/notifications/ws_frame.py``):
+    # typed data, never rendered text. ``notify.*`` events are admin-only; a DM, a mention
+    # on a private-key channel or any ``PRIV`` conversation also needs ``read_private``
+    # (``app/websocket.py``).
+    NOTIFICATION_EVENT = "notification_event", "read"
     # Toasts: admin-only unless the caller names a lower ``audience``
     # (``app/websocket.py``, ``broadcast_error``/``broadcast_success``).
     ERROR = "error", "read"

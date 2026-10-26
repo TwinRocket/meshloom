@@ -20,6 +20,7 @@ from app.auth.principal import Principal
 from app.auth.ws_events import WsEvent, ws_event
 from app.background_tasks import spawn
 from app.events import dump_ws_event
+from app.notifications.events import EVENT_IDS
 from app.origin_policy import websocket_origin_allowed
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,8 @@ def _reveals_direct_message(event_type: WsEvent, data: Any) -> bool:
     """
     if event_type is WsEvent.MESSAGE:
         return not isinstance(data, dict) or data.get("type") != "CHAN"
+    if event_type is WsEvent.NOTIFICATION_EVENT:
+        return _notification_reveals_direct_message(data)
     if not isinstance(data, dict):
         return False
     if event_type is WsEvent.RAW_PACKET:
@@ -77,6 +80,40 @@ def _reveals_direct_message(event_type: WsEvent, data: Any) -> bool:
             data.get("payload_type"), info.get("channel_key")
         )
     return False
+
+
+def _notification_reveals_direct_message(data: Any) -> bool:
+    """A ``notification_event`` about a direct conversation (fail closed).
+
+    ``message.dm``, any event whose ``conversation_type`` is ``PRIV``, a
+    ``message.mention`` outside a Public or ``#`` channel (a private-key
+    channel, Access decision 2026-10-17), any other ``message.*`` that is not
+    ``CHAN`` and any event with a ``conversation_key`` that is not a ``CHAN``
+    one. Channel events are not filtered by mute state.
+    """
+    if not isinstance(data, dict):
+        return True
+    event = data.get("event")
+    if not isinstance(event, str):
+        return True
+    conversation_type = data.get("conversation_type")
+    if event == "message.dm" or conversation_type == "PRIV":
+        return True
+    if event == "message.mention" and data.get("conversation_open") is not True:
+        return True
+    if event.startswith("message.") and conversation_type != "CHAN":
+        return True
+    return bool(data.get("conversation_key")) and conversation_type != "CHAN"
+
+
+def _notification_event_audience(data: Any) -> Permission:
+    """The permission a ``notification_event`` needs on top of ``read``: ``admin``
+    for the ``notify.*`` events (channel names, ids and errors) and for any id
+    outside the catalogue (fail closed)."""
+    event = data.get("event") if isinstance(data, dict) else None
+    if not isinstance(event, str) or event not in EVENT_IDS or event.startswith("notify."):
+        return "admin"
+    return "read"
 
 
 def _without_direct_message(data: dict) -> dict:
@@ -106,6 +143,15 @@ _HEALTH_WITHOUT_ADMIN_DETAILS = "health_without_admin_details"
 _CONTACT_WITHOUT_DM_ACTIVITY = "contact_without_dm_activity"
 _PACKET_UNDECRYPTED = "packet_undecrypted"
 _FULL = "full"
+
+
+def _audience(event_type: WsEvent, data: Any, audience: Permission | None) -> Permission:
+    """The event's ``audience``: the caller's, else the type's default."""
+    if audience is not None:
+        return audience
+    if event_type is WsEvent.NOTIFICATION_EVENT:
+        return _notification_event_audience(data)
+    return _DEFAULT_AUDIENCE.get(event_type, event_type.permission)
 
 
 def _view(
@@ -517,9 +563,11 @@ class WebSocketManager:
 
         A client needs the type's permission (``WsEvent.permission``) and the
         event's ``audience`` (``_DEFAULT_AUDIENCE`` when None). Below
-        ``read_private`` a direct ``message`` is not sent, a ``raw_packet``
-        decrypted from one is sent undecrypted and a contact loses its DM
-        activity; below admin ``health`` loses its errors. A type that is not
+        ``read_private`` a direct ``message`` and a ``notification_event``
+        about a direct conversation are not sent, a ``raw_packet`` decrypted
+        from one is sent undecrypted and a contact loses its DM activity; below
+        admin ``health`` loses its errors and no ``notify.*`` notification
+        event is sent. A type that is not
         a ``WsEvent`` member is sent to no one.
         """
         if not self.active_connections:
@@ -527,7 +575,7 @@ class WebSocketManager:
         member = _classified(event_type)
         if member is None:
             return
-        audience = audience or _DEFAULT_AUDIENCE.get(member, member.permission)
+        audience = _audience(member, data, audience)
         frames: dict[str, str] = {}
         for client in list(self.active_connections.values()):
             view = _view(member, data, client.principal, audience)
@@ -559,7 +607,7 @@ class WebSocketManager:
         member = _classified(event_type)
         if member is None:
             return
-        audience = audience or _DEFAULT_AUDIENCE.get(member, member.permission)
+        audience = _audience(member, data, audience)
         view = _view(member, data, client.principal, audience)
         if view is not None:
             self._enqueue(client, dump_ws_event(member, _render(member, data, view)))

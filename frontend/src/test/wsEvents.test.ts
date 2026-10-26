@@ -257,4 +257,25 @@ describe('wsEvents', () => {
       isDispatchableWsEvent(parseWsEvent(JSON.stringify({ type: 'radio_wifi', data: {} })))
     ).toBe(false);
   });
+
+  it('parses the notification_event frame and refuses a malformed one', () => {
+    const sample = fixtures.notification_event_mention.expected_ws_event;
+    const event = parseWsEvent(JSON.stringify(sample));
+    expect(event).toEqual(sample);
+    expect(isDispatchableWsEvent(event)).toBe(true);
+    expect(WS_EVENT_PERMISSIONS.notification_event).toBe('read');
+    // Typed data only: no rendered title or body.
+    expect(Object.keys(sample.data)).not.toContain('title');
+    expect(Object.keys(sample.data)).not.toContain('body');
+    for (const data of [
+      {},
+      { ...sample.data, event: 3 },
+      { ...sample.data, event_id: null },
+      { ...sample.data, data: 'text' },
+    ]) {
+      expect(
+        isDispatchableWsEvent(parseWsEvent(JSON.stringify({ type: 'notification_event', data })))
+      ).toBe(false);
+    }
+  });
 });

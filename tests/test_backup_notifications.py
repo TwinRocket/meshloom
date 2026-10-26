@@ -540,6 +540,16 @@ async def test_deleting_a_waiting_channel_forgets_its_pending_secrets(backup_db)
 
 
 @pytest.mark.asyncio
+async def test_emit_ws_events_is_restored_only_as_a_boolean(backup_db, client):
+    for value, warned, served in ((False, False, False), ("no", True, True)):
+        section = BackupSection(data={"channels": [], "rules": {"emit_ws_events": value}})
+        warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+        assert ("notification_rules_sanitized" in warnings) is warned
+        body = (await client.get("/api/notifications/rules")).json()
+        assert body["emit_ws_events"] is served
+
+
+@pytest.mark.asyncio
 async def test_malformed_rules_are_sanitized_and_served_in_a_shape_the_ui_reads(backup_db, client):
     section = BackupSection(
         data={

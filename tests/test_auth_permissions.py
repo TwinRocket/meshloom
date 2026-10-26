@@ -377,6 +377,67 @@ class TestWebSocketDelivery:
         for ws in (kiosk, viewer):
             await manager.disconnect(ws)
 
+    async def test_kiosk_never_gets_a_dm_notification_event(self):
+        """MSHL-138: the notification_event frame goes through the same
+        per-socket DM filter as the message frames."""
+        manager = WebSocketManager()
+        kiosk, viewer, admin = await self._connect(manager, "kiosk", "viewer", "admin")
+
+        def frame(n: int, event: str, **extra) -> dict:
+            return {
+                "version": 1,
+                "event": event,
+                "event_id": f"id-{n}",
+                "occurred_at": 1,
+                "dedup_key": f"k{n}",
+                "urgent": False,
+                "conversation_key": None,
+                "conversation_type": None,
+                "conversation_open": None,
+                "data": {"n": n},
+                **extra,
+            }
+
+        chan = {"conversation_key": CHANNEL_KEY, "conversation_type": "CHAN"}
+        frames = [
+            frame(1, "message.channel", **chan, conversation_open=True),
+            frame(2, "channel.found", **chan),
+            frame(3, "radio.offline"),
+            frame(4, "message.dm", conversation_key=CONTACT_KEY, conversation_type="PRIV"),
+            # A mention on a private-key channel.
+            frame(5, "message.mention", **chan, conversation_open=False),
+            frame(6, "message.keyword", conversation_key=CONTACT_KEY, conversation_type="PRIV"),
+            # Any PRIV conversation_key, whatever the event.
+            frame(7, "contact.first_seen", conversation_key=CONTACT_KEY, conversation_type="PRIV"),
+            # A conversation_key without a type fails closed.
+            frame(8, "contact.first_seen", conversation_key=CONTACT_KEY),
+            frame(9, "notify.channel_failed"),
+            frame(10, "not.in.the.catalogue"),
+            frame(11, "message.mention", **chan, conversation_open=True),
+            # The event id alone marks a DM, whatever the other fields claim.
+            frame(12, "message.dm", conversation_type="CHAN"),
+        ]
+        for f in frames:
+            manager.broadcast_nowait(WsEvent.NOTIFICATION_EVENT, f)
+        manager.broadcast_nowait(WsEvent.NOTIFICATION_EVENT, "not a dict")
+        await self._drain(manager)
+
+        def ids(ws) -> list[int]:
+            return [
+                f["data"]["data"]["n"]
+                for f in _sent(ws)
+                if f["type"] == "notification_event" and isinstance(f["data"], dict)
+            ]
+
+        assert ids(kiosk) == [1, 2, 3, 11]
+        assert ids(viewer) == [1, 2, 3, 4, 5, 6, 7, 8, 11, 12]
+        assert ids(admin) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        assert all(
+            f["type"] != "notification_event" or isinstance(f["data"], dict) for f in _sent(kiosk)
+        )
+        for ws in (kiosk, viewer, admin):
+            await manager.disconnect(ws)
+
     async def test_a_dm_raw_packet_reaches_a_kiosk_without_its_decryption(self):
         manager = WebSocketManager()
         kiosk, viewer = await self._connect(manager, "kiosk", "viewer")
@@ -457,10 +518,14 @@ class TestWebSocketDelivery:
         for member in admin_only:
             assert member.value not in viewer_types
         # Toasts default to admins only; the rest follows the type's permission.
+        # A notification_event's audience depends on its event id: this payload
+        # has none, so it fails closed to admins (see the dedicated test).
         assert viewer_types == [
             m.value
             for m in WsEvent
-            if m.permission != "admin" and _DEFAULT_AUDIENCE.get(m) != "admin"
+            if m.permission != "admin"
+            and _DEFAULT_AUDIENCE.get(m) != "admin"
+            and m is not WsEvent.NOTIFICATION_EVENT
         ]
         for ws in (admin, viewer):
             await manager.disconnect(ws)
