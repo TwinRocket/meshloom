@@ -96,7 +96,9 @@ class StoreRepositoriesRepository:
                     json.dumps(entry, sort_keys=True),
                     archive_size,
                     archive_sha256,
-                    json.dumps(config_schema, sort_keys=True) if config_schema is not None else None,
+                    json.dumps(config_schema, sort_keys=True)
+                    if config_schema is not None
+                    else None,
                     archive_sha256,
                     archive_sha256,
                     key,

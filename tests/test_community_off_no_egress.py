@@ -368,6 +368,7 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("POST", "/api/plugins"): {"label": "Sweep", "template": "blank"},
     ("POST", "/api/store/repositories"): {"repository": "example/weather"},
     ("PATCH", "/api/plugins/{instance_id}"): {},
+    ("POST", "/api/plugins/{instance_id}/update"): {},
     ("PUT", "/api/plugins/{instance_id}/source"): {"source": "x = 1\n"},
     ("POST", "/api/plugins/{instance_id}/test"): {"text": "hello"},
     ("POST", "/api/settings/favorites/toggle"): {"type": "contact", "id": "ab" * 32},
