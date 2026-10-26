@@ -217,6 +217,20 @@ async def test_the_probe_backs_off_5_min_15_min_1_h_then_6_h_and_a_success_resum
 
 
 @pytest.mark.asyncio
+async def test_deleting_a_channel_drops_its_autopause_step(test_db):
+    await _add("tg-bad")
+    await _add("tg-other")
+    dispatcher = _dispatcher(Script({"tg-bad", "tg-other"}), Wall())
+    await _fail(dispatcher, "tg-bad", failures.PAUSE_AFTER)
+    await _fail(dispatcher, "tg-other", failures.PAUSE_AFTER)
+    assert await Journal.state_get(failures.autopause_key("tg-bad")) is not None
+
+    await Channels.delete("tg-bad")
+    assert await Journal.state_get(failures.autopause_key("tg-bad")) is None
+    assert await Journal.state_get(failures.autopause_key("tg-other")) is not None
+
+
+@pytest.mark.asyncio
 async def test_the_probe_skips_channels_it_did_not_pause(test_db):
     await _add("manual", paused_until=T0 - 10)
     await _add("off", enabled=0, paused_until=T0 - 10)

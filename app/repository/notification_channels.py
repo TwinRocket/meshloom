@@ -40,6 +40,7 @@ from app.notifications.channels import (
     get_type,
     is_builtin,
 )
+from app.notifications.failures import autopause_key
 from app.notifications.presets import PresetError, compile_url
 from app.notifications.templates import check_templates
 from app.secret_fields import REDACTED, destination_changed
@@ -568,6 +569,10 @@ class NotificationChannelRepository:
             )
             await conn.execute(
                 "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
+            )
+            # the auto-pause step of a channel that kept failing (MSHL-130)
+            await conn.execute(
+                "DELETE FROM notification_state WHERE key = ?", (autopause_key(channel_id),)
             )
             # quiet-hours and pause counters (``quiet_hours.py``), also per account
             async with conn.execute(

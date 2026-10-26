@@ -4,8 +4,8 @@
       "cappedBanner": "Les notifications sont plafonnées : la limite horaire de toute l'instance est atteinte, les nouvelles sont abandonnées jusqu'à ce que le compte redescende. Consultez le journal d'envoi de vos canaux.",
       "attention": {
         "title": "Des canaux de notification demandent votre attention",
-        "help": "Les autres canaux sont prévenus quand l'un échoue sans cesse (une fois par jour). Après 20 échecs d'affilée, un canal est mis en pause puis réessayé par un test après 5 min, 15 min, 1 h, puis toutes les 6 h ; un succès le relance.",
-        "failing": "{{name}} : échoue sans cesse ({{count}} échecs d'affilée).",
+        "help": "Les autres canaux sont prévenus quand l’un échoue sans cesse (une fois par jour). Après 20 échecs d’affilée, un canal est mis en pause puis réessayé par un test après 5 min, 15 min, 1 h, puis toutes les 6 h ; un succès le relance.",
+        "failing": "{{name}} : échoue sans cesse ({{count}} échecs d’affilée).",
         "paused": "{{name}} : en pause après des échecs répétés, prochain essai à {{time}}.",
         "secret_unreadable": "{{name}} : un secret enregistré ne peut pas être déchiffré. Saisissez-le à nouveau dans les réglages du canal.",
         "test": "Tester",

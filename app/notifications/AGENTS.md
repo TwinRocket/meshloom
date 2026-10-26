@@ -454,7 +454,7 @@ frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationP
 - **Failing channels** (MSHL-130). `_record_failure` counts consecutive failures; at 3 it
   broadcasts `health` and from 3 on calls `failures.announce` (rate-limited, above). At 20
   (`_pause_if_running`) it sets `paused_until` = now + `BACKOFF_S[step]` and stores the step in
-  `notification_state` `autopause:<id>` (no expiry; both survive a restart). `probe_tick()`,
+  `notification_state` `autopause:<id>` (no expiry; both survive a restart; `delete()` drops the key). `probe_tick()`,
   run by the quiet loop every 60 s, sends a `send_test(record=True)` to each enabled channel
   whose pause has expired and that holds an `autopause:` key (a `paused_until` without that
   key is never probed); a failure re-pauses at the next step (5 min, 15 min, 1 h, then 6 h), a success
