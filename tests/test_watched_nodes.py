@@ -509,6 +509,35 @@ async def test_an_unstored_dm_seen_on_both_paths_counts_once(clock, emitted, tes
     assert await _heard() == str(T0)
 
 
+def test_claim_unstored_dm_is_bounded_and_evicts_the_oldest():
+    """MSHL-408: the memory of unstored DMs never exceeds its bound; the oldest key goes first."""
+    wn._UNSTORED_SEEN.clear()
+    cap = wn._UNSTORED_SEEN_MAX
+    for i in range(cap + 10):
+        assert wn.claim_unstored_dm(KEY, i, "x") is True
+    assert len(wn._UNSTORED_SEEN) == cap
+    # The oldest ten were evicted: they claim again; the newest are still remembered.
+    assert wn.claim_unstored_dm(KEY, cap + 9, "x") is False
+    assert wn.claim_unstored_dm(KEY, 0, "x") is True
+    wn._UNSTORED_SEEN.clear()
+
+
+def test_claim_unstored_dm_ignores_the_case_of_the_key():
+    wn._UNSTORED_SEEN.clear()
+    assert wn.claim_unstored_dm(KEY.upper(), T0, "hi") is True
+    assert wn.claim_unstored_dm(KEY.lower(), T0, "hi") is False
+    wn._UNSTORED_SEEN.clear()
+
+
+def test_claim_unstored_dm_text_is_part_of_the_key():
+    """Two different messages from one sender in the same second each count."""
+    wn._UNSTORED_SEEN.clear()
+    assert wn.claim_unstored_dm(KEY, T0, "one") is True
+    assert wn.claim_unstored_dm(KEY, T0, "two") is True
+    assert wn.claim_unstored_dm(KEY, T0, "one") is False
+    wn._UNSTORED_SEEN.clear()
+
+
 def test_effective_cooldown_clamps_legacy_values():
     assert wn.effective_cooldown(0) == 60
     assert wn.effective_cooldown(5) == 60
