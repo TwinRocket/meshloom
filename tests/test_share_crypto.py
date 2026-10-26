@@ -228,6 +228,16 @@ def test_framing_checks_run_before_decryption() -> None:
     assert _code(CHANNEL, OBJECT_ID, blob[:34]) == "malformed"
 
 
+@pytest.mark.parametrize("data", ["text", 12, None, memoryview(b"x"), [1, 2]])
+def test_non_bytes_data_is_refused(data: object) -> None:
+    with pytest.raises(EnvelopeError) as raised:
+        encrypt_envelope(CHANNEL, OBJECT_ID, "a.png", "image/png", data)  # type: ignore[arg-type]
+    assert raised.value.code == "invalid_data"
+    assert isinstance(
+        encrypt_envelope(CHANNEL, OBJECT_ID, "a.png", "image/png", bytearray(b"x")), bytes
+    )
+
+
 @pytest.mark.parametrize("object_id", ["", "AbCdEf", "AbCdEfGh", "AbCdEf0", "AbCdEfI", "AbCdEf/"])
 def test_invalid_object_id(object_id: str) -> None:
     with pytest.raises(EnvelopeError) as raised:

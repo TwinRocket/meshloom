@@ -161,6 +161,13 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_invalid_id": (400, "This is not a shared object id"),
     "share_invalid_request": (400, "Unexpected parameter in a share request"),
     "share_mode_unavailable": (422, "This share mode is not available yet"),
+    "share_mode_not_allowed": (422, "Encrypted sharing is not possible in this conversation"),
+    "share_radio_key_unavailable": (
+        503,
+        "The radio private key is not available yet, encrypted sharing is impossible",
+    ),
+    "share_undecryptable": (422, "This file cannot be decrypted here"),
+    "share_id_taken": (409, "The proposed share id is already in use"),
     "share_upload_timeout": (408, "The upload took too long to arrive"),
     "share_storage_failed": (500, "The upload could not be stored on this instance"),
 }
@@ -185,6 +192,8 @@ _SERVICE_CODES: dict[str, str] = {
     "gone": "share_gone",
     "target_blocked": "share_target_blocked",
     "invalid_url": "share_invalid_url",
+    # Only ``POST /v1/files`` with ``X-Share-Id``: the upload retries with a new id.
+    "id_taken": "share_id_taken",
 }
 # Service answers a read may cache as final (the contract never answers them
 # for a storage failure).

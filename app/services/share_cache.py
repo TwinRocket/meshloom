@@ -29,9 +29,10 @@ default executor. No hand-written LRU, index or atomic write.
   ``_open`` runs that query once as a self-check; if it, or a later call,
   fails, a warning is logged and a write over the limit clears the cache first,
   then stores the new object.
-- **Keys and values.** The key is the share id (from T28, the id and a
-  fingerprint of the decryption key); the value is the raw bytes, the
-  validated content type its ``tag``. Bytes and strings are stored raw by
+- **Keys and values.** The key is the share id; the value is the raw bytes, the
+  validated content type its ``tag``. An encrypted object is stored as its
+  ciphertext envelope (``application/octet-stream``) and decrypted per request,
+  so no plaintext and no key material ever reaches the cache. Bytes and strings are stored raw by
   diskcache, never pickled.
 
 Only validated objects are stored (``app/services/share.py``, ``read_object``).

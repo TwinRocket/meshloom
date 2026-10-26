@@ -132,6 +132,9 @@ def _seal(
     key = derive_file_key(secret, object_id)
     if not isinstance(name, str) or not isinstance(content_type, str):
         raise EnvelopeError("header_invalid")
+    if not isinstance(data, bytes | bytearray):
+        # A str (or anything else) would be sealed as its repr or crash later.
+        raise EnvelopeError("invalid_data")
     if len(data) > MAX_DATA_BYTES:
         raise EnvelopeError("too_large")
     header = _header_bytes(name, content_type, len(data))

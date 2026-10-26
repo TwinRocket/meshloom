@@ -8,24 +8,34 @@ request. Writes refuse a request the browser marks ``Sec-Fetch-Site: cross-site`
 ``POST /files`` takes the raw bytes of an image (not multipart), stages them
 under ``<data dir>/share-tmp/``, checks them and uploads them
 (``app.services.share_upload``); nothing leaves before the local checks pass.
+In encrypted mode the image is sealed under the secret of the conversation named
+by ``X-Share-Conversation-Type`` / ``X-Share-Conversation-Key``
+(``app.services.share_secrets``) before it leaves.
 
 ``GET /{id}`` proxies a shared object through the disk cache (``read_object``)
 with headers that never let it run as active content. ``message_id`` names the
 message the id was seen in: the caller must be able to read that message (a
-kiosk never reads a direct message) and its text must carry the id.
+kiosk never reads a direct message) and its text must carry the id. An
+encrypted object (``application/octet-stream``) is cached as ciphertext and
+decrypted per request with the secret of that message's conversation, resolved
+here from the message row, never supplied by the client. No secret is ever
+logged, returned or sent.
 """
 
 from __future__ import annotations
 
 import asyncio
 import ipaddress
-from urllib.parse import urlsplit
+import logging
+from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 
 from app import keystore
 from app.auth.permissions import can_read_private, forbidden, require
+from app.log_redaction import secret_scope
 from app.models import (
+    Message,
     ShareCacheClearResponse,
     ShareFileResponse,
     ShareLinkRequest,
@@ -34,9 +44,11 @@ from app.models import (
     ShareStatus,
 )
 from app.repository import AppSettingsRepository, MessageRepository
-from app.services import share, share_upload
+from app.services import share, share_crypto, share_secrets, share_upload
 from app.services.instance_identity import identity_ready
-from app.services.share import ShareError
+from app.services.share import ShareError, ShareObject
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/share", tags=["share"])
 
@@ -135,43 +147,58 @@ async def create_share_link(body: ShareLinkRequest) -> ShareLinkResponse:
 async def upload_share_file(request: Request) -> ShareFileResponse:
     """Upload an image: the raw body, its ``Content-Type`` and ``Content-Length``.
 
-    Headers: ``X-Share-Mode`` (``public``; ``encrypted`` is 422
-    ``share_mode_unavailable`` until M3), optional ``X-Share-Name`` (validated,
-    never stored nor sent in public mode). Every refusal before the upload
-    reads at most what was declared and makes no request.
+    Headers: ``X-Share-Mode`` (``public`` or ``encrypted``), optional
+    ``X-Share-Name`` (percent-encoded UTF-8; validated, sealed in the envelope
+    in encrypted mode, never sent otherwise). Encrypted mode also needs
+    ``X-Share-Conversation-Type`` (``channel`` or ``contact``) and
+    ``X-Share-Conversation-Key`` (the channel key or the contact public key, as
+    in a message's ``conversation_key``). Every refusal before the upload reads
+    at most what was declared and makes no request.
     """
     # Off first: a disabled instance answers share_disabled and reads nothing.
     if await share.share_egress_state() is None:
         raise ShareError("share_disabled")
     headers = request.headers
     mode = headers.get("x-share-mode", "").strip()
-    if mode == "encrypted":
-        raise ShareError("share_mode_unavailable")
-    if mode != "public" or "transfer-encoding" in headers:
+    if mode not in ("public", "encrypted") or "transfer-encoding" in headers:
         raise ShareError("share_invalid_request")
     content_type = share_upload.normal_content_type(headers.get("content-type"))
     if content_type not in share.IMAGE_CONTENT_TYPES:
         raise ShareError("share_type_refused")
     length = share_upload.declared_length(headers.get("content-length"), content_type)
-    share_upload.check_name(headers.get("x-share-name"))
+    name = share_upload.header_name(headers.get("x-share-name"))
+    conversation_type = headers.get("x-share-conversation-type", "").strip()
+    conversation_key = headers.get("x-share-conversation-key", "").strip()
+    if mode == "encrypted" and (
+        conversation_type not in share_secrets.CONVERSATION_TYPES or not conversation_key
+    ):
+        raise ShareError("share_invalid_request")
     # Known local refusals before receiving megabytes for nothing.
     if share.share_banned():
         raise ShareError("share_banned")
     if share.share_breaker().cooling():
         raise ShareError("share_unavailable")
+    secret = (
+        await share_secrets.upload_secret(conversation_type, conversation_key)
+        if mode == "encrypted"
+        else None
+    )
     with share_upload.upload_slot():
         async with share_upload.staged_upload(
             request.stream(), content_type=content_type, length=length
         ) as staged:
             await asyncio.to_thread(share_upload.check_staged, staged)
-            stored = await share_upload.upload_file(staged)
+            if secret is None:
+                stored = await share_upload.upload_file(staged)
+            else:
+                stored = await share_upload.upload_encrypted(staged, secret, name)
     return ShareFileResponse(
         id=stored.id,
         url=stored.url,
         expires_at=stored.expires_at,
         size=stored.size,
-        mode="public",
-        text=share_upload.suggested_text(stored.url),
+        mode="encrypted" if secret is not None else "public",
+        text=share_upload.suggested_text(stored.url, encrypted=secret is not None),
     )
 
 
@@ -193,15 +220,15 @@ def _checked_read_query(request: Request) -> None:
         raise ShareError("share_invalid_request")
 
 
-async def _check_message(request: Request, share_id: str, message_id: int | None) -> None:
-    """The caller may read ``message_id`` and its text carries ``share_id``.
+async def _check_message(request: Request, share_id: str, message_id: int | None) -> Message | None:
+    """The message ``message_id`` when the caller may read it and it carries ``share_id``.
 
     A missing message, or one that does not carry the id, is ``share_not_found``
     (it says nothing of other messages); a direct message without
-    ``read_private`` is the usual 403.
+    ``read_private`` is the usual 403. None without ``message_id``.
     """
     if message_id is None:
-        return
+        return None
     message = await MessageRepository.get_by_id(message_id)
     if message is None:
         raise ShareError("share_not_found")
@@ -209,6 +236,65 @@ async def _check_message(request: Request, share_id: str, message_id: int | None
         raise forbidden("read_private")
     if share_id not in (message.text or ""):
         raise ShareError("share_not_found")
+    return message
+
+
+async def _open_envelope(
+    share_id: str, blob: bytes, message: Message | None
+) -> tuple[ShareObject, str]:
+    """The image sealed in an encrypted object, checked like a public one, and its name.
+
+    The secret comes from the conversation of ``message`` only: no message, no
+    resolvable secret, or a failed authentication is 422 ``share_undecryptable``
+    (no partial output). The decrypted type is sender-controlled: it must be an
+    allowlisted image whose magic bytes and header agree (``checked_object``),
+    else 415 ``share_type_refused`` / 413 ``share_too_large``.
+    """
+    secret = share_secrets.message_secret(message) if message is not None else None
+    if secret is None:
+        raise ShareError("share_undecryptable")
+    try:
+        with secret_scope(secret):
+            content = await share_crypto.decrypt_envelope_async(secret, share_id, blob)
+    except share_crypto.EnvelopeError as exc:
+        # The code only: never the secret, the bytes or a partial header.
+        logger.info("Encrypted share object not decryptable here: %s", exc.code)
+        raise ShareError("share_undecryptable") from None
+    if content.content_type not in share.IMAGE_CONTENT_TYPES:
+        raise ShareError("share_type_refused")
+    checked = await asyncio.to_thread(
+        share.checked_object, ShareObject(content=content.data, content_type=content.content_type)
+    )
+    return checked, content.name
+
+
+# Refusals of a decryption: the object exists but cannot be shown here.
+_UNDECRYPTABLE = frozenset({"share_undecryptable", "share_type_refused", "share_too_large"})
+
+
+async def _encrypted_meta(share_id: str, message: Message | None) -> dict[str, object]:
+    """``decryptable``, ``content_type``, ``name`` and ``size`` of an encrypted file.
+
+    Decrypted here (the object is fetched through the cache) with the secret of
+    ``message``'s conversation: false with null members when that fails, null
+    when the object cannot be fetched now (unknown).
+    """
+    unknown: dict[str, object] = {"content_type": None, "name": None, "size": None}
+    if message is None or share_secrets.message_secret(message) is None:
+        return {**unknown, "decryptable": False}
+    try:
+        blob = await share.read_object(share_id)
+        if blob.content_type != share.OCTET_STREAM:
+            return {**unknown, "decryptable": False}
+        image, name = await _open_envelope(share_id, blob.content, message)
+    except ShareError as exc:
+        return {**unknown, "decryptable": False if exc.code in _UNDECRYPTABLE else None}
+    return {
+        "decryptable": True,
+        "content_type": image.content_type,
+        "name": name,
+        "size": len(image.content),
+    }
 
 
 @router.get(
@@ -223,8 +309,9 @@ async def get_share_meta(
     message_id: int | None = Query(default=None, ge=1, le=MESSAGE_ID_MAX),
 ) -> ShareMetaResponse:
     _checked_read_query(request)
+    message = None
     if share.is_share_id(share_id) and await share.share_egress_state() is not None:
-        await _check_message(request, share_id, message_id)
+        message = await _check_message(request, share_id, message_id)
     # Off (share_disabled) and a bad id (share_not_found) are answered here.
     meta = await share.get_meta(share_id)
     fields: dict[str, object] = {
@@ -242,10 +329,12 @@ async def get_share_meta(
                 meta.content_type if meta.content_type in share.IMAGE_CONTENT_TYPES else None
             ),
             size=meta.size if meta.size is not None and meta.size >= 0 else None,
-            # The name travels encrypted (M3); a public file has none.
+            # The name travels encrypted; a public file has none.
             name=None,
             decryptable=True if public else None,
         )
+        if meta.mode == "encrypted":
+            fields.update(await _encrypted_meta(share_id, message))
     return ShareMetaResponse.model_validate(fields)
 
 
@@ -255,15 +344,27 @@ async def get_share_object(
     share_id: str,
     message_id: int | None = Query(default=None, ge=1, le=MESSAGE_ID_MAX),
 ) -> Response:
-    """The bytes of a shared object, from the disk cache or fetched once."""
+    """The bytes of a shared object, from the disk cache or fetched once.
+
+    An encrypted object is decrypted with the secret of ``message_id``'s
+    conversation and served as the image it seals (422 ``share_undecryptable``
+    without a message or with the wrong one).
+    """
     if not share.is_share_id(share_id):
         raise ShareError("share_invalid_id")
     _checked_read_query(request)
     # Off means off, cached or not.
     if await share.share_egress_state() is None:
         raise ShareError("share_disabled")
-    await _check_message(request, share_id, message_id)
+    message = await _check_message(request, share_id, message_id)
     obj = await share.read_object(share_id)
+    if obj.content_type == share.OCTET_STREAM:
+        image, name = await _open_envelope(share_id, obj.content, message)
+        headers = {
+            **_OBJECT_HEADERS,
+            "Content-Disposition": f"inline; filename*=UTF-8''{quote(name, safe='')}",
+        }
+        return Response(content=image.content, media_type=image.content_type, headers=headers)
     is_image = obj.content_type in share.IMAGE_CONTENT_TYPES
     content_type = obj.content_type if is_image else share.OCTET_STREAM
     extension = share.OBJECT_EXTENSIONS[content_type]

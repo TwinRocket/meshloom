@@ -3433,15 +3433,16 @@ class ShareLinkResponse(BaseModel):
 class ShareFileResponse(BaseModel):
     """``POST /api/share/files``: the stored file and the composer's proposed text.
 
-    ``text`` is ``📷 <url>`` (30 bytes on ``meshl.ink``, cadrage 4.2); the user
-    may edit it before sending.
+    ``text`` is ``📷 <url>`` for a public file and ``🔒 <url>`` for an encrypted
+    one (30 bytes on ``meshl.ink``, cadrage 4.2); the user may edit it before
+    sending. ``size`` is the stored bytes (the envelope when encrypted).
     """
 
     id: str
     url: str
     expires_at: int
     size: int
-    mode: Literal["public"]
+    mode: Literal["public", "encrypted"]
     text: str
 
 
@@ -3450,7 +3451,10 @@ class ShareMetaResponse(BaseModel):
 
     File members are null for a link. ``name`` is null for a public file (the
     contract stores none); ``decryptable`` is true for a public file (nothing to
-    decrypt) and null until encrypted files exist.
+    decrypt). For an encrypted file it is true when this instance decrypted it
+    with the secret of the ``message_id`` conversation (``content_type``,
+    ``name`` and ``size`` then describe the decrypted image), false with those
+    members null when it cannot, and null when the object cannot be fetched now.
     """
 
     kind: str
