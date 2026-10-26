@@ -17,6 +17,7 @@ from pydantic import (
 
 from app.data.meshcore_channels import is_public_hashtag_channel
 from app.path_utils import normalize_contact_route, normalize_route_override
+from app.share_conversation import channel_conversation_id
 
 # Valid MeshCore contact types: 0=unknown, 1=client, 2=repeater, 3=room, 4=sensor.
 # Corrupted radio data can produce values outside this range.
@@ -393,6 +394,18 @@ class Channel(BaseModel):
     @property
     def key_derived(self) -> bool:
         return is_public_hashtag_channel(self.name, self.key)
+
+    @computed_field(
+        description=(
+            "Opaque id an encrypted share upload names this channel by "
+            "(X-Share-Conversation-Id), so the key never travels back from the browser. "
+            "Truncated, domain-separated SHA-256 of the key; computed, never stored, "
+            "null for a malformed key."
+        )
+    )
+    @property
+    def share_conversation_id(self) -> str | None:
+        return channel_conversation_id(self.key)
 
 
 class RejectedChannel(BaseModel):

@@ -14,9 +14,12 @@ key can be computed by anyone, TwinRocket included): an encrypted upload there i
 a different secret with the room, so nobody else could decrypt the file. An
 all-zero DM secret (low-order contact key) is refused before any key derivation.
 
-On the read side the secret is never supplied by the client: ``message_secret``
-resolves it from the message row (``type``, ``conversation_key``) named by
-``message_id``.
+No secret is supplied by the client either. An upload names a channel by its
+``conversation_id`` (``Channel.share_conversation_id``: a truncated, domain
+separated SHA-256 of the key, which cannot be turned back into it) and a contact
+by its public key; ``upload_secret`` resolves the secret here (MSHL-378). On the
+read side ``message_secret`` resolves it from the message row (``type``,
+``conversation_key``) named by ``message_id``.
 
 A secret returned here goes to ``share_crypto`` and nowhere else: never logged,
 never returned by a route, never sent. Callers wrap its use in
@@ -33,9 +36,10 @@ from app import keystore
 from app.channel_constants import PUBLIC_CHANNEL_KEY
 from app.data.meshcore_channels import is_public_hashtag_channel
 from app.decoder import derive_shared_secret
-from app.models import CONTACT_TYPE_ROOM, Message
+from app.models import CONTACT_TYPE_ROOM, Channel, Message
 from app.repository import ChannelRepository, ContactRepository
 from app.services.share import ShareError
+from app.share_conversation import CONVERSATION_ID_RE, channel_conversation_id
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,16 @@ DM_SECRET_BYTES = 32
 _CHANNEL_KEY_RE = re.compile(r"[0-9a-fA-F]{32}")
 _PUBLIC_KEY_RE = re.compile(r"[0-9a-fA-F]{64}")
 _ALL_ZERO_DM = bytes(DM_SECRET_BYTES)
+
+
+async def _channel_by_conversation_id(value: str) -> Channel | None:
+    """The channel whose conversation id is ``value``, else None (constant-time compare)."""
+    found = None
+    for channel in await ChannelRepository.get_all():
+        candidate = channel_conversation_id(channel.key)
+        if candidate is not None and hmac.compare_digest(candidate, value):
+            found = channel
+    return found
 
 
 def _channel_is_public(name: str, key_hex: str) -> bool:
@@ -70,20 +84,22 @@ def _dm_secret(contact_key_hex: str) -> bytes | None:
     return secret
 
 
-async def upload_secret(conversation_type: str, conversation_key: str) -> bytes:
+async def upload_secret(conversation_type: str, conversation: str) -> bytes:
     """The secret an encrypted upload to this conversation is sealed with.
 
-    ``conversation_type`` and ``conversation_key`` come from the
-    ``X-Share-Conversation-Type`` and ``X-Share-Conversation-Key`` headers:
-    malformed or unknown is 400 ``share_invalid_request``; a public channel or
+    ``conversation_type`` and ``conversation`` come from the
+    ``X-Share-Conversation-Type`` and ``X-Share-Conversation-Id`` headers: a
+    channel's ``conversation_id`` (never its key) or a contact's public key.
+    Malformed or unknown is 400 ``share_invalid_request`` (a raw channel key
+    included); a public channel or
     hashtag, a room or an unusable contact key is 422 ``share_mode_not_allowed``;
     a DM before the radio private key was read is 503
     ``share_radio_key_unavailable``.
     """
     if conversation_type == "channel":
-        if not _CHANNEL_KEY_RE.fullmatch(conversation_key):
+        if not CONVERSATION_ID_RE.fullmatch(conversation):
             raise ShareError("share_invalid_request")
-        channel = await ChannelRepository.get_by_key(conversation_key)
+        channel = await _channel_by_conversation_id(conversation)
         if channel is None:
             raise ShareError("share_invalid_request")
         if _channel_is_public(channel.name, channel.key):
@@ -93,9 +109,9 @@ async def upload_secret(conversation_type: str, conversation_key: str) -> bytes:
             raise ShareError("share_invalid_request")
         return secret
     if conversation_type == "contact":
-        if not _PUBLIC_KEY_RE.fullmatch(conversation_key):
+        if not _PUBLIC_KEY_RE.fullmatch(conversation):
             raise ShareError("share_invalid_request")
-        contact = await ContactRepository.get_by_key(conversation_key)
+        contact = await ContactRepository.get_by_key(conversation)
         if contact is None:
             raise ShareError("share_invalid_request")
         if contact.type == CONTACT_TYPE_ROOM:

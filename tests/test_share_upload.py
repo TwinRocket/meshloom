@@ -452,8 +452,13 @@ class TestLocalRefusals:
         [
             {},
             {"X-Share-Conversation-Type": "channel"},
-            {"X-Share-Conversation-Key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72"},
-            {"X-Share-Conversation-Type": "room", "X-Share-Conversation-Key": "00" * 32},
+            {"X-Share-Conversation-Id": "0123456789abcdef01234567"},
+            {"X-Share-Conversation-Type": "room", "X-Share-Conversation-Id": "00" * 32},
+            # Retired (MSHL-378): the channel key never travels from the browser.
+            {
+                "X-Share-Conversation-Type": "channel",
+                "X-Share-Conversation-Key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+            },
         ],
     )
     async def test_encrypted_mode_needs_a_conversation(self, on, client, conversation):

@@ -597,7 +597,9 @@ point, which opens the exported `ShareConsentDialog` and sends
 with transparency; WebP when `toBlob` really yields it; GIF untouched, 5 MiB cap), which also strips EXIF;
 HEIC and other types are refused with a coded message (`chat.fileTab.error.*`, no upload). Size and type
 rules are pure (`fitWithin`, `classifySource`, `chooseOutputType`). The upload is `api.uploadShareFile`
-(XHR, raw body, `X-Share-Mode: public`, progress, `AbortSignal`; failures are the usual `ApiError`, shown as
+(XHR, raw body, `X-Share-Mode: public`, progress, `AbortSignal`; `encrypted: {type, id}` switches to
+`X-Share-Mode: encrypted` with `X-Share-Conversation-Type` / `X-Share-Conversation-Id`, where a channel's
+id is its `share_conversation_id`, never its key (MSHL-378; no UI uses it yet); failures are the usual `ApiError`, shown as
 `errors.share_*` toasts). Send = upload once, then `sendPayload(suggested text + caption)`, so the reply
 prefix and the normal send path apply; the uploaded result is kept if the send fails, so a retry does not
 upload again. The caption is judged with `utils/fileCaption.ts` against the composer's strict limit minus the

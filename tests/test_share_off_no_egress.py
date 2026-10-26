@@ -71,8 +71,15 @@ SERVICE_CALLS = {
     "upload_encrypted": lambda: share_upload.upload_encrypted(_staged_png(), DM_SECRET, "a.png"),
 }
 # Coroutine functions of the modules that never connect (``_seal`` encrypts
-# locally, ``upload_secret`` reads the database and the keystore).
-_LOCAL = {"share_egress_state", "clear_object_cache", "_seal", "upload_secret"}
+# locally, ``upload_secret`` and ``_channel_by_conversation_id`` read the database
+# and the keystore).
+_LOCAL = {
+    "share_egress_state",
+    "clear_object_cache",
+    "_seal",
+    "upload_secret",
+    "_channel_by_conversation_id",
+}
 
 
 def _answer(request: httpx.Request) -> httpx.Response:

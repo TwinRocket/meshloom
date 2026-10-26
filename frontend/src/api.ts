@@ -353,16 +353,31 @@ interface DecryptResult {
 }
 
 /**
+ * The conversation an encrypted share file is sealed for: a channel by its
+ * `share_conversation_id` (never its key), a contact by its public key. The
+ * backend resolves the secret; no key material leaves the browser.
+ */
+export interface ShareConversation {
+  type: 'channel' | 'contact';
+  id: string;
+}
+
+/**
  * `POST /api/share/files`: the raw bytes of an image with their `Content-Type`.
- * XMLHttpRequest rather than fetch for the upload progress. Failures are the same
- * `ApiError` as every other call (coded `detail`, `Retry-After`); an aborted
- * request rejects with an `AbortError` (`isAbortError`).
+ * XMLHttpRequest rather than fetch for the upload progress. Public mode unless
+ * `encrypted` names the conversation (`X-Share-Conversation-Type` / `-Id`).
+ * Failures are the same `ApiError` as every other call (coded `detail`,
+ * `Retry-After`); an aborted request rejects with an `AbortError` (`isAbortError`).
  */
 export function uploadShareFile(
   blob: Blob,
-  options: { signal?: AbortSignal; onProgress?: (loaded: number, total: number) => void } = {}
+  options: {
+    signal?: AbortSignal;
+    onProgress?: (loaded: number, total: number) => void;
+    encrypted?: ShareConversation;
+  } = {}
 ): Promise<ShareFile> {
-  const { signal, onProgress } = options;
+  const { signal, onProgress, encrypted } = options;
   const path = '/share/files';
   return new Promise<ShareFile>((resolve, reject) => {
     const abortError = () => new DOMException('The upload was cancelled', 'AbortError');
@@ -376,7 +391,13 @@ export function uploadShareFile(
     signal?.addEventListener('abort', onAbort);
     xhr.open('POST', `${API_BASE}${path}`);
     xhr.setRequestHeader('Content-Type', blob.type);
-    xhr.setRequestHeader('X-Share-Mode', 'public');
+    if (encrypted) {
+      xhr.setRequestHeader('X-Share-Mode', 'encrypted');
+      xhr.setRequestHeader('X-Share-Conversation-Type', encrypted.type);
+      xhr.setRequestHeader('X-Share-Conversation-Id', encrypted.id);
+    } else {
+      xhr.setRequestHeader('X-Share-Mode', 'public');
+    }
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress?.(event.loaded, event.total);
     };
