@@ -16,7 +16,9 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from aiolimiter import AsyncLimiter
 
+from app.notifications import dispatcher as dispatcher_module
 from app.notifications.channels import Channel, min_interval_s
 from app.notifications.dispatcher import (
     GROUPED_EVENT,
@@ -471,22 +473,49 @@ async def test_a_full_queue_records_rate_limited(test_db):
     assert len(transport.calls) == 4
 
 
+class _FrozenLoop:
+    """The running loop, except `time()` reads a fake clock and timers fire at once."""
+
+    def __init__(self, loop: asyncio.AbstractEventLoop, clock: FakeClock) -> None:
+        self._loop, self._clock = loop, clock
+
+    def time(self) -> float:
+        return self._clock()
+
+    def call_later(self, _delay, callback, *args):
+        return self._loop.call_later(0.001, callback, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._loop, name)
+
+
 @pytest.mark.asyncio
-async def test_first_seen_is_capped_then_grouped(test_db):
+async def test_first_seen_is_capped_then_grouped(test_db, monkeypatch):
+    # The hourly budget is an aiolimiter bucket that leaks on the loop's real clock, so on
+    # a loaded machine a slow burst of emits would regain a slot and send an 11th message.
+    # Freeze its clock: no slot is freed until the test moves the fake time forward.
+    clock = FakeClock()
+
+    class FrozenLimiter(AsyncLimiter):
+        @property
+        def _loop(self):
+            return _FrozenLoop(asyncio.get_running_loop(), clock)
+
+    monkeypatch.setattr(dispatcher_module, "AsyncLimiter", FrozenLimiter)
     await _add_channel("webhook-1", "webhook")
     transport = StubTransport()
-    dispatcher = _dispatcher(
-        transport, FakeClock(), first_seen_per_hour=10, first_seen_period_s=0.5
-    )
+    dispatcher = _dispatcher(transport, clock, first_seen_per_hour=10, first_seen_period_s=0.5)
     for n in range(15):
         await dispatcher.emit(
             None,
             payload={"event": "first_seen", "public_key": f"{n:064x}", "contact_type": 1},
             targets=["webhook-1"],
         )
-    await dispatcher.wait_idle()
+    await asyncio.wait_for(dispatcher.wait_idle(), 5)  # a missing cap would block here
+    assert len(transport.payloads) == 10  # the budget, however long the burst took
     worker = dispatcher._workers["webhook-1"]
     assert worker.first_seen_flusher is not None
+    clock.now += 0.5  # a full period later the budget is back
     await worker.first_seen_flusher
     await dispatcher.wait_idle()
     assert len(transport.payloads) == 11
