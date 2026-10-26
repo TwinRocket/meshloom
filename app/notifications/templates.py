@@ -31,7 +31,7 @@ TEMPLATE_ROW_TYPES = frozenset({"apprise", "ntfy", "discord"})
 # The others (hex, numbers, the backticked hop list) are safe and keep their form.
 MESH_TEXT_VARIABLES = frozenset({"text", "sender_name", "channel_name", "title"})
 
-_DUMMY = dict.fromkeys(TEMPLATE_VARIABLES, "test")
+_DUMMY: dict[str, str] = dict.fromkeys(TEMPLATE_VARIABLES, "test")
 
 SAMPLE_PATHS = [{"path": "a1b2c3", "path_len": 3, "rssi": -87, "snr": 6.5}]
 SAMPLE_DM: dict[str, Any] = {
