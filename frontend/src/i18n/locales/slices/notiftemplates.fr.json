@@ -10,7 +10,7 @@
         "placeholder": "{sender_name} : {text} (via {hops})",
         "preview": "Aperçu",
         "markdownNote": "Ce canal envoie du Markdown : le texte venu du mesh est échappé, votre propre Markdown dans le modèle est conservé.",
-        "plainNote": "L'aperçu est affiché en texte brut. Sur un canal qui envoie du Markdown, le texte venu du mesh est échappé et votre propre Markdown dans le modèle est conservé."
+        "plainNote": "L'aperçu n'échappe pas le Markdown pour ce canal. Quand un canal envoie du Markdown, un vrai message échappe le texte venu du mesh et conserve votre propre Markdown dans le modèle."
       }
     }
   },

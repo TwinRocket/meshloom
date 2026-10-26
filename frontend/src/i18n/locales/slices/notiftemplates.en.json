@@ -10,7 +10,7 @@
         "placeholder": "{sender_name}: {text} (via {hops})",
         "preview": "Preview",
         "markdownNote": "This channel sends Markdown: text from the mesh is escaped, your own Markdown in the template is kept.",
-        "plainNote": "The preview is shown as plain text. On a channel that sends Markdown, text from the mesh is escaped and your own Markdown in the template is kept."
+        "plainNote": "The preview does not escape Markdown for this channel. When a channel sends Markdown, a real message escapes text from the mesh and keeps your own Markdown in the template."
       }
     }
   },
