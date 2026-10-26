@@ -244,17 +244,16 @@ describe('File tab mode', () => {
     expect(screen.queryByTestId('file-tab-mode-clear')).toBeNull();
   });
 
-  it.each([
-    ['public', 'Public'],
-    ['hashtag_derived', 'derived hashtag'],
-    ['room', 'room'],
-  ] as const)('offers no encryption in a %s conversation and says why', (cls) => {
-    open({ class: cls, encryptable: false, conversation: null });
-    expect(screen.queryByTestId('file-tab-mode')).toBeNull();
-    expect(screen.getByTestId('file-tab-mode-clear')).toHaveTextContent(
-      i18n.t(`chat.fileTab.mode.clear.${cls}`)
-    );
-  });
+  it.each(['public', 'hashtag_derived', 'room'] as const)(
+    'offers no encryption in a %s conversation and says why',
+    (cls) => {
+      open({ class: cls, encryptable: false, conversation: null });
+      expect(screen.queryByTestId('file-tab-mode')).toBeNull();
+      expect(screen.getByTestId('file-tab-mode-clear')).toHaveTextContent(
+        i18n.t(`chat.fileTab.mode.clear.${cls}`)
+      );
+    }
+  );
 
   it('never says private to explain a non-encryptable conversation', () => {
     for (const text of [
