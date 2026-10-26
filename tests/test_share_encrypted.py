@@ -355,6 +355,9 @@ class TestRefusedConversations:
         [
             ("Public", PUBLIC_CHANNEL_KEY),
             ("#test", hashlib.sha256(b"#test").digest()[:16].hex().upper()),
+            # MSHL-385: '#test' renamed locally without its '#' keeps a public key.
+            ("test", hashlib.sha256(b"#test").digest()[:16].hex().upper()),
+            ("#test", hashlib.sha256(b"##test").digest()[:16].hex().upper()),
         ],
     )
     async def test_public_channels_are_public_only(self, service, client, name, key):

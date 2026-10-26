@@ -7,7 +7,8 @@ import { isPublicChannelKey } from './publicChannel';
  *
  * - `public`: the Public channel, whose key everyone knows.
  * - `hashtag_derived`: a channel whose key is computed from its `#name`
- *   (`Channel.key_derived`), so anyone who knows the name reads it.
+ *   (`Channel.key_derived`, set by the backend; it stays true for a hashtag
+ *   channel renamed locally without its `#`), so anyone who knows the name reads it.
  * - `private`: a channel whose key was given, not derived.
  * - `dm`: a direct message with a contact (not a room server).
  * - `room`: a room server, which reads every post; the backend refuses encrypted

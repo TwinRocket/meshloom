@@ -7,7 +7,7 @@ order: 23
 
 A MeshCore message holds 156 bytes, and a web address often takes more than that. The **sharing service** turns a long address into a short link such as `https://meshl.ink/Ab3dE9x` (25 bytes), which fits in a message and which anybody can open. It is run by the Meshloom project on its own domain, `meshl.ink`, and it is **optional and off by default**: until an administrator turns it on, this Meshloom never contacts it, not even to look up its name.
 
-This version shortens **web addresses** and sends **photos** from the composer's **Send a photo** panel. A public photo can be opened by anyone who has its link. In a private channel or a direct message the panel can also send the photo encrypted for that conversation, which the conversation's members open in Meshloom; on the Public channel, a channel whose key comes from its name and a room server, photos are always public. The sections below only describe what exists.
+This version shortens **web addresses** and sends **photos** from the composer's **Send a photo** panel. A public photo can be opened by anyone who has its link. In a private channel or a direct message the panel can also send the photo encrypted for that conversation, which the conversation's members open in Meshloom; on the Public channel, a channel whose key comes from its name (even renamed locally without its `#`) and a room server, photos are always public. The sections below only describe what exists.
 
 ## Turning it on
 
@@ -41,7 +41,7 @@ Shortening is all or nothing: if the service refuses one address (see below), yo
 
 Meshloom checks the address before sending it and **never sends** one the service would refuse anyway: an address with a user name or password, an IP address, `localhost`, a name without a dot or ending in `.local`, `.lan`, `.internal` or `.home.arpa`, anything that is not `http` or `https`, or longer than 2048 characters. Such an address is skipped by the button and refused by the API (`share_invalid_url`), so a link to your home network or one that contains credentials never leaves it.
 
-**Settings > Share: links and files > Previews of shared images and links** decides when a shared image in a message loads by itself: always, in private conversations only (direct messages and channels with their own secret key; not Public, not `#name` channels), or never. Otherwise the image shows a **Tap to load** button, and nothing is requested before you tap. Images from blocked senders, and on the display screen, always wait for a tap. Link previews are not fetched yet.
+**Settings > Share: links and files > Previews of shared images and links** decides when a shared image in a message loads by itself: always, in private conversations only (direct messages and channels with their own secret key; not Public, not channels whose key comes from their `#name`, even renamed), or never. Otherwise the image shows a **Tap to load** button, and nothing is requested before you tap. Images from blocked senders, and on the display screen, always wait for a tap. Link previews are not fetched yet.
 
 ## Reading short links
 

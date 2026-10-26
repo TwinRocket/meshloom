@@ -34,7 +34,7 @@ import re
 
 from app import keystore
 from app.channel_constants import PUBLIC_CHANNEL_KEY
-from app.data.meshcore_channels import is_public_hashtag_channel
+from app.data.meshcore_channels import channel_key_is_name_derived
 from app.decoder import derive_shared_secret
 from app.models import CONTACT_TYPE_ROOM, Channel, Message
 from app.repository import ChannelRepository, ContactRepository
@@ -66,7 +66,9 @@ async def _channel_by_conversation_id(value: str) -> Channel | None:
 
 
 def _channel_is_public(name: str, key_hex: str) -> bool:
-    return key_hex.upper() == PUBLIC_CHANNEL_KEY or is_public_hashtag_channel(name, key_hex)
+    # A key derivable from the channel name, '#' or not (a hashtag channel renamed
+    # locally to 'foo' keeps its public key): encrypting under it protects nothing.
+    return key_hex.upper() == PUBLIC_CHANNEL_KEY or channel_key_is_name_derived(name, key_hex)
 
 
 def _dm_secret(contact_key_hex: str) -> bytes | None:
