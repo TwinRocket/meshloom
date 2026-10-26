@@ -12,7 +12,9 @@ lists are ``blocked_keys`` / ``blocked_names`` in the settings, which the v1 fie
 - **A channel without its secret never sends.** It is recreated disabled, with
   ``last_error = "secret_missing"`` (the channel list shows it; saving the secret clears it, see
   ``NotificationChannelRepository.update``). A restore onto a channel that already exists with the
-  same destination keeps the stored secrets, and its enabled flag follows the file.
+  same destination keeps the stored secrets, and its enabled flag follows the file. The heartbeat
+  ping URL (MSHL-131) is one of these secrets (``heartbeat_url``): left out like the others, kept
+  only when the file says the channel had one.
 - **The ``legacy:*`` channels belong to ``notification_destinations``** (the settings of the
   v1 part, restored first): the section only sets their own options, never their destination.
 - Restoring merges the channels (a channel the file does not name stays) and replaces the rules,
@@ -74,6 +76,9 @@ class BackupNotificationChannel(BaseModel):
     rate_per_min: int | None = Field(default=None, ge=1)
     rate_per_hour: int | None = Field(default=None, ge=1)
     rate_per_day: int | None = Field(default=None, ge=1)
+    # MSHL-131: 0 = off. A ping URL is a secret (``heartbeat_url`` in ``secret_omitted``).
+    heartbeat_interval_s: int = Field(default=0, ge=0, le=86400)
+    heartbeat_method: Literal["GET", "POST"] = "GET"
     sort_order: int = 0
     created_at: int = Field(default=0, ge=0)
 
@@ -111,6 +116,8 @@ async def export_notifications() -> BackupSection | None:
             rate_per_min=channel.rate_per_min,
             rate_per_hour=channel.rate_per_hour,
             rate_per_day=channel.rate_per_day,
+            heartbeat_interval_s=channel.heartbeat_interval_s,
+            heartbeat_method=channel.heartbeat_method,
             sort_order=channel.sort_order,
             created_at=channel.created_at,
         ).model_dump(mode="json")
@@ -166,7 +173,13 @@ async def _restore_channel(
     warnings: list[str],
 ) -> bool:
     """Write one channel; True when it ends up needing a secret."""
-    from app.notifications.channels import ChannelError, get_type
+    from app.notifications.channels import (
+        HEARTBEAT_MIN_S,
+        HEARTBEAT_URL_KEY,
+        ChannelError,
+        get_type,
+        heartbeat_supported,
+    )
     from app.notifications.templates import check_templates
 
     async with conn.execute("SELECT * FROM notification_channels WHERE id = ?", (item.id,)) as cur:
@@ -182,6 +195,8 @@ async def _restore_channel(
         "rate_per_min": item.rate_per_min,
         "rate_per_hour": item.rate_per_hour,
         "rate_per_day": item.rate_per_day,
+        "heartbeat_interval_s": item.heartbeat_interval_s,
+        "heartbeat_method": item.heartbeat_method,
         "sort_order": item.sort_order,
     }
 
@@ -231,6 +246,13 @@ async def _restore_channel(
         # A file edited by hand: a refused template restores as the default body.
         own["template_dm"] = own["template_channel"] = ""
         warnings.append(f"notification_templates_dropped:{item.id}")
+    if item.heartbeat_interval_s and not (
+        item.heartbeat_interval_s >= HEARTBEAT_MIN_S
+        and heartbeat_supported(entry.row_type, item.preset)
+    ):
+        # A file edited by hand: an interval the API would refuse restores as off.
+        own["heartbeat_interval_s"] = 0
+        warnings.append(f"notification_heartbeat_dropped:{item.id}")
     public = _public_config(entry, item.config)
     if (
         entry.singleton_id is not None
@@ -250,6 +272,9 @@ async def _restore_channel(
         if same_destination:
             readable, _unreadable = decode_secrets(row["secrets"], item.id)
             kept = {k: v for k, v in readable.items() if isinstance(v, str) and v}
+            if HEARTBEAT_URL_KEY not in item.secret_omitted:
+                # The file has no ping URL: the channel restores in message mode.
+                kept.pop(HEARTBEAT_URL_KEY, None)
 
     wanted = set(item.secret_omitted) | {f for f in entry.required if f in entry.secret_fields}
     missing = sorted(name for name in wanted if name not in kept)
@@ -472,6 +497,10 @@ async def _after_restore(source: RestoreSource) -> None:
 
     invalidate_cache()  # the account choices too
     await sync_columns()
+    # The heartbeat loops (MSHL-131) follow the restored channels now, not at the next tick.
+    from app.notifications.dispatcher import notification_dispatcher
+
+    await notification_dispatcher().heartbeats.reconcile()
 
 
 MAX_BACKUP_USER_RULES = 10_000

@@ -44,6 +44,10 @@ delays itself.
 - **Status.** ``notification_statuses()`` is the health payload's map and
   ``notifications_failing()`` its flag (a channel failing, paused or with a secret the key
   cannot open); a change of a channel's status or error broadcasts ``health``.
+- **Heartbeat** (MSHL-131, ``heartbeat.py``): ``self.heartbeats`` runs one loop per channel
+  with ``heartbeat_interval_s``, sending ``notify.heartbeat`` (or pinging ``heartbeat_url``)
+  outside the rules, the pauses, quiet hours and the buckets; ``start`` and every quiet tick
+  reconcile the loops with the channels.
 - **Shutdown.** ``drain_background_tasks`` cancels the workers, the long retries
   and the first-seen flushers; each records what it still held as ``aborted``,
   and the counter loop flushes once more.
@@ -350,11 +354,18 @@ class Dispatcher:
         self._journal_task: asyncio.Task[None] | None = None
         self._quiet_task: asyncio.Task[None] | None = None
         self._digest_retries: dict[tuple[str, str], int] = {}
+        from app.notifications.heartbeat import HeartbeatManager
+
+        self.heartbeats = HeartbeatManager(self)
 
     def start(self) -> None:
-        """Start the quiet-hours digest loop (idempotent). The app calls it at startup so a
-        digest owed after a restart is not waiting for the first event."""
+        """Start the quiet-hours digest loop and the channels' heartbeats (idempotent). The
+        app calls it at startup so a digest owed after a restart is not waiting for the first
+        event."""
+        from app.background_tasks import spawn
+
         self._start_quiet_loop()
+        spawn(self.heartbeats.start(), name="notify-heartbeat-start")
 
     # -- emit -------------------------------------------------------------------
 
@@ -627,6 +638,8 @@ class Dispatcher:
                 raise
             except Exception:
                 logger.exception("paused channel probe failed")
+            # A safety net: the API reconciles the heartbeats after every channel change.
+            await self.heartbeats.reconcile()
 
     async def quiet_tick(self) -> int:
         """Send the digests that are due and clear their counters: the pause summary once the
@@ -1146,10 +1159,15 @@ class Dispatcher:
 
     # -- outcomes ---------------------------------------------------------------
 
+    def count_sent(self, channel_id: str) -> None:
+        """Count one sent notification for ``channel_id`` (flushed by the counter loop)."""
+        key = (channel_id, int(self._wall()) // 3600)
+        self._sent[key] = self._sent.get(key, 0) + 1
+        self._start_counter_loop()
+
     async def _succeeded(self, channel: Channel) -> None:
         now = int(self._wall())
-        key = (channel.id, now // 3600)
-        self._sent[key] = self._sent.get(key, 0) + 1
+        self.count_sent(channel.id)
         self._ok_at[channel.id] = now
         live = self._live.setdefault(channel.id, _Live())
         failing = (
@@ -1616,7 +1634,8 @@ async def emit(
 
 
 def start_notifications() -> None:
-    """Start the dispatcher's background loops at app startup (quiet-hours digest)."""
+    """Start the dispatcher's background loops at app startup (quiet-hours digest,
+    heartbeats)."""
     notification_dispatcher().start()
 
 
