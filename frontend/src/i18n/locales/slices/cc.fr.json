@@ -272,6 +272,7 @@
     "secret_required": "Une valeur secrète est manquante.",
     "plugin_reinstall_required": "Cette extension a été restaurée sans son code : réinstallez-la avant de la démarrer.",
     "plugin_code_mismatch": "Le code installé de cette extension ne correspond pas à sa version enregistrée après une mise à jour échouée. Elle ne démarrera pas tant que Meshloom n'aura pas redémarré et terminé la mise à jour.",
+    "plugin_repository_conflict": "Ce plugin est déjà installé depuis un autre dépôt ({{repository}}). Supprimez ses instances avant de l'installer depuis celui-ci.",
     "repository_invalid": "Saisissez un dépôt GitHub sous la forme propriétaire/nom.",
     "repository_exists": "Ce dépôt est déjà dans la liste.",
     "repository_limit": "Au plus {{limit}} dépôts personnalisés.",

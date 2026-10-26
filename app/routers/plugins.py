@@ -32,7 +32,7 @@ from app.auth.permissions import has_permission, require
 from app.auth.principal import get_principal
 from app.log_redaction import redact_text
 from app.net.egress_guard import is_self_address
-from app.plugins import bot_conversion, installer
+from app.plugins import bot_conversion, custom_repos, installer
 from app.plugins import pause as plugin_pause
 from app.plugins.attention import AttentionReport, scan_source
 from app.plugins.capabilities.grants import dropped_for_supervisor, effective_permissions
@@ -769,6 +769,14 @@ def _consent(manifest: dict[str, Any], granted: dict[str, Any]) -> None:
         )
 
 
+def _repository_key(repository: str) -> str:
+    """The lowercase ``owner/name`` key of a custom repository, as stored on an instance."""
+    try:
+        return custom_repos.parse_repository(repository).key
+    except installer.InstallError:
+        return repository.strip().lower()
+
+
 async def _install(body: InstallRequest, details: dict[str, Any]) -> PluginInstanceView:
     async with installer.plugin_lock(body.plugin_id):
         return await _install_locked(body, details)
@@ -785,6 +793,17 @@ async def _install_locked(body: InstallRequest, details: dict[str, Any]) -> Plug
         if body.version is not None and body.version != shared["version"]:
             raise _error(
                 409, "plugin_version_conflict", "Another version of this plugin is installed"
+            )
+        if (
+            body.kind == "custom"
+            and body.repository is not None
+            and _repository_key(body.repository) != shared["repository"]
+        ):
+            raise _error(
+                409,
+                "plugin_repository_conflict",
+                "This plugin is installed from another repository",
+                repository=shared["repository"],
             )
         if not installer.code_installed(
             plugin_manager.plugins_root(), body.plugin_id, shared["version"]

@@ -35,6 +35,18 @@ describe('formatApiError', () => {
     await i18n.changeLanguage('en');
   });
 
+  it('joins string arrays and leaves other params alone', async () => {
+    await i18n.changeLanguage('en');
+    i18n.addResource('en', 'translation', 'errors.t_params', '{{a}}|{{b}}|{{c}}');
+    const err = new ApiError('x', 400, {
+      code: 't_params',
+      params: { a: ['x', 'y'], b: 'plain', c: ['x', 1] },
+    });
+    const out = formatApiError(err, i18n.t);
+    expect(out.startsWith('x, y|plain|')).toBe(true);
+    expect(out).not.toContain('x, 1');
+  });
+
   it('falls back to Error.message for unknown values', () => {
     expect(formatApiError(new Error('boom'), i18n.t)).toBe('boom');
     expect(formatApiError('plain', i18n.t)).toBe('plain');
