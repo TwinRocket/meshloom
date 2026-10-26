@@ -54,7 +54,7 @@ jobs:
         run: uv run ruff check
 
       - name: Backend format check
-        run: uv run ruff format --check app/ meshloom_plugin/ tests/ scripts/
+        run: uv run ruff format --check
 
       - name: Backend typecheck
         run: uv run pyright app/ meshloom_plugin/

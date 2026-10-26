@@ -146,9 +146,10 @@ if you do not commit the autofix. Prettier checks every file under
 `dbus-fast` is a runtime dependency on Linux only, but the dev group installs it
 on every platform so pyright resolves the BlueZ imports on macOS too.
 
-Backend lint is a plain `uv run ruff check` over the whole repo (so `scripts/`
-is linted too); the format check covers `app/ meshloom_plugin/ tests/ scripts/`
-(not Markdown, which `ruff format` would also rewrite). The backend CI job runs
+Backend lint and format are plain `uv run ruff check` and `uv run ruff format --check`
+over the whole repo, with no path arguments, so local and CI run the same thing. Ruff
+also formats the Python code blocks inside Markdown (`docs/**/*.md`): format them
+(`uv run ruff format`) when you edit a doc. The backend CI job runs
 pytest quietly with `-rfE --tb=short`, appends the failed tests to the job
 summary (`scripts/ci/junit_summary.py`) and uploads `pytest-report.xml` as an
 artifact, so a failure stays visible even if the raw log is cut short.

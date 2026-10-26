@@ -621,10 +621,13 @@ archive validator under each isolation level this machine offers), the RPC fuzz
 ```python
 from meshloom_plugin import Message, Plugin
 
+
 class Weather(Plugin):
     async def on_message(self, msg: Message) -> None:
         if msg.text.startswith("!weather"):
-            data = await self.http.get_json(f"https://api.open-meteo.com/v1/forecast?{self.config['query']}")
+            data = await self.http.get_json(
+                f"https://api.open-meteo.com/v1/forecast?{self.config['query']}"
+            )
             await self.reply(msg, self.fit(f"{data['current']['temperature_2m']} °C"))
 ```
 
@@ -856,7 +859,8 @@ the shim and the conversion.
 
 ```python
 from meshloom_plugin.compat import legacy_bot
-Bot = legacy_bot(open("bot.py", encoding="utf-8").read())   # manifest entry "compat.py:Bot"
+
+Bot = legacy_bot(open("bot.py", encoding="utf-8").read())  # manifest entry "compat.py:Bot"
 ```
 
 **Migration 122** (`app/migrations/_122_bots_to_plugins.py`) turns each `fanout_configs` row
@@ -1236,9 +1240,10 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
   the notice `attention: {type: "config_dropped", fields, from_version, to_version}`
   with its `status` unchanged (it still runs; the next `PATCH` that saves `config`
   without a missing required field clears it, and so does the next update), a held one
-  `attention.config_dropped: [fields]`. Running instances are stopped before the code swap (`PreparedInstall.swap`),
-  the rows are written in one transaction (`update_many`; on failure the old tree goes
-  back, `installer.restore_tree`), then the unheld enabled instances start again. A
+  `attention.config_dropped: [fields]`. Running instances are stopped before the code
+  swap (`PreparedInstall.swap`), the rows are written in one transaction
+  (`update_many`; on failure the old tree goes back, `installer.restore_tree`), then
+  the unheld enabled instances start again. A
   successful update clears `incompatible` and stale holds. One `plugin.updated` audit
   row per instance (`from_version`, `to_version`, `held`, `config_dropped`, `auto`).
 - **Auto-update.** `auto_update()` is a Store evaluator registered by
