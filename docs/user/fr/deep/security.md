@@ -33,7 +33,7 @@ Jusqu’à la 4.18, le seul verrou était un identifiant HTTP Basic partagé (`M
 
 `MESHCORE_DISABLE_PLUGINS=true` verrouille le système d’extensions au démarrage. Aucune extension ne peut être installée, modifiée ni démarrée, quels que soient les réglages ; vous pouvez encore les consulter, les supprimer et tout mettre en pause. Les extensions restaurées depuis une sauvegarde reviennent éteintes. Le paquet Linux la laisse non définie (commentée dans `/etc/meshloom/meshloom.env`). Voir [Extensions](/docs/deep/plugins/) pour les autres façons d’arrêter des extensions.
 
-Le store en ligne, qui télécharge des extensions depuis GitHub, est une sortie à part avec son propre interrupteur, désactivé par défaut : voir [Ce qui quitte votre instance](/docs/deep/plugins/#ce-qui-quitte-votre-instance).
+Le Store en ligne, qui télécharge des extensions depuis GitHub, est une sortie à part avec son propre interrupteur, désactivé par défaut : voir [Ce qui quitte votre instance](/docs/deep/plugins/#ce-qui-quitte-votre-instance).
 
 ## La clé privée du nœud
 

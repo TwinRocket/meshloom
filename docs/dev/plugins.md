@@ -1136,10 +1136,10 @@ from the share service. Its consent is `app_settings.store_online`; the one gate
 | Only four hosts, HTTPS | `STORE_HOSTS`, `STORE_ALLOWLIST`, `STORE_SCHEMES`; custom repositories narrow to `CUSTOM_REPO_HOSTS` (no `store.meshloom.app`) |
 | Nothing leaves while off | `store_fetch` raises `StoreOffline` before any lookup; the loop is not started |
 | `GET` only, no body, no cookie, no token | `store_fetch` takes no body; `follow_checked_redirects` sets no cookie jar; `custom_repos` uses no API and no token |
-| Headers | `User-Agent: Meshloom/<version>` forced by `store_user_agent()`; `Accept: application/octet-stream` for archives (`installer.download_archive`) |
+| Headers | `User-Agent: Meshloom/<version>` forced by `store_user_agent()`; `Accept: application/octet-stream` only on `installer.download_archive` (install, update); the archive read by `custom_repos` at add time and by a refresh that sees a new tag goes through `custom_repos._get`, with no `Accept` of ours |
 | Opening the tabs sends nothing | `GET /store/status`, `/store/repositories`, `/store/updates`, `.../readme` read the cache; only `POST /store/refresh`, `POST /store/repositories`, installs and updates fetch |
-| Refresh every 6 h, only with an online instance | `REFRESH_INTERVAL_S`, `has_online_instances()`; the button (`manual=True`) skips the instance condition |
-| Never twice within 10 minutes | `MIN_REFRESH_GAP_S` |
+| Refresh every 6 h, only with an online instance | `REFRESH_INTERVAL_S`, `has_online_instances()`; the button (`manual=True`) skips the instance condition; a refresh that sees a new tag also downloads the three assets |
+| Never twice within 10 minutes | `MIN_REFRESH_GAP_S`; `last_refresh_at` is in memory (`_State`), so a restart resets the gap |
 | Hourly auto-update check contacts nobody | `EVALUATE_INTERVAL_S`, `register_store_evaluator`; the download of an applied update goes through `store_fetch` |
 | Off cuts at once | `note_store_online_changed(False)`: generation bump, in-flight sends cancelled, loop stopped |
 | Backups never carry the consent | `_CONSENT_FIELDS`, reset to 0 in a database copy, `_after_restore` re-reads the database |
