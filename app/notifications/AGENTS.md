@@ -493,7 +493,7 @@ dispatcher applies the pauses (global and per channel), quiet hours, limits and 
 
 ### Watched nodes (`watched_nodes.py`, MSHL-129)
 
-`rules["watched_nodes"]`: at most 50 entries `{public_key (64 lowercase hex), channels, cooldown_s (default 3600, 60 s to 30 d: a lower value is refused by the API and drops the entry on restore),
+`rules["watched_nodes"]`: at most 50 entries `{public_key (64 lowercase hex), channels, cooldown_s (default 3600, 60 s to 30 d: a lower value is refused by the API; legacy stored rows are normalised by `normalize_stored` on read and restore, and clamped at runtime by `effective_cooldown`),
 silence_s (default 86400, 60 s to 365 d)}`, validated by `watched_nodes.clean_entries` (the API: `PATCH /rules` `watched_nodes` replaces
 the whole list, unknown channels refused) and, per entry, by `clean_entry` in the backup `sanitize_rules` (cap `MAX_WATCHED`, unique keys). Web Push
 (`builtin:push`) is refused, as for keywords. The hook is a service, `observe_sighting()` (never raises), called from the contact paths of

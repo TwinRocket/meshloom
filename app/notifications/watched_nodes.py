@@ -111,6 +111,27 @@ def clean_entries(
     return entries
 
 
+def effective_cooldown(value: object) -> int:
+    """The cooldown a stored value stands for: legacy rows (below the minimum, ``0``, not an
+    integer) behave as ``MIN_COOLDOWN_S``, so an advert never notifies each time (MSHL-401)."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        return MIN_COOLDOWN_S
+    return min(max(value, MIN_COOLDOWN_S), MAX_COOLDOWN_S)
+
+
+def normalize_stored(stored: object) -> list[Any]:
+    """The stored list as the API returns it: rows written before the minimum existed get a
+    valid ``cooldown_s``, so the client can send the list back unchanged."""
+    if not isinstance(stored, list):
+        return []
+    return [
+        {**e, "cooldown_s": effective_cooldown(e.get("cooldown_s"))}
+        if isinstance(e, Mapping)
+        else e
+        for e in stored
+    ]
+
+
 def watched_entry(rules: Mapping[str, Any], public_key: str) -> Mapping[str, Any] | None:
     """The stored entry for ``public_key``, if any. Never raises."""
     stored = rules.get("watched_nodes")
@@ -220,9 +241,8 @@ async def _observe(
     from app.notifications.dispatcher import emit, notification_dispatcher
     from app.notifications.events import event_from_payload
 
-    cooldown = entry.get("cooldown_s")
     if not await notification_dispatcher().claim_cooldown(
-        (f"{COOLDOWN_KEY}{public_key}", cooldown if isinstance(cooldown, int) else 0)
+        (f"{COOLDOWN_KEY}{public_key}", effective_cooldown(entry.get("cooldown_s")))
     ):
         return
     if not name:

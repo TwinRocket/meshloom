@@ -215,7 +215,7 @@ Les mêmes choix sont disponibles par `GET`, `PATCH` et `DELETE /api/push/my-rul
 | Messages de canal | Un message arrive sur le salon Public ou sur un salon `#`. Un salon à clé privée reste muet sans exception qui l’active |
 | Mentions | Un message de salon vous nomme, voir [Les mentions](#les-mentions) |
 | Mot-clé | Un message contient le texte d’une règle de mot-clé, voir [Les mots-clés](#les-mots-clés). Réglé dans sa propre carte, pas dans ce tableau |
-| Nœud surveillé entendu / de retour | Un nœud que vous surveillez est entendu (son annonce ou un message privé), ou revient après un long silence, voir [Les nœuds surveillés](#les-nœuds-surveillés). Réglé dans sa propre carte, pas dans ce tableau |
+| Nœud surveillé entendu / de retour | Un nœud que vous surveillez est entendu (son annonce ou un message privé, quelle que soit la façon dont Meshloom le reçoit), ou revient après un long silence, voir [Les nœuds surveillés](#les-nœuds-surveillés). Réglé dans sa propre carte, pas dans ce tableau |
 | Nouveau nœud vu | Un nœud est entendu pour la première fois, avec une sous-ligne par type : **Compagnons** (la radio d’une personne), **Répéteurs** et **Capteurs**. Seul compte un nouveau contact ajouté une fois le démarrage de la radio terminé : un nœud déjà connu, un nœud inconnu et un serveur de salon ne le déclenchent jamais |
 | Canal trouvé | Meshloom trouve un nouveau salon hashtag |
 | Alerte de télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils et les canaux qui les reçoivent (une pastille par canal) se règlent sur la page **Alertes** |

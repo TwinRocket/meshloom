@@ -569,7 +569,7 @@ async def _rules_view() -> dict[str, Any]:
         "events": rules.get("events") or {},
         "conversations": rules.get("conversations") or {},
         "keywords": rules.get("keywords") or [],
-        "watched_nodes": rules.get("watched_nodes") or [],
+        "watched_nodes": watched_mod.normalize_stored(rules.get("watched_nodes")),
         "radio_offline_grace_s": settings.radio_offline_grace_s,
         "mention_whole_word": bool(rules.get("mention_whole_word", False)),
         "emit_ws_events": ws_frame.enabled(rules),

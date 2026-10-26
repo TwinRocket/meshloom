@@ -37,7 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.models import BackupSection
 from app.notifications.keywords import MAX_KEYWORDS
 from app.notifications.keywords import clean_rule as clean_keyword_rule
-from app.notifications.watched_nodes import MAX_WATCHED
+from app.notifications.watched_nodes import MAX_WATCHED, normalize_stored
 from app.notifications.watched_nodes import clean_entry as clean_watched_entry
 from app.repository.notification_channels import PENDING_SECRETS, decode_secrets, encode_secrets
 from app.services.backup_accounts import USER_NOTIFICATION_RULES_SECTION, USERS_SECTION
@@ -460,7 +460,7 @@ def sanitize_rules(raw: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
                     kept.append(rule)
                 else:
                     # The same checks as the API (``watched_nodes.py``), at most 50 keys.
-                    node = clean_watched_entry(entry)
+                    node = clean_watched_entry(normalize_watched_entry(entry))
                     if any(node["public_key"] == k["public_key"] for k in kept):
                         raise ValueError("public_key")
                     kept.append(node)
@@ -520,6 +520,11 @@ def _referenced_ids(rules: dict[str, Any]) -> set[str]:
             if isinstance(entry, dict):
                 add(entry.get("channels"))
     return ids
+
+
+def normalize_watched_entry(entry: object) -> object:
+    """A row saved before the 60 s minimum cooldown restores with the minimum, not dropped."""
+    return normalize_stored([entry])[0] if isinstance(entry, dict) else entry
 
 
 async def _after_restore(source: RestoreSource) -> None:

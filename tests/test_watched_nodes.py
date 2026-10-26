@@ -377,4 +377,40 @@ async def test_a_fallback_direct_message_counts_as_a_sighting(clock, emitted, te
         await on_contact_message(Event())
         assert [e["event"] for e in emitted] == ["contact.node_back"]
         await on_contact_message(Event())  # exact duplicate: not stored, not counted
+        # The cooldown would hide a second emit, so check the stored sighting directly.
+        stamp = await Journal.state_get(f"{wn.HEARD_PREFIX}{KEY}", T0 + 1)
+        assert stamp == str(T0)
+        clock[0] += 10_000
+        with patch("app.event_handlers.time.time", return_value=float(T0 + 10_000)):
+            await on_contact_message(Event())  # still a duplicate
+        assert await Journal.state_get(f"{wn.HEARD_PREFIX}{KEY}", T0 + 10_001) == str(T0)
     assert len(emitted) == 1
+
+
+def test_effective_cooldown_clamps_legacy_values():
+    assert wn.effective_cooldown(0) == 60
+    assert wn.effective_cooldown(5) == 60
+    assert wn.effective_cooldown("x") == 60
+    assert wn.effective_cooldown(True) == 60
+    assert wn.effective_cooldown(600) == 600
+    assert wn.effective_cooldown(10**9) == wn.MAX_COOLDOWN_S
+
+
+async def test_a_legacy_zero_cooldown_still_holds_for_the_minimum(clock, emitted):
+    await _watch(_node(cooldown_s=0))
+    await _hear(now=T0)
+    clock[0] += 30
+    await _hear(now=T0 + 30)
+    assert len(emitted) == 1
+    clock[0] += 31
+    await _hear(now=T0 + 61)
+    assert len(emitted) == 2
+
+
+async def test_legacy_rows_are_returned_normalised_and_can_be_sent_back(test_db, client):
+    await _watch(_node(cooldown_s=0), _node(OTHER, cooldown_s="x"))
+    rows = (await client.get("/api/notifications/rules")).json()["watched_nodes"]
+    assert [r["cooldown_s"] for r in rows] == [60, 60]
+    rows = [{**r, "channels": []} for r in rows]
+    again = await client.patch("/api/notifications/rules", json={"watched_nodes": rows})
+    assert again.status_code == 200
