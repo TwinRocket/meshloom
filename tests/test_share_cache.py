@@ -276,3 +276,55 @@ def test_self_check_passes_on_the_pinned_diskcache(tmp_path):
         assert cache._lru_ok is True
     finally:
         cache.close()
+
+
+async def test_delete_leaves_a_tombstone_that_survives_a_reopen(tmp_path, monkeypatch):
+    directory = tmp_path / "c"
+    cache = ShareCache(directory)
+    obj = CachedObject(b"\x89PNG" + b"x" * 100, "image/png")
+    try:
+        await cache.set("AbCdEfG", obj)
+        await cache.set("HiJkMnP", obj)
+        disk = cache._open()
+        real_delete = type(disk).delete
+
+        def failing_delete(self, key, *args, **kwargs):
+            if key == "AbCdEfG":
+                raise OSError(28, "No space left on device")
+            return real_delete(self, key, *args, **kwargs)
+
+        monkeypatch.setattr(type(disk), "delete", failing_delete)
+        try:
+            await cache.delete("AbCdEfG")
+        except OSError:
+            pass
+        monkeypatch.setattr(type(disk), "delete", real_delete)
+        assert disk.get("AbCdEfG") is not None
+    finally:
+        cache.close()
+    reopened = ShareCache(directory)
+    try:
+        assert await reopened.get("AbCdEfG") is None
+        assert reopened._open().get("AbCdEfG") is None
+        await reopened.set("AbCdEfG", obj)
+        assert await reopened.get("AbCdEfG") is None
+        assert await reopened.get("HiJkMnP") == obj  # others untouched
+    finally:
+        reopened.close()
+
+
+async def test_tombstone_expires_with_the_ttl(tmp_path, monkeypatch):
+    import time
+
+    now = [1000.0]
+    monkeypatch.setattr(time, "time", lambda: now[0])
+    cache = ShareCache(tmp_path / "c", ttl_s=60)
+    try:
+        await cache.delete("AbCdEfG")
+        await cache.set("AbCdEfG", CachedObject(b"x", "image/png"))
+        assert await cache.get("AbCdEfG") is None
+        now[0] += 61
+        await cache.set("AbCdEfG", CachedObject(b"x", "image/png"))
+        assert await cache.get("AbCdEfG") is not None
+    finally:
+        cache.close()

@@ -36,7 +36,12 @@ default executor. No hand-written LRU, index or atomic write.
   diskcache, never pickled.
 
 ``delete`` drops one entry when its author deletes the object
-(``DELETE /api/share/{id}``). Only validated objects are stored (``app/services/share.py``, ``read_object``).
+(``DELETE /api/share/{id}``). It first writes a tombstone (key
+``TOMBSTONE_PREFIX + id``, an integer value, expiring after ``TTL_S``, so it
+outlives the entry), then drops the entry: when the drop fails, the tombstone
+still survives a restart, and ``get`` (which then retries the drop) and ``set``
+treat a tombstoned id as absent. If the tombstone write itself fails, the
+entry expires on its own within ``TTL_S``. Only validated objects are stored (``app/services/share.py``, ``read_object``).
 Tests: ``tests/test_share_cache.py``.
 """
 
@@ -72,6 +77,8 @@ SQLITE_PAGE_SIZE = 4096
 INDEX_HEADROOM = 2 * SQLITE_PAGE_SIZE
 # After a checkpoint a reader blocked, leave the log alone for this long.
 WAL_BUSY_BACKOFF_S = 30.0
+# Key prefix of a deleted id's tombstone (outside the share id grammar).
+TOMBSTONE_PREFIX = "deleted:"
 
 T = TypeVar("T")
 
@@ -233,9 +240,22 @@ class ShareCache:
 
     # Blocking bodies -------------------------------------------------------
 
+    @staticmethod
+    def _tombstone(key: str) -> str:
+        return f"{TOMBSTONE_PREFIX}{key}"
+
     def _get(self, key: str) -> CachedObject | None:
         # diskcache's return types are unions over its options: read them as Any.
         cache: Any = self._open()
+        if cache.get(self._tombstone(key)) is not None:
+            # Deleted, but the entry was left behind (a failed drop, then maybe
+            # a restart): never served, and dropped now.
+            try:
+                with self._write_lock:
+                    cache.delete(key)
+            except Exception as exc:  # noqa: BLE001 - the tombstone still hides it
+                logger.warning("Share cache could not drop a deleted entry: %s", type(exc).__name__)
+            return None
         value, tag = cache.get(key, default=None, tag=True)
         if not isinstance(value, bytes) or not isinstance(tag, str):
             return None
@@ -247,6 +267,8 @@ class ShareCache:
         if need > self.size_limit - self.wal_budget():
             return  # would evict everything and still not fit
         with self._write_lock:
+            if cache.get(self._tombstone(key)) is not None:
+                return  # deleted by its author: never stored again
             cache.expire()  # automatic culling is off: drop expired entries here
             cache.delete(key)  # a rewrite frees the old copy first
             # Make room BEFORE writing, so the total never goes over the limit.
@@ -268,6 +290,9 @@ class ShareCache:
     def _delete(self, key: str) -> bool:
         cache: Any = self._open()
         with self._write_lock:
+            # The tombstone first: if the drop below fails, it still hides the
+            # entry, across a restart too, for as long as the entry can live.
+            cache.set(self._tombstone(key), 1, expire=self.ttl_s)
             return bool(cache.delete(key))
 
     def _count(self) -> int:
@@ -290,7 +315,7 @@ class ShareCache:
         return await self._run(self._clear)
 
     async def delete(self, key: str) -> bool:
-        """Drop one entry (an object its author deleted); True when one was stored."""
+        """Drop one entry (an object its author deleted), leaving a tombstone; True when one was stored."""
         return await self._run(self._delete, key)
 
     async def volume(self) -> int:

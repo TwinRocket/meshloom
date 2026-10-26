@@ -316,9 +316,13 @@ Community guard.
   evict the local copies (`_forget_object`: first, with no await, a tombstone in
   `_state.deleted` for `ShareCache.ttl_s`, the meta cache entry dropped and a negative
   `gone` for both read keys; then `ShareCache.delete`). `read_object` checks the
-  tombstone before and after the disk cache read and around its store, so the next
-  read answers 410 with no request, even when the disk delete failed or a read raced
-  it (MSHL-383). `gone` (blocked by the service) is re-raised as 409
+  tombstone before and after the disk cache read and around its store, and `get_meta`
+  before its cache and after its fetch (never re-caching a deleted object's meta), so
+  the next read answers 410 with no request, even when the disk delete failed or a read
+  raced it (MSHL-383, MSHL-387). `ShareCache.delete` writes a disk tombstone
+  (`deleted:<id>`, expiring after `TTL_S`) before dropping the entry, so an entry whose
+  drop failed is still never served (`get` drops it then) nor stored again after a
+  restart; if the tombstone write fails too, the entry lives at most `TTL_S`. `gone` (blocked by the service) is re-raised as 409
   `share_object_blocked`; `not_owner` is 403 `share_not_owner` and keeps the local
   copy. A disk eviction failure is logged (exception type only) and never fails the
   delete.
