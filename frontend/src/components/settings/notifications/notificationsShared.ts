@@ -186,6 +186,9 @@ export interface ChannelDraft {
   include_message_text: 'always' | 'public_only' | 'never';
   allow_private_network: boolean;
   verify_tls: boolean;
+  /** Message body templates as typed; '' is the default body. */
+  template_dm: string;
+  template_channel: string;
   /** Send limits as typed: '' keeps the type default, otherwise a positive integer. */
   rate_per_min: string;
   rate_per_hour: string;
@@ -211,6 +214,13 @@ export function advancedBody(draft: ChannelDraft) {
   };
 }
 
+/** The templates of a create or patch body; a type without a text body sends none. */
+export function templateBody(entry: NotificationTypeInfo, draft: ChannelDraft) {
+  return entry.templates
+    ? { template_dm: draft.template_dm, template_channel: draft.template_channel }
+    : {};
+}
+
 export function createBody(
   entry: NotificationTypeInfo,
   draft: ChannelDraft,
@@ -226,6 +236,7 @@ export function createBody(
     allow_private_network: draft.allow_private_network,
     include_message_text: entry.cloud ? draft.include_message_text : null,
     verify_tls: draft.verify_tls,
+    ...templateBody(entry, draft),
     ...advancedBody(draft),
   };
 }

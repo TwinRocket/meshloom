@@ -178,6 +178,8 @@ class DiscordTransport:
             await channel_language(channel),
             include_message_text=channel.include_message_text,
             markdown=True,
+            template_dm=channel.template_dm,
+            template_channel=channel.template_channel,
         )
         data = json.dumps(build_body(channel, title, body), separators=(",", ":")).encode()
         try:

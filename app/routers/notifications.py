@@ -17,13 +17,13 @@ import os
 import re
 import time
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from app.auth.permissions import require
-from app.notifications import api_support
+from app.notifications import api_support, templates
 from app.notifications.channels import (
     BUILTIN_PUSH_ID,
     Channel,
@@ -110,6 +110,8 @@ class ChannelOut(BaseModel):
     allow_private_network: bool
     include_message_text: str
     verify_tls: bool
+    template_dm: str = ""
+    template_channel: str = ""
     quiet_hours_exempt: bool
     rate_per_min: int | None
     rate_per_hour: int | None
@@ -194,6 +196,8 @@ def _present(channel: Channel, statuses: dict[str, dict[str, Any]]) -> ChannelOu
         allow_private_network=channel.allow_private_network,
         include_message_text=channel.include_message_text,
         verify_tls=channel.verify_tls,
+        template_dm=channel.template_dm,
+        template_channel=channel.template_channel,
         quiet_hours_exempt=channel.quiet_hours_exempt,
         rate_per_min=channel.rate_per_min,
         rate_per_hour=channel.rate_per_hour,
@@ -300,6 +304,8 @@ def _draft_channel(body: ChannelCreate, public: dict[str, Any]) -> Channel:
         allow_private_network=body.allow_private_network,
         include_message_text=body.include_message_text or entry.include_message_text_for(public),
         verify_tls=body.verify_tls,
+        template_dm=body.template_dm,
+        template_channel=body.template_channel,
         quiet_hours_exempt=bool(body.quiet_hours_exempt),
     )
 
@@ -321,6 +327,46 @@ async def test_unsaved_channel(body: ChannelCreate) -> TestResult:
     except ChannelError as exc:
         raise _as_http(exc) from None
     return await _run_test(_draft_channel(body, public), secrets, record=False)
+
+
+class TemplatePreviewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_dm: str = ""
+    template_channel: str = ""
+    markdown: bool = False
+    include_message_text: Literal["always", "public_only", "never"] = "always"
+    language: Literal["auto", "fr", "en"] = "auto"
+
+
+class TemplatePreviewOut(BaseModel):
+    dm: str
+    channel: str
+    variables: list[str]
+
+
+@router.post("/channels/preview-template")
+async def preview_template(body: TemplatePreviewIn) -> TemplatePreviewOut:
+    """Render the templates on a sample direct and channel message (MSHL-127): the renderer
+    a send goes through, with the text policy and the Markdown escaping. Nothing is stored
+    or sent. An empty template shows the default body; a refused one is 400
+    ``template_invalid``/``template_too_long``."""
+    language = body.language
+    if language == "auto":
+        from app.email_template import resolve_instance_language
+
+        language = await resolve_instance_language()
+    try:
+        rendered = templates.preview(
+            body.template_dm,
+            body.template_channel,
+            language=language,
+            markdown=body.markdown,
+            text_policy=body.include_message_text,
+        )
+    except ChannelError as exc:
+        raise _as_http(exc) from None
+    return TemplatePreviewOut(**rendered, variables=list(templates.TEMPLATE_VARIABLES))
 
 
 @router.get("/channels/{channel_id}")

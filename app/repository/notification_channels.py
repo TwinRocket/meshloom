@@ -41,6 +41,7 @@ from app.notifications.channels import (
     is_builtin,
 )
 from app.notifications.presets import PresetError, compile_url
+from app.notifications.templates import check_templates
 from app.secret_fields import REDACTED, destination_changed
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,8 @@ def _row_to_channel(row: aiosqlite.Row) -> Channel:
         allow_private_network=bool(row["allow_private_network"]),
         include_message_text=row["include_message_text"],
         verify_tls=bool(row["verify_tls"]),
+        template_dm=row["template_dm"] or "",
+        template_channel=row["template_channel"] or "",
         quiet_hours_exempt=bool(row["quiet_hours_exempt"]),
         rate_per_min=row["rate_per_min"],
         rate_per_hour=row["rate_per_hour"],
@@ -341,6 +344,7 @@ class NotificationChannelRepository:
         what ``POST /channels/test`` runs, so a test and a save refuse the same things."""
         entry = get_type(body.type, body.preset)
         _check_text_policy(entry, body.include_message_text)
+        check_templates(entry.row_type, body.template_dm, body.template_channel)
         public, secrets = _split_config(entry, body.config)
         missing = _required_missing(entry, public, secrets)
         if missing:
@@ -375,9 +379,10 @@ class NotificationChannelRepository:
                 INSERT INTO notification_channels
                     (id, type, preset, name, enabled, language, config, secrets,
                      allow_private_network, include_message_text, verify_tls,
+                     template_dm, template_channel,
                      quiet_hours_exempt, rate_per_min, rate_per_hour, rate_per_day,
                      sort_order, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     channel_id,
@@ -391,6 +396,8 @@ class NotificationChannelRepository:
                     1 if body.allow_private_network else 0,
                     body.include_message_text or entry.include_message_text_for(public),
                     1 if body.verify_tls else 0,
+                    body.template_dm,
+                    body.template_channel,
                     1
                     if (
                         entry.quiet_hours_exempt_default
@@ -420,6 +427,11 @@ class NotificationChannelRepository:
             raise ChannelError("type_immutable")
         entry = get_type(current.type, current.preset)
         _check_text_policy(entry, patch.include_message_text)
+        template_dm, template_channel = check_templates(
+            entry.row_type,
+            current.template_dm if patch.template_dm is None else patch.template_dm,
+            current.template_channel if patch.template_channel is None else patch.template_channel,
+        )
 
         public = dict(current.config)
         secrets = dict(stored_secrets)
@@ -517,6 +529,10 @@ class NotificationChannelRepository:
                 sets[column] = (
                     value.strip() if isinstance(value, str) and column == "name" else value
                 )
+        if template_dm != current.template_dm:
+            sets["template_dm"] = template_dm
+        if template_channel != current.template_channel:
+            sets["template_channel"] = template_channel
         if pending and not still_pending:
             sets["last_error"] = None
         async with db.tx() as conn:

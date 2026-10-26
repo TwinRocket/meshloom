@@ -32,6 +32,8 @@ import type {
   NotificationChannel,
   NotificationChannelCreate,
   NotificationChannelPatch,
+  NotificationTemplatePreview,
+  NotificationTemplatePreviewRequest,
   NotificationDeliveries,
   NotificationEventInfo,
   NotificationRules,
@@ -1461,6 +1463,12 @@ export const api = {
   /** Test a configuration before saving it: nothing is persisted. */
   testNotificationConfig: (body: NotificationChannelCreate) =>
     fetchJson<{ status: string }>('/notifications/channels/test', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** Render message templates on a sample DM and channel message (nothing is stored or sent). */
+  previewNotificationTemplate: (body: NotificationTemplatePreviewRequest) =>
+    fetchJson<NotificationTemplatePreview>('/notifications/channels/preview-template', {
       method: 'POST',
       body: JSON.stringify(body),
     }),

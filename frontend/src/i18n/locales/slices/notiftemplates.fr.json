@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "notifications": {
+      "templates": {
+        "title": "Modèles de message",
+        "help": "Écrivez vous-même le corps d'une notification de message. Laissez un champ vide pour garder le corps par défaut. Les variables sont remplacées une seule fois, et une variable absente de la liste reste telle quelle. La politique de texte s'applique toujours : {text} est vide quand elle masque le texte du message.",
+        "variables": "Variables :",
+        "dm": "Messages privés",
+        "channel": "Messages de canal",
+        "placeholder": "{sender_name} : {text} (via {hops})",
+        "preview": "Aperçu",
+        "markdownNote": "Ce canal envoie du Markdown : le texte venu du mesh est échappé, votre propre Markdown dans le modèle est conservé.",
+        "plainNote": "L'aperçu est affiché en texte brut. Sur un canal qui envoie du Markdown, le texte venu du mesh est échappé et votre propre Markdown dans le modèle est conservé."
+      }
+    }
+  },
+  "errors": {
+    "template_too_long": "Un modèle est limité à {{max}} caractères.",
+    "template_invalid": "Ce modèle n'est pas valide (les caractères de contrôle sont interdits).",
+    "template_unsupported": "Ce type de canal n'accepte pas de modèles de message."
+  }
+}

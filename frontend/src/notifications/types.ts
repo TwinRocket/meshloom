@@ -38,6 +38,8 @@ export interface NotificationTypeInfo {
   include_message_text_default: NotificationIncludeText;
   /** The text policy cannot be changed (an SMS service cuts a long text). */
   include_message_text_locked?: boolean;
+  /** The channel's body can be a template (Apprise and presets, ntfy, Discord). */
+  templates?: boolean;
 }
 
 export interface NotificationChannel {
@@ -54,6 +56,9 @@ export interface NotificationChannel {
   allow_private_network: boolean;
   include_message_text: NotificationIncludeText;
   verify_tls: boolean;
+  /** Message body templates; `''` is the default body. */
+  template_dm?: string;
+  template_channel?: string;
   quiet_hours_exempt: boolean;
   rate_per_min: number | null;
   rate_per_hour: number | null;
@@ -83,10 +88,28 @@ export interface NotificationChannelCreate {
   allow_private_network?: boolean;
   include_message_text?: NotificationIncludeText | null;
   verify_tls?: boolean;
+  template_dm?: string;
+  template_channel?: string;
   quiet_hours_exempt?: boolean | null;
   rate_per_min?: number | null;
   rate_per_hour?: number | null;
   rate_per_day?: number | null;
+}
+
+/** `POST /notifications/channels/preview-template`: the templates rendered on two sample messages. */
+export interface NotificationTemplatePreviewRequest {
+  template_dm: string;
+  template_channel: string;
+  markdown: boolean;
+  include_message_text: NotificationIncludeText;
+  language: 'auto' | 'fr' | 'en';
+}
+
+export interface NotificationTemplatePreview {
+  dm: string;
+  channel: string;
+  /** The variables a template may use (`{name}`). */
+  variables: string[];
 }
 
 /** Omit a secret (or send `null` / `********`) to keep it; `''` clears it. */

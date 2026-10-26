@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "notifications": {
+      "templates": {
+        "title": "Message templates",
+        "help": "Write the body of a message notification yourself. Leave a field empty to keep the default body. Variables are replaced once, and one that is not in the list stays as typed. The text policy still applies: {text} is empty when the policy hides the message text.",
+        "variables": "Variables:",
+        "dm": "Direct messages",
+        "channel": "Channel messages",
+        "placeholder": "{sender_name}: {text} (via {hops})",
+        "preview": "Preview",
+        "markdownNote": "This channel sends Markdown: text from the mesh is escaped, your own Markdown in the template is kept.",
+        "plainNote": "The preview is shown as plain text. On a channel that sends Markdown, text from the mesh is escaped and your own Markdown in the template is kept."
+      }
+    }
+  },
+  "errors": {
+    "template_too_long": "A template is limited to {{max}} characters.",
+    "template_invalid": "This template is not valid (control characters are not allowed).",
+    "template_unsupported": "This type of channel does not take message templates."
+  }
+}

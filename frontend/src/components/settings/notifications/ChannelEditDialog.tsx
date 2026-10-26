@@ -13,7 +13,7 @@ import {
 } from '../../ui/dialog';
 import { toast } from '../../ui/sonner';
 import { ChannelForm } from './ChannelForm';
-import { advancedBody, fieldErrorsOf } from './notificationsShared';
+import { advancedBody, fieldErrorsOf, templateBody } from './notificationsShared';
 
 /** Edits a saved channel: secrets stay "Unchanged" unless replaced or cleared. */
 export function ChannelEditDialog({
@@ -58,6 +58,7 @@ export function ChannelEditDialog({
                 allow_private_network: draft.allow_private_network,
                 include_message_text: entry.cloud ? draft.include_message_text : undefined,
                 verify_tls: draft.verify_tls,
+                ...templateBody(entry, draft),
                 ...advancedBody(draft),
               });
             } catch (err) {

@@ -302,7 +302,7 @@ imported by `services/backup.py`.
 
 - **Data.** `{"channels": [...], "rules": {...}}`. A channel carries its id, type,
   preset, name, enabled, language, **public** config, `allow_private_network`,
-  `include_message_text`, `verify_tls`, `quiet_hours_exempt`, the three rates,
+  `include_message_text`, `verify_tls`, `template_dm`, `template_channel`, `quiet_hours_exempt`, the three rates,
   `sort_order` and `secret_omitted` (`{field: true}` for each write-only field that held a
   value; the values are never exported). `rules` is `app_settings.notification_rules`
   with `paused_until` emptied; `quiet_hours` (validated by `quiet_hours.validate_quiet_hours`,
