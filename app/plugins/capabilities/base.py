@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from app.plugins.host import HostMethodError
+from app.plugins.errors import HostMethodError
 from meshloom_plugin import rpc
 
 if TYPE_CHECKING:
@@ -87,14 +87,19 @@ def capability(method: str, permission: str | None) -> Callable[[Handler], Handl
     return register
 
 
+def require_permission(method: str, permission: str | None, permissions: Any) -> None:
+    """`permission_denied` unless the instance holds the permission the method needs."""
+    if permission is not None and permission not in permissions:
+        raise CapabilityError(
+            "permission_denied",
+            f"{method} needs the {permission} permission",
+            {"permission": permission},
+        )
+
+
 async def handle(call: Call) -> Any:
     entry = REGISTRY.get(call.method)
     if entry is None:
         raise HostMethodError(rpc.METHOD_NOT_FOUND, f"{call.method} is not available")
-    if entry.permission is not None and entry.permission not in call.instance.permissions:
-        raise CapabilityError(
-            "permission_denied",
-            f"{call.method} needs the {entry.permission} permission",
-            {"permission": entry.permission},
-        )
+    require_permission(call.method, entry.permission, call.instance.permissions)
     return await entry.handler(call)

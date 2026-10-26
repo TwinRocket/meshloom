@@ -11,6 +11,7 @@ keys in order, at most `limit` (default and maximum `LIST_MAX`), after `after`.
 from typing import Any
 
 from app.plugins.capabilities.base import Call, CapabilityError, capability, invalid_params
+from app.plugins.kv_rules import KV_MAX_VALUE_BYTES, KV_QUOTA_BYTES
 
 LIST_MAX = 200
 
@@ -24,13 +25,22 @@ def _key(params: dict[str, Any], name: str = "key", required: bool = True) -> st
     return value
 
 
-def _store_error(exc: Exception) -> CapabilityError:
-    from app.repository.plugins import KV_MAX_VALUE_BYTES, KV_QUOTA_BYTES
+def list_args(params: dict[str, Any]) -> tuple[str, str | None, int]:
+    """`(prefix, after, limit)` of a `storage.list`, `invalid_params` when malformed."""
+    prefix = _key(params, "prefix", required=False) or ""
+    after = _key(params, "after", required=False)
+    limit = params.get("limit", LIST_MAX)
+    if type(limit) is not int or not 1 <= limit <= LIST_MAX:
+        raise invalid_params(f"limit is 1 to {LIST_MAX}", fields=["limit"])
+    return prefix, after, limit
+
+
+def _store_error(exc: Exception, quota_bytes: int = KV_QUOTA_BYTES) -> CapabilityError:
 
     code = getattr(exc, "code", "")
     if code == "kv_quota_exceeded":
         return CapabilityError(
-            "quota_exceeded", "the storage of this instance is full", {"limit": KV_QUOTA_BYTES}
+            "quota_exceeded", "the storage of this instance is full", {"limit": quota_bytes}
         )
     if code == "kv_value_too_large":
         return invalid_params("the value is too large", fields=["value"], limit=KV_MAX_VALUE_BYTES)
@@ -50,6 +60,7 @@ async def get(call: Call) -> Any:
 
 @capability("storage.set", "storage")
 async def set_(call: Call) -> None:
+    from app.repository import plugins as repository
     from app.repository.plugins import PluginKvRepository, PluginStoreError
 
     key = _key(call.params)
@@ -59,7 +70,7 @@ async def set_(call: Call) -> None:
     try:
         await PluginKvRepository.set(call.instance.instance_id, key, call.params["value"])
     except PluginStoreError as exc:
-        raise _store_error(exc) from None
+        raise _store_error(exc, repository.KV_QUOTA_BYTES) from None
 
 
 @capability("storage.delete", "storage")
@@ -75,11 +86,7 @@ async def delete(call: Call) -> None:
 async def list_(call: Call) -> list[str]:
     from app.repository.plugins import PluginKvRepository
 
-    prefix = _key(call.params, "prefix", required=False) or ""
-    after = _key(call.params, "after", required=False)
-    limit = call.params.get("limit", LIST_MAX)
-    if type(limit) is not int or not 1 <= limit <= LIST_MAX:
-        raise invalid_params(f"limit is 1 to {LIST_MAX}", fields=["limit"])
+    prefix, after, limit = list_args(call.params)
     keys = [
         k
         for k in await PluginKvRepository.keys(call.instance.instance_id)

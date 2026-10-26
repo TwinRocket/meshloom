@@ -34,6 +34,7 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -45,6 +46,7 @@ from app.plugins.capabilities.grants import conversation_readable, is_public_cha
 from app.plugins.quotas import (
     GuardRefused,
     QuotaExceeded,
+    SendGuard,
     effective_send_limits,
     send_guard,
     send_quota,
@@ -178,23 +180,42 @@ def _target_allowed(call: Call, targets: str, target: Target) -> bool:
     )
 
 
-async def _region(params: SendParams, target: Target) -> str | None:
-    """The `flood_scope_override` of the send: None = the channel's default."""
+def region_request(params: SendParams, target: Target) -> tuple[bool, str | None]:
+    """`(named, value)`: `named` when the send names a region that must be checked
+    against the known ones (`check_region`); otherwise `value` is the
+    `flood_scope_override` (None = the channel's default, "" = unscoped)."""
     if target.is_dm or "region" not in params.model_fields_set:
-        return None
+        return False, None
     if params.region is None or is_unscoped(params.region):
-        return ""
-    from app.repository import AppSettingsRepository
+        return False, ""
+    return True, params.region
 
-    settings = await AppSettingsRepository.get()
-    known = {normalize_region_scope(r) for r in settings.known_regions}
-    known.add(normalize_region_scope(settings.flood_scope))
+
+def check_region(
+    region: str, target: Target, known_regions: Iterable[str], flood_scope: str
+) -> None:
+    """`region_unknown` unless the region is a known one, the default flood scope or
+    the channel's own override."""
+    known = {normalize_region_scope(r) for r in known_regions}
+    known.add(normalize_region_scope(flood_scope))
     override = getattr(target.row, "flood_scope_override", None)
     if override and not is_unscoped(override):
         known.add(normalize_region_scope(override))
     known.discard("")
-    if normalize_region_scope(params.region) not in known:
+    if normalize_region_scope(region) not in known:
         raise CapabilityError("region_unknown", "unknown region")
+
+
+async def _region(params: SendParams, target: Target) -> str | None:
+    """The `flood_scope_override` of the send: None = the channel's default."""
+    named, value = region_request(params, target)
+    if not named:
+        return value
+    from app.repository import AppSettingsRepository
+
+    settings = await AppSettingsRepository.get()
+    assert params.region is not None
+    check_region(params.region, target, settings.known_regions, settings.flood_scope)
     return params.region
 
 
@@ -208,8 +229,9 @@ def _radio_name() -> str | None:
         return None
 
 
-def _check_size(text: str, target: Target) -> None:
-    limit = DM_HARD_LIMIT if target.is_dm else channel_text_allowance(_radio_name())
+def check_size(text: str, target: Target, radio_name: str | None) -> None:
+    """`message_too_long` when the text is over the server's byte rule."""
+    limit = DM_HARD_LIMIT if target.is_dm else channel_text_allowance(radio_name)
     size = byte_length(text)
     if size > limit:
         raise CapabilityError(
@@ -217,6 +239,10 @@ def _check_size(text: str, target: Target) -> None:
             f"the message is {size} bytes, the limit is {limit}",
             {"limit": limit, "bytes": size},
         )
+
+
+def _check_size(text: str, target: Target) -> None:
+    check_size(text, target, _radio_name())
 
 
 def _capture(call: Call) -> dict[str, Any]:
@@ -237,34 +263,46 @@ def _capture(call: Call) -> dict[str, Any]:
     return {"captured": True}
 
 
+def quota_refusal(exc: QuotaExceeded) -> CapabilityError:
+    return CapabilityError(
+        "quota_exceeded",
+        f"at most {exc.limit} messages per {exc.period}",
+        {
+            "scope": "plugin",
+            "period": exc.period,
+            "limit": exc.limit,
+            "retry_after": exc.retry_after,
+        },
+    )
+
+
 async def _check_quota(instance_id: str, limits: Any) -> None:
     try:
         await send_quota.check(instance_id, limits)
     except QuotaExceeded as exc:
-        raise CapabilityError(
-            "quota_exceeded",
-            f"at most {exc.limit} messages per {exc.period}",
-            {
-                "scope": "plugin",
-                "period": exc.period,
-                "limit": exc.limit,
-                "retry_after": exc.retry_after,
-            },
-        ) from None
+        raise quota_refusal(exc) from None
 
 
-def _reply_context(call: Call, target: Target) -> tuple[str | None, int | None]:
-    """`(sender, received_at)` of the message this send answers. The loop guards must not
+def reply_context(
+    guard: SendGuard,
+    instance_id: str,
+    event: Any,
+    target: Target,
+) -> tuple[str | None, int | None]:
+    """`(sender, received_at)` of the message a send answers. The loop guards must not
     depend on the plugin tying its send to an event: with the message event being handled
     that is its sender, otherwise (several events in flight, after the handler returned,
     no or a non-message `event_id`, a timer) the send counts as a reply to the most recent
     message the instance was handed from that destination, none if it was handed none."""
-    event = call.event
     if event is not None and event.hook == "message" and not event.params.get("is_outgoing"):
         received = event.params.get("received_at")
-        return send_guard.sender_of(event.params), received if type(received) is int else None
-    last = send_guard.last_inbound(call.instance.instance_id, is_dm=target.is_dm, key=target.key)
+        return guard.sender_of(event.params), received if type(received) is int else None
+    last = guard.last_inbound(instance_id, is_dm=target.is_dm, key=target.key)
     return (last[0], last[1]) if last is not None else (None, None)
+
+
+def _reply_context(call: Call, target: Target) -> tuple[str | None, int | None]:
+    return reply_context(send_guard, call.instance.instance_id, call.event, target)
 
 
 def _unavailable() -> CapabilityError:
