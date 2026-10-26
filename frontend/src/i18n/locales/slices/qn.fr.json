@@ -1,0 +1,61 @@
+{
+  "settings": {
+    "notifications": {
+      "cappedBanner": "Les notifications sont plafonnées : la limite horaire de toute l'instance est atteinte, les nouvelles sont abandonnées jusqu'à ce que le compte redescende. Consultez le journal d'envoi de vos canaux.",
+      "advanced": {
+        "title": "Avancé",
+        "help": "Limites par canal. Au-delà d'une limite, les notifications sont regroupées en un seul résumé ; la limite quotidienne arrête les envois jusqu'à minuit (UTC). Laissez un champ vide pour garder la valeur par défaut.",
+        "perMin": "Par minute",
+        "perHour": "Par heure",
+        "perDay": "Par jour",
+        "default": "Par défaut : {{count}}",
+        "noDefault": "Pas de limite par défaut"
+      },
+      "log": {
+        "open": "Journal d'envoi",
+        "title": "Journal d'envoi : {{name}}",
+        "help": "Les 50 derniers événements de ce canal. Le texte des messages n'est jamais conservé.",
+        "refresh": "Actualiser",
+        "empty": "Rien d'enregistré pour l'instant.",
+        "sent24h_one": "{{count}} envoyée sur les dernières 24 h",
+        "sent24h_other": "{{count}} envoyées sur les dernières 24 h",
+        "suppressed_one": "{{count}} retenue pendant les heures calmes",
+        "suppressed_other": "{{count}} retenues pendant les heures calmes",
+        "grouped_one": "{{count}} groupée",
+        "grouped_other": "{{count}} groupées",
+        "events": {
+          "message_dm": "Message direct",
+          "message_channel": "Message de canal",
+          "message_mention": "Mention",
+          "contact_first_seen": "Nouveau nœud vu",
+          "channel_found": "Canal trouvé",
+          "telemetry_alert": "Alerte de télémétrie",
+          "radio_offline": "Radio hors ligne",
+          "radio_online": "Radio de retour en ligne",
+          "app_started": "Meshloom démarré",
+          "app_update": "Mise à jour disponible",
+          "notify_destination_changed": "Destination modifiée",
+          "notify_channel_changed": "Canal modifié",
+          "notify_test": "Notification de test",
+          "notifications_grouped": "Résumé des notifications groupées",
+          "first_seen_grouped": "Résumé des nouveaux nœuds",
+          "quiet_digest": "Résumé des heures calmes"
+        },
+        "errorGeneric": "Échec de l'envoi ({{code}})",
+        "status": {
+          "failed": "Échec",
+          "rate_limited": "Limitée",
+          "quota_exceeded": "Limite quotidienne",
+          "aggregated": "Groupée",
+          "suppressed_quiet": "Heures calmes",
+          "paused": "En pause",
+          "aborted": "Interrompue"
+        }
+      },
+      "matrix": {
+        "alwaysDeliverTip": "Toujours livrer : envoyé même pendant les heures calmes. Ouvrir les réglages des heures calmes.",
+        "quietLink": "Heures calmes"
+      }
+    }
+  }
+}

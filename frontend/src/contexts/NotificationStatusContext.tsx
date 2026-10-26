@@ -10,16 +10,28 @@ const NotificationStatusContext = createContext<Record<string, NotificationChann
  */
 export function NotificationStatusProvider({
   statuses,
+  capped = false,
   children,
 }: {
   statuses: Record<string, NotificationChannelStatus> | undefined;
+  /** `health.notifications_capped`: the global hourly cap was reached. */
+  capped?: boolean;
   children: ReactNode;
 }) {
   return (
     <NotificationStatusContext.Provider value={statuses ?? EMPTY}>
-      {children}
+      <NotificationsCappedContext.Provider value={capped}>
+        {children}
+      </NotificationsCappedContext.Provider>
     </NotificationStatusContext.Provider>
   );
+}
+
+const NotificationsCappedContext = createContext(false);
+
+/** Whether the notification dispatcher hit its global hourly cap (health, admin banner). */
+export function useNotificationsCapped(): boolean {
+  return useContext(NotificationsCappedContext);
 }
 
 const EMPTY: Record<string, NotificationChannelStatus> = {};

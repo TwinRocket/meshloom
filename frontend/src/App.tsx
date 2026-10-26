@@ -928,7 +928,10 @@ export function App() {
             showPathHopWidth={showPathHopWidth}
             setShowPathHopWidth={setShowPathHopWidth}
           >
-            <NotificationStatusProvider statuses={health?.notification_statuses}>
+            <NotificationStatusProvider
+              statuses={health?.notification_statuses}
+              capped={health?.notifications_capped === true}
+            >
               <AppShell
                 navRailOrder={appSettings?.ui_preferences?.nav_rail}
                 serverLabel={serverLabel}

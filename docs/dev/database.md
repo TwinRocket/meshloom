@@ -234,6 +234,10 @@ batches), the pending secrets of a restored channel, and the quiet-hours counter
 `pause:...` of the same shape (no expiry: the digest takes and deletes them, MSHL-124; `builtin:push@<user id>` or `@d` count per wanted account). Expired rows are
 pruned hourly by the dispatcher.
 
+The delivery cards' exact 24 h figures (MSHL-390) are keys `stat:<status>:<epoch hour>:<channel>`
+for `suppressed_quiet` and `aggregated`, incremented in the transaction that inserts the journal
+rows and expiring 25 h after their hour (`NotificationJournalRepository.window_totals`).
+
 ### `push_subscriptions`
 
 Web Push subscriptions: PK `id`, `endpoint` (unique), `p256dh`, `auth`, `label`,
@@ -402,8 +406,10 @@ Custom GitHub repositories of the Store (migration 126, MSHL-196): PK `repositor
 (lowercase `owner/name`), `display_name` (the case GitHub gives), `added_at`,
 `checked_at` (Unix seconds of the last check), `last_error` (error code of the last
 check, NULL when it succeeded), and the last good release: `tag`, `plugin_id`,
-`version`, `manifest` (JSON), `archive_sha256`, `archive_size`. A failed check keeps the
-last good release. Written only by `app/plugins/custom_repos.py` (add, refresh, remove);
+`version`, `manifest` (JSON), `archive_sha256`, `archive_size`, and `config_schema`
+(the archive's `config.schema.json` as JSON or NULL, migration 127, MSHL-197: the
+update list diffs it without a download; NULL for a release cached before 127). A
+failed check keeps the last good release. Written only by `app/plugins/custom_repos.py` (add, refresh, remove);
 removing a row never touches installed instances. Excluded from the JSON backup, kept in
 the database download (no secret).
 

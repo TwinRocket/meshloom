@@ -244,6 +244,19 @@ class PatchRequest(_Body):
     ) = Field(default=None, max_length=6, description="A local plugin's subscriptions.")
 
 
+class UpdateRequest(_Body):
+    version: str | None = Field(
+        default=None, min_length=1, max_length=64, description="The latest release when omitted."
+    )
+    granted_permissions: dict[str, Any] | None = Field(
+        default=None,
+        description="Consent to the new manifest for this instance; it must cover it.",
+    )
+    config: dict[str, Any] | None = Field(
+        default=None, description="This instance's config under the new schema (PATCH rules)."
+    )
+
+
 class SourceRequest(_Body):
     source: str = Field(max_length=MAX_SOURCE_BYTES)
 
@@ -537,7 +550,9 @@ def _status_changes(
     config_changed: bool,
 ) -> dict[str, Any]:
     """The one place a PATCH may move ``status``/``attention`` (the supervisor owns the
-    rest). ``revoked`` and ``incompatible`` are frozen: only an update (M2) leaves them."""
+    rest). ``revoked`` and ``incompatible`` are frozen: only an update
+    (``app/plugins/updates.py``) or, for ``incompatible``, a start where the instance
+    fits ``compat.meshloom`` again leaves them."""
     status = row["status"]
     if status in ("revoked", "incompatible"):
         return {}
@@ -965,6 +980,48 @@ async def _reinstall(instance_id: str) -> None:
     except PluginStoreError as exc:
         raise _store_error(exc) from None
     plugin_manager.announce(instance_id)
+
+
+@router.post(
+    "/{instance_id}/update",
+    response_model=PluginInstanceView,
+    dependencies=[Admin, Writable],
+)
+async def update_plugin(
+    instance_id: str, body: UpdateRequest, actor: audit.RequestActor = audit.SYSTEM_ACTOR
+) -> PluginInstanceView:
+    """Update a ``custom`` plugin to a newer release of its source (MSHL-197,
+    ``app/plugins/updates.py``): checked exactly like an install (409 ``store_offline``,
+    400 ``archive_mismatch``, 400 ``consent_required`` when ``granted_permissions`` do
+    not cover the new manifest, 409 ``incompatible``, 400 ``config_invalid``). The code
+    directory is shared: every instance of the plugin moves to the new version and keeps
+    its config, secrets and KV. An instance whose grants do not cover new or changed
+    permissions is held (``attention.type = "consent_required"``), one missing a new
+    required config field too (``config_required``); ``granted_permissions`` and
+    ``config`` apply to this instance only. 409 ``plugin_not_updatable`` (not from a
+    custom repository), ``plugin_reinstall_required``, ``plugin_up_to_date``."""
+    from app.plugins import updates
+
+    row = await _row(instance_id)
+    async with audit.audited(
+        actor,
+        "plugin.updated",
+        target=_target(row["instance_id"]),
+        details=_audit_details(row, fields=["version"], from_version=row["version"]),
+    ) as scope:
+        written = await updates.update_plugin(
+            row["instance_id"],
+            version=body.version,
+            granted=body.granted_permissions,
+            config=body.config,
+            actor=actor,
+            audit_self=False,
+        )
+        fields = (written or {}).get(row["instance_id"]) or {}
+        scope.details["to_version"] = fields.get("version")
+        held = (fields.get("attention") or {}).get("type")
+        scope.details["held"] = held if held in ("consent_required", "config_required") else None
+    return await _view(await _row(row["instance_id"]), True)
 
 
 @router.post("", status_code=201, response_model=PluginInstanceView, dependencies=[Admin, Writable])

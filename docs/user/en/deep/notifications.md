@@ -268,6 +268,12 @@ Every channel has limits per minute, per hour and, for some, per day. The defaul
 - **Global cap.** Over all channels together, Meshloom sends at most 600 notifications an hour (`limits.global_per_hour` in the rules). Above it nothing is sent, urgent events included, each is logged as *rate limited*, and `/api/health` reports `notifications_capped: true` until the hour has room again.
 - **No repeats.** A new contact notifies once a day, a radio outage once, a message once, even after a restart. A telemetry alert is only limited by its own hysteresis.
 
+### Advanced settings and the delivery log
+
+In a channel's edit dialog, **Advanced** opens the channel's limits per minute, per hour and per day, with the type's default shown under each field (empty keeps the default), and the **Exempt from quiet hours** box (the same one as on the card). The quiet hours group itself, with the host's time zone shown, is in the rules; the **Always deliver** column heading of the table links to it.
+
+Each card has a **Delivery log** button. It opens a drawer with the channel's last 50 journal entries (time, the event by name, a status badge such as *failed*, *grouped*, *quiet hours*, *rate limited*, *daily limit*, and the error as a short translated text, never a message text; a code Meshloom has no text for shows as "Delivery failed (code)"), the number of notifications sent in the last 24 hours and a **Refresh** button. On the card, a line shows how many notifications were held during quiet hours and how many were grouped into a summary over the last 24 hours, when there are any. These two figures are exact counts (the log itself keeps only the last 200 entries per channel). When Meshloom reaches its global hourly cap (see above), a banner at the top of the channel list says so (`notifications_capped` in `/api/health`).
+
 ## Testing a channel
 
 Every channel has a **Test** button, and the add dialog tests **before anything is saved** (**Send a test and continue**). A test goes through the channel's own sender and the same checks as a real send, without joining the queue, the journal or the counters. A failure is shown as a short code, translated, that never contains an address, a token or the network's own error text:
@@ -333,7 +339,7 @@ Administrators manage the channels under `/api/notifications`:
 | POST | `/api/notifications/channels/{id}/test` | Send a test; one per 5 seconds per channel, then `429 rate_limited` |
 | GET, PATCH | `/api/notifications/rules` | Channels per event, `always_deliver`, the global pause (`paused_until`), the radio offline delay |
 | PUT | `/api/notifications/rules/conversations/{key}` | Channels of one conversation (`{"channels": {"id": true}}`, or `null` to clear) |
-| GET | `/api/notifications/deliveries` | The delivery journal (failures and suppressions, never the text) and hourly counters |
+| GET | `/api/notifications/deliveries` | The delivery journal (failures and suppressions, never the text) and hourly counters, plus exact 24 h `totals` (`sent`, `suppressed_quiet`, `aggregated`) |
 | GET | `/api/notifications/events` | The event catalogue |
 
 

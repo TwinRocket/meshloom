@@ -268,6 +268,12 @@ Chaque canal a des limites par minute, par heure et, pour certains, par jour. Le
 - **Plafond global.** Tous canaux confondus, Meshloom envoie au plus 600 notifications par heure (`limits.global_per_hour` dans les règles). Au-delà, rien n’est envoyé, urgents compris, chacune est inscrite *limitée* dans le journal, et `/api/health` indique `notifications_capped: true` jusqu’à ce que l’heure ait de la place.
 - **Pas de répétition.** Un nouveau contact notifie une fois par jour, une panne de radio une fois, un message une fois, même après un redémarrage. Une alerte de télémétrie n’est limitée que par sa propre hystérésis.
 
+### Réglages avancés et journal d’envoi
+
+Dans la fenêtre de modification d’un canal, **Avancé** ouvre les limites du canal par minute, par heure et par jour, avec la valeur par défaut du type sous chaque champ (un champ vide la garde), et la case **Exempté des heures calmes** (la même que sur la carte). Le groupe des heures calmes, avec le fuseau horaire de la machine, est dans les règles ; l’en-tête de la colonne **Toujours livrer** du tableau y renvoie.
+
+Chaque carte a un bouton **Journal d’envoi**. Il ouvre un tiroir avec les 50 dernières entrées du journal du canal (heure, nom de l’événement, pastille d’état comme *Échec*, *Groupée*, *Heures calmes*, *Limitée*, *Limite quotidienne*, et l’erreur sous forme de texte court traduit, jamais un texte de message ; un code sans traduction s’affiche « Échec de l’envoi (code) »), le nombre de notifications envoyées sur les dernières 24 heures et un bouton **Actualiser**. Sur la carte, une ligne indique, quand il y en a, combien de notifications ont été retenues pendant les heures calmes et combien ont été regroupées en un résumé sur les dernières 24 heures. Ces deux chiffres sont exacts (le journal lui-même ne garde que les 200 dernières entrées par canal). Quand Meshloom atteint son plafond horaire global (voir plus haut), un bandeau en haut de la liste des canaux l’indique (`notifications_capped` dans `/api/health`).
+
 ## Tester un canal
 
 Chaque canal a un bouton **Tester**, et le dialogue d’ajout teste **avant tout enregistrement** (**Envoyer un test et continuer**). Un test passe par l’expéditeur propre au canal et les mêmes vérifications qu’un vrai envoi, sans entrer dans la file, le journal ni les compteurs. Un échec s’affiche sous forme d’un code court, traduit, qui ne contient jamais une adresse, un jeton ni le texte d’erreur du réseau :
@@ -333,7 +339,7 @@ Les administrateurs gèrent les canaux sous `/api/notifications` :
 | POST | `/api/notifications/channels/{id}/test` | Envoie un test ; un par 5 secondes et par canal, puis `429 rate_limited` |
 | GET, PATCH | `/api/notifications/rules` | Canaux par événement, `always_deliver`, pause globale (`paused_until`), délai de radio hors ligne |
 | PUT | `/api/notifications/rules/conversations/{key}` | Canaux d’une conversation (`{"channels": {"id": true}}`, ou `null` pour effacer) |
-| GET | `/api/notifications/deliveries` | Le journal des envois (échecs et suppressions, jamais le texte) et les compteurs horaires |
+| GET | `/api/notifications/deliveries` | Le journal des envois (échecs et suppressions, jamais le texte) et les compteurs horaires, plus les `totals` exacts sur 24 h (`sent`, `suppressed_quiet`, `aggregated`) |
 | GET | `/api/notifications/events` | Le catalogue des événements |
 
 

@@ -17,6 +17,9 @@ The archive is then validated and extracted (`app/plugins/package.py`: zip-slip,
 symlinks, special files, size and entry caps) into `<data>/plugins/_staging/<uuid>/`,
 its manifest must equal the entry (id, version, permissions), and the tree is moved
 atomically into `<data>/plugins/<plugin_id>/`, shared by the instances of that plugin.
+An update (`app/plugins/updates.py`, MSHL-197) goes through the same pipeline and uses
+`PreparedInstall.swap` instead of `commit`, so the old tree goes back (`restore_tree`)
+when the rows cannot be written.
 `custom` and `store` sources come from resolvers (`register_resolver`): `custom` is
 registered by `app/plugins/custom_repos.py` (MSHL-196); `store` has none yet and
 answers `plugin_source_unavailable`.
@@ -203,9 +206,15 @@ def restore_previous(plugin: BundledPlugin, plugins_root: Path, previous: Path |
     """Undo `swap_bundled`: the old tree back in place, the new one removed (no-op
     when `previous` is None). Raises `OSError` when the old tree cannot go back; it
     then stays where it is."""
+    restore_tree(plugins_root, plugin.package.manifest.id, previous)
+
+
+def restore_tree(plugins_root: Path, plugin_id: str, previous: Path | None) -> None:
+    """Undo a swap (`swap_bundled`, `PreparedInstall.swap`) of `plugin_id`; see
+    `restore_previous`."""
     if previous is None:
         return
-    target = plugins_root / plugin.package.manifest.id
+    target = plugins_root / plugin_id
     discarded = previous.parent / uuid.uuid4().hex
     target.rename(discarded)
     try:
@@ -652,6 +661,15 @@ class PreparedInstall:
 
     def discard(self) -> None:
         _clean_staging(self.staging.parent, self.staging)
+
+    def swap(self) -> Path | None:
+        """Move the tree in place and keep the old one (an update, MSHL-197): returns
+        where it went (`_staging/previous-<hex>`), for `discard_previous` or
+        `restore_tree`; None when there was none."""
+        try:
+            return _swap_tree(self.staging, self.plugins_root / self.plugin_id, self.plugin_id)
+        finally:
+            self.discard()
 
     def commit(self) -> None:
         """Move the tree into `<plugins_root>/<plugin_id>/` (atomic rename). A bundled

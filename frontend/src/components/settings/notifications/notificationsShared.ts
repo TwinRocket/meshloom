@@ -186,6 +186,29 @@ export interface ChannelDraft {
   include_message_text: 'always' | 'public_only' | 'never';
   allow_private_network: boolean;
   verify_tls: boolean;
+  /** Send limits as typed: '' keeps the type default, otherwise a positive integer. */
+  rate_per_min: string;
+  rate_per_hour: string;
+  rate_per_day: string;
+  quiet_hours_exempt: boolean;
+}
+
+/** `''` is "use the default" (sent as null); anything else is the integer the server validates. */
+export function parseLimit(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The limit and quiet-hours part of a create or patch body. */
+export function advancedBody(draft: ChannelDraft) {
+  return {
+    rate_per_min: parseLimit(draft.rate_per_min),
+    rate_per_hour: parseLimit(draft.rate_per_hour),
+    rate_per_day: parseLimit(draft.rate_per_day),
+    quiet_hours_exempt: draft.quiet_hours_exempt,
+  };
 }
 
 export function createBody(
@@ -203,5 +226,6 @@ export function createBody(
     allow_private_network: draft.allow_private_network,
     include_message_text: entry.cloud ? draft.include_message_text : null,
     verify_tls: draft.verify_tls,
+    ...advancedBody(draft),
   };
 }

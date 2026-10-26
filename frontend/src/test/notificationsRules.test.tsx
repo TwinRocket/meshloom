@@ -155,6 +155,21 @@ describe('RulesMatrix', () => {
     await waitFor(() => expect(cell('message_dm', 'Phone')).toBeChecked());
   });
 
+  it('scrolls to the quiet hours card from the "always deliver" tooltip link', async () => {
+    mockApi();
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    render(<Harness />);
+    await screen.findByRole('table');
+    const target = document.getElementById('notification-quiet-hours-section');
+    expect(target).not.toBeNull();
+    fireEvent.click(
+      screen.getByRole('button', { name: t('settings.notifications.matrix.alwaysDeliverTip') })
+    );
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView.mock.contexts[0]).toBe(target);
+  });
+
   it('toggles "always deliver" and shows the event default', async () => {
     mockApi();
     const patch = vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(RULES);

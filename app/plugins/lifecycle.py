@@ -2,15 +2,17 @@
 
 `app/main.py` calls `start()` once the database is open and the fanout modules
 are loaded, and `stop()` as a shutdown step before the background tasks are
-drained; `/api/health` merges `health_fields()` into its payload. Nothing else
-here: the supervisor is `app/plugins/host.py`.
+drained; `/api/health` merges `health_fields()` into its payload. Before any child
+starts, `start()` updates the bundled plugins, marks the custom/store instances outside
+their `compat.meshloom` as `incompatible` and registers the Store auto-update refresher
+(`app/plugins/updates.py`). The supervisor is `app/plugins/host.py`.
 """
 
 import asyncio
 import logging
 from typing import Any, Final
 
-from app.plugins import bundled_update, installer, isolation
+from app.plugins import bundled_update, installer, isolation, updates
 from app.plugins.host import isolation_level, plugin_manager
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,10 @@ async def start() -> None:
         await bundled_update.update_bundled()
     except Exception:
         logger.exception("Bundled plugin update failed")
+    # Custom/store instances outside their `compat.meshloom` never start (MSHL-197).
+    await updates.mark_compat()
+    # Store auto-updates run after the custom repositories' refresh (registered before).
+    updates.register()
     try:
         await plugin_manager.load_from_db()
     except Exception:
@@ -61,6 +67,7 @@ async def start() -> None:
 
 async def stop(timeout: float = SHUTDOWN_TIMEOUT_SECONDS) -> None:
     """Stop every child: `plugin.shutdown`, a bounded wait, then SIGKILL; at most `timeout`."""
+    updates.unregister()
     await plugin_manager.stop_all(timeout)
 
 

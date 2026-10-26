@@ -26,13 +26,16 @@ capped. No API, no token:
    ``.sha256`` comes over the same channel as the archive: it is an integrity check,
    not a security one (the API and the UI say so, ``CUSTOM_WARNING``).
 
-``store_repositories`` (migration 126) keeps each repository and the last release read.
+``store_repositories`` (migration 126) keeps each repository and the last release read,
+with the archive's config schema (migration 127, MSHL-197: what ``GET
+/api/store/updates`` compares, ``app/plugins/updates.py``).
 The archive is downloaded when a repository is added and when the refresh sees a new
 tag; an install (``resolve_custom``, the installer's ``custom`` resolver) reads the
 latest release again and lets the installer download and check the archive. The
 background refresh (``refresh_repositories``, a Store refresher: every 6 h while the
 Store is on and an online instance is installed) updates the cached releases. Removing
 a repository never touches installed instances: they keep running, without updates.
+Updating them from the cached release: ``app/plugins/updates.py`` (MSHL-197).
 There is no online revocation for custom plugins (Store T19, M2b).
 """
 
@@ -40,9 +43,12 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
+import json
 import logging
 import re
 import time
+import zipfile
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
@@ -118,6 +124,8 @@ class Release:
     entry: dict[str, Any]
     sha256: str
     size: int | None
+    # The archive's config schema ({} without one); None when the archive was not read.
+    config_schema: dict[str, Any] | None = None
 
 
 def parse_repository(text: object) -> Repository:
@@ -212,6 +220,16 @@ def _issues(exc: PluginValidationError) -> list[dict[str, str]]:
     return [{"code": i.code, "path": i.path} for i in exc.issues][:50]
 
 
+def _archive_schema(archive: bytes, path: str | None) -> dict[str, Any]:
+    """The config schema of an archive ``validate_package`` accepted (its size and JSON
+    are already checked), ``{}`` without one."""
+    if not path:
+        return {}
+    with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+        schema = json.loads(zf.read(path))
+    return schema if isinstance(schema, dict) else {}
+
+
 def parse_sha256(raw: bytes) -> str:
     """The first 64-hex token of a ``.sha256`` file (``sha256sum`` output or the bare
     digest), lowercase; ``repository_sha256_invalid`` otherwise."""
@@ -250,6 +268,7 @@ async def fetch_release(repo: Repository, *, with_archive: bool) -> Release:
     entry = _manifest_entry(manifest)
     sha256 = parse_sha256(sha_raw)
     size: int | None = None
+    config_schema: dict[str, Any] | None = None
     if archive is not None:
         if not hmac.compare_digest(hashlib.sha256(archive).hexdigest(), sha256):
             raise InstallError("archive_mismatch", fields=["sha256"])
@@ -262,7 +281,8 @@ async def fetch_release(repo: Repository, *, with_archive: bool) -> Release:
         if mismatched:
             raise InstallError("archive_mismatch", fields=mismatched)
         size = len(archive)
-    return Release(tag, display, entry, sha256, size)
+        config_schema = _archive_schema(archive, package.manifest.config_schema)
+    return Release(tag, display, entry, sha256, size, config_schema)
 
 
 # --- Storage (``StoreRepositoriesRepository``) --------------------------------------
@@ -285,6 +305,7 @@ async def _save_release(key: str, release: Release, now: int) -> None:
         entry=release.entry,
         archive_sha256=release.sha256,
         archive_size=release.size,
+        config_schema=release.config_schema,
     )
 
 
