@@ -40,6 +40,8 @@ export interface NotificationTypeInfo {
   include_message_text_locked?: boolean;
   /** The channel's body can be a template (Apprise and presets, ntfy, Discord). */
   templates?: boolean;
+  /** The channel can send a heartbeat (ntfy, webhook, Apprise, Gotify, Home Assistant). */
+  heartbeat?: boolean;
 }
 
 export interface NotificationChannel {
@@ -63,6 +65,10 @@ export interface NotificationChannel {
   rate_per_min: number | null;
   rate_per_hour: number | null;
   rate_per_day: number | null;
+  /** Heartbeat (MSHL-131): 0 is off; the ping URL reads `********` when saved, `''` when not. */
+  heartbeat_interval_s?: number;
+  heartbeat_method?: 'GET' | 'POST';
+  heartbeat_url?: string;
   limits: { per_min: number | null; per_hour: number | null; per_day: number | null };
   sort_order: number;
   created_at: number;
@@ -94,6 +100,10 @@ export interface NotificationChannelCreate {
   rate_per_min?: number | null;
   rate_per_hour?: number | null;
   rate_per_day?: number | null;
+  heartbeat_interval_s?: number;
+  heartbeat_method?: 'GET' | 'POST';
+  /** Omitted or `********` keeps the saved URL, `''` removes it. */
+  heartbeat_url?: string;
 }
 
 /** `POST /notifications/channels/preview-template`: the templates rendered on two sample messages. */

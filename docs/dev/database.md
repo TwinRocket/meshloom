@@ -212,7 +212,10 @@ reused), `type` (immutable: `web_push`, `email`, `webhook`, `apprise`), `preset`
 (JSON, each value a `v1:` AES-256-GCM token since migration 129, see `app/AGENTS.md`, "Secrets at rest"; never returned by any read path),
 `allow_private_network`, `include_message_text`, `verify_tls`, `quiet_hours_exempt`,
 `rate_per_min`, `rate_per_hour`, `rate_per_day` (NULL: the type's default), `sort_order`,
-`created_at`, `last_ok_at`, `last_error`, `failure_count`, `paused_until`.
+`created_at`, `last_ok_at`, `last_error`, `failure_count`, `paused_until`,
+`template_dm`, `template_channel` (migration 130), `heartbeat_interval_s` (0 = off, else 300..86400)
+and `heartbeat_method` (`GET`/`POST`) (migration 131; the optional ping URL is the `heartbeat_url`
+key of `secrets`, not a column).
 `NotificationChannelRepository` (`notification_channels.py`).
 
 ### `notification_deliveries`

@@ -316,7 +316,8 @@ imported by `services/backup.py`.
 - **Data.** `{"channels": [...], "rules": {...}}`. A channel carries its id, type,
   preset, name, enabled, language, **public** config, `allow_private_network`,
   `include_message_text`, `verify_tls`, `template_dm`, `template_channel`, `quiet_hours_exempt`, the three rates,
-  `sort_order` and `secret_omitted` (`{field: true}` for each write-only field that held a
+  `heartbeat_interval_s`, `heartbeat_method` (MSHL-131; the `heartbeat_url` ping URL is a secret, so
+  only named in `secret_omitted`), `sort_order` and `secret_omitted` (`{field: true}` for each write-only field that held a
   value; the values are never exported). `rules` is `app_settings.notification_rules`
   with `paused_until` emptied; `quiet_hours` (validated by `quiet_hours.validate_quiet_hours`,
   a bad value dropped with the `notification_rules_sanitized` warning) travels in it. The delivery
@@ -342,7 +343,10 @@ imported by `services/backup.py`.
   (name excluded for `builtin:`); the `legacy:*` destination and secrets come from
   `notification_destinations` in the v1 settings, restored first. An unknown type, a
   config the type refuses or a `legacy:*` channel absent here is dropped with
-  `notification_channel_dropped:<id>`. A channel of a preset with a locked text policy (the
+  `notification_channel_dropped:<id>`. A heartbeat interval out of range (non-zero below 300) or on a
+  type without heartbeat restores as 0 with `notification_heartbeat_dropped:<id>`; a file whose
+  `secret_omitted` does not name `heartbeat_url` removes a stored one. After the restore the heartbeat
+  loops are reconciled (`dispatcher.heartbeats.reconcile()`). A channel of a preset with a locked text policy (the
   SMS ones) is restored with its own policy (`never`) whatever the file says, with the warning
   `notification_text_policy_forced:<id>`. A Slack channel of the pre-release shape
   (`token_a`/`token_b` in its config) fails the config check and is dropped the same way
