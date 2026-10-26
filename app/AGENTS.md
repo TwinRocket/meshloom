@@ -1463,8 +1463,9 @@ comments of `pkg/nfpm/apply-update`, `scripts/setup/helpers/compose-update`,
   and the destination at once: `********` keeps them, `""` clears them. The fanout configs follow
   the same rules (`app/fanout/AGENTS.md`, "Secrets").
 - Any change of `notification_destinations` (`AppSettingsRepository.update`,
-  so a restore too) pushes `notify.destination_changed` to every subscription
-  (`notify_destination_changed`): the proof of modification, not configurable.
+  so a restore too) pushes `notify.destination_changed` to every administrator's subscription
+  (`notify_destination_changed`; `ADMIN_ONLY_EVENTS`, MSHL-399): the proof of modification,
+  not configurable.
 - **Apprise medium** (`app/notifications/apprise_medium.py`, `send_apprise_alert`
   in `app/notify.py`). URLs checked at save (`_check_webhook_destination` in
   the settings router, coded 400) and again before each send; one Apprise

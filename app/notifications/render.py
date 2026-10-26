@@ -528,6 +528,32 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
                     f"Le navigateur « {name} » a été désabonné par son service push. "
                     "Réactivez les notifications sur cet appareil."
                 )
+        elif error == "push_evicted":
+            if lang == "en":
+                title = "Browser removed"
+                body = (
+                    f'Browser "{name}" failed 15 pushes in a row and was removed. '
+                    "Turn notifications on again on that device."
+                )
+            else:
+                title = "Navigateur retiré"
+                body = (
+                    f"Le navigateur « {name} » a échoué 15 envois de suite et a été retiré. "
+                    "Réactivez les notifications sur cet appareil."
+                )
+        elif error == "push_refused":
+            if lang == "en":
+                title = "Browser removed"
+                body = (
+                    f'The push address of browser "{name}" is refused by the network guard, '
+                    "so it was removed. Turn notifications on again on that device."
+                )
+            else:
+                title = "Navigateur retiré"
+                body = (
+                    f"L'adresse push du navigateur « {name} » est refusée par la protection "
+                    "réseau, il a été retiré. Réactivez les notifications sur cet appareil."
+                )
         elif lang == "en":
             title = "Notification channel failing"
             body = f'Channel "{name}" keeps failing ({error}). Check it in the settings.'

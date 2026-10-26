@@ -30,7 +30,7 @@ This file is a hypothesis: check it against the code.
   `PAUSE_AFTER` 20, `BACKOFF_S` 300/900/3600/21600), `safe_error_code` (the notice carries a
   bare code such as `http_503` or `timeout`, never `last_error` as stored: no token, password,
   URL or host), `announce()` (the once-a-day `notify.channel_failed`) and
-  `announce_push_unsubscribed()`. The dispatcher owns the counting, the pause and the probes.
+  `announce_push_removed()` (`push_unsubscribed`, `push_evicted`, `push_refused`). The dispatcher owns the counting, the pause and the probes.
 - `channels.py`: the channel models and the type registry. A type declares a Pydantic
   config model (`WebPushConfig`, `EmailConfig`, `WebhookConfig`, `AppriseConfig`, `NtfyConfig`, `DiscordConfig`); secret
   fields are `SecretStr` with `writeOnly: true` in `json_schema_extra`, labels and help are
@@ -290,9 +290,23 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   `notification_state` key `channel_failed:<id>` with a 1-day TTL through `state_claim`, so at
   most once a day per channel, across restarts), and when `PushManager._record_outcomes` drops
   a subscription its push service expired (403/404/410; key `channel_failed:push:<sub id>`,
-  `name` = the device label). Emitted with `targets` = `builtin:push` and every enabled channel,
-  minus the failing one. Payload `channel_id`, `name`, `error` (`safe_error_code`). The 15-failure
-  eviction and the egress-guard removals of push subscriptions do not announce.
+  `name` = the device label, error `push_unsubscribed`); MSHL-399 adds the 15-failure eviction
+  (`batch_record_outcomes` returns the evicted ids, error `push_evicted`) and the egress-guard
+  removals (`_SendResult.invalid`, error `push_refused`), same key. Emitted with `targets` =
+  `builtin:push` and every enabled channel, minus the failing one. Payload `channel_id`, `name`,
+  `error` (`safe_error_code`). Not digestible (`quiet.digestible` takes `message.*`/`contact.*`
+  only), so a channel in digest mode gets it at once; quiet hours and pauses still hold it (not
+  urgent).
+- **Admin-only notices on Web Push** (MSHL-399): `user_rules.ADMIN_ONLY_EVENTS`
+  (`notify.channel_changed`, `notify.channel_failed`, `notify.destination_changed`) name channels
+  and devices, admin-level data (`/api/health` details and the `notification_event` frame of
+  `notify.*` are admin-only too). `_emit` replaces the `builtin:push` audience with
+  `admin_audience()`: the admins owning a deliverable device (`owner_role == "admin"`), `default`
+  None so no other account gets it, and held counters are per admin account. No admin device, or
+  owners unreadable: `builtin:push` is dropped (fail closed). `PushManager.dispatch_event` checks
+  `is_admin_owner` again for these events (a demotion between emit and send, and the legacy
+  `notify_destination_changed` that calls it directly). Other channels are admin-configured
+  destinations and are not filtered.
 - **Fanout duplicates and conversion** (`fanout_convert.py`, MSHL-134): `POST /channels`
   answers `fanout_duplicates: [{id, name}]`, the enabled, unconverted Apprise fanout rows whose
   URLs match the new channel's (presets compiled, generic Apprise `urls`, Discord `webhook_url`).

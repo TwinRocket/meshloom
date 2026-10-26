@@ -1,9 +1,11 @@
 """A channel that keeps failing (MSHL-130): the ``notify.channel_failed`` notice and the
 auto-pause with its backoff. The dispatcher calls these; ``app/push/manager.py`` calls
-``announce`` when a push service unsubscribes a browser.
+``announce_push_removed`` when it removes a browser's subscription (unsubscribed by its push
+service, refused for good by the egress guard, or ``MAX_CONSECUTIVE_FAILURES`` failures).
 
 - After ``FAILED_EVENT_AFTER`` consecutive failures, ``notify.channel_failed`` goes to
-  ``builtin:push`` and every other enabled channel, never to the failing one. At most once
+  ``builtin:push`` (administrators' devices only, MSHL-399) and every other enabled channel,
+  never to the failing one. At most once
   per channel per day: the ``channel_failed:<id>`` row of ``notification_state`` (it expires
   after a day) survives a restart.
 - After ``PAUSE_AFTER`` consecutive failures the channel's ``paused_until`` is set, and
@@ -31,8 +33,12 @@ BACKOFF_S: tuple[int, ...] = (300, 900, 3600, 21600)
 ANNOUNCE_TTL_S = 86400
 ANNOUNCE_PREFIX = "channel_failed:"
 AUTOPAUSE_PREFIX = "autopause:"
-# The error of the notice sent when a push service drops a browser's subscription.
+# The errors of the notice sent when a browser's subscription is removed: its push service
+# dropped it, it failed ``MAX_CONSECUTIVE_FAILURES`` times in a row, or the egress guard
+# refuses its endpoint for good (MSHL-399).
 PUSH_UNSUBSCRIBED = "push_unsubscribed"
+PUSH_EVICTED = "push_evicted"
+PUSH_REFUSED = "push_refused"
 MAX_NAME_LEN = 80
 
 _CODE = re.compile(r"[a-z0-9_]{1,64}")
@@ -116,14 +122,23 @@ async def announce(
         return False
 
 
-async def announce_push_unsubscribed(subscriptions: Iterable[tuple[str, str]], now: int) -> None:
-    """One notice per browser a push service unsubscribed (``(id, label)``). Never raises."""
-    for sub_id, label in subscriptions:
+async def announce_push_removed(subscriptions: Iterable[tuple[str, str, str]], now: int) -> None:
+    """One notice per removed browser (``(id, label, error)``, ``error`` one of the ``PUSH_*``
+    codes). Never raises. Web Push carries it to administrators' devices only
+    (``user_rules.ADMIN_ONLY_EVENTS``), so the device label stays with them."""
+    for sub_id, label, error in subscriptions:
         await announce(
             f"push:{sub_id}",
             channel_id=BUILTIN_PUSH_ID,
             name=(label or "").strip() or sub_id[:8],
-            error=PUSH_UNSUBSCRIBED,
+            error=error,
             exclude=(),
             now=now,
         )
+
+
+async def announce_push_unsubscribed(subscriptions: Iterable[tuple[str, str]], now: int) -> None:
+    """One notice per browser a push service unsubscribed (``(id, label)``). Never raises."""
+    await announce_push_removed(
+        [(sub_id, label, PUSH_UNSUBSCRIBED) for sub_id, label in subscriptions], now
+    )

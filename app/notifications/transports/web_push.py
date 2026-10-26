@@ -8,8 +8,10 @@ guard's refusals and the failure counts stay as they are (``app/AGENTS.md``,
 reach again the subscriptions that already took it.
 
 A delivery with an ``audience`` (``app/notifications/user_rules.py``, MSHL-321) reaches only
-the devices whose owner's rules want it, each with the payload those rules give it; without
-one (a destination-change proof, a summary) every deliverable device gets it.
+the devices whose owner's rules want it, each with the payload those rules give it (for an
+admin-only notice, the administrators' devices, MSHL-399); without one (a summary) every
+deliverable device gets it, except an admin-only notice, which ``PushManager`` still keeps to
+administrators.
 """
 
 from __future__ import annotations
