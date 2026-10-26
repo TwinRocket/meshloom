@@ -430,8 +430,8 @@ async def test_admin_notice_is_not_folded_into_a_digest(test_db):
     assert [c for c, _, _ in transport.calls] == ["digest"]
 
 
-@pytest.mark.asyncio
-async def test_push_manager_never_sends_an_admin_notice_to_a_member_device(monkeypatch):
+def _role_push_manager(monkeypatch) -> tuple[object, list[str]]:
+    """A PushManager over an admin (1), a member (2) and an ownerless device (3)."""
     from app.push import manager as manager_module
     from app.push.manager import PushManager, _SendResult
 
@@ -461,6 +461,12 @@ async def test_push_manager_never_sends_an_admin_notice_to_a_member_device(monke
     monkeypatch.setattr(pm, "_send_one", send_one)
     monkeypatch.setattr(pm, "_record_outcomes", no_outcomes)
     monkeypatch.setattr(manager_module.AppSettingsRepository, "get", staticmethod(_raise_settings))
+    return pm, sent
+
+
+@pytest.mark.asyncio
+async def test_push_manager_never_sends_an_admin_notice_to_a_member_device(monkeypatch):
+    pm, sent = _role_push_manager(monkeypatch)
 
     await pm.dispatch_event(_notice())
     assert sent == ["a"]
@@ -471,6 +477,43 @@ async def test_push_manager_never_sends_an_admin_notice_to_a_member_device(monke
 
 async def _raise_settings():
     raise RuntimeError("no settings")
+
+
+@pytest.mark.asyncio
+async def test_an_audience_never_sends_an_admin_notice_to_a_member_device(monkeypatch):
+    # The member may have been demoted between the emit and the send: the role is
+    # checked again on the device, whatever the audience says.
+    from app.notifications.user_rules import PushAudience
+
+    pm, sent = _role_push_manager(monkeypatch)
+    payload = _notice()
+
+    await pm.dispatch_event(payload, PushAudience(default=None, per_user={2: payload}))
+    assert sent == []
+    await pm.dispatch_event(payload, PushAudience(default=payload, per_user={}))
+    assert sent == ["a"]
+
+
+@pytest.mark.asyncio
+async def test_a_destination_change_never_reaches_a_member_device(monkeypatch):
+    import app.background_tasks as background_tasks
+    from app.models import NotificationDestinations
+    from app.notify import notify_destination_changed
+    from app.push import manager as manager_module
+
+    pm, sent = _role_push_manager(monkeypatch)
+    monkeypatch.setattr(manager_module, "push_manager", pm)
+    spawned: list = []
+    monkeypatch.setattr(background_tasks, "spawn", lambda coro, name=None: spawned.append(coro))
+    before = NotificationDestinations()
+    after = before.model_copy(
+        update={"webhook": before.webhook.model_copy(update={"url": "https://hooks.example/n"})}
+    )
+
+    notify_destination_changed(before, after)
+    assert len(spawned) == 1
+    await spawned[0]
+    assert sent == ["a"]
 
 
 @pytest.mark.asyncio
@@ -516,6 +559,16 @@ async def test_evicted_and_refused_browsers_are_announced(
     ]
 
 
+_REMOVED_TEXTS = {
+    ("push_unsubscribed", "en"): ("Browser unsubscribed", "unsubscribed by its push service"),
+    ("push_unsubscribed", "fr"): ("Navigateur désabonné", "désabonné par son service push"),
+    ("push_evicted", "en"): ("Browser removed", "failed 15 pushes in a row and was removed"),
+    ("push_evicted", "fr"): ("Navigateur retiré", "a échoué 15 envois de suite et a été retiré"),
+    ("push_refused", "en"): ("Browser removed", "refused by the network guard"),
+    ("push_refused", "fr"): ("Navigateur retiré", "refusée par la protection réseau"),
+}
+
+
 @pytest.mark.parametrize("code", ["push_unsubscribed", "push_evicted", "push_refused"])
 @pytest.mark.parametrize("lang", ["fr", "en"])
 def test_removed_browser_notices_are_rendered_in_both_languages(code, lang):
@@ -534,3 +587,6 @@ def test_removed_browser_notices_are_rendered_in_both_languages(code, lang):
     )
     assert "Pixel" in rendered["body"]
     assert code not in rendered["body"]
+    title, fragment = _REMOVED_TEXTS[(code, lang)]
+    assert rendered["title"] == title
+    assert fragment in rendered["body"]
