@@ -9,7 +9,12 @@ import pytest
 
 from app.repository import AppSettingsRepository
 from app.services import share
-from app.services.share_cache import CachedObject, ShareCache, share_cache
+from app.services.share_cache import (
+    CachedObject,
+    ShareCache,
+    reset_share_cache_for_tests,
+    share_cache,
+)
 from tests.share_fakes import Dns, Recorder, json_response
 
 _RealAsyncClient = httpx.AsyncClient
@@ -360,11 +365,13 @@ class TestDelete:
         assert on.requests == []
 
     async def test_a_failed_disk_delete_is_not_served_after_a_restart(
-        self, on, client, monkeypatch
+        self, on, client, monkeypatch, tmp_path, request
     ):
+        directory = tmp_path / "share-cache"
+        reset_share_cache_for_tests(ShareCache(directory))
+        request.addfinalizer(reset_share_cache_for_tests)
         assert (await client.get("/api/share/AcTiVe1")).status_code == 200
         cache = share_cache()
-        directory = cache.directory
         disk = cache._open()
         real_delete = type(disk).delete
 
@@ -385,7 +392,7 @@ class TestDelete:
             assert await reopened.get("AcTiVe1") is None
             assert reopened._open().get("AcTiVe1") is None  # dropped on that access
             await reopened.set("AcTiVe1", CachedObject(content=PNG_1X1, content_type="image/png"))
-            assert await reopened.get("AcTiVe1") is None
+            assert reopened._open().get("AcTiVe1") is None  # never stored again
         finally:
             reopened.close()
 

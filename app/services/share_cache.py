@@ -40,8 +40,10 @@ default executor. No hand-written LRU, index or atomic write.
 ``TOMBSTONE_PREFIX + id``, an integer value, expiring after ``TTL_S``, so it
 outlives the entry), then drops the entry: when the drop fails, the tombstone
 still survives a restart, and ``get`` (which then retries the drop) and ``set``
-treat a tombstoned id as absent. If the tombstone write itself fails, the
-entry expires on its own within ``TTL_S``. Only validated objects are stored (``app/services/share.py``, ``read_object``).
+treat a tombstoned id as absent. If the tombstone write itself fails (logged,
+exception type only), the drop is still attempted; if both fail, the entry
+expires on its own within ``TTL_S``. Tombstones count toward ``MAX_ENTRIES``
+and ``clear`` drops them too. Only validated objects are stored (``app/services/share.py``, ``read_object``).
 Tests: ``tests/test_share_cache.py``.
 """
 
@@ -292,7 +294,12 @@ class ShareCache:
         with self._write_lock:
             # The tombstone first: if the drop below fails, it still hides the
             # entry, across a restart too, for as long as the entry can live.
-            cache.set(self._tombstone(key), 1, expire=self.ttl_s)
+            try:
+                cache.set(self._tombstone(key), 1, expire=self.ttl_s)
+            except Exception as exc:  # noqa: BLE001 - the drop below is still attempted
+                logger.warning(
+                    "Share cache could not write a deletion tombstone: %s", type(exc).__name__
+                )
             return bool(cache.delete(key))
 
     def _count(self) -> int:
@@ -339,9 +346,15 @@ def share_cache() -> ShareCache:
 
 
 def reset_share_cache_for_tests(cache: ShareCache | None = None) -> None:
-    """Empty and close the current cache if it was opened, then use ``cache``."""
+    """Empty and close the current cache, then use ``cache``.
+
+    A closed cache whose directory exists is reopened to be emptied, so nothing
+    (an entry, a tombstone) leaks into the next test.
+    """
     global _cache
     old = _cache
+    if old._cache is None and old.directory.is_dir():
+        old._open()
     if old._cache is not None:
         old._cache.clear()
     old.close()

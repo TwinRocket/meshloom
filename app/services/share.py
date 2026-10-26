@@ -326,8 +326,9 @@ class _State:
         )
         self.meta: TtlLruCache[str, ShareMeta] = TtlLruCache(META_CACHE_SIZE)
         # Ids deleted from this instance, kept as long as a disk-cache entry can
-        # live (``share_cache.TTL_S``): ``read_object`` checks it before the disk
-        # cache, so a failed or racing disk delete never serves a deleted object.
+        # live (``share_cache.TTL_S``): ``read_object`` checks it around the disk
+        # cache and ``get_meta`` around its fetch, so a failed or racing disk
+        # delete never serves a deleted object or re-caches its meta.
         self.deleted: TtlLruCache[str, bool] = TtlLruCache(NEGATIVE_CACHE_SIZE)
         self.banned_until: float | None = None
         # Bumped when sharing is turned off: a request that passed the opt-in
