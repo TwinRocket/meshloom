@@ -65,7 +65,7 @@ function ExternalLink({ href, children }: { href: string; children?: React.React
  * whom and for how long, and the switch only flips once the terms are accepted.
  * Cancelling, closing or leaving the box unticked changes nothing.
  */
-function ShareConsentDialog({
+export function ShareConsentDialog({
   status,
   open,
   busy,

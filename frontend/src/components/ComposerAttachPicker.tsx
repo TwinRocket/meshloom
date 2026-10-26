@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
-import { MapPin, Smile, Sticker, X } from 'lucide-react';
+import { MapPin, Paperclip, Smile, Sticker, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './ui/button';
 import { ComposerEmojiPicker } from './ComposerEmojiPicker';
+import { ComposerFileTab, type IncomingFile } from './ComposerFileTab';
 import { GifPicker } from './GifPicker';
 import { cn } from '@/lib/utils';
 
-export type ComposerAttachTab = 'emoji' | 'gif' | 'location';
+export type ComposerAttachTab = 'emoji' | 'gif' | 'location' | 'file';
 
 interface ComposerAttachPickerProps {
   tab: ComposerAttachTab;
@@ -15,6 +16,11 @@ interface ComposerAttachPickerProps {
   onSelectGif: (gifId: string) => void;
   onSendLocation: () => void;
   onClose: () => void;
+  /** Sends a file message through the composer's normal path; true when it went out. */
+  onSendFile: (text: string) => Promise<boolean>;
+  /** Largest file message in bytes (exclusive), reply prefix counted; null: no limit. */
+  fileByteLimit: number | null;
+  incomingFile: IncomingFile | null;
   disabled?: boolean;
   hasShareableLocation: boolean;
   locationLabel?: string | null;
@@ -27,6 +33,9 @@ export function ComposerAttachPicker({
   onSelectGif,
   onSendLocation,
   onClose,
+  onSendFile,
+  fileByteLimit,
+  incomingFile,
   disabled = false,
   hasShareableLocation,
   locationLabel,
@@ -37,7 +46,9 @@ export function ComposerAttachPicker({
       ? t('chat.gifPicker')
       : tab === 'location'
         ? t('chat.locationPicker')
-        : t('chat.emojiPicker');
+        : tab === 'file'
+          ? t('chat.filePicker')
+          : t('chat.emojiPicker');
 
   return (
     <div
@@ -81,6 +92,14 @@ export function ComposerAttachPicker({
           </Button>
         </div>
       )}
+      {tab === 'file' && (
+        <ComposerFileTab
+          onSend={onSendFile}
+          byteLimit={fileByteLimit}
+          incoming={incomingFile}
+          disabled={disabled}
+        />
+      )}
       <div className="flex items-center justify-around border-t border-border px-2 py-1">
         <AttachTab
           active={tab === 'emoji'}
@@ -108,6 +127,14 @@ export function ComposerAttachPicker({
           onSelect={() => onTabChange('location')}
         >
           <MapPin className="h-5 w-5" />
+        </AttachTab>
+        <AttachTab
+          active={tab === 'file'}
+          label={t('chat.file')}
+          testId="composer-attach-tab-file"
+          onSelect={() => onTabChange('file')}
+        >
+          <Paperclip className="h-5 w-5" />
         </AttachTab>
       </div>
     </div>

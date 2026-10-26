@@ -1,0 +1,31 @@
+{
+  "chat": {
+    "file": "Photo",
+    "filePicker": "Envoyer une photo",
+    "fileTab": {
+      "loading": "Vérification du partage...",
+      "off": "Le partage est désactivé sur ce Meshloom. Activez-le pour envoyer une photo sous forme de lien que toute la conversation peut ouvrir.",
+      "enable": "Activer le partage...",
+      "hint": "Déposez une photo ici, collez-en une dans la zone de message ou choisissez un fichier.",
+      "dropHere": "Déposez la photo pour la préparer",
+      "choose": "Choisir une photo",
+      "preparing": "Préparation de la photo...",
+      "summary": "{{type}}, {{before}} avant, {{after}} après ({{width}} x {{height}} px). La position et les données de l'appareil sont retirées.",
+      "caption": "Légende (facultative)",
+      "budget": "{{used}}/{{limit}} octets",
+      "bytes": "{{count}} octets",
+      "captionTooLong": "La légende est trop longue pour un seul message. Raccourcissez-la.",
+      "send": "Envoyer la photo",
+      "uploading": "Envoi...",
+      "cancel": "Annuler l'envoi",
+      "remove": "Retirer",
+      "uploadFailed": "L'envoi a échoué. Vérifiez la connexion et réessayez.",
+      "error": {
+        "heic": "Ce navigateur ne sait pas lire les photos HEIC (iPhone). Partagez la photo en JPEG (Réglages > Appareil photo > Formats > Le plus compatible) ou choisissez-la à nouveau par le sélecteur de photos, qui la convertit.",
+        "unsupported": "Ce fichier n'est pas une photo partageable. Utilisez une image JPEG, PNG, WebP ou GIF.",
+        "tooLarge": "Ce fichier est trop volumineux pour être partagé (10 Mio au plus une fois préparé, 5 Mio pour un GIF).",
+        "decode": "Ce navigateur ne sait pas lire cette image."
+      }
+    }
+  }
+}
