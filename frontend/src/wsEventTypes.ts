@@ -18,6 +18,7 @@ export const WS_EVENT_PERMISSIONS = {
   radio_wifi: 'admin',
   plugin_status: 'admin',
   notification_channel_changed: 'admin',
+  notification_event: 'read',
   error: 'read',
   success: 'read',
 } as const;

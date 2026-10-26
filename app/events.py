@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, NotRequired
+from typing import Any, Literal, NotRequired
 
 from pydantic import TypeAdapter
 from typing_extensions import TypedDict
@@ -73,6 +73,22 @@ class NotificationChannelChangedPayload(TypedDict):
     name: str
 
 
+class NotificationEventPayload(TypedDict):
+    """A catalogue event that matched a rule (``app/notifications/ws_frame.py``): typed
+    ``data``, never rendered text."""
+
+    version: int
+    event: str
+    event_id: str
+    occurred_at: int
+    dedup_key: str
+    urgent: bool
+    conversation_key: str | None
+    conversation_type: Literal["PRIV", "CHAN"] | None
+    conversation_open: bool | None
+    data: dict[str, Any]
+
+
 class ToastPayload(TypedDict):
     message: str
     details: NotRequired[str]
@@ -97,6 +113,7 @@ _PAYLOAD_ADAPTERS: dict[WsEvent, TypeAdapter[Any]] = {
     WsEvent.RADIO_WIFI: TypeAdapter(RadioWifiState),
     WsEvent.PLUGIN_STATUS: TypeAdapter(PluginStatusPayload),
     WsEvent.NOTIFICATION_CHANNEL_CHANGED: TypeAdapter(NotificationChannelChangedPayload),
+    WsEvent.NOTIFICATION_EVENT: TypeAdapter(NotificationEventPayload),
     WsEvent.ERROR: TypeAdapter(ToastPayload),
     WsEvent.SUCCESS: TypeAdapter(ToastPayload),
 }

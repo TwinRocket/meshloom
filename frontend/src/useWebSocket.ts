@@ -256,6 +256,9 @@ export function useWebSocket(options: UseWebSocketOptions) {
             // The bells' cached channel list is stale.
             invalidateConversationNotifications();
             break;
+          case 'notification_event':
+            // For the Feed (MSHL-138): no consumer yet.
+            break;
           case 'plugin_status':
             // A health refresh follows (`app/plugins/host.py`): nothing to do here.
             break;

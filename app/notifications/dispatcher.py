@@ -44,6 +44,9 @@ delays itself.
 - **Status.** ``notification_statuses()`` is the health payload's map and
   ``notifications_failing()`` its flag (a channel failing, paused or with a secret the key
   cannot open); a change of a channel's status or error broadcasts ``health``.
+- **WebSocket frame** (MSHL-138, ``ws_frame.py``): an event that matched at least one
+  enabled channel is broadcast as ``notification_event`` (typed data, no rendered text),
+  before the pauses and quiet hours, unless ``rules.emit_ws_events`` is false.
 - **Heartbeat** (MSHL-131, ``heartbeat.py``): ``self.heartbeats`` runs one loop per channel
   with ``heartbeat_interval_s``, sending ``notify.heartbeat`` (or pinging ``heartbeat_url``)
   outside the rules, the pauses, quiet hours and the buckets; ``start`` and every quiet tick
@@ -69,7 +72,7 @@ from typing import Any, Literal
 from aiolimiter import AsyncLimiter
 from tenacity import AsyncRetrying, RetryCallState, retry_if_result, stop_after_attempt
 
-from app.notifications import failures
+from app.notifications import failures, ws_frame
 from app.notifications import quiet_hours as quiet
 from app.notifications import rules as rules_mod
 from app.notifications.channels import (
@@ -468,6 +471,9 @@ class Dispatcher:
             )
         channel_ids = [c for c in channel_ids if c not in exclude]
         channels = await self._channels(channel_ids, allow_legacy=targets is not None)
+        if event is not None and any(c.enabled for c in channels):
+            # Matched at least one rule: the Feed's frame, before pauses and quiet hours.
+            ws_frame.publish(event, payload, is_open=bool(is_open), rules=rules)
         decided = rules_mod.apply_pauses(
             rules,
             [c.id for c in channels if c.enabled],

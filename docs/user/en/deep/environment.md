@@ -85,7 +85,7 @@ Notifications are set in **Settings → Notifications** and stored in the databa
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `notification_language` | `auto` | `auto`, `fr` or `en`. The language of the instance for notifications (a channel can set its own); `auto` follows the browsers subscribed to push (English only with a strict majority of English browsers, a tie is French) |
-| `notification_rules` | `{}` | The notification rules (which channel receives which event, per-conversation exceptions). Written by the 4.18 to 5.0 import, the rules table, the bell, **Do not disturb** and the channels' deletion; `paused_until` (the pause) and the options of the table (`mention_whole_word`) are in it |
+| `notification_rules` | `{}` | The notification rules (which channel receives which event, per-conversation exceptions). Written by the 4.18 to 5.0 import, the rules table, the bell, **Do not disturb** and the channels' deletion; `paused_until` (the pause) and the options of the table (`mention_whole_word`, `emit_ws_events`: send the matched events to the open web pages, on by default) are in it |
 | `radio_offline_grace_s` | `60` | Seconds the radio may stay unreachable before **Radio offline** is sent (0 to 3600; 0 notifies at once). Set under the **Radio offline** row of the rules table |
 | `push_allow_private_endpoints` | `false` | Accept Web Push endpoints on a private network, for a self-hosted UnifiedPush distributor. See [Push](/en/docs/deep/push/#push-services-on-a-private-network) |
 

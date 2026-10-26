@@ -781,3 +781,99 @@ async def test_web_push_with_every_subscription_failing_is_an_error(test_db, mon
         push_manager, "dispatch_event", AsyncMock(return_value=PushOutcome(total=0))
     )
     assert (await WebPushTransport().send(channel, None, Delivery("app.started"), {})).ok
+
+
+# -- notification_event WebSocket frame (MSHL-138) -------------------------------
+
+
+def _capture_frames(monkeypatch) -> list[tuple[str, dict]]:
+    from app.websocket import ws_manager
+
+    frames: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        ws_manager,
+        "broadcast_nowait",
+        lambda event_type, data, **kwargs: frames.append((str(event_type), data)),
+    )
+    return frames
+
+
+@pytest.mark.asyncio
+async def test_a_matching_event_is_broadcast_as_a_typed_frame(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    await dispatcher.emit(event_from_payload({"event": "radio_offline", "offline_s": 90}))
+    await _settle(dispatcher)
+    [(event_type, frame)] = frames
+    assert event_type == "notification_event"
+    assert frame["event"] == "radio.offline"
+    assert frame["data"]["offline_s"] == 90
+    assert (frame["conversation_key"], frame["conversation_type"]) == (None, None)
+    # Typed data only: nothing rendered.
+    assert "rendered" not in frame and "title" not in frame and "body" not in frame
+    from app.websocket import _DROPPABLE_EVENTS
+
+    assert "notification_event" not in _DROPPABLE_EVENTS
+
+
+@pytest.mark.asyncio
+async def test_a_suppressed_event_sends_no_frame(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    # Muted conversation, then an event no rule gives a channel.
+    await dispatcher.emit(event_from_payload(_dm()), muted=True)
+    await dispatcher.emit(event_from_payload({"event": "oss_update", "latest": "9.9.9"}))
+    await _settle(dispatcher)
+    assert frames == []
+
+
+@pytest.mark.asyncio
+async def test_a_dm_frame_says_it_is_private_and_keeps_its_text(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules({**RULES, "conversations": {}})
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    await dispatcher.emit(event_from_payload(_dm()))
+    await _settle(dispatcher)
+    [(_, frame)] = frames
+    assert (frame["event"], frame["conversation_type"]) == ("message.dm", "PRIV")
+    assert frame["conversation_key"] == DM_KEY
+    assert frame["data"]["text"] == SECRET_TEXT
+
+
+@pytest.mark.asyncio
+async def test_emit_ws_events_false_turns_the_frame_off(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules({**RULES, "emit_ws_events": False})
+    frames = _capture_frames(monkeypatch)
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, FakeClock())
+    await dispatcher.emit(event_from_payload({"event": "radio_offline"}))
+    await _settle(dispatcher)
+    assert frames == []
+    assert [c[1] for c in transport.calls] == ["radio.offline"]  # delivery unchanged
+
+
+@pytest.mark.asyncio
+async def test_a_paused_event_still_sends_its_frame(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(
+        {
+            **RULES,
+            "events": {"contact.first_seen": {"channels": ["ntfy-1"]}},
+            "paused_until": int(time.time()) + 600,
+        }
+    )
+    frames = _capture_frames(monkeypatch)
+    transport = StubTransport()
+    dispatcher = _dispatcher(transport, FakeClock())
+    await dispatcher.emit(
+        event_from_payload({"event": "first_seen", "public_key": "cd" * 32, "contact_type": 1})
+    )
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["contact.first_seen"]
+    assert transport.calls == []

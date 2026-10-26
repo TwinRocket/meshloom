@@ -473,6 +473,12 @@ def sanitize_rules(raw: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
 
     if isinstance(raw.get("mention_whole_word"), bool):
         rules["mention_whole_word"] = raw["mention_whole_word"]
+    if "emit_ws_events" in raw:
+        # The API's check: a boolean, else it is dropped (the default, on, applies).
+        if isinstance(raw["emit_ws_events"], bool):
+            rules["emit_ws_events"] = raw["emit_ws_events"]
+        else:
+            dropped += 1
     if dropped:
         warnings.append("notification_rules_sanitized")
     return rules

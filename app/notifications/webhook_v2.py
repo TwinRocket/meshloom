@@ -300,7 +300,10 @@ def _int(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
-def _event_data(event: ev.NotificationEvent, payload: Mapping[str, Any], policy: str) -> _Model:
+def event_data(event: ev.NotificationEvent, payload: Mapping[str, Any], policy: str) -> _Model:
+    """The typed ``data`` of an event under a text policy (``never``, ``public_only``, any
+    other value keeps the text). Also the ``data`` of the ``notification_event`` WebSocket
+    frame (``ws_frame.py``)."""
     d = event.data
     if isinstance(event, ev.MessageEvent | ev.MentionEvent | ev.KeywordEvent):
         withheld = policy == "never" or (
@@ -450,7 +453,7 @@ def build_body(
             dedup_key=event.dedup_key,
             urgent=event.urgent,
             instance=instance,
-            data=_event_data(event, payload, text_policy),
+            data=event_data(event, payload, text_policy),
             rendered=rendered,
         )
     data = _summary_data(name, payload)

@@ -37,6 +37,30 @@ export interface ChannelDeletedPayload {
   key: string;
 }
 
+/**
+ * A notification catalogue event that matched at least one rule
+ * (`app/notifications/ws_frame.py`, MSHL-138): typed `data` (the webhook v2 `data`, message
+ * text kept), never rendered text. The server filters it per socket: `notify.*` events reach
+ * admins only, and a direct conversation (`message.dm`, a `PRIV` conversation, a mention on a
+ * private-key channel) never reaches a session without `read_private` (kiosk). A re-emitted
+ * event (same `dedup_key`) may arrive twice. No consumer yet (Feed).
+ */
+export interface NotificationEventFrame {
+  version: number;
+  /** A catalogue id (`GET /api/notifications/events`), e.g. `message.channel`. */
+  event: string;
+  event_id: string;
+  occurred_at: number;
+  dedup_key: string;
+  urgent: boolean;
+  conversation_key: string | null;
+  /** `PRIV` or `CHAN` for a message, `CHAN` for `channel.found`, else null. */
+  conversation_type: 'PRIV' | 'CHAN' | null;
+  /** For a `CHAN` message: a Public or `#` channel. Else null. */
+  conversation_open: boolean | null;
+  data: Record<string, unknown>;
+}
+
 export interface ToastPayload {
   message: string;
   details?: string;
@@ -60,6 +84,7 @@ export type KnownWsEvent =
   | { type: 'radio_wifi'; data: RadioWifiState }
   | { type: 'plugin_status'; data: PluginStatusEntry }
   | { type: 'notification_channel_changed'; data: NotificationChannelChange }
+  | { type: 'notification_event'; data: NotificationEventFrame }
   | { type: 'error'; data: ToastPayload }
   | { type: 'success'; data: ToastPayload }
   | { type: 'pong'; data?: null };
@@ -129,6 +154,13 @@ export function isDispatchableWsEvent(event: ParsedWsEvent): boolean {
     case 'community_packet':
     case 'community_live':
       return isRecord(data);
+    case 'notification_event':
+      return (
+        isRecord(data) &&
+        typeof data.event === 'string' &&
+        typeof data.event_id === 'string' &&
+        isRecord(data.data)
+      );
     case 'error':
     case 'success':
       return isRecord(data) && typeof data.message === 'string';

@@ -661,7 +661,12 @@ types are `read`. Per event, a client without `read_private` gets:
 - `contact` and `contact_resolved` with `last_contacted` and `last_read_at`
   emptied (`CONTACT_DM_ACTIVITY_FIELDS`, the same fields REST empties);
 - no `message_acked` unless the ack is for a channel message (the caller
-  passes `audience="read"`; a DM ack or an unknown one stays private).
+  passes `audience="read"`; a DM ack or an unknown one stays private);
+- no `notification_event` (MSHL-138) about a DM: `message.dm`, a
+  `conversation_type` other than `CHAN` with a conversation key, a `message.*`
+  without type `CHAN`, or a `message.mention` whose `conversation_open` is not
+  `true` (a channel with its own key). A `notify.*` or unknown event id in that
+  frame is `admin` only.
 
 `health` goes to every `read` client, but below `admin` every `last_error`
 (fanout, notification media, radio proxy, plugins) is `null` and the plugins'

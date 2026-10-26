@@ -1289,7 +1289,12 @@ floor, never the percentage alone, and do not remove the floor.
   decrypted from a DM goes to the others without its decryption, `contact`
   frames lose `last_contacted`/`last_read_at` (as on REST) and a
   `message_acked` reaches them only for a channel message
-  (`audience="read"`). Below `admin`, `health` has every `last_error` emptied
+  (`audience="read"`). A `notification_event` (MSHL-138, the Feed's typed
+  notification frame, `app/notifications/ws_frame.py`) goes through the same
+  filter: one about a DM, a `PRIV` conversation, a conversation key without
+  type `CHAN`, or a mention on a channel with its own key (`conversation_open`
+  not `true`) needs `read_private`, so a kiosk never gets it; a `notify.*` or
+  unknown event id is `admin` only. Below `admin`, `health` has every `last_error` emptied
   (`without_admin_details`, also on REST). Toasts are admin-only unless the
   caller passes a lower `audience`. `send_raw` is for the `pong` reply only
   (the AST scan allows no other frame).
