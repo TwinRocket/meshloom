@@ -1,6 +1,7 @@
 """Typed validation errors shared by the manifest, config schema and package validators."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -38,3 +39,12 @@ def issues_from_pydantic(exc: ValidationError, prefix: str = "") -> list[PluginI
         loc = ".".join(str(p) for p in err["loc"])
         out.append(PluginIssue(err["type"], f"{prefix}{loc}", err["msg"]))
     return out
+
+
+class HostMethodError(Exception):
+    """Raised by a host method: answered to the child as a JSON-RPC error."""
+
+    def __init__(self, code: int, message: str, data: Any = None):
+        super().__init__(message)
+        self.code = code
+        self.data = data

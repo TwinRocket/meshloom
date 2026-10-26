@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from app.plugins.host import HostMethodError
+from app.plugins.errors import HostMethodError
 from meshloom_plugin import rpc
 
 if TYPE_CHECKING:

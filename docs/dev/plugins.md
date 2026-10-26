@@ -340,7 +340,70 @@ warnings, dry_run: {isolation, ran, calls, stderr}}` (`isolation` is always `"no
 neither FastAPI nor the database (`app/message_limits.py` imports FastAPI lazily
 for that reason); `tests/test_plugin_dev_check.py` asserts it and feeds every
 invalid manifest vector through `check`. `tests/plugin_dev/echo/` is the reference
-valid plugin. `run --replay` and `pack` come later (T27).
+valid plugin.
+
+### Harness: `run --replay` and `pack` (MSHL-208, Store T27)
+
+```bash
+uv run python -m meshloom_plugin.dev run path/to/plugin --replay fixture.json [--json] [--origin ...]
+uv run python -m meshloom_plugin.dev pack path/to/plugin [--out DIR] [--json] [--strict] [--skip-run] [--origin ...]
+```
+
+**Decision: no PyPI package.** The harness lives in `meshloom_plugin/dev.py` and needs
+`app/plugins` (it is not child code), so it runs from a Meshloom checkout or an
+install at a tag (`uv pip install git+https://github.com/TwinRocket/meshloom@X.Y.Z`).
+The index CI installs Meshloom at a tag the same way. One publication chain less for a
+single operator; revisit if a third party asks.
+
+**`run`** starts the real runner (`isolation: none`, like `check`) on the plugin and
+feeds it the fixture's events through `FakeHost`. Every call of the plugin and the
+answer are printed (`-> method params`, `<- result` or `<- error code: message` and
+the refusal's `params`); `--json` prints `{ok, plugin, errors, events, calls,
+refusals, sends, isolation}`. The directory must pass the package stage first. The
+server's rules come from the shared pure-Python core, not from a copy (a test asserts
+the identities): `capabilities.base.REGISTRY` and the `permission_denied` refusal,
+`grants.effective_permissions` / `message_visible` / `hook_allowed`, the
+`capabilities.messages` parameter model, target and region rules, the
+byte rule of `app/message_limits.py`, `quotas.effective_send_limits`, `SendQuota` and
+`SendGuard` over in-memory counters. A refusal reaches the plugin as the same
+JSON-RPC error with the same `data.code` and `data.params`; it does not fail the run
+(an exception the plugin lets escape does, as `handler_failed`). Importing and running
+the harness pulls in neither FastAPI nor the database (asserted in
+`tests/test_plugin_dev_harness.py`; `app.plugins.capabilities` no longer imports
+`app.plugins.host`: `HostMethodError` lives in `app/plugins/errors.py`).
+
+Fixture (a JSON object; only `events` is required):
+
+| Key | Meaning |
+|---|---|
+| `events` | list of `{hook, params?, at?}`: `hook` is `message`, `raw_packet`, `contact`, `telemetry`, `health` or `timer`; `params` is the event (for `message`, merged over a Public-channel message from "Tester": `message_text`, `sender_name`, `is_dm`, `channel_key`...); `at` is seconds after `clock` |
+| `clock` | start of the fake clock (Unix seconds); without it the real time is used. Quotas and guards use it, so `at` replays hours of traffic instantly |
+| `granted_permissions` | what the user granted (default: everything the manifest declares); narrowed like the server does |
+| `scope`, `quotas` | the user's `plugins.scope` and `plugins.quotas` |
+| `config` | the instance config given to `plugin.init` |
+| `channels`, `contacts`, `known_regions`, `radio_name` | what exists: lets a send reach an explicit `channel_key` or `contact_key` (otherwise `target_not_allowed`/`target_unknown` as on the server), answers `channels.list`, `contacts.list/get`, accepts `region`, picks the channel byte limit |
+| `http` | `{url: {status?, headers?, body?}}`: the answers of `http.fetch`; any other URL is `fetch_failed` (`reason: replay_no_answer`) |
+
+An event the server would not deliver (no `messages.read`, the scope, a direct message
+without `direct`) is listed as `not delivered` with the reason. `storage.*`, `timer.set`
+and `status.set` keep their state in memory; a `timer` never fires on its own, add a
+`timer` event. **Not simulated**: the 2 s global spacing between sends, the egress
+guard of `http.fetch` (nothing uses the network), the storage quota, process
+isolation. Exit status 0 when the run completed without error, 1 on any error (package,
+init, handler), 2 for a bad fixture or path.
+
+**`pack`** runs `check` (a failed check writes nothing; `--skip-run` leaves out the
+dry run), then writes `plugin.zip` and `plugin.zip.sha256` (`<hex>  plugin.zip`, the
+`sha256sum` format that `custom_repos.parse_sha256` reads) into `--out` (default the
+current directory; inside the plugin directory is refused). The archive is
+reproducible: `zip_directory` sorts the entries, stamps them 1980-01-01 00:00:00 with
+a fixed creator system and mode 0644, leaves `__pycache__` out and refuses symlinks,
+so the same tree gives the same bytes on any machine. A custom-repository release
+holds `manifest.json` (the plugin's own file), these two files, and a tag
+(`tests/test_plugin_dev_harness.py` installs a packed archive through
+`/api/store/repositories` and `/api/plugins/install`). Deferred: the plugins index
+repository's `validate.yml` and `docs/authoring.md` pointer (that repository does not
+exist yet).
 
 ## Contract
 
@@ -382,7 +445,7 @@ hooks block and what they cannot: `docs/dev/plugins-security.md`.
 | `meshloom_plugin/runner.py` | the child: start-up stages, audit hook, import guard, JSON-RPC loop |
 | `meshloom_plugin/rpc.py` | NDJSON framing and JSON-RPC 2.0 helpers, used by both ends |
 | `meshloom_plugin/policy.py` | import allowlist and denylist, kept environment keys, default limits, handler concurrency |
-| `meshloom_plugin/dev.py` | author tooling, not child code: `python -m meshloom_plugin.dev check <dir>` (see "Checking a plugin") |
+| `meshloom_plugin/dev.py` | author tooling, not child code: `python -m meshloom_plugin.dev check\|run\|pack <dir>` (see "Checking a plugin" and "Harness") |
 | `meshloom_plugin/__init__.py` | `host()`: the RPC channel to the server; lazy exports `Plugin`, `Message`, `HostError` |
 | `meshloom_plugin/sdk.py` | the SDK (below) |
 | `meshloom_plugin/compat.py` | the legacy bot shim (`legacy_bot`) that runs converted bots, and their call plans (below) |

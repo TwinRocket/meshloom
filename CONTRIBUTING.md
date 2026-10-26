@@ -66,10 +66,14 @@ npm run build
 
 ```bash
 uv run python -m meshloom_plugin.dev check path/to/plugin          # add --json for CI
+uv run python -m meshloom_plugin.dev run path/to/plugin --replay fixture.json
+uv run python -m meshloom_plugin.dev pack path/to/plugin --out dist  # plugin.zip + .sha256
 ```
 
-It applies the server's manifest and package rules, a static review and a sandbox
-dry run. Details: `docs/dev/plugins.md`, "Checking a plugin".
+`check` applies the server's manifest and package rules, a static review and a sandbox
+dry run. `run --replay` plays a JSON fixture of events against the plugin with no radio,
+and `pack` builds the reproducible release files after a check. Details:
+`docs/dev/plugins.md`, "Checking a plugin" and "Harness".
 
 ## Adding a hostile plugin corpus case
 

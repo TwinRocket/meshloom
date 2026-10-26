@@ -59,6 +59,7 @@ from typing import Any, Literal
 from app.auth.ws_events import WsEvent
 from app.message_limits import DM_HARD_LIMIT, channel_text_allowance
 from app.plugins import bot_conversion, isolation, launch
+from app.plugins.errors import HostMethodError
 from app.plugins.quotas import effective_send_limits, send_guard
 from app.secret_fields import scrub_error
 from meshloom_plugin import policy, rpc
@@ -177,15 +178,6 @@ class RpcError(Exception):
         self.error = error if isinstance(error, dict) else {}
         self.code = self.error.get("code")
         super().__init__(str(self.error.get("message") or "error"))
-
-
-class HostMethodError(Exception):
-    """Raised by a host method: answered to the child as a JSON-RPC error."""
-
-    def __init__(self, code: int, message: str, data: Any = None):
-        super().__init__(message)
-        self.code = code
-        self.data = data
 
 
 def stored_attention(instance_id: str) -> dict[str, Any] | None:
