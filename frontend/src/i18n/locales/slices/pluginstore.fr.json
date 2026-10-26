@@ -15,9 +15,9 @@
       "cadence": "Les versions sont vérifiées toutes les {{hours}} heures, et seulement s'il existe une extension installée depuis un dépôt, ou quand vous appuyez sur Actualiser.",
       "missedTitle": "Ce que vous ne recevez pas tant qu'il est désactivé",
       "missed": {
-        "updates": "Les avis et l'installation des mises à jour d'extensions.",
-        "revocation_alerts": "Les alertes de révocation en ligne des extensions."
-      }
+        "updates": "Les avis et l'installation des mises à jour d'extensions."
+      },
+      "revocationLater": "Les alertes de retrait d'une extension en ligne n'existent pas encore : elles viendront plus tard."
     },
     "online": {
       "toggle": "Store en ligne",

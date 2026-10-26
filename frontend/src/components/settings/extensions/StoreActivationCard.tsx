@@ -63,6 +63,9 @@ export function StoreActivationCard({
             <li key={item}>{t(`pluginStore.activation.missed.${item}`, { defaultValue: item })}</li>
           ))}
         </ul>
+        <p className="text-muted-foreground" data-testid="store-revocation-later">
+          {t('pluginStore.activation.revocationLater')}
+        </p>
       </div>
       {canManage ? (
         <Button size="sm" onClick={onEnable} disabled={busy}>

@@ -90,7 +90,7 @@ function status(overrides: Partial<StoreStatus> = {}): StoreStatus {
     sends: ['ip_address', 'user_agent'],
     user_agent: 'Meshloom/5.0.0',
     refresh_interval_s: 21600,
-    missed_when_disabled: ['updates', 'revocation_alerts'],
+    missed_when_disabled: ['updates'],
     refresh_running: true,
     last_refresh_at: 1_700_000_000,
     ...overrides,
@@ -177,7 +177,8 @@ describe('Store tab: activation card', () => {
       .map((li) => li.textContent);
     expect(hosts).toEqual(['github.com', 'objects.githubusercontent.com', 'store.meshloom.app']);
     expect(screen.getByTestId('store-sends')).toHaveTextContent('Meshloom/5.0.0');
-    expect(within(screen.getByTestId('store-missed')).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(screen.getByTestId('store-missed')).getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByTestId('store-revocation-later')).toBeInTheDocument();
   });
 
   it('one click turns the Store on and the card goes away', async () => {

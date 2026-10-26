@@ -3573,7 +3573,7 @@ class StoreStatus(BaseModel):
             "instance is installed"
         )
     )
-    missed_when_disabled: list[Literal["updates", "revocation_alerts"]] = Field(
+    missed_when_disabled: list[Literal["updates"]] = Field(
         description="What the instance does not receive while the Store is off"
     )
     refresh_running: bool = Field(description="The background refresh loop is running")

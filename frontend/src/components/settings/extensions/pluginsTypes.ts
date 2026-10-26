@@ -218,7 +218,7 @@ export interface StoreStatus {
   sends: Array<'ip_address' | 'user_agent'>;
   user_agent: string;
   refresh_interval_s: number;
-  missed_when_disabled: Array<'updates' | 'revocation_alerts'>;
+  missed_when_disabled: Array<'updates'>;
   refresh_running: boolean;
   last_refresh_at: number | null;
 }
