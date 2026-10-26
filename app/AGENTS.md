@@ -283,7 +283,8 @@ Community guard.
   ban@meshloom.app, the ban is per instance) and the Shorten button toasts the
   coded `errors.share_banned`.
 - **Read protections.** Order in `share_request`: opt-in, ban (writes, except
-  `banned_ok=True`: listing and deleting one's own objects stay possible), negative
+  `banned_ok=True`: listing one's own objects stays possible; deleting does not, the
+  service refuses a banned key too), negative
   cache, breaker cooling, read bucket, breaker trial, then the request.
   - Buckets: `aiolimiter.AsyncLimiter` per instance, `meta` 60 and `bytes` 20 per
     minute (`READ_LIMITS`). They refuse, never queue (`has_capacity()` then
@@ -310,11 +311,14 @@ Community guard.
   grammar is dropped, an unknown `blocked_category` becomes `other` and an active object
   carries none, a `content_type` outside `OBJECT_CONTENT_TYPES` becomes null) and a
   `next_cursor` outside `MINE_CURSOR_RE` is dropped. `delete_object(id)` is
-  `DELETE /v1/objects/{id}` (binding = id, `banned_ok`); success, `not_found` or `gone`
+  `DELETE /v1/objects/{id}` (binding = id; a ban refuses it locally, `share_banned`);
+  success, `not_found` or `gone`
   evict the local copies (`_forget_object`: `ShareCache.delete`, the meta cache entry,
   and a negative `gone` for both read keys, so the next read answers 410 with no
   request). `gone` (blocked by the service) is re-raised as 409 `share_object_blocked`;
-  `not_owner` is 403 `share_not_owner` and keeps the local copy.
+  `not_owner` is 403 `share_not_owner` and keeps the local copy. A local eviction
+  failure after a successful service delete is logged (exception type only) and the
+  delete still succeeds.
   Every new network function must be added to `SERVICE_CALLS` in
   `tests/test_share_off_no_egress.py` (the test finds them from `services/share.py`,
   `services/share_secrets.py` and `services/share_upload.py` and fails otherwise); `/api/share/*` routes are found from

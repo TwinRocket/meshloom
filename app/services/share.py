@@ -750,7 +750,12 @@ async def delete_object(share_id: str) -> None:
         if exc.code == "share_gone":
             raise ShareError("share_object_blocked") from None
         raise
-    await _forget_object(share_id)
+    try:
+        await _forget_object(share_id)
+    except Exception as exc:  # noqa: BLE001 - the service already deleted it
+        # The object is gone on the service; a local disk error must not report
+        # a failure. The entry expires on its own (1 h).
+        logger.warning("Share cache eviction failed after a delete: %s", type(exc).__name__)
 
 
 # Objects --------------------------------------------------------------------

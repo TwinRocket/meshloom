@@ -207,6 +207,23 @@ class TestDelete:
         # Not ours, still there: a reader of that message keeps its copy.
         assert await share_cache().get("UtHeRkY") is not None
 
+    async def test_a_local_eviction_failure_still_reports_success(
+        self, on, client, monkeypatch, caplog
+    ):
+        async def broken(share_id: str) -> None:
+            raise OSError(28, "No space left on device", "/data/share-cache/x")
+
+        monkeypatch.setattr(share, "_forget_object", broken)
+        with caplog.at_level("WARNING", logger="app.services.share"):
+            response = await client.delete("/api/share/AcTiVe1")
+        assert response.status_code == 204
+        (request,) = on.requests
+        assert request.method == "DELETE"
+        logged = " ".join(r.getMessage() for r in caplog.records)
+        assert "OSError" in logged
+        assert "AcTiVe1" not in logged
+        assert "share-cache" not in logged
+
     async def test_unknown_is_not_found(self, on, client):
         response = await client.delete("/api/share/MisSiNg")
         assert response.status_code == 404
