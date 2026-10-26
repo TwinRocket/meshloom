@@ -13,6 +13,7 @@ import type {
 } from './types';
 import { invalidateConversationNotifications } from './hooks/useConversationNotifications';
 import { isDispatchableWsEvent, parseWsEvent } from './wsEvents';
+import type { NotificationEventFrame } from './wsEvents';
 
 interface ErrorEvent {
   message: string;
@@ -48,6 +49,8 @@ export interface UseWebSocketOptions {
   ) => void;
   onMessageDeleted?: (messageId: number) => void;
   onRadioWifi?: (state: RadioWifiState) => void;
+  /** A notification catalogue event, already filtered per session role by the server. */
+  onNotificationEvent?: (frame: NotificationEventFrame) => void;
   onError?: (error: ErrorEvent) => void;
   onSuccess?: (success: SuccessEvent) => void;
   onReconnect?: () => void;
@@ -257,7 +260,8 @@ export function useWebSocket(options: UseWebSocketOptions) {
             invalidateConversationNotifications();
             break;
           case 'notification_event':
-            // For the Feed (MSHL-138): no consumer yet.
+            // The Feed's event rows (`utils/feedEvents.ts`, MSHL-166).
+            handlers.onNotificationEvent?.(msg.data as NotificationEventFrame);
             break;
           case 'plugin_status':
             // A health refresh follows (`app/plugins/host.py`): nothing to do here.

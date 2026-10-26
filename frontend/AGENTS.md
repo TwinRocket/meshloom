@@ -238,17 +238,25 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   from Notifications**: `utils/feedEvents.ts` is the only module of the feed that knows them
   (`NOTIFICATION_EVENT_IDS` = `radio.offline`, `radio.online`, `contact.first_seen`, `channel.found`,
   all of `app/notifications/events.py` `EVENT_IDS`; `FEED_ONLY_EVENT_IDS` = `contact.renamed`, which
-  Notifications does not have), with their delays, so switching the source to the
-  `notification_event` frame (T26) changes that file only. `tests/test_feed_event_ids.py` fails when
-  an id leaves the catalogue. Producers are store calls from the `useRealtimeAppState` handlers, no
-  React state: `noteRadioHealth` (`onHealth`: `disconnected`/`connecting` arm a
+  Notifications does not have), with their delays. `tests/test_feed_event_ids.py` fails when
+  an id leaves the catalogue or `GET /api/notifications/events` stops serving it. **Two sources, one
+  memory** (MSHL-166): `noteNotificationEvent` (`onNotificationEvent`) reads the `notification_event`
+  frame for those four ids only and ignores every other id and any `PRIV` frame, so it can never
+  make a row from a conversation whatever the role (the server already filters the frame per
+  socket); the client reducers below stay for what the dispatcher does not frame (an event no
+  enabled channel routes, `rules.emit_ws_events` off, `contact.renamed`). Both share the outage
+  state, `seenContacts` and the row keys, so whichever reports first records the row and the
+  other adds nothing: a `radio.offline` frame only ends an outage this page saw start (the
+  server's grace instead of the session's), a `radio.online` frame only follows a recorded
+  `offline`, a `contact.first_seen` frame is skipped for a key already held. Producers are store
+  calls from the `useRealtimeAppState` handlers, no React state: `noteRadioHealth` (`onHealth`: `disconnected`/`connecting` arm a
   grace timer (`setRadioOfflineGraceS`: `rules.radio_offline_grace_s` read by `FeedView` for an administrator, the only role that may read the rules; 60 s default for everyone else), stamped at the
   outage start; `connected` before it fires clears it; `rebooting`, `paused` and the identity states end
   the outage without a row, so `EXPECTED_REBOOT_GRACE_SECONDS` reboots stay silent; `radio.online`
   follows only an outage whose row was recorded; the first frame is a baseline, so an outage already running at page load is not reported),
   `noteContactFrame` (`onContact`: a `contact` frame is a snapshot, so only a key neither the module
   nor `contactsRef` (null until the first load, set in `App`) knew is `contact.first_seen` (not type 0/room, like `app/push/first_seen.py`; `noteLocalContact` marks a contact this tab creates by hand), keyed on
-  key + `first_seen`, and only a changed non-empty name is `contact.renamed`; **ignored while
+  key + `at` (`first_seen`, the frame's `occurred_at`), and only a changed non-empty name is `contact.renamed`; **ignored while
   `activeSnapshotsRef` is non-empty**, i.e. a post-reconnect resync, but remembered), `forgetContact`
   (`onContactDeleted`) and `noteChannelFrame` (`onChannel`: a pending channel the client did not hold).
   `at` is on the server clock, as messages are: browser time minus `getServerClockOffsetSec()` ("Clocks"),
@@ -257,7 +265,9 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   and a channel still pending, the radio link with `isAdmin`; display mode renders them read-only. A
   picked node narrows events to its thread (`eventThreadId`: `us`, `contact:<key>`, `channel:<key>`).
   The chips line says events are kept for this session only. Copy: slice `cr` (`feed.events.*`).
-  Tests: `feedEvents.test.ts` (fake timers), `feedView.test.tsx` ("event rows"),
+  Tests: `feedEvents.test.ts` (fake timers), `feedEventsFrames.test.ts` (frame vs reducer parity on
+  the backend's fixtures, rows and sentences in en and fr; no row from a conversation frame),
+  `feedView.test.tsx` ("event rows"),
   `useRealtimeAppState.test.ts`, `feedDaysEvents.test.ts`, `appFeedIsolation.test.tsx`.
 - **Nodes facet.** `FeedNodesFacet` (a `md:w-64` column, a sheet on a phone) lists the
   control threads (`classifyThread`: repeaters and rooms, channels, us, unresolved) with
@@ -704,9 +714,10 @@ budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Test
   client the events its role may receive.
 - `notification_event` (MSHL-138, `NotificationEventFrame`): one frame per
   notification catalogue event that matched a rule, typed data, no rendered text
-  (fixture `notification_event_mention`). Nothing consumes it yet
-  (`useWebSocket` ignores it; the Feed will, deduplicating on `dedup_key`).
-  `rules.emit_ws_events: false` turns it off; there is no UI toggle yet.
+  (fixtures `notification_event_*`). `useWebSocket` hands it to `onNotificationEvent`,
+  which feeds the Feed's event rows (`utils/feedEvents.ts`, "Event source").
+  `rules.emit_ws_events: false` turns it off (Settings > Notifications > Rules,
+  "Feed events"); the Feed then falls back on its reducers.
 - On connect the server sends only `health`; contacts and channels come from REST.
   After a reconnect `useRealtimeAppState` refetches the REST snapshots; a
   generation counter applies only the newest, and keys already updated by a WS
@@ -1000,7 +1011,8 @@ from `/events`, `configurable` only, grouped by `rulesShared.groupOf`; a checkbo
 with a sticky first column inside an `overflow-x-auto` box; an `urgent` event shows "Always deliver" checked and disabled
 (the engine exempts it from the pause whatever is stored); other events read `always_deliver`; `locked_channels` are checked and disabled; `contact.first_seen` has no box of its own (the engine reads `contact_types`, never its
 `channels`) and its sub-rows materialise all three `contact_types` kinds on a toggle; the offline grace and the whole-word
-mention tick ride their rows) and `ConversationExceptions` (chip per channel cycling
+mention tick ride their rows), the Feed frame tick (`emit_ws_events`, checked unless the rules say
+`false`, slice `notiffeed`, `settings.notifications.feedFrame.*`) and `ConversationExceptions` (chip per channel cycling
 inherit/on/off, `PUT null` to remove; orphan channel ids get a removable chip and are dropped from every write, the server refuses unknown ids). A failed load shows an alert with a retry. Strings: slice `ci` (`settings.notifications.matrix.*`,
 `.pause.*`). Test: `src/test/notificationsRules.test.tsx`. The old `push_defaults` table and
 exceptions list are gone from `SettingsNotificationsSection`.

@@ -6,6 +6,8 @@ import type { NotificationRulesPatch } from '../../../notifications/types';
 import type { Channel, Contact } from '../../../types';
 import { Separator } from '../../ui/separator';
 import { Button } from '../../ui/button';
+import { Checkbox } from '../../ui/checkbox';
+import { Label } from '../../ui/label';
 import { toast } from '../../ui/sonner';
 import { SettingsGroupHeader } from '../settingsPrimitives';
 import { ConversationExceptions } from './ConversationExceptions';
@@ -16,7 +18,10 @@ import { RulesMatrix } from './RulesMatrix';
 import { WatchedNodesCard } from './WatchedNodesCard';
 import type { NotificationChannelsState } from './useNotificationChannels';
 
-/** Settings > Notifications, rules: the global pause, the events x channels matrix and the exceptions. */
+/**
+ * Settings > Notifications, rules: the global pause, the events x channels matrix, the Feed's
+ * `notification_event` frame (`emit_ws_events`) and the exceptions.
+ */
 export function NotificationRulesPanel({
   state,
   contacts,
@@ -150,6 +155,30 @@ export function NotificationRulesPanel({
           disabled={busy}
           onSave={(watched_nodes) => patch({ watched_nodes })}
         />
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3" id="notification-feed-frame-section">
+        <SettingsGroupHeader
+          title={t('settings.notifications.feedFrame.title')}
+          storedOn="server"
+          instant
+        />
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.notifications.feedFrame.help')}
+        </p>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="notification-emit-ws-events"
+            checked={rules.emit_ws_events !== false}
+            disabled={busy}
+            onCheckedChange={(v) => patch({ emit_ws_events: v === true })}
+          />
+          <Label htmlFor="notification-emit-ws-events" className="text-[0.8125rem]">
+            {t('settings.notifications.feedFrame.label')}
+          </Label>
+        </div>
       </div>
 
       <Separator />

@@ -23,6 +23,21 @@ def test_notification_ids_exist_in_the_catalogue() -> None:
     assert set(ids) <= set(EVENT_IDS)
 
 
+async def test_notification_ids_are_served_by_the_catalogue_api(test_db, client) -> None:
+    """MSHL-166: the ids the Feed reads from ``notification_event`` frames are the ones
+    ``GET /api/notifications/events`` lists, and every role that reads may get them
+    (``read`` audience: no ``notify.*``, no conversation)."""
+    from app.websocket import _notification_event_audience
+
+    body = (await client.get("/api/notifications/events")).json()
+    served = {event["id"] for event in body["events"]}
+    ids = _ts_array("NOTIFICATION_EVENT_IDS")
+    assert set(ids) <= served
+    for event_id in ids:
+        assert not event_id.startswith(("message.", "notify."))
+        assert _notification_event_audience({"event": event_id}) == "read"
+
+
 def test_feed_only_ids_do_not_pretend_to_be_notifications() -> None:
     feed_only = _ts_array("FEED_ONLY_EVENT_IDS")
     assert feed_only

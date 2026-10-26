@@ -171,7 +171,7 @@ export interface NotificationRules {
   watched_nodes: NotificationWatchedNode[];
   radio_offline_grace_s: number;
   mention_whole_word: boolean;
-  /** The `notification_event` WebSocket frame for the Feed (default on; no UI yet). */
+  /** The `notification_event` WebSocket frame for the Feed (default on; Notifications > Rules). */
   emit_ws_events?: boolean;
   /** Quiet hours: HH:MM window in the host time zone, ISO weekdays (Monday = 0). */
   quiet_hours?: NotificationQuietHours;

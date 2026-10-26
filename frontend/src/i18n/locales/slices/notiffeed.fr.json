@@ -1,0 +1,11 @@
+{
+  "settings": {
+    "notifications": {
+      "feedFrame": {
+        "title": "Événements du Fil",
+        "label": "Envoyer les événements retenus aux pages Meshloom ouvertes",
+        "help": "Quand un événement part vers au moins un canal actif, le serveur l’envoie aussi aux pages ouvertes, qui l’affichent aussitôt dans le Fil (radio hors ligne ou revenue, nouveau contact entendu, canal découvert). Chaque page ne reçoit que ce que son compte peut lire. Désactivé, le Fil affiche toujours ces lignes : chaque navigateur les déduit des mises à jour de la radio et des contacts, avec le délai par défaut d’une minute pour la radio hors des sessions administrateur."
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "settings": {
+    "notifications": {
+      "feedFrame": {
+        "title": "Feed events",
+        "label": "Send matched events to the open Meshloom pages",
+        "help": "When an event goes to at least one enabled channel, the server also sends it to the open pages, which show it at once in the Feed (radio offline or back online, new contact heard, channel discovered). Each page only gets what its account may read. Off, the Feed still shows these lines: each browser works them out from the radio and contact updates, after the default one-minute delay for the radio outside administrator sessions."
+      }
+    }
+  }
+}

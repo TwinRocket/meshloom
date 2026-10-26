@@ -651,15 +651,27 @@ class TestNotificationEventFrame:
         fixtures = json.loads(
             (Path(__file__).parent / "fixtures" / "websocket_events.json").read_text()
         )
-        case = fixtures["notification_event_mention"]
-        event = event_from_payload(
-            case["notification_payload"],
-            event_id=case["event_id"],
-            occurred_at=case["occurred_at"],
-        )
-        frame = ws_frame.build_frame(event, case["notification_payload"], is_open=case["is_open"])
-        expected = case["expected_ws_event"]
-        assert json.loads(dump_ws_event(WsEvent.NOTIFICATION_EVENT, frame)) == expected
+        # The mention, and the four ids the Feed consumes (MSHL-166).
+        names = sorted(name for name in fixtures if name.startswith("notification_event_"))
+        assert {
+            "notification_event_mention",
+            "notification_event_radio_offline",
+            "notification_event_radio_online",
+            "notification_event_contact_first_seen",
+            "notification_event_channel_found",
+        } <= set(names)
+        for name in names:
+            case = fixtures[name]
+            event = event_from_payload(
+                case["notification_payload"],
+                event_id=case["event_id"],
+                occurred_at=case["occurred_at"],
+            )
+            frame = ws_frame.build_frame(
+                event, case["notification_payload"], is_open=case["is_open"]
+            )
+            expected = case["expected_ws_event"]
+            assert json.loads(dump_ws_event(WsEvent.NOTIFICATION_EVENT, frame)) == expected, name
         assert WsEvent.NOTIFICATION_EVENT not in _DROPPABLE_EVENTS
         assert ws_frame.enabled({}) is True
         assert ws_frame.enabled({"emit_ws_events": False}) is False

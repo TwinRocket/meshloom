@@ -151,5 +151,125 @@
         }
       }
     }
+  },
+  "notification_event_radio_offline": {
+    "description": "The radio stayed unreachable past the grace delay: the Feed's radio.offline row",
+    "notification_payload": {
+      "event": "radio_offline",
+      "outage_started_at": 1699999940.0,
+      "offline_s": 60,
+      "connection": "TCP: 192.0.2.10:5000"
+    },
+    "event_id": "1a2b3c4d5e6f708192a3b4c5d6e7f801",
+    "occurred_at": 1700000000,
+    "is_open": false,
+    "expected_ws_event": {
+      "type": "notification_event",
+      "data": {
+        "version": 1,
+        "event": "radio.offline",
+        "event_id": "1a2b3c4d5e6f708192a3b4c5d6e7f801",
+        "occurred_at": 1700000000,
+        "dedup_key": "58c2401db6999288",
+        "urgent": true,
+        "conversation_key": null,
+        "conversation_type": null,
+        "conversation_open": null,
+        "data": {
+          "offline_s": 60,
+          "connection": "TCP: 192.0.2.10:5000"
+        }
+      }
+    }
+  },
+  "notification_event_radio_online": {
+    "description": "The radio is back after a reported outage: the Feed's radio.online row",
+    "notification_payload": {
+      "event": "radio_online",
+      "outage_started_at": 1699999940.0,
+      "downtime_s": 90,
+      "connection": "TCP: 192.0.2.10:5000"
+    },
+    "event_id": "2b3c4d5e6f708192a3b4c5d6e7f80112",
+    "occurred_at": 1700000030,
+    "is_open": false,
+    "expected_ws_event": {
+      "type": "notification_event",
+      "data": {
+        "version": 1,
+        "event": "radio.online",
+        "event_id": "2b3c4d5e6f708192a3b4c5d6e7f80112",
+        "occurred_at": 1700000030,
+        "dedup_key": "d8698647163d753a",
+        "urgent": false,
+        "conversation_key": null,
+        "conversation_type": null,
+        "conversation_open": null,
+        "data": {
+          "downtime_s": 90,
+          "connection": "TCP: 192.0.2.10:5000"
+        }
+      }
+    }
+  },
+  "notification_event_contact_first_seen": {
+    "description": "A contact heard for the first time: the Feed's contact.first_seen row",
+    "notification_payload": {
+      "event": "first_seen",
+      "public_key": "abababababababababababababababababababababababababababababababab",
+      "name": "Tower",
+      "contact_type": 2
+    },
+    "event_id": "3c4d5e6f708192a3b4c5d6e7f8011223",
+    "occurred_at": 1699999995,
+    "is_open": false,
+    "expected_ws_event": {
+      "type": "notification_event",
+      "data": {
+        "version": 1,
+        "event": "contact.first_seen",
+        "event_id": "3c4d5e6f708192a3b4c5d6e7f8011223",
+        "occurred_at": 1699999995,
+        "dedup_key": "ff6e036df6d8ea56",
+        "urgent": false,
+        "conversation_key": null,
+        "conversation_type": null,
+        "conversation_open": null,
+        "data": {
+          "public_key": "abababababababababababababababababababababababababababababababab",
+          "name": "Tower",
+          "contact_type": 2
+        }
+      }
+    }
+  },
+  "notification_event_channel_found": {
+    "description": "A hashtag channel opened as pending: the Feed's channel.found row",
+    "notification_payload": {
+      "event": "channel_found",
+      "name": "#found",
+      "channel_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "event_id": "4d5e6f708192a3b4c5d6e7f801122334",
+    "occurred_at": 1700000000,
+    "is_open": false,
+    "expected_ws_event": {
+      "type": "notification_event",
+      "data": {
+        "version": 1,
+        "event": "channel.found",
+        "event_id": "4d5e6f708192a3b4c5d6e7f801122334",
+        "occurred_at": 1700000000,
+        "dedup_key": "50aa4f0a8624ad20",
+        "urgent": false,
+        "conversation_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "conversation_type": "CHAN",
+        "conversation_open": null,
+        "data": {
+          "name": "#found",
+          "channel_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      }
+    }
   }
 }

@@ -186,6 +186,8 @@ The destinations you had before the check existed (4.18.x) are allowed to stay w
 
 A new channel is filled in for you by the last step of the add dialog, **What to receive here?**: **Like Push** (the events Web Push receives, the default), **Alerts only** or **Everything**. The urgent events (radio offline, telemetry alerts, channel changed, channel failing) are always delivered, even during **Do not disturb**.
 
+Further down, **Feed events** has one tick, **Send matched events to the open Meshloom pages** (on by default). An event that goes to at least one enabled channel is then also sent to the open Meshloom pages, which show it at once among the Feed's events: radio offline or back online, new contact heard, channel discovered. The server sends each page only what its account may read: a `kiosk` screen never gets a direct message or a mention in a channel with its own key. Untick it and the Feed still shows these lines, worked out by each browser from the radio and contact updates; the radio offline line then waits for the default one minute outside administrators' sessions.
+
 ## Your own rules
 
 The table above holds the **defaults**. Web Push is the one channel whose recipients are people (every device belongs to an account), so under **Settings → Notifications → My notifications** each account (member or administrator) sees one line per event, and one per node type for *New node seen*. Each line follows the administrator's default (the list says whether that is *notify* or *do not notify*) until you choose **Always notify me** or **Never notify me**; **Follow the defaults again** clears all your choices. Your choices apply only to the devices of your account, and nobody else sees or edits them.

@@ -43,7 +43,9 @@ export interface ChannelDeletedPayload {
  * text kept), never rendered text. The server filters it per socket: `notify.*` events reach
  * admins only, and a direct conversation (`message.dm`, a `PRIV` conversation, a mention on a
  * private-key channel) never reaches a session without `read_private` (kiosk). A re-emitted
- * event (same `dedup_key`) may arrive twice. No consumer yet (Feed).
+ * event (same `dedup_key`) is framed once per server process (`dispatcher._publish_frame`).
+ * The Feed consumes four ids (`utils/feedEvents.ts`, `noteNotificationEvent`) and ignores
+ * every other one.
  */
 export interface NotificationEventFrame {
   version: number;

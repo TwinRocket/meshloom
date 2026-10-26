@@ -18,8 +18,11 @@ message (``CHAN`` for ``channel.found``), null otherwise; ``conversation_open`` 
 a ``CHAN`` message is in a Public or ``#`` channel. Who gets the frame is decided per socket
 by ``app/websocket.py``: ``notify.*`` events reach admins only, and a direct conversation
 (``message.dm``, a ``PRIV`` conversation, a mention on a private-key channel) reaches only
-the sockets with ``read_private`` (never a kiosk). A re-emitted event (same ``dedup_key``)
-may arrive twice: the consumer dedups.
+the sockets with ``read_private`` (never a kiosk). A channel message that names the radio is framed as
+``message.mention`` even when only Web Push gets the mention (MSHL-402), and the dispatcher
+sends one frame per ``(event, dedup_key)`` among the last ones it sent; a consumer still
+dedups, the window being bounded. The Feed consumes ``radio.offline``, ``radio.online``,
+``contact.first_seen`` and ``channel.found`` (``frontend/src/utils/feedEvents.ts``).
 """
 
 from __future__ import annotations
@@ -74,11 +77,11 @@ def publish(
     *,
     is_open: bool,
     rules: Mapping[str, Any],
-) -> None:
+) -> bool:
     """Queue the frame for every allowed socket, unless ``rules.emit_ws_events`` is off.
-    Never raises, never waits."""
+    Returns whether it was queued. Never raises, never waits."""
     if not enabled(rules):
-        return
+        return False
     try:
         from app.auth.ws_events import WsEvent
         from app.websocket import ws_manager
@@ -88,3 +91,5 @@ def publish(
         )
     except Exception:
         logger.debug("notification_event frame not sent", exc_info=True)
+        return False
+    return True
