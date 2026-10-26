@@ -70,6 +70,8 @@ Avec Community activé et un code enregistré, votre serveur envoie :
 
 Meshloom n’envoie jamais la clé privée de votre radio à Community. Elle sert uniquement à signer les laissez-passer de courte durée qui prouvent à Community qui l’appelle. Quiconque atteint votre Meshloom peut toutefois relire la clé, par l’API et dans la sauvegarde complète (voir [Sécurité](/docs/deep/security/#la-clé-privée-du-nœud)). La clé publique de votre radio est votre compte : changer la clé de la radio démarre un nouvel historique et fait perdre le code associé.
 
+Le store d'extensions est indépendant de Community : il a son propre interrupteur, désactivé par défaut, et parle à d'autres serveurs (GitHub, voir [Ce qui quitte votre instance](/docs/deep/plugins/#ce-qui-quitte-votre-instance)). Activer ou désactiver Community ne change rien pour le store, et inversement.
+
 ## Quitter Community
 
 **Quitter Meshloom Community** (dans les réglages, ou **Quitter Community** dans l’explication de la bannière d’attente) affiche d’abord ce que le départ implique :
