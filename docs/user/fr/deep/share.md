@@ -50,6 +50,14 @@ Le service propose aussi, pour chaque lien, une **page d’aperçu** : ajoutez `
 
 L’indication demande que le partage soit activé : quand il est désactivé, un lien court n’est qu’un lien et rien n’est demandé.
 
+## Ouvrir un fichier chiffré dans un navigateur
+
+Cette version de Meshloom n’envoie pas encore de fichiers, mais le service a déjà la page qui les ouvre. Une image chiffrée partagée dans un **canal privé** peut être ouverte par les membres du canal, depuis n’importe quel appareil, à l’adresse `https://meshl.ink/<id>/decrypt` (la page du fichier y renvoie) : collez la clé du canal, ses 32 caractères hexadécimaux ou le lien `meshcore://` du canal. Le navigateur déchiffre le fichier : la clé n’est ni envoyée au service, ni mise dans l’adresse, ni enregistrée, et la seule requête est le téléchargement du fichier chiffré. Une mauvaise clé affiche une erreur et rien d’autre.
+
+Les fichiers partagés en **message direct** ne peuvent pas y être ouverts : leur clé ne quitte jamais la base radio Meshloom. Ouvrez-les dans Meshloom.
+
+La page déchiffre avec le code que `meshl.ink` envoie à chaque ouverture : s’en servir revient à faire confiance au code servi lors de cette visite. Sinon, ouvrez le fichier dans Meshloom.
+
 ## Qui peut faire quoi
 
 Activer ou désactiver le partage et régler les modes demande le rôle **administrateur**. Raccourcir un lien demande le rôle **membre** ou plus. Les lecteurs et les bornes peuvent lire les indications (voir [Comptes et accès](/docs/deep/access/) pour les rôles). Le serveur le vérifie à chaque requête, quoi que l’interface affiche, et refuse une requête que le navigateur signale comme venant d’un autre site web.

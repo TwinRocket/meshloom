@@ -50,6 +50,14 @@ The service also has, for each link, a **preview page**: add `+` at the end of t
 
 The hint needs sharing to be on: with sharing off, a short link is just a link and nothing is requested.
 
+## Opening an encrypted file in a browser
+
+This version of Meshloom does not send files yet, but the service already has the page that opens them. An encrypted image shared in a **private channel** can be opened by the channel's members, from any device, at `https://meshl.ink/<id>/decrypt` (the file's page links to it): paste the channel's key, its 32 hexadecimal characters or the channel's `meshcore://` link. The browser decrypts the file: the key is not sent to the service, put in the address or saved, and the only request is the download of the encrypted file. A wrong key shows an error and nothing else.
+
+Files shared in a **direct message** cannot be opened there: their key never leaves the Meshloom radio base. Open them in Meshloom.
+
+The page decrypts with code that `meshl.ink` sends each time it is opened, so using it means trusting the code served on that visit. If you do not, open the file in Meshloom.
+
 ## Who can do what
 
 Turning sharing on or off and setting the modes needs the **administrator** role. Shortening a link needs the **member** role or above. Viewers and kiosks can read the hints (see [Accounts and access](/en/docs/deep/access/) for the roles). The server checks this on every request, whatever the interface shows, and refuses a request that the browser marks as coming from another web site.
