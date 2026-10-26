@@ -114,7 +114,7 @@ describe('keyword rules helpers', () => {
     expect(draftError({ ...draft, pattern: 'a', cooldownMin: 0 })).toBeNull();
   });
 
-  it('builds the payload: trimmed NFC pattern, no Web Push, seconds', () => {
+  it('builds the payload: trimmed NFC pattern, Web Push kept, seconds', () => {
     const input = inputOf({
       ...emptyKeywordDraft(),
       pattern: ' café ',
@@ -125,7 +125,7 @@ describe('keyword rules helpers', () => {
       pattern: 'café',
       match: 'contains',
       scope: 'all',
-      channels: ['ntfy-1'],
+      channels: ['builtin:push', 'ntfy-1'],
       cooldown_s: 120,
     });
     const list = withDraft([RULE], { ...emptyKeywordDraft(), id: 'kw_1', pattern: 'sos' });
@@ -166,8 +166,8 @@ describe('KeywordRulesCard', () => {
     });
     expect(save).toBeDisabled(); // a chosen scope needs a conversation
     fireEvent.click(within(dialog).getByRole('checkbox', { name: '#ops' }));
-    // Web Push is not offered as a channel chip.
-    expect(within(dialog).queryByRole('button', { name: 'Web Push' })).toBeNull();
+    // Web Push is offered (administrators' devices only, MSHL-400).
+    expect(within(dialog).getByRole('button', { name: 'Web Push' })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Phone' }));
     expect(save).toBeEnabled();
     fireEvent.click(save);

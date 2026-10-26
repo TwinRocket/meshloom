@@ -134,7 +134,6 @@ def test_the_pattern_is_stored_nfc_and_trimmed():
         ({"scope": ["nope"]}, "scope"),
         ({"scope": "channels"}, "scope"),
         ({"channels": "a"}, "channels"),
-        ({"channels": ["builtin:push"]}, "channels"),
         ({"cooldown_s": -1}, "cooldown_s"),
         ({"cooldown_s": 86_401}, "cooldown_s"),
         ({"cooldown_s": True}, "cooldown_s"),
@@ -414,7 +413,6 @@ async def test_api_roundtrip_and_limits(test_db, client):
         [{"pattern": "x" * 65}],
         [{"pattern": f"p{i}", "id": f"r{i}"} for i in range(21)],
         [{"pattern": "a", "channels": ["nope"]}],
-        [{"pattern": "a", "channels": ["builtin:push"]}],
         [{"pattern": "a", "match": "regex"}],
     ):
         response = await patch(bad)
@@ -424,6 +422,9 @@ async def test_api_roundtrip_and_limits(test_db, client):
     assert [
         r["pattern"] for r in (await client.get("/api/notifications/rules")).json()["keywords"]
     ] == ["secours"]
+    push = await patch([{"pattern": "a", "channels": ["builtin:push"]}])
+    assert push.status_code == 200
+    assert push.json()["keywords"][0]["channels"] == ["builtin:push"]
     twenty = await patch([{"pattern": f"p{i}", "id": f"r{i}"} for i in range(20)])
     assert twenty.status_code == 200 and len(twenty.json()["keywords"]) == 20
     assert (await patch([])).json()["keywords"] == []

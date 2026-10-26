@@ -18,7 +18,6 @@ import { Label } from '../../ui/label';
 import { conversationName } from './ConversationExceptions';
 import { channelLabel, toggledChannels } from './rulesShared';
 import {
-  WATCHED_EXCLUDED_CHANNEL,
   WATCHED_MAX_COOLDOWN_S,
   WATCHED_MIN_COOLDOWN_S,
   WATCHED_MAX_NODES,
@@ -49,7 +48,7 @@ export function WatchedNodesCard({
 }) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState<NotificationWatchedNode | null>(null);
-  const targets = channels.filter((c) => c.id !== WATCHED_EXCLUDED_CHANNEL);
+  const targets = channels;
   const label = (node: NotificationWatchedNode) =>
     conversationName(`contact-${node.public_key}`, contacts, []);
 

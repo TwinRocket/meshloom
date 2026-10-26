@@ -3,8 +3,8 @@
     "notifications": {
       "keywords": {
         "title": "Mots-clés",
-        "help": "Notifie un canal quand un message contient un mot ou une expression, en plus des notifications habituelles. Un canal qui reçoit déjà le message ne l’a pas deux fois. Un mot-clé ne rend jamais une notification urgente, et les conversations en sourdine, bloquées ou en pause restent silencieuses.",
-        "forgery": "N’importe qui à portée peut écrire un mot-clé dans un canal : les messages de canal ne sont pas authentifiés, un message qui correspond peut donc être forgé. Ne vous fiez pas à un mot-clé seul pour quoi que ce soit de critique. Chaque règle a un délai de récupération, et un même expéditeur ne peut pas redéclencher la même règle avant 15 minutes. Web Push n’est pas disponible pour les mots-clés.",
+        "help": "Notifie un canal quand un message contient un mot ou une expression, en plus des notifications habituelles. Un canal qui reçoit déjà le message ne l’a pas deux fois. Un mot-clé ne rend jamais une notification urgente, et les conversations en sourdine, bloquées ou en pause restent silencieuses. Web Push n’atteint que les appareils des administrateurs, sans le texte du message sur un appareil dont le titulaire ne peut pas le lire.",
+        "forgery": "N’importe qui à portée peut écrire un mot-clé dans un canal : les messages de canal ne sont pas authentifiés, un message qui correspond peut donc être forgé. Ne vous fiez pas à un mot-clé seul pour quoi que ce soit de critique. Chaque règle a un délai de récupération, et un même expéditeur ne peut pas redéclencher la même règle avant 15 minutes.",
         "empty": "Aucune règle de mot-clé pour l’instant.",
         "count": "{{count}} règle(s) sur {{max}}",
         "full": "Limite atteinte ({{max}} règles).",
@@ -26,7 +26,7 @@
         "scopeFilter": "Filtrer les conversations",
         "scopeNone": "Choisissez au moins une conversation.",
         "channels": "Notifier ces canaux",
-        "channelsHelp": "Web Push n’est pas proposé : il se décide par compte.",
+        "channelsHelp": "Web Push n’atteint que les appareils des administrateurs.",
         "noChannel": "aucun canal",
         "cooldown": "Délai de récupération (minutes)",
         "cooldownHelp": "Après une correspondance, la règle reste silencieuse pendant ce délai, quel que soit l’expéditeur. 0 désactive ce délai ; un expéditeur doit tout de même attendre 15 minutes au moins.",

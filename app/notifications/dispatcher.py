@@ -47,6 +47,11 @@ delays itself.
   or when the owners cannot be read, Web Push is left out. ``send_test`` on Web Push reaches
   the requester's devices only (the probe of a paused channel: the administrators').
   ``notify.channel_failed`` is urgent: quiet hours and the global pause never hold it.
+- **Keyword alerts and watched nodes on Web Push** (MSHL-400): ``message.keyword``,
+  ``contact.node_seen`` and ``contact.node_back`` come from instance rules the admin manages,
+  so ``builtin:push`` reaches administrators' devices only (``user_rules.INSTANCE_RULE_EVENTS``),
+  minus an account paused, with that conversation off, or already getting the message; no
+  administrator device, or owners unreadable: Web Push is left out.
 - **Status.** ``notification_statuses()`` is the health payload's map and
   ``notifications_failing()`` its flag (a channel failing, paused or with a secret the key
   cannot open); a change of a channel's status or error broadcasts ``health``.
@@ -105,9 +110,11 @@ from app.notifications.limits import (
 from app.notifications.transports.base import NO_PUSH_DEVICE, Delivery, SendResult, Transport
 from app.notifications.user_rules import (
     ADMIN_ONLY_EVENTS,
+    INSTANCE_RULE_EVENTS,
     PushAudience,
     admin_audience,
     build_audience,
+    instance_rule_audience,
     is_admin_owner,
     requester_audience,
 )
@@ -404,6 +411,7 @@ class Dispatcher:
         blocked: bool = False,
         per_account: bool = False,
         push_mention: tuple[NotificationEvent, Mapping[str, Any]] | None = None,
+        push_already: PushAudience | None = None,
     ) -> int:
         """Queue ``event`` for each channel the rules give it (minus ``exclude``, the
         channels a producer rules out, such as a blocked sender's message), or for
@@ -417,7 +425,9 @@ class Dispatcher:
         wants the event. A producer that routes only Web Push with ``targets`` asks for the same
         with ``per_account``; ``push_mention`` is the ``message.mention`` version of a channel
         message that names the radio, which the accounts that want mentions get instead of
-        ``event``. Returns how many channels it queued
+        ``event``. ``push_already`` is the Web Push audience of the message a keyword alert
+        comes from (MSHL-400): an administrator it already reaches gets no second push.
+        Returns how many channels it queued
         the event for (paused, disabled and unknown channels do not count). Never raises,
         never waits on a send."""
         try:
@@ -432,6 +442,7 @@ class Dispatcher:
                 blocked=blocked,
                 per_account=per_account,
                 push_mention=push_mention,
+                push_already=push_already,
             )
         except Exception:
             logger.exception("notification dispatch failed")
@@ -450,6 +461,7 @@ class Dispatcher:
         blocked: bool = False,
         per_account: bool = False,
         push_mention: tuple[NotificationEvent, Mapping[str, Any]] | None = None,
+        push_already: PushAudience | None = None,
     ) -> int:
         if payload is None:
             if event is None:
@@ -495,6 +507,16 @@ class Dispatcher:
         ):
             # An operational notice reaches administrators' devices only (MSHL-399).
             audience = await self._admin_push_audience(payload)
+            if audience is None:
+                channel_ids = [c for c in channel_ids if c != BUILTIN_PUSH_ID]
+        elif (
+            event is not None
+            and event.event in INSTANCE_RULE_EVENTS
+            and BUILTIN_PUSH_ID in channel_ids
+        ):
+            # A keyword rule or a watched node is the admin's instance setting: its Web Push
+            # reaches administrators' devices only, fail closed (MSHL-400).
+            audience = await self._instance_rule_push_audience(event, payload, push_already)
             if audience is None:
                 channel_ids = [c for c in channel_ids if c != BUILTIN_PUSH_ID]
         channel_ids = [c for c in channel_ids if c not in exclude]
@@ -593,21 +615,51 @@ class Dispatcher:
         ids = channel_ids if listed else [*channel_ids, BUILTIN_PUSH_ID]
         return ids, (audience if overrides or push_mention is not None else None)
 
-    async def _admin_push_audience(self, payload: Mapping[str, Any]) -> PushAudience | None:
-        """The Web Push audience of an ``ADMIN_ONLY_EVENTS`` notice: the administrators who own
-        a deliverable device. None (no Web Push) when there is none or the owners cannot be
-        read: fail closed, a non-admin device never gets the notice."""
+    async def _admin_owner_ids(self) -> list[int] | None:
+        """The administrators who own a deliverable device; None when the owners cannot be
+        read (the callers then send nothing: fail closed)."""
         from app.repository.push_subscriptions import PushSubscriptionRepository
 
         try:
             subs = await PushSubscriptionRepository.deliverable()
         except Exception:
-            logger.debug("push owners unreadable, admin notice not pushed", exc_info=True)
+            logger.debug("push owners unreadable, admin push not sent", exc_info=True)
             return None
-        admins = dict.fromkeys(
-            int(sub["user_id"]) for sub in subs if is_admin_owner(sub) and sub.get("user_id")
+        return list(
+            dict.fromkeys(
+                int(sub["user_id"]) for sub in subs if is_admin_owner(sub) and sub.get("user_id")
+            )
         )
-        return admin_audience(admins, payload)
+
+    async def _instance_rule_push_audience(
+        self,
+        event: NotificationEvent,
+        payload: Mapping[str, Any],
+        already: PushAudience | None,
+    ) -> PushAudience | None:
+        """The Web Push audience of a keyword alert or a watched-node sighting
+        (``user_rules.instance_rule_audience``): administrators only, None (no Web Push) when
+        there is none or the owners cannot be read."""
+        from app.repository.user_notification_rules import UserNotificationRulesRepository
+
+        admins = await self._admin_owner_ids()
+        if not admins:
+            return None
+        try:
+            overrides = await UserNotificationRulesRepository.all_overrides()
+        except Exception:
+            logger.debug("account notification rules unreadable", exc_info=True)
+            overrides = {}
+        return instance_rule_audience(
+            admins, overrides, event, payload, already=already, now=self._wall()
+        )
+
+    async def _admin_push_audience(self, payload: Mapping[str, Any]) -> PushAudience | None:
+        """The Web Push audience of an ``ADMIN_ONLY_EVENTS`` notice: the administrators who own
+        a deliverable device. None (no Web Push) when there is none or the owners cannot be
+        read: fail closed, a non-admin device never gets the notice."""
+        admins = await self._admin_owner_ids()
+        return admin_audience(admins, payload) if admins is not None else None
 
     async def claim_cooldown(self, *claims: tuple[str, int]) -> bool:
         """Start the cooldowns ``(key, seconds)`` unless one is still running: all or nothing,
@@ -1878,6 +1930,7 @@ async def emit(
     blocked: bool = False,
     per_account: bool = False,
     push_mention: tuple[NotificationEvent, Mapping[str, Any]] | None = None,
+    push_already: PushAudience | None = None,
 ) -> int:
     return await notification_dispatcher().emit(
         event,
@@ -1890,6 +1943,7 @@ async def emit(
         blocked=blocked,
         per_account=per_account,
         push_mention=push_mention,
+        push_already=push_already,
     )
 
 

@@ -19,7 +19,7 @@ from app.notifications.channels import BUILTIN_PUSH_ID
 from app.notifications.dispatcher import emit, notification_dispatcher
 from app.notifications.events import NotificationEvent, dedup_hash, event_from_payload
 from app.notifications.mention import is_mention
-from app.notifications.user_rules import build_audience
+from app.notifications.user_rules import PushAudience, build_audience
 
 logger = logging.getLogger(__name__)
 
@@ -112,11 +112,13 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
         muted=muted,
         blocked=blocked,
     )
-    receiving = {*candidates, *mentioned}
-    if not audience.empty:
-        receiving.add(BUILTIN_PUSH_ID)
+    # Web Push is per account: who already gets the message by push is the audience, passed on
+    # so a keyword alert skips those administrators (MSHL-400), not the whole channel.
+    receiving = {c for c in (*candidates, *mentioned) if c != BUILTIN_PUSH_ID}
     if not (muted or blocked):
-        await _emit_keywords(payload, rules, receiving, is_open, set(mentioned))
+        await _emit_keywords(
+            payload, rules, receiving, is_open, set(mentioned), push_already=audience
+        )
     # Nobody to reach: no instance channel left after the mention split, and no account's
     # Web Push wants it.
     if audience.empty and not [
@@ -152,12 +154,17 @@ async def _emit_keywords(
     receiving: set[str],
     is_open: bool,
     mentioned: frozenset[str] | set[str] = frozenset(),
+    *,
+    push_already: PushAudience | None = None,
 ) -> None:
     """``message.keyword`` for each keyword rule the message triggers (``keywords.py``).
 
     Only on the rule's channels that do not already receive this message (``receiving``: the
     channels of ``message.dm`` / ``message.channel`` / ``message.mention`` for it, so no channel
-    gets it twice; a digest-mode channel is not counted as receiving it, MSHL-136). The caller skips muted conversations and blocked senders; the dispatcher
+    gets it twice; a digest-mode channel is not counted as receiving it, MSHL-136). Web Push
+    (``builtin:push`` in a rule, MSHL-400) reaches the administrators' devices only, minus those
+    ``push_already`` (the message's own push audience) reaches. The caller skips muted
+    conversations and blocked senders; the dispatcher
     applies the pauses. A rule fires once per message (dedup key per rule and message) and
     starts its cooldown per rule and per rule and sender, only when it reaches a channel.
     A match is never urgent: the text is forgeable."""
@@ -169,7 +176,10 @@ async def _emit_keywords(
         # does not "already receive" it: the keyword alert still reaches it at once. The
         # message stays counted once in the summary; the alert itself is never counted. Read
         # only here, so a message with no keyword hit costs no lookup.
-        receiving = receiving - (await _digest_channels() - mentioned)
+        digest = await _digest_channels()
+        receiving = receiving - (digest - mentioned)
+        if BUILTIN_PUSH_ID in digest:
+            push_already = None  # a digest-mode Web Push only counts the message
         sender = dedup_hash(keywords_mod.sender_id(payload))
         for rule in hits:
             rule_id = str(rule.get("id") or "")
@@ -177,7 +187,7 @@ async def _emit_keywords(
             targets = [
                 c
                 for c in (ids if isinstance(ids, list) else [])
-                if isinstance(c, str) and c != BUILTIN_PUSH_ID and c not in receiving
+                if isinstance(c, str) and c not in receiving
             ]
             if not rule_id or not targets:
                 continue
@@ -201,6 +211,7 @@ async def _emit_keywords(
                 targets=targets,
                 rules=rules,
                 is_open=is_open,
+                push_already=push_already,
             )
     except Exception:
         logger.debug("keyword notification failed", exc_info=True)

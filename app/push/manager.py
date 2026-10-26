@@ -17,7 +17,7 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,7 +35,14 @@ from app.notifications.render import (  # noqa: F401  (re-exported: callers impo
     neutralise_mentions,
     state_key_for_message,
 )
-from app.notifications.user_rules import ADMIN_ONLY_EVENTS, PushAudience, is_admin_owner
+from app.notifications.user_rules import (
+    PushAudience,
+    admin_push_payload,
+    is_admin_owner,
+    is_message_payload,
+    may_read_message,
+    redact_message,
+)
 from app.push.send import send_push
 from app.push.vapid import get_vapid_claims, get_vapid_private_key
 from app.repository.push_subscriptions import PushSubscriptionRepository
@@ -125,22 +132,31 @@ class PushManager:
     async def dispatch_event(self, data: dict, audience: PushAudience | None = None) -> PushOutcome:
         """Send a push payload to every deliverable subscription. Not a WebSocket event.
 
-        An ``ADMIN_ONLY_EVENTS`` notice (MSHL-399) reaches administrators' devices only,
-        whatever the caller passed: a device whose owner's role is unknown is skipped.
+        An ``ADMIN_ONLY_EVENTS`` notice (MSHL-399), a keyword alert or a watched-node sighting
+        (``INSTANCE_RULE_EVENTS``, MSHL-400) reaches administrators' devices only, whatever the
+        caller passed: a device whose owner's role is unknown is skipped.
 
         With ``audience`` (MSHL-321) each device gets the payload its owner's rules give it
         (``app/notifications/user_rules.py``), and a device whose owner wants none is skipped.
+
+        A message payload is shown only to a device whose owner may read that message in the
+        app (``may_read_message``); another device gets a generic notice without the text, the
+        sender or the conversation name (MSHL-400).
         """
-        admin_only = data.get("event") in ADMIN_ONLY_EVENTS
+        admin_only = admin_push_payload(data)
+
+        def build(sub: dict, payload: Mapping[str, Any]) -> str:
+            if is_message_payload(payload) and not may_read_message(sub.get("owner_role"), payload):
+                payload = redact_message(payload)
+            return build_push_payload(dict(payload), sub.get("language") or "fr")
+
         if audience is None:
             return await self._send_to_all_subscriptions(
-                lambda sub: build_push_payload(data, sub.get("language") or "fr"),
+                lambda sub: build(sub, data),
                 wanted=is_admin_owner if admin_only else None,
             )
         return await self._send_to_all_subscriptions(
-            lambda sub: build_push_payload(
-                dict(audience.payload_for(sub.get("user_id")) or data), sub.get("language") or "fr"
-            ),
+            lambda sub: build(sub, audience.payload_for(sub.get("user_id")) or data),
             wanted=lambda sub: (
                 audience.payload_for(sub.get("user_id")) is not None
                 and (not admin_only or is_admin_owner(sub))

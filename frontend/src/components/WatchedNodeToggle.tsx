@@ -5,7 +5,6 @@ import { Bell } from 'lucide-react';
 import { useConversationNotifications } from '../hooks/useConversationNotifications';
 import { toggledChannels } from './settings/notifications/rulesShared';
 import {
-  WATCHED_EXCLUDED_CHANNEL,
   WATCHED_MAX_NODES,
   findWatched,
   newWatched,
@@ -36,7 +35,7 @@ export function WatchedNodeToggle({ publicKey }: { publicKey: string }) {
   }
   const nodes = rules.watched_nodes ?? [];
   const entry = findWatched(nodes, publicKey);
-  const targets = channels.filter((c) => c.id !== WATCHED_EXCLUDED_CHANNEL);
+  const targets = channels;
   const full = !entry && nodes.length >= WATCHED_MAX_NODES;
   const id = `watch-${publicKey.slice(0, 12)}`;
 

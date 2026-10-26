@@ -72,7 +72,6 @@ def test_defaults_and_normalisation():
     [
         ({"public_key": "abc"}, "public_key"),
         ({"public_key": "zz" * 32}, "public_key"),
-        ({"channels": ["builtin:push"]}, "channels"),
         ({"channels": "k"}, "channels"),
         ({"cooldown_s": -1}, "cooldown_s"),
         ({"cooldown_s": 0}, "cooldown_s"),
@@ -231,7 +230,6 @@ async def test_api_roundtrip_and_limits(test_db, client):
         [{"public_key": KEY, "cooldown_s": 0}],
         [{"public_key": "nope"}],
         [{"public_key": KEY, "channels": ["missing"]}],
-        [{"public_key": KEY, "channels": ["builtin:push"]}],
         [{"public_key": KEY}, {"public_key": KEY}],
         [{"public_key": f"{i:064x}"} for i in range(51)],
     ):
@@ -239,6 +237,9 @@ async def test_api_roundtrip_and_limits(test_db, client):
         assert response.status_code == 400, bad
         assert response.json()["detail"]["code"] == "invalid_config"
     assert len((await client.get("/api/notifications/rules")).json()["watched_nodes"]) == 1
+    push = await patch([{"public_key": KEY, "channels": ["builtin:push"]}])
+    assert push.status_code == 200
+    assert push.json()["watched_nodes"][0]["channels"] == ["builtin:push"]
     fifty = await patch([{"public_key": f"{i:064x}"} for i in range(50)])
     assert fifty.status_code == 200 and len(fifty.json()["watched_nodes"]) == 50
 

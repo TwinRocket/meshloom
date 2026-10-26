@@ -608,6 +608,9 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
             }
         )
 
+    if data.get("redacted"):
+        return _redacted_push_payload(data, lang)
+
     msg_type = data.get("type", "")
     text = message_body_text(data.get("text", ""), lang, data.get("sender_name"))
     sender_name = data.get("sender_name") or ""
@@ -658,8 +661,8 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
 
     return json.dumps(
         {
-            "title": title,
-            "body": body,
+            "title": _clip(title, PUSH_TITLE_MAX),
+            "body": _clip(body, PUSH_BODY_MAX),
             # Tag per conversation so different conversations coexist in the
             # notification tray, while repeated messages in the same
             # conversation replace each other.
@@ -669,6 +672,32 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
             "url_hash": url_hash,
         }
     )
+
+
+# A Web Push payload must stay under about 4 KB once encrypted (RFC 8291; push services refuse
+# more): a mesh message is far shorter, but the title and body of a message are clipped anyway
+# (MSHL-400), so a long channel name, sender or text never makes a push service drop it.
+PUSH_TITLE_MAX = 120
+PUSH_BODY_MAX = 1000
+
+
+def _clip(text: str, limit: int) -> str:
+    """``text`` cut to ``limit`` characters (an ellipsis replacing the end): never splits a
+    code point, so the JSON stays valid."""
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _redacted_push_payload(data: Mapping[str, Any], lang: str) -> str:
+    """The push of a message its recipient may not read in the app (``user_rules.
+    redact_message``, MSHL-400): a generic notice, no text, sender, conversation or keyword."""
+    keyword = bool(data.get("keyword_id"))
+    if lang == "en":
+        title = "Keyword alert" if keyword else "New message"
+        body = "Open Meshloom to see it."
+    else:
+        title = "Alerte mot-clé" if keyword else "Nouveau message"
+        body = "Ouvrez Meshloom pour le voir."
+    return json.dumps({"title": title, "body": body, "tag": "meshcore-redacted", "url_hash": ""})
 
 
 def message_body_text(text: object, lang: str, sender_name: object = "") -> str:

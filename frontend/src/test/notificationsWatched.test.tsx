@@ -104,8 +104,12 @@ afterEach(() => {
 });
 
 describe('watched nodes helpers', () => {
-  it('builds an entry with the server defaults, lowercase key and no Web Push', () => {
-    expect(newWatched(KEY.toUpperCase(), ['builtin:push', 'ntfy-1'])).toEqual(NODE);
+  it('builds an entry with the server defaults, lowercase key and Web Push kept', () => {
+    expect(newWatched(KEY.toUpperCase(), ['ntfy-1'])).toEqual(NODE);
+    expect(newWatched(KEY, ['builtin:push', 'ntfy-1']).channels).toEqual([
+      'builtin:push',
+      'ntfy-1',
+    ]);
   });
 
   it('replaces, appends and removes by key, case aside', () => {
@@ -127,7 +131,7 @@ describe('watched nodes helpers', () => {
 });
 
 describe('WatchedNodeToggle (contact sheet)', () => {
-  it('turns the watch on with every channel but Web Push, and off again', async () => {
+  it('turns the watch on with every channel, Web Push included, and off again', async () => {
     mockApi({ ...RULES, watched_nodes: [] });
     const patch = vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(RULES);
     render(<WatchedNodeToggle publicKey={KEY.toUpperCase()} />);
@@ -135,11 +139,16 @@ describe('WatchedNodeToggle (contact sheet)', () => {
     expect(box).not.toBeChecked();
     fireEvent.click(box);
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));
-    expect(patch.mock.calls[0][0]).toEqual({ watched_nodes: [NODE] });
-    // The answer is the cache: the chips of the channels appear, Web Push is not one of them.
+    expect(patch.mock.calls[0][0]).toEqual({
+      watched_nodes: [{ ...NODE, channels: ['builtin:push', 'ntfy-1'] }],
+    });
+    // The answer is the cache: the chips of the channels appear, Web Push among them.
     const chip = await screen.findByRole('button', { name: 'Phone' });
     expect(chip).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.queryByRole('button', { name: 'Web Push' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Web Push' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
 
     fireEvent.click(chip);
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(2));
@@ -224,7 +233,7 @@ describe('WatchedNodesCard (settings)', () => {
     fireEvent.change(within(dialog).getByLabelText(t('settings.notifications.watched.cooldown')), {
       target: { value: '5' },
     });
-    expect(within(dialog).queryByRole('button', { name: 'Web Push' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Web Push' })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Phone' }));
     fireEvent.click(save);
     await waitFor(() => expect(patch).toHaveBeenCalledTimes(1));

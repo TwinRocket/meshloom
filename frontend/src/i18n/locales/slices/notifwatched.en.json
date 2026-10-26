@@ -13,7 +13,7 @@
     "notifications": {
       "watched": {
         "title": "Watched nodes",
-        "help": "Notify a channel when a node is heard (its advert or a direct message), and when it comes back after a long silence. Add a node with “Notify when heard” in its contact sheet. Web Push is not available for watched nodes (it is decided per account).",
+        "help": "Notify a channel when a node is heard (its advert or a direct message), and when it comes back after a long silence. Add a node with “Notify when heard” in its contact sheet. Web Push reaches administrators’ devices only.",
         "empty": "No watched node yet.",
         "count": "{{count}} of {{max}} nodes",
         "full": "Limit reached ({{max}} nodes).",
@@ -24,7 +24,7 @@
         "editTitle": "Watched node: {{name}}",
         "dialogHelp": "A node that is heard notifies at most once per cooldown. Heard again after the silence threshold, it notifies as “back”.",
         "channels": "Notify these channels",
-        "channelsHelp": "Web Push is not offered: it is decided per account.",
+        "channelsHelp": "Web Push reaches administrators’ devices only.",
         "cooldown": "Cooldown (minutes)",
         "cooldownHelp": "After a notification, this node stays quiet for this long (1 minute at least, 30 days at most).",
         "silence": "Silence before “back” (hours)",

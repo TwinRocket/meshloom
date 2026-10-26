@@ -188,7 +188,8 @@ owns and keeps following the defaults (webhooks, e-mail, Apprise, ntfy, `legacy:
   `true` lists `builtin:push` on that event (or contact kind) and then goes through the same
   evaluation as the defaults, so the admin's conversation exceptions, mutes, block lists and
   the global pause still apply. `always_deliver`, keywords and watched nodes are instance
-  settings: an account has no copy of them.
+  settings: an account has no copy of them (their Web Push reaches administrators only,
+  MSHL-400; an admin's own pause and conversation exception still apply).
 - **Dispatch.** Without `targets`, `Dispatcher._emit` strips `builtin:push` from the channels the
   defaults chose and asks `build_audience` instead: a `PushAudience` that gives each account's
   devices a payload or none. `builtin:push` is queued when anyone wants the event, even if the
@@ -318,6 +319,25 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   `is_admin_owner` again for these events (a demotion between emit and send, and the legacy
   `notify_destination_changed` that calls it directly). Other channels are admin-configured
   destinations and are not filtered.
+- **Keyword alerts and watched nodes on Web Push** (MSHL-400): `message.keyword`,
+  `contact.node_seen` and `contact.node_back` (`user_rules.INSTANCE_RULE_EVENTS`) come from
+  instance rules the admin manages (`rules["keywords"]`, `rules["watched_nodes"]`), so no account
+  owns them. `_emit` replaces the `builtin:push` audience with `instance_rule_audience()`: the
+  admins owning a deliverable device, `default` None, minus an admin whose own pause holds the
+  event, whose conversation exception is `false` for the message's conversation, or whom
+  `push_already` (the message's own audience) already reaches. No admin device, nobody left, or
+  owners unreadable: `builtin:push` is dropped (fail closed). Quiet hours, the global pause,
+  limits and held counters (per admin account) apply as for any Web Push job.
+  `PushManager.dispatch_event` re-checks `is_admin_owner` for these payloads
+  (`user_rules.admin_push_payload`: a keyword alert is a message payload carrying `keyword`,
+  a watched node is `node_seen` / `node_back`).
+- **Message text on Web Push** (MSHL-400): `PushManager.dispatch_event` builds a message
+  payload (`user_rules.is_message_payload`) in full only for a device whose owner may read it in
+  the app (`may_read_message`: `read_private` for a DM, `read` for a channel; an unknown role
+  may not). Any other device gets `redact_message()`: `build_push_payload` then renders a generic
+  FR/EN notice ("New message" / "Keyword alert", "Open Meshloom to see it.") with no text, sender,
+  channel or keyword. A message push clips its title to `PUSH_TITLE_MAX` (120) and its body to
+  `PUSH_BODY_MAX` (1000) characters so it stays far below the ~4 KB Web Push limit.
 - **Fanout duplicates and conversion** (`fanout_convert.py`, MSHL-134): `POST /channels`
   answers `fanout_duplicates: [{id, name}]`, the enabled, unconverted Apprise fanout rows whose
   URLs match the new channel's (presets compiled, generic Apprise `urls`, Discord `webhook_url`).
@@ -516,8 +536,10 @@ linear and ReDoS-free. The matched text is the message without the `"Name: "` pr
 `producers._emit_keywords` runs after the mention split, for a conversation that is neither muted nor blocked: each matching
 rule emits one `message.keyword` (`KeywordEvent`, never urgent, dedup key per (rule, message), payload carries `keyword` and
 `keyword_id`, both dropped from the input like `mention`) with `targets` = the rule's channels minus `receiving` (the channels
-of `message.dm`/`message.channel`/`message.mention` for this message, and `builtin:push` when any account wants it), so no
-channel gets two notifications. `builtin:push` is refused in a rule (Web Push is per account; deferred). Cooldowns go through
+of `message.dm`/`message.channel`/`message.mention` for this message; a digest-mode channel does not count), so no
+channel gets two notifications. `builtin:push` is allowed in a rule (MSHL-400, see "Keyword alerts and watched nodes on Web
+Push"); the message's own push audience is passed as `push_already`, so an administrator it already reaches gets no second
+push (unless Web Push is in digest mode). Cooldowns go through
 `Dispatcher.claim_cooldown`: keys `dedup:cooldown:kw:<rule>` (`cooldown_s`) and `...:<rule>:<sha of sender key or name>`
 (`max(900 s, cooldown_s)`) in the dedup store (`notification_state`), claimed together and only when a channel is reached. The
 dispatcher applies the pauses (global and per channel), quiet hours, limits and the text policy as for any message.
@@ -528,7 +550,7 @@ dispatcher applies the pauses (global and per channel), quiet hours, limits and 
 `rules["watched_nodes"]`: at most 50 entries `{public_key (64 lowercase hex), channels, cooldown_s (default 3600, 60 s to 30 d: a lower value is refused by the API; legacy stored rows are normalised by `normalize_stored` on read and restore, and clamped at runtime by `effective_cooldown`),
 silence_s (default 86400, 60 s to 365 d)}`, validated by `watched_nodes.clean_entries` (the API: `PATCH /rules` `watched_nodes` replaces
 the whole list, unknown channels refused) and, per entry, by `clean_entry` in the backup `sanitize_rules` (cap `MAX_WATCHED`, unique keys). Web Push
-(`builtin:push`) is refused, as for keywords. The hook is a service, `observe_sighting()` (never raises), called from the contact paths of
+(`builtin:push`) is allowed, as for keywords (MSHL-400: administrators' devices only). The hook is a service, `observe_sighting()` (never raises), called from the contact paths of
 `packet_processor.py`: a new advert packet (after the upsert, `previous_seen` = the contact's `last_seen` before it, pinned by a test) and an incoming decoded DM, and from
 `event_handlers.on_contact_message` (the `CONTACT_MSG_RECV` fallback) when it stored the DM of a known contact.
 It reads the rules, ignores an unwatched key (nothing stored), takes the previous sighting from `notification_state` `watch:heard:<key>`

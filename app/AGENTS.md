@@ -1536,7 +1536,9 @@ first admin's when read (`_OWNER_SQL`; reads never write). An empty label on sub
 the stored one unless the row changes owner. `UserRepository.delete` also deletes the rows
 explicitly (no reliance on the cascade alone). Sends go to `PushSubscriptionRepository.deliverable()` only: owner enabled and holding
 `send` in `ROLE_PERMISSIONS` (kiosk and viewer own nothing deliverable; a token acts for its
-user). The rules are the admin defaults, and each account may override them for its own
+user). `dispatch_event` still renders a message's text only for a device whose owner may read
+it (`user_rules.may_read_message`, otherwise a generic FR/EN notice), and keeps admin notices,
+keyword alerts and watched nodes to administrators' devices (MSHL-399, MSHL-400). The rules are the admin defaults, and each account may override them for its own
 devices (`user_notification_rules`, migration 123, MSHL-321; `app/notifications/AGENTS.md`,
 "Per-account rules"; routes `GET/PATCH/DELETE /push/my-rules` and `PUT/DELETE /push/my-pause`,
 `send`; MSHL-361/362/363 add the grouped summaries, conversation exceptions and pause). `restore_users` unowns rows before replacing the accounts

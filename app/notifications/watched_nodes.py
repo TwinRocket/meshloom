@@ -65,10 +65,8 @@ def clean_entry(raw: object, *, known_channels: Collection[str] | None = None) -
     """One entry as stored, or ``WatchedNodeError`` naming the field. The key is lowercased.
 
     ``known_channels`` (the API; the backup restore checks channels itself) refuses an unknown
-    channel id. Web Push (``builtin:push``) is refused, as for keyword rules: it is decided per
-    account."""
-    from app.notifications.channels import BUILTIN_PUSH_ID
-
+    channel id. Web Push (``builtin:push``) is accepted since MSHL-400, as for keyword rules: it
+    reaches administrators' devices only (``user_rules.INSTANCE_RULE_EVENTS``)."""
     if not isinstance(raw, Mapping):
         raise WatchedNodeError("watched_nodes")
     key = raw.get("public_key")
@@ -78,7 +76,7 @@ def clean_entry(raw: object, *, known_channels: Collection[str] | None = None) -
     if (
         not isinstance(channels, list)
         or len(channels) > MAX_RULE_CHANNELS
-        or not all(isinstance(c, str) and c and c != BUILTIN_PUSH_ID for c in channels)
+        or not all(isinstance(c, str) and c for c in channels)
     ):
         raise WatchedNodeError("channels")
     channels = list(dict.fromkeys(channels))
@@ -230,13 +228,7 @@ async def _observe(
     back = previous is not None and silent_s >= silence
 
     ids = entry.get("channels")
-    from app.notifications.channels import BUILTIN_PUSH_ID
-
-    targets = [
-        c
-        for c in (ids if isinstance(ids, list) else [])
-        if isinstance(c, str) and c != BUILTIN_PUSH_ID
-    ]
+    targets = [c for c in (ids if isinstance(ids, list) else []) if isinstance(c, str)]
     if not targets:
         return
     from app.notifications.dispatcher import emit, notification_dispatcher
