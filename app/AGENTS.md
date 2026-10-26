@@ -282,7 +282,9 @@ Community guard.
   reports it as `banned`; `SettingsShareSection` shows a banner (contact
   ban@meshloom.app, the ban is per instance) and the Shorten button toasts the
   coded `errors.share_banned`.
-- **Read protections.** Order in `share_request`: opt-in, ban (writes), negative
+- **Read protections.** Order in `share_request`: opt-in, ban (writes, except
+  `banned_ok=True`: listing one's own objects stays possible; deleting does not, the
+  service refuses a banned key too), negative
   cache, breaker cooling, read bucket, breaker trial, then the request.
   - Buckets: `aiolimiter.AsyncLimiter` per instance, `meta` 60 and `bytes` 20 per
     minute (`READ_LIMITS`). They refuse, never queue (`has_capacity()` then
@@ -300,9 +302,23 @@ Community guard.
     received status is authoritative: httpcore reads an answer sent before the
     upload body was read, so an early kill switch is not a write failure).
 - **Functions.** `create_link`, `get_meta`, `fetch_object`, `read_object`,
-  `report_object` (and `share_request` underneath), plus `share_upload.upload_file` and
-  `share_upload.upload_encrypted`; `clear_object_cache`, `share_egress_state`,
-  `share_upload._seal` and `share_secrets.upload_secret` are local (`_LOCAL` in the sweep).
+  `report_object`, `list_mine`, `delete_object` (and `share_request` underneath), plus
+  `share_upload.upload_file` and `share_upload.upload_encrypted`; `clear_object_cache`,
+  `share_egress_state`, `_forget_object`, `share_upload._seal` and
+  `share_secrets.upload_secret` are local (`_LOCAL` in the sweep).
+- **Own objects (MSHL-247).** `list_mine(limit, cursor)` is `GET /v1/mine` (binding
+  `mine`, `banned_ok`); each entry is re-checked (`_mine_object`: an id outside the
+  grammar is dropped, an unknown `blocked_category` becomes `other` and an active object
+  carries none, a `content_type` outside `OBJECT_CONTENT_TYPES` becomes null) and a
+  `next_cursor` outside `MINE_CURSOR_RE` is dropped. `delete_object(id)` is
+  `DELETE /v1/objects/{id}` (binding = id; a ban refuses it locally, `share_banned`);
+  success, `not_found` or `gone`
+  evict the local copies (`_forget_object`: `ShareCache.delete`, the meta cache entry,
+  and a negative `gone` for both read keys, so the next read answers 410 with no
+  request). `gone` (blocked by the service) is re-raised as 409 `share_object_blocked`;
+  `not_owner` is 403 `share_not_owner` and keeps the local copy. A local eviction
+  failure after a successful service delete is logged (exception type only) and the
+  delete still succeeds.
   Every new network function must be added to `SERVICE_CALLS` in
   `tests/test_share_off_no_egress.py` (the test finds them from `services/share.py`,
   `services/share_secrets.py` and `services/share_upload.py` and fails otherwise); `/api/share/*` routes are found from
@@ -356,7 +372,8 @@ Community guard.
   `meshloom-share-conversation-v1\0` and the key bytes; a pydantic `computed_field` on
   every channel payload, never stored, null for a malformed key), resolved by scanning
   `ChannelRepository.get_all()` with `hmac.compare_digest`; a raw 32-hex key never
-  matches. A contact is named by its public key. A private channel gives its 16-byte
+  matches, and an id matching more than one channel (a duplicate key row) matches none
+  (MSHL-382). A contact is named by its public key. A private channel gives its 16-byte
   `Channel.key`; a contact gives the 32-byte X25519 shared secret
   (`decoder.derive_shared_secret` of the keystore private key and the contact key).
   Malformed or unknown is 400 `share_invalid_request`; the Public channel, a
@@ -425,7 +442,7 @@ Community guard.
   public file; for an encrypted one the route fetches and decrypts it with the secret
   of `message_id`'s conversation: true with the decrypted `content_type`, `name` and
   `size`, false with those null when that fails or there is no message, null when the
-  object cannot be fetched now)), `GET /{id}` (`read`; the object bytes:
+  object cannot be fetched now); always `Cache-Control: no-store`, MSHL-382), `GET /{id}` (`read`; the object bytes:
   bad id 400 `share_invalid_id` with no request, then off `share_disabled`;
   headers `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src
   'none'; sandbox`, `Cache-Control: private, max-age=3600` (a public object),
@@ -438,8 +455,15 @@ Community guard.
   `Cache-Control: no-store` (plaintext never reaches the browser's disk cache) and the
   sanitised name in `filename*=UTF-8''...` (percent-encoded), its extension forced to
   the checked type by `_served_name` (`x.html` on a PNG/HTML polyglot is served
-  `x.png`; `jpg`/`jpeg` and any case are kept; the meta `name` is the same; MSHL-378)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
-  sharing off, no egress), `POST /{id}/report` (`send`; MSHL-246; body
+  `x.png`; `jpg`/`jpeg` and any case are kept; the meta `name` is the same; MSHL-378;
+  the stem is shortened so the name stays within `share_crypto.NAME_MAX`, MSHL-382)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
+  sharing off, no egress), `GET /mine` (`send`; MSHL-247; query `limit` 1..200,
+  default 100, and `cursor` only, anything else 400 `share_invalid_request`; off
+  `share_disabled`; answers `ShareMineResponse` with `Cache-Control: no-store`),
+  `DELETE /{id}` (`send` + `refuse_cross_site`; off `share_disabled`, bad id
+  `share_invalid_id`, then `share.delete_object`; 204; tests `tests/test_share_mine.py`,
+  which also prove a viewer, a kiosk and an anonymous caller can neither list nor
+  delete), `POST /{id}/report` (`send`; MSHL-246; body
   `ShareReportRequest` `{reason, details?}`, `extra=forbid`, the contract's 8 reasons,
   details up to 2000, else 422 with no request; then off `share_disabled`, bad id
   `share_invalid_id`, then `share.report_object` (JWT bound to `id\nreason`, so the

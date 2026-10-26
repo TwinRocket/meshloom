@@ -11,7 +11,7 @@ This version shortens **web addresses** and sends **photos** as public links fro
 
 ## Turning it on
 
-Open **Settings > Share: links and files** (administrators only). The section shows whether sharing is on, whether this Meshloom's sharing identity is ready, and whether encrypted files for direct messages are available (they are not used yet).
+Open **Settings > Share: links and files** (administrators; a member sees only **My uploads**, see below). The section shows whether sharing is on, whether this Meshloom's sharing identity is ready, and whether encrypted files for direct messages are available (they are not used yet).
 
 Ticking **Turn on link and file sharing** always opens a consent window. It lists what leaves this Meshloom, who runs the service and for how long things are kept, links to the service's terms of use and privacy policy, and asks you to tick that you accept the terms. Cancelling, closing the window or leaving the box unticked changes nothing. Your acceptance is recorded on this Meshloom, with the version of the terms and the date: if the terms change in a later version, sharing stays off and the section tells you, until an administrator reads and accepts the new terms by turning it on again. Turning sharing off needs no consent and takes effect at once: requests already on their way are stopped.
 
@@ -75,6 +75,6 @@ Messages and errors you may see, and what they mean:
 
 ## Retention, removal and contact
 
-A short link stays valid for 365 days, then stops working. This version of Meshloom has no button to delete or report a link: to report a link, use the **Report** button of its preview page (add `+` to the address) or the service's report page. For a removal request or any question about your data, use the contacts on the service's legal pages, `https://meshl.ink/legal` and `https://meshl.ink/privacy`, which also name its publisher.
+A short link stays valid for 365 days, then stops working. To delete a link or file you shared, use **Settings > Share: links and files > My uploads** (members and administrators; an object the service blocked cannot be deleted). Deleting an object, or clearing this Meshloom's cache, does not remove a copy a browser already holds: a public image may stay in a viewer's browser cache for up to one hour. This version of Meshloom has no button to report a link: to report one, use the **Report** button of its preview page (add `+` to the address) or the service's report page. For a removal request or any question about your data, use the contacts on the service's legal pages, `https://meshl.ink/legal` and `https://meshl.ink/privacy`, which also name its publisher.
 
 For the technical side (what each request holds, the key and the tokens), see [Security](/en/docs/deep/security/#what-leaves-your-machine).

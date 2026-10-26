@@ -69,16 +69,20 @@ SERVICE_CALLS = {
     "share_request": lambda: share.share_request("GET", "/v1/meta/AbCdEfG", binding=None),
     "upload_file": lambda: share_upload.upload_file(_staged_png()),
     "upload_encrypted": lambda: share_upload.upload_encrypted(_staged_png(), DM_SECRET, "a.png"),
+    "list_mine": lambda: share.list_mine(50, "c1"),
+    # Last: a deleted id is then remembered as gone.
+    "delete_object": lambda: share.delete_object("AbCdEfG"),
 }
 # Coroutine functions of the modules that never connect (``_seal`` encrypts
 # locally, ``upload_secret`` and ``_channel_by_conversation_id`` read the database
-# and the keystore).
+# and the keystore, ``_forget_object`` drops local copies).
 _LOCAL = {
     "share_egress_state",
     "clear_object_cache",
     "_seal",
     "upload_secret",
     "_channel_by_conversation_id",
+    "_forget_object",
 }
 
 
@@ -92,6 +96,10 @@ def _answer(request: httpx.Request) -> httpx.Response:
         return json_response(200, {"id": "AbCdEfG", "kind": "link", "target_host": "example.com"})
     if path == "/v1/reports":
         return httpx.Response(202)
+    if path == "/v1/mine":
+        return json_response(200, {"objects": [], "next_cursor": None})
+    if request.method == "DELETE" and path.startswith("/v1/objects/"):
+        return httpx.Response(204)
     if path == "/v1/files":
         # An encrypted upload proposes its id, which the answer must echo.
         share_id = request.headers.get("x-share-id", "AbCdEfG")

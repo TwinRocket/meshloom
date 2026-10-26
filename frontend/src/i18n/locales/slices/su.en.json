@@ -1,0 +1,51 @@
+{
+  "settings": {
+    "share": {
+      "cache": {
+        "title": "Local copies",
+        "help": "Shared images this Meshloom has fetched are kept here so they are not downloaded again. Clearing them frees disk space; they are fetched again when someone opens them.",
+        "clear": "Clear the cache",
+        "cleared": "Cache cleared: {{size}} freed."
+      },
+      "uploads": {
+        "title": "My uploads",
+        "intro": "Links and files shared from this Meshloom. Deleting one removes it from the share service and from this Meshloom's cache.",
+        "off": "Sharing is off, so this Meshloom does not contact the share service and cannot list what it shared. Links and files already shared stay online until they expire.",
+        "refresh": "Refresh",
+        "loading": "Loading…",
+        "empty": "Nothing shared from this Meshloom yet.",
+        "error": "The list could not be loaded: {{error}}",
+        "more": "Show more",
+        "columns": {
+          "kind": "Kind",
+          "what": "Type or site",
+          "size": "Size",
+          "expires": "Expires",
+          "status": "Status",
+          "actions": "Actions"
+        },
+        "kind": {
+          "link": "Link",
+          "file": "File",
+          "encrypted": "Encrypted file"
+        },
+        "status": {
+          "active": "Online",
+          "blocked": "Blocked: {{category}}"
+        },
+        "blockedHelp": "Blocked by the share service, so it cannot be deleted. <contact>Contact the service</contact> if you disagree.",
+        "never": "never",
+        "unknown": "—",
+        "delete": "Delete",
+        "deleteLabel": "Delete {{id}}",
+        "confirm": {
+          "title": "Delete this upload?",
+          "body": "It is removed from the share service and from this Meshloom's cache. Anyone who has the link will no longer be able to open it. This cannot be undone.",
+          "cancel": "Cancel",
+          "confirm": "Delete"
+        },
+        "deleted": "Deleted."
+      }
+    }
+  }
+}

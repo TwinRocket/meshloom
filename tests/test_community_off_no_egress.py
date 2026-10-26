@@ -452,6 +452,8 @@ class TestCommunityOffNoEgress:
         assert "/api/updates/refresh" in paths
         assert ("POST", "/api/share/files") in routes
         assert ("POST", "/api/share/{share_id}/report") in routes
+        assert ("GET", "/api/share/mine") in routes
+        assert ("DELETE", "/api/share/{share_id}") in routes
         assert len(routes) >= 50
         # Left out on purpose: the IATA suggestion (TestIataSuggestion).
         assert ("GET", "/api/community/iata/suggest") not in routes

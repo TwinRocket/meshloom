@@ -27,8 +27,9 @@ the Community guard.
   count. Any answer that is not a contract JSON body (a Cloudflare
   1027 page, a challenge, an HTML 404) is ``share_unavailable``.
 - **Banned.** A 403 ``banned`` holds a banned state for ``BANNED_HOLD_S`` (in
-  memory): every later write is refused locally (403 ``share_banned``) with no
-  request. Reads stay open (the service keeps them open). A restart or any
+  memory): every later tokened request is refused locally (403 ``share_banned``)
+  with no request, except ``list_mine`` (``banned_ok``: the contract lets a
+  banned key read ``GET /v1/mine``). Reads stay open (the service keeps them open). A restart or any
   change of the share settings ends it (``note_share_settings_changed``).
 - **Read protections.** Two ``aiolimiter`` buckets (``meta`` 60 and ``bytes`` 20
   per minute) that refuse rather than wait (429 ``share_rate_limited``,
@@ -46,6 +47,14 @@ the Community guard.
   any other object is raw bytes (``application/octet-stream``). An answer
   over ``MAX_OBJECT_RESPONSE_BYTES`` is ``share_too_large``; a refused object
   is negatively cached like a 404.
+- **Own objects.** ``list_mine`` reads ``GET /v1/mine`` (binding = ``mine``;
+  entries outside the contract are dropped, a blocked category outside the
+  contract list becomes ``other``). ``delete_object`` sends
+  ``DELETE /v1/objects/{id}`` (binding = the id), then drops the disk-cache
+  entry and the cached meta and records the id as gone in the negative cache,
+  so the next read answers ``share_gone`` without a request. A 410 (the operator
+  blocked it) is ``share_object_blocked`` and a 403 ``not_owner``
+  ``share_not_owner``; the local copies go on a 404 or 410 too.
 
 Never log a token, a request body or a response body. Tests:
 ``tests/test_share_service.py``, ``tests/test_share_off_no_egress.py``.
@@ -170,6 +179,11 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_id_taken": (409, "The proposed share id is already in use"),
     "share_upload_timeout": (408, "The upload took too long to arrive"),
     "share_storage_failed": (500, "The upload could not be stored on this instance"),
+    "share_not_owner": (403, "This shared object was not posted by this instance"),
+    "share_object_blocked": (
+        409,
+        "This shared object was blocked by the share service and cannot be deleted",
+    ),
 }
 
 # The contract's optional ``scope`` of a 429 ``quota_exceeded`` -> local code. An
@@ -194,6 +208,8 @@ _SERVICE_CODES: dict[str, str] = {
     "invalid_url": "share_invalid_url",
     # Only ``POST /v1/files`` with ``X-Share-Id``: the upload retries with a new id.
     "id_taken": "share_id_taken",
+    # Only ``DELETE /v1/objects/{id}``: the key is valid but not the author's.
+    "not_owner": "share_not_owner",
 }
 # Service answers a read may cache as final (the contract never answers them
 # for a storage failure).
@@ -246,6 +262,39 @@ class ShareMeta(BaseModel):
     content_type: str | None = None
     size: int | None = None
     size_kib: int | None = None
+
+
+class ShareMineObject(BaseModel):
+    """One object of ``GET /v1/mine`` (a link or a file; clients ignore unknown members)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    kind: Literal["link", "file"]
+    status: Literal["active", "blocked"]
+    blocked_category: str | None = None
+    created_at: int | None = None
+    expires_at: int | None = None
+    target_host: str | None = None
+    mode: Literal["public", "encrypted"] | None = None
+    content_type: str | None = None
+    size: int | None = None
+    size_kib: int | None = None
+
+
+class ShareMine(BaseModel):
+    """``GET /v1/mine`` answer: one page, newest first."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    objects: list[dict[str, Any]]
+    next_cursor: str | None = None
+
+
+@dataclass(frozen=True)
+class ShareMinePage:
+    objects: list[ShareMineObject]
+    next_cursor: str | None
 
 
 @dataclass(frozen=True)
@@ -414,6 +463,7 @@ async def share_request(
     read: ReadKind | None = None,
     accept: str = "application/json",
     max_response_bytes: int = MAX_JSON_RESPONSE_BYTES,
+    banned_ok: bool = False,
 ) -> CheckedResponse:
     """One request to ``SHARE_HOST``; the 2xx answer, else a ``ShareError``.
 
@@ -421,13 +471,15 @@ async def share_request(
     read, which carries no token). ``read`` names the read bucket and enables
     the negative cache. ``body`` streams a raw upload (``POST /v1/files``) with
     its ``content_type`` and ``extra_headers`` (the ``X-Share-*`` headers).
+    ``banned_ok`` lets a tokened read through the local banned hold
+    (``GET /v1/mine``: a banned key may still see why).
     """
     generation = _state.generation
     state = await share_egress_state()
     if state is None:
         raise ShareError("share_disabled")
     _check_generation(generation)
-    if binding is not None and share_banned():
+    if binding is not None and not banned_ok and share_banned():
         raise ShareError("share_banned")
     cache_key = f"{method.upper()} {path}"
     if read is not None:
@@ -619,6 +671,93 @@ async def report_object(share_id: str, reason: str, details: str) -> None:
     )
 
 
+# Cursors are opaque to us: only bounded, URL-safe text is passed back.
+MINE_CURSOR_RE = re.compile(r"[A-Za-z0-9_.~=-]{1,512}")
+MINE_LIMIT_MAX = 200
+_BLOCKED_CATEGORIES = frozenset(
+    {"illegal", "child_abuse", "phishing", "malware", "spam", "copyright", "privacy", "other"}
+)
+
+
+def _mine_object(raw: dict[str, Any]) -> ShareMineObject | None:
+    """A listed object we can show, else None (logged, never the raw body)."""
+    try:
+        obj = ShareMineObject.model_validate(raw)
+    except ValueError:
+        return None
+    if not is_share_id(obj.id):
+        return None
+    if obj.status == "blocked":
+        category = obj.blocked_category if obj.blocked_category in _BLOCKED_CATEGORIES else "other"
+        obj = obj.model_copy(update={"blocked_category": category})
+    else:
+        obj = obj.model_copy(update={"blocked_category": None})
+    if obj.content_type is not None and obj.content_type not in OBJECT_CONTENT_TYPES:
+        obj = obj.model_copy(update={"content_type": None})
+    return obj
+
+
+async def list_mine(limit: int, cursor: str | None) -> ShareMinePage:
+    """``GET /v1/mine``: this instance key's active and blocked objects, newest first.
+
+    Tokened (binding = the literal ``mine``) but a read: it goes through even
+    while a banned state holds. An entry outside the contract is dropped.
+    """
+    if not 1 <= limit <= MINE_LIMIT_MAX:
+        raise ShareError("share_invalid_request")
+    path = f"/v1/mine?limit={limit}"
+    if cursor is not None:
+        if not MINE_CURSOR_RE.fullmatch(cursor):
+            raise ShareError("share_invalid_request")
+        path += f"&cursor={cursor}"
+    response = await share_request("GET", path, binding="mine", banned_ok=True)
+    page: ShareMine = _parse(ShareMine, response)
+    objects = [obj for raw in page.objects if (obj := _mine_object(raw)) is not None]
+    if len(objects) != len(page.objects):
+        logger.warning(
+            "Share service listed %d objects outside the contract", len(page.objects) - len(objects)
+        )
+    next_cursor = page.next_cursor
+    if next_cursor is not None and not MINE_CURSOR_RE.fullmatch(next_cursor):
+        logger.warning("Share service answered a cursor outside the expected form")
+        next_cursor = None
+    return ShareMinePage(objects=objects, next_cursor=next_cursor)
+
+
+async def _forget_object(share_id: str) -> None:
+    """Drop every local copy of a removed object: disk cache, meta, and remember it gone."""
+    await share_cache().delete(share_id)
+    _state.meta.pop(share_id)
+    now = _state.clock()
+    for key in (f"GET /v1/meta/{share_id}", f"GET /{share_id}"):
+        _state.negative.set(key, ("share_gone", {}), now + NEGATIVE_CACHE_S, now)
+
+
+async def delete_object(share_id: str) -> None:
+    """``DELETE /v1/objects/{id}`` (binding = the id), then evict the local copies.
+
+    Idempotent on the service (an expired or already deleted object answers 204
+    again). A 410 here means the operator blocked it: ``share_object_blocked``,
+    the author cannot delete it (the service keeps the evidence). The local
+    copies are dropped on success and whenever the object is gone or unknown.
+    """
+    share_id = _checked_id(share_id)
+    try:
+        await share_request("DELETE", f"/v1/objects/{share_id}", binding=share_id)
+    except ShareError as exc:
+        if exc.code in ("share_gone", "share_not_found"):
+            await _forget_object(share_id)
+        if exc.code == "share_gone":
+            raise ShareError("share_object_blocked") from None
+        raise
+    try:
+        await _forget_object(share_id)
+    except Exception as exc:  # noqa: BLE001 - the service already deleted it
+        # The object is gone on the service; a local disk error must not report
+        # a failure. The entry expires on its own (1 h).
+        logger.warning("Share cache eviction failed after a delete: %s", type(exc).__name__)
+
+
 # Objects --------------------------------------------------------------------
 
 
@@ -663,7 +802,7 @@ def checked_object(obj: ShareObject) -> ShareObject:
         raise ShareError("share_too_large")
     if obj.content_type == OCTET_STREAM:
         return ShareObject(content=obj.content, content_type=OCTET_STREAM)
-    if obj.content_type not in IMAGE_CONTENT_TYPES:
+    if obj.content_type not in OBJECT_CONTENT_TYPES:
         raise ShareError("share_type_refused")
     if len(obj.content) > MAX_IMAGE_BYTES:
         raise ShareError("share_too_large")

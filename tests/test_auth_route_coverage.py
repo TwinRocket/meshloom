@@ -147,6 +147,8 @@ def test_classification_of_representative_routes():
         ("GET", "/api/share/{share_id}/meta"): "read",
         ("GET", "/api/share/{share_id}"): "read",
         ("POST", "/api/share/cache/clear"): "admin",
+        ("GET", "/api/share/mine"): "send",
+        ("DELETE", "/api/share/{share_id}"): "send",
         ("GET", "/api/store/status"): "admin",
         ("WS", "/api/ws"): "read",
     }

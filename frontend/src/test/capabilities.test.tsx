@@ -143,11 +143,11 @@ describe('role capabilities', () => {
     expect(UNRESTRICTED.role).toBeNull();
   });
 
-  it('opens settings sections by role: all for admin, Local, Users & Access (and Extensions, read-only, for member) for member and viewer, none for kiosk', () => {
+  it('opens settings sections by role: all for admin, Local, Users & Access (and Share uploads and Extensions, read-only, for member) for member and viewer, none for kiosk', () => {
     const sections = (role: AuthRole) =>
       visibleSettingsSections(capabilitiesFor(role), SETTINGS_SECTION_ORDER);
     expect(sections('admin')).toEqual(SETTINGS_SECTION_ORDER);
-    expect(sections('member')).toEqual(['local', 'access', 'extensions']);
+    expect(sections('member')).toEqual(['local', 'access', 'share', 'extensions']);
     expect(sections('viewer')).toEqual(['local', 'access']);
     expect(sections('kiosk')).toEqual([]);
   });

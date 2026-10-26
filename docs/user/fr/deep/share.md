@@ -11,7 +11,7 @@ Cette version raccourcit des **adresses web** et envoie des **photos** sous form
 
 ## L’activer
 
-Ouvrez **Réglages > Partage : liens et fichiers** (administrateurs seulement). La section indique si le partage est activé, si l’identité de partage de ce Meshloom est prête et si les fichiers chiffrés pour les messages directs sont disponibles (ils ne servent pas encore).
+Ouvrez **Réglages > Partage : liens et fichiers** (administrateurs ; un membre n’y voit que **Mes envois**, voir plus bas). La section indique si le partage est activé, si l’identité de partage de ce Meshloom est prête et si les fichiers chiffrés pour les messages directs sont disponibles (ils ne servent pas encore).
 
 Cocher **Activer le partage de liens et de fichiers** ouvre toujours une fenêtre de consentement. Elle liste ce qui quitte ce Meshloom, qui exploite le service et combien de temps les données sont conservées, renvoie vers les conditions d’utilisation et la politique de confidentialité du service, et demande de cocher que vous acceptez les conditions. Annuler, fermer la fenêtre ou laisser la case décochée ne change rien. Votre acceptation est enregistrée sur ce Meshloom, avec la version des conditions et la date : si les conditions changent dans une version ultérieure, le partage reste désactivé et la section vous le signale, jusqu’à ce qu’un administrateur lise et accepte les nouvelles conditions en le réactivant. Désactiver le partage ne demande aucun consentement et prend effet aussitôt : les requêtes déjà en route sont interrompues.
 
@@ -75,6 +75,6 @@ Les messages et erreurs que vous pouvez voir, et leur sens :
 
 ## Conservation, retrait et contact
 
-Un lien court reste valable 365 jours, puis cesse de fonctionner. Cette version de Meshloom n’a pas de bouton pour supprimer ou signaler un lien : pour en signaler un, utilisez le bouton **Signaler** de sa page d’aperçu (ajoutez `+` à l’adresse) ou la page de signalement du service. Pour une demande de retrait ou toute question sur vos données, utilisez les contacts des pages légales du service, `https://meshl.ink/legal` et `https://meshl.ink/privacy`, qui nomment aussi son éditeur.
+Un lien court reste valable 365 jours, puis cesse de fonctionner. Pour supprimer un lien ou un fichier que vous avez partagé, utilisez **Réglages > Partage : liens et fichiers > Mes envois** (membres et administrateurs ; un objet bloqué par le service ne peut pas être supprimé). Supprimer un objet, ou vider le cache de ce Meshloom, ne retire pas une copie déjà présente dans un navigateur : une image publique peut rester jusqu’à une heure dans le cache du navigateur de la personne qui l’a vue. Cette version de Meshloom n’a pas de bouton pour signaler un lien : pour en signaler un, utilisez le bouton **Signaler** de sa page d’aperçu (ajoutez `+` à l’adresse) ou la page de signalement du service. Pour une demande de retrait ou toute question sur vos données, utilisez les contacts des pages légales du service, `https://meshl.ink/legal` et `https://meshl.ink/privacy`, qui nomment aussi son éditeur.
 
 Pour le côté technique (ce que contient chaque requête, la clé et les jetons), voir [Sécurité](/docs/deep/security/#ce-qui-sort-de-votre-machine).

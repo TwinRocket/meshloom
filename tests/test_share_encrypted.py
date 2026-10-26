@@ -496,12 +496,17 @@ class TestHardening:
             ("shot.jpeg", "image/jpeg", "shot.jpeg"),
             ("shot.JPG", "image/jpeg", "shot.JPG"),
             ("shot.jpg", "image/png", "shot.png"),
+            # A longer replacement extension shortens the stem, never past NAME_MAX.
+            ("a" * 96 + ".gif", "image/webp", "a" * 95 + ".webp"),
+            ("a" * 100, "image/jpeg", "a" * 96 + ".jpg"),
+            ("a" * 94 + " . .gif", "image/webp", "a" * 94 + ".webp"),
         ],
     )
     def test_served_name_matches_the_type(self, name, content_type, served):
         from app.routers.share import _served_name
 
         assert _served_name(name, content_type) == served
+        assert len(served) <= share_crypto.NAME_MAX
 
     async def test_a_polyglot_cannot_keep_a_dangerous_extension(self, service, client):
         share_id = "PoLyGxt"
@@ -579,3 +584,20 @@ def test_conversation_ids_are_stable_and_opaque():
         b"meshloom-share-conversation-v1\x00" + bytes.fromhex(CHANNEL_KEY)
     ).hexdigest()[:24]
     assert channel_conversation_id(CHANNEL_KEY) == expected
+
+
+async def test_an_ambiguous_conversation_id_is_refused(monkeypatch):
+    """Two channels behind one id (a duplicate key row): no channel, never the last one."""
+    from app.models import Channel
+    from app.services import share_secrets
+
+    one = Channel(key=CHANNEL_KEY, name="One")
+    two = Channel(key=CHANNEL_KEY.lower(), name="Two")
+
+    async def rows(channels):
+        return channels
+
+    monkeypatch.setattr(ChannelRepository, "get_all", lambda: rows([one, two]))
+    assert await share_secrets._channel_by_conversation_id(CHANNEL_ID) is None
+    monkeypatch.setattr(ChannelRepository, "get_all", lambda: rows([two]))
+    assert await share_secrets._channel_by_conversation_id(CHANNEL_ID) == two

@@ -4,10 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 const toastMocks = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
 vi.mock('../components/ui/sonner', () => ({ toast: toastMocks }));
 
+const roleRef = vi.hoisted(() => ({ current: null as string | null }));
+vi.mock('../auth/SessionProvider', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auth/SessionProvider')>();
+  const { capabilitiesFor } = await import('../auth/capabilities');
+  return {
+    ...actual,
+    useCapabilities: () =>
+      roleRef.current ? capabilitiesFor(roleRef.current as AuthRole) : actual.useCapabilities(),
+  };
+});
+
 import { SettingsShareSection } from '../components/settings/SettingsShareSection';
 import { api } from '../api';
 import i18n from '../i18n';
 import { resetShareStatusStoreForTests } from '../stores/shareStatusStore';
+import type { AuthRole } from '../auth/types';
 import type { AppSettingsUpdate, ShareStatus } from '../types';
 import { DEFAULT_LOCALE } from '../utils/languagePreference';
 
@@ -30,7 +42,9 @@ describe('SettingsShareSection', () => {
   beforeEach(() => {
     resetShareStatusStoreForTests();
     current = offStatus;
+    roleRef.current = null;
     vi.spyOn(api, 'getShareStatus').mockImplementation(async () => current);
+    vi.spyOn(api, 'listShareMine').mockResolvedValue({ objects: [], next_cursor: null });
     save = vi.fn(async (update: AppSettingsUpdate) => {
       current = {
         ...current,
@@ -245,5 +259,50 @@ describe('SettingsShareSection', () => {
     await waitFor(() => expect(toastMocks.error).toHaveBeenCalled());
     expect(screen.getByTestId('share-consent-dialog')).toBeInTheDocument();
     expect(current.enabled).toBe(false);
+  });
+
+  it('clears the cache and says how much it freed', async () => {
+    const clear = vi.spyOn(api, 'clearShareCache').mockResolvedValue({ freed_bytes: 2_500_000 });
+    renderSection();
+    await enableBox();
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('settings.share.cache.clear') }));
+    expect(await screen.findByTestId('share-cache-freed')).toHaveTextContent(/2,5\s?MB/);
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains why there is no upload list while sharing is off', async () => {
+    renderSection();
+    await enableBox();
+    expect(screen.getByTestId('share-uploads-off')).toBeInTheDocument();
+    expect(screen.queryByTestId('share-uploads')).toBeNull();
+    expect(api.listShareMine).not.toHaveBeenCalled();
+  });
+
+  it('lists the uploads while sharing is on', async () => {
+    current = { ...offStatus, enabled: true };
+    renderSection();
+    expect(await screen.findByTestId('share-uploads-empty')).toBeInTheDocument();
+    expect(api.listShareMine).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a member only the upload list, never the settings or the cache', async () => {
+    roleRef.current = 'member';
+    current = { ...offStatus, enabled: true };
+    renderSection();
+    expect(await screen.findByTestId('share-uploads-empty')).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: i18n.t('settings.share.enable') })).toBeNull();
+    expect(screen.queryByTestId('share-cache')).toBeNull();
+    expect(document.querySelector('input[name="share-preview-policy"]')).toBeNull();
+  });
+
+  it.each(['viewer', 'kiosk'] as const)('shows the %s role no upload list', async (role) => {
+    roleRef.current = role;
+    current = { ...offStatus, enabled: true };
+    renderSection();
+    await waitFor(() => expect(api.getShareStatus).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.queryByTestId('share-uploads')).toBeNull();
+    expect(screen.queryByTestId('share-uploads-off')).toBeNull();
+    expect(api.listShareMine).not.toHaveBeenCalled();
   });
 });

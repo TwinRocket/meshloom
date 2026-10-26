@@ -54,12 +54,15 @@ _ALL_ZERO_DM = bytes(DM_SECRET_BYTES)
 
 async def _channel_by_conversation_id(value: str) -> Channel | None:
     """The channel whose conversation id is ``value``, else None (constant-time compare)."""
-    found = None
-    for channel in await ChannelRepository.get_all():
-        candidate = channel_conversation_id(channel.key)
-        if candidate is not None and hmac.compare_digest(candidate, value):
-            found = channel
-    return found
+    matches = [
+        channel
+        for channel in await ChannelRepository.get_all()
+        if (candidate := channel_conversation_id(channel.key)) is not None
+        and hmac.compare_digest(candidate, value)
+    ]
+    # Two channels sharing an id (a duplicate key row) are ambiguous: refuse
+    # rather than seal under whichever came last.
+    return matches[0] if len(matches) == 1 else None
 
 
 def _channel_is_public(name: str, key_hex: str) -> bool:

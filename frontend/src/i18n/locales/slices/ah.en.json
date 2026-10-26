@@ -19,6 +19,8 @@
     "share_invalid_request": "Unexpected parameter in a share request.",
     "share_mode_unavailable": "Encrypted sharing is not available yet.",
     "share_upload_timeout": "The upload took too long to reach this Meshloom. Check the connection and try again.",
-    "share_storage_failed": "This Meshloom could not store the file (disk full or temporary folder unusable). An administrator should check the data folder."
+    "share_storage_failed": "This Meshloom could not store the file (disk full or temporary folder unusable). An administrator should check the data folder.",
+    "share_not_owner": "This link or file was not shared from this Meshloom, so it cannot be deleted here.",
+    "share_object_blocked": "The share service blocked this link or file. It cannot be deleted; contact the service if you disagree."
   }
 }

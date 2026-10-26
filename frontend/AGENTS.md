@@ -547,8 +547,10 @@ and the time. When `terms_stale` is true the section shows a notice and the chec
 reopens the dialog.
 
 `api.getShareStatus()` (no egress), `api.shortenLink(url)` and
-`api.getShareMeta(id)`, `api.reportShare(id, {reason, details?})` call `/api/share/*` (and `api.uploadShareFile(blob)`, below); types `ShareStatus`,
-`ShareLink`, `ShareFile`, `ShareMeta` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
+`api.getShareMeta(id)`, `api.reportShare(id, {reason, details?})`, `api.listShareMine(cursor?)`,
+`api.deleteShare(id)` and `api.clearShareCache()` (admin) call `/api/share/*` (and
+`api.uploadShareFile(blob)`, below); types `ShareStatus`, `ShareLink`, `ShareFile`,
+`ShareMeta`, `ShareMine`, `ShareMineObject`, `ShareCacheClear` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
 `share_disabled` answer means sharing is off). Call `getShareMeta` only on hover,
 focus, a tap or when the preview policy lets a shared image load, never on a plain render.
 
@@ -565,12 +567,22 @@ unticked box leaves it off. Turning it off needs no consent. The status comes fr
 store, refreshed after every settings change). `unreachable: true` (the share client's breaker is open, known locally) keeps the
 enable checkbox disabled with an explanation, and the confirm button too, since the
 terms live on the service and could not be read; turning off stays possible.
-Acceptance is not recorded server-side yet (follow-up).
 `dm_encryption_available: false`
 (radio key not read yet) shows an explanation that only encrypted DM files are
-unavailable. Strings: slice `ar` (`settings.share.*`, `settingsNav.share`).
+unavailable. Below the radios (admin): `ShareCacheControl` clears the local object
+cache and shows the freed size, then "My uploads". The section is in
+`MEMBER_SETTINGS_SECTIONS` (`auth/capabilities.ts`): a member sees only "My uploads",
+never the settings or the cache; a viewer or kiosk cannot open it. "My uploads"
+(`ShareUploadsList.tsx`, MSHL-247) renders only while sharing is on (off, a notice
+says why there is no list, and nothing is requested): kind, type or host, size,
+expiry, status; a blocked row is greyed, names its category
+(`sharePayload.report.reasons.*`) and links the service's `/legal` page on
+`status.host`, with no delete; an active row deletes after a confirm dialog; empty,
+error, refresh and "Show more" (`next_cursor`). Strings: slice `ar`
+(`settings.share.*`, `settingsNav.share`) and slice `su` (`settings.share.cache.*`,
+`settings.share.uploads.*`).
 Never rename a slice. `preview_policy` (setting `share_preview_policy`) decides whether a
-shared image in a message loads without a tap (Message rendering, `SharePayload`). Tests: `src/test/settingsShareSection.test.tsx`. User docs:
+shared image in a message loads without a tap (Message rendering, `SharePayload`). Tests: `src/test/settingsShareSection.test.tsx`, `src/test/shareUploadsList.test.tsx`. User docs:
 `docs/user/{en,fr}/deep/share.md`.
 
 **Composer shortening.** `MessageInput` reads `useShareStatus()` (local, no egress;
