@@ -575,3 +575,43 @@ def test_backup_rules_keep_valid_quiet_hours_and_drop_bad():
     assert warnings == []
     dropped = sanitize_rules({"quiet_hours": {"start": "x"}}, warnings)
     assert "quiet_hours" not in dropped and warnings == ["notification_rules_sanitized"]
+
+
+# -- channel_failed is urgent (MSHL-407) ----------------------------------------------
+
+
+def _channel_failed() -> dict:
+    return {
+        "event": "notify.channel_failed",
+        "channel_id": "smtp",
+        "name": "smtp",
+        "error": "auth_failed",
+    }
+
+
+@pytest.mark.asyncio
+async def test_channel_failed_goes_through_quiet_hours_while_a_dm_is_held(test_db):
+    await _setup(test_db)
+    wall = Wall(at(2, 23))
+    transport = StubTransport()
+    dispatcher = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall)
+    await dispatcher.emit(None, payload=_dm(), targets=["email-1"])
+    await dispatcher.emit(None, payload=_channel_failed(), targets=["email-1"])
+    await _settle(dispatcher)
+    assert transport.calls == [("email-1", "notify.channel_failed")]
+    counters = await _counters(test_db)
+    assert len(counters) == 1 and all("message.dm" in k for k in counters)  # only the DM held
+
+
+@pytest.mark.asyncio
+async def test_channel_failed_goes_through_the_global_pause_while_a_dm_is_held(test_db):
+    await _setup(test_db)
+    await _set_rules(test_db, {"paused_until": int(at(2, 15))})
+    wall = Wall(at(2, 12))
+    transport = StubTransport()
+    dispatcher = Dispatcher(transport_for=lambda _c: transport, wall_clock=wall)
+    await dispatcher.emit(None, payload=_dm(n=1), targets=["email-1"])
+    await dispatcher.emit(None, payload=_channel_failed(), targets=["email-1"])
+    await _settle(dispatcher)
+    assert transport.calls == [("email-1", "notify.channel_failed")]
+    assert list((await _counters_of(test_db, "pause:")).values()) == ["1"]  # the DM, held

@@ -41,10 +41,12 @@ delays itself.
   15 min, 1 h, then 6 h, and ``probe_tick`` (every ``QUIET_TICK_S``) sends it a test once
   the pause ran out: a success resumes it, a failure pauses it for the next step.
   ``resume`` (the Resume button) clears the pause and the failures.
-- **Admin-only notices** (MSHL-399): ``notify.channel_changed``, ``notify.channel_failed`` and
-  ``notify.destination_changed`` reach on Web Push only the devices of administrators
-  (``user_rules.ADMIN_ONLY_EVENTS``); without one, or when the owners cannot be read, Web Push
-  is left out.
+- **Admin-only notices** (MSHL-399, MSHL-407): ``notify.channel_changed``,
+  ``notify.channel_failed``, ``notify.destination_changed`` and ``notify.heartbeat`` reach on
+  Web Push only the devices of administrators (``user_rules.ADMIN_ONLY_EVENTS``); without one,
+  or when the owners cannot be read, Web Push is left out. ``send_test`` on Web Push reaches
+  the requester's devices only (the probe of a paused channel: the administrators').
+  ``notify.channel_failed`` is urgent: quiet hours and the global pause never hold it.
 - **Status.** ``notification_statuses()`` is the health payload's map and
   ``notifications_failing()`` its flag (a channel failing, paused or with a secret the key
   cannot open); a change of a channel's status or error broadcasts ``health``.
@@ -100,13 +102,14 @@ from app.notifications.limits import (
     dedup_ttl,
     effective_limits,
 )
-from app.notifications.transports.base import Delivery, SendResult, Transport
+from app.notifications.transports.base import SEND_OK, Delivery, SendResult, Transport
 from app.notifications.user_rules import (
     ADMIN_ONLY_EVENTS,
     PushAudience,
     admin_audience,
     build_audience,
     is_admin_owner,
+    requester_audience,
 )
 
 logger = logging.getLogger(__name__)
@@ -1684,11 +1687,20 @@ class Dispatcher:
     # -- test -------------------------------------------------------------------
 
     async def send_test(
-        self, channel: Channel, secrets: dict[str, str], *, record: bool = False
+        self,
+        channel: Channel,
+        secrets: dict[str, str],
+        *,
+        record: bool = False,
+        requester_id: int | None = None,
     ) -> SendResult:
         """One ``notify.test`` send through the channel's transport (so through the
         egress guard), outside the queue: no retry, no journal row, no counter. With
-        ``record`` (a saved channel) the answer also updates its status. Never raises."""
+        ``record`` (a saved channel) the answer also updates its status. Never raises.
+
+        On Web Push (MSHL-407) the test reaches the devices of ``requester_id`` (the account
+        that pressed **Test**) only; without one (the probe of an auto-paused channel) the
+        administrators' devices, and nothing when they cannot be read (fail closed)."""
         from app.notifications.events import TestData, TestEvent, dedup_hash
 
         transport = self._transport_for(channel)
@@ -1699,9 +1711,20 @@ class Dispatcher:
             dedup_key=dedup_hash("notify.test", time.time_ns()),
             data=TestData(),
         )
-        delivery = Delivery(name=event.event, payload=event.to_payload(), event=event)
+        payload = event.to_payload()
+        audience: PushAudience | None = None
+        if channel.type == "web_push":
+            audience = (
+                requester_audience(requester_id, payload)
+                if requester_id is not None
+                else await self._admin_push_audience(payload)
+            )
+        delivery = Delivery(name=event.event, payload=payload, event=event, audience=audience)
         try:
-            result = await transport.send(channel, None, delivery, secrets)
+            if channel.type == "web_push" and audience is None:
+                result = SEND_OK  # nobody to reach: nothing is sent, nothing failed
+            else:
+                result = await transport.send(channel, None, delivery, secrets)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
