@@ -8,8 +8,10 @@ caption when there is one. So a notification never shows only a URL.
 
 Pure and syntactic: the summary comes from the text alone. No I/O, no import of the
 share service, no request for the link's meta, and the URL, its path and its
-``#fragment`` (an encrypted file's key may follow the link there) never reach the
-output. A caption has any URL-looking word removed for the same reason.
+``#fragment`` never reach the
+output. A caption has any URL-looking word removed for the same reason (scheme links,
+``www.`` names, ``host.tld/path`` words and ``javascript:``/``data:`` style tokens).
+Any ``#fragment`` after a link is dropped unseen, defensively (the composer writes none).
 Mirrors ``describeSharePreview`` (``frontend/src/utils/messagePreview.ts``).
 """
 
@@ -26,9 +28,16 @@ DEFAULT_SHARE_HOSTS: tuple[str, ...] = ("meshl.ink",)
 
 # The id grammar of ``app.services.share.SHARE_ID_RE``, optionally behind ``/l/``.
 _SHARE_PATH = re.compile(r"/(?:l/)?[1-9A-HJ-NP-Za-km-z]{7}/?")
-_REPLY_MENTION = re.compile(r"@\[[^\]]*\]\s+")
-_FILE_PREFIX = re.compile(r"(📷|🔒)\s+(\S+)(?:\s+(.*))?", re.DOTALL)
-_URLISH = re.compile(r"(?:\w+://|www\.)\S*", re.IGNORECASE)
+_REPLY_MENTIONS = re.compile(r"(?:@\[[^\]]*\]\s+)+")
+# Invisible characters some clients put before a text, and the emoji presentation selector.
+_INVISIBLE = re.compile("[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]")
+_FILE_PREFIX = re.compile("(📷|🔒)\ufe0f?\\s+(\\S+)(?:\\s+(.*))?", re.DOTALL)
+# A word that reads as an address: ``scheme://``, ``scheme:`` (javascript:, data:, mailto:),
+# ``www.`` or ``host.tld/path`` (also ``host.tld#frag``).
+_URLISH_WORD = re.compile(
+    r"(?:[a-z][a-z0-9+.-]*://\S*|(?:javascript|data|vbscript|mailto|file|blob|about|tel|sms):\S*|www\.\S*|[\w-]+(?:\.[\w-]+)+(?:[/#?:]\S*)?)$",
+    re.IGNORECASE,
+)
 
 Kind = Literal["image", "encrypted", "link"]
 
@@ -57,8 +66,7 @@ def _is_share_url(url: str, hosts: Sequence[str]) -> bool:
 
 def _clean_caption(caption: str) -> str:
     """The caption on one line, without any URL-looking word."""
-    words = _URLISH.sub(" ", caption).split()
-    return " ".join(words)
+    return " ".join(w for w in caption.split() if not _URLISH_WORD.match(w))
 
 
 def share_text_summary(
@@ -71,8 +79,8 @@ def share_text_summary(
     """
     if not isinstance(text, str):
         return None
-    body = text.strip()
-    mention = _REPLY_MENTION.match(body)
+    body = _INVISIBLE.sub("", text).strip()
+    mention = _REPLY_MENTIONS.match(body)
     if mention:
         body = body[mention.end() :]
     kind: Kind

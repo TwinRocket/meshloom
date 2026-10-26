@@ -174,10 +174,10 @@ Detail: `docs/dev/community-client.md`.
 
 Bots are gone (extensions replaced them) and the fanout runtime is unchanged by sharing. A fanout module
 (webhook, MQTT, SQS, and the fanout Apprise, which formats `{text}` itself) receives the message text as
-stored, `📷 <link>` and `🔒 <link>#<key>` included. Only the notification renderer summarises it
+stored, `📷 <link>` and `🔒 <link>` included. Only the notification renderer summarises it
 (`app/share_text.py`, wired once in `app/notifications/render.py` `message_body_text`: Web Push, e-mail,
-ntfy and the notification Apprise channels, never the webhook channel). Extensions have no `share` permission and cannot reach
-`/api/share/*` (the local API is not an allowed destination): a script outside Meshloom, with a `send`
+ntfy and the notification Apprise channels, never the webhook channel). Extensions have no `share` permission and no API token
+(`/api/share/*` needs an authenticated principal with `send`): a script outside Meshloom, with a `send`
 token, calls `POST /api/share/links` and `POST /api/share/files` (user guide `docs/user/{en,fr}/deep/fanout.md`).
 
 ## Adding a type

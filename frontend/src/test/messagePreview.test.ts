@@ -149,6 +149,17 @@ describe('describeSharePreview (the Feed, no sender prefix)', () => {
     expect(describeSharePreview(LINK)).toBe(`🔗 ${i18n.t('messagePreview.shareLink')}`);
   });
 
+  it('copes with VS16, invisible characters and several mentions', () => {
+    const image = `📷 ${i18n.t('messagePreview.shareImage')}`;
+    expect(describeSharePreview(`📷\uFE0F ${LINK}`)).toBe(image);
+    expect(describeSharePreview(`\u200B📷 ${LINK}`)).toBe(image);
+    expect(describeSharePreview(`@[Ann] @[Bob] 📷 ${LINK}`)).toBe(image);
+    expect(describeSharePreview(`@[Ann] @[Bob] ${LINK} hi`)).toBe('🔗 hi');
+    expect(describeMessagePreview(`Alice: 🔒\uFE0F ${LINK}`)).toBe(
+      `Alice: 🔒 ${i18n.t('messagePreview.shareEncrypted')}`
+    );
+  });
+
   it('answers null for anything else, and makes no request', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(describeSharePreview('hello')).toBeNull();

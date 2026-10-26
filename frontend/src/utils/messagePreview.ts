@@ -79,14 +79,15 @@ export function describeMessagePreview(text: string, context: MessagePreviewCont
 /**
  * One line for a share message (an image, an encrypted file or a link), or null for any
  * other text. From the text alone: no network, no request for the link's meta, and the
- * link, its path and its `#fragment` (an encrypted file's key) are never in the line. A
+ * link, its path and its `#fragment` are never in the line. A
  * link keeps its caption, if any. The Feed and the conversation list share it; the server
  * counterpart for push and e-mail is `app/share_text.py`.
  */
 export function describeSharePreview(
-  payload: string,
+  rawPayload: string,
   hosts: readonly string[] = getShareStatusSnapshot()?.hosts ?? DEFAULT_SHARE_HOSTS
 ): string | null {
+  const payload = normaliseSharePayload(rawPayload);
   const file = sharedFileKind(payload, hosts);
   if (file) {
     return file === 'image'
@@ -98,13 +99,25 @@ export function describeSharePreview(
   return null;
 }
 
+// Zero-width and bidi control characters some clients put before a text.
+const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+
+/** Invisible characters dropped, the emoji presentation selector after 📷/🔒 dropped, every leading `@[x] ` mention removed. */
+function normaliseSharePayload(text: string): string {
+  let body = text.replace(INVISIBLE, '').trim();
+  for (let mention = splitReplyMention(body); mention; mention = splitReplyMention(body)) {
+    body = mention.body.trim();
+  }
+  return body.replace(/^(📷|🔒)\uFE0F/u, '$1');
+}
+
 /**
  * A shared file message, from its text: `📷 <service link>` is an image, `🔒 <service
- * link>` an encrypted file (its key may follow the link as a `#fragment`). An optional
+ * link>` an encrypted file (a `#fragment` after the link is ignored). An optional
  * reply mention (`@[Name] `) comes first.
  */
 function sharedFileKind(payload: string, hosts: readonly string[]): 'image' | 'encrypted' | null {
-  const body = splitReplyMention(payload)?.body ?? payload;
+  const body = payload;
   const match = /^(📷|🔒)\s+(\S+)/u.exec(body);
   if (!match) return null;
   const url = match[2].replace(/#.*$/, '');

@@ -7,7 +7,7 @@ order: 23
 
 Un message MeshCore contient 156 octets, et une adresse web en prend souvent davantage. Le **service de partage** transforme une longue adresse en un lien court comme `https://meshl.ink/Ab3dE9x` (25 octets), qui tient dans un message et que tout le monde peut ouvrir. Il est exploité par le projet Meshloom sur son propre domaine, `meshl.ink`, et il est **optionnel et désactivé par défaut** : tant qu’un administrateur ne l’active pas, ce Meshloom ne le contacte jamais, pas même pour résoudre son nom.
 
-Cette version raccourcit des **adresses web** et envoie des **photos** sous forme de liens publics, depuis le panneau **Envoyer une photo** de la zone de saisie : toute personne qui a ce lien peut ouvrir la photo. Elle n’envoie pas encore de fichiers chiffrés. Les sections ci-dessous ne décrivent que ce qui existe.
+Cette version raccourcit des **adresses web** et envoie des **photos** sous forme de liens publics, depuis le panneau **Envoyer une photo** de la zone de saisie : toute personne qui a ce lien peut ouvrir la photo. Elle peut aussi envoyer des images chiffrées pour un canal ou un contact ; leur description complète viendra. Les sections ci-dessous ne décrivent que ce qui existe.
 
 ## L’activer
 
@@ -55,7 +55,7 @@ Dans les notifications push et les e-mails, une image ou un lien partagé n’af
 
 ## Ouvrir un fichier chiffré dans un navigateur
 
-Cette version de Meshloom n’envoie pas encore de fichiers chiffrés, mais le service a déjà la page qui les ouvre. Une image chiffrée partagée dans un **canal privé** peut être ouverte par les membres du canal, depuis n’importe quel appareil, à l’adresse `https://meshl.ink/<id>/decrypt` (la page du fichier y renvoie) : collez la clé du canal, ses 32 caractères hexadécimaux ou le lien `meshcore://` du canal. Le navigateur déchiffre le fichier : la clé n’est ni envoyée au service, ni mise dans l’adresse, ni enregistrée, et la seule requête est le téléchargement du fichier chiffré. Une mauvaise clé affiche une erreur et rien d’autre.
+Meshloom peut envoyer des images chiffrées (leur description complète viendra), et le service a la page qui les ouvre. Une image chiffrée partagée dans un **canal privé** peut être ouverte par les membres du canal, depuis n’importe quel appareil, à l’adresse `https://meshl.ink/<id>/decrypt` (la page du fichier y renvoie) : collez la clé du canal, ses 32 caractères hexadécimaux ou le lien `meshcore://` du canal. Le navigateur déchiffre le fichier : la clé n’est ni envoyée au service, ni mise dans l’adresse, ni enregistrée, et la seule requête est le téléchargement du fichier chiffré. Une mauvaise clé affiche une erreur et rien d’autre.
 
 Les fichiers partagés en **message direct** ne peuvent pas y être ouverts : leur clé ne quitte jamais la base radio Meshloom. Ouvrez-les dans Meshloom.
 

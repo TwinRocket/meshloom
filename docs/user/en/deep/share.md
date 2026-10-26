@@ -7,7 +7,7 @@ order: 23
 
 A MeshCore message holds 156 bytes, and a web address often takes more than that. The **sharing service** turns a long address into a short link such as `https://meshl.ink/Ab3dE9x` (25 bytes), which fits in a message and which anybody can open. It is run by the Meshloom project on its own domain, `meshl.ink`, and it is **optional and off by default**: until an administrator turns it on, this Meshloom never contacts it, not even to look up its name.
 
-This version shortens **web addresses** and sends **photos** as public links from the composer's **Send a photo** panel: anyone who has such a link can open the photo. It does not send encrypted files yet. The sections below only describe what exists.
+This version shortens **web addresses** and sends **photos** as public links from the composer's **Send a photo** panel: anyone who has such a link can open the photo. It can also send images encrypted for a channel or a contact; their full description is still to come. The sections below only describe what exists.
 
 ## Turning it on
 
@@ -55,7 +55,7 @@ In push notifications and e-mails a shared image or link never shows its address
 
 ## Opening an encrypted file in a browser
 
-This version of Meshloom does not send encrypted files yet, but the service already has the page that opens them. An encrypted image shared in a **private channel** can be opened by the channel's members, from any device, at `https://meshl.ink/<id>/decrypt` (the file's page links to it): paste the channel's key, its 32 hexadecimal characters or the channel's `meshcore://` link. The browser decrypts the file: the key is not sent to the service, put in the address or saved, and the only request is the download of the encrypted file. A wrong key shows an error and nothing else.
+Meshloom can send encrypted images (their full description is still to come), and the service has the page that opens them. An encrypted image shared in a **private channel** can be opened by the channel's members, from any device, at `https://meshl.ink/<id>/decrypt` (the file's page links to it): paste the channel's key, its 32 hexadecimal characters or the channel's `meshcore://` link. The browser decrypts the file: the key is not sent to the service, put in the address or saved, and the only request is the download of the encrypted file. A wrong key shows an error and nothing else.
 
 Files shared in a **direct message** cannot be opened there: their key never leaves the Meshloom radio base. Open them in Meshloom.
 
