@@ -101,12 +101,9 @@ def encode_secrets(secrets: dict[str, Any], channel_id: str) -> str:
     stored: dict[str, Any] = {}
     for name, value in secrets.items():
         if isinstance(value, str) and value:
-            try:
-                value = secret_store.encrypt(
-                    value, secret_store.aad(SECRETS_TABLE, channel_id, name)
-                )
-            except secret_store.SecretStoreUnavailable:
-                logger.warning("No secrets key: a channel secret is stored unencrypted")
+            # Fails closed: ``SecretStoreUnavailable`` propagates without a usable key
+            # (503 ``secret_store_unavailable``); a secret is never stored plain.
+            value = secret_store.encrypt(value, secret_store.aad(SECRETS_TABLE, channel_id, name))
         stored[name] = value
     return json.dumps(stored, sort_keys=True)
 
@@ -451,11 +448,10 @@ class NotificationChannelRepository:
                 if kept:
                     raise ChannelError("secret_required", fields=kept)
             public, secrets = _split_config(entry, merged)
-        if current.secret_unreadable and not config_changed and patch.enabled:
-            # The key cannot open a stored secret (MSHL-133): the channel reads as off until
-            # its config is saved again, which drops the unreadable values. Other edits
-            # (name, limits...) are kept and leave it off.
-            raise ChannelError("secret_unreadable", 409, fields=current.secret_unreadable)
+        # A stored secret the key cannot open (MSHL-133) counts as present while the config
+        # is not edited: a PATCH of the name, the switch, the limits... is saved and the
+        # channel keeps reading as off (``secret_unreadable``) until the config is saved
+        # again with its secrets, or the matching secrets.key comes back.
         missing = _required_missing(entry, public, secrets)
         if not config_changed:
             # An unreadable secret is still stored (the matching key opens it again).

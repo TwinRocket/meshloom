@@ -741,6 +741,10 @@ run as root).
 - Migration 129 (MSHL-133) encrypts in place the non-empty `notification_channels.secrets`
   values and the fanout secret keys (frozen copy of `FANOUT_SECRET_KEYS`); idempotent, skips
   `v1:` tokens, changes nothing without a key (`tests/test_migrations/test_migration_129.py`).
+  It delegates to `services/secrets_backfill.encrypt_plain_secrets`, which `Database.connect()`
+  also runs at every start after the migrations (live `FANOUT_SECRET_KEYS`, never blocks
+  startup, logs counts only): values left plain by a keyless run are encrypted as soon as a
+  key exists (`tests/test_secrets_backfill.py`).
   Migration tests read secrets through `opened_secrets()`/`opened_config()` in their conftest.
 - Migration 120 adds `app_settings.plugins_paused`, `plugins_paused_at` and
   `plugins_paused_by` (the global plugin pause, `plugins/pause.py`; excluded from backups).
@@ -766,11 +770,19 @@ run as root).
 - Reads are tolerant: a non-`v1:` value is returned as is and encrypted on the next
   write. A token that does not open raises `SecretUnreadable`; repositories treat the
   secret as absent and list the field: a channel reads `enabled: false`,
-  `status.last_error: "secret_unreadable"` (no DB write, 409 on enable or test until
-  the secret is typed again); a fanout config carries `secret_unreadable` and the
-  manager does not start it (status error `secret_unreadable`). The matching key brings
-  both back. Startup never fails on it.
-- No key at all (unwritable folder): values are stored plain with a warning.
+  `status.last_error: "secret_unreadable"` (no DB write; a test is 409 until the secret
+  is typed again; a PATCH that leaves the secrets alone, `enabled` included, is saved and
+  the channel still reads off); a fanout config carries `secret_unreadable` and the
+  manager does not start it (status error `secret_unreadable`); its PATCH of name,
+  `enabled`, scope or an unchanged config (display-only `*_redacted` keys ignored) is
+  saved, another config change without the secret is 409 `secret_unreadable`. The
+  matching key brings both back. Startup never fails on it. A legacy plain value that
+  happens to start with `v1:` reads as unreadable (accepted, see `decrypt`).
+- No key at all (unwritable folder): fail closed. `encrypt`/`seal` raise
+  `SecretStoreUnavailable` and no secret is ever written plain: the API answers 503
+  `secret_store_unavailable` (handler in `main.py`, FR+EN `errors.secret_store_unavailable`)
+  to any save that carries a secret, including a backup restore that writes one. Reads,
+  and saves without a secret, still work.
 - Backups: the SQLite download carries ciphertext without the key (the
   `X-Private-Key-Warning` header says so); the JSON backup exports plain values as
   before and a restore encrypts with the local key. Tests: `tests/test_secret_store.py`,

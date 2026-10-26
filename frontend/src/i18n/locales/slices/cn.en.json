@@ -19,6 +19,7 @@
   },
   "errors": {
     "secret_missing": "Secret missing after a restore: enter it again, then turn the channel on.",
-    "secret_unreadable": "A stored secret of this channel cannot be decrypted: the database was moved or restored without its secrets.key file. Copy that file back next to the database and restart, or enter the secret again."
+    "secret_unreadable": "A stored secret of this channel cannot be decrypted: the database was moved or restored without its secrets.key file. Copy that file back next to the database and restart, or enter the secret again.",
+    "secret_store_unavailable": "Secrets cannot be saved: the secrets.key file next to the database cannot be read or created. Check that the data folder is writable by Meshloom, then try again."
   }
 }

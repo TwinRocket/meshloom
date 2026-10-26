@@ -43,7 +43,10 @@ configs are validated on every create and update, enabled or not.
   write. A token that does not open is dropped from the config and listed in
   `secret_unreadable`; the manager does not start that module and reports
   `secret_unreadable` until the secret is sent again (an update without it keeps the
-  token). Details in `app/AGENTS.md`, "Secrets at rest".
+  token: name, `enabled`, scope or an unchanged config are saved, another config change
+  is 409 `secret_unreadable`). Without a usable key a write that carries a secret raises
+  `SecretStoreUnavailable` (503 `secret_store_unavailable`), never stores it plain.
+  Details in `app/AGENTS.md`, "Secrets at rest".
 - Writes go through `merge_secrets()`: a key omitted, `None` or `********`
   keeps the stored value, `""` clears it, anything else replaces it; derived
   keys are dropped. An object secret merges by name: a `********` value keeps

@@ -66,7 +66,8 @@ This file is a hypothesis: check it against the code.
   (email host/port/mode, webhook URL): `secret_required`. Each value in `secrets` is a `v1:`
   AES-256-GCM token (`app/secret_store.py`, `encode_secrets`/`decode_secrets`); an
   unreadable one turns the channel off with `secret_unreadable` (`app/AGENTS.md`,
-  "Secrets at rest").
+  "Secrets at rest"). Without a usable key a save that carries a secret is 503
+  `secret_store_unavailable`; nothing is stored plain.
 - **Destinations are checked** at create and when the destination or
   `allow_private_network` changes (egress guard; Apprise URLs by `validate_apprise_urls`),
   coded `egress_*` / Apprise codes. `allow_private_network` is false for a new channel; the

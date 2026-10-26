@@ -19,6 +19,7 @@
   },
   "errors": {
     "secret_missing": "Secret manquant après une restauration : saisissez-le à nouveau, puis activez le canal.",
-    "secret_unreadable": "Un secret enregistré de ce canal ne peut pas être déchiffré : la base a été déplacée ou restaurée sans son fichier secrets.key. Remettez ce fichier à côté de la base et redémarrez, ou saisissez le secret à nouveau."
+    "secret_unreadable": "Un secret enregistré de ce canal ne peut pas être déchiffré : la base a été déplacée ou restaurée sans son fichier secrets.key. Remettez ce fichier à côté de la base et redémarrez, ou saisissez le secret à nouveau.",
+    "secret_store_unavailable": "Les secrets ne peuvent pas être enregistrés : le fichier secrets.key à côté de la base ne peut être ni lu ni créé. Vérifiez que Meshloom peut écrire dans le dossier de données, puis réessayez."
   }
 }

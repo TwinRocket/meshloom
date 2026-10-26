@@ -104,6 +104,7 @@ from app.routers import (
     updates,
     ws,
 )
+from app.secret_store import SecretStoreUnavailable
 from app.services.hardening import set_not_dumpable
 from app.services.hashtag_catalogue import (
     start_hashtag_catalogue_polling,
@@ -475,6 +476,24 @@ async def radio_disconnected_handler(request: Request, exc: RadioDisconnectedErr
     return JSONResponse(
         status_code=423,
         content={"detail": {"code": "radio_not_connected", "message": "Radio not connected"}},
+    )
+
+
+@app.exception_handler(SecretStoreUnavailable)
+async def secret_store_unavailable_handler(request: Request, exc: SecretStoreUnavailable):
+    """503 when a secret would be saved without a usable ``secrets.key`` (MSHL-133).
+
+    Fails closed: the write is refused and rolled back, a secret is never stored plain.
+    """
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "code": "secret_store_unavailable",
+                "params": {},
+                "message": "The secrets key file cannot be read or created: secrets cannot be saved",
+            }
+        },
     )
 
 

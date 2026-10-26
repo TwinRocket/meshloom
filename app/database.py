@@ -677,6 +677,15 @@ class Database:
 
         await run_migrations(self._connection)
 
+        # Secrets left plain (migration 129 ran without a key, or a row written by an
+        # older build): encrypted as soon as a key is available. Never blocks startup.
+        from app.services.secrets_backfill import encrypt_plain_secrets
+
+        try:
+            await encrypt_plain_secrets(self._connection)
+        except Exception as exc:
+            logger.error("The stored secrets could not be encrypted (%s)", type(exc).__name__)
+
         await self._connection.executescript(SCHEMA_INDEXES)
         await self._connection.commit()
         logger.debug("Database indexes initialized")

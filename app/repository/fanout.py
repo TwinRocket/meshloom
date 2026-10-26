@@ -56,6 +56,7 @@ def seal_config(
     kind: str, config_id: str, config: dict[str, Any], stored: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """``config`` with its non-empty secret keys encrypted, bound to the row id and key.
+    Raises ``secret_store.SecretStoreUnavailable`` when there is no usable key.
 
     ``stored`` is the raw config in the row: a secret key the new config does not name
     keeps its stored token when that token is unreadable (a write that only toggles the
@@ -71,10 +72,9 @@ def seal_config(
         value = sealed[key]
         if _is_empty(value):
             continue
-        try:
-            sealed[key] = secret_store.seal(value, aad)
-        except secret_store.SecretStoreUnavailable:
-            logger.warning("No secrets key: a fanout secret is stored unencrypted")
+        # Fails closed: without a usable key ``SecretStoreUnavailable`` propagates (the
+        # API answers 503 ``secret_store_unavailable``); a secret is never stored plain.
+        sealed[key] = secret_store.seal(value, aad)
     return sealed
 
 

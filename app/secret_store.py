@@ -183,7 +183,11 @@ def encrypt(plain: str, aad_text: str) -> str:
 
 
 def decrypt(token: str, aad_text: str) -> str:
-    """The plain text of a ``v1:`` token; any other value is returned as it is."""
+    """The plain text of a ``v1:`` token; any other value is returned as it is.
+
+    Known edge case, accepted: a legacy plain-text secret that happens to start with
+    ``v1:`` is taken for a token and reads as unreadable (``SecretUnreadable``), so the
+    channel or module asks for it again. Plain values cannot be told apart by shape."""
     if not isinstance(token, str) or not token.startswith(PREFIX):
         return token
     if not is_encrypted(token):
