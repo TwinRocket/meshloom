@@ -219,6 +219,21 @@ export function UpdateDialogBody({
             {update.instances.length > 1 && (
               <p className="text-muted-foreground">{t('pluginStore.updates.sharedNote')}</p>
             )}
+            {update.instances
+              .filter((i) => (i.dropped_fields?.length ?? 0) > 0)
+              .map((i) => (
+                <p
+                  key={`dropped-${i.instance_id}`}
+                  role="status"
+                  className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 break-words"
+                  data-testid="update-dropped"
+                >
+                  {t('pluginStore.updates.droppedWarning', {
+                    label: i.label,
+                    fields: i.dropped_fields.join(', '),
+                  })}
+                </p>
+              ))}
             {consentUnavailable && (
               <p role="alert" className="text-destructive" data-testid="update-consent-unavailable">
                 {t('pluginStore.updates.consentUnavailable')}

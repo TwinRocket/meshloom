@@ -50,7 +50,7 @@
       "hostsNone": "Il ne déclare aucun hôte auquel se connecter.",
       "versions": "Versions",
       "latest": "Dernière version : v{{version}} ({{tag}}).",
-      "installedVersion": "Installé : {{label}}, v{{version}}.",
+      "installedVersion": "Installée : {{label}}, v{{version}}.",
       "notInstalled": "Non installé.",
       "reportTitle": "Signaler cette extension",
       "reportIssues": "Signaler un problème à son auteur sur son suivi d'anomalies :",
@@ -70,6 +70,13 @@
       "hold": {
         "consent_required": "{{label}} attendrait que vous acceptiez de nouvelles permissions.",
         "config_required": "{{label}} attendrait des réglages désormais obligatoires."
+      },
+      "dropped": "{{label}} : la nouvelle version n'accepte plus la valeur de {{fields}} ; la mise à jour la réinitialise.",
+      "droppedWarning": "{{label}} : la nouvelle version n'accepte plus la valeur de {{fields}}. La mise à jour la remet à sa valeur par défaut ; l'extension indique ensuite les réglages à vérifier.",
+      "autoHeld": {
+        "consent_required": "La mise à jour automatique vous attend : la nouvelle version demande de nouvelles permissions. Vérifiez-la et mettez-la à jour vous-même.",
+        "config_required": "La mise à jour automatique vous attend : la nouvelle version exige de nouveaux réglages. Vérifiez-la et mettez-la à jour vous-même.",
+        "config_dropped": "La mise à jour automatique vous attend : la nouvelle version réinitialiserait un réglage. Vérifiez-la et mettez-la à jour vous-même."
       },
       "dialogTitle": "Mettre à jour {{name}}",
       "dialogIntro": "De la v{{from}} à la v{{to}}.",

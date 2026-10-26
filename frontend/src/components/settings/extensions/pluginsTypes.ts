@@ -183,8 +183,22 @@ export interface StoreRepository {
   /** Error code of the last check, null when it succeeded. */
   last_error: string | null;
   entry: CustomCatalogueEntry | null;
-  instances: Array<{ instance_id: string; label: string; version: string }>;
+  instances: StoreRepositoryInstance[];
   update_available: boolean;
+}
+
+/** Why an automatic update leaves an update for a manual one (null: it may run). */
+export type AutoHold = 'consent_required' | 'config_required' | 'config_dropped';
+
+/** An installed instance of a repository, with its pending update (as `GET /store/updates`). */
+export interface StoreRepositoryInstance {
+  instance_id: string;
+  label: string;
+  version: string;
+  auto_update?: boolean;
+  hold?: 'consent_required' | 'config_required' | null;
+  auto_hold?: AutoHold | null;
+  dropped_fields?: string[];
 }
 
 /** `GET /api/store/repositories`: makes no request to GitHub. */
@@ -245,6 +259,10 @@ export interface PluginUpdateInstance {
   permissions: string[];
   /** New required config fields it lacks. */
   missing_fields: string[];
+  /** Stored config fields the new schema rejects: the update drops and reports them. */
+  dropped_fields: string[];
+  /** Why an automatic update waits for a manual one (null: it may run). */
+  auto_hold: AutoHold | null;
 }
 
 /** One entry of `GET /api/store/updates`. */

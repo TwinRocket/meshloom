@@ -71,6 +71,13 @@
         "consent_required": "{{label}} would wait for you to accept new permissions.",
         "config_required": "{{label}} would wait for settings it now requires."
       },
+      "dropped": "{{label}}: the new version no longer accepts the value of {{fields}}; the update resets it.",
+      "droppedWarning": "{{label}}: the new version no longer accepts the value of {{fields}}. Updating resets it to its default; the extension then shows which settings to check.",
+      "autoHeld": {
+        "consent_required": "Automatic update waits for you: the new version asks for new permissions. Review and update it yourself.",
+        "config_required": "Automatic update waits for you: the new version requires new settings. Review and update it yourself.",
+        "config_dropped": "Automatic update waits for you: the new version would reset a setting. Review and update it yourself."
+      },
       "dialogTitle": "Update {{name}}",
       "dialogIntro": "From v{{from}} to v{{to}}.",
       "changelog": "Changelog",

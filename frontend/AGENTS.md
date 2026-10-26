@@ -486,6 +486,11 @@ form strings, `settings.extensions.local.*`). Tests: `src/test/pluginsSection.te
   `config_invalid` answer (`params.issues`: code and path) becomes field errors. The form
   remounts on `updated_at`. `attention.fields` flag the required fields still empty and the drawer's
   **Go to the settings** button (`focusConfigForm`) focuses the first one.
+- **Settings an update reset** (MSHL-393): `droppedFields()` (`pluginsShared.ts`) reads the
+  `config_dropped` notice (`attention.fields`, the instance keeps running) or a held instance's
+  `attention.config_dropped`; `InstanceBadges` shows a *Settings reset* badge and the drawer a
+  notice with the field names and **Go to the settings**. The server clears the notice on the next
+  config save, and the reloaded instance drops it.
 - **Local plugins** (`kind: 'local'`): `CreateLocalDialog` (`POST /plugins`, `echo` or `blank`
   template, hooks) and `LocalPluginEditor` in the drawer: the lazy `BotCodeEditor` (`ariaLabel` prop; its
   file name is a leftover of the retired bot editor) saved with `PUT source`, the static scan listed with line numbers,
@@ -524,7 +529,11 @@ routes are; a member gets a notice and no request).
   entry whose `version` equals `to_version` (otherwise no consent is offered and the instance is
   held, reviewed under Installed). A `config_required` hold opens a `SchemaForm` and sends
   `config`. The consent and config apply to one instance (the first held), as the API does.
-  Per-instance auto-update is `PATCH {auto_update}`.
+  Per-instance auto-update is `PATCH {auto_update}`. Each row lists the instances whose
+  `dropped_fields` the update would reset (the dialog warns too) and, when every instance is
+  marked for auto-update, why it waits (`auto_hold`: `consent_required`, `config_required`,
+  `config_dropped`). `PluginPage`'s Versions section shows the same `hold`, `dropped_fields` and
+  `auto_hold` per installed instance (from `GET /store/repositories`).
 - **Badge and links.** `stores/pluginUpdatesStore.ts` holds the update count (`usePluginUpdateBadge`
   in `AppShell` polls it for admins; `UpdatesTab` writes it); `SettingsIndexView` and the Updates tab
   trigger show it. `SettingsExtensionsSection` takes `onOpenSection` (Settings → Updates link);

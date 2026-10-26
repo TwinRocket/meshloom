@@ -20,6 +20,7 @@ import { ConsentWarnings, PermissionList } from './PermissionList';
 import { buildScope, parseScope, ScopeEditor } from './ScopeEditor';
 import {
   attentionTextKey,
+  droppedFields,
   attentionType,
   declaredPermissions,
   displayName,
@@ -143,6 +144,7 @@ function DrawerBody({
   const frozen = isFrozen(instance);
   const reason = attentionType(instance);
   const reasonText = attentionTextKey(instance);
+  const dropped = droppedFields(instance);
   const declared = useMemo(() => declaredPermissions(instance), [instance]);
   const [granted, setGranted] = useState(
     () => ({ ...instance.granted_permissions }) as Record<string, Record<string, unknown>>
@@ -337,6 +339,28 @@ function DrawerBody({
             {canManage && reason !== 'config_required' && reason !== 'reinstall' && !frozen && (
               <Button size="sm" onClick={acknowledge} disabled={readOnly}>
                 {t('settings.extensions.drawer.acceptAndEnable')}
+              </Button>
+            )}
+          </div>
+        )}
+        {dropped.length > 0 && (
+          <div
+            role="status"
+            className="space-y-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm"
+            data-testid="plugin-config-dropped"
+          >
+            <p>
+              {t('settings.extensions.attention.config_dropped.text', {
+                fields: dropped.join(', '),
+              })}
+            </p>
+            {canManage && !frozen && reason !== 'config_required' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => focusConfigForm(instance.instance_id)}
+              >
+                {t('settings.extensions.config.goTo')}
               </Button>
             )}
           </div>

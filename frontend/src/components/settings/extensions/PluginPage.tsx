@@ -186,6 +186,24 @@ export function PluginPage({
               {repo.instances.map((i) => (
                 <li key={i.instance_id} className="break-words">
                   {t('pluginStore.page.installedVersion', { label: i.label, version: i.version })}
+                  {i.hold && (
+                    <span className="block text-xs" data-testid="plugin-page-hold">
+                      {t(`pluginStore.updates.hold.${i.hold}`, { label: i.label })}
+                    </span>
+                  )}
+                  {(i.dropped_fields?.length ?? 0) > 0 && (
+                    <span className="block text-xs" data-testid="plugin-page-dropped">
+                      {t('pluginStore.updates.dropped', {
+                        label: i.label,
+                        fields: (i.dropped_fields ?? []).join(', '),
+                      })}
+                    </span>
+                  )}
+                  {i.auto_update && i.auto_hold && (
+                    <span className="block text-xs" data-testid="plugin-page-auto-held">
+                      {t(`pluginStore.updates.autoHeld.${i.auto_hold}`)}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
