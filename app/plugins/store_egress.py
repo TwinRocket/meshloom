@@ -374,7 +374,7 @@ async def store_status() -> StoreStatus:
         sends=["ip_address", "user_agent"],
         user_agent=store_user_agent(),
         refresh_interval_s=REFRESH_INTERVAL_S,
-        missed_when_disabled=["updates", "revocation_alerts"],
+        missed_when_disabled=["updates"],
         refresh_running=store_refresh_running(),
         last_refresh_at=_state.last_refresh_at,
     )

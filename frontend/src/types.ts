@@ -1585,7 +1585,7 @@ export interface StoreStatus {
   user_agent: string;
   refresh_interval_s: number;
   /** What this instance does not receive while the Store is offline. */
-  missed_when_disabled: Array<'updates' | 'revocation_alerts'>;
+  missed_when_disabled: Array<'updates'>;
   refresh_running: boolean;
   last_refresh_at: number | null;
 }

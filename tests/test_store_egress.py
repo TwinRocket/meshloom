@@ -302,7 +302,7 @@ class TestOn:
         assert on["user_agent"] == store_egress.store_user_agent()
         assert on["refresh_interval_s"] == 6 * 3600
         assert on["sends"] == ["ip_address", "user_agent"]
-        assert on["missed_when_disabled"] == ["updates", "revocation_alerts"]
+        assert on["missed_when_disabled"] == ["updates"]
         assert on["last_refresh_at"] is None
 
 
