@@ -237,9 +237,9 @@ class FanoutManager:
             # The secrets key cannot open a stored secret (database moved without its
             # secrets.key, MSHL-133): the module stays stopped until it is typed again.
             logger.warning(
-                "Fanout module %s not started: unreadable secret(s) %s",
+                "Fanout module %s not started: %d stored secret(s) cannot be decrypted",
                 config_id,
-                ", ".join(unreadable),
+                len(unreadable),
             )
             self._set_module_error(config_id, SECRET_UNREADABLE)
             return
