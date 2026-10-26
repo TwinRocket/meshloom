@@ -23,6 +23,8 @@ const INITIAL: ShareStatusState = { status: null, error: false };
 
 let state: ShareStatusState = INITIAL;
 let pending: Promise<ShareStatus> | null = null;
+/** Bumped by every stored answer, so a failing request can tell whether a newer status landed meanwhile. */
+let version = 0;
 const listeners = new Set<() => void>();
 
 function emit(next: ShareStatusState): void {
@@ -43,6 +45,7 @@ export function getShareStatusSnapshot(): ShareStatusState {
 
 /** Store an answer from the backend. */
 export function setShareStatus(status: ShareStatus): void {
+  version += 1;
   if (state.status === status && !state.error) return;
   emit({ status, error: false });
 }
@@ -50,6 +53,7 @@ export function setShareStatus(status: ShareStatus): void {
 /** Ask the backend. Concurrent callers share one request; a failure or a timeout keeps the last status, sets `error` and rejects. */
 export function loadShareStatus(): Promise<ShareStatus> {
   if (pending) return pending;
+  const started = version;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STATUS_TIMEOUT_MS);
   pending = api
@@ -59,7 +63,9 @@ export function loadShareStatus(): Promise<ShareStatus> {
       return status;
     })
     .catch((err: unknown) => {
-      if (!state.error) emit({ status: state.status, error: true });
+      // Only the latest request may flag an error: a status stored while this one
+      // was in flight is newer and already decides what the surfaces show.
+      if (version === started && !state.error) emit({ status: state.status, error: true });
       throw err;
     })
     .finally(() => {
@@ -87,5 +93,6 @@ export function useShareStatusError(): boolean {
 
 export function resetShareStatusStoreForTests(): void {
   pending = null;
+  version += 1;
   emit(INITIAL);
 }

@@ -91,6 +91,8 @@ export function ComposerFileTab({
   // `key` is the mode and conversation it was sealed for, never reused for another.
   const [uploaded, setUploaded] = useState<{ file: ShareFile; key: string } | null>(null);
   const [sourceName, setSourceName] = useState<string | undefined>(undefined);
+  // True while the user's "Try again" request is in flight; the old error stays visible until it answers.
+  const [checking, setChecking] = useState(false);
   const [savedMode, setSavedMode] = useState<ShareMode>(getSavedShareMode);
   const abortRef = useRef<AbortController | null>(null);
   const generationRef = useRef(0);
@@ -272,6 +274,11 @@ export function ComposerFileTab({
     }
   };
 
+  const retryStatus = () => {
+    setChecking(true);
+    void refreshShareStatus().finally(() => setChecking(false));
+  };
+
   if (!status && statusError) {
     return (
       <div data-testid="file-tab" className="space-y-3 p-3">
@@ -287,9 +294,18 @@ export function ComposerFileTab({
           variant="outline"
           className="w-full"
           data-testid="file-tab-status-retry"
-          onClick={() => void refreshShareStatus()}
+          disabled={checking}
+          aria-busy={checking}
+          onClick={retryStatus}
         >
-          {t('chat.fileTab.statusRetry')}
+          {checking ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              {t('chat.fileTab.statusChecking')}
+            </>
+          ) : (
+            t('chat.fileTab.statusRetry')
+          )}
         </Button>
       </div>
     );

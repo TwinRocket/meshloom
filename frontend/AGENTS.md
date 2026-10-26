@@ -565,7 +565,7 @@ pages (host from `status.host`, never hardcoded; `?lang=`) and the published
 `{share_enabled: true}` is sent only on confirm, and cancelling, closing or an
 unticked box leaves it off. Turning it off needs no consent. The status comes from
 `stores/shareStatusStore.ts` (`useShareStatus()`, `loadShareStatus()`; module
-store, refreshed after every settings change; a request aborts after 10 s and sets `error`, which the composer's File tab shows as a message with a Try again button). `unreachable: true` (the share client's breaker is open, known locally) keeps the
+store, refreshed after every settings change; a request aborts after 10 s and sets `error`, which the composer's File tab shows as a message with a Try again button, disabled and labelled Checking while that retry is in flight). A failing request sets `error` only if no status was stored while it was in flight (`version` counter): a newer answer wins. `unreachable: true` (the share client's breaker is open, known locally) keeps the
 enable checkbox disabled with an explanation, and the confirm button too, since the
 terms live on the service and could not be read; turning off stays possible.
 `dm_encryption_available: false`
