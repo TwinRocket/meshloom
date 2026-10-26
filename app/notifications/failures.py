@@ -110,6 +110,7 @@ async def announce(
             None,
             payload={
                 "event": CHANNEL_FAILED_EVENT,
+                "urgent": True,  # the e-mail subject's [URGENT] reads it
                 "channel_id": channel_id,
                 "name": (name or "")[:MAX_NAME_LEN],
                 "error": safe_error_code(error),

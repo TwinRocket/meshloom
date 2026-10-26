@@ -361,6 +361,7 @@ Every channel has a **Test** button, and the add dialog tests **before anything 
 | `rate_limited`, `quota_exceeded` | The service asked to slow down, or the day's allowance is spent (ntfy.sh) |
 | `timeout`, `service_error` | No answer in time; or the service answered with an error |
 | `apprise_url_invalid`, `apprise_chat_id_required` | An Apprise address is refused (the line is named) or a Telegram address lacks its chat id |
+| `no_push_device` | Web Push only: nothing was sent, because no device of yours (or, for the automatic retry of a paused channel, of an administrator) is registered. The channel's status is left as it was |
 
 Tests are limited: one every 5 seconds per channel, one every 2 seconds for a configuration not saved yet, and 10 a minute in all. Beyond that the answer is `429 rate_limited`. The result of a test on a saved channel also updates its status on the card.
 

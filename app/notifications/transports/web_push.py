@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from app.notifications.channels import Channel
 from app.notifications.render import Rendered
-from app.notifications.transports.base import SEND_OK, Delivery, SendResult
+from app.notifications.transports.base import NO_PUSH_DEVICE, SEND_OK, Delivery, SendResult
 
 
 class WebPushTransport:
@@ -39,4 +39,7 @@ class WebPushTransport:
             )
         if isinstance(outcome, PushOutcome) and outcome.total and not outcome.delivered:
             return SendResult("failed", error_code="push_delivery_failed")
+        if event.name == "notify.test" and isinstance(outcome, PushOutcome) and not outcome.total:
+            # A test that reached no device sent nothing: say so (MSHL-407).
+            return SendResult("skipped", error_code=NO_PUSH_DEVICE)
         return SEND_OK

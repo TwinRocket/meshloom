@@ -361,6 +361,7 @@ Chaque canal a un bouton **Tester**, et le dialogue d’ajout teste **avant tout
 | `rate_limited`, `quota_exceeded` | Le service demande de ralentir, ou le quota du jour est épuisé (ntfy.sh) |
 | `timeout`, `service_error` | Pas de réponse à temps ; ou le service a répondu par une erreur |
 | `apprise_url_invalid`, `apprise_chat_id_required` | Une adresse Apprise est refusée (la ligne est nommée) ou une adresse Telegram n’a pas son identifiant de chat |
+| `no_push_device` | Web Push seulement : rien n’a été envoyé, car aucun de vos appareils (ou, pour le nouvel essai automatique d’un canal en pause, d’un administrateur) n’est inscrit. L’état du canal reste tel quel |
 
 Les tests sont limités : un toutes les 5 secondes par canal, un toutes les 2 secondes pour une configuration pas encore enregistrée, et 10 par minute en tout. Au-delà, la réponse est `429 rate_limited`. Le résultat d’un test sur un canal enregistré met aussi à jour son état sur la carte.
 

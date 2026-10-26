@@ -14,6 +14,7 @@
     "egress_userinfo": "L’adresse ne doit contenir ni nom d’utilisateur ni mot de passe.",
     "timeout": "La destination n'a pas répondu à temps.",
     "tls_error": "La connexion sécurisée (TLS) a échoué : vérifiez le certificat, ou utilisez http:// si la destination n'a pas de TLS.",
+    "no_push_device": "Rien n'a été envoyé : aucun appareil n'est inscrit aux notifications push. Activez d'abord les notifications dans ce navigateur ou cette app.",
     "service_error": "La destination a répondu par une erreur HTTP {{status}}."
   },
   "settings": {

@@ -375,6 +375,7 @@ class ChannelChangedEvent(NotificationEvent):
 
         return {
             "event": CHANNEL_CHANGED_EVENT,
+            "urgent": self.urgent,
             "action": self.data.action,
             "channel_type": self.data.channel_type,
             "name": self.data.name,
@@ -394,6 +395,7 @@ class ChannelFailedEvent(NotificationEvent):
 
         return {
             "event": CHANNEL_FAILED_EVENT,
+            "urgent": self.urgent,
             "channel_id": self.data.channel_id,
             "name": self.data.name,
             "error": self.data.error,

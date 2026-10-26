@@ -32,7 +32,12 @@ from app.notifications.events import NotificationEvent
 from app.notifications.render import Rendered
 from app.notifications.user_rules import PushAudience
 
-SendStatus = Literal["ok", "retry", "failed"]
+# "skipped" only ends a test send (``NotificationDispatcher.send_test``): nothing was sent
+# because nobody could be reached (a Web Push test with no audience or no device). It is
+# neither a success nor a failure, so it never resumes a paused channel nor counts.
+SendStatus = Literal["ok", "retry", "failed", "skipped"]
+# The ``skipped`` code of a Web Push test that reached no device.
+NO_PUSH_DEVICE = "no_push_device"
 
 
 @dataclass(frozen=True)

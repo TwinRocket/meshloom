@@ -274,8 +274,11 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   also updates its status. On Web Push (MSHL-407) the routes pass the caller's id
   (`requester_id`) and the test reaches that account's devices only
   (`user_rules.requester_audience`); without one (`probe_tick`) it goes to the administrators'
-  devices (`_admin_push_audience`), and nothing is sent (an `ok` answer) when there is none or the
-  owners cannot be read. The deprecated `/api/settings/notification-destinations/test` calls
+  devices (`_admin_push_audience`). When nobody can be reached (owners unreadable, or no
+  device in the audience) nothing is sent and the result is `SendResult("skipped",
+  "no_push_device")`: neither success nor failure, so `record=True` leaves the pause, failure
+  counters, backoff step and status as they were, `probe_tick` does not count it and probes
+  again next tick, and the routes answer 409 `no_push_device` ("nothing was sent"). The deprecated `/api/settings/notification-destinations/test` calls
   `test_saved_channel(requester_id=None)` for `legacy:*` only. `api_support.test_failure()` maps a `SendResult.error_code` to
   `(status, code)` (401/403 `auth_failed` 502, timeout 504, 429 `rate_limited`, anything it does
   not know `service_error` 502). Limits: `AsyncLimiter(1, 5)` per channel id, 1 per 2 s for

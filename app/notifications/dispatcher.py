@@ -102,7 +102,7 @@ from app.notifications.limits import (
     dedup_ttl,
     effective_limits,
 )
-from app.notifications.transports.base import SEND_OK, Delivery, SendResult, Transport
+from app.notifications.transports.base import NO_PUSH_DEVICE, Delivery, SendResult, Transport
 from app.notifications.user_rules import (
     ADMIN_ONLY_EVENTS,
     PushAudience,
@@ -1537,6 +1537,8 @@ class Dispatcher:
                 continue
             fresh, secrets = loaded
             result = await self.send_test(fresh, secrets, record=True)
+            if result.status == "skipped":
+                continue  # nothing sent: the channel stays paused until someone can be reached
             sent += 1
             if not result.ok:
                 after = await NotificationChannelRepository.get(channel.id)
@@ -1700,7 +1702,9 @@ class Dispatcher:
 
         On Web Push (MSHL-407) the test reaches the devices of ``requester_id`` (the account
         that pressed **Test**) only; without one (the probe of an auto-paused channel) the
-        administrators' devices, and nothing when they cannot be read (fail closed)."""
+        administrators' devices, and nothing when they cannot be read (fail closed): the
+        result is then ``skipped`` (``no_push_device``) and nothing is recorded, as when
+        the audience has no device."""
         from app.notifications.events import TestData, TestEvent, dedup_hash
 
         transport = self._transport_for(channel)
@@ -1719,18 +1723,19 @@ class Dispatcher:
                 if requester_id is not None
                 else await self._admin_push_audience(payload)
             )
+        if channel.type == "web_push" and audience is None:
+            # Nobody to reach: nothing is sent. Neither a success (it would resume an
+            # untested channel) nor a failure, so pause, failures and status stay as is.
+            return SendResult("skipped", error_code=NO_PUSH_DEVICE)
         delivery = Delivery(name=event.event, payload=payload, event=event, audience=audience)
         try:
-            if channel.type == "web_push" and audience is None:
-                result = SEND_OK  # nobody to reach: nothing is sent, nothing failed
-            else:
-                result = await transport.send(channel, None, delivery, secrets)
+            result = await transport.send(channel, None, delivery, secrets)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.warning("notification test on %s raised %s", channel.type, type(exc).__name__)
             result = SendResult("failed", error_code="send_failed")
-        if record:
+        if record and result.status != "skipped":
             if result.ok:
                 live = self._live.setdefault(channel.id, _Live())
                 failing = (

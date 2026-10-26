@@ -367,6 +367,8 @@ async def _run_test(
     )
     if result.ok:
         return TestResult()
+    # A skipped test (Web Push with nobody to reach) is reported as an error too: the
+    # caller must see that nothing was sent, not a green "test sent".
     status, code = api_support.test_failure(result.error_code)
     logger.info("Notification test on a %s channel failed: %s", channel.type, code)
     raise fail(code, status)

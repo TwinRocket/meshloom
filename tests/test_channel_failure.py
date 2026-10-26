@@ -316,6 +316,7 @@ async def test_an_unsubscribed_browser_is_announced_once(test_db, monkeypatch):
     payload, targets = emitted[0]
     assert payload == {
         "event": "notify.channel_failed",
+        "urgent": True,
         "channel_id": "builtin:push",
         "name": "Pixel",
         "error": failures.PUSH_UNSUBSCRIBED,
@@ -552,6 +553,7 @@ async def test_evicted_and_refused_browsers_are_announced(
     assert emitted == [
         {
             "event": "notify.channel_failed",
+            "urgent": True,
             "channel_id": "builtin:push",
             "name": "Pixel",
             "error": code,
@@ -645,8 +647,9 @@ async def test_a_push_probe_reaches_only_admins_and_fails_closed(test_db, monkey
 
     monkeypatch.setattr(PushSubscriptionRepository, "deliverable", staticmethod(broken))
     transport.calls.clear()
-    assert (await dispatcher.send_test(channel, secrets)).ok
-    assert transport.calls == []  # nothing sent to anyone
+    result = await dispatcher.send_test(channel, secrets)
+    assert (result.status, result.error_code) == ("skipped", "no_push_device")
+    assert not result.ok and transport.calls == []  # nothing sent to anyone
 
 
 @pytest.mark.asyncio
@@ -723,3 +726,101 @@ def test_channel_failed_is_urgent():
 
     event = event_from_payload(_notice())
     assert event is not None and event.urgent
+
+
+async def _pause_push(paused_until: int, failure_count: int, step: str) -> None:
+    async with db.tx() as conn:
+        await conn.execute(
+            "UPDATE notification_channels SET paused_until = ?, failure_count = ? WHERE id = ?",
+            (paused_until, failure_count, "builtin:push"),
+        )
+    await Journal.state_set(failures.autopause_key("builtin:push"), step)
+    invalidate_cache()
+
+
+@pytest.mark.asyncio
+async def test_a_push_probe_that_reaches_nobody_changes_nothing(test_db):
+    """No administrator device: the probe sends nothing, and an untested channel is neither
+    resumed nor counted as failing again (the pause, counters, backoff step and status stay)."""
+    await _device("bob", "member", "https://push.example/bob")
+    await _pause_push(T0 - 10, 5, "1")
+    transport = Capture()
+    dispatcher = _dispatcher(transport, Wall())
+    before = (await dispatcher.statuses())["builtin:push"]
+
+    assert await dispatcher.probe_tick() == 0
+    assert transport.calls == []
+    channel = await Channels.get("builtin:push")
+    assert (channel.paused_until, channel.failure_count) == (T0 - 10, 5)
+    assert await Journal.state_get(failures.autopause_key("builtin:push")) == "1"
+    after = (await dispatcher.statuses())["builtin:push"]
+    assert after == before and after["status"] != "connected"
+
+
+@pytest.mark.asyncio
+async def test_a_push_test_that_reaches_no_device_says_nothing_was_sent(
+    test_db, client, monkeypatch
+):
+    from app.push import manager as manager_module
+
+    async def dispatch_event(data, audience=None):
+        return manager_module.PushOutcome()  # the caller has no device
+
+    monkeypatch.setattr(manager_module.push_manager, "dispatch_event", dispatch_event)
+    await _pause_push(T0 - 10, 5, "2")
+    response = await client.post("/api/notifications/channels/builtin:push/test")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "no_push_device"
+    channel = await Channels.get("builtin:push")
+    assert (channel.paused_until, channel.failure_count) == (T0 - 10, 5)
+    assert await Journal.state_get(failures.autopause_key("builtin:push")) == "2"
+
+
+@pytest.mark.asyncio
+async def test_an_unsaved_push_test_targets_the_caller(test_db, client, monkeypatch):
+    from app.push import manager as manager_module
+
+    seen: list = []
+
+    async def dispatch_event(data, audience=None):
+        seen.append(audience)
+        return manager_module.PushOutcome(total=1, delivered=1)
+
+    monkeypatch.setattr(manager_module.push_manager, "dispatch_event", dispatch_event)
+    response = await client.post(
+        "/api/notifications/channels/test",
+        json={"type": "web_push", "name": "Push", "config": {}},
+    )
+    assert response.status_code == 200, response.text
+    [audience] = seen
+    assert set(audience.per_user) == {1} and audience.default is None  # the signed-in admin
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lang", ["fr", "en"])
+async def test_a_channel_failed_e_mail_is_marked_urgent(test_db, lang):
+    """The e-mail subject reads ``payload["urgent"]``: the payload ``failures.announce`` emits
+    and the one a rebuilt event gives the transports both carry it."""
+    from app.email_template import email_subject
+    from app.notifications.events import event_from_payload
+
+    emitted: list[dict] = []
+
+    async def emit_fn(_event, *, payload, targets):
+        emitted.append(payload)
+        return len(targets)
+
+    assert await failures.announce(
+        "smtp-bad",
+        channel_id="smtp-bad",
+        name="Mail",
+        error="timeout",
+        exclude=["smtp-bad"],
+        now=T0,
+        emit_fn=emit_fn,
+    )
+    [payload] = emitted
+    rebuilt = event_from_payload(payload)
+    assert rebuilt is not None
+    for sent in (payload, rebuilt.to_payload()):
+        assert email_subject(sent, lang).startswith("[URGENT] ")
