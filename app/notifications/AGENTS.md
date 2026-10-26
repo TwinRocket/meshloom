@@ -127,7 +127,9 @@ This file is a hypothesis: check it against the code.
 - **Deletion cascade.** `delete()` removes the channel, its deliveries and counters, and its
   id from `events[*].channels`, `contact_types`, `conversations`, `keywords[*].channels`
   and `watched_nodes[*].channels` (`strip_channel_from_rules`) in one transaction. A
-  disabled channel keeps its rules. `resolve(ids)` skips an orphan id and logs it once.
+  disabled channel keeps its rules. `delete_if(id, check)` runs `check(conn)` on the same
+  transaction first and deletes only when it returns True (None: missing, False: kept); the
+  check reads through that `conn` only (non-reentrant lock). `resolve(ids)` skips an orphan id and logs it once.
 - **Cache.** `list_all()`/`get()`/`resolve()` read a cache invalidated by every write.
 - **Caches assume one process** (carried over from MSHL-113). The channel cache, the block lists
   (`services/message_filters.py`, dropped by `AppSettingsRepository.update` and the block toggles;
@@ -322,7 +324,8 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   channel is created, so a retry never makes a second channel; `channel_id` (the duplicate prompt)
   on a still-marked row deletes that pending channel first unless it is the target, but only
   while untouched: same settings and secrets, no other fanout row marked with it, no rule but
-  the conversion's; otherwise kept with the note `pending_channel_kept`). Answer:
+  the conversion's, checked and deleted in one transaction via `delete_if`; otherwise kept with
+  the note `pending_channel_kept`). Answer:
   `{channel: {id, name, type, preset, enabled}, fanout: {id, name, type, enabled, converted_to},
   already_converted, notes}`, no `config`; a converted row turned back on is never reported as a
   duplicate (the owner confirmed keeping both); errors `fanout_missing` (404),

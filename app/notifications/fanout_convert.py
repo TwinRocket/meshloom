@@ -32,7 +32,8 @@ that reproduce the row's scope, then disables the row and stores ``config.conver
   an interrupted conversion left under ``converting_to`` (unless it is the ``into`` channel)
   is deleted first, with its secrets and rules, while it is untouched: same settings and
   secrets as the conversion writes, no other fanout row marked with it, no rule but the
-  conversion's own (MSHL-403). Otherwise it is kept and ``notes`` carries
+  conversion's own (MSHL-403), checked in the deleting transaction (MSHL-411).
+  Otherwise it is kept and ``notes`` carries
   ``pending_channel_kept``; either way the row loses the mark.
 
 **Duplicates.** ``fanout_duplicates`` compares a channel's destination with the active
@@ -270,31 +271,45 @@ async def _disable_row(row: dict[str, Any], channel_id: str) -> dict[str, Any]:
     return updated
 
 
-async def _pending_untouched(row: dict[str, Any], channel_id: str) -> bool:
-    """Whether the pending channel ``channel_id`` is still exactly what the conversion of
-    ``row`` creates: same settings and secrets as ``_channel_body`` rebuilds now, referenced by
-    no other fanout row and by no rule but the ones the conversion adds. Anything else (an
-    edit, another row converted into it, a rule added by hand) keeps the channel."""
+async def _pending_untouched(conn: Any, row_id: str, channel_id: str) -> bool:
+    """Whether the pending channel ``channel_id`` is still exactly what the conversion of the
+    row ``row_id`` creates: same settings and secrets as ``_channel_body`` rebuilds now,
+    referenced by no other fanout row and by no rule but the ones the conversion adds.
+    Anything else (an edit, another row converted into it, a rule added by hand) keeps the
+    channel. Reads only through ``conn``: it runs inside the deleting transaction
+    (``NotificationChannelRepository.delete_if``), so nothing can change in between."""
     import copy
 
     from app.fanout.manager import is_reserved_fanout_id
-    from app.repository.fanout import FanoutConfigRepository
+    from app.repository.fanout import _row_to_dict
     from app.repository.notification_channels import (
-        NotificationChannelRepository,
+        _fetch,
+        _loads,
+        _row_to_channel,
         _split_config,
+        decode_secrets,
         strip_channel_from_rules,
     )
 
-    for other in await FanoutConfigRepository.get_all():
-        if str(other["id"]) == str(row["id"]) or is_reserved_fanout_id(str(other["id"])):
+    row = None
+    async with conn.execute("SELECT * FROM fanout_configs") as cursor:
+        raw_rows = await cursor.fetchall()
+    for raw in raw_rows:
+        other = _row_to_dict(raw)
+        if str(other["id"]) == str(row_id):
+            row = other
+            continue
+        if is_reserved_fanout_id(str(other["id"])):
             continue
         marks = other.get("config") or {}
         if channel_id in (marks.get(CONVERTED_TO), marks.get(CONVERTING_TO)):
             return False
-    found = await NotificationChannelRepository.get_for_send(channel_id)
-    if found is None:
+    stored_row = await _fetch(conn, channel_id)
+    if row is None or stored_row is None:
         return False
-    channel, stored = found
+    channel = _row_to_channel(stored_row)
+    decoded, _unreadable = decode_secrets(stored_row["secrets"], channel_id)
+    stored = {k: v for k, v in decoded.items() if isinstance(v, str) and v}
     try:
         body = _channel_body(row, [])
         entry = get_type(body.type, body.preset)
@@ -331,7 +346,9 @@ async def _pending_untouched(row: dict[str, Any], channel_id: str) -> bool:
         return False
     # Rules: once the conversion's own references are taken out, none may remain.
     events, exceptions, _notes = scope_to_rules(row.get("scope") or {})
-    rules = copy.deepcopy(await NotificationChannelRepository.get_rules())
+    async with conn.execute("SELECT notification_rules FROM app_settings WHERE id = 1") as cursor:
+        settings = await cursor.fetchone()
+    rules = copy.deepcopy(_loads(settings[0]) if settings else {})
     for event_id in events:
         entry_rules = (rules.get("events") or {}).get(event_id)
         if isinstance(entry_rules, dict) and isinstance(entry_rules.get("channels"), list):
@@ -352,21 +369,22 @@ def _secrets_digest(values: dict[str, str]) -> bytes:
 async def _drop_pending_channel(row: dict[str, Any], channel_id: str, notes: list[str]) -> None:
     """The channel an interrupted conversion created (``CONVERTING_TO``), when the duplicate
     prompt attaches the row elsewhere (MSHL-403): deleted while untouched
-    (``_pending_untouched``), else kept with the note ``pending_channel_kept``. The row keeps
-    the mark until ``_disable_row``, so a retry finds the channel gone and deletes nothing."""
+    (``_pending_untouched``, checked in the deleting transaction, MSHL-411), else kept with
+    the note ``pending_channel_kept``. The row keeps the mark until ``_disable_row``, so a
+    retry finds the channel gone and deletes nothing. Any other error propagates."""
     from app.repository.notification_channels import NotificationChannelRepository
 
-    if await NotificationChannelRepository.get(channel_id) is None:
+    row_id = str(row["id"])
+
+    async def untouched(conn: Any) -> bool:
+        return await _pending_untouched(conn, row_id, channel_id)
+
+    deleted = await NotificationChannelRepository.delete_if(channel_id, untouched)
+    if deleted is None:
         return
-    if not await _pending_untouched(row, channel_id):
+    if not deleted:
         notes.append("pending_channel_kept")
         logger.info("Pending conversion channel %s kept (changed or in use)", channel_id)
-        return
-    try:
-        await NotificationChannelRepository.delete(channel_id)
-    except ChannelError as exc:
-        if exc.code != "channel_missing":
-            raise
         return
     logger.info("Pending conversion channel %s deleted (row attached elsewhere)", channel_id)
 

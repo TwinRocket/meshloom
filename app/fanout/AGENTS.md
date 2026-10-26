@@ -173,7 +173,8 @@ reach every module.
   between reuses that channel or creates it under that id, never a second one. If the
   duplicate prompt then attaches the still-marked row to another channel, the pending
   channel is deleted first (with its secrets and rules) while untouched (same settings and
-  secrets, no other row marked with it, no hand-made rule), else kept with the note
+  secrets, no other row marked with it, no hand-made rule; checked in the deleting
+  transaction), else kept with the note
   `pending_channel_kept`. Clients
   cannot set or clear either key (create drops them, update keeps the stored values);
   backup and restore carry them as part of `config`. A second call is a no-op

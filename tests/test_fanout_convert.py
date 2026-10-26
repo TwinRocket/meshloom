@@ -598,21 +598,108 @@ async def test_a_retry_after_the_pending_channel_is_deleted_attaches_the_row(
     assert "converting_to" not in done["config"]
 
 
-async def test_a_pending_channel_deleted_concurrently_is_not_an_error(test_db, client, monkeypatch):
-    from app.notifications.channels import ChannelError
+async def test_an_edit_racing_the_pending_deletion_never_lands_on_a_deleted_channel(
+    test_db, client, monkeypatch
+):
+    """MSHL-411: the checks and the delete are one transaction. An edit sent while the checks
+    run waits for it and then finds the channel gone, never "saved, then deleted"."""
+    import asyncio
+
+    from app.notifications import fanout_convert
 
     row, pending = await _interrupted(monkeypatch)
     target = await _target(client)
-    real = NotificationChannelRepository.delete
+    real = fanout_convert._pending_untouched
+    checked = asyncio.Event()
 
-    async def raced(channel_id):
-        await real(channel_id)
-        raise ChannelError("channel_missing", 404)
+    async def slow(*args, **kwargs):
+        result = await real(*args, **kwargs)
+        checked.set()
+        await asyncio.sleep(0.2)  # the window an edit would have used
+        return result
 
-    monkeypatch.setattr(NotificationChannelRepository, "delete", staticmethod(raced))
-    merged = await client.post(CONVERT.format(row["id"]), json={"channel_id": target})
+    monkeypatch.setattr(fanout_convert, "_pending_untouched", slow)
+
+    async def edit():
+        # One write transaction, as every channel edit ends with.
+        from app.repository import notification_channels
+
+        await checked.wait()
+        async with notification_channels.db.tx() as conn:
+            cursor = await conn.execute(
+                "UPDATE notification_channels SET name = ? WHERE id = ?",
+                ("Renamed meanwhile", pending),
+            )
+            changed = cursor.rowcount
+            await cursor.close()
+        return changed
+
+    merged, edited = await asyncio.gather(
+        client.post(CONVERT.format(row["id"]), json={"channel_id": target}), edit()
+    )
     assert merged.status_code == 200, merged.text
-    assert (await FanoutConfigRepository.get(row["id"]))["config"]["converted_to"] == target
+    # Either the edit came first and the channel is kept, or it found nothing to edit:
+    # never an edit that landed on a channel deleted right after.
+    kept = await NotificationChannelRepository.get(pending)
+    assert edited == 0 and kept is None
+
+
+async def test_a_secret_only_edit_keeps_the_pending_channel(test_db, client, monkeypatch):
+    row, pending = await _interrupted(monkeypatch)
+    before = await _channel(client, pending)
+    patched = await client.patch(
+        f"/api/notifications/channels/{pending}",
+        json={"config": {"urls": "json://hooks.example.org/path/secret-path-8"}},
+    )
+    assert patched.status_code == 200, patched.text
+    after = await _channel(client, pending)
+    # Only the sealed secret changed: the public view is the same.
+    assert {k: v for k, v in after.items() if k != "updated_at"} == {
+        k: v for k, v in before.items() if k != "updated_at"
+    }
+    await _assert_kept(client, row, pending, await _target(client))
+
+
+async def test_conversation_exceptions_of_the_conversion_alone_do_not_keep_the_channel(
+    test_db, client, monkeypatch
+):
+    row, pending = await _interrupted_scoped(monkeypatch)
+    rules = await NotificationChannelRepository.get_rules()
+    assert rules["conversations"]["contact-abc123"] == {pending: True}
+    merged = await client.post(
+        CONVERT.format(row["id"]), json={"channel_id": await _target(client)}
+    )
+    assert merged.status_code == 200, merged.text
+    assert "pending_channel_kept" not in merged.json()["notes"]
+    assert await NotificationChannelRepository.get(pending) is None
+
+
+async def test_a_changed_conversation_exception_keeps_the_pending_channel(
+    test_db, client, monkeypatch
+):
+    row, pending = await _interrupted_scoped(monkeypatch)
+    rules = await NotificationChannelRepository.get_rules()
+    rules["conversations"]["contact-abc123"] = {pending: False}
+    await NotificationChannelRepository.set_rules(rules)
+    await _assert_kept(client, row, pending, await _target(client))
+
+
+async def _interrupted_scoped(monkeypatch):
+    """``_interrupted`` for a row scoped to one contact: the conversion adds an exception."""
+    from app.notifications import fanout_convert
+
+    row = await _row(scope={"messages": {"contacts": ["abc123"]}, "raw_packets": "none"})
+    real = fanout_convert._disable_row
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(fanout_convert, "_disable_row", broken)
+    with pytest.raises(RuntimeError):
+        await fanout_convert.convert_fanout_row(row["id"])
+    monkeypatch.setattr(fanout_convert, "_disable_row", real)
+    pending = (await FanoutConfigRepository.get(row["id"]))["config"]["converting_to"]
+    return row, pending
 
 
 @pytest.mark.parametrize("error", ["runtime", "builtin_channel"])
@@ -623,12 +710,14 @@ async def test_a_failed_pending_deletion_leaves_the_row_marked(test_db, client, 
     row, pending = await _interrupted(monkeypatch)
     target = await _target(client)
 
-    async def broken(channel_id):
+    async def broken(conn, channel_id):
+        # Fails after a first statement: the transaction must roll it back.
+        await conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
         if error == "runtime":
             raise RuntimeError("database is locked")
         raise ChannelError(error, 403)
 
-    monkeypatch.setattr(NotificationChannelRepository, "delete", staticmethod(broken))
+    monkeypatch.setattr("app.repository.notification_channels._delete_in_conn", broken)
     with pytest.raises((RuntimeError, ChannelError)):
         await fanout_convert.convert_fanout_row(row["id"], into=target)
     still = await FanoutConfigRepository.get(row["id"])
