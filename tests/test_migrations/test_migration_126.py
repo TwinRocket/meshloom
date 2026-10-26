@@ -11,15 +11,13 @@ from app.migrations import get_version, run_migrations, set_version
 from .conftest import LATEST_SCHEMA_VERSION
 
 
-def _schema(path: str) -> tuple[str, str]:
+def _schema(path: str) -> str:
+    """The columns (migration 127's ``ADD COLUMN`` rewrites the stored SQL text)."""
     conn = sqlite3.connect(path)
     try:
-        row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'store_repositories'"
-        ).fetchone()
-        assert row is not None
         info = conn.execute("PRAGMA table_info(store_repositories)").fetchall()
-        return " ".join(row[0].split()), repr(info)
+        assert info
+        return repr(info)
     finally:
         conn.close()
 

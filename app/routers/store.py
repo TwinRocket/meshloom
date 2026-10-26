@@ -15,21 +15,26 @@ request goes through ``app.plugins.store_egress`` (``store_fetch``).
   like the add). No egress; installed
   instances keep running, without updates.
 
+- ``GET /store/updates?lang=``: the installed plugins with a newer compatible release
+  cached by their source (MSHL-197, ``app/plugins/updates.py``), with the changelog in
+  ``lang`` when the source has one, the permission and config schema diffs and the
+  hold each instance would get. No egress.
+
 Installing from a repository is ``POST /api/plugins/install`` with ``kind: custom``
-and ``repository``.
+and ``repository``; updating is ``POST /api/plugins/{instance_id}/update``.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from app.auth import audit
 from app.auth.permissions import require
 from app.models import StoreStatus
-from app.plugins import custom_repos, store_egress
+from app.plugins import custom_repos, store_egress, updates
 from app.plugins.installer import InstallError
 from app.plugins.store_egress import store_status
 from app.repository.plugins import PluginRepository
@@ -116,6 +121,46 @@ class RepositoriesView(BaseModel):
     repositories: list[RepositoryView]
 
 
+class PermissionDiff(BaseModel):
+    added: list[str]
+    changed: list[str]
+    removed: list[str]
+    privacy_widened: bool
+
+
+class SchemaDiff(BaseModel):
+    added: list[str]
+    removed: list[str]
+    required_added: list[str]
+
+
+class UpdateInstance(BaseModel):
+    instance_id: str
+    label: str
+    version: str
+    auto_update: bool
+    hold: Literal["consent_required", "config_required"] | None = Field(
+        description="What the update would hold this instance for (None: it runs on)."
+    )
+    permissions: list[str] = Field(description="The permissions it would ask consent for.")
+    missing_fields: list[str] = Field(description="New required config fields it lacks.")
+
+
+class PluginUpdate(BaseModel):
+    plugin_id: str
+    kind: str
+    repository: str | None
+    from_version: str
+    to_version: str
+    name: dict[str, str]
+    changelog: str | None = Field(description="In ``lang`` (``en`` fallback), when provided.")
+    permissions: PermissionDiff
+    config_schema: SchemaDiff | None = Field(
+        description="None when the cached release predates the schema cache."
+    )
+    instances: list[UpdateInstance]
+
+
 async def _views() -> list[RepositoryView]:
     rows = await custom_repos.list_rows()
     custom = [r for r in await PluginRepository.get_all() if r.get("kind") == "custom"]
@@ -160,6 +205,15 @@ async def list_repositories() -> RepositoriesView:
         warning_text=dict(custom_repos.CUSTOM_WARNING),
         repositories=await _views(),
     )
+
+
+@router.get("/updates", response_model=list[PluginUpdate], dependencies=[Admin])
+async def list_updates(
+    lang: str = Query(default="en", min_length=2, max_length=10, pattern=r"^[a-zA-Z_-]+$"),
+) -> list[PluginUpdate]:
+    """The installed plugins a newer compatible release of their source would update.
+    Makes no request: it compares with the releases the Store refresh cached."""
+    return [PluginUpdate(**entry) for entry in await updates.available_updates(lang)]
 
 
 @router.post(
