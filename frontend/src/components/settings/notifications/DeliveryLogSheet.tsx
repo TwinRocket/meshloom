@@ -7,6 +7,7 @@ import type { NotificationChannel, NotificationDeliveries } from '../../../notif
 import { Button } from '../../ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../../ui/sheet';
 import { DELIVERY_STATUS_CLASS, sentLast24h } from './deliveryStats';
+import { eventKey } from './rulesShared';
 
 const LOG_ROWS = 50;
 
@@ -58,9 +59,7 @@ export function DeliveryLogSheet({
         <div className="mt-4 space-y-3" data-testid="delivery-log">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm" data-testid="delivery-log-sent">
-              {data
-                ? t('settings.notifications.log.sent24h', { count: sentLast24h(data.counters) })
-                : ''}
+              {data ? t('settings.notifications.log.sent24h', { count: sentLast24h(data) }) : ''}
             </p>
             <Button variant="outline" size="sm" disabled={loading} onClick={() => void load()}>
               <RefreshCw className="mr-1 h-4 w-4" aria-hidden="true" />
@@ -86,7 +85,7 @@ export function DeliveryLogSheet({
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="break-all font-medium">
-                    {t(`settings.notifications.log.events.${row.event}`, {
+                    {t(`settings.notifications.log.events.${eventKey(row.event)}`, {
                       defaultValue: row.event,
                     })}
                   </span>
@@ -104,7 +103,9 @@ export function DeliveryLogSheet({
                 <p className="text-xs text-muted-foreground">{time(row.created_at)}</p>
                 {row.error && (
                   <p className="break-words text-xs text-destructive">
-                    {t(`errors.${row.error}`, { defaultValue: row.error })}
+                    {i18n.exists(`errors.${row.error}`)
+                      ? t(`errors.${row.error}`)
+                      : t('settings.notifications.log.errorGeneric', { code: row.error })}
                   </p>
                 )}
               </li>

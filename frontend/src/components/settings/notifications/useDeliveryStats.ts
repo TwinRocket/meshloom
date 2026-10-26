@@ -6,7 +6,7 @@ import { deliveryStats, type ChannelDeliveryStats } from './deliveryStats';
 
 /**
  * Per-channel counters for the cards (sent in the last 24 h, held by quiet hours, grouped),
- * from `GET /notifications/deliveries?channel=` with the whole journal (200 rows). A failed
+ * from the exact `totals` of `GET /notifications/deliveries?channel=` (one journal row asked). A failed
  * read leaves the card without counters rather than showing an error on every card.
  * `version` changes (a reload of the channels) refetch.
  */
@@ -25,7 +25,7 @@ export function useDeliveryStats(
         try {
           return [
             id,
-            deliveryStats(await api.getNotificationDeliveries({ channel: id, limit: 200 })),
+            deliveryStats(await api.getNotificationDeliveries({ channel: id, limit: 1 })),
           ] as const;
         } catch {
           return null;

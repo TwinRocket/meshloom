@@ -792,6 +792,36 @@ async def test_deliveries_filter_limit_and_counters(test_db, client):
     assert (await client.get("/api/notifications/deliveries?limit=0")).status_code == 422
 
 
+async def test_deliveries_totals_are_exact_beyond_the_ring(test_db, client):
+    """Held and grouped counts come from per-hour counters, not from the 200 ring rows."""
+    from app.repository.notification_channels import NotificationJournalRepository as Journal
+
+    hook = await create(client, webhook())
+    other = await create(client, webhook())
+    rows = [{"channel_id": hook["id"], "event": "message.dm", "status": "suppressed_quiet"}] * 250
+    rows += [{"channel_id": hook["id"], "event": "message.dm", "status": "aggregated"}] * 3
+    rows += [{"channel_id": hook["id"], "event": "message.dm", "status": "failed"}]
+    rows += [{"channel_id": other["id"], "event": "message.dm", "status": "aggregated"}]
+    for start in range(0, len(rows), 50):
+        await Journal.add_deliveries(rows[start : start + 50])
+    await Journal.add_sent(hook["id"], int(time.time()) // 3600, 4)
+    body = (await client.get(f"/api/notifications/deliveries?channel={hook['id']}")).json()
+    assert len(body["deliveries"]) == 50
+    assert body["totals"] == {"sent": 4, "suppressed_quiet": 250, "aggregated": 3}
+    everything = (await client.get("/api/notifications/deliveries")).json()
+    assert everything["totals"] == {"sent": 4, "suppressed_quiet": 250, "aggregated": 4}
+    # An older hour leaves the 24 h window; deleting the channel drops its counters.
+    old = await Journal.window_totals(hook["id"], now=int(time.time()) + 25 * 3600)
+    assert old == {"sent": 0, "suppressed_quiet": 0, "aggregated": 0}
+    assert (await client.delete(f"/api/notifications/channels/{hook['id']}")).status_code in (
+        200,
+        204,
+    )
+    everything = (await client.get("/api/notifications/deliveries")).json()
+    assert everything["totals"]["suppressed_quiet"] == 0
+    assert everything["totals"]["aggregated"] == 1
+
+
 # ── Access ──────────────────────────────────────────────────────────────
 
 

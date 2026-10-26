@@ -913,9 +913,11 @@ Limits, journal and cap (MSHL-126, slice `qn`): `ChannelForm` has an **Advanced*
 `rate_per_min/hour/day` (empty = null = type default, shown from `default_limits`) and
 `quiet_hours_exempt`; `advancedBody(draft)` adds them to the create and edit bodies. Each card has
 a **Delivery log** button opening `DeliveryLogSheet` (`GET /notifications/deliveries?channel=&limit=50`:
-rows, status badges, error codes, "sent in 24 h" = sum of the hourly counters). The cards' "held during quiet hours" and
-"grouped" lines come from `useDeliveryStats` (one `limit=200` read per channel, `deliveryStats`
-counts `suppressed_quiet` / `aggregated` rows of the last 24 h; a failed read hides the line).
+rows, status badges, event names from `log.events.<id with . as _>`, an error code without an `errors.*`
+text shown as `log.errorGeneric`, "sent in 24 h" = `totals.sent`). The cards' "held during quiet hours" and
+"grouped" lines come from `useDeliveryStats` (one `limit=1` read per channel, `deliveryStats` takes the
+exact `totals` of the response, with a row count only as a fallback for a server without `totals`; a failed
+read hides the line). A test checks every backend event name has an EN and FR label.
 `health.notifications_capped` reaches the panel through `NotificationStatusProvider`'s `capped`
 prop (`useNotificationsCapped`) and shows a banner; the `notifications_failing` banner waits for
 the backend field (MSHL-130). Tests: `notificationsQuietHours.test.tsx`, `notificationsDeliveries.test.tsx`.

@@ -234,6 +234,10 @@ batches), the pending secrets of a restored channel, and the quiet-hours counter
 `pause:...` of the same shape (no expiry: the digest takes and deletes them, MSHL-124; `builtin:push@<user id>` or `@d` count per wanted account). Expired rows are
 pruned hourly by the dispatcher.
 
+The delivery cards' exact 24 h figures (MSHL-390) are keys `stat:<status>:<epoch hour>:<channel>`
+for `suppressed_quiet` and `aggregated`, incremented in the transaction that inserts the journal
+rows and expiring 25 h after their hour (`NotificationJournalRepository.window_totals`).
+
 ### `push_subscriptions`
 
 Web Push subscriptions: PK `id`, `endpoint` (unique), `p256dh`, `auth`, `label`,

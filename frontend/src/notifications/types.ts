@@ -155,6 +155,8 @@ export interface NotificationDelivery {
 export interface NotificationDeliveries {
   deliveries: NotificationDelivery[];
   counters: { channel_id: string; hour: number; sent: number }[];
+  /** Exact figures of the last 24 hours (absent from a server older than this field). */
+  totals?: { sent: number; suppressed_quiet: number; aggregated: number };
 }
 
 /** The admin-only `notification_channel_changed` WebSocket event. */
