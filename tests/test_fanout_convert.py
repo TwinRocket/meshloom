@@ -624,7 +624,9 @@ async def test_an_edit_racing_the_pending_deletion_never_lands_on_a_deleted_chan
         # One write transaction, as every channel edit ends with.
         from app.repository import notification_channels
 
-        await checked.wait()
+        # Bounded: if the delete skipped its check, the event never fires and the
+        # test must fail fast instead of hanging the suite.
+        await asyncio.wait_for(checked.wait(), 5)
         async with notification_channels.db.tx() as conn:
             cursor = await conn.execute(
                 "UPDATE notification_channels SET name = ? WHERE id = ?",
@@ -634,8 +636,9 @@ async def test_an_edit_racing_the_pending_deletion_never_lands_on_a_deleted_chan
             await cursor.close()
         return changed
 
-    merged, edited = await asyncio.gather(
-        client.post(CONVERT.format(row["id"]), json={"channel_id": target}), edit()
+    merged, edited = await asyncio.wait_for(
+        asyncio.gather(client.post(CONVERT.format(row["id"]), json={"channel_id": target}), edit()),
+        5,
     )
     assert merged.status_code == 200, merged.text
     # Either the edit came first and the channel is kept, or it found nothing to edit:
