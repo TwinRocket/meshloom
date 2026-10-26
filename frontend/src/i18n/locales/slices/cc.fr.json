@@ -72,6 +72,10 @@
           "badge": "À réinstaller",
           "text": "Cette extension a été restaurée depuis une sauvegarde sans son code. Elle ne peut pas démarrer tant qu'elle n'est pas réinstallée ; vous pouvez aussi la désinstaller."
         },
+        "config_dropped": {
+          "badge": "Réglages réinitialisés",
+          "text": "La dernière mise à jour a réinitialisé des réglages dont la nouvelle version n'accepte plus la valeur : {{fields}}. Vérifiez-les et enregistrez les réglages pour effacer cet avis."
+        },
         "other": {
           "badge": "À examiner",
           "text": "Cette extension attend votre examen avant de pouvoir démarrer."
@@ -229,7 +233,7 @@
         "removeIntro": "Les extensions déjà installées depuis ce dépôt restent installées et continuent de fonctionner ; leurs mises à jour ne seront plus vérifiées.",
         "updateAvailable": "mise à jour disponible",
         "checkFailed": "La dernière vérification a échoué.",
-        "accept": "Je comprends que cette extension n'est ni relue ni signé par Meshloom, et j'accepte ces permissions.",
+        "accept": "Je comprends que cette extension n'est ni relue ni signée par Meshloom, et j'accepte ces permissions.",
         "adminOnly": "Seul un administrateur peut voir et gérer les dépôts personnalisés."
       }
     },

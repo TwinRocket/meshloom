@@ -469,6 +469,7 @@ class TestReviewFollowUps:
                 sleep=fake_sleep,
                 CancelledError=asyncio.CancelledError,
                 create_task=asyncio.create_task,
+                Lock=asyncio.Lock,
             ),
         )
         await AppSettingsRepository.update(store_online=True)
@@ -477,7 +478,8 @@ class TestReviewFollowUps:
                 break
             await real_sleep(0.01)
         assert calls == [1]
-        assert delays == [store_egress.REFRESH_INTERVAL_S]
+        # The loop then waits for the first hourly evaluation (MSHL-393).
+        assert delays == [store_egress.EVALUATE_INTERVAL_S]
 
         await AppSettingsRepository.update(store_online=False)
         now[0] += 120

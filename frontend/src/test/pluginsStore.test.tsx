@@ -148,6 +148,8 @@ function update(overrides: Partial<PluginUpdate> = {}): PluginUpdate {
         hold: null,
         permissions: [],
         missing_fields: [],
+        dropped_fields: [],
+        auto_hold: null,
       },
     ],
     ...overrides,
@@ -245,6 +247,41 @@ describe('Store tab: plugin page', () => {
     fireEvent.click(await screen.findByRole('button', { name: t('pluginStore.card.details') }));
     return screen.findByTestId('plugin-page');
   }
+
+  it('shows the pending hold, reset settings and automatic-update wait of an installed copy', async () => {
+    vi.spyOn(api, 'getStoreReadme').mockResolvedValue({ lang: 'en', text: '', languages: [] });
+    vi.spyOn(api, 'getStoreStatus').mockResolvedValue(status());
+    vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(
+      repositories({
+        repositories: [
+          repo({
+            update_available: true,
+            instances: [
+              {
+                instance_id: 'aaaaaaaa-0000-4000-8000-000000000001',
+                label: 'Weather',
+                version: '1.0.0',
+                auto_update: true,
+                hold: 'consent_required',
+                auto_hold: 'consent_required',
+                dropped_fields: ['units'],
+              },
+            ],
+          }),
+        ],
+      })
+    );
+    render(<StoreTab canManage locked={false} onInstalled={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: t('pluginStore.card.details') }));
+    const page = await screen.findByTestId('plugin-page');
+    expect(within(page).getByTestId('plugin-page-hold')).toHaveTextContent(
+      t('pluginStore.updates.hold.consent_required', { label: 'Weather' })
+    );
+    expect(within(page).getByTestId('plugin-page-dropped')).toHaveTextContent('units');
+    expect(within(page).getByTestId('plugin-page-auto-held')).toHaveTextContent(
+      t('pluginStore.updates.autoHeld.consent_required')
+    );
+  });
 
   it('renders a hostile README as inert text', async () => {
     const readme = vi
@@ -595,6 +632,44 @@ describe('Updates tab', () => {
         auto_update: true,
       })
     );
+  });
+
+  it('says which settings an update resets and why the automatic update waits', async () => {
+    renderTab({
+      updates: [
+        update({
+          instances: [
+            {
+              ...update().instances[0],
+              auto_update: true,
+              auto_hold: 'config_dropped',
+              dropped_fields: ['greeting'],
+            },
+          ],
+        }),
+      ],
+    });
+    expect(await screen.findByTestId('plugin-update-dropped')).toHaveTextContent('greeting');
+    expect(screen.getByTestId('plugin-update-auto-held')).toHaveTextContent(
+      t('pluginStore.updates.autoHeld.config_dropped')
+    );
+    // No hold for a manual update: it applies and resets the value, said in the dialog.
+    expect(screen.queryByTestId('plugin-update-hold')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('plugin-update-open'));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByTestId('update-dropped')).toHaveTextContent('greeting');
+  });
+
+  it('says nothing about automatic updates for an instance not marked for them', async () => {
+    renderTab({
+      updates: [
+        update({
+          instances: [{ ...update().instances[0], auto_hold: 'config_dropped' }],
+        }),
+      ],
+    });
+    await screen.findByTestId('plugin-update-row');
+    expect(screen.queryByTestId('plugin-update-auto-held')).not.toBeInTheDocument();
   });
 
   it('Store off: updates cannot be applied; a member requests nothing', async () => {

@@ -8,10 +8,10 @@ MSHL-216, MSHL-337, MSHL-339; isolation: `docs/dev/plugins-security.md`, "OS
 isolation"). The server starts one supervised child per enabled instance, isolated by
 the OS, and answers its requests (see "Capabilities"). Custom repositories (GitHub
 `owner/name`, tier `custom`, MSHL-196) are in: see "Custom repositories", and so are
-updates of installed `custom` instances (MSHL-197, see "Updates"). Not in 5.0.0:
-the index Store and updates of `store` instances (the consent
-`app_settings.store_online`, off by default, and its egress gate exist since MSHL-194, see
-"Store egress" in `app/AGENTS.md`) and Windows (no plugins). Two bundled packages ship ("Bundled
+updates of installed `custom` instances (MSHL-197, MSHL-393, see "Updates"). The Store
+consent `app_settings.store_online` (off by default) and its egress gate exist since
+MSHL-194 (see "Sources and egress class" below). Not in 5.0.0: the index Store and
+updates of `store` instances, and Windows (no plugins). Two bundled packages ship ("Bundled
 plugins"). Like every doc here, this
 file may be wrong: the code in `app/plugins/` and `meshloom_plugin/` wins.
 
@@ -1118,6 +1118,36 @@ changes, runs or reads the logs of an instance is `admin`. `kiosk` and `viewer` 
 everywhere. While the host lock or the platform turns the system off, every write but `DELETE` and
 `PUT /pause` is 403 `plugins_disabled` (`params.source`).
 
+### Sources and egress class
+
+Four instance kinds: `bundled` (ships in `meshloom_plugin/official/`, updated with
+Meshloom), `local` (typed in the editor), `custom` (a GitHub `owner/name`, unsigned) and
+`store` (the signed index; no resolver yet). Only `custom` and `store` ("online kinds",
+`store_egress.ONLINE_KINDS`) ever use the network.
+
+Every request made for them is the **Store egress class**, separate from Community and
+from the share service. Its consent is `app_settings.store_online`; the one gate is
+`store_fetch()` in `app/plugins/store_egress.py` (module docstring and "Store egress" in
+`app/AGENTS.md` are the reference). What the user docs promise
+(`docs/user/*/deep/plugins.md`, "What leaves your instance", and `trust.md`) maps to code:
+
+| Claim | Code |
+|---|---|
+| Only four hosts, HTTPS | `STORE_HOSTS`, `STORE_ALLOWLIST`, `STORE_SCHEMES`; custom repositories narrow to `CUSTOM_REPO_HOSTS` (no `store.meshloom.app`) |
+| Nothing leaves while off | `store_fetch` raises `StoreOffline` before any lookup; the loop is not started |
+| `GET` only, no body, no cookie, no token | `store_fetch` takes no body; `follow_checked_redirects` sets no cookie jar; `custom_repos` uses no API and no token |
+| Headers | `User-Agent: Meshloom/<version>` forced by `store_user_agent()`; `Accept: application/octet-stream` only on `installer.download_archive` (install, update); the archive read by `custom_repos` at add time and by a refresh that sees a new tag goes through `custom_repos._get`, with no `Accept` of ours |
+| Opening the tabs sends nothing | `GET /store/status`, `/store/repositories`, `/store/updates`, `.../readme` read the cache; only `POST /store/refresh`, `POST /store/repositories`, installs and updates fetch |
+| Refresh every 6 h, only with an online instance | `REFRESH_INTERVAL_S`, `has_online_instances()`; the button (`manual=True`) skips the instance condition; a refresh that sees a new tag also downloads the three assets |
+| Never twice within 10 minutes | `MIN_REFRESH_GAP_S`; `last_refresh_at` is in memory (`_State`), so a restart resets the gap |
+| Hourly auto-update check contacts nobody | `EVALUATE_INTERVAL_S`, `register_store_evaluator`; the download of an applied update goes through `store_fetch` |
+| Off cuts at once | `note_store_online_changed(False)`: generation bump, in-flight sends cancelled, loop stopped |
+| Backups never carry the consent | `_CONSENT_FIELDS`, reset to 0 in a database copy, `_after_restore` re-reads the database |
+
+Change a row of this table and the two user pages (en and fr) together. The UI only
+turns the switch on (Store tab activation card); turning it off is
+`PATCH /api/settings {"store_online": false}`.
+
 ### Custom repositories
 
 `app/plugins/custom_repos.py` (MSHL-196, Store T22), storage in
@@ -1168,7 +1198,7 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
 
 | Route | Behaviour |
 |---|---|
-| `GET /store/repositories` | `{store_online, max_repositories, warning, warning_text, repositories: [{repository, display_name, added_at, checked_at, last_error, entry, instances: [{instance_id, label, version}], update_available}]}`. Reads the table only: no request to GitHub. |
+| `GET /store/repositories` | `{store_online, max_repositories, warning, warning_text, repositories: [{repository, display_name, added_at, checked_at, last_error, entry, instances: [{instance_id, label, version, auto_update, hold, auto_hold, dropped_fields}], update_available}]}` (the instance fields after `version` as in `GET /store/updates`; defaults when no update is pending). Reads the table only: no request to GitHub. |
 | `POST /store/repositories` | `{repository}`: the lookup and the checks above, then 201 with the row. 403 `plugins_disabled` (host lock or platform, before any request), 409 `store_offline`, 409 `repository_exists`, plus the codes above. Audited `store.repository_added` (target `repository:<key>`, `details.plugin_id` or `details.code`). |
 | `GET /store/repositories/{owner}/{name}/readme?lang=` | `{lang, text, languages}`: the README of the cached release in `lang` (then its short code, `en`, the first language), read from the checked archive at add/refresh time (`store_repositories.readme`, migration 128, each file capped by `validate_package` and 600 KiB in all). Untrusted text: the UI renders it as plain text. Empty for a release cached before 128. No request. 404 `repository_not_found`. |
 | `POST /store/refresh` | `{ran, last_refresh_at}`: `run_store_refresh(manual=True)` now (the Refresh button): reads every listed repository again, installed instance or not. Ticks are serialised by a lock and limited by the refresh gap (`MIN_REFRESH_GAP_S`); `ran` is false when it was skipped (gap or Store off). |
@@ -1211,16 +1241,20 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
   back, `installer.restore_tree`), then the unheld enabled instances start again. A
   successful update clears `incompatible` and stale holds. One `plugin.updated` audit
   row per instance (`from_version`, `to_version`, `held`, `config_dropped`, `auto`).
-- **Auto-update.** `auto_update()` is a Store refresher registered by
-  `lifecycle.start()` after `custom_repos`' refresher. It applies an entry only when
+- **Auto-update.** `auto_update()` is a Store evaluator registered by
+  `lifecycle.start()` (`register_store_evaluator`): it runs after each refresh and
+  hourly in between (`store_egress.EVALUATE_INTERVAL_S`), reading only the cached
+  releases. It applies an entry only when
   `update_window.in_window(updates.clock(), auto_update_window_start,
   auto_update_window_end, auto_update_weekdays)` (the app settings shared with
   Meshloom's own auto-update), every instance has `auto_update`, and no instance would
-  be held (checked twice: on the listing's `hold` in `auto_update()`, and on the
-  computed rows in `update_plugin(auto=True)`, which then returns None). It is evaluated
-  only at the Store refresh ticks (`store_egress.REFRESH_INTERVAL_S`, 6 h), so a window
-  shorter than 6 h can be missed on a given day. A value an auto-update drops is
-  reported the same way (notice, audit), not a reason to skip it.
+  be held and no stored value would be dropped (the listing's `auto_hold`:
+  `consent_required`, `config_required` or `config_dropped`; checked twice: in
+  `auto_update()`, and on the computed rows in `update_plugin(auto=True)`, which then
+  returns None). A `config_dropped` entry waits for a manual update, which applies it and
+  raises the notice. The hourly evaluation honours windows shorter than the 6 h refresh;
+  an entry that failed (any error but `store_offline`, logged by type only) or came back held after its download is not tried again for
+  `REFRESH_INTERVAL_S`, so applying never downloads more often than the refresh did.
 - **Compat at start.** `mark_compat()` runs in `lifecycle.start()` before
   `load_from_db()`: a `custom`/`store` instance whose manifest's `compat.meshloom` no
   longer includes the running version is stored `incompatible` (never started, 409
@@ -1231,7 +1265,7 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
 
 | Route | Behaviour |
 |---|---|
-| `GET /store/updates?lang=` | admin. `[{plugin_id, kind, repository, from_version, to_version, name, changelog, permissions, config_schema, instances: [{instance_id, label, version, auto_update, hold, permissions, missing_fields, dropped_fields}]}]`. No egress. |
+| `GET /store/updates?lang=` | admin. `[{plugin_id, kind, repository, from_version, to_version, name, changelog, permissions, config_schema, instances: [{instance_id, label, version, auto_update, hold, auto_hold, permissions, missing_fields, dropped_fields}]}]`. `hold` is what a manual update would hold; `auto_hold` (`consent_required`, `config_required`, `config_dropped` or null) is why an auto-update waits. No egress. |
 | `POST /plugins/{id}/update` | admin. `{version?, granted_permissions?, config?}`; answers the named instance. 409 `plugin_not_updatable` (not `custom`), 409 `plugin_reinstall_required`, 409 `plugin_up_to_date`, 409 `store_offline`, 409 `incompatible`, 400 `consent_required`, 400 `config_invalid`, 400 `archive_mismatch`, 500 `update_failed`, plus the install download errors. Audited `plugin.updated`. |
 
 Audit (MSHL-215, `app/auth/audit.py`, `docs/dev/auth.md`): every successful or failed admin write

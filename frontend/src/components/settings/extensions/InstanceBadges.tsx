@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
 
 import { Badge, StatusBadge } from './StatusBadge';
-import { attentionTextKey } from './pluginsShared';
+import { attentionTextKey, droppedFields } from './pluginsShared';
 import type { PluginInstance } from './pluginsTypes';
 
-/** Status, typed attention reason, kind (tier) and the revoked/incompatible flags. */
+/** Status, typed attention reason, settings an update reset, kind (tier) and the revoked/incompatible flags. */
 export function InstanceBadges({ instance }: { instance: PluginInstance }) {
   const { t } = useTranslation();
   const reason = attentionTextKey(instance);
@@ -17,6 +17,9 @@ export function InstanceBadges({ instance }: { instance: PluginInstance }) {
             defaultValue: t('settings.extensions.attention.other.badge'),
           })}
         </Badge>
+      )}
+      {droppedFields(instance).length > 0 && (
+        <Badge tone="warn">{t('settings.extensions.attention.config_dropped.badge')}</Badge>
       )}
       <Badge>{t(`settings.extensions.kind.${instance.kind}`)}</Badge>
     </div>

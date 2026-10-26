@@ -33,6 +33,8 @@ Up to 4.18 the only lock was a shared HTTP Basic login (`MESHCORE_BASIC_AUTH_USE
 
 `MESHCORE_DISABLE_PLUGINS=true` locks the extension system at startup. No extension can be installed, changed or started, whatever the settings say; you can still view and delete them, and pause them all. Extensions restored from a backup come back turned off. The Linux package leaves it unset (commented out in `/etc/meshloom/meshloom.env`). See [Plugins](/en/docs/deep/plugins/) for the other ways to stop extensions.
 
+The online Store, which downloads extensions from GitHub, is a separate egress with its own switch, off by default: see [What leaves your instance](/en/docs/deep/plugins/#what-leaves-your-instance).
+
 ## The node's private key
 
 Meshloom reads the radio's private key each time it connects to the radio, if the radio's firmware allows it, and keeps it in the server's memory only. Meshloom never writes it to its database. If the firmware refuses, Meshloom works without it, but it can no longer decrypt direct messages on the server, and a backup then holds no identity. Encrypted photos in direct messages use it too: Meshloom derives from it, in memory, the secret shared with the contact (see [Encrypted files](/en/docs/deep/share/#encrypted-files)).

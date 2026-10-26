@@ -13,8 +13,9 @@ Only ``kind = custom`` instances (a custom GitHub repository, MSHL-196) update h
   newly required; None for a release cached before migration 127), the changelog in
   ``lang`` when the source entry has one (``en`` fallback; custom releases have none)
   and, per instance, the hold the update would put on it (``hold``, ``permissions``,
-  ``missing_fields``) and the config fields it would drop (``dropped_fields``). No
-  request is made.
+  ``missing_fields``), the config fields it would drop (``dropped_fields``) and why
+  auto-update would leave it for a manual update (``auto_hold``: the ``hold``, else
+  ``config_dropped`` when a value would be dropped). No request is made.
 - ``update_plugin()`` (``POST /api/plugins/{instance_id}/update``) goes through the
   install pipeline: ``resolve_source`` and ``prepare_install`` (refused while the
   Store is off, ``store_offline``; the archive's size, sha256 and manifest checked;
@@ -43,13 +44,18 @@ Only ``kind = custom`` instances (a custom GitHub repository, MSHL-196) update h
   its ``config`` clears it), ``attention.config_dropped`` on a held one, and
   ``config_dropped`` in the ``plugin.updated`` audit details. A dropped required field
   is a ``config_required`` hold instead.
-- ``auto_update()`` is a Store refresher (after ``refresh_repositories``, every 6 h
-  while the Store is on): inside the update window of the app settings
-  (``auto_update_window_*``, ``app/services/update_window.py``) it applies the
+- ``auto_update()`` is a Store evaluator (``register_store_evaluator``): it reads only
+  the releases the refresh cached and runs after each refresh tick and every
+  ``store_egress.EVALUATE_INTERVAL_S`` (1 h) in between, while the Store is on (MSHL-393),
+  so a window of at least 1 h is never missed. Inside the update window of the app
+  settings (``auto_update_window_*``, ``app/services/update_window.py``) it applies the
   updates of the plugins whose instances all have ``auto_update`` on, never one that
-  would hold any instance (consent or config). It is evaluated only at those refresh
-  ticks (``store_egress.REFRESH_INTERVAL_S``), so a window shorter than 6 h may be
-  missed on a given day.
+  would hold any instance (consent or config) or drop a stored config value
+  (``config_dropped``): those wait for a manual update, which applies them with the
+  hold or the notice above. Applying downloads the archive through ``store_fetch``
+  (the install pipeline); a release whose auto-update failed is not tried again for
+  ``store_egress.REFRESH_INTERVAL_S`` (nor one held only after its download), so the
+  hourly evaluation never downloads more often than the refresh did.
 - ``mark_compat()`` runs at start (``lifecycle.start``), before any instance starts:
   a custom or store instance whose manifest's ``compat.meshloom`` excludes this
   meshloom becomes ``incompatible`` (it never starts); one that fits again goes back
@@ -61,6 +67,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -74,9 +81,10 @@ from app.plugins.bundled_update import _changed_permissions, _privacy_widened
 from app.plugins.config_schema import secret_fields
 from app.plugins.host import PluginCapacityError, PluginHostError
 from app.plugins.store_egress import (
+    REFRESH_INTERVAL_S,
     StoreOffline,
-    register_store_refresher,
-    unregister_store_refresher,
+    register_store_evaluator,
+    unregister_store_evaluator,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +105,11 @@ def _now() -> datetime:
 
 # The auto-update clock (host local time); tests replace it.
 clock: Callable[[], datetime] = _now
+# The retry clock of failed auto-updates (monotonic seconds); tests replace it.
+monotonic: Callable[[], float] = time.monotonic
+# (plugin_id, version) -> monotonic time of a failed auto-update: not retried before
+# REFRESH_INTERVAL_S, so the hourly evaluation downloads no more often than the refresh.
+_failed_auto: dict[tuple[str, str], float] = {}
 
 
 def _api() -> Any:
@@ -211,6 +224,12 @@ def _hold_of(permissions: list[str], privacy: bool, missing: list[str]) -> str |
     return CONFIG_REQUIRED if missing else None
 
 
+def _auto_hold(hold: str | None, dropped: list[str]) -> str | None:
+    """Why auto-update leaves the instance for a manual update: its hold, else a stored
+    config value the update would drop."""
+    return hold or (CONFIG_DROPPED if dropped else None)
+
+
 # --- List ----------------------------------------------------------------------------
 
 
@@ -245,13 +264,15 @@ async def available_updates(lang: str = "en") -> list[dict[str, Any]]:
                 kept = _kept_config(row, schema)
                 missing = _missing(row, schema, kept)
                 dropped = _dropped_config(row, schema, kept, missing)
+            hold = _hold_of(permissions, privacy, missing)
             instances.append(
                 {
                     "instance_id": row["instance_id"],
                     "label": row["label"],
                     "version": row["version"],
                     "auto_update": bool(row.get("auto_update")),
-                    "hold": _hold_of(permissions, privacy, missing),
+                    "hold": hold,
+                    "auto_hold": _auto_hold(hold, dropped),
                     "permissions": permissions,
                     "missing_fields": missing,
                     "dropped_fields": dropped,
@@ -402,7 +423,7 @@ async def update_plugin(
 ) -> dict[str, dict[str, Any]] | None:
     """Update the plugin of ``instance_id`` (and so every instance of it) to ``version``
     (the latest release when None). Returns the fields written per instance; None when
-    ``auto`` and an instance would be held (nothing changes). Raises the router's
+    ``auto`` and an instance would be held or lose a config value (nothing changes). Raises the router's
     ``HTTPException`` (``plugin_not_updatable``, ``plugin_up_to_date``,
     ``plugin_source_unavailable``, ``store_offline``, ``archive_mismatch``,
     ``consent_required``, ``incompatible``, ``config_invalid``, ``update_failed``).
@@ -473,6 +494,12 @@ async def _update_locked(
         }
         if auto and any(_held(f) for f in updates.values()):
             logger.info("Plugin %s not auto-updated: an instance would be held", row["plugin_id"])
+            return None
+        if auto and any(config_dropped(f) for f in updates.values()):
+            # Held for a manual update: never drop a stored value unattended.
+            logger.info(
+                "Plugin %s not auto-updated: a config value would be dropped", row["plugin_id"]
+            )
             return None
         return await _apply(
             row["plugin_id"], rows, updates, prepared, auto=auto, actor=actor, skip_audit=skip_audit
@@ -550,7 +577,8 @@ async def _apply(
 
 
 async def auto_update() -> None:
-    """Store refresher: apply the auto-updates inside the update window."""
+    """Store evaluator: apply the auto-updates inside the update window. Reads only the
+    cached releases; applying one downloads its archive (``update_plugin``)."""
     from app.repository import AppSettingsRepository
     from app.services.update_window import in_window
 
@@ -573,16 +601,43 @@ async def auto_update() -> None:
         instances = entry["instances"]
         if not instances or not all(i["auto_update"] for i in instances):
             continue
-        if any(i["hold"] for i in instances):
-            logger.info("Plugin %s not auto-updated: it needs a review", entry["plugin_id"])
+        holds = sorted({i["auto_hold"] for i in instances if i["auto_hold"]})
+        if holds:
+            logger.info(
+                "Plugin %s not auto-updated: it waits for a manual update (%s)",
+                entry["plugin_id"],
+                ", ".join(holds),
+            )
+            continue
+        key = (entry["plugin_id"], entry["to_version"])
+        failed_at = _failed_auto.get(key)
+        if failed_at is not None and monotonic() - failed_at < REFRESH_INTERVAL_S:
             continue
         try:
-            await update_plugin(instances[0]["instance_id"], version=entry["to_version"], auto=True)
+            done = await update_plugin(
+                instances[0]["instance_id"], version=entry["to_version"], auto=True
+            )
         except HTTPException as exc:
             code = exc.detail.get("code") if isinstance(exc.detail, dict) else None
             if code == "store_offline":
                 raise StoreOffline() from None
+            _failed_auto[key] = monotonic()
             logger.warning("Plugin %s not auto-updated: %s", entry["plugin_id"], code)
+            continue
+        except (StoreOffline, asyncio.CancelledError):
+            raise
+        except Exception as exc:
+            # Any other failure waits too. Logged by type only: a message could carry
+            # a config value or a secret.
+            _failed_auto[key] = monotonic()
+            logger.warning(
+                "Plugin %s not auto-updated: unexpected %s", entry["plugin_id"], type(exc).__name__
+            )
+            continue
+        if done is None:  # held after the download (a release cached without its schema)
+            _failed_auto[key] = monotonic()
+        else:
+            _failed_auto.pop(key, None)
 
 
 async def mark_compat() -> None:
@@ -624,8 +679,9 @@ async def mark_compat() -> None:
 
 
 def register() -> None:
-    register_store_refresher(auto_update)
+    register_store_evaluator(auto_update)
 
 
 def unregister() -> None:
-    unregister_store_refresher(auto_update)
+    unregister_store_evaluator(auto_update)
+    _failed_auto.clear()
