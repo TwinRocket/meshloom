@@ -132,6 +132,14 @@ and the OpenAPI page (`/docs`), not a table here.
   (the old tree goes back if that fails; if that fails too, `PluginManager.code_matches`
   refuses to start the instance with `plugin_code_mismatch` until a later start writes
   the rows), a failure is logged and keeps the old version, nothing under the host lock.
+  `plugins/updates.py` (MSHL-197) updates installed `custom` instances from the release
+  their repository's refresh cached: `available_updates()` (`GET /api/store/updates`,
+  no egress), `update_plugin()` (`POST /api/plugins/{id}/update`: the install pipeline,
+  every instance of the plugin together, config/secrets/KV kept, new permissions hold
+  `consent_required`, new required fields `config_required`), `auto_update()` (a Store
+  refresher, per-instance `auto_update`, inside the app update window, never on a hold)
+  and `mark_compat()` (from `lifecycle.start()` before `load_from_db`: out of
+  `compat.meshloom` is `incompatible`, back in range is `installed`).
   `installer.sweep_staging()` clears `<data>/plugins/_staging` leftovers at start, before
   the update, without following symlinks. `plugins/installer.py` is also the generic
   install pipeline (MSHL-195: sources, fail-closed download gate, egress-guarded streaming
@@ -556,13 +564,15 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   `MIN_REFRESH_GAP_S` (10 min; a tick skipped by that gap waits only the rest of it),
   it runs the steps registered with
   `register_store_refresher()`, and only when at least one `custom` or `store` instance
-  is installed. Registered: `custom_repos.refresh_repositories` (MSHL-196).
+  is installed. Registered: `custom_repos.refresh_repositories` (MSHL-196), then
+  `updates.auto_update` (MSHL-197, registered by `lifecycle.start()`).
 - **Custom repositories** (`plugins/custom_repos.py`, MSHL-196, `docs/dev/plugins.md`,
   "Custom repositories"): GitHub `owner/name` read through `store_fetch` with
   `CUSTOM_REPO_HOSTS` (the GitHub hosts only), the `releases/latest` redirect never
   followed, assets capped; the `custom` installer resolver and the refresher are wired by
   `custom_repos.register()` in `app/main.py`. Routes `GET/POST/DELETE
-  /api/store/repositories` (admin); table `store_repositories` (migration 126).
+  /api/store/repositories` (admin); table `store_repositories` (migration 126; 127 adds
+  `config_schema`). Updates: `plugins/updates.py`, `GET /api/store/updates`.
 - **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the
   consent, `hosts` (read from `STORE_ALLOWLIST`, so it cannot drift from what the client
   reaches), what is sent (IP address, User-Agent), the cadence, what is missed while off
@@ -571,7 +581,8 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   (`_CONSENT_FIELDS`), never restored, reset to 0 in a database copy.
 - Tests: `tests/test_store_egress.py` (nothing leaves while off, Community on or off,
   loop included, the repository routes included); `tests/test_store_repositories.py`
-  (custom repositories, GitHub mocked); `tests/test_community_off_no_egress.py` allows exactly
+  (custom repositories, GitHub mocked); `tests/test_store_updates.py` (updates, holds,
+  auto-update window, compat at start); `tests/test_community_off_no_egress.py` allows exactly
   `store.meshloom.app` when `store_online` is on.
 
 ## Recovery CLI (`app/cli.py`)

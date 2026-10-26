@@ -1,5 +1,5 @@
-"""Repository for the custom Store repositories (``store_repositories``, migration 126,
-MSHL-196). Rules and the GitHub lookup: ``app/plugins/custom_repos.py``.
+"""Repository for the custom Store repositories (``store_repositories``, migrations 126
+and 127, MSHL-196/MSHL-197). Rules and the GitHub lookup: ``app/plugins/custom_repos.py``.
 
 One row per GitHub repository (PK: lowercase ``owner/name``) with the last good release
 read from it. A failed check sets ``last_error`` and keeps that release. Removing a row
@@ -27,6 +27,7 @@ def _view(row: Any) -> dict[str, Any]:
         "manifest": json.loads(row["manifest"]) if row["manifest"] else None,
         "archive_sha256": row["archive_sha256"],
         "archive_size": row["archive_size"],
+        "config_schema": json.loads(row["config_schema"]) if row["config_schema"] else None,
     }
 
 
@@ -69,15 +70,20 @@ class StoreRepositoriesRepository:
         entry: dict[str, Any],
         archive_sha256: str,
         archive_size: int | None,
+        config_schema: dict[str, Any] | None = None,
     ) -> None:
-        """Record a good read. ``archive_size`` is only known when the archive was
-        downloaded; None keeps the old size when the sha256 is unchanged."""
+        """Record a good read. ``archive_size`` and ``config_schema`` are only known when
+        the archive was downloaded; None keeps the old values when the sha256 is
+        unchanged."""
         async with db.tx() as conn:
             await conn.execute(
                 """
                 UPDATE store_repositories SET display_name = ?, checked_at = ?,
                     last_error = NULL, tag = ?, plugin_id = ?, version = ?, manifest = ?,
                     archive_size = COALESCE(?, CASE WHEN archive_sha256 = ? THEN archive_size END),
+                    config_schema = COALESCE(
+                        ?, CASE WHEN archive_sha256 = ? THEN config_schema END
+                    ),
                     archive_sha256 = ?
                 WHERE repository = ?
                 """,
@@ -89,6 +95,8 @@ class StoreRepositoriesRepository:
                     entry["version"],
                     json.dumps(entry, sort_keys=True),
                     archive_size,
+                    archive_sha256,
+                    json.dumps(config_schema, sort_keys=True) if config_schema is not None else None,
                     archive_sha256,
                     archive_sha256,
                     key,

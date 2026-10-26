@@ -8,8 +8,8 @@ here is fetched by the migration.
 
 import aiosqlite
 
-# Kept textually identical to SCHEMA_TABLES in app/database.py:
-# tests/test_migrations/test_migration_126.py compares the two schemas.
+# The columns of SCHEMA_TABLES in app/database.py before migration 127 added
+# ``config_schema``: tests/test_migrations/test_migration_126.py compares the two.
 _STATEMENT = """CREATE TABLE IF NOT EXISTS store_repositories (
     repository TEXT PRIMARY KEY,
     display_name TEXT NOT NULL,

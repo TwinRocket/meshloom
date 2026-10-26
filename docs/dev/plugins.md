@@ -7,8 +7,9 @@ UI, the global pause, and the conversion of the 4.18 bots** (MSHL-175 to MSHL-19
 MSHL-216, MSHL-337, MSHL-339; isolation: `docs/dev/plugins-security.md`, "OS
 isolation"). The server starts one supervised child per enabled instance, isolated by
 the OS, and answers its requests (see "Capabilities"). Custom repositories (GitHub
-`owner/name`, tier `custom`, MSHL-196) are in: see "Custom repositories". Not in 5.0.0:
-the index Store and updates of installed `custom`/`store` instances (the consent
+`owner/name`, tier `custom`, MSHL-196) are in: see "Custom repositories", and so are
+updates of installed `custom` instances (MSHL-197, see "Updates"). Not in 5.0.0:
+the index Store and updates of `store` instances (the consent
 `app_settings.store_online`, off by default, and its egress gate exist since MSHL-194, see
 "Store egress" in `app/AGENTS.md`) and Windows (no plugins). Two bundled packages ship ("Bundled
 plugins"). Like every doc here, this
@@ -1094,6 +1095,53 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
 | `GET /store/repositories` | `{store_online, max_repositories, warning, warning_text, repositories: [{repository, display_name, added_at, checked_at, last_error, entry, instances: [{instance_id, label, version}], update_available}]}`. Reads the table only: no request to GitHub. |
 | `POST /store/repositories` | `{repository}`: the lookup and the checks above, then 201 with the row. 403 `plugins_disabled` (host lock or platform, before any request), 409 `store_offline`, 409 `repository_exists`, plus the codes above. Audited `store.repository_added` (target `repository:<key>`, `details.plugin_id` or `details.code`). |
 | `DELETE /store/repositories/{owner}/{name}` | 204; 403 `plugins_disabled`, 400 `repository_invalid`, 404 `repository_not_found`. Installed instances stay. Audited `store.repository_removed`. |
+
+### Updates
+
+`app/plugins/updates.py` (MSHL-197). Only `custom` instances are updatable for now
+(`store` waits for the index Store); `bundled` ones follow Meshloom ("Bundled plugins"),
+`local` ones are edited. The target is the release the repository's Store refresh cached
+(`store_repositories`), so listing makes no request.
+
+- **List.** `available_updates(lang)` groups the `custom` rows by `plugin_id`; an entry
+  appears when the cached release is newer (`packaging.version`) and `compatible()`. It
+  carries `from_version`/`to_version`, `changelog` (the entry's `changelog`, a string or
+  `{lang: text}`, `lang` then `en`; NULL for custom releases, which have none), the
+  permission diff `{added, changed, removed, privacy_widened}` against the installed
+  manifest, the config schema diff `{added, removed, required_added}` (NULL when the
+  release was cached before migration 127) and, per instance, the `hold` it would get.
+- **Apply.** `update_plugin(instance_id, version?, granted?, config?)` under
+  `plugin_lock`: `resolve_source` (409 `store_offline` before any request while the
+  consent is off), `prepare_install` (the same sha256, size and manifest checks as an
+  install; 409 `incompatible`), then every instance of the plugin together. Config,
+  secrets (omitted secrets kept, undeclared ones dropped by the new schema) and KV are
+  kept. `granted_permissions` and `config` apply to the named instance only (400
+  `consent_required` before any download when the grant does not cover the new
+  manifest; 400 `config_invalid`). An instance whose granted permissions do not cover
+  the new ones (or a widened privacy declaration) is held `needs_attention` with
+  `attention: {type: "consent_required", permissions, privacy_widened, from_version,
+  to_version}`, keeping only its still-valid grants; one missing a new required field is
+  held with `config_required` and disabled. The usual `PATCH` (grants, config) releases
+  them. Running instances are stopped before the code swap (`PreparedInstall.swap`),
+  the rows are written in one transaction (`update_many`; on failure the old tree goes
+  back, `installer.restore_tree`), then the unheld enabled instances start again. A
+  successful update clears `incompatible` and stale holds. One `plugin.updated` audit
+  row per instance (`from_version`, `to_version`, `held`, `auto`).
+- **Auto-update.** `auto_update()` is a Store refresher registered by
+  `lifecycle.start()` after `custom_repos`' refresher. It applies an entry only when
+  `update_window.in_window(updates.clock(), auto_update_window_start,
+  auto_update_window_end, auto_update_weekdays)` (the app settings shared with
+  Meshloom's own auto-update), every instance has `auto_update`, and no instance would
+  be held.
+- **Compat at start.** `mark_compat()` runs in `lifecycle.start()` before
+  `load_from_db()`: a `custom`/`store` instance whose manifest's `compat.meshloom` no
+  longer includes the running version is stored `incompatible` (never started, 409
+  `plugin_incompatible`); one back in range returns to `installed`.
+
+| Route | Behaviour |
+|---|---|
+| `GET /store/updates?lang=` | admin. `[{plugin_id, kind, repository, from_version, to_version, name, changelog, permissions, config_schema, instances: [{instance_id, label, version, auto_update, hold, permissions, missing_fields}]}]`. No egress. |
+| `POST /plugins/{id}/update` | admin. `{version?, granted_permissions?, config?}`; answers the named instance. 409 `plugin_not_updatable` (not `custom`), 409 `plugin_reinstall_required`, 409 `plugin_up_to_date`, 409 `store_offline`, 409 `incompatible`, 400 `consent_required`, 400 `config_invalid`, 400 `archive_mismatch`, 500 `update_failed`, plus the install download errors. Audited `plugin.updated`. |
 
 Audit (MSHL-215, `app/auth/audit.py`, `docs/dev/auth.md`): every successful or failed admin write
 records the actor, the target `plugin:<instance_id>` and `{plugin_id, kind, fields?}`, where
