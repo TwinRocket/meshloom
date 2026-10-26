@@ -37,7 +37,8 @@ the Community guard.
   for ``META_CACHE_S``); and a circuit breaker
   (``app/net/breaker.py``): ``BREAKER_FAILURE_THRESHOLD`` consecutive failures
   (network, timeout, guard refusal, 5xx, non-JSON) stop every call for
-  ``BREAKER_OPEN_SECONDS`` and answer ``share_unavailable`` locally.
+  ``BREAKER_OPEN_SECONDS`` and answer ``share_unavailable`` locally. A JSON
+  503 ``kill_switch`` is not a failure (the service answered).
 - **Objects.** ``read_object`` serves ``GET /{id}`` from the disk cache
   (``app/services/share_cache.py``) or fetches it once: the bytes are sniffed
   (PNG, JPEG, GIF, WebP magic), the dimensions re-read with ``imagesize`` (at
@@ -160,6 +161,8 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_invalid_id": (400, "This is not a shared object id"),
     "share_invalid_request": (400, "Unexpected parameter in a share request"),
     "share_mode_unavailable": (422, "This share mode is not available yet"),
+    "share_upload_timeout": (408, "The upload took too long to arrive"),
+    "share_storage_failed": (500, "The upload could not be stored on this instance"),
 }
 
 # The contract's optional ``scope`` of a 429 ``quota_exceeded`` -> local code. An
@@ -505,8 +508,14 @@ async def share_request(
         return response
     payload = _json_object(response)
     # An edge page (1027, a challenge) or a 5xx says the service is not there;
-    # a redirect or a contract error says it is.
-    if response.status_code >= 500 or (payload is None and response.status_code >= 400):
+    # a redirect or a contract error says it is. A received status is
+    # authoritative: a JSON 503 ``kill_switch`` is an operator's answer from a
+    # service that is there (an upload it refused before reading the body
+    # included: httpcore reads the answer after a write error), not an outage.
+    kill_switch = payload is not None and payload.get("code") == "kill_switch"
+    if not kill_switch and (
+        response.status_code >= 500 or (payload is None and response.status_code >= 400)
+    ):
         breaker.record_failure()
     else:
         breaker.record_success()

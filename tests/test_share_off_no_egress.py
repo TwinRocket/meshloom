@@ -2,8 +2,8 @@
 
 A recorder replaces ``httpx.AsyncClient`` for the whole test (the egress guard's
 pinned clients are ``httpx.AsyncClient`` too). With ``share_enabled`` false, every
-network function of ``app.services.share`` (found from the module, so a new one
-must be added to ``SERVICE_CALLS``) and every ``/api/share/*`` route (found from
+network function of ``app.services.share`` and ``app.services.share_upload``
+(found from the modules, so a new one must be added to ``SERVICE_CALLS``) and every ``/api/share/*`` route (found from
 ``app.routes``) answers without any request.
 With it on, requests go only to ``SHARE_HOST``, and none of them carries the
 instance seed, a channel key or the radio private key (the DM secret).
@@ -12,8 +12,11 @@ instance seed, a channel key or the radio private key (the DM secret).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import re
+import tempfile
+from pathlib import Path
 
 import httpx
 import pytest
@@ -21,7 +24,7 @@ from fastapi.routing import APIRoute
 
 from app import keystore
 from app.repository import AppSettingsRepository, ChannelRepository
-from app.services import share
+from app.services import share, share_upload
 from app.services.instance_identity import ensure_instance_key
 from app.services.share import ShareError
 from tests.share_fakes import Dns, Recorder, json_response
@@ -31,6 +34,26 @@ _RealAsyncClient = httpx.AsyncClient
 CHANNEL_KEY = "8B3387E9C5CDEA6AC9E5EDBAA115CD72"
 RADIO_PRIVATE_KEY = bytes(range(64))
 
+# A valid 1x1 PNG (the links-files vectors' ``png_1x1``): read_object checks it.
+PNG_1X1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+    "0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082"
+)
+_UPLOAD_DIR = tempfile.TemporaryDirectory(prefix="share-sweep-")
+
+
+def _staged_png() -> share_upload.StagedFile:
+    """A staged upload of ``PNG_1X1`` (``upload_file`` streams it from disk)."""
+    path = Path(_UPLOAD_DIR.name) / "upload.png"
+    path.write_bytes(PNG_1X1)
+    return share_upload.StagedFile(
+        path=path,
+        size=len(PNG_1X1),
+        sha256=hashlib.sha256(PNG_1X1).hexdigest(),
+        content_type="image/png",
+    )
+
+
 # Every network function of the share client, with arguments.
 SERVICE_CALLS = {
     "create_link": lambda: share.create_link("https://example.com/a"),
@@ -39,14 +62,10 @@ SERVICE_CALLS = {
     "read_object": lambda: share.read_object("AbCdEfG"),
     "report_object": lambda: share.report_object("AbCdEfG", "spam", "details"),
     "share_request": lambda: share.share_request("GET", "/v1/meta/AbCdEfG", binding=None),
+    "upload_file": lambda: share_upload.upload_file(_staged_png()),
 }
-# Coroutine functions of the module that never connect.
+# Coroutine functions of the modules that never connect.
 _LOCAL = {"share_egress_state", "clear_object_cache"}
-# A valid 1x1 PNG (the links-files vectors' ``png_1x1``): read_object checks it.
-PNG_1X1 = bytes.fromhex(
-    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
-    "0000000c4944415478da63f8cfc0000003010100f70341430000000049454e44ae426082"
-)
 
 
 def _answer(request: httpx.Request) -> httpx.Response:
@@ -59,6 +78,16 @@ def _answer(request: httpx.Request) -> httpx.Response:
         return json_response(200, {"id": "AbCdEfG", "kind": "link", "target_host": "example.com"})
     if path == "/v1/reports":
         return httpx.Response(202)
+    if path == "/v1/files":
+        return json_response(
+            201,
+            {
+                "id": "AbCdEfG",
+                "url": "https://meshl.ink/AbCdEfG",
+                "expires_at": 1,
+                "size": len(PNG_1X1),
+            },
+        )
     return httpx.Response(200, content=PNG_1X1, headers={"Content-Type": "image/png"})
 
 
@@ -76,8 +105,9 @@ def _share_routes() -> list[tuple[str, str]]:
 def test_every_network_function_is_swept():
     coroutines = {
         name
-        for name, fn in inspect.getmembers(share, inspect.iscoroutinefunction)
-        if fn.__module__ == share.__name__
+        for module in (share, share_upload)
+        for name, fn in inspect.getmembers(module, inspect.iscoroutinefunction)
+        if fn.__module__ == module.__name__
     }
     assert coroutines - _LOCAL == set(SERVICE_CALLS)
 
@@ -173,7 +203,7 @@ class SlowServer:
 
 
 class TestTurningOffCutsInFlight:
-    @pytest.mark.parametrize("name", ["create_link", "get_meta", "fetch_object"])
+    @pytest.mark.parametrize("name", ["create_link", "get_meta", "fetch_object", "upload_file"])
     async def test_request_in_flight_is_cut(self, test_db, monkeypatch, name):
         await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch)

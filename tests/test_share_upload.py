@@ -5,7 +5,9 @@ Every refusal is local: no request and no DNS lookup reach the service.
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import errno
 import hashlib
 import json
 import os
@@ -168,6 +170,86 @@ class TestUpload:
         response = await _post(client)
         assert response.status_code == 502
         assert response.json()["detail"]["code"] == "share_unavailable"
+
+    async def test_a_kill_switch_is_not_a_breaker_failure(self, on, client, data_dir):
+        on.handler = lambda request: json_response(503, {"code": "kill_switch"})
+        for _ in range(4):
+            response = await _post(client)
+            assert response.status_code == 502
+            assert response.json()["detail"]["code"] == "share_unavailable"
+        assert share.share_breaker().failures == 0
+        assert len(on.requests) == 4
+        assert _staged(data_dir) == []
+
+
+class TestReceiveDeadline:
+    async def test_a_trickled_body_times_out_and_frees_the_slot(
+        self, on, client, data_dir, monkeypatch
+    ):
+        monkeypatch.setattr(share_upload, "RECEIVE_TIMEOUT_S", 0.2)
+
+        async def trickle():
+            yield PNG[:10]
+            await asyncio.sleep(3600)
+            yield PNG[10:]
+
+        response = await asyncio.wait_for(
+            client.post("/api/share/files", content=trickle(), headers=_headers()), 5
+        )
+        assert response.status_code == 408
+        assert response.json()["detail"]["code"] == "share_upload_timeout"
+        _no_egress(on)
+        assert _staged(data_dir) == []
+        # Both slots are free again.
+        with share_upload.upload_slot():
+            assert (await _post(client)).status_code == 201
+
+
+class TestDiskErrors:
+    async def test_a_full_disk_is_coded_and_cleaned(self, on, client, data_dir, monkeypatch):
+        real_fdopen = os.fdopen
+
+        class Full:
+            def __init__(self, fd, mode):
+                self.file = real_fdopen(fd, mode)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.file.close()
+
+            def write(self, data):
+                raise OSError(errno.ENOSPC, "No space left on device")
+
+        monkeypatch.setattr(share_upload.os, "fdopen", Full)
+        response = await _post(client)
+        assert response.status_code == 500
+        assert response.json()["detail"]["code"] == "share_storage_failed"
+        _no_egress(on)
+        assert _staged(data_dir) == []
+
+    @pytest.mark.parametrize("target", ["directory", "missing"])
+    async def test_a_linked_tmp_directory_is_refused(self, on, client, data_dir, target):
+        elsewhere = data_dir / "elsewhere"
+        if target == "directory":
+            elsewhere.mkdir()
+        (data_dir / share_upload.TMP_DIRNAME).symlink_to(elsewhere)
+        response = await _post(client)
+        assert response.status_code == 500
+        assert response.json()["detail"]["code"] == "share_storage_failed"
+        _no_egress(on)
+        if target == "directory":
+            assert os.listdir(elsewhere) == []
+        else:
+            assert not elsewhere.exists()
+
+    async def test_a_tmp_path_that_is_a_file_is_refused(self, on, client, data_dir):
+        (data_dir / share_upload.TMP_DIRNAME).write_bytes(b"x")
+        response = await _post(client)
+        assert response.status_code == 500
+        assert response.json()["detail"]["code"] == "share_storage_failed"
+        _no_egress(on)
 
 
 class TestLocalRefusals:

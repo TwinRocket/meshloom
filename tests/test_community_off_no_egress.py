@@ -3,7 +3,8 @@
 Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``aiomqtt.Client`` for the whole test. With Community off, every route under
 ``/api/community``, ``/api/directory``, ``/api/tools``, ``/api/channels``,
-``/api/settings`` and ``/api/updates`` is called (found dynamically from
+``/api/settings``, ``/api/updates``, ``/api/store``, ``/api/plugins`` and
+``/api/share`` (``POST /api/share/files`` included) is called (found dynamically from
 ``app.routes``), plus the hashtag catalogue and the update check with GitHub
 answering 503. Any request to ``*.meshloom.app``,
 ``api.fx-port.com`` (the retired airport search) or the effective Community API
@@ -339,6 +340,7 @@ _PATH_PARAMS = {
     "instance_id": "00000000-0000-4000-8000-000000000000",
     "owner": "example",
     "name": "weather",
+    "share_id": "AbCdEfG",
 }
 _QUERY = {
     "/api/community/airports": {"q": "LYS"},
@@ -388,6 +390,7 @@ _BODIES: dict[tuple[str, str], Any] = {
         }
     },
     ("PATCH", "/api/updates/settings"): {},
+    ("POST", "/api/share/links"): {"url": "https://example.com/a"},
 }
 _SWEPT_PREFIXES = (
     "/api/community",
@@ -398,6 +401,7 @@ _SWEPT_PREFIXES = (
     "/api/updates",
     "/api/store",
     "/api/plugins",
+    "/api/share",
 )
 
 
@@ -445,6 +449,7 @@ class TestCommunityOffNoEgress:
         assert "/api/channels/{key}/adopt" in paths
         assert "/api/settings" in paths
         assert "/api/updates/refresh" in paths
+        assert ("POST", "/api/share/files") in routes
         assert len(routes) >= 50
         # Left out on purpose: the IATA suggestion (TestIataSuggestion).
         assert ("GET", "/api/community/iata/suggest") not in routes
