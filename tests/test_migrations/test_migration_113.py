@@ -1,6 +1,7 @@
 """Migration 113: notification channels, journal tables, rules, and the legacy import."""
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -28,7 +29,11 @@ def _schema(path: str) -> list[tuple[str, str]]:
             "SELECT name, sql FROM sqlite_master WHERE name IN (?, ?, ?, ?, ?) ORDER BY name",
             (*TABLES, "idx_notification_deliveries_channel"),
         ).fetchall()
-        return [(name, " ".join(sql.split())) for name, sql in rows]
+        # ALTER TABLE ADD COLUMN (migration 130) appends ", col ..." after the last column's
+        # line break: compare without the whitespace around the separators.
+        return [
+            (name, re.sub(r"\s*([,()])\s*", r"\1", " ".join(sql.split()))) for name, sql in rows
+        ]
     finally:
         conn.close()
 

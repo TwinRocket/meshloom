@@ -119,6 +119,8 @@ class NtfyTransport:
             lang,
             include_message_text=channel.include_message_text,
             markdown=markdown,
+            template_dm=channel.template_dm,
+            template_channel=channel.template_channel,
         )
         body = build_body(channel, secrets, title, message, event, lang)
         headers = {"Content-Type": "application/json", **auth_header(secrets, channel.config)}

@@ -59,6 +59,8 @@ class AppriseTransport:
             await channel_language(channel),
             include_message_text=policy,
             markdown=markdown,
+            template_dm=channel.template_dm,
+            template_channel=channel.template_channel,
         )
         results = await send_to_urls(
             urls,

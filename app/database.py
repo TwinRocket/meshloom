@@ -214,7 +214,9 @@ CREATE TABLE IF NOT EXISTS notification_channels (
     last_ok_at INTEGER,
     last_error TEXT,
     failure_count INTEGER NOT NULL DEFAULT 0,
-    paused_until INTEGER
+    paused_until INTEGER,
+    template_dm TEXT NOT NULL DEFAULT '',
+    template_channel TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS notification_deliveries (

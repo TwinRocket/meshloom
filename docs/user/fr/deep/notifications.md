@@ -126,6 +126,26 @@ Ces canaux sont des **préréglages** : des formulaires prêts à l’emploi pou
 
 Chaque formulaire a un bouton **Tester** qui envoie un message avant tout enregistrement.
 
+## Modèles de message
+
+Un canal Apprise (et ses préréglages : Telegram, Gotify, Home Assistant, Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat, SMS), un canal ntfy et un canal Discord peuvent présenter une notification de message avec vos propres mots. Ouvrez le canal, puis **Modèles de message**, et écrivez un modèle pour les **Messages privés** et un pour les **Messages de canal**. Laissez un champ vide pour garder le corps par défaut. Le titre ne change pas. Les canaux e-mail, webhook et Web Push ont leur propre format et n’acceptent pas de modèle.
+
+Un modèle est du texte brut avec des variables entre accolades, par exemple `{sender_name} : {text} (via {hops})` :
+
+| Variable | Valeur |
+|----------|--------|
+| `{type}` | `PRIV` pour un message privé, `CHAN` pour un message de canal |
+| `{text}` | Le texte du message, tel qu’une notification le montre (un lien de partage devient `[image]`, `[lien]`…) |
+| `{sender_name}`, `{sender_key}` | Le nom et la clé publique de l’expéditeur |
+| `{channel_name}`, `{conversation_key}` | Le nom du canal et la clé de la conversation |
+| `{hops}`, `{hops_backticked}`, `{hop_count}` | Le chemin du message (`a1, b2, c3`, la même liste avec chaque saut entre apostrophes inversées, et leur nombre), `direct` s’il est venu droit de l’expéditeur |
+| `{rssi}`, `{snr}` | La force du signal et le rapport signal/bruit, vides quand la radio ne les a pas fournis |
+| `{title}` | Le titre de la notification |
+
+Ce sont les variables de la [sortie Apprise](/docs/deep/fanout/) (plus `{title}`). Trois règles rendent un modèle prévisible. Les variables sont remplacées en un seul passage : un message qui contient lui-même `{sender_name}` s’affiche tel quel et n’est jamais développé. Un nom absent de la liste reste tel que vous l’avez écrit. Et les règles de confidentialité s’appliquent toujours : quand la politique **Texte du message** du canal masque le texte d’une conversation, `{text}` est vide (un modèle qui donne un résultat vide revient au corps par défaut), `@everyone` et les mentions du même genre sont toujours neutralisées, et sur un canal qui envoie du Markdown (Discord, Matrix, Mattermost, un canal Apprise en Markdown, ntfy en Markdown) le texte venu du mesh est échappé alors que le Markdown que vous avez écrit dans le modèle, comme `**{sender_name}**`, est conservé.
+
+Un modèle compte au plus 500 caractères. Meshloom le vérifie à l’enregistrement et refuse un caractère de contrôle ou un modèle trop long. Sous chaque champ, un aperçu montre un message privé et un message de canal d’exemple, rendus par Meshloom lui-même avec la langue et la politique de texte du canal ; l’aperçu n’applique l’échappement Markdown que pour un canal Discord et montre tous les autres canaux sans échappement, même s’ils envoient du Markdown, car le formulaire ne connaît pas ce réglage ; un envoi réel échappe toujours le texte venu du mesh sur un canal Markdown. Les modèles sont enregistrés avec le canal, y compris dans la sauvegarde JSON (ce ne sont pas des secrets).
+
 ## Confidentialité et ce qui quitte votre machine
 
 Les notifications quittent votre Meshloom pour le service derrière chaque canal. Trois choses décident de leur contenu.
@@ -294,7 +314,7 @@ Les tests sont limités : un toutes les 5 secondes par canal, un toutes les 2 se
 
 ## Sauvegardes
 
-La **sauvegarde complète** (Réglages → Base de données) contient une partie *Notifications* : chaque canal (type, nom, options, limites, langue, politique de texte) et les règles (événements, exceptions par conversation, options du tableau de règles et heures calmes), **sans aucun secret**. Les choix propres à chaque compte (voir [Vos propres règles](#vos-propres-règles)) voyagent avec les comptes : ils reviennent quand **Inclure les comptes** est coché. Les mots de passe, jetons, adresses Discord ou Apprise, sujets ntfy, URL de webhook et leur secret HMAC ne quittent jamais Meshloom. Les destinations e-mail, webhook et Apprise des anciens réglages sont elles aussi écrites sans leurs secrets. Les listes de blocage voyagent avec les réglages. Le journal des envois et les compteurs ne sont pas sauvegardés, ni la pause : *Ne pas déranger* n’est jamais restauré. Les clés et abonnements Web Push forment une autre partie, restaurée seulement sur un Meshloom sans abonnement propre.
+La **sauvegarde complète** (Réglages → Base de données) contient une partie *Notifications* : chaque canal (type, nom, options, limites, langue, politique de texte, modèles de message) et les règles (événements, exceptions par conversation, options du tableau de règles et heures calmes), **sans aucun secret**. Les choix propres à chaque compte (voir [Vos propres règles](#vos-propres-règles)) voyagent avec les comptes : ils reviennent quand **Inclure les comptes** est coché. Les mots de passe, jetons, adresses Discord ou Apprise, sujets ntfy, URL de webhook et leur secret HMAC ne quittent jamais Meshloom. Les destinations e-mail, webhook et Apprise des anciens réglages sont elles aussi écrites sans leurs secrets. Les listes de blocage voyagent avec les réglages. Le journal des envois et les compteurs ne sont pas sauvegardés, ni la pause : *Ne pas déranger* n’est jamais restauré. Les clés et abonnements Web Push forment une autre partie, restaurée seulement sur un Meshloom sans abonnement propre.
 
 **Restauration.** Un canal qui a perdu un secret revient **désactivé** et marqué *Secret manquant après une restauration* ; Meshloom n’envoie jamais avec un secret manquant. Ouvrez-le dans **Réglages → Notifications → Canaux**, saisissez de nouveau chaque secret (ou effacez-le exprès), puis activez-le. Si le même canal existe déjà ici avec la même destination, ses secrets enregistrés sont conservés. La restauration fusionne les canaux (un canal que le fichier ne nomme pas reste) et remplace les règles. Une sauvegarde faite par Meshloom 4.18 se restaure dans les mêmes canaux et règles (Web Push, e-mail, webhook, Apprise, les exceptions de chaque conversation).
 
@@ -337,6 +357,7 @@ Les administrateurs gèrent les canaux sous `/api/notifications` :
 | GET | `/api/notifications/types` | Les types de canal : schéma JSON (les champs secrets sont `writeOnly`), limites par défaut |
 | GET, POST | `/api/notifications/channels` | Liste et crée des canaux (les secrets s’affichent `********`) |
 | POST | `/api/notifications/channels/test` | Teste une configuration avant de l’enregistrer (rien n’est stocké) |
+| POST | `/api/notifications/channels/preview-template` | Rend `template_dm` et `template_channel` sur un message privé et un message de canal d’exemple (`markdown`, `include_message_text` et `language` sont facultatifs) ; `400 template_too_long` ou `template_invalid` pour un modèle refusé |
 | GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Lit, modifie (le type ne peut pas changer) et supprime un canal ; `builtin:push` ne peut pas être supprimé (`403 builtin_channel`) |
 | POST | `/api/notifications/channels/{id}/test` | Envoie un test ; un par 5 secondes et par canal, puis `429 rate_limited` |
 | GET, PATCH | `/api/notifications/rules` | Canaux par événement, `always_deliver`, pause globale (`paused_until`), délai de radio hors ligne |

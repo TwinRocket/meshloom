@@ -11,6 +11,7 @@ import { i18nKeyResolver, type FieldErrors, type JsonObject } from '../../forms/
 import { Checkbox } from '../../ui/checkbox';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
+import { TemplateFields } from './TemplateFields';
 import {
   fieldTextKeys,
   secretNames,
@@ -52,6 +53,8 @@ export function initialDraft(
       channel?.include_message_text ?? entry.include_message_text_default ?? 'always',
     allow_private_network: channel?.allow_private_network ?? false,
     verify_tls: channel?.verify_tls ?? true,
+    template_dm: channel?.template_dm ?? '',
+    template_channel: channel?.template_channel ?? '',
     rate_per_min: channel?.rate_per_min?.toString() ?? '',
     rate_per_hour: channel?.rate_per_hour?.toString() ?? '',
     rate_per_day: channel?.rate_per_day?.toString() ?? '',
@@ -280,6 +283,18 @@ export function ChannelForm({
           </div>
         </div>
       </details>
+
+      {entry.templates && (
+        <TemplateFields
+          idPrefix={prefix}
+          draft={draft}
+          markdown={entry.type === 'discord'}
+          includeText={entry.cloud ? draft.include_message_text : 'always'}
+          language={draft.language}
+          disabled={disabled}
+          onChange={patch}
+        />
+      )}
 
       <div className="border-t border-border/60 pt-3">
         {entry.help_key && (

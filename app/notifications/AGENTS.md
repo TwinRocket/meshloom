@@ -33,6 +33,21 @@ This file is a hypothesis: check it against the code.
   `default_limits` (per minute, hour, day), `cloud` (default `include_message_text`
   `public_only`, else `always`), `quiet_hours_exempt_default` and `required` fields.
   `limits_check` replaces `default_limits` for a config (`limits_for(public)`; ntfy.sh gets a daily cap). The presets are the entries of `presets.py` (see "Presets").
+- `templates.py`: per-channel message templates (MSHL-127). `notification_channels.template_dm` /
+  `template_channel` (migration 130; plain columns, NOT in the encrypted secret set) hold a body
+  template for the row types `apprise` (and its presets), `ntfy` and `discord`
+  (`TEMPLATE_ROW_TYPES`; `/types` carries `templates: true`); any other type refuses a non-empty one
+  (`template_unsupported`). Variables are the fanout Apprise ones (`apprise_mod.FORMAT_VARIABLES`) plus
+  `title`, substituted by the fanout's single-pass `_apply_format` (a substituted value is never expanded
+  again, an unknown `{name}` stays as written). `validate_template`/`check_templates` run on save (create,
+  PATCH, backup restore) against dummy variables: at most `MAX_TEMPLATE_LENGTH` (500) characters, no control
+  character other than newline and tab (`template_too_long`, `template_invalid`). `render.event_notification_text(template_dm=,
+  template_channel=)` applies a template to message events only, after the text policy (`{text}` is empty
+  when the policy strips it; an empty result keeps the default body); values get `neutralise_mentions`, and on a
+  Markdown channel `escape_markdown` for the mesh-typed ones (`MESH_TEXT_VARIABLES`) while the template's own markup
+  stays. The Apprise, ntfy and Discord transports pass the channel's templates. `POST
+  /api/notifications/channels/preview-template` renders a sample DM and channel message through the same
+  function. Mention events (`message.mention`) use the templates like other messages.
 - `app/repository/notification_channels.py`: `NotificationChannelRepository` (CRUD, the
   in-memory cache of the public channels, status updates, `get_rules()`) and
   `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).

@@ -126,6 +126,26 @@ These are **presets**: ready-made forms for services that Meshloom reaches throu
 
 Each form has a **Test** that sends a message before anything is saved.
 
+## Message templates
+
+An Apprise channel (and its presets: Telegram, Gotify, Home Assistant, Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat, SMS), a ntfy channel and a Discord channel can show a message notification in your own words. Open the channel, then **Message templates** and write one template for **Direct messages** and one for **Channel messages**. Leave a field empty to keep the default body. The title does not change. E-mail, webhook and Web Push channels have their own formats and take no template.
+
+A template is plain text with variables between braces, for example `{sender_name}: {text} (via {hops})`:
+
+| Variable | Value |
+|----------|-------|
+| `{type}` | `PRIV` for a direct message, `CHAN` for a channel message |
+| `{text}` | The message text, as a notification shows it (a share link reads `[image]`, `[link]`...) |
+| `{sender_name}`, `{sender_key}` | The sender's name and public key |
+| `{channel_name}`, `{conversation_key}` | The channel's name and the key of the conversation |
+| `{hops}`, `{hops_backticked}`, `{hop_count}` | The path of the message (`a1, b2, c3`, the same with each hop in backticks, and how many), `direct` when it came straight from the sender |
+| `{rssi}`, `{snr}` | The signal strength and the signal-to-noise ratio, empty when the radio did not report them |
+| `{title}` | The notification title |
+
+These are the variables of the [Apprise output](/en/docs/deep/fanout/) (plus `{title}`). Three rules keep a template predictable. Variables are replaced in a single pass, so a message that itself contains `{sender_name}` is shown as typed and never expanded. A name that is not in the list is left as written. And the privacy rules still apply: when the channel's **Message text** policy hides the text of a conversation, `{text}` is empty (a template that ends up empty falls back to the default body), `@everyone` and similar mentions are always broken, and on a channel that sends Markdown (Discord, Matrix, Mattermost, a Markdown Apprise channel, ntfy in Markdown) text from the mesh is escaped while the Markdown you wrote in the template, like `**{sender_name}**`, is kept.
+
+A template holds at most 500 characters. Meshloom checks it when you save and refuses a control character or a template that is too long. Below each field, a preview shows a sample direct message and a sample channel message rendered by Meshloom itself, with the channel's language and text policy; the preview applies the Markdown escaping only for a Discord channel and shows every other channel unescaped, even one that sends Markdown, because the form does not know that setting; a real send always escapes text from the mesh on a Markdown channel. Templates are saved with the channel, in the JSON backup too (they are not secrets).
+
 ## Privacy and what leaves your machine
 
 Notifications leave your Meshloom for the service behind each channel. Three things decide what they contain.
@@ -294,7 +314,7 @@ Tests are limited: one every 5 seconds per channel, one every 2 seconds for a co
 
 ## Backups
 
-The **full backup** (Settings → Database) has a *Notifications* part: every channel (type, name, options, limits, language, text policy) and the rules (events, conversation exceptions and the options of the rules table, quiet hours included), **without any secret**. Each account's own choices (see [Your own rules](#your-own-rules)) travel with the accounts, so they come back when **Include accounts** is checked. Passwords, tokens, a Discord or Apprise address, a ntfy topic, a webhook URL and its HMAC secret never leave Meshloom. The e-mail, webhook and Apprise destinations of the old settings are also written without their secrets. The block lists travel with the settings. The delivery journal and counters are not saved, and neither is a pause: *Do not disturb* is never restored. The Web Push keys and subscriptions are a separate part, restored only on a Meshloom with no subscription of its own.
+The **full backup** (Settings → Database) has a *Notifications* part: every channel (type, name, options, limits, language, text policy, message templates) and the rules (events, conversation exceptions and the options of the rules table, quiet hours included), **without any secret**. Each account's own choices (see [Your own rules](#your-own-rules)) travel with the accounts, so they come back when **Include accounts** is checked. Passwords, tokens, a Discord or Apprise address, a ntfy topic, a webhook URL and its HMAC secret never leave Meshloom. The e-mail, webhook and Apprise destinations of the old settings are also written without their secrets. The block lists travel with the settings. The delivery journal and counters are not saved, and neither is a pause: *Do not disturb* is never restored. The Web Push keys and subscriptions are a separate part, restored only on a Meshloom with no subscription of its own.
 
 **Restoring.** A channel that lost any secret comes back **switched off** and marked *Secret missing after a restore*; Meshloom never sends with a missing secret. Open it in **Settings → Notifications → Channels**, type each secret again (or clear it on purpose), then switch it on. If the same channel already exists here with the same destination, its stored secrets are kept. Restoring merges the channels (one the file does not name stays) and replaces the rules. A backup made by Meshloom 4.18 restores into the same channels and rules (Web Push, e-mail, webhook, Apprise, the exceptions of each conversation).
 
@@ -337,6 +357,7 @@ Administrators manage the channels under `/api/notifications`:
 | GET | `/api/notifications/types` | The channel types: JSON Schema (secret fields are `writeOnly`), default limits |
 | GET, POST | `/api/notifications/channels` | List and create channels (secrets read `********`) |
 | POST | `/api/notifications/channels/test` | Test a configuration before saving it (nothing is stored) |
+| POST | `/api/notifications/channels/preview-template` | Render `template_dm` and `template_channel` on a sample direct and channel message (`markdown`, `include_message_text` and `language` are optional); `400 template_too_long` or `template_invalid` for a refused template |
 | GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Read, change (the type cannot change) and delete a channel; `builtin:push` cannot be deleted (`403 builtin_channel`) |
 | POST | `/api/notifications/channels/{id}/test` | Send a test; one per 5 seconds per channel, then `429 rate_limited` |
 | GET, PATCH | `/api/notifications/rules` | Channels per event, `always_deliver`, the global pause (`paused_until`), the radio offline delay |

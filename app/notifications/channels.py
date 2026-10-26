@@ -428,6 +428,7 @@ def types_schema() -> list[dict[str, Any]]:
     one per preset (``preset: true``, ``type`` the preset id, ``base_type`` the type a
     channel of it is created with)."""
     from app.notifications.presets import PRESET_TYPES
+    from app.notifications.templates import TEMPLATE_ROW_TYPES
 
     natives = [
         {
@@ -443,6 +444,7 @@ def types_schema() -> list[dict[str, Any]]:
             },
             "quiet_hours_exempt_default": entry.quiet_hours_exempt_default,
             "include_message_text_default": entry.include_message_text_default,
+            "templates": entry.row_type in TEMPLATE_ROW_TYPES,
         }
         for entry in REGISTRY.values()
     ]
@@ -462,6 +464,7 @@ def types_schema() -> list[dict[str, Any]]:
             "quiet_hours_exempt_default": entry.quiet_hours_exempt_default,
             "include_message_text_default": entry.include_message_text_default,
             "include_message_text_locked": entry.text_policy_locked,
+            "templates": entry.row_type in TEMPLATE_ROW_TYPES,
             "help_key": entry.preset.help_key,
             "wiki_url": entry.preset.wiki_url,
         }
@@ -491,6 +494,9 @@ class Channel(BaseModel):
     allow_private_network: bool = False
     include_message_text: IncludeMessageText = "always"
     verify_tls: bool = True
+    # Message body templates (MSHL-127, ``templates.py``); empty: the renderer's default.
+    template_dm: str = ""
+    template_channel: str = ""
     quiet_hours_exempt: bool = False
     # ``None``: the registry default of the type.
     rate_per_min: int | None = None
@@ -519,6 +525,8 @@ class ChannelCreate(BaseModel):
     allow_private_network: bool = False
     include_message_text: IncludeMessageText | None = None
     verify_tls: bool = True
+    template_dm: str = ""
+    template_channel: str = ""
     quiet_hours_exempt: bool | None = None
     rate_per_min: int | None = Field(None, ge=1)
     rate_per_hour: int | None = Field(None, ge=1)
@@ -540,6 +548,9 @@ class ChannelUpdate(BaseModel):
     allow_private_network: bool | None = None
     include_message_text: IncludeMessageText | None = None
     verify_tls: bool | None = None
+    # ``""`` clears a template, omitted keeps it.
+    template_dm: str | None = None
+    template_channel: str | None = None
     quiet_hours_exempt: bool | None = None
     rate_per_min: int | None = Field(None, ge=1)
     rate_per_hour: int | None = Field(None, ge=1)

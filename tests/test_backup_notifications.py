@@ -682,3 +682,46 @@ async def test_a_pre_release_slack_channel_is_dropped_by_the_restore(backup_db):
     warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
     assert "notification_channel_dropped:slack-old00001" in warnings
     assert await Channels.get("slack-old00001") is None
+
+
+def _with_templates(section, channel_id, **fields):
+    for entry in section.data["channels"]:
+        if entry["id"] == channel_id:
+            entry.update(fields)
+    return section
+
+
+@pytest.mark.asyncio
+async def test_restore_writes_the_message_templates(backup_db):
+    section = _with_templates(
+        _section(), "ntfy-0f0f0f0f", template_dm="{sender_name}: {text}", template_channel="{hops}"
+    )
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert not any(w.startswith("notification_templates_dropped") for w in warnings)
+    ntfy = await Channels.get("ntfy-0f0f0f0f")
+    assert (ntfy.template_dm, ntfy.template_channel) == ("{sender_name}: {text}", "{hops}")
+
+
+@pytest.mark.asyncio
+async def test_restore_drops_an_over_cap_or_invalid_template_and_keeps_the_channel(backup_db):
+    section = _with_templates(
+        _section(), "ntfy-0f0f0f0f", template_dm="x" * 501, template_channel="{text}"
+    )
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert "notification_templates_dropped:ntfy-0f0f0f0f" in warnings
+    ntfy = await Channels.get("ntfy-0f0f0f0f")
+    assert ntfy is not None
+    # Both are dropped together: the file is not trusted piecemeal.
+    assert (ntfy.template_dm, ntfy.template_channel) == ("", "")
+    section = _with_templates(_section(), "ntfy-0f0f0f0f", template_dm="a\x00b")
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert "notification_templates_dropped:ntfy-0f0f0f0f" in warnings
+
+
+@pytest.mark.asyncio
+async def test_restore_drops_a_template_on_a_type_without_a_text_body(backup_db):
+    section = _with_templates(_section(), "email-9e8d7c6b", template_dm="{text}")
+    warnings = await restore_sections({NOTIFICATIONS_SECTION: section})
+    assert "notification_templates_dropped:email-9e8d7c6b" in warnings
+    email = await Channels.get("email-9e8d7c6b")
+    assert email is not None and email.template_dm == ""

@@ -68,6 +68,8 @@ class BackupNotificationChannel(BaseModel):
     allow_private_network: bool = False
     include_message_text: Literal["always", "public_only", "never"] = "always"
     verify_tls: bool = True
+    template_dm: str = ""
+    template_channel: str = ""
     quiet_hours_exempt: bool = False
     rate_per_min: int | None = Field(default=None, ge=1)
     rate_per_hour: int | None = Field(default=None, ge=1)
@@ -103,6 +105,8 @@ async def export_notifications() -> BackupSection | None:
             allow_private_network=channel.allow_private_network,
             include_message_text=channel.include_message_text,
             verify_tls=channel.verify_tls,
+            template_dm=channel.template_dm,
+            template_channel=channel.template_channel,
             quiet_hours_exempt=channel.quiet_hours_exempt,
             rate_per_min=channel.rate_per_min,
             rate_per_hour=channel.rate_per_hour,
@@ -163,6 +167,7 @@ async def _restore_channel(
 ) -> bool:
     """Write one channel; True when it ends up needing a secret."""
     from app.notifications.channels import ChannelError, get_type
+    from app.notifications.templates import check_templates
 
     async with conn.execute("SELECT * FROM notification_channels WHERE id = ?", (item.id,)) as cur:
         row = await cur.fetchone()
@@ -218,6 +223,14 @@ async def _restore_channel(
         own["include_message_text"] = entry.include_message_text_default
         warnings.append(f"notification_text_policy_forced:{item.id}")
         logger.warning("Restore: text policy of channel %s forced to its fixed value", item.id)
+    try:
+        own["template_dm"], own["template_channel"] = check_templates(
+            entry.row_type, item.template_dm, item.template_channel
+        )
+    except ChannelError:
+        # A file edited by hand: a refused template restores as the default body.
+        own["template_dm"] = own["template_channel"] = ""
+        warnings.append(f"notification_templates_dropped:{item.id}")
     public = _public_config(entry, item.config)
     if (
         entry.singleton_id is not None

@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from app.channel_constants import is_public_channel_key
 from app.data.meshcore_channels import is_public_hashtag_channel
+from app.fanout.base import get_fanout_message_text
 from app.notifications.markdown import escape_markdown, neutralise_mentions
+from app.notifications.templates import apply_template, build_variables, template_for
 from app.share_text import share_text_summary
 
 if TYPE_CHECKING:
@@ -560,6 +562,8 @@ def event_notification_text(
     *,
     include_message_text: str = "always",
     markdown: bool = False,
+    template_dm: str = "",
+    template_channel: str = "",
 ) -> tuple[str, str]:
     """Title/body used by email and other non-push transports.
 
@@ -568,6 +572,10 @@ def event_notification_text(
     sends a title-only body ("Message from Léa") for DMs and private
     channels; ``never`` does that everywhere. Mentions are always
     neutralised; ``markdown`` also escapes the text.
+
+    ``template_dm``/``template_channel`` (the channel's templates, ``templates.py``) replace
+    the body of a message event when non-empty: the text policy still decides what ``{text}``
+    holds, and a template that renders empty falls back to the default body.
     """
     lang = language if language in ("fr", "en") else "fr"
     parsed = json.loads(build_push_payload(data, lang))
@@ -578,9 +586,26 @@ def event_notification_text(
         or (include_message_text == "public_only" and not message_text_is_public(data))
     ):
         body = _title_only_body(data, lang)
+        text_stripped = True
+    else:
+        text_stripped = False
+    raw_title = title
     title, body = neutralise_mentions(title), neutralise_mentions(body)
     if markdown:
         title, body = escape_markdown(title), escape_markdown(body)
+    template = template_for(data, template_dm, template_channel) if _is_message(data) else ""
+    if template.strip():
+        text = (
+            ""
+            if text_stripped
+            else message_body_text(
+                get_fanout_message_text(data), lang, data.get("sender_name") or ""
+            )
+        )
+        variables = build_variables(data, title=raw_title, text=text, markdown=markdown)
+        # A template that renders empty (only ``{text}`` under a stripping policy) keeps the
+        # default body.
+        body = neutralise_mentions(apply_template(template, variables)).strip() or body
     return title, body
 
 

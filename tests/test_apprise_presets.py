@@ -830,7 +830,7 @@ async def test_the_transport_clamps_a_locked_text_policy_at_send_time(
 ):
     seen: list[str] = []
 
-    def fake_text(payload, language, *, include_message_text, markdown):
+    def fake_text(payload, language, *, include_message_text, markdown, **_templates):
         seen.append(include_message_text)
         return "title", "body"
 

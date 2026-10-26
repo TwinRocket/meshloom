@@ -17,6 +17,7 @@
       "type": "object"
     },
     "singleton": true,
+    "templates": false,
     "type": "web_push"
   },
   {
@@ -110,6 +111,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": false,
     "type": "email"
   },
   {
@@ -183,6 +185,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": false,
     "type": "webhook"
   },
   {
@@ -228,6 +231,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "discord"
   },
   {
@@ -276,6 +280,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "apprise"
   },
   {
@@ -402,6 +407,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "ntfy"
   },
   {
@@ -464,6 +470,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "telegram",
     "wiki_url": "https://core.telegram.org/bots/tutorial"
   },
@@ -532,6 +539,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "gotify",
     "wiki_url": "https://gotify.net/docs/pushmsg"
   },
@@ -596,6 +604,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "home_assistant",
     "wiki_url": "https://www.home-assistant.io/integrations/notify/"
   },
@@ -687,6 +696,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "pushover",
     "wiki_url": "https://pushover.net/api"
   },
@@ -759,6 +769,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "matrix",
     "wiki_url": "https://spec.matrix.org/latest/client-server-api/"
   },
@@ -840,6 +851,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "signal",
     "wiki_url": "https://bbernhard.github.io/signal-cli-rest-api/"
   },
@@ -882,6 +894,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "slack",
     "wiki_url": "https://api.slack.com/messaging/webhooks"
   },
@@ -936,6 +949,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "mattermost",
     "wiki_url": "https://developers.mattermost.com/integrate/webhooks/incoming/"
   },
@@ -1019,6 +1033,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "rocketchat",
     "wiki_url": "https://developer.rocket.chat/apidocs/"
   },
@@ -1073,6 +1088,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "sms_free",
     "wiki_url": "https://mobile.free.fr/account/mes-options/notifications-sms"
   },
@@ -1145,6 +1161,7 @@
       "type": "object"
     },
     "singleton": false,
+    "templates": true,
     "type": "sms_sfr",
     "wiki_url": "https://github.com/caronc/apprise/wiki/Notify_sfr"
   }
