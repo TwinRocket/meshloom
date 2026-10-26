@@ -203,6 +203,41 @@ describe('feed events from notification_event frames', () => {
     expect(rows().map((row) => row.id)).toEqual(['contact.first_seen', 'channel.found']);
   });
 
+  it.each([
+    ['frame first', true],
+    ['contact first', false],
+  ])(
+    'gives one first-sighting row when the frame time differs from the contact: %s',
+    async (_name, frameFirst) => {
+      // The key carries the time, so only the shared contact memory keeps the second source out.
+      const frame = fixtureFrame('notification_event_contact_first_seen', {
+        occurred_at: (TOWER.first_seen as number) + 1,
+      });
+      if (frameFirst) noteNotificationEvent(frame, NOW);
+      noteContactFrame(TOWER, { previous: undefined, resyncing: false }, NOW);
+      if (!frameFirst) noteNotificationEvent(frame, NOW);
+      await flush();
+      expect(rows().map((row) => row.id)).toEqual(['contact.first_seen']);
+    }
+  );
+
+  it("takes the back-online duration from the server's frame", async () => {
+    noteRadioHealth(health('connected'));
+    noteRadioHealth(health('disconnected'));
+    vi.advanceTimersByTime(90_000);
+    await flush();
+    expect(rows().map((row) => row.id)).toEqual(['radio.offline']);
+    // 90 s seen by this page; the server measured 123 s.
+    noteNotificationEvent(
+      fixtureFrame('notification_event_radio_online', {
+        data: { ...fixtureFrame('notification_event_radio_online').data, downtime_s: 123 },
+      })
+    );
+    noteRadioHealth(health('connected'));
+    await flush();
+    expect(rows()).toMatchObject([{ id: 'radio.offline' }, { id: 'radio.online', downtimeS: 123 }]);
+  });
+
   it('skips the contact types the catalogue never announces', async () => {
     for (const contact_type of [0, 3]) {
       const frame = fixtureFrame('notification_event_contact_first_seen');

@@ -59,8 +59,9 @@ delays itself.
   enabled channel is broadcast as ``notification_event`` (typed data, no rendered text),
   before the pauses and quiet hours, unless ``rules.emit_ws_events`` is false. A channel
   message that names the radio is framed as ``message.mention`` whichever channels got the
-  mention, and the last ``FRAME_DEDUP_MAX`` ``(event, dedup_key)`` sent are not sent again
-  (MSHL-402).
+  mention; a ``message.*`` frame already sent for the same message (among the last
+  ``FRAME_DEDUP_MAX``) is not sent again, so a mention split across channels gives one frame.
+  Every other event is framed each time it is routed, re-fires included (MSHL-402).
 - **Heartbeat** (MSHL-131, ``heartbeat.py``): ``self.heartbeats`` runs one loop per channel
   with ``heartbeat_interval_s``, sending ``notify.heartbeat`` (or pinging ``heartbeat_url``)
   outside the rules, the pauses, quiet hours and the buckets; ``start`` and every quiet tick
@@ -137,7 +138,8 @@ LONG_RETRY_EVENTS = frozenset({"radio.offline", "telemetry.alert", quiet.DIGEST_
 QUIET_DIGEST_RETRIES = 10
 COUNTER_FLUSH_S = 60.0
 QUIET_TICK_S = 60.0
-# The ``notification_event`` frames remembered to send each event once (MSHL-402).
+# The ``message.*`` frames remembered so one message split across channels is framed once
+# (MSHL-402). Other events are never deduplicated here.
 FRAME_DEDUP_MAX = 256
 
 GROUPED_EVENT = "notifications_grouped"
@@ -593,9 +595,16 @@ class Dispatcher:
         is_open: bool,
         rules: Mapping[str, Any],
     ) -> None:
-        """The ``notification_event`` frame, once per ``(event, dedup_key)`` among the last
-        ``FRAME_DEDUP_MAX`` sent: a mention split across channels (a ``targets`` emit and the
-        main one) or an event emitted again gives one frame."""
+        """The ``notification_event`` frame for one routed event.
+
+        Only ``message.*`` frames are deduplicated, on ``(event, dedup_key)`` among the last
+        ``FRAME_DEDUP_MAX`` sent: their key names one message, and a mention split across
+        channels (a ``targets`` emit and the main one) must give one frame. Every other event
+        is framed each time it is routed: its ``dedup_key`` may name an entity (a telemetry
+        rule and node, a contact, a channel), and a re-fire is a new occurrence."""
+        if not event.event.startswith("message."):
+            ws_frame.publish(event, payload, is_open=is_open, rules=rules)
+            return
         key = (event.event, event.dedup_key)
         if key in self._frames_sent:
             return

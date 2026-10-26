@@ -18,6 +18,7 @@ import {
   resetFeedStore,
 } from '../stores/feedStore';
 import type { Channel, Contact, Conversation, HealthStatus, Message, RawPacket } from '../types';
+import type { NotificationEventFrame } from '../wsEvents';
 
 const mocks = vi.hoisted(() => ({
   api: {
@@ -433,6 +434,31 @@ describe('useRealtimeAppState', () => {
     // Live frames are stamped with the browser receipt time when recorded.
     expect(getRawPackets()).toEqual([{ ...packet, received_at_ms: expect.any(Number) }]);
     expect(getRawPacketStatsSession().totalObservedPackets).toBe(1);
+  });
+
+  it('turns a notification_event frame into a Feed event row', async () => {
+    activateFeedStore();
+    const { args } = createRealtimeArgs();
+    const { result } = renderHook(() => useRealtimeAppState(args));
+
+    act(() => {
+      result.current.onNotificationEvent?.({
+        event: 'channel.found',
+        event_version: 1,
+        occurred_at: 1700000000,
+        dedup_key: 'k',
+        urgent: false,
+        conversation_key: '22'.repeat(16),
+        conversation_type: null,
+        data: { name: '#wired', channel_key: '22'.repeat(16) },
+      } as unknown as NotificationEventFrame);
+    });
+
+    await waitFor(() =>
+      expect(getFeedSnapshot().events).toMatchObject([
+        { id: 'channel.found', key: `channel.found:${'22'.repeat(16)}`, name: '#wired' },
+      ])
+    );
   });
 
   it('toasts a newly discovered pending channel', () => {

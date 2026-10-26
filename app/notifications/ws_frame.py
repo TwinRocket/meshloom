@@ -20,8 +20,10 @@ by ``app/websocket.py``: ``notify.*`` events reach admins only, and a direct con
 (``message.dm``, a ``PRIV`` conversation, a mention on a private-key channel) reaches only
 the sockets with ``read_private`` (never a kiosk). A channel message that names the radio is framed as
 ``message.mention`` even when only Web Push gets the mention (MSHL-402), and the dispatcher
-sends one frame per ``(event, dedup_key)`` among the last ones it sent; a consumer still
-dedups, the window being bounded. The Feed consumes ``radio.offline``, ``radio.online``,
+frames one message once (``message.*`` frames are deduplicated on ``(event, dedup_key)``
+over a bounded window, so a mention split across channels gives one frame). Every other
+event is framed each time it is routed, re-fires included: a consumer dedups by its own
+keys. The Feed consumes ``radio.offline``, ``radio.online``,
 ``contact.first_seen`` and ``channel.found`` (``frontend/src/utils/feedEvents.ts``).
 """
 
