@@ -513,8 +513,10 @@ routes are; a member gets a notice and no request).
   built from the **validated** `owner/name` (`issuesUrl`); `src/test/pluginsStore.test.tsx` holds a
   hostile README (`<script>`, inline HTML, `javascript:` links, images) and a hostile changelog.
 - **Store tab.** `GET /store/status` drives `StoreActivationCard` (hosts, what is sent, what is
-  missed, taken from the server: never hard-code a host) while `enabled` is false; the switch is
-  `PATCH /settings {store_online: true}`. Online, **Refresh** is `POST /store/refresh` (10 minute
+  missed, taken from the server: never hard-code a host) while `enabled` is false; the card's button is
+  `PATCH /settings {store_online: true}`. Online, the `store-online` bar holds the **Store online**
+  switch (`role="switch"`, admins only) that sends `PATCH /settings {store_online: false}` and brings
+  the card back (the help text sits beside it). **Refresh** is `POST /store/refresh` (10 minute
   gap on the server, a 10 s hold in the button). `CustomRepositoriesPanel` lists the repositories
   (`custom` and `not reviewed, not signed` badges, `compatible`, last check, last error); **Details**
   opens `PluginPage` (README from `GET /store/repositories/{o}/{n}/readme?lang=`, permissions,
