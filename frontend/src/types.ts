@@ -2032,6 +2032,8 @@ export interface BackupInspectResult {
   /** The history has no bound owner: kept unless the restore sends wipe_history. */
   identity_allows_wipe?: boolean;
   identity_refusal: string | null;
+  /** secrets.key is unusable and the Meshloom step would need it: the restore is refused (503). */
+  secret_store_unavailable?: boolean;
   live_radio_public_key: string | null;
   live_radio_name: string | null;
   ble_pin_differs_on_ble: boolean;

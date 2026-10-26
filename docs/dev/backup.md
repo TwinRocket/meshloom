@@ -132,7 +132,12 @@ version below 1 raises `ValueError`.
   readable stored secret (kept and encrypted again). It is conservative: it does
   not check that the destination matches. A section that would encrypt
   something else adds its own test there; otherwise its `SecretStoreUnavailable`
-  only fails that section (`section_failed:<name>`).
+  only fails that section (`section_failed:<name>`). The flat v1 merge
+  (`POST /backup/restore` without `backup`) runs the same refusal on its
+  `notification_destinations` (`check_v1_secret_store`, MSHL-398): its only
+  secrets. The inspection reports it ahead as `secret_store_unavailable`
+  (`secret_store_blocks_restore`, default steps), which the summary shows
+  (`settings.fullRestore.secretStoreUnavailable`) while the Meshloom step is on.
 - **`requires`.** `register_backup_section(name, ..., requires=["users"])`:
   the named sections are restored first, in the same restore. When one of them
   is missing from the file, too new or failed, this section is skipped

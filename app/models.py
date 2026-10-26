@@ -2714,6 +2714,14 @@ class BackupInspectResult(BaseModel):
     identity_refusal: str | None = Field(
         default=None, description="Error code when the restore would be refused"
     )
+    secret_store_unavailable: bool = Field(
+        default=False,
+        description=(
+            "The restore (Meshloom step on) would have to encrypt integration or notification"
+            " secrets and secrets.key cannot be read or created: it would be refused with 503"
+            " backup_secret_store_unavailable, before any write"
+        ),
+    )
     live_radio_public_key: str | None = None
     live_radio_name: str | None = None
     ble_pin_differs_on_ble: bool = False

@@ -780,6 +780,11 @@ function RestoreSummary({
         {inspect.radio_proxy_enabled && (
           <p className="text-warning">{t('settings.fullRestore.proxyEnabled')}</p>
         )}
+        {inspect.secret_store_unavailable && steps.meshloom && (
+          <p className="text-destructive" role="alert" data-testid="secret-store-unavailable">
+            {t('settings.fullRestore.secretStoreUnavailable')}
+          </p>
+        )}
         {(inspect.push_targets?.length ?? 0) > 0 && (
           <p className="text-warning">
             {t('settings.fullRestore.pushTargets', {

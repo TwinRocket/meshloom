@@ -383,6 +383,28 @@ describe('BackupRestoreFlow', () => {
     expect(screen.getByText(i18n.t('settings.fullRestore.meshloomStepRequired'))).toBeVisible();
   });
 
+  it('warns before restoring when secrets.key is unusable, until the Meshloom step is off', async () => {
+    mocks.inspectBackup.mockResolvedValue(inspectResult({ secret_store_unavailable: true }));
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    const warning = await screen.findByTestId('secret-store-unavailable');
+    expect(warning).toHaveTextContent(i18n.t('settings.fullRestore.secretStoreUnavailable'));
+    for (const language of ['en', 'fr']) {
+      const text = i18n.getFixedT(language)('settings.fullRestore.secretStoreUnavailable');
+      expect(text).toContain('secrets.key');
+      expect(text).not.toContain('fullRestore');
+    }
+    fireEvent.click(screen.getByLabelText(i18n.t('settings.fullRestore.steps.meshloom')));
+    expect(screen.queryByTestId('secret-store-unavailable')).toBeNull();
+  });
+
+  it('shows no secrets.key warning when the inspection reports none', async () => {
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    await screen.findByLabelText(i18n.t('settings.fullRestore.steps.meshloom'));
+    expect(screen.queryByTestId('secret-store-unavailable')).toBeNull();
+  });
+
   it('lists the bots that come back as disabled extensions', async () => {
     mocks.inspectBackup.mockResolvedValue(inspectResult({ bot_names: ['Greeter', 'Echo'] }));
     render(<BackupRestoreFlow />);

@@ -144,6 +144,7 @@
       "integrationOn": "{{name}} ({{type}}, enabled)",
       "integrationOff": "{{name}} ({{type}}, disabled)",
       "proxyEnabled": "The radio proxy is enabled in this backup: it starts right after the restore and accepts connections without authentication.",
+      "secretStoreUnavailable": "secrets.key, the file next to the database that encrypts stored secrets, cannot be read or created: restoring the Meshloom data of this backup would be refused, because it holds integration or notification secrets. Check that the data folder is writable by Meshloom, or untick the Meshloom data.",
       "pushTargets": "This backup holds push subscriptions: your message notifications go to {{list}} right after the restore.",
       "pushTarget": "{{label}} ({{host}})",
       "pushTargetOwner": "{{target}}, for the account {{owner}}",
