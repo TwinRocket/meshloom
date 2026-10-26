@@ -756,7 +756,8 @@ then `PreparedInstall.commit()` (or `discard()`).
   X.Y.Z), else 409 `incompatible` (`params.compat`).
 - **Instances and locks.** Install, reinstall and delete of one `plugin_id` are serialized
   (`plugin_lock`). A second instance of a `custom` or `store` plugin reuses the code
-  directory, no download (409 `plugin_version_conflict` for another `version`, 409 `plugin_repository_conflict` for another `repository`, 409
+  directory, no download (409 `plugin_version_conflict` for another `version`, 409
+  `plugin_repository_conflict` for another `repository`, 409
   `plugin_code_missing` when the tree is not that plugin at that version,
   `code_installed`). The code goes with the last instance using it (`remove_code`, never
   follows a symlink); a row restored without its code (`attention.type = reinstall`) does
