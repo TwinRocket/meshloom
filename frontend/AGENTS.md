@@ -547,7 +547,8 @@ and the time. When `terms_stale` is true the section shows a notice and the chec
 reopens the dialog.
 
 `api.getShareStatus()` (no egress), `api.shortenLink(url)` and
-`api.getShareMeta(id)`, `api.reportShare(id, {reason, details?})`, `api.listShareMine(cursor?)`,
+`api.getShareMeta(id, {messageId?, signal?})` (`?message_id=` asks the backend to decrypt an
+encrypted file for that message's conversation), `api.reportShare(id, {reason, details?})`, `api.listShareMine(cursor?)`,
 `api.deleteShare(id)` and `api.clearShareCache()` (admin) call `/api/share/*` (and
 `api.uploadShareFile(blob)`, below); types `ShareStatus`, `ShareLink`, `ShareFile`,
 `ShareMeta`, `ShareMine`, `ShareMineObject`, `ShareCacheClear` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
@@ -611,8 +612,18 @@ HEIC and other types are refused with a coded message (`chat.fileTab.error.*`, n
 rules are pure (`fitWithin`, `classifySource`, `chooseOutputType`). The upload is `api.uploadShareFile`
 (XHR, raw body, `X-Share-Mode: public`, progress, `AbortSignal`; `encrypted: {type, id}` switches to
 `X-Share-Mode: encrypted` with `X-Share-Conversation-Type` / `X-Share-Conversation-Id`, where a channel's
-id is its `share_conversation_id`, never its key (MSHL-378; no UI uses it yet); failures are the usual `ApiError`, shown as
-`errors.share_*` toasts). Send = upload once, then `sendPayload(suggested text + caption)`, so the reply
+id is its `share_conversation_id`, never its key (MSHL-378), and `name` adds `X-Share-Name` (percent-encoded,
+sealed in the envelope; `utils/shareMode.ts` `shareFileName` drops control characters, `/`, `\\`, `.`/`..` and cuts
+at 255); failures are the usual `ApiError`, shown as `errors.share_*` toasts). Mode (MSHL-256): `MessageInput`
+`shareTarget` (built in `ConversationPane` from `utils/channelClass.ts`: `channelShareTarget`, `contactShareTarget`)
+classes the conversation `public` | `hashtag_derived` | `private` | `dm` | `room`; only `private` and `dm` are
+`encryptable` (an unknown `key_derived` counts as derived; a room server is refused by the backend). An
+encryptable target shows a Public / Encrypted radiogroup (`file-tab-mode`), encrypted by default, the last choice
+kept in `localStorage` `meshloom-share-mode` (`utils/shareMode.ts`); encrypted is disabled in a DM while
+`dm_encryption_available` is false and for a private channel without `share_conversation_id`, with a hint.
+A non-encryptable target shows no selector, one line (`chat.fileTab.mode.clear.<class>`) that never uses the
+word "private"; a null target (no conversation) shows neither. An upload is reused on retry only for the same
+mode and conversation. Send = upload once, then `sendPayload(suggested text + caption)`, so the reply
 prefix and the normal send path apply; the uploaded result is kept if the send fails, so a retry does not
 upload again. The caption is judged with `utils/fileCaption.ts` against the composer's strict limit minus the
 reply prefix, estimated before the upload (link on `status.host`) and checked again with the real link; over
@@ -761,8 +772,9 @@ key}`); they are not `Message.conversation_key`.
   (`messagePreview.shareImage`/`shareEncrypted`), a bare link `🔗 caption`; never the URL.
 - Shared images (MSHL-246): `components/message/SharePayload.tsx` (re-exported by
   `richPayloads.tsx`), rendered by `MessageBody` after the text (the anchor stays).
-  Only the composer's form is an image: `📷 <service link>[ caption]`, optionally behind
-  `@[Name] ` (`utils/sharePayload.ts` `shareImageId`); a bare service link stays an
+  Only the composer's form is an image: `📷 <service link>[ caption]` or, encrypted,
+  `🔒 <service link>[ caption]`, optionally behind `@[Name] ` (`utils/sharePayload.ts`
+  `sharePayloadLink`, `shareImageId`); a bare service link stays an
   anchor. Whether it loads without a tap is `useShareImage` (`MessageBody`
   holds the tap) over `shareMediaAutoLoads`: `remoteMedia` false, a blocked sender
   (`utils/messageBlocking.ts` `isMessageBlocked`, lists from `BlockedSendersProvider`
@@ -783,8 +795,15 @@ key}`); they are not `Message.conversation_key`.
   the same URL in a new tab, over 8 MiB (`SHARE_INLINE_MAX_BYTES`, meta `size`) a
   Download card; a 410 meta (`ShareMetaEntry` `missing` with `gone`) shows
   `sharePayload.gone`; any other failure, a link object, a non-public file or an
-  image `onError` draws nothing (the raw link stays). Encrypted files and the lock
-  badge: T29. The card's Report button (only with `canSend`: viewer and kiosk get 403) opens `ShareReportDialog` (8 contract reasons,
+  image `onError` draws nothing (the raw link stays). Encrypted files (MSHL-256): a `🔒`
+  body asks the meta with `?message_id=` and caches it per `(id, message)`
+  (`shareMetaKey`; a `📷` body keeps the id alone, shared with the anchor's hover). An
+  encrypted file with `decryptable: true` is shown like a public one under a lock badge
+  (`share-payload-lock`: decrypted name in a `<bdi>`, type label); `decryptable: false`
+  shows `sharePayload.encryptedElsewhere`; unknown (`null`), a failed meta or a failed
+  image shows `sharePayload.encryptedUnavailable`; the raw link always stays. A meta
+  unanswered after `META_TIMEOUT_MS` (20 s) is aborted and kept as a failure, so no card
+  spins forever. The card's Report button (only with `canSend`: viewer and kiosk get 403) opens `ShareReportDialog` (8 contract reasons,
   details up to 2000) and calls `api.reportShare` (`POST /api/share/{id}/report`),
   toast on success, `errors.share_*` on failure except `share_quota_key`, which
   is the report limit (5 per instance key and day): `sharePayload.report.quota`. Strings: slice `sp`

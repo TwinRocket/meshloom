@@ -367,9 +367,11 @@ export interface ShareConversation {
 /**
  * `POST /api/share/files`: the raw bytes of an image with their `Content-Type`.
  * XMLHttpRequest rather than fetch for the upload progress. Public mode unless
- * `encrypted` names the conversation (`X-Share-Conversation-Type` / `-Id`).
- * Failures are the same `ApiError` as every other call (coded `detail`,
- * `Retry-After`); an aborted request rejects with an `AbortError` (`isAbortError`).
+ * `encrypted` names the conversation (`X-Share-Conversation-Type` / `-Id`);
+ * `name` (encrypted mode only, `X-Share-Name`, percent-encoded) is sealed in the
+ * envelope so the receiver sees it once decrypted. Failures are the same `ApiError`
+ * as every other call (coded `detail`, `Retry-After`); an aborted request rejects
+ * with an `AbortError` (`isAbortError`).
  */
 export function uploadShareFile(
   blob: Blob,
@@ -377,9 +379,10 @@ export function uploadShareFile(
     signal?: AbortSignal;
     onProgress?: (loaded: number, total: number) => void;
     encrypted?: ShareConversation;
+    name?: string;
   } = {}
 ): Promise<ShareFile> {
-  const { signal, onProgress, encrypted } = options;
+  const { signal, onProgress, encrypted, name } = options;
   const path = '/share/files';
   return new Promise<ShareFile>((resolve, reject) => {
     const abortError = () => new DOMException('The upload was cancelled', 'AbortError');
@@ -397,6 +400,7 @@ export function uploadShareFile(
       xhr.setRequestHeader('X-Share-Mode', 'encrypted');
       xhr.setRequestHeader('X-Share-Conversation-Type', encrypted.type);
       xhr.setRequestHeader('X-Share-Conversation-Id', encrypted.id);
+      if (name) xhr.setRequestHeader('X-Share-Name', encodeURIComponent(name));
     } else {
       xhr.setRequestHeader('X-Share-Mode', 'public');
     }
@@ -1383,7 +1387,17 @@ export const api = {
   shortenLink: (url: string) =>
     fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),
   uploadShareFile,
-  getShareMeta: (id: string) => fetchJson<ShareMeta>(`/share/${encodeURIComponent(id)}/meta`),
+  /**
+   * `messageId` names the message the id was seen in: an encrypted file is decrypted
+   * with that conversation's secret (`decryptable`, `name`, `content_type`).
+   */
+  getShareMeta: (id: string, options: { messageId?: number; signal?: AbortSignal } = {}) =>
+    fetchJson<ShareMeta>(
+      `/share/${encodeURIComponent(id)}/meta${
+        options.messageId ? `?message_id=${options.messageId}` : ''
+      }`,
+      options.signal ? { signal: options.signal } : undefined
+    ),
   reportShare: (id: string, body: ShareReportRequest) =>
     fetchJson<{ received: boolean }>(`/share/${encodeURIComponent(id)}/report`, {
       method: 'POST',
