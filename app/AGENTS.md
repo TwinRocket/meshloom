@@ -587,7 +587,7 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
 - **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the
   consent, `hosts` (read from `STORE_ALLOWLIST`, so it cannot drift from what the client
   reaches), what is sent (IP address, User-Agent), the cadence, what is missed while off
-  (updates, online revocation alerts) and the last refresh.
+  (updates only: online revocation alerts do not exist in 5.0.0) and the last refresh.
 - **Backups.** `store_online` is a consent: left out of the JSON export
   (`_CONSENT_FIELDS`), never restored, reset to 0 in a database copy.
 - Tests: `tests/test_store_egress.py` (nothing leaves while off, Community on or off,

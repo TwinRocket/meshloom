@@ -15,9 +15,13 @@
       "cadence": "Releases are checked every {{hours}} hours, and only while a plugin installed from a repository exists or when you press Refresh.",
       "missedTitle": "What you do not receive while it is off",
       "missed": {
-        "updates": "Notices and installation of plugin updates.",
-        "revocation_alerts": "Online revocation alerts for plugins."
-      }
+        "updates": "Notices and installation of plugin updates."
+      },
+      "revocationLater": "Alerts when a plugin is withdrawn online are not available yet: they come later."
+    },
+    "online": {
+      "toggle": "Store online",
+      "help": "Turning this off stops all Store access to the internet: no catalogue browsing, no update checks and no automatic updates. Installed plugins keep running."
     },
     "refresh": {
       "button": "Refresh",

@@ -90,7 +90,7 @@ function status(overrides: Partial<StoreStatus> = {}): StoreStatus {
     sends: ['ip_address', 'user_agent'],
     user_agent: 'Meshloom/5.0.0',
     refresh_interval_s: 21600,
-    missed_when_disabled: ['updates', 'revocation_alerts'],
+    missed_when_disabled: ['updates'],
     refresh_running: true,
     last_refresh_at: 1_700_000_000,
     ...overrides,
@@ -177,7 +177,8 @@ describe('Store tab: activation card', () => {
       .map((li) => li.textContent);
     expect(hosts).toEqual(['github.com', 'objects.githubusercontent.com', 'store.meshloom.app']);
     expect(screen.getByTestId('store-sends')).toHaveTextContent('Meshloom/5.0.0');
-    expect(within(screen.getByTestId('store-missed')).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(screen.getByTestId('store-missed')).getAllByRole('listitem')).toHaveLength(1);
+    expect(screen.getByTestId('store-revocation-later')).toBeInTheDocument();
   });
 
   it('one click turns the Store on and the card goes away', async () => {
@@ -195,6 +196,42 @@ describe('Store tab: activation card', () => {
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByTestId('store-offline')).not.toBeInTheDocument());
     expect(screen.getByTestId('store-online')).toBeInTheDocument();
+  });
+
+  it('shows the Store online switch on and one click turns the Store off', async () => {
+    const get = vi
+      .spyOn(api, 'getStoreStatus')
+      .mockResolvedValueOnce(status())
+      .mockResolvedValue(status({ enabled: false }));
+    vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(repositories());
+    const update = vi.spyOn(api, 'updateSettings').mockResolvedValue({} as never);
+    render(<StoreTab canManage locked={false} onInstalled={vi.fn()} />);
+    const toggle = await screen.findByRole('switch', { name: t('pluginStore.online.toggle') });
+    expect(toggle).toBeChecked();
+    expect(screen.getByTestId('store-online')).toHaveTextContent(t('pluginStore.online.help'));
+    fireEvent.click(toggle);
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ store_online: false }));
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await screen.findByTestId('store-offline');
+    expect(screen.queryByTestId('store-online')).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: t('pluginStore.online.toggle') })).toBeNull();
+  });
+
+  it('keeps the switch on and reports the error when turning off fails', async () => {
+    vi.spyOn(api, 'getStoreStatus').mockResolvedValue(status());
+    vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(repositories());
+    vi.spyOn(api, 'updateSettings').mockRejectedValue(new Error('boom'));
+    render(<StoreTab canManage locked={false} onInstalled={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('switch', { name: t('pluginStore.online.toggle') }));
+    await waitFor(() => expect(toastMocks.error).toHaveBeenCalled());
+    expect(screen.getByRole('switch', { name: t('pluginStore.online.toggle') })).toBeChecked();
+  });
+
+  it('a member sees no switch', async () => {
+    vi.spyOn(api, 'getStoreRepositories').mockResolvedValue(repositories());
+    render(<StoreTab canManage={false} locked={false} onInstalled={vi.fn()} />);
+    await screen.findByTestId('custom-repo-admin-only');
+    expect(screen.queryByRole('switch')).toBeNull();
   });
 
   it('a member requests nothing', async () => {
