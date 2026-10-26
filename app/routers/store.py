@@ -144,6 +144,11 @@ class UpdateInstance(BaseModel):
     )
     permissions: list[str] = Field(description="The permissions it would ask consent for.")
     missing_fields: list[str] = Field(description="New required config fields it lacks.")
+    dropped_fields: list[str] = Field(
+        default_factory=list,
+        description="Config fields whose value the new schema rejects: dropped and reported "
+        "(attention ``config_dropped``), never silently.",
+    )
 
 
 class PluginUpdate(BaseModel):

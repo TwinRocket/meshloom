@@ -364,3 +364,173 @@ async def test_an_update_clears_incompatible(api, net, tmp_path, monkeypatch):
     row = await _row(only)
     assert (row["version"], row["status"]) == ("1.1.0", row["status"])
     assert row["status"] != "incompatible"
+
+
+# --- hardening (MSHL-391) ----------------------------------------------------------
+
+# `greeting` is no longer required and its stored string no longer validates.
+SCHEMA_INT = {
+    "type": "object",
+    "properties": {"greeting": {"type": "integer"}, "token": SCHEMA["properties"]["token"]},
+    "required": [],
+}
+WIDER_SEND = {**GRANT, "messages.send": {"targets": "any"}}
+
+
+def _staging_empty(manager) -> bool:  # noqa: F811
+    staging = manager.plugins_root() / "_staging"
+    return not staging.exists() or not any(staging.iterdir())
+
+
+async def test_the_update_route_checks_compat(api, manager, net, tmp_path):
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, compat={"meshloom": ">=6.0.0"})
+    response = await api.post(f"/api/plugins/{only}/update", json={})
+    assert (response.status_code, detail(response)["code"]) == (409, "incompatible")
+    assert (await _row(only))["version"] == "1.0.0"
+    assert installer.code_installed(manager.plugins_root(), "acme.echo", "1.0.0")
+    assert _staging_empty(manager)
+
+
+async def test_a_changed_permission_loses_its_grant_until_consent(api, net, tmp_path):
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, permissions=WIDER_SEND)
+    response = await api.post(f"/api/plugins/{only}/update", json={})
+    assert response.status_code == 200, response.text
+    row = await _row(only)
+    assert row["attention"]["type"] == "consent_required"
+    assert row["attention"]["permissions"] == ["messages.send"]
+    # The old (narrower) grant is still a valid subset: only the update drops it.
+    assert row["granted_permissions"] == {"messages.read": GRANT["messages.read"]}
+
+
+async def test_a_consent_hold_survives_an_incompatible_round_trip(
+    api, manager, net, tmp_path, monkeypatch
+):
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, permissions=WIDER, compat={"meshloom": ">=5.0.0,<5.1.0"})
+    assert (await api.post(f"/api/plugins/{only}/update", json={})).status_code == 200
+    assert (await _row(only))["attention"]["type"] == "consent_required"
+    await manager.stop_all(5.0)
+
+    set_version(monkeypatch, "5.1.0")
+    await updates.mark_compat()
+    assert (await _row(only))["status"] == "incompatible"
+    set_version(monkeypatch, "5.0.3")
+    await updates.mark_compat()
+    row = await _row(only)
+    assert row["status"] == "needs_attention"
+    assert row["attention"]["type"] == "consent_required"
+    await manager.load_from_db()
+    assert manager.get(only) is None
+    refused = await api.post(f"/api/plugins/{only}/restart")
+    assert (refused.status_code, detail(refused)["code"]) == (409, "attention_required")
+
+
+async def test_an_auto_update_that_would_hold_changes_nothing(api, net, tmp_path, monkeypatch):
+    """The guard inside ``update_plugin`` on its own (the refresher's is bypassed)."""
+    only = await _auto_setup(api, net, tmp_path, monkeypatch, permissions=WIDER)
+    assert await updates.update_plugin(only, auto=True) is None
+    row = await _row(only)
+    assert (row["version"], row["attention"]) == ("1.0.0", None)
+
+
+async def test_the_refresher_skips_a_hold_before_updating(api, net, tmp_path, monkeypatch):
+    """The refresher's guard on its own (``update_plugin`` is a spy)."""
+    await _auto_setup(api, net, tmp_path, monkeypatch, permissions=WIDER)
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 3, 0))
+    calls: list[str] = []
+
+    async def spy(instance_id, **_kwargs):
+        calls.append(instance_id)
+
+    monkeypatch.setattr(updates, "update_plugin", spy)
+    await updates.auto_update()
+    assert calls == []
+
+
+async def _rollback_setup(api, manager, net, tmp_path) -> list[str]:  # noqa: F811
+    ids = await _setup(api, net, tmp_path, instances=2)
+    for n, instance_id in enumerate(ids):
+        await PluginKvRepository.set(instance_id, "count", n)
+        assert manager.get(instance_id) is not None
+    await _release(net, tmp_path)
+    return ids
+
+
+async def _assert_rolled_back(api, manager, ids: list[str]) -> None:  # noqa: F811
+    root = manager.plugins_root()
+    assert installer.code_installed(root, "acme.echo", "1.0.0")
+    assert not installer.code_installed(root, "acme.echo", "1.1.0")
+    assert _staging_empty(manager)
+    for n, instance_id in enumerate(ids):
+        row = await _row(instance_id)
+        assert (row["version"], row["attention"]) == ("1.0.0", None)
+        assert row["config"]["greeting"] == f"hi {n}"
+        assert row["granted_permissions"] == GRANT
+        assert await _kv(instance_id) == {"count": n}
+        assert manager.get(instance_id) is not None  # restarted
+
+
+async def test_a_failed_row_write_leaves_the_old_plugin(api, manager, net, tmp_path, monkeypatch):
+    ids = await _rollback_setup(api, manager, net, tmp_path)
+
+    async def broken(_updates):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(PluginRepository, "update_many", staticmethod(broken))
+    response = await api.post(f"/api/plugins/{ids[0]}/update", json={})
+    assert (response.status_code, detail(response)["code"]) == (500, "update_failed")
+    await _assert_rolled_back(api, manager, ids)
+
+
+async def test_a_failed_tree_swap_leaves_the_old_plugin(api, manager, net, tmp_path, monkeypatch):
+    ids = await _rollback_setup(api, manager, net, tmp_path)
+
+    def broken(_self):
+        raise OSError("read-only")
+
+    monkeypatch.setattr(installer.PreparedInstall, "swap", broken)
+    response = await api.post(f"/api/plugins/{ids[0]}/update", json={})
+    assert (response.status_code, detail(response)["code"]) == (500, "update_failed")
+    await _assert_rolled_back(api, manager, ids)
+
+
+async def test_a_rejected_config_value_is_reported_not_silently_dropped(
+    api, manager, net, tmp_path
+):
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, schema=SCHEMA_INT)
+    [entry] = (await api.get("/api/store/updates")).json()
+    [instance] = entry["instances"]
+    assert (instance["hold"], instance["dropped_fields"]) == (None, ["greeting"])
+
+    response = await api.post(f"/api/plugins/{only}/update", json={})
+    assert response.status_code == 200, response.text
+    assert response.json()["attention"]["type"] == "config_dropped"
+    row = await _row(only)
+    assert "greeting" not in row["config"]
+    assert row["attention"] == {
+        "type": "config_dropped",
+        "fields": ["greeting"],
+        "from_version": "1.0.0",
+        "to_version": "1.1.0",
+    }
+    assert row["status"] != "needs_attention"
+    assert manager.get(only) is not None  # a notice, not a hold
+
+    saved = await api.patch(f"/api/plugins/{only}", json={"config": {"greeting": 3}})
+    assert saved.status_code == 200, saved.text
+    row = await _row(only)
+    assert row["attention"] is None
+    clear = await PluginRepository.config_for_init(only)
+    assert clear is not None and clear["token"] == f"{SECRET}-0"
+
+
+async def test_a_held_instance_reports_the_dropped_value_on_its_hold(api, net, tmp_path):
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, schema=SCHEMA_INT, permissions=WIDER)
+    assert (await api.post(f"/api/plugins/{only}/update", json={})).status_code == 200
+    attention = (await _row(only))["attention"]
+    assert attention["type"] == "consent_required"
+    assert attention["config_dropped"] == ["greeting"]

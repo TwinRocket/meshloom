@@ -557,8 +557,12 @@ def _status_changes(
     if status in ("revoked", "incompatible"):
         return {}
     cleared = {"attention": None, "status": "installed"}
-    if (row["attention"] or {}).get("type") == "config_required" and not missing:
+    kind = (row["attention"] or {}).get("type")
+    if kind == "config_required" and not missing:
         return cleared
+    if kind == "config_dropped" and config_changed and not missing:
+        # An update's notice (app/plugins/updates.py): saving the config answers it.
+        return {"attention": None}
     if will_run and acknowledged and status == "needs_attention":
         return cleared
     if not will_run and missing and config_changed and status != "needs_attention":
@@ -997,8 +1001,10 @@ async def update_plugin(
     directory is shared: every instance of the plugin moves to the new version and keeps
     its config, secrets and KV. An instance whose grants do not cover new or changed
     permissions is held (``attention.type = "consent_required"``), one missing a new
-    required config field too (``config_required``); ``granted_permissions`` and
-    ``config`` apply to this instance only. 409 ``plugin_not_updatable`` (not from a
+    required config field too (``config_required``); a kept config value the new schema
+    rejects is dropped and reported in ``attention`` (``config_dropped``: a notice on a
+    running instance, a key on a hold); ``granted_permissions`` and ``config`` apply to
+    this instance only. 409 ``plugin_not_updatable`` (not from a
     custom repository), ``plugin_reinstall_required``, ``plugin_up_to_date``."""
     from app.plugins import updates
 
@@ -1021,6 +1027,7 @@ async def update_plugin(
         scope.details["to_version"] = fields.get("version")
         held = (fields.get("attention") or {}).get("type")
         scope.details["held"] = held if held in ("consent_required", "config_required") else None
+        scope.details["config_dropped"] = updates.config_dropped(fields)
     return await _view(await _row(row["instance_id"]), True)
 
 

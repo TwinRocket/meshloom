@@ -12,7 +12,9 @@ Only ``kind = custom`` instances (a custom GitHub repository, MSHL-196) update h
   changed, removed, privacy widened), the config schema diff (fields added, removed,
   newly required; None for a release cached before migration 127), the changelog in
   ``lang`` when the source entry has one (``en`` fallback; custom releases have none)
-  and, per instance, the hold the update would put on it. No request is made.
+  and, per instance, the hold the update would put on it (``hold``, ``permissions``,
+  ``missing_fields``) and the config fields it would drop (``dropped_fields``). No
+  request is made.
 - ``update_plugin()`` (``POST /api/plugins/{instance_id}/update``) goes through the
   install pipeline: ``resolve_source`` and ``prepare_install`` (refused while the
   Store is off, ``store_offline``; the archive's size, sha256 and manifest checked;
@@ -30,20 +32,29 @@ Only ``kind = custom`` instances (a custom GitHub repository, MSHL-196) update h
     consent for the instance it names only, never for its siblings;
   - a required config field the kept config lacks holds it with ``config_required``
     (``enabled = false``) until the admin fills it;
-  - otherwise it is cleared (``revoked``, ``incompatible`` or an earlier update's hold)
-    and restarted when enabled.
+  - otherwise it is cleared (``revoked``, ``incompatible``, an earlier update's hold or
+    notice) and restarted when enabled.
 
   Config (plain fields the new schema still declares), secrets the schema still
-  declares, scope, quotas, KV data and the label are kept.
+  declares, scope, quotas, KV data and the label are kept. A kept value the new schema
+  rejects (a field it still declares, not required) is dropped and reported, never
+  silently: ``attention.type = config_dropped`` with its ``fields`` on an instance that
+  is not held (a notice: ``status`` is unchanged and it still runs; a PATCH that saves
+  its ``config`` clears it), ``attention.config_dropped`` on a held one, and
+  ``config_dropped`` in the ``plugin.updated`` audit details. A dropped required field
+  is a ``config_required`` hold instead.
 - ``auto_update()`` is a Store refresher (after ``refresh_repositories``, every 6 h
   while the Store is on): inside the update window of the app settings
   (``auto_update_window_*``, ``app/services/update_window.py``) it applies the
   updates of the plugins whose instances all have ``auto_update`` on, never one that
-  would hold any instance (consent or config).
+  would hold any instance (consent or config). It is evaluated only at those refresh
+  ticks (``store_egress.REFRESH_INTERVAL_S``), so a window shorter than 6 h may be
+  missed on a given day.
 - ``mark_compat()`` runs at start (``lifecycle.start``), before any instance starts:
   a custom or store instance whose manifest's ``compat.meshloom`` excludes this
   meshloom becomes ``incompatible`` (it never starts); one that fits again goes back
-  to ``installed``.
+  to ``installed``, or to ``needs_attention`` when it carries a hold (its
+  ``attention`` is kept across ``incompatible``: a consent hold is never lost).
 """
 
 from __future__ import annotations
@@ -72,6 +83,8 @@ logger = logging.getLogger(__name__)
 
 CONSENT_REQUIRED = "consent_required"
 CONFIG_REQUIRED = "config_required"
+# A notice, not a hold: config values the new schema rejected (the instance still runs).
+CONFIG_DROPPED = "config_dropped"
 UPDATABLE_KINDS = ("custom",)
 # Holds an update clears when it leaves the instance runnable.
 _CLEARED_HOLDS = (CONSENT_REQUIRED, CONFIG_REQUIRED, "review_permissions")
@@ -148,6 +161,23 @@ def _kept_config(row: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     return config_for_schema(schema, public_config(row))
 
 
+def _dropped_config(
+    row: dict[str, Any], schema: dict[str, Any], kept: dict[str, Any], missing: list[str]
+) -> list[str]:
+    """The plain fields the new schema still declares whose stored value it rejects
+    (``config_for_schema`` drops them); a now missing required field is reported by
+    ``config_required`` instead."""
+    props = schema.get("properties") or {}
+    secrets = secret_fields(schema)
+    from app.services.backup_plugins import public_config
+
+    return sorted(
+        key
+        for key in public_config(row)
+        if key in props and key not in secrets and key not in kept and key not in missing
+    )
+
+
 def _stored_secrets(row: dict[str, Any], schema: dict[str, Any]) -> frozenset[str]:
     return frozenset(row.get("secret_fields") or ()) & secret_fields(schema)
 
@@ -210,7 +240,11 @@ async def available_updates(lang: str = "en") -> list[dict[str, Any]]:
         instances = []
         for row in rows:
             _, permissions, privacy = _grant_hold(row, manifest, consented=False)
-            missing = _missing(row, schema, _kept_config(row, schema)) if schema is not None else []
+            missing, dropped = [], []
+            if schema is not None:
+                kept = _kept_config(row, schema)
+                missing = _missing(row, schema, kept)
+                dropped = _dropped_config(row, schema, kept, missing)
             instances.append(
                 {
                     "instance_id": row["instance_id"],
@@ -220,6 +254,7 @@ async def available_updates(lang: str = "en") -> list[dict[str, Any]]:
                     "hold": _hold_of(permissions, privacy, missing),
                     "permissions": permissions,
                     "missing_fields": missing,
+                    "dropped_fields": dropped,
                 }
             )
         out.append(
@@ -254,9 +289,11 @@ def _row_fields(
     api = _api()
     manifest, schema = prepared.manifest, prepared.config_schema
     grants, permissions, privacy = _grant_hold(row, manifest, consented)
+    dropped: list[str] = []
     if config is None:
         config = _kept_config(row, schema)
         missing = _missing(row, schema, config)
+        dropped = _dropped_config(row, schema, config, missing)
     else:
         invalid, missing = api._check_config(schema, config, _stored_secrets(row, schema))
         if invalid:
@@ -282,21 +319,45 @@ def _row_fields(
             "from_version": row["version"],
             "to_version": manifest["version"],
             **({"fields": missing} if missing else {}),
+            **({CONFIG_DROPPED: dropped} if dropped else {}),
         }
     elif hold == CONFIG_REQUIRED:
         fields["status"] = "needs_attention"
-        fields["attention"] = {"type": CONFIG_REQUIRED, "fields": missing}
-    elif row["status"] in ("revoked", "incompatible") or (
-        row["status"] == "needs_attention"
-        and (row.get("attention") or {}).get("type") in _CLEARED_HOLDS
-    ):
-        fields["status"] = "installed"
-        fields["attention"] = None
+        fields["attention"] = {
+            "type": CONFIG_REQUIRED,
+            "fields": missing,
+            **({CONFIG_DROPPED: dropped} if dropped else {}),
+        }
+    else:
+        if row["status"] in ("revoked", "incompatible") or (
+            row["status"] == "needs_attention"
+            and (row.get("attention") or {}).get("type") in _CLEARED_HOLDS
+        ):
+            fields["status"] = "installed"
+            fields["attention"] = None
+        elif (row.get("attention") or {}).get("type") == CONFIG_DROPPED:
+            fields["attention"] = None  # an earlier update's notice
+        if dropped:
+            # Not a hold: the instance runs; the notice stays until its config is saved.
+            fields["attention"] = {
+                "type": CONFIG_DROPPED,
+                "fields": dropped,
+                "from_version": row["version"],
+                "to_version": manifest["version"],
+            }
     return fields
 
 
 def _held(fields: dict[str, Any]) -> bool:
     return (fields.get("attention") or {}).get("type") in (CONSENT_REQUIRED, CONFIG_REQUIRED)
+
+
+def config_dropped(fields: dict[str, Any]) -> list[str]:
+    """The config fields an update dropped (its notice, or the key on its hold)."""
+    attention = fields.get("attention") or {}
+    if attention.get("type") == CONFIG_DROPPED:
+        return list(attention.get("fields") or [])
+    return list(attention.get(CONFIG_DROPPED) or [])
 
 
 async def _audit(row: dict[str, Any], fields: dict[str, Any], actor: Any, auto: bool) -> None:
@@ -312,6 +373,7 @@ async def _audit(row: dict[str, Any], fields: dict[str, Any], actor: Any, auto: 
             "from_version": row["version"],
             "to_version": fields["version"],
             "held": (fields.get("attention") or {}).get("type") if _held(fields) else None,
+            "config_dropped": config_dropped(fields),
             "auto": auto,
         },
     )
@@ -541,7 +603,10 @@ async def mark_compat() -> None:
         if not fits and row["status"] != "incompatible":
             status = "incompatible"
         elif fits and row["status"] == "incompatible":
-            status = "installed"
+            # The attention survives `incompatible`: a hold (consent, config, review)
+            # comes back with it, so nothing it guards runs without the admin.
+            kind = (row.get("attention") or {}).get("type")
+            status = "needs_attention" if kind and kind != CONFIG_DROPPED else "installed"
         else:
             continue
         try:
