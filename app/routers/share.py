@@ -20,6 +20,9 @@ encrypted object (``application/octet-stream``) is cached as ciphertext and
 decrypted per request with the secret of that message's conversation, resolved
 here from the message row, never supplied by the client. No secret is ever
 logged, returned or sent.
+
+``POST /{id}/report`` forwards a report (``reason``, optional ``details``) to the
+service, signed with the instance key (``share.report_object``).
 """
 
 from __future__ import annotations
@@ -41,6 +44,8 @@ from app.models import (
     ShareLinkRequest,
     ShareLinkResponse,
     ShareMetaResponse,
+    ShareReportRequest,
+    ShareReportResponse,
     ShareStatus,
 )
 from app.repository import AppSettingsRepository, MessageRepository
@@ -336,6 +341,27 @@ async def get_share_meta(
         if meta.mode == "encrypted":
             fields.update(await _encrypted_meta(share_id, message))
     return ShareMetaResponse.model_validate(fields)
+
+
+@router.post(
+    "/{share_id}/report",
+    response_model=ShareReportResponse,
+    status_code=202,
+    dependencies=[Depends(require("send")), Depends(refuse_cross_site)],
+)
+async def report_share_object(share_id: str, body: ShareReportRequest) -> ShareReportResponse:
+    """Report an object to the service (``POST /v1/reports``, JWT variant).
+
+    The token is minted for ``id + "\\n" + reason`` with the instance key, so the
+    service records the reporter by that key. ``details`` travels unbound.
+    """
+    # Off first: a disabled instance answers share_disabled whatever the id.
+    if await share.share_egress_state() is None:
+        raise ShareError("share_disabled")
+    if not share.is_share_id(share_id):
+        raise ShareError("share_invalid_id")
+    await share.report_object(share_id, body.reason, body.details)
+    return ShareReportResponse()
 
 
 @router.get("/{share_id}", dependencies=[Depends(require("read"))])

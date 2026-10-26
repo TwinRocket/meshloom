@@ -4,7 +4,7 @@ Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``aiomqtt.Client`` for the whole test. With Community off, every route under
 ``/api/community``, ``/api/directory``, ``/api/tools``, ``/api/channels``,
 ``/api/settings``, ``/api/updates``, ``/api/store``, ``/api/plugins`` and
-``/api/share`` (``POST /api/share/files`` included) is called (found dynamically from
+``/api/share`` (``POST /api/share/files`` and ``/{id}/report`` included) is called (found dynamically from
 ``app.routes``), plus the hashtag catalogue and the update check with GitHub
 answering 503. Any request to ``*.meshloom.app``,
 ``api.fx-port.com`` (the retired airport search) or the effective Community API
@@ -391,6 +391,7 @@ _BODIES: dict[tuple[str, str], Any] = {
     },
     ("PATCH", "/api/updates/settings"): {},
     ("POST", "/api/share/links"): {"url": "https://example.com/a"},
+    ("POST", "/api/share/{share_id}/report"): {"reason": "spam", "details": "sweep"},
 }
 _SWEPT_PREFIXES = (
     "/api/community",
@@ -450,6 +451,7 @@ class TestCommunityOffNoEgress:
         assert "/api/settings" in paths
         assert "/api/updates/refresh" in paths
         assert ("POST", "/api/share/files") in routes
+        assert ("POST", "/api/share/{share_id}/report") in routes
         assert len(routes) >= 50
         # Left out on purpose: the IATA suggestion (TestIataSuggestion).
         assert ("GET", "/api/community/iata/suggest") not in routes
