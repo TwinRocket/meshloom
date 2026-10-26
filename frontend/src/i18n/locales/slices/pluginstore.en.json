@@ -19,6 +19,10 @@
         "revocation_alerts": "Online revocation alerts for plugins."
       }
     },
+    "online": {
+      "toggle": "Store online",
+      "help": "Turning this off stops all Store access to the internet: no catalogue browsing, no update checks and no automatic updates. Installed plugins keep running."
+    },
     "refresh": {
       "button": "Refresh",
       "last": "Store online. Last refresh: {{time}}.",

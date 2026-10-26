@@ -14,7 +14,7 @@ export const REFRESH_COOLDOWN_MS = 10_000;
 /**
  * Settings > Extensions > Store: the activation card while the Store is off (admins
  * only: the status route is admin-only), then the custom repositories and their plugins
- * with a Refresh button. A member sees the warning and a notice, and nothing is requested.
+ * with a Refresh button and the switch that turns the Store off again. A member sees the warning and a notice, and nothing is requested.
  */
 export function StoreTab({
   canManage,
@@ -75,6 +75,19 @@ export function StoreTab({
     }
   };
 
+  const disable = async () => {
+    setBusy(true);
+    try {
+      await api.updateSettings({ store_online: false });
+      reload();
+      setListKey((n) => n + 1);
+    } catch (err) {
+      toast.error(formatApiError(err, t));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const refresh = async () => {
     setRefreshing(true);
     setCooling(true);
@@ -108,22 +121,38 @@ export function StoreTab({
       )}
       {canManage && online && (
         <div
-          className="flex flex-wrap items-center gap-2 rounded-md border border-border p-3 text-sm"
+          className="space-y-2 rounded-md border border-border p-3 text-sm"
           data-testid="store-online"
         >
-          <span className="min-w-0 flex-1 text-muted-foreground">
-            {lastRefresh
-              ? t('pluginStore.refresh.last', { time: lastRefresh })
-              : t('pluginStore.refresh.never')}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void refresh()}
-            disabled={refreshing || cooling}
-          >
-            {t('pluginStore.refresh.button')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                role="switch"
+                checked
+                disabled={busy}
+                aria-describedby="store-online-help"
+                onChange={() => void disable()}
+              />
+              <span>{t('pluginStore.online.toggle')}</span>
+            </label>
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              {lastRefresh
+                ? t('pluginStore.refresh.last', { time: lastRefresh })
+                : t('pluginStore.refresh.never')}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void refresh()}
+              disabled={refreshing || cooling}
+            >
+              {t('pluginStore.refresh.button')}
+            </Button>
+          </div>
+          <p id="store-online-help" className="text-muted-foreground">
+            {t('pluginStore.online.help')}
+          </p>
         </div>
       )}
       <CustomRepositoriesPanel

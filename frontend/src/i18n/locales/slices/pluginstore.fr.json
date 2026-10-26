@@ -19,6 +19,10 @@
         "revocation_alerts": "Les alertes de révocation en ligne des extensions."
       }
     },
+    "online": {
+      "toggle": "Store en ligne",
+      "help": "Le désactiver coupe tout accès du Store à Internet : plus de navigation dans le catalogue, plus de vérification des mises à jour et plus de mises à jour automatiques. Les extensions installées continuent de fonctionner."
+    },
     "refresh": {
       "button": "Actualiser",
       "last": "Store activé. Dernière actualisation : {{time}}.",
