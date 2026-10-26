@@ -107,6 +107,11 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
     `PRIVATE-TOKEN` and any other header are dropped.
   - `max_redirects=0` (default) returns a redirect as is; one more redirect
     than allowed raises `egress_too_many_redirects`.
+  - `content` is bytes or a `StreamedBody(length, open)`: `open()` gives a fresh
+    async iterator for each attempt (pinned IP, redirect hop) and the guard sets
+    `Content-Length` to `length` itself, so the body is never sent chunked (h11
+    refuses a body that does not match it). The share upload uses it to stream a
+    staged file.
   - a body above `max_request_bytes` is refused before any DNS lookup
     (`egress_request_too_large`). The response is refused unread when its
     `Content-Length` is above `max_response_bytes`, and aborted (connection

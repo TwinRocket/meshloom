@@ -52,9 +52,11 @@ map:
   - addon_config:rw
 
 # The shared images cache (<addon_config>/share-cache, up to 200 MiB) is
-# rebuilt on demand: keep it out of Home Assistant backups.
+# rebuilt on demand, and share-tmp only holds uploads in progress: keep both out
+# of Home Assistant backups.
 backup_exclude:
   - share-cache
+  - share-tmp
 
 options:
   log_level: INFO

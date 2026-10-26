@@ -60,6 +60,7 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import httpx
@@ -73,6 +74,7 @@ from app.net.egress_guard import (
     CheckedResponse,
     EgressBlocked,
     HostAllowlist,
+    StreamedBody,
     error_code,
     follow_checked_redirects,
 )
@@ -157,6 +159,7 @@ SHARE_ERRORS: dict[str, tuple[int, str]] = {
     "share_cross_site": (403, "Sharing requests from another site are refused"),
     "share_invalid_id": (400, "This is not a shared object id"),
     "share_invalid_request": (400, "Unexpected parameter in a share request"),
+    "share_mode_unavailable": (422, "This share mode is not available yet"),
 }
 
 # The contract's optional ``scope`` of a 429 ``quota_exceeded`` -> local code. An
@@ -393,6 +396,9 @@ async def share_request(
     *,
     binding: str | None,
     json_body: dict[str, Any] | None = None,
+    body: StreamedBody | None = None,
+    content_type: str | None = None,
+    extra_headers: dict[str, str] | None = None,
     read: ReadKind | None = None,
     accept: str = "application/json",
     max_response_bytes: int = MAX_JSON_RESPONSE_BYTES,
@@ -401,7 +407,8 @@ async def share_request(
 
     ``binding`` is the contract's binding string of a write (``None`` for a
     read, which carries no token). ``read`` names the read bucket and enables
-    the negative cache.
+    the negative cache. ``body`` streams a raw upload (``POST /v1/files``) with
+    its ``content_type`` and ``extra_headers`` (the ``X-Share-*`` headers).
     """
     generation = _state.generation
     state = await share_egress_state()
@@ -429,8 +436,14 @@ async def share_request(
     # Checked last: a half-open trial granted here must reach the network.
     if not breaker.allow():
         raise ShareError("share_unavailable")
-    headers = {"Accept": accept, "User-Agent": f"Meshloom/{get_app_build_info().version}"}
-    content: bytes | None = None
+    headers = {
+        **(extra_headers or {}),
+        "Accept": accept,
+        "User-Agent": f"Meshloom/{get_app_build_info().version}",
+    }
+    content: bytes | StreamedBody | None = body
+    if body is not None and content_type is not None:
+        headers["Content-Type"] = content_type
     try:
         if limiter is not None:
             await limiter.acquire()
@@ -604,10 +617,15 @@ def sniff_image_type(content: bytes) -> str | None:
     return None
 
 
-def image_dimensions(content: bytes) -> tuple[int, int] | None:
-    """Width and height read from the header, or None when unreadable."""
+def image_dimensions(content: bytes | Path) -> tuple[int, int] | None:
+    """Width and height read from the header (bytes or a file), or None when unreadable.
+
+    The stored dimensions (``exif_rotation=False``): a rotation never changes the
+    pixel count the caps bound.
+    """
+    source = content if isinstance(content, Path) else io.BytesIO(content)
     try:
-        width, height = imagesize.get(io.BytesIO(content))
+        width, height = imagesize.get(source, exif_rotation=False)
     except Exception:  # noqa: BLE001 - any parser failure means "not an image"
         return None
     if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:

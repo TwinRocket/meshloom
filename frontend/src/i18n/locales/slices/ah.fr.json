@@ -16,6 +16,7 @@
     "share_invalid_url": "Cette adresse ne peut pas être raccourcie.",
     "share_cross_site": "Les demandes de partage venant d’un autre site web sont refusées.",
     "share_invalid_id": "Cet identifiant d’objet partagé n’est pas valide.",
-    "share_invalid_request": "Paramètre inattendu dans une demande de partage."
+    "share_invalid_request": "Paramètre inattendu dans une demande de partage.",
+    "share_mode_unavailable": "Le partage chiffré n’est pas encore disponible."
   }
 }

@@ -255,6 +255,14 @@ async def lifespan(app: FastAPI):
         # (app/auth/setup_code.py), and every other route still needs an account.
         logger.exception("Failed to prepare the first-run account setup")
 
+    # Share uploads left half-staged by a crash or a kill (app/services/share_upload.py).
+    from app.services.share_upload import clean_tmp_directory
+
+    try:
+        clean_tmp_directory()
+    except Exception:
+        logger.exception("Failed to clean the share upload folder")
+
     # Initialize VAPID keys for Web Push (generates on first run)
     from app.push.vapid import ensure_vapid_keys
 

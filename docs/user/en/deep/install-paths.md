@@ -168,6 +168,8 @@ The server serves `frontend/dist` if it exists, otherwise `frontend/prebuilt` (a
 
 Next to the database, the `share-cache` folder keeps the shared images Meshloom has already downloaded (for example `/var/lib/meshloom/share-cache`), so a second view sends no request. It holds about 200 MiB at most (the images, their index and the database journal; the limit is approximate), drops the least recently viewed images first and keeps each one for 1 hour at most. Deleting it is harmless, and Home Assistant backups leave it out.
 
+The `share-tmp` folder, next to it, holds an image only while you share it: Meshloom checks it there (type, size, dimensions) before sending it, then deletes it, whether the upload worked or not. It is readable by Meshloom alone, emptied at every startup, and Home Assistant backups leave it out.
+
 The recovery command `meshloom-admin` reads the same file; how to run it for each installation is in [Accounts and access](/en/docs/deep/access/).
 
 **Settings → Updates** shows the update status and can check for a new version (**Check now**). Where it is supported, it installs the update from a signed source, either on request (**Install now**) or by itself inside a time window and on the days you choose. This works for a Linux package and for a Docker stack managed by the helper. A copy of the code is updated as described above. Elsewhere, update by hand:

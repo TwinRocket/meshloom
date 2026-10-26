@@ -16,6 +16,7 @@
     "share_invalid_url": "This address cannot be shortened.",
     "share_cross_site": "Sharing requests coming from another website are refused.",
     "share_invalid_id": "This is not a valid shared object id.",
-    "share_invalid_request": "Unexpected parameter in a share request."
+    "share_invalid_request": "Unexpected parameter in a share request.",
+    "share_mode_unavailable": "Encrypted sharing is not available yet."
   }
 }

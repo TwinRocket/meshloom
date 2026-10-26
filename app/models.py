@@ -3430,6 +3430,21 @@ class ShareLinkResponse(BaseModel):
     expires_at: int
 
 
+class ShareFileResponse(BaseModel):
+    """``POST /api/share/files``: the stored file and the composer's proposed text.
+
+    ``text`` is ``📷 <url>`` (30 bytes on ``meshl.ink``, cadrage 4.2); the user
+    may edit it before sending.
+    """
+
+    id: str
+    url: str
+    expires_at: int
+    size: int
+    mode: Literal["public"]
+    text: str
+
+
 class ShareMetaResponse(BaseModel):
     """``GET /api/share/{id}/meta``: a link (``target_host``) or a file.
 
