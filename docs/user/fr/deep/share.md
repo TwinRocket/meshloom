@@ -7,7 +7,7 @@ order: 23
 
 Un message MeshCore contient 156 octets, et une adresse web en prend souvent davantage. Le **service de partage** transforme une longue adresse en un lien court comme `https://meshl.ink/Ab3dE9x` (25 octets), qui tient dans un message et que tout le monde peut ouvrir. Il est exploité par le projet Meshloom sur son propre domaine, `meshl.ink`, et il est **optionnel et désactivé par défaut** : tant qu’un administrateur ne l’active pas, ce Meshloom ne le contacte jamais, pas même pour résoudre son nom.
 
-Cette version raccourcit des **adresses web**. Le partage de fichiers et d’images n’y est pas encore : les sections ci-dessous ne décrivent que ce qui existe.
+Cette version raccourcit des **adresses web** et envoie des **photos** sous forme de liens publics, depuis le panneau **Envoyer une photo** de la zone de saisie : toute personne qui a ce lien peut ouvrir la photo. Elle n’envoie pas encore de fichiers chiffrés. Les sections ci-dessous ne décrivent que ce qui existe.
 
 ## L’activer
 
@@ -22,9 +22,10 @@ Si le service ne répond pas, ses conditions ne peuvent pas être lues : le part
 Seul ce serveur contacte le service, jamais votre navigateur, et toujours en HTTPS vers `meshl.ink` uniquement : Meshloom refuse toute redirection vers un autre hôte. Il n’envoie jamais vos clés de canal ni la clé de votre radio.
 
 - **Quand vous raccourcissez un lien** (un message que vous écrivez, ou l’API) : l’adresse à raccourcir, la moitié **publique** de la clé de partage de ce Meshloom dans un jeton signé valable moins de deux minutes et pour cette seule requête, et l’adresse IP de ce Meshloom, que le service voit à chaque requête.
-- **Quand vous lisez :** rien à l’affichage d’un message. Quand vous survolez un lien court ou lui donnez le focus, Meshloom demande au service ce que c’est (sa nature, l’hôte de sa destination et son expiration) pour afficher l’indication décrite plus bas. Cette requête porte l’identifiant du lien et l’adresse IP de ce Meshloom, sans jeton.
+- **Quand vous envoyez une photo :** l’image, réduite dans votre navigateur et sans sa position ni les données de l’appareil, sa taille et son empreinte, le même type de jeton signé, et l’adresse IP de ce Meshloom. La photo est publique : quiconque a son lien peut la voir.
+- **Quand vous lisez :** rien à l’affichage d’un message, sauf une photo partagée, que ce serveur télécharge quand le réglage des aperçus plus bas la laisse se charger ou quand vous la touchez (une seule fois : elle est ensuite gardée dans un cache local). Quand vous survolez un lien court ou lui donnez le focus, Meshloom demande au service ce que c’est (sa nature, l’hôte de sa destination et son expiration) pour afficher l’indication décrite plus bas. Ces requêtes portent l’identifiant de l’objet et l’adresse IP de ce Meshloom, sans jeton.
 
-Le service conserve les liens courts 365 jours. Ses conditions d’utilisation et sa politique de confidentialité, accessibles depuis la fenêtre de consentement et publiées sur le domaine du service, disent ce qu’il conserve et pour qui ; la fenêtre de consentement mentionne aussi 30 jours pour les fichiers, que cette version n’envoie pas.
+Le service conserve les liens courts 365 jours et les fichiers 30 jours. Ses conditions d’utilisation et sa politique de confidentialité, accessibles depuis la fenêtre de consentement et publiées sur le domaine du service, disent ce qu’il conserve et pour qui.
 
 Meshloom n’utilise jamais la clé de la radio pour cela. Voir [La clé de partage](/docs/deep/security/#la-clé-de-partage) : une clé aléatoire qui lui est propre, créée la première fois que vous raccourcissez un lien, et que le service ne voit que comme un pseudonyme. Les sauvegardes ne contiennent jamais le consentement, l’acceptation des conditions enregistrée, ni cette clé (voir [Sauvegarder la radio](/docs/backup/)).
 
@@ -50,9 +51,17 @@ Le service propose aussi, pour chaque lien, une **page d’aperçu** : ajoutez `
 
 L’indication demande que le partage soit activé : quand il est désactivé, un lien court n’est qu’un lien et rien n’est demandé.
 
+## Ouvrir un fichier chiffré dans un navigateur
+
+Cette version de Meshloom n’envoie pas encore de fichiers chiffrés, mais le service a déjà la page qui les ouvre. Une image chiffrée partagée dans un **canal privé** peut être ouverte par les membres du canal, depuis n’importe quel appareil, à l’adresse `https://meshl.ink/<id>/decrypt` (la page du fichier y renvoie) : collez la clé du canal, ses 32 caractères hexadécimaux ou le lien `meshcore://` du canal. Le navigateur déchiffre le fichier : la clé n’est ni envoyée au service, ni mise dans l’adresse, ni enregistrée, et la seule requête est le téléchargement du fichier chiffré. Une mauvaise clé affiche une erreur et rien d’autre.
+
+Les fichiers partagés en **message direct** ne peuvent pas y être ouverts : leur clé ne quitte jamais la base radio Meshloom. Ouvrez-les dans Meshloom.
+
+La page déchiffre avec le code que `meshl.ink` envoie à chaque ouverture : s’en servir revient à faire confiance au code servi lors de cette visite. Sinon, ouvrez le fichier dans Meshloom.
+
 ## Qui peut faire quoi
 
-Activer ou désactiver le partage et régler les modes demande le rôle **administrateur**. Raccourcir un lien demande le rôle **membre** ou plus. Les lecteurs et les bornes peuvent lire les indications (voir [Comptes et accès](/docs/deep/access/) pour les rôles). Le serveur le vérifie à chaque requête, quoi que l’interface affiche, et refuse une requête que le navigateur signale comme venant d’un autre site web.
+Activer ou désactiver le partage et régler les modes demande le rôle **administrateur**. Raccourcir un lien ou envoyer une photo demande le rôle **membre** ou plus. Les lecteurs et les bornes peuvent lire les indications (voir [Comptes et accès](/docs/deep/access/) pour les rôles). Le serveur le vérifie à chaque requête, quoi que l’interface affiche, et refuse une requête que le navigateur signale comme venant d’un autre site web.
 
 ## Quand quelque chose ne va pas
 

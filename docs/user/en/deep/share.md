@@ -7,7 +7,7 @@ order: 23
 
 A MeshCore message holds 156 bytes, and a web address often takes more than that. The **sharing service** turns a long address into a short link such as `https://meshl.ink/Ab3dE9x` (25 bytes), which fits in a message and which anybody can open. It is run by the Meshloom project on its own domain, `meshl.ink`, and it is **optional and off by default**: until an administrator turns it on, this Meshloom never contacts it, not even to look up its name.
 
-This version shortens **web addresses**. Sharing files and images is not in it yet: the sections below only describe what exists.
+This version shortens **web addresses** and sends **photos** as public links from the composer's **Send a photo** panel: anyone who has such a link can open the photo. It does not send encrypted files yet. The sections below only describe what exists.
 
 ## Turning it on
 
@@ -22,9 +22,10 @@ If the service is not answering, its terms cannot be read, so sharing cannot be 
 Only this server contacts the service, never your browser, and always over HTTPS to `meshl.ink` alone: Meshloom refuses any redirect to another host. It never sends your channel keys or your radio's key.
 
 - **When you shorten a link** (a message you write, or the API): the address you want to shorten, the **public** half of this Meshloom's sharing key inside a signed token that is valid for under two minutes and for that one request, and this Meshloom's IP address, which the service sees on every request.
-- **When you read:** nothing when a message is displayed. When you hover over or focus a short link, Meshloom asks the service what it is (its kind, its destination's host and its expiry) to show the hint described below. That request carries the link's id and this Meshloom's IP address, and no token.
+- **When you send a photo:** the image, shrunk in your browser and without its position and camera data, its size and fingerprint, the same kind of signed token, and this Meshloom's IP address. The photo is public: anyone with its link can see it.
+- **When you read:** nothing when a message is displayed, except a shared photo, which this server downloads when the preview setting below lets it load or when you tap it (once: it is then kept in a local cache). When you hover over or focus a short link, Meshloom asks the service what it is (its kind, its destination's host and its expiry) to show the hint described below. These requests carry the object's id and this Meshloom's IP address, and no token.
 
-The service itself keeps short links for 365 days. Its terms of use and privacy policy, linked from the consent window and published on the service's own domain, say what it keeps and for whom; the consent window also mentions 30 days for files, which this version does not send.
+The service itself keeps short links for 365 days and files for 30 days. Its terms of use and privacy policy, linked from the consent window and published on the service's own domain, say what it keeps and for whom.
 
 Meshloom never uses the radio's key for this. See [The sharing key](/en/docs/deep/security/#the-sharing-key): a random key of its own, created the first time you shorten a link, which the service only sees as a pseudonym. Backups never carry the consent, its recorded acceptance of the terms, nor this key (see [Back up your radio](/en/docs/backup/)).
 
@@ -50,9 +51,17 @@ The service also has, for each link, a **preview page**: add `+` at the end of t
 
 The hint needs sharing to be on: with sharing off, a short link is just a link and nothing is requested.
 
+## Opening an encrypted file in a browser
+
+This version of Meshloom does not send encrypted files yet, but the service already has the page that opens them. An encrypted image shared in a **private channel** can be opened by the channel's members, from any device, at `https://meshl.ink/<id>/decrypt` (the file's page links to it): paste the channel's key, its 32 hexadecimal characters or the channel's `meshcore://` link. The browser decrypts the file: the key is not sent to the service, put in the address or saved, and the only request is the download of the encrypted file. A wrong key shows an error and nothing else.
+
+Files shared in a **direct message** cannot be opened there: their key never leaves the Meshloom radio base. Open them in Meshloom.
+
+The page decrypts with code that `meshl.ink` sends each time it is opened, so using it means trusting the code served on that visit. If you do not, open the file in Meshloom.
+
 ## Who can do what
 
-Turning sharing on or off and setting the modes needs the **administrator** role. Shortening a link needs the **member** role or above. Viewers and kiosks can read the hints (see [Accounts and access](/en/docs/deep/access/) for the roles). The server checks this on every request, whatever the interface shows, and refuses a request that the browser marks as coming from another web site.
+Turning sharing on or off and setting the modes needs the **administrator** role. Shortening a link or sending a photo needs the **member** role or above. Viewers and kiosks can read the hints (see [Accounts and access](/en/docs/deep/access/) for the roles). The server checks this on every request, whatever the interface shows, and refuses a request that the browser marks as coming from another web site.
 
 ## When something goes wrong
 
