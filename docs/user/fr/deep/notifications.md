@@ -213,6 +213,7 @@ Les mêmes choix sont disponibles par `GET`, `PATCH` et `DELETE /api/push/my-rul
 | Messages de canal | Un message arrive sur le salon Public ou sur un salon `#`. Un salon à clé privée reste muet sans exception qui l’active |
 | Mentions | Un message de salon vous nomme, voir [Les mentions](#les-mentions) |
 | Mot-clé | Un message contient le texte d’une règle de mot-clé, voir [Les mots-clés](#les-mots-clés). Réglé dans sa propre carte, pas dans ce tableau |
+| Nœud surveillé entendu / de retour | Un nœud que vous surveillez est entendu (son annonce ou un message privé), ou revient après un long silence, voir [Les nœuds surveillés](#les-nœuds-surveillés). Réglé dans sa propre carte, pas dans ce tableau |
 | Nouveau nœud vu | Un nœud est entendu pour la première fois, avec une sous-ligne par type : **Compagnons** (la radio d’une personne), **Répéteurs** et **Capteurs**. Seul compte un nouveau contact ajouté une fois le démarrage de la radio terminé : un nœud déjà connu, un nœud inconnu et un serveur de salon ne le déclenchent jamais |
 | Canal trouvé | Meshloom trouve un nouveau salon hashtag |
 | Alerte de télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils et les canaux qui les reçoivent (une pastille par canal) se règlent sur la page **Alertes** |
@@ -258,6 +259,18 @@ Une conversation en sourdine, un expéditeur bloqué, un canal en attente, *Ne p
 **Un mot-clé peut être forgé par n’importe qui à portée :** les messages de canal ne sont pas authentifiés, donc quiconque écrit le mot déclenche la règle. C’est pourquoi un mot-clé n’est jamais urgent et a des délais de récupération. Ne vous fiez pas à un mot-clé seul pour quoi que ce soit de critique.
 
 Les règles voyagent dans la sauvegarde complète (partie *Notifications*), vérifiées comme le fait l’API ; une règle qui serait refusée est écartée avec un avertissement.
+
+## Les nœuds surveillés
+
+Un **nœud surveillé** notifie un canal quand un nœud précis est de nouveau entendu, ou revient après un long silence : un répéteur sur une colline, la radio d’un ami. Activez **Notifier quand il est entendu** dans la fiche contact du nœud (administrateurs ; les canaux atteignables sont proposés sous forme de pastilles, tous sauf Web Push sont cochés au départ), puis ajustez chaque nœud dans **Réglages → Notifications → Nœuds surveillés**.
+
+- **Entendu.** Un nœud est *entendu* quand son annonce arrive ou qu’un message privé de sa part est déchiffré. La notification est « Hilltop entendu » (`contact.node_seen`).
+- **De retour.** Quand l’observation précédente remonte à plus que le **seuil de silence** (24 heures par défaut, de 1 minute à 365 jours), la notification est « Hilltop est de retour après 2 j » (`contact.node_back`).
+- **Délai de récupération.** Un nœud notifie au plus une fois par délai (1 heure par défaut, de 0 à 30 jours), quelle que soit la notification, si bien qu’un nœud qui s’annonce toutes les quelques minutes n’inonde jamais un canal. Une observation pendant le délai n’est pas notifiée mais compte quand même comme la dernière observation pour le silence.
+- **Canaux.** Choisissez les canaux de chaque nœud. **Web Push n’est pas proposé** : il se décide compte par compte, et un nœud surveillé est un réglage d’instance. Un nœud sans canal n’envoie rien.
+- **Limites.** 50 nœuds au plus, imposés par le serveur (`watched_nodes` dans `PATCH /api/notifications/rules`) et à la restauration d’une sauvegarde. Seuls les nœuds surveillés sont retenus (dernière observation et délai, conservés après un redémarrage) : l’annonce d’un autre nœud ne coûte rien.
+
+*Ne pas déranger*, la pause d’un canal et les politiques de texte s’appliquent comme pour toute notification. Les annonces sont signées mais n’importe qui à portée peut les rejouer, une raison de plus pour le délai de récupération. Les nœuds voyagent dans la sauvegarde complète (partie *Notifications*), vérifiés comme le fait l’API.
 
 ## Conversations et exceptions
 
@@ -341,7 +354,7 @@ Les tests sont limités : un toutes les 5 secondes par canal, un toutes les 2 se
 
 ## Sauvegardes
 
-La **sauvegarde complète** (Réglages → Base de données) contient une partie *Notifications* : chaque canal (type, nom, options, limites, langue, politique de texte, modèles de message) et les règles (événements, exceptions par conversation, options du tableau de règles et heures calmes), **sans aucun secret**. Les choix propres à chaque compte (voir [Vos propres règles](#vos-propres-règles)) voyagent avec les comptes : ils reviennent quand **Inclure les comptes** est coché. Les mots de passe, jetons, adresses Discord ou Apprise, sujets ntfy, URL de webhook et leur secret HMAC, et l’URL de ping du battement de cœur ne quittent jamais Meshloom. L’intervalle et la méthode du battement de cœur voyagent avec le canal. Les destinations e-mail, webhook et Apprise des anciens réglages sont elles aussi écrites sans leurs secrets. Les listes de blocage voyagent avec les réglages. Le journal des envois et les compteurs ne sont pas sauvegardés, ni la pause : *Ne pas déranger* n’est jamais restauré. Les clés et abonnements Web Push forment une autre partie, restaurée seulement sur un Meshloom sans abonnement propre.
+La **sauvegarde complète** (Réglages → Base de données) contient une partie *Notifications* : chaque canal (type, nom, options, limites, langue, politique de texte, modèles de message) et les règles (événements, exceptions par conversation, règles de mots-clés, nœuds surveillés, options du tableau de règles et heures calmes), **sans aucun secret**. Les choix propres à chaque compte (voir [Vos propres règles](#vos-propres-règles)) voyagent avec les comptes : ils reviennent quand **Inclure les comptes** est coché. Les mots de passe, jetons, adresses Discord ou Apprise, sujets ntfy, URL de webhook et leur secret HMAC, et l’URL de ping du battement de cœur ne quittent jamais Meshloom. L’intervalle et la méthode du battement de cœur voyagent avec le canal. Les destinations e-mail, webhook et Apprise des anciens réglages sont elles aussi écrites sans leurs secrets. Les listes de blocage voyagent avec les réglages. Le journal des envois et les compteurs ne sont pas sauvegardés, ni la pause : *Ne pas déranger* n’est jamais restauré. Les clés et abonnements Web Push forment une autre partie, restaurée seulement sur un Meshloom sans abonnement propre.
 
 **Restauration.** Un canal qui a perdu un secret revient **désactivé** et marqué *Secret manquant après une restauration* ; Meshloom n’envoie jamais avec un secret manquant. Ouvrez-le dans **Réglages → Notifications → Canaux**, saisissez de nouveau chaque secret (ou effacez-le exprès), puis activez-le. Si le même canal existe déjà ici avec la même destination, ses secrets enregistrés sont conservés. La restauration fusionne les canaux (un canal que le fichier ne nomme pas reste) et remplace les règles. Une sauvegarde faite par Meshloom 4.18 se restaure dans les mêmes canaux et règles (Web Push, e-mail, webhook, Apprise, les exceptions de chaque conversation).
 
@@ -389,7 +402,7 @@ Les administrateurs gèrent les canaux sous `/api/notifications` :
 | GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Lit, modifie (le type ne peut pas changer) et supprime un canal ; `builtin:push` ne peut pas être supprimé (`403 builtin_channel`) |
 | POST | `/api/notifications/channels/{id}/test` | Envoie un test ; un par 5 secondes et par canal, puis `429 rate_limited` |
 | POST | `/api/notifications/channels/{id}/resume` | Relance un canal mis en pause après des échecs et remet son compteur d’échecs à zéro |
-| GET, PATCH | `/api/notifications/rules` | Canaux par événement, `always_deliver`, pause globale (`paused_until`), délai de radio hors ligne |
+| GET, PATCH | `/api/notifications/rules` | Canaux par événement, `always_deliver`, pause globale (`paused_until`), délai de radio hors ligne, règles de mots-clés (`keywords`), nœuds surveillés (`watched_nodes`) |
 | PUT | `/api/notifications/rules/conversations/{key}` | Canaux d’une conversation (`{"channels": {"id": true}}`, ou `null` pour effacer) |
 | GET | `/api/notifications/deliveries` | Le journal des envois (échecs et suppressions, jamais le texte) et les compteurs horaires, plus les `totals` exacts sur 24 h (`sent`, `suppressed_quiet`, `aggregated`) |
 | GET | `/api/notifications/events` | Le catalogue des événements |

@@ -111,8 +111,8 @@ This file is a hypothesis: check it against the code.
 - **Rules** (`app_settings.notification_rules`, the admin defaults, see "Per-account rules"): `version`, `paused_until`, `events[id]`
   (`channels`, `always_deliver`, and for `contact.first_seen` `contact_types`
   `{companion, repeater, sensor}` since 4.18.x read the three types differently),
-  `conversations[key][channel_id] = bool`, `keywords[*].channels`,
-  `watched_nodes[*].channels`. The import drops a medium whose channel it did not create
+  `conversations[key][channel_id] = bool`, `keywords[*]` (see "Keywords"),
+  `watched_nodes[*]` `{public_key, channels, cooldown_s, silence_s}` (see "Watched nodes"). The import drops a medium whose channel it did not create
   (no SMTP, no URL): it could not deliver, and a reference would be an orphan.
 - **Backup.** The `notifications` backup section (`services/backup_notifications.py`) exports
   the channels without secrets and the rules; a restore writes a channel missing a secret
@@ -426,6 +426,21 @@ channel gets two notifications. `builtin:push` is refused in a rule (Web Push is
 dispatcher applies the pauses (global and per channel), quiet hours, limits and the text policy as for any message.
 `message.keyword` is in `NOT_CONFIGURABLE` (no matrix row). Tests: `tests/test_notification_keywords.py`.
 
+### Watched nodes (`watched_nodes.py`, MSHL-129)
+
+`rules["watched_nodes"]`: at most 50 entries `{public_key (64 lowercase hex), channels, cooldown_s (default 3600, 0 to 30 d),
+silence_s (default 86400, 60 s to 365 d)}`, validated by `watched_nodes.clean_entries` (the API: `PATCH /rules` `watched_nodes` replaces
+the whole list, unknown channels refused) and, per entry, by `clean_entry` in the backup `sanitize_rules` (cap `MAX_WATCHED`, unique keys). Web Push
+(`builtin:push`) is refused, as for keywords. The hook is a service, `observe_sighting()` (never raises), called from the contact paths of
+`packet_processor.py`: a new advert packet (after the upsert, `previous_seen` = the contact's `last_seen` before it) and an incoming decoded DM.
+It reads the rules, ignores an unwatched key (nothing stored), takes the previous sighting from `notification_state` `watch:heard:<key>`
+(else `previous_seen`), records the new one, claims the node's cooldown through `Dispatcher.claim_cooldown` (`dedup:cooldown:watch:<key>`, only
+when the entry has a channel, one cooldown for both events), then emits `contact.node_back` (`NodeBackEvent`, previous sighting at least
+`silence_s` old, `silent_s` in the data) or `contact.node_seen` (`NodeSeenEvent`) with `targets` = the entry's channels. Dedup key per sighting
+(`heard_at`), never urgent. State is bounded because only watched keys are stored (at most 50 + 50 rows, `HEARD_TTL_S` expiry); removing an
+entry through the API calls `forget()` (rows and in-memory cooldown). Both events are in `NOT_CONFIGURABLE`. Tests: `tests/test_watched_nodes.py`
+(fake clock via `Dispatcher._dedup._wall`).
+
 - **Queues.** One `asyncio.Queue(maxsize=200)` and one worker task per channel (`spawn()`),
   started by a job and ended when the queue is empty. One send at a time per channel;
   `min_interval_s` between sends (`channels.min_interval_s`: preset `telegram` 3 s,
@@ -588,8 +603,8 @@ Consumed by the Feed, the webhook v2 and the plugin `plugin.notification` event
 without redefining anything.
 
 - **Id**: `event` is `domain.name`, lower case: `message.dm`, `message.channel`,
-  `message.mention` (see "Mentions"), `contact.first_seen`,
-  `channel.found`, `telemetry.alert`, `radio.offline`, `radio.online`,
+  `message.mention` (see "Mentions"), `message.keyword`, `contact.first_seen`, `contact.node_seen`,
+  `contact.node_back` (see "Watched nodes"), `channel.found`, `telemetry.alert`, `radio.offline`, `radio.online`,
   `app.started`, `app.update`, `notify.destination_changed`, `notify.channel_changed`, `notify.test`,
   `notify.channel_failed` (`EVENT_IDS`). These are notification ids, not WebSocket types
   (`app/auth/ws_events.py` stays the only list of those).

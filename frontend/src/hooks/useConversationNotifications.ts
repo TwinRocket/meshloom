@@ -3,7 +3,11 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { api, formatApiError } from '../api';
 import i18n from '../i18n';
 import { toast } from '../components/ui/sonner';
-import type { NotificationChannel, NotificationRules } from '../notifications/types';
+import type {
+  NotificationChannel,
+  NotificationRules,
+  NotificationWatchedNode,
+} from '../notifications/types';
 import {
   withExceptionState,
   type ExceptionState,
@@ -106,6 +110,8 @@ export interface ConversationNotificationsState extends Snapshot {
   setException: (stateKey: string, channelId: string, state: ExceptionState) => Promise<boolean>;
   /** Epoch seconds the global pause ends at, `null` resumes. */
   setPause: (until: number | null) => Promise<boolean>;
+  /** Replaces the whole list of watched nodes; resolves false when it failed. */
+  setWatchedNodes: (nodes: NotificationWatchedNode[]) => Promise<boolean>;
 }
 
 /**
@@ -155,5 +161,15 @@ export function useConversationNotifications(): ConversationNotificationsState {
     }
   }, []);
 
-  return { ...state, load, setException, setPause };
+  const setWatchedNodes = useCallback(async (nodes: NotificationWatchedNode[]) => {
+    try {
+      publish({ rules: await api.patchNotificationRules({ watched_nodes: nodes }) });
+      return true;
+    } catch (err) {
+      reportWriteFailure(err);
+      return false;
+    }
+  }, []);
+
+  return { ...state, load, setException, setPause, setWatchedNodes };
 }

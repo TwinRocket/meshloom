@@ -13,6 +13,7 @@ import { GlobalPauseControl } from './GlobalPauseControl';
 import { KeywordRulesCard } from './KeywordRulesCard';
 import { QuietHoursControl } from './QuietHoursControl';
 import { RulesMatrix } from './RulesMatrix';
+import { WatchedNodesCard } from './WatchedNodesCard';
 import type { NotificationChannelsState } from './useNotificationChannels';
 
 /** Settings > Notifications, rules: the global pause, the events x channels matrix and the exceptions. */
@@ -128,6 +129,26 @@ export function NotificationRulesPanel({
           chatChannels={chatChannels}
           disabled={busy}
           onSave={(keywords) => patch({ keywords })}
+        />
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3" id="notification-watched-section">
+        <SettingsGroupHeader
+          title={t('settings.notifications.watched.title')}
+          storedOn="server"
+          instant
+        />
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.notifications.watched.help')}
+        </p>
+        <WatchedNodesCard
+          nodes={rules.watched_nodes ?? []}
+          channels={channels}
+          contacts={contacts}
+          disabled={busy}
+          onSave={(watched_nodes) => patch({ watched_nodes })}
         />
       </div>
 

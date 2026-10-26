@@ -1,0 +1,43 @@
+{
+  "contactInfo": {
+    "watch": {
+      "toggle": "Notify when heard",
+      "help": "Notifies the chosen channels when this node’s advert or a direct message is heard, and again when it is back after a long silence.",
+      "full": "Limit reached ({{max}} watched nodes). Remove one in Settings > Notifications.",
+      "channels": "Channels to notify",
+      "noChannel": "No channel is selected: nothing will be sent.",
+      "loadFailed": "Could not load the notification settings."
+    }
+  },
+  "settings": {
+    "notifications": {
+      "watched": {
+        "title": "Watched nodes",
+        "help": "Notify a channel when a node is heard (its advert or a direct message), and when it comes back after a long silence. Add a node with “Notify when heard” in its contact sheet. Web Push is not available for watched nodes (it is decided per account).",
+        "empty": "No watched node yet.",
+        "count": "{{count}} of {{max}} nodes",
+        "full": "Limit reached ({{max}} nodes).",
+        "noChannel": "no channel",
+        "summary": "every {{cooldown}} min at most · back after {{silence}} h",
+        "edit": "Edit the watched node {{name}}",
+        "remove": "Stop watching {{name}}",
+        "editTitle": "Watched node: {{name}}",
+        "dialogHelp": "A node that is heard notifies at most once per cooldown. Heard again after the silence threshold, it notifies as “back”.",
+        "channels": "Notify these channels",
+        "channelsHelp": "Web Push is not offered: it is decided per account.",
+        "cooldown": "Cooldown (minutes)",
+        "cooldownHelp": "After a notification, this node stays quiet for this long. 0 turns the cooldown off.",
+        "silence": "Silence before “back” (hours)",
+        "silenceHelp": "A sighting after at least this long without hearing the node is reported as back.",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
+      "log": {
+        "events": {
+          "contact_node_seen": "Watched node heard",
+          "contact_node_back": "Watched node back"
+        }
+      }
+    }
+  }
+}

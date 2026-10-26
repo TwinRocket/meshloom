@@ -700,6 +700,19 @@ async def _process_advertisement(
             promoted_keys=promoted_keys,
         )
 
+    if is_new_packet:
+        # A watched node was heard (``contact.node_seen`` / ``contact.node_back``); a service,
+        # never the repository. ``existing.last_seen`` is the sighting before this one.
+        from app.notifications.watched_nodes import observe_sighting
+
+        await observe_sighting(
+            advert.public_key,
+            name=advert.name or "",
+            contact_type=contact_type,
+            previous_seen=existing.last_seen if existing else None,
+            now=int(timestamp),
+        )
+
     # For new contacts, optionally attempt to decrypt any historical DMs we may have stored
     # This is controlled by the auto_decrypt_dm_on_advert setting. Keyed on the
     # atomic ``inserted`` result rather than the earlier ``existing`` read: two
@@ -852,6 +865,18 @@ async def _process_direct_message(
                     int(packet_info.route_type) if packet_info is not None else None
                 ),
             )
+
+            if not effective_outgoing:
+                # A direct message from a watched node is a sighting too.
+                from app.notifications.watched_nodes import observe_sighting
+
+                await observe_sighting(
+                    contact.public_key,
+                    name=contact.name or "",
+                    contact_type=contact.type or 0,
+                    previous_seen=contact.last_seen,
+                    now=int(timestamp),
+                )
 
             return {
                 "decrypted": True,

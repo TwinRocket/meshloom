@@ -563,6 +563,11 @@ class Dispatcher:
             self._start_counter_loop()
         return True
 
+    def forget_cooldowns(self, keys: Iterable[str]) -> None:
+        """Drop cooldowns started with :meth:`claim_cooldown` (a watched node that was removed)."""
+        for key in keys:
+            self._dedup.discard(f"{DEDUP_PREFIX}cooldown:{key}")
+
     # -- quiet hours ------------------------------------------------------------
 
     async def _first_hold(

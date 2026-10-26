@@ -199,6 +199,11 @@ class DedupStore:
             self._evict(self._dirty, DEDUP_DIRTY_MAX - DEDUP_DIRTY_MAX // 10)
         self._dirty[key] = expires_at
 
+    def discard(self, key: str) -> None:
+        """Forget ``key`` in memory (the caller deletes the stored row)."""
+        self._seen.pop(key, None)
+        self._dirty.pop(key, None)
+
     @staticmethod
     def _evict(keys: dict[str, int], keep: int) -> None:
         """Drop the keys closest to expiry until at most ``keep`` remain."""

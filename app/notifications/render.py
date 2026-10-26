@@ -42,6 +42,39 @@ CHANNEL_FAILED_EVENT = "notify.channel_failed"
 HEARTBEAT_EVENT = "notify.heartbeat"
 
 
+def format_silence(seconds: object, lang: str) -> str:
+    """How long a node was silent: ``2 j`` / ``2 d`` (whole days), ``5 h``, ``12 min``."""
+    try:
+        total = max(int(float(str(seconds))), 0)
+    except (TypeError, ValueError):
+        total = 0
+    if total >= 86400:
+        return f"{total // 86400} {'d' if lang == 'en' else 'j'}"
+    if total >= 3600:
+        return f"{total // 3600} h"
+    return f"{max(total // 60, 1)} min"
+
+
+def _node_sighting_titles(data: dict, lang: str) -> tuple[str, str]:
+    """``node_seen`` ("Hilltop heard") and ``node_back`` ("Hilltop est de retour après 2 j")."""
+    name = (data.get("name") or "").strip()
+    pubkey = str(data.get("public_key") or "")
+    label = name or (pubkey[:12] if pubkey else "?")
+    if data.get("event") == "node_back":
+        gap = format_silence(data.get("silent_s"), lang)
+        if lang == "en":
+            return (
+                f"{label} is back after {gap}",
+                f"{label} is back on the mesh after {gap} of silence",
+            )
+        return f"{label} est de retour après {gap}", (
+            f"{label} réapparaît sur le mesh après {gap} de silence"
+        )
+    if lang == "en":
+        return f"{label} heard", f"{label} was just heard on the mesh"
+    return f"{label} entendu", f"{label} vient d’être entendu sur le mesh"
+
+
 def _first_seen_titles(data: dict, lang: str) -> tuple[str, str]:
     name = (data.get("name") or "").strip()
     contact_type = int(data.get("contact_type") or data.get("type") or 0)
@@ -499,6 +532,18 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
             }
         )
 
+    if data.get("event") in ("node_seen", "node_back"):
+        title, body = _node_sighting_titles(data, lang)
+        pubkey = str(data.get("public_key") or "")
+        return json.dumps(
+            {
+                "title": title,
+                "body": body,
+                "tag": f"meshcore-watched-{pubkey}",
+                "url_hash": f"#contact/{pubkey}" if pubkey else "",
+            }
+        )
+
     if data.get("event") == "first_seen":
         title, body = _first_seen_titles(data, lang)
         pubkey = str(data.get("public_key") or "")
@@ -752,6 +797,9 @@ _COPY: dict[AppLanguage, dict[str, str]] = {
         "op_gt": "supérieur à",
         "footer": "Envoyé par Meshloom",
         "intro_first_seen": "Un nouveau nœud est apparu sur le mesh.",
+        "intro_node_seen": "Un nœud surveillé vient d’être entendu.",
+        "intro_node_back": "Un nœud surveillé est de retour.",
+        "silent_label": "Silence",
         "intro_channel": "Un nouveau canal hashtag a été trouvé.",
         "intro_update": "Une mise à jour Meshloom est disponible.",
         "intro_message": "Nouveau message",
@@ -772,6 +820,9 @@ _COPY: dict[AppLanguage, dict[str, str]] = {
         "op_gt": "above",
         "footer": "Sent by Meshloom",
         "intro_first_seen": "A new node appeared on the mesh.",
+        "intro_node_seen": "A watched node was just heard.",
+        "intro_node_back": "A watched node is back.",
+        "silent_label": "Silent for",
         "intro_channel": "A new hashtag channel was found.",
         "intro_update": "A Meshloom update is available.",
         "intro_message": "New message",
@@ -900,6 +951,12 @@ def notification_email_lines(
         if type_label:
             lines.append(f"{copy['type_label']} : {type_label}")
         return copy["intro_first_seen"], lines
+    if event in ("node_seen", "node_back"):
+        lines = [_node_label(payload)]
+        if event == "node_back":
+            gap = format_silence(payload.get("silent_s"), lang)
+            lines.append(f"{copy['silent_label']} : {gap}")
+        return copy[f"intro_{event}"], lines
     if event == "channel_found":
         name = str(payload.get("name") or "").strip() or str(payload.get("channel_key") or "")
         return copy["intro_channel"], [name] if name else []

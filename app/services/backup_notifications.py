@@ -37,6 +37,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.models import BackupSection
 from app.notifications.keywords import MAX_KEYWORDS
 from app.notifications.keywords import clean_rule as clean_keyword_rule
+from app.notifications.watched_nodes import MAX_WATCHED
+from app.notifications.watched_nodes import clean_entry as clean_watched_entry
 from app.repository.notification_channels import PENDING_SECRETS, decode_secrets, encode_secrets
 from app.services.backup_accounts import USER_NOTIFICATION_RULES_SECTION, USERS_SECTION
 from app.services.backup_sections import RestoreSource, register_backup_section, register_on_restore
@@ -437,7 +439,7 @@ def sanitize_rules(raw: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
         kept: list[dict[str, Any]] = []
         for entry in raw_list if isinstance(raw_list, list) else []:
             try:
-                if len(kept) >= (MAX_KEYWORDS if name == "keywords" else MAX_RULE_ENTRIES):
+                if len(kept) >= (MAX_KEYWORDS if name == "keywords" else MAX_WATCHED):
                     raise ValueError(name)
                 if name == "keywords":
                     # The same checks as the API (``keywords.py``): a rule that would be
@@ -448,7 +450,11 @@ def sanitize_rules(raw: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
                     _ListRule.model_validate(rule)
                     kept.append(rule)
                 else:
-                    kept.append(_ListRule.model_validate(entry).model_dump())
+                    # The same checks as the API (``watched_nodes.py``), at most 50 keys.
+                    node = clean_watched_entry(entry)
+                    if any(node["public_key"] == k["public_key"] for k in kept):
+                        raise ValueError("public_key")
+                    kept.append(node)
             except (ValueError, ValidationError):
                 dropped += 1
         if raw_list is not None and not isinstance(raw_list, list):

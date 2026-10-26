@@ -29,6 +29,8 @@ EVENT_IDS: tuple[str, ...] = (
     "message.mention",
     "message.keyword",
     "contact.first_seen",
+    "contact.node_seen",
+    "contact.node_back",
     "channel.found",
     "telemetry.alert",
     "radio.offline",
@@ -70,6 +72,20 @@ class FirstSeenData:
     public_key: str = ""
     name: str = ""
     contact_type: int = 0
+
+
+@dataclass(frozen=True)
+class NodeSightingData:
+    """``contact.node_seen`` / ``contact.node_back``: a watched node was heard.
+
+    ``silent_s`` is how long it had been silent (``node_back``; 0 for ``node_seen``);
+    ``heard_at`` (epoch seconds) makes the dedup key unique per sighting."""
+
+    public_key: str = ""
+    name: str = ""
+    contact_type: int = 0
+    silent_s: int = 0
+    heard_at: int = 0
 
 
 @dataclass(frozen=True)
@@ -236,6 +252,32 @@ class FirstSeenEvent(NotificationEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
+class NodeSeenEvent(NotificationEvent):
+    """``contact.node_seen``: a watched node was heard again (``watched_nodes.py``)."""
+
+    data: NodeSightingData
+    LEGACY: ClassVar[str] = "node_seen"
+
+    def to_payload(self) -> dict[str, Any]:
+        d = self.data
+        return {
+            "event": self.LEGACY,
+            "public_key": d.public_key,
+            "name": d.name,
+            "contact_type": d.contact_type,
+            "silent_s": d.silent_s,
+            "heard_at": d.heard_at,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class NodeBackEvent(NodeSeenEvent):
+    """``contact.node_back``: a watched node is back after a long silence."""
+
+    LEGACY: ClassVar[str] = "node_back"
+
+
+@dataclass(frozen=True, kw_only=True)
 class ChannelFoundEvent(NotificationEvent):
     data: ChannelFoundData
 
@@ -397,6 +439,10 @@ def _s(value: object) -> str:
     return "" if value is None else str(value)
 
 
+def _i(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def event_from_payload(
     payload: Mapping[str, Any],
     *,
@@ -468,6 +514,23 @@ def event_from_payload(
                 name=_s(payload.get("name")),
                 contact_type=int(payload.get("contact_type") or payload.get("type") or 0),
             ),
+            **common,
+        )
+    if kind in ("node_seen", "node_back"):
+        pubkey = _s(payload.get("public_key"))
+        sighting = NodeSightingData(
+            public_key=pubkey,
+            name=_s(payload.get("name")),
+            contact_type=_i(payload.get("contact_type")),
+            silent_s=_i(payload.get("silent_s")),
+            heard_at=_i(payload.get("heard_at")),
+        )
+        name = f"contact.{kind}"
+        return (NodeBackEvent if kind == "node_back" else NodeSeenEvent)(
+            event=name,
+            # One per sighting: a later one (after the cooldown) is not a duplicate.
+            dedup_key=dedup_hash(name, pubkey, sighting.heard_at),
+            data=sighting,
             **common,
         )
     if kind == "channel_found":
