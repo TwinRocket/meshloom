@@ -8,6 +8,7 @@ import {
   useMemo,
   useSyncExternalStore,
   type ChangeEvent,
+  type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
 } from 'react';
@@ -18,6 +19,7 @@ import { toast } from './ui/sonner';
 import { api, formatApiError } from '../api';
 import { cn } from '@/lib/utils';
 import { ComposerAttachPicker, type ComposerAttachTab } from './ComposerAttachPicker';
+import type { IncomingFile } from './ComposerFileTab';
 import {
   getTextReplaceEnabled,
   getTextReplaceMapJson,
@@ -102,6 +104,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   const [sending, setSending] = useState(false);
   const [shortening, setShortening] = useState(false);
   const [composerPanel, setComposerPanel] = useState<ComposerAttachTab | null>(null);
+  const [incomingFile, setIncomingFile] = useState<IncomingFile | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef(text);
@@ -438,14 +441,15 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
   );
 
   const sendPayload = useCallback(
-    async (wire: string) => {
-      if (sending || disabled) return;
+    async (wire: string): Promise<boolean> => {
+      if (sending || disabled) return false;
       const payload = replyQuote ? `@[${replyQuote.sender}] ${wire}` : wire;
       setSending(true);
       try {
         await onSend(payload);
         setReplyQuote(null);
         setComposerPanel(null);
+        return true;
       } catch (err) {
         console.error('Failed to send message:', err);
         const description = err instanceof Error ? formatApiError(err, t) : t('chat.checkRadio');
@@ -454,12 +458,32 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
         toast.error(isRadioNoResponse ? t('chat.radioNoConfirm') : t('chat.failedToSend'), {
           description,
         });
+        return false;
       } finally {
         setSending(false);
       }
     },
     [disabled, onSend, replyQuote, sending, t]
   );
+
+  // A pasted image goes to the File tab (never into the text); other pastes are untouched.
+  const handlePaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const image = Array.from(event.clipboardData?.files ?? []).find((f) =>
+        f.type.startsWith('image/')
+      );
+      if (!image || disabled) return;
+      event.preventDefault();
+      setIncomingFile((prev) => ({ file: image, key: (prev?.key ?? 0) + 1 }));
+      setComposerPanel('file');
+    },
+    [disabled]
+  );
+
+  // The file message must fit under the same strict limit as typed text, after the reply prefix.
+  const fileByteLimit = limits
+    ? limits.hardLimit - (replyQuote ? byteLen(`@[${replyQuote.sender}] `) : 0)
+    : null;
 
   const insertEmoji = useCallback(
     (emoji: string) => {
@@ -500,10 +524,14 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (target && pickerRef.current?.contains(target)) return;
+      // A dialog opened from the panel (sharing consent) lives in a portal.
+      if (target instanceof Element && target.closest('[role="dialog"]')) return;
       setComposerPanel(null);
     };
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setComposerPanel(null);
+      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) {
+        setComposerPanel(null);
+      }
     };
     document.addEventListener('mousedown', onPointerDown);
     document.addEventListener('keydown', onKeyDown);
@@ -573,6 +601,10 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
               void sendPayload(formatGif(gifId));
             }}
             onSendLocation={sendLocation}
+            onSendFile={sendPayload}
+            fileByteLimit={fileByteLimit}
+            incomingFile={incomingFile}
+            onIncomingFileConsumed={() => setIncomingFile(null)}
             onClose={() => setComposerPanel(null)}
             disabled={disabled || sending}
             hasShareableLocation={hasShareableLocation}
@@ -606,6 +638,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
           value={text}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={placeholder || t('chat.messagePlaceholder')}
           disabled={disabled}
           enterKeyHint={enterSends ? 'send' : 'enter'}

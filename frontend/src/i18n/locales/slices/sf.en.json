@@ -1,0 +1,31 @@
+{
+  "chat": {
+    "file": "Photo",
+    "filePicker": "Send a photo",
+    "fileTab": {
+      "loading": "Checking whether sharing is on...",
+      "off": "Sharing is off on this Meshloom. Turn it on to send a photo as a link anyone in the conversation can open.",
+      "enable": "Turn on sharing...",
+      "hint": "Drop a photo here, paste one into the message box, or choose a file.",
+      "dropHere": "Drop the photo to prepare it",
+      "choose": "Choose a photo",
+      "preparing": "Preparing the photo...",
+      "summary": "{{type}}, {{before}} before, {{after}} after ({{width}} x {{height}} px). Position and camera data are removed.",
+      "caption": "Caption (optional)",
+      "budget": "{{used}}/{{limit}} bytes",
+      "bytes": "{{count}} bytes",
+      "captionTooLong": "The caption is too long for one message. Shorten it.",
+      "send": "Send photo",
+      "uploading": "Uploading...",
+      "cancel": "Cancel upload",
+      "remove": "Remove",
+      "uploadFailed": "The upload failed. Check the connection and try again.",
+      "error": {
+        "heic": "HEIC photos (iPhone) cannot be read by this browser. Share the photo as JPEG (Settings > Camera > Formats > Most Compatible) or pick it again through the photo picker, which converts it.",
+        "unsupported": "This file is not a photo that can be shared. Use a JPEG, PNG, WebP or GIF image.",
+        "tooLarge": "This file is too large to share (10 MiB at most once prepared, 5 MiB for a GIF).",
+        "decode": "This browser cannot read this image."
+      }
+    }
+  }
+}

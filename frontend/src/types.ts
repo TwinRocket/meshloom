@@ -1621,6 +1621,16 @@ export interface ShareLink {
   expires_at: number;
 }
 
+/** `POST /api/share/files` answer (public mode). `text` is the composer's proposed message. */
+export interface ShareFile {
+  id: string;
+  url: string;
+  expires_at: number;
+  size: number;
+  mode: 'public';
+  text: string;
+}
+
 /** `GET /api/share/{id}/meta` answer (links). */
 export interface ShareMeta {
   kind: string;

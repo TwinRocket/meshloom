@@ -160,6 +160,7 @@ import type {
   ShareLink,
   ShareMeta,
   PluginInstance,
+  ShareFile,
   ShareStatus,
 } from './types';
 
@@ -224,6 +225,26 @@ export function formatApiError(err: unknown, t: TFunction): string {
   return String(err);
 }
 
+/** Session-layer side effects of a failed API call: a lost session, a forced change, a refusal. */
+function reportApiFailure(error: ApiError, url: string, method: string): void {
+  // The account is gone (expired session, or no account yet): the gate takes over.
+  // Login and setup answer their own 401, which is a form error and not a lost session.
+  if (error.status === 401 && !AUTH_FORM_PATHS.has(url)) {
+    reportAuthRequired(getApiErrorCode(error.detail)?.code ?? null);
+  }
+  // The role may not do this: the session layer decides whether to tell the reader.
+  const refusal = error.status === 403 ? getApiErrorCode(error.detail) : null;
+  if (refusal?.code === 'auth_password_change_required') reportPasswordChangeRequired();
+  if (refusal?.code === 'auth_2fa_enrolment_required') reportEnrolmentRequired();
+  if (refusal?.code === 'auth_forbidden') {
+    const permission = refusal.params.permission;
+    reportForbidden({
+      method,
+      permission: typeof permission === 'string' ? permission : null,
+    });
+  }
+}
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const hasBody = options?.body !== undefined;
   let res: Response;
@@ -251,22 +272,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const error = await apiErrorFrom(res);
-    // The account is gone (expired session, or no account yet): the gate takes over.
-    // Login and setup answer their own 401, which is a form error and not a lost session.
-    if (error.status === 401 && !AUTH_FORM_PATHS.has(url)) {
-      reportAuthRequired(getApiErrorCode(error.detail)?.code ?? null);
-    }
-    // The role may not do this: the session layer decides whether to tell the reader.
-    const refusal = error.status === 403 ? getApiErrorCode(error.detail) : null;
-    if (refusal?.code === 'auth_password_change_required') reportPasswordChangeRequired();
-    if (refusal?.code === 'auth_2fa_enrolment_required') reportEnrolmentRequired();
-    if (refusal?.code === 'auth_forbidden') {
-      const permission = refusal.params.permission;
-      reportForbidden({
-        method: options?.method ?? 'GET',
-        permission: typeof permission === 'string' ? permission : null,
-      });
-    }
+    reportApiFailure(error, url, options?.method ?? 'GET');
     throw error;
   }
   // 204 No Content (revoking a token) has no body to parse.
@@ -343,6 +349,74 @@ interface DecryptResult {
   started: boolean;
   total_packets: number;
   message: string;
+}
+
+/**
+ * `POST /api/share/files`: the raw bytes of an image with their `Content-Type`.
+ * XMLHttpRequest rather than fetch for the upload progress. Failures are the same
+ * `ApiError` as every other call (coded `detail`, `Retry-After`); an aborted
+ * request rejects with an `AbortError` (`isAbortError`).
+ */
+export function uploadShareFile(
+  blob: Blob,
+  options: { signal?: AbortSignal; onProgress?: (loaded: number, total: number) => void } = {}
+): Promise<ShareFile> {
+  const { signal, onProgress } = options;
+  const path = '/share/files';
+  return new Promise<ShareFile>((resolve, reject) => {
+    const abortError = () => new DOMException('The upload was cancelled', 'AbortError');
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    const onAbort = () => xhr.abort();
+    const done = () => signal?.removeEventListener('abort', onAbort);
+    signal?.addEventListener('abort', onAbort);
+    xhr.open('POST', `${API_BASE}${path}`);
+    xhr.setRequestHeader('Content-Type', blob.type);
+    xhr.setRequestHeader('X-Share-Mode', 'public');
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
+    };
+    xhr.onabort = () => {
+      done();
+      reject(abortError());
+    };
+    xhr.onerror = () => {
+      done();
+      reject(new Error('Network error'));
+    };
+    xhr.onload = () => {
+      done();
+      // A response from another origin is the proxy's login page, whatever its status.
+      if (
+        xhr.responseURL &&
+        new URL(xhr.responseURL, window.location.href).origin !== window.location.origin
+      ) {
+        reportEdgeSessionExpired();
+        reject(new ApiError('Authentication required', xhr.status));
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as ShareFile);
+        } catch {
+          reject(new ApiError('Unexpected answer', xhr.status));
+        }
+        return;
+      }
+      const headers = new Headers();
+      const retryAfter = xhr.getResponseHeader('Retry-After');
+      if (retryAfter) headers.set('Retry-After', retryAfter);
+      const res = new Response(xhr.responseText, { status: xhr.status || 599, headers });
+      void apiErrorFrom(res).then((error) => {
+        reportApiFailure(error, path, 'POST');
+        reject(error);
+      }, reject);
+    };
+    xhr.send(blob);
+  });
 }
 
 export const api = {
@@ -1284,6 +1358,7 @@ export const api = {
   getShareStatus: () => fetchJson<ShareStatus>('/share/status'),
   shortenLink: (url: string) =>
     fetchJson<ShareLink>('/share/links', { method: 'POST', body: JSON.stringify({ url }) }),
+  uploadShareFile,
   getShareMeta: (id: string) => fetchJson<ShareMeta>(`/share/${encodeURIComponent(id)}/meta`),
   // Notifications (admin). The push preference routes below are deprecated shims, removed
   // in 5.2.0: use the rules.

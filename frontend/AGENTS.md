@@ -547,8 +547,8 @@ and the time. When `terms_stale` is true the section shows a notice and the chec
 reopens the dialog.
 
 `api.getShareStatus()` (no egress), `api.shortenLink(url)` and
-`api.getShareMeta(id)` call `/api/share/*`; types `ShareStatus`, `ShareLink`,
-`ShareMeta` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
+`api.getShareMeta(id)` call `/api/share/*` (and `api.uploadShareFile(blob)`, below); types `ShareStatus`,
+`ShareLink`, `ShareFile`, `ShareMeta` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
 `share_disabled` answer means sharing is off). Call `getShareMeta` only on hover
 or focus, never on render.
 
@@ -585,6 +585,25 @@ the text stays in the textarea and nothing is sent. Shortening never happens in
 `onSend`/`message_send.py`, and `submitMessage` keeps its `error` check. Never
 rewritten: share-host URLs, `g:`/`m:`/`r:` payloads. Tests:
 `src/test/messageInputShorten.test.tsx`, `shareShortenUtils.test.ts`.
+
+**Composer File tab (MSHL-245).** `ComposerAttachPicker` tab `file` (Paperclip) mounts
+`components/ComposerFileTab.tsx`. Off (`useShareStatus().enabled` false): only the consent entry
+point, which opens the exported `ShareConsentDialog` and sends
+`{share_enabled: true, share_terms_accepted: true}`. On: a `react-dropzone` zone (`accept` =
+`IMAGE_ACCEPT`, `multiple: false`, `maxSize` = `MAX_SOURCE_BYTES`, click and keyboard go through its
+`open()` button) plus the textarea's `onPaste` in `MessageInput`, which hands a pasted image to the tab
+(`IncomingFile`, never into the text). `utils/imageDownscale.ts` decodes
+(`createImageBitmap`, `<img>` fallback), scales the longest side to 1600 px, re-encodes (JPEG 0.82; PNG kept
+with transparency; WebP when `toBlob` really yields it; GIF untouched, 5 MiB cap), which also strips EXIF;
+HEIC and other types are refused with a coded message (`chat.fileTab.error.*`, no upload). Size and type
+rules are pure (`fitWithin`, `classifySource`, `chooseOutputType`). The upload is `api.uploadShareFile`
+(XHR, raw body, `X-Share-Mode: public`, progress, `AbortSignal`; failures are the usual `ApiError`, shown as
+`errors.share_*` toasts). Send = upload once, then `sendPayload(suggested text + caption)`, so the reply
+prefix and the normal send path apply; the uploaded result is kept if the send fails, so a retry does not
+upload again. The caption is judged with `utils/fileCaption.ts` against the composer's strict limit minus the
+reply prefix, estimated before the upload (link on `status.host`) and checked again with the real link; over
+budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Tests:
+`composerFileTab.test.tsx`, `imageDownscale.test.ts`, `fileCaption.test.ts`. User docs: MSHL-248 (T25).
 
 ### i18n
 
