@@ -6,6 +6,7 @@
       "loading": "Checking whether sharing is on...",
       "statusError": "The sharing status could not be loaded. Check the connection to this Meshloom and try again.",
       "statusRetry": "Try again",
+      "statusChecking": "Checking...",
       "off": "Sharing is off on this Meshloom. Turn it on to send a photo as a link anyone in the conversation can open.",
       "enable": "Turn on sharing...",
       "hint": "Drop a photo here, paste one into the message box, or choose a file.",

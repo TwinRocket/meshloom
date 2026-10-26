@@ -114,6 +114,35 @@ describe('Composer File tab', () => {
       expect(get).toHaveBeenCalledTimes(2);
     });
 
+    it('disables Try again with a checking label while the retry is in flight', async () => {
+      let answer!: (s: ShareStatus) => void;
+      vi.spyOn(api, 'getShareStatus')
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockReturnValueOnce(new Promise<ShareStatus>((resolve) => (answer = resolve)));
+      openTab();
+      fireEvent.click(await screen.findByTestId('file-tab-status-retry'));
+      const button = screen.getByTestId('file-tab-status-retry');
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('aria-busy', 'true');
+      expect(button).toHaveTextContent(i18n.t('chat.fileTab.statusChecking'));
+      // Clicking again while busy does not start another request.
+      fireEvent.click(button);
+      expect(api.getShareStatus).toHaveBeenCalledTimes(2);
+      await act(async () => answer(status(true)));
+      expect(await screen.findByTestId('file-tab-input')).toBeInTheDocument();
+    });
+
+    it('re-enables Try again when the retry fails again', async () => {
+      vi.spyOn(api, 'getShareStatus').mockRejectedValue(new Error('offline'));
+      openTab();
+      fireEvent.click(await screen.findByTestId('file-tab-status-retry'));
+      await waitFor(() => expect(screen.getByTestId('file-tab-status-retry')).not.toBeDisabled());
+      expect(screen.getByTestId('file-tab-status-error')).toBeInTheDocument();
+      expect(screen.getByTestId('file-tab-status-retry')).toHaveTextContent(
+        i18n.t('chat.fileTab.statusRetry')
+      );
+    });
+
     it('aborts a hanging request after 10 s and shows the error', async () => {
       vi.useFakeTimers();
       try {
@@ -141,6 +170,7 @@ describe('Composer File tab', () => {
       for (const keys of [en.chat.fileTab, fr.chat.fileTab]) {
         expect(keys.statusError).toBeTruthy();
         expect(keys.statusRetry).toBeTruthy();
+        expect(keys.statusChecking).toBeTruthy();
       }
     });
   });
