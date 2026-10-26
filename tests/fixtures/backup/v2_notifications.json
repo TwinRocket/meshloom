@@ -363,7 +363,7 @@
               "channels": [
                 "ntfy-0f0f0f0f"
               ],
-              "text": "sos"
+              "pattern": "sos"
             }
           ],
           "paused_until": null,

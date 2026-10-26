@@ -725,3 +725,25 @@ async def test_restore_drops_a_template_on_a_type_without_a_text_body(backup_db)
     assert "notification_templates_dropped:email-9e8d7c6b" in warnings
     email = await Channels.get("email-9e8d7c6b")
     assert email is not None and email.template_dm == ""
+
+
+def test_restored_keyword_rules_go_through_the_api_checks():
+    from app.services.backup_notifications import sanitize_rules
+
+    good = {"id": "a", "pattern": "sos", "match": "word", "scope": "dms", "channels": ["x"]}
+    raw = {
+        "keywords": [
+            good,
+            {**good, "id": "a"},  # duplicate id
+            {**good, "id": "b", "pattern": "x" * 65},
+            {**good, "id": "c", "match": "regex"},
+            {**good, "id": "d", "channels": ["builtin:push"]},
+            {"channels": ["x"], "text": "no pattern"},
+        ]
+        + [{**good, "id": f"z{i}"} for i in range(30)]
+    }
+    warnings: list[str] = []
+    kept = sanitize_rules(raw, warnings)["keywords"]
+    assert len(kept) == 20 and kept[0]["pattern"] == "sos" and kept[0]["cooldown_s"] == 300
+    assert [k["id"] for k in kept[:2]] == ["a", "z0"]
+    assert warnings == ["notification_rules_sanitized"]

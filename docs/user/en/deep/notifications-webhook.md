@@ -203,6 +203,35 @@ These bodies are produced by Meshloom's own code (radio named `Base`, channel in
 }
 ```
 
+### `message.keyword`
+
+```json
+{
+  "version": 2,
+  "event": "message.keyword",
+  "event_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "occurred_at": 1767225600,
+  "dedup_key": "ecf5bebdcf61d828",
+  "urgent": false,
+  "instance": {
+    "name": "Base",
+    "radio_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "data": {
+    "type": "CHAN",
+    "text": "Bob: secours, panne de relais",
+    "sender_name": "Bob",
+    "channel_name": "#paris",
+    "mention": false,
+    "keyword": "secours"
+  },
+  "rendered": {
+    "title": "Keyword “secours” in #paris",
+    "body": "Bob: secours, panne de relais"
+  }
+}
+```
+
 ### `contact.first_seen`
 
 ```json

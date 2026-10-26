@@ -212,6 +212,7 @@ The same choices are available through `GET`, `PATCH` and `DELETE /api/push/my-r
 | Direct messages | A direct message arrives, including posts from room servers |
 | Channel messages | A message arrives on the Public channel or a `#` channel. A channel with its own key stays silent unless it has an exception |
 | Mentions | A channel message names you, see [Mentions](#mentions) |
+| Keyword | A message holds the pattern of a keyword rule, see [Keywords](#keywords). Set in its own card, not in this table |
 | New node seen | A node is heard for the first time, with one sub-row per type: **Companions** (a person's radio), **Repeaters** and **Sensors**. Only a new contact added after the radio finished its start-up counts: a node you already know, an unknown node and a room server never trigger it |
 | Channel found | Meshloom finds a new hashtag channel |
 | Telemetry alert | A tracked repeater or contact crosses an alert threshold. The thresholds and the channels that receive them (a chip per channel) are set on the **Alerts** page |
@@ -241,6 +242,22 @@ A ntfy, webhook, Apprise, Gotify or Home Assistant channel can send a **heartbea
 A channel message **mentions you** when it contains `@[` + your radio's name + `]` (for example `@[Bob]`), in any case. With **Match whole words only** ticked (row *Mentions* of the table), your radio's name written as a whole word also counts: *Al* matches "hello al!" but not "Alpha". A mention is sent to the channels ticked on the **Mentions** row, instead of the ordinary channel notification on those channels, so a channel never receives both; it reads "Mention in #paris by Léa" and replaces the ordinary notification of that conversation in the tray. Channels where **Mentions** is not ticked keep receiving the ordinary notification. The mute of a channel, the block lists and Do not disturb apply as for any message, and a mention is **never urgent**. It is on by default for the channels that receive direct messages.
 
 **Mentions can be forged by anyone in range:** channel messages are not authenticated, so anyone who writes `@[your name]` makes your radio "mentioned". That is why a mention is never urgent, and why, on a **private channel** (one with its own key), it only reaches channels that are not a third party (Web Push, a self-hosted ntfy, an e-mail relay on your network...) or channels you explicitly allowed for that conversation with an exception (**on**) in the conversations list; an exception set to **on** receives the mention even if the channel is not ticked on the **Mentions** row. Apprise and webhook channels, and the presets built on Apprise (Telegram, Gotify, Home Assistant, Pushover and the others), always count as a third party, since the type cannot tell where they send. Direct messages are not mentions.
+
+## Keywords
+
+A **keyword rule** notifies a channel when a message holds a word or a phrase, **in addition to** the usual notifications: "secours" or the name of a place can reach its own channel. Add them in **Settings → Notifications → Keywords** (administrators): the pattern (up to 64 characters), how to match, where, which channels, and a cooldown.
+
+- **Match.** *Contains the text* finds the pattern anywhere ("secours" in "au secours!" and in "secoursx"). *Whole word* needs something other than a letter, a digit or `_` on both sides: "secours" matches "au secours!" but not "secoursx". An edge that is not a letter, digit or `_` (as in `#paris` or an emoji) needs nothing around it on that side, so `🆘` matches in "help🆘now". Case does not matter, and accented letters written in either Unicode form compare equal ("é" typed as one character or as "e" plus an accent). Accents still count: "cafe" does not match "café". There are no regular expressions, on purpose: nothing a stranger types can slow Meshloom down.
+- **Where.** All conversations, the direct messages only, or the conversations you tick. The name of the sender that a channel message starts with is not searched.
+- **Channels.** Pick the channels of the rule. **Web Push is not offered**: it is decided account by account, and a keyword rule is an instance setting. A channel that **already receives that message** (as a direct message, a channel message or a mention) does not get the keyword notification on top: one notification per channel. The title reads "Keyword “secours” in #paris".
+- **Cooldown.** After a match, the rule stays quiet for the cooldown you set (5 minutes by default, 0 to 24 hours), whoever writes. On top of that, the same sender cannot trigger the same rule again within 15 minutes, or the cooldown when it is longer. A message triggers a rule at most once.
+- **Limits.** At most 20 rules; the server refuses a 21st rule and a pattern over 64 characters.
+
+A muted conversation, a blocked sender, a pending channel, *Do not disturb* and the pause of a channel all still win: a keyword never goes through them, and a keyword notification is **never urgent**. The message text policy of each channel applies as for any message.
+
+**Keywords can be forged by anyone in range:** channel messages are not authenticated, so anyone who writes the word triggers the rule. That is why a keyword is never urgent and has cooldowns. Do not rely on a keyword alone for anything critical.
+
+The rules travel in the full backup (*Notifications* part), checked like the API does; a rule that would be refused is left out with a warning.
 
 ## Conversations and exceptions
 

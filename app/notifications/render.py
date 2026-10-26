@@ -516,7 +516,19 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
     sender_name = data.get("sender_name") or ""
     channel_name = data.get("channel_name") or ""
 
-    if data.get("mention") and msg_type == "CHAN":
+    keyword = str(data.get("keyword") or "")
+    if keyword:
+        where = channel_name or (
+            ("this channel" if lang == "en" else "ce canal")
+            if msg_type == "CHAN"
+            else ("a direct message" if lang == "en" else "un message privé")
+        )
+        if lang == "en":
+            title = f"Keyword “{keyword}” in {where}"
+        else:
+            title = f"Mot-clé « {keyword} » dans {where}"
+        body = text
+    elif data.get("mention") and msg_type == "CHAN":
         where = channel_name or ("this channel" if lang == "en" else "ce canal")
         if lang == "en":
             title = f"Mention in {where} by {sender_name}" if sender_name else f"Mention in {where}"
@@ -554,7 +566,9 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
             # Tag per conversation so different conversations coexist in the
             # notification tray, while repeated messages in the same
             # conversation replace each other.
-            "tag": f"meshcore-{state_key}",
+            "tag": f"meshcore-keyword-{data.get('keyword_id') or keyword}-{state_key}"
+            if keyword
+            else f"meshcore-{state_key}",
             "url_hash": url_hash,
         }
     )

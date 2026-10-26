@@ -625,6 +625,12 @@
           "title": "Channel Name",
           "type": "string"
         },
+        "keyword": {
+          "default": "",
+          "description": "message.keyword: the pattern of the rule that fired.",
+          "title": "Keyword",
+          "type": "string"
+        },
         "mention": {
           "default": false,
           "title": "Mention",
@@ -718,6 +724,62 @@
         "rendered"
       ],
       "title": "MessageDmBody",
+      "type": "object"
+    },
+    "MessageKeywordBody": {
+      "additionalProperties": false,
+      "description": "A message that holds a keyword rule's pattern.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/MessageData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "message.keyword",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "MessageKeywordBody",
       "type": "object"
     },
     "MessageMentionBody": {
@@ -1559,6 +1621,7 @@
       "contact.first_seen": "#/$defs/ContactFirstSeenBody",
       "message.channel": "#/$defs/MessageChannelBody",
       "message.dm": "#/$defs/MessageDmBody",
+      "message.keyword": "#/$defs/MessageKeywordBody",
       "message.mention": "#/$defs/MessageMentionBody",
       "notify.channel_changed": "#/$defs/NotifyChannelChangedBody",
       "notify.channel_failed": "#/$defs/NotifyChannelFailedBody",
@@ -1583,6 +1646,9 @@
     },
     {
       "$ref": "#/$defs/MessageMentionBody"
+    },
+    {
+      "$ref": "#/$defs/MessageKeywordBody"
     },
     {
       "$ref": "#/$defs/ContactFirstSeenBody"

@@ -49,6 +49,16 @@ SAMPLES: dict[str, dict[str, Any]] = {
         "mention": True,
         "sender_timestamp": NOW,
     },
+    "message.keyword": {
+        "type": "CHAN",
+        "conversation_key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
+        "channel_name": "#paris",
+        "sender_name": "Bob",
+        "text": "Bob: secours, panne de relais",
+        "keyword": "secours",
+        "keyword_id": "kw_1a2b3c4d",
+        "sender_timestamp": NOW,
+    },
     "contact.first_seen": {
         "event": "first_seen",
         "public_key": PUBKEY,

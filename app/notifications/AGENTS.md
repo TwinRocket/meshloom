@@ -409,6 +409,23 @@ private-key channel. Mute, block lists and the pauses apply as for `message.chan
 115 gives an existing install the rule `message.mention` = channels of `message.dm`.
 `tests/fixtures/notification_policy_cases.json` carries the `mention`/`cloud` cases; the
 frontend mirror (`frontend/src/utils/notificationPolicy.ts`, `test/notificationPolicy.test.ts`) passes every case.
+### Keywords (`keywords.py`, MSHL-128)
+
+`rules["keywords"]`: at most 20 rules `{id, pattern, match: contains|word, scope: all|dms|[state keys],
+channels, cooldown_s}`, validated by `keywords.clean_rules` (the API, `PATCH /rules` `keywords`, replaces the whole list;
+the backup `sanitize_rules` runs `clean_rule` per entry). No regex ever touches the text or the pattern: both are
+NFC + `casefold`ed and compared with `str.find` (`word` checks the neighbouring characters, as `mention.py`), so a match is
+linear and ReDoS-free. The matched text is the message without the `"Name: "` prefix of a channel message.
+`producers._emit_keywords` runs after the mention split, for a conversation that is neither muted nor blocked: each matching
+rule emits one `message.keyword` (`KeywordEvent`, never urgent, dedup key per (rule, message), payload carries `keyword` and
+`keyword_id`, both dropped from the input like `mention`) with `targets` = the rule's channels minus `receiving` (the channels
+of `message.dm`/`message.channel`/`message.mention` for this message, and `builtin:push` when any account wants it), so no
+channel gets two notifications. `builtin:push` is refused in a rule (Web Push is per account; deferred). Cooldowns go through
+`Dispatcher.claim_cooldown`: keys `dedup:cooldown:kw:<rule>` (`cooldown_s`) and `...:<rule>:<sha of sender key or name>`
+(`max(900 s, cooldown_s)`) in the dedup store (`notification_state`), claimed together and only when a channel is reached. The
+dispatcher applies the pauses (global and per channel), quiet hours, limits and the text policy as for any message.
+`message.keyword` is in `NOT_CONFIGURABLE` (no matrix row). Tests: `tests/test_notification_keywords.py`.
+
 - **Queues.** One `asyncio.Queue(maxsize=200)` and one worker task per channel (`spawn()`),
   started by a job and ended when the queue is empty. One send at a time per channel;
   `min_interval_s` between sends (`channels.min_interval_s`: preset `telegram` 3 s,

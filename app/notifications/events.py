@@ -27,6 +27,7 @@ EVENT_IDS: tuple[str, ...] = (
     "message.dm",
     "message.channel",
     "message.mention",
+    "message.keyword",
     "contact.first_seen",
     "channel.found",
     "telemetry.alert",
@@ -60,6 +61,8 @@ class MessageData:
     sender_name: str = ""
     channel_name: str = ""
     mention: bool = False
+    keyword: str = ""  # the pattern of the rule that fired (message.keyword)
+    keyword_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -181,6 +184,9 @@ class MessageEvent(NotificationEvent):
         }
         if d.mention:
             payload["mention"] = True
+        if d.keyword:
+            payload["keyword"] = d.keyword
+            payload["keyword_id"] = d.keyword_id
         return payload
 
 
@@ -197,6 +203,22 @@ class MentionEvent(NotificationEvent):
             data=self.data,
             conversation_key=self.conversation_key,
         ).to_payload() | {"mention": True}
+
+
+@dataclass(frozen=True, kw_only=True)
+class KeywordEvent(NotificationEvent):
+    """``message.keyword``: a message that holds a keyword rule's pattern (``keywords.py``).
+    Never urgent: anyone in range can forge it."""
+
+    data: MessageData
+
+    def to_payload(self) -> dict[str, Any]:
+        return MessageEvent(
+            event=self.event,
+            dedup_key=self.dedup_key,
+            data=self.data,
+            conversation_key=self.conversation_key,
+        ).to_payload()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -402,6 +424,8 @@ def event_from_payload(
             sender_name=_s(payload.get("sender_name")),
             channel_name=_s(payload.get("channel_name")),
             mention=bool(payload.get("mention")),
+            keyword=_s(payload.get("keyword")),
+            keyword_id=_s(payload.get("keyword_id")),
         )
         identity = (
             payload.get("id"),
@@ -409,6 +433,15 @@ def event_from_payload(
             payload.get("sender_timestamp"),
             data.text,
         )
+        if data.keyword and not data.mention:
+            return KeywordEvent(
+                event="message.keyword",
+                # One event per (rule, message): the dispatcher dedups it per channel.
+                dedup_key=dedup_hash("message.keyword", data.keyword_id, *identity),
+                conversation_key=key,
+                data=data,
+                **common,
+            )
         if data.mention:
             return MentionEvent(
                 event="message.mention",
