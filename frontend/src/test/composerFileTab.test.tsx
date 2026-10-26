@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MessageInput } from '../components/MessageInput';
@@ -8,6 +8,10 @@ import { toast } from '../components/ui/sonner';
 import { resetShareStatusStoreForTests, setShareStatus } from '../stores/shareStatusStore';
 import type { ShareFile, ShareStatus } from '../types';
 import * as downscale from '../utils/imageDownscale';
+import type { ShareTarget } from '../utils/channelClass';
+import { SHARE_MODE_STORAGE } from '../utils/shareMode';
+import en from '../i18n/locales/slices/sf.en.json';
+import fr from '../i18n/locales/slices/sf.fr.json';
 
 vi.mock('../components/ui/sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -185,6 +189,130 @@ describe('Composer File tab', () => {
   });
 });
 
+describe('File tab mode', () => {
+  const onSend = vi.fn().mockResolvedValue(undefined);
+  let upload: ReturnType<typeof vi.spyOn>;
+  const DM: ShareTarget = {
+    class: 'dm',
+    encryptable: true,
+    conversation: { type: 'contact', id: 'ab'.repeat(32) },
+  };
+  const PRIVATE: ShareTarget = {
+    class: 'private',
+    encryptable: true,
+    conversation: { type: 'channel', id: 'conv1' },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.removeItem(SHARE_MODE_STORAGE);
+    resetShareStatusStoreForTests();
+    upload = vi.spyOn(api, 'uploadShareFile').mockResolvedValue(STORED);
+    vi.spyOn(downscale, 'downscaleImage').mockResolvedValue(prepared);
+    vi.spyOn(api, 'getShareStatus').mockRejectedValue(new Error('offline'));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.removeItem(SHARE_MODE_STORAGE);
+  });
+
+  function open(target: ShareTarget | null, over: Partial<ShareStatus> = {}) {
+    setShareStatus({ ...status(true), ...over });
+    render(
+      <MessageInput
+        onSend={onSend}
+        disabled={false}
+        conversationType={
+          target?.class === 'dm' || target?.class === 'room' ? 'contact' : 'channel'
+        }
+        shareTarget={target}
+      />
+    );
+    fireEvent.click(screen.getByTestId('composer-attach-trigger'));
+    fireEvent.click(screen.getByTestId('composer-attach-tab-file'));
+  }
+  const checked = (mode: string) =>
+    screen.getByTestId(`file-tab-mode-${mode}`).getAttribute('aria-checked');
+
+  it.each([
+    ['a private channel', PRIVATE],
+    ['a DM', DM],
+  ])('defaults to encrypted in %s', (_label, target) => {
+    open(target);
+    expect(checked('encrypted')).toBe('true');
+    expect(checked('public')).toBe('false');
+    expect(screen.queryByTestId('file-tab-mode-clear')).toBeNull();
+  });
+
+  it.each([
+    ['public', 'Public'],
+    ['hashtag_derived', 'derived hashtag'],
+    ['room', 'room'],
+  ] as const)('offers no encryption in a %s conversation and says why', (cls) => {
+    open({ class: cls, encryptable: false, conversation: null });
+    expect(screen.queryByTestId('file-tab-mode')).toBeNull();
+    expect(screen.getByTestId('file-tab-mode-clear')).toHaveTextContent(
+      i18n.t(`chat.fileTab.mode.clear.${cls}`)
+    );
+  });
+
+  it('never says private to explain a non-encryptable conversation', () => {
+    for (const text of [
+      ...Object.values(en.chat.fileTab.mode.clear),
+      ...Object.values(fr.chat.fileTab.mode.clear),
+    ]) {
+      expect(text.toLowerCase()).not.toMatch(/priv/);
+    }
+  });
+
+  it('remembers the last choice', () => {
+    open(PRIVATE);
+    fireEvent.click(screen.getByTestId('file-tab-mode-public'));
+    expect(checked('public')).toBe('true');
+    expect(localStorage.getItem(SHARE_MODE_STORAGE)).toBe('public');
+    cleanup();
+    open(DM);
+    expect(checked('public')).toBe('true');
+  });
+
+  it('disables encryption in a DM until the radio key is read', () => {
+    open(DM, { dm_encryption_available: false });
+    expect(screen.getByTestId('file-tab-mode-encrypted')).toBeDisabled();
+    expect(checked('public')).toBe('true');
+    expect(screen.getByTestId('file-tab-mode-hint')).toHaveTextContent(
+      i18n.t('chat.fileTab.mode.dmUnavailable')
+    );
+  });
+
+  it('uploads sealed for the conversation, with the file name', async () => {
+    open(PRIVATE);
+    fireEvent.change(screen.getByTestId('file-tab-input'), {
+      target: { files: [new File([new Uint8Array(10)], 'summit.jpg', { type: 'image/jpeg' })] },
+    });
+    await screen.findByTestId('file-tab-summary');
+    fireEvent.click(screen.getByTestId('file-tab-send'));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    expect(upload.mock.calls[0][1]).toMatchObject({
+      encrypted: { type: 'channel', id: 'conv1' },
+      name: 'summit.jpg',
+    });
+  });
+
+  it('uploads in public mode with no name when public is chosen', async () => {
+    open(PRIVATE);
+    fireEvent.click(screen.getByTestId('file-tab-mode-public'));
+    fireEvent.change(screen.getByTestId('file-tab-input'), {
+      target: { files: [new File([new Uint8Array(10)], 'summit.jpg', { type: 'image/jpeg' })] },
+    });
+    await screen.findByTestId('file-tab-summary');
+    fireEvent.click(screen.getByTestId('file-tab-send'));
+    await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+    const options = upload.mock.calls[0][1] as { encrypted?: unknown; name?: unknown };
+    expect(options.encrypted).toBeUndefined();
+    expect(options.name).toBeUndefined();
+  });
+});
+
 describe('share error messages', () => {
   const CODES = [
     'share_disabled',
@@ -200,6 +328,9 @@ describe('share error messages', () => {
     'share_invalid_request',
     'share_cross_site',
     'share_mode_unavailable',
+    'share_mode_not_allowed',
+    'share_radio_key_unavailable',
+    'share_undecryptable',
   ];
 
   it.each(['en', 'fr'])('translates every upload error code in %s', async (lng) => {

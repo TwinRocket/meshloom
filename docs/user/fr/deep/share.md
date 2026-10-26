@@ -7,11 +7,11 @@ order: 23
 
 Un message MeshCore contient 156 octets, et une adresse web en prend souvent davantage. Le **service de partage** transforme une longue adresse en un lien court comme `https://meshl.ink/Ab3dE9x` (25 octets), qui tient dans un message et que tout le monde peut ouvrir. Il est exploité par le projet Meshloom sur son propre domaine, `meshl.ink`, et il est **optionnel et désactivé par défaut** : tant qu’un administrateur ne l’active pas, ce Meshloom ne le contacte jamais, pas même pour résoudre son nom.
 
-Cette version raccourcit des **adresses web** et envoie des **photos** sous forme de liens publics, depuis le panneau **Envoyer une photo** de la zone de saisie : toute personne qui a ce lien peut ouvrir la photo. Elle n’envoie pas encore de fichiers chiffrés. Les sections ci-dessous ne décrivent que ce qui existe.
+Cette version raccourcit des **adresses web** et envoie des **photos** depuis le panneau **Envoyer une photo** de la zone de saisie. Une photo publique peut être ouverte par toute personne qui a son lien. Dans un canal privé ou un message direct, le panneau peut aussi envoyer la photo chiffrée pour cette conversation, que ses membres ouvrent dans Meshloom ; sur le canal Public, un canal dont la clé vient de son nom et un serveur de salon, les photos sont toujours publiques. Les sections ci-dessous ne décrivent que ce qui existe.
 
 ## L’activer
 
-Ouvrez **Réglages > Partage : liens et fichiers** (administrateurs ; un membre n’y voit que **Mes envois**, voir plus bas). La section indique si le partage est activé, si l’identité de partage de ce Meshloom est prête et si les fichiers chiffrés pour les messages directs sont disponibles (ils ne servent pas encore).
+Ouvrez **Réglages > Partage : liens et fichiers** (administrateurs ; un membre n’y voit que **Mes envois**, voir plus bas). La section indique si le partage est activé, si l’identité de partage de ce Meshloom est prête et si les fichiers chiffrés pour les messages directs sont disponibles.
 
 Cocher **Activer le partage de liens et de fichiers** ouvre toujours une fenêtre de consentement. Elle liste ce qui quitte ce Meshloom, qui exploite le service et combien de temps les données sont conservées, renvoie vers les conditions d’utilisation et la politique de confidentialité du service, et demande de cocher que vous acceptez les conditions. Annuler, fermer la fenêtre ou laisser la case décochée ne change rien. Votre acceptation est enregistrée sur ce Meshloom, avec la version des conditions et la date : si les conditions changent dans une version ultérieure, le partage reste désactivé et la section vous le signale, jusqu’à ce qu’un administrateur lise et accepte les nouvelles conditions en le réactivant. Désactiver le partage ne demande aucun consentement et prend effet aussitôt : les requêtes déjà en route sont interrompues.
 
@@ -53,7 +53,7 @@ L’indication demande que le partage soit activé : quand il est désactivé, u
 
 ## Ouvrir un fichier chiffré dans un navigateur
 
-Cette version de Meshloom n’envoie pas encore de fichiers chiffrés, mais le service a déjà la page qui les ouvre. Une image chiffrée partagée dans un **canal privé** peut être ouverte par les membres du canal, depuis n’importe quel appareil, à l’adresse `https://meshl.ink/<id>/decrypt` (la page du fichier y renvoie) : collez la clé du canal, ses 32 caractères hexadécimaux ou le lien `meshcore://` du canal. Le navigateur déchiffre le fichier : la clé n’est ni envoyée au service, ni mise dans l’adresse, ni enregistrée, et la seule requête est le téléchargement du fichier chiffré. Une mauvaise clé affiche une erreur et rien d’autre.
+Le service a aussi une page qui ouvre les fichiers chiffrés hors de Meshloom. Une image chiffrée partagée dans un **canal privé** peut être ouverte par les membres du canal, depuis n’importe quel appareil, à l’adresse `https://meshl.ink/<id>/decrypt` (la page du fichier y renvoie) : collez la clé du canal, ses 32 caractères hexadécimaux ou le lien `meshcore://` du canal. Le navigateur déchiffre le fichier : la clé n’est ni envoyée au service, ni mise dans l’adresse, ni enregistrée, et la seule requête est le téléchargement du fichier chiffré. Une mauvaise clé affiche une erreur et rien d’autre.
 
 Les fichiers partagés en **message direct** ne peuvent pas y être ouverts : leur clé ne quitte jamais la base radio Meshloom. Ouvrez-les dans Meshloom.
 

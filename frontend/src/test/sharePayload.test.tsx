@@ -4,13 +4,18 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MessageBody } from '../components/message/MessageBody';
 import type { ShareMessageContext } from '../components/message/SharePayload';
 import { BlockedSendersProvider } from '../contexts/BlockedSendersContext';
-import { __resetShareMetaStoreForTests, loadShareStatus } from '../stores/shareMetaStore';
+import {
+  __resetShareMetaStoreForTests,
+  loadShareStatus,
+  META_TIMEOUT_MS,
+} from '../stores/shareMetaStore';
 import type { SharePreviewPolicy, ShareStatus } from '../types';
 import {
   isPrivateChannel,
   isPrivateConversation,
   shareImageId,
   shareMediaAutoLoads,
+  sharePayloadLink,
 } from '../utils/sharePayload';
 import { PUBLIC_CHANNEL_KEY } from '../utils/publicChannel';
 import i18n from '../i18n';
@@ -84,7 +89,7 @@ async function setup(policy: SharePreviewPolicy) {
   fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.endsWith('/share/status')) return jsonResponse(status(policy));
-    if (url.endsWith(`/share/${ID}/meta`)) return metaResponse();
+    if (url.includes(`/share/${ID}/meta`)) return metaResponse();
     if (url.endsWith(`/share/${ID}/report`))
       return jsonResponse({ received: true }, { status: 202 });
     return jsonResponse({});
@@ -114,6 +119,7 @@ function renderBody(
     blockedNames?: string[];
     loaded?: boolean;
     interactive?: boolean;
+    content?: string;
   } = {}
 ) {
   return render(
@@ -123,7 +129,7 @@ function renderBody(
       loaded={opts.loaded}
     >
       <MessageBody
-        content={BODY}
+        content={opts.content ?? BODY}
         message={msg}
         privateConversation={msg ? isPrivateConversation(msg, CHANNELS) : false}
         remoteMedia={opts.remoteMedia}
@@ -147,6 +153,18 @@ describe('sharePayload helpers', () => {
     expect(shareImageId(`https://meshl.ink/${ID}`, hosts)).toBeNull();
     expect(shareImageId(`📷https://meshl.ink/${ID}`, hosts)).toBeNull();
     expect(shareImageId(`📷 https://evil.org/${ID}`, hosts)).toBeNull();
+  });
+
+  it('tells the encrypted form apart', () => {
+    const hosts = ['meshl.ink'];
+    expect(sharePayloadLink(`🔒 https://meshl.ink/${ID} hi`, hosts)).toEqual({
+      id: ID,
+      encrypted: true,
+    });
+    expect(sharePayloadLink(`@[Bob] 🔒 https://meshl.ink/${ID}`, hosts)?.encrypted).toBe(true);
+    expect(sharePayloadLink(BODY, hosts)).toEqual({ id: ID, encrypted: false });
+    expect(sharePayloadLink(`🔒https://meshl.ink/${ID}`, hosts)).toBeNull();
+    expect(shareImageId(`🔒 https://meshl.ink/${ID}`, hosts)).toBe(ID);
   });
 
   it('classes channels', () => {
@@ -181,6 +199,88 @@ describe('SharePayload', () => {
     roleRef.current = null;
     toastMock.success.mockReset();
     toastMock.error.mockReset();
+  });
+
+  describe('encrypted files', () => {
+    const LOCKED = `🔒 https://meshl.ink/${ID} summit`;
+    const ENCRYPTED_META = {
+      ...IMAGE_META,
+      mode: 'encrypted',
+      name: 'summit.jpg',
+      content_type: 'image/jpeg',
+      decryptable: true,
+    };
+    beforeEach(() => setup('private'));
+    afterEach(() => vi.useRealTimers());
+
+    it('asks the meta for the message and shows the lock badge, name and type', async () => {
+      metaResponse = () => jsonResponse(ENCRYPTED_META);
+      renderBody(message(), { content: LOCKED });
+      const img = await screen.findByTestId('share-payload-image');
+      expect(img.getAttribute('src')).toBe(`./api/share/${ID}?message_id=42`);
+      expect(String(fetchSpy.mock.calls[0][0])).toBe(`./api/share/${ID}/meta?message_id=42`);
+      const badge = screen.getByTestId('share-payload-lock');
+      expect(badge).toHaveTextContent(i18n.t('sharePayload.encrypted'));
+      expect(badge).toHaveTextContent('JPEG');
+      expect(screen.getByTestId('share-payload-name')).toHaveTextContent('summit.jpg');
+    });
+
+    it('says the file is encrypted for another conversation, keeping the raw link', async () => {
+      metaResponse = () =>
+        jsonResponse({ ...ENCRYPTED_META, name: null, content_type: null, decryptable: false });
+      renderBody(message(), { content: LOCKED });
+      expect(await screen.findByTestId('share-payload-encrypted-elsewhere')).toHaveTextContent(
+        i18n.t('sharePayload.encryptedElsewhere')
+      );
+      expect(screen.queryByTestId('share-payload-image')).toBeNull();
+      expect(screen.queryByTestId('share-payload-loading')).toBeNull();
+      expect(screen.getByRole('link', { name: `https://meshl.ink/${ID}` })).toBeTruthy();
+    });
+
+    it('says the file cannot be read now when decryptable is unknown', async () => {
+      metaResponse = () =>
+        jsonResponse({ ...ENCRYPTED_META, name: null, content_type: null, decryptable: null });
+      renderBody(message(), { content: LOCKED });
+      expect(await screen.findByTestId('share-payload-encrypted-unavailable')).toHaveTextContent(
+        i18n.t('sharePayload.encryptedUnavailable')
+      );
+    });
+
+    it('says the file cannot be read now when the meta fails', async () => {
+      metaResponse = () =>
+        jsonResponse({ detail: { code: 'share_unavailable', params: {} } }, { status: 503 });
+      renderBody(message(), { content: LOCKED });
+      expect(await screen.findByTestId('share-payload-encrypted-unavailable')).toBeTruthy();
+    });
+
+    it('says the file cannot be read now when the decrypted image fails', async () => {
+      metaResponse = () => jsonResponse(ENCRYPTED_META);
+      renderBody(message(), { content: LOCKED });
+      fireEvent.error(await screen.findByTestId('share-payload-image'));
+      expect(screen.getByTestId('share-payload-encrypted-unavailable')).toBeTruthy();
+    });
+
+    it('never spins forever: an unanswered meta ends in the fallback', async () => {
+      vi.useFakeTimers();
+      fetchSpy.mockImplementation(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError'))
+            );
+          })
+      );
+      renderBody(message(), { content: LOCKED });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(screen.getByTestId('share-payload-loading')).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(META_TIMEOUT_MS);
+      });
+      expect(screen.queryByTestId('share-payload-loading')).toBeNull();
+      expect(screen.getByTestId('share-payload-encrypted-unavailable')).toBeTruthy();
+    });
   });
 
   describe('policy private', () => {

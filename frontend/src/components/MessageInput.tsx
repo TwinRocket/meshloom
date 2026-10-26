@@ -20,6 +20,7 @@ import { api, formatApiError } from '../api';
 import { cn } from '@/lib/utils';
 import { ComposerAttachPicker, type ComposerAttachTab } from './ComposerAttachPicker';
 import type { IncomingFile } from './ComposerFileTab';
+import type { ShareTarget } from '../utils/channelClass';
 import {
   getTextReplaceEnabled,
   getTextReplaceMapJson,
@@ -63,6 +64,8 @@ interface MessageInputProps {
   /** Radio advert coordinates used to send an Open location pin. */
   radioLat?: number | null;
   radioLon?: number | null;
+  /** Share class of the conversation (`utils/channelClass.ts`) for the File tab's mode offer. */
+  shareTarget?: ShareTarget | null;
 }
 
 type LimitState = 'normal' | 'warning' | 'danger' | 'error';
@@ -95,6 +98,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
     senderName,
     radioLat,
     radioLon,
+    shareTarget = null,
   },
   ref
 ) {
@@ -605,6 +609,7 @@ export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(fu
             fileByteLimit={fileByteLimit}
             incomingFile={incomingFile}
             onIncomingFileConsumed={() => setIncomingFile(null)}
+            fileTarget={shareTarget}
             onClose={() => setComposerPanel(null)}
             disabled={disabled || sending}
             hasShareableLocation={hasShareableLocation}
