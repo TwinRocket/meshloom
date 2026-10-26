@@ -182,6 +182,75 @@ class TestUpload:
         assert _staged(data_dir) == []
 
 
+class TestKillSwitchBeforeTheBody:
+    """The service refuses an upload (503 ``kill_switch``) before reading its body.
+
+    The mock transport of the other tests reads the whole body first. This one
+    goes through the real httpx/httpcore stack to a socket that answers 503 as
+    soon as it has the headers, before the body, and then only discards what
+    arrives: the answer must be the one reported, and it is not an outage.
+    (A server that hard-closes with unread data resets the connection and, on
+    macOS, drops its own answer: that variant depends on the OS, so it is not
+    tested.)
+    """
+
+    async def test_an_answer_sent_before_the_body_is_read(self, on, client, data_dir, monkeypatch):
+        answer = json.dumps({"code": "kill_switch"}).encode()
+
+        async def refuse(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+            await reader.readuntil(b"\r\n\r\n")
+            writer.write(
+                b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
+                + f"Content-Length: {len(answer)}\r\nConnection: close\r\n\r\n".encode()
+                + answer
+            )
+            await writer.drain()
+            while await reader.read(65536):
+                pass
+            writer.close()
+
+        server = await asyncio.start_server(refuse, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+
+        class ToTheSocket(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                on.requests.append(request)
+                async with _RealAsyncClient() as real:
+                    response = await real.send(
+                        httpx.Request(
+                            "POST",
+                            f"http://127.0.0.1:{port}/v1/files",
+                            headers=request.headers,
+                            content=request.stream,
+                        )
+                    )
+                return httpx.Response(
+                    response.status_code,
+                    headers=response.headers,
+                    stream=httpx.ByteStream(response.content),
+                )
+
+        class Recording(_RealAsyncClient):
+            def __init__(self, **kwargs):
+                kwargs["transport"] = ToTheSocket()
+                super().__init__(**kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", Recording)
+        # Several MiB: the answer is sent while most of the body is still to go.
+        body = _png(8, 8, 4 * MIB)
+        try:
+            async with asyncio.timeout(20):
+                response = await _post(client, body=body)
+        finally:
+            server.close()
+            await server.wait_closed()
+        assert response.status_code == 502
+        assert response.json()["detail"]["code"] == "share_unavailable"
+        assert len(on.requests) == 1
+        assert share.share_breaker().failures == 0
+        assert _staged(data_dir) == []
+
+
 class TestReceiveDeadline:
     async def test_a_trickled_body_times_out_and_frees_the_slot(
         self, on, client, data_dir, monkeypatch
@@ -228,6 +297,39 @@ class TestDiskErrors:
         assert response.json()["detail"]["code"] == "share_storage_failed"
         _no_egress(on)
         assert _staged(data_dir) == []
+
+    async def test_a_file_removed_while_it_is_sent_is_coded_and_cleaned(
+        self, on, client, data_dir, monkeypatch, caplog
+    ):
+        opened = 0
+
+        def unlink_on_second_open(path, *args, **kwargs):
+            # The first open is the local check; the second one streams to the service.
+            nonlocal opened
+            opened += 1
+            if opened == 2:
+                os.unlink(path)
+            return open(path, *args, **kwargs)
+
+        monkeypatch.setattr(share_upload, "open", unlink_on_second_open, raising=False)
+        with caplog.at_level("WARNING"):
+            response = await _post(client)
+        assert response.status_code == 500
+        assert response.json()["detail"]["code"] == "share_storage_failed"
+        assert "errno ENOENT" in caplog.text
+        assert str(data_dir) not in caplog.text
+        assert share.share_breaker().failures == 0
+        assert _staged(data_dir) == []
+
+    async def test_an_errno_less_error_is_logged_with_a_reason(self, on, client, data_dir, caplog):
+        # A link to a directory passes ``mkdir`` and is refused by our own check.
+        (data_dir / "elsewhere").mkdir()
+        (data_dir / share_upload.TMP_DIRNAME).symlink_to(data_dir / "elsewhere")
+        with caplog.at_level("WARNING"):
+            response = await _post(client)
+        assert response.status_code == 500
+        assert "errno None" not in caplog.text
+        assert "share-tmp is not a directory" in caplog.text
 
     @pytest.mark.parametrize("target", ["directory", "missing"])
     async def test_a_linked_tmp_directory_is_refused(self, on, client, data_dir, target):

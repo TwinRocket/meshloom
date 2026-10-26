@@ -316,9 +316,10 @@ Community guard.
   one byte past the declared `Content-Length` stops the read, a short body is refused
   (400 `share_invalid_request`); the whole body must arrive within `RECEIVE_TIMEOUT_S`
   (120 s; uvicorn has no body read timeout, so a trickled body would hold a slot), else
-  408 `share_upload_timeout`; a local `OSError` while staging or checking (`ENOSPC`,
-  `share-tmp` replaced by a link or a file) is 500 `share_storage_failed` (errno logged
-  only); the file is removed in `finally` in every case, and
+  408 `share_upload_timeout`; a local `OSError` while staging, checking or streaming the
+  file to the service (`ENOSPC`, `share-tmp` replaced by a link or a file, file removed
+  mid-send) is 500 `share_storage_failed` (errno name or fixed reason logged, never a
+  path; not a breaker failure); the file is removed in `finally` in every case, and
   `clean_tmp_directory()` empties the folder at startup (`main.py` lifespan; files and
   links unlinked, never followed). `check_staged` runs before any egress: magic bytes =
   declared type, else 415 `share_type_refused`; `imagesize` (2.x, `exif_rotation=False`)
