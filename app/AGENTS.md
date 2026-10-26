@@ -136,10 +136,12 @@ and the OpenAPI page (`/docs`), not a table here.
   their repository's refresh cached: `available_updates()` (`GET /api/store/updates`,
   no egress), `update_plugin()` (`POST /api/plugins/{id}/update`: the install pipeline,
   every instance of the plugin together, config/secrets/KV kept, new permissions hold
-  `consent_required`, new required fields `config_required`), `auto_update()` (a Store
-  refresher, per-instance `auto_update`, inside the app update window, never on a hold)
+  `consent_required`, new required fields `config_required`, a rejected optional value
+  dropped and reported as `config_dropped`), `auto_update()` (a Store refresher, so only
+  every 6 h, per-instance `auto_update`, inside the app update window, never on a hold)
   and `mark_compat()` (from `lifecycle.start()` before `load_from_db`: out of
-  `compat.meshloom` is `incompatible`, back in range is `installed`).
+  `compat.meshloom` is `incompatible`, back in range is `installed`, or
+  `needs_attention` when its kept attention is a hold).
   `installer.sweep_staging()` clears `<data>/plugins/_staging` leftovers at start, before
   the update, without following symlinks. `plugins/installer.py` is also the generic
   install pipeline (MSHL-195: sources, fail-closed download gate, egress-guarded streaming

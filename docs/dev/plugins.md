@@ -1184,7 +1184,8 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
   `{lang: text}`, `lang` then `en`; NULL for custom releases, which have none), the
   permission diff `{added, changed, removed, privacy_widened}` against the installed
   manifest, the config schema diff `{added, removed, required_added}` (NULL when the
-  release was cached before migration 127) and, per instance, the `hold` it would get.
+  release was cached before migration 127) and, per instance, the `hold` it would get
+  and the config fields whose value it would drop (`dropped_fields`).
 - **Apply.** `update_plugin(instance_id, version?, granted?, config?)` under
   `plugin_lock`: `resolve_source` (409 `store_offline` before any request while the
   consent is off), `prepare_install` (the same sha256, size and manifest checks as an
@@ -1197,25 +1198,37 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
   `attention: {type: "consent_required", permissions, privacy_widened, from_version,
   to_version}`, keeping only its still-valid grants; one missing a new required field is
   held with `config_required` and disabled. The usual `PATCH` (grants, config) releases
-  them. Running instances are stopped before the code swap (`PreparedInstall.swap`),
+  them. A kept config value the new schema rejects (a field it still declares, not
+  required) is dropped and reported, never silently: an instance that is not held gets
+  the notice `attention: {type: "config_dropped", fields, from_version, to_version}`
+  with its `status` unchanged (it still runs; the next `PATCH` that saves `config`
+  without a missing required field clears it, and so does the next update), a held one
+  `attention.config_dropped: [fields]`. Running instances are stopped before the code swap (`PreparedInstall.swap`),
   the rows are written in one transaction (`update_many`; on failure the old tree goes
   back, `installer.restore_tree`), then the unheld enabled instances start again. A
   successful update clears `incompatible` and stale holds. One `plugin.updated` audit
-  row per instance (`from_version`, `to_version`, `held`, `auto`).
+  row per instance (`from_version`, `to_version`, `held`, `config_dropped`, `auto`).
 - **Auto-update.** `auto_update()` is a Store refresher registered by
   `lifecycle.start()` after `custom_repos`' refresher. It applies an entry only when
   `update_window.in_window(updates.clock(), auto_update_window_start,
   auto_update_window_end, auto_update_weekdays)` (the app settings shared with
   Meshloom's own auto-update), every instance has `auto_update`, and no instance would
-  be held.
+  be held (checked twice: on the listing's `hold` in `auto_update()`, and on the
+  computed rows in `update_plugin(auto=True)`, which then returns None). It is evaluated
+  only at the Store refresh ticks (`store_egress.REFRESH_INTERVAL_S`, 6 h), so a window
+  shorter than 6 h can be missed on a given day. A value an auto-update drops is
+  reported the same way (notice, audit), not a reason to skip it.
 - **Compat at start.** `mark_compat()` runs in `lifecycle.start()` before
   `load_from_db()`: a `custom`/`store` instance whose manifest's `compat.meshloom` no
   longer includes the running version is stored `incompatible` (never started, 409
-  `plugin_incompatible`); one back in range returns to `installed`.
+  `plugin_incompatible`); one back in range returns to `installed`, or to
+  `needs_attention` when its `attention` holds it (`consent_required`,
+  `config_required`, `review_permissions`...): the attention is kept across
+  `incompatible`, so a consent hold is never lost by a Meshloom downgrade and upgrade.
 
 | Route | Behaviour |
 |---|---|
-| `GET /store/updates?lang=` | admin. `[{plugin_id, kind, repository, from_version, to_version, name, changelog, permissions, config_schema, instances: [{instance_id, label, version, auto_update, hold, permissions, missing_fields}]}]`. No egress. |
+| `GET /store/updates?lang=` | admin. `[{plugin_id, kind, repository, from_version, to_version, name, changelog, permissions, config_schema, instances: [{instance_id, label, version, auto_update, hold, permissions, missing_fields, dropped_fields}]}]`. No egress. |
 | `POST /plugins/{id}/update` | admin. `{version?, granted_permissions?, config?}`; answers the named instance. 409 `plugin_not_updatable` (not `custom`), 409 `plugin_reinstall_required`, 409 `plugin_up_to_date`, 409 `store_offline`, 409 `incompatible`, 400 `consent_required`, 400 `config_invalid`, 400 `archive_mismatch`, 500 `update_failed`, plus the install download errors. Audited `plugin.updated`. |
 
 Audit (MSHL-215, `app/auth/audit.py`, `docs/dev/auth.md`): every successful or failed admin write
