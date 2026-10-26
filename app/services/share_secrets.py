@@ -8,7 +8,8 @@ envelope v1", "Which conversations"):
 - a direct message: the 32-byte X25519 shared secret of the radio private key
   and the contact's public key (``decoder.derive_shared_secret``).
 
-The Public channel and name-derived ``#hashtag`` channels are public only (their
+The Public channel and channels whose key is derived from their name (``#`` or
+not, ``channel_key_is_name_derived``) are public only (their
 key can be computed by anyone, TwinRocket included): an encrypted upload there is
 422 ``share_mode_not_allowed``. A room server is refused too: each member shares
 a different secret with the room, so nobody else could decrypt the file. An
@@ -66,8 +67,8 @@ async def _channel_by_conversation_id(value: str) -> Channel | None:
 
 
 def _channel_is_public(name: str, key_hex: str) -> bool:
-    # A key derivable from the channel name, '#' or not (a hashtag channel renamed
-    # locally to 'foo' keeps its public key): encrypting under it protects nothing.
+    # A key derivable from the channel name, '#' or not ('Team' created without a
+    # key, a hashtag renamed to 'foo'): encrypting under it protects nothing.
     return key_hex.upper() == PUBLIC_CHANNEL_KEY or channel_key_is_name_derived(name, key_hex)
 
 

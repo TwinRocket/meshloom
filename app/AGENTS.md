@@ -377,9 +377,9 @@ Community guard.
   `Channel.key`; a contact gives the 32-byte X25519 shared secret
   (`decoder.derive_shared_secret` of the keystore private key and the contact key).
   Malformed or unknown is 400 `share_invalid_request`; the Public channel, a
-  name-derived channel (`channel_key_is_name_derived`: the key is `SHA256("#"+name)[:16]`,
-  or `SHA256(name)[:16]` for a `#` name, so a `#hashtag` renamed locally without its `#`
-  still counts, MSHL-385), a room (`CONTACT_TYPE_ROOM`: each
+  name-derived channel (`channel_key_is_name_derived`: the key is `SHA256(name)[:16]` or
+  `SHA256("#"+name)[:16]`, `#` or not, so a channel created by name without a key and a
+  `#hashtag` renamed locally without its `#` both count, MSHL-385), a room (`CONTACT_TYPE_ROOM`: each
   member has a different secret with it) or an unusable/low-order contact key is 422
   `share_mode_not_allowed`; a DM without the radio private key is 503
   `share_radio_key_unavailable` (public mode and private channels keep working). On the
@@ -1280,8 +1280,8 @@ Mechanics and constants: `docs/dev/community-client.md`. Contracts:
   `channel_key_is_name_derived`. Plugins' `is_public_channel` and the notification
   body rule still use `is_public_hashtag_channel`.
 - **`Channel.key_derived`** (MSHL-246): a pydantic `computed_field` on the `Channel`
-  model, `channel_key_is_name_derived(name, key)` (MSHL-385: true with or without the
-  leading `#`, so a renamed hashtag channel stays derived), so every channel payload (REST and WS)
+  model, `channel_key_is_name_derived(name, key)` (MSHL-385: `SHA256(name)` or
+  `SHA256("#"+name)`, so a renamed hashtag channel stays derived), so every channel payload (REST and WS)
   carries it and input ignores it; never stored. `Channel.share_conversation_id`
   (MSHL-378) follows the same pattern (see "Conversation secrets"). The Public channel is `false` (its
   key is not name-derived): the frontend treats it apart (`isPublicChannelKey`).

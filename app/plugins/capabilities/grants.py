@@ -146,6 +146,7 @@ def scope_allows(scope: Mapping[str, Any] | None, *, is_dm: bool, key: str) -> b
 
 
 def is_public_channel(key: str, name: str | None) -> bool:
+    # 'public' grants plugin access here, so the stricter '#'-name rule is intentional.
     return is_public_channel_key(key) or is_public_hashtag_channel(name or "", key)
 
 

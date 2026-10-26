@@ -38,6 +38,8 @@ DOUBLE = hashlib.sha256(b"##double").digest()[:16].hex().upper()
         ("#double", DOUBLE, True),  # '#' + name, when the name starts with '#'
         ("#double", hashtag_key_from_name("#double").hex(), True),
         ("double", DOUBLE, False),
+        # POST /api/channels and meshcore_py derive SHA256(name) without a '#'.
+        ("Team", hashlib.sha256(b"Team").digest()[:16].hex().upper(), True),
         (PUBLIC_CHANNEL_NAME, PUBLIC_CHANNEL_KEY, False),  # well known, but not name-derived
     ],
 )

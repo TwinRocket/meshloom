@@ -512,6 +512,7 @@ def _is_message(data: Mapping[str, Any]) -> bool:
 
 def message_text_is_public(data: Mapping[str, Any]) -> bool:
     """A Public or ``#`` channel whose key is derived from its name: anyone can read it."""
+    # 'public' lets the text leave in notifications, so the stricter '#'-name rule is intentional.
     if data.get("type") != "CHAN":
         return False
     key = str(data.get("conversation_key") or "")

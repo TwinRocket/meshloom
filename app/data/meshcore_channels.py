@@ -69,9 +69,12 @@ def is_public_hashtag_channel(name: str, key_hex: str) -> bool:
 def channel_key_is_name_derived(name: str, key_hex: str) -> bool:
     """True when anyone who knows ``name`` can derive ``key_hex``, ``#`` prefix or not.
 
-    The key is ``SHA256("#" + name)[:16]``, or ``SHA256(name)[:16]`` when the
-    name already starts with ``#``: a hashtag channel renamed locally from
-    ``#foo`` to ``foo`` still has a public key. This is the privacy test (the
+    The key is ``SHA256(name)[:16]`` or ``SHA256("#" + name)[:16]``, whatever
+    the name starts with: ``POST /api/channels`` without a key and meshcore_py
+    ``set_channel(name, None)`` derive ``SHA256(name)`` even for ``Team``, and a
+    hashtag channel renamed locally from ``#foo`` to ``foo`` keeps the key of
+    ``#foo``. A rename to another case or an unrelated name cannot be detected.
+    This is the privacy test (the
     share encryption refusal, ``Channel.key_derived``). It is deliberately
     broader than ``is_public_hashtag_channel``, which also decides what is
     published as a hashtag name and must keep requiring the ``#`` name.
@@ -83,10 +86,10 @@ def channel_key_is_name_derived(name: str, key_hex: str) -> bool:
         return False
     if len(key) != 16:
         return False
-    candidates = [sha256(f"#{text}".encode()).digest()[:16]]
-    if text.startswith("#"):
-        candidates.append(sha256(text.encode()).digest()[:16])
-    return key in candidates
+    return key in (
+        sha256(text.encode()).digest()[:16],
+        sha256(f"#{text}".encode()).digest()[:16],
+    )
 
 
 def channel_key_hash_byte(key: bytes) -> str:

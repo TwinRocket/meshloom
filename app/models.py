@@ -386,8 +386,8 @@ class Channel(BaseModel):
 
     @computed_field(
         description=(
-            "True when the key is the one derived from the name, with or without its "
-            "leading '#' (anyone who knows the name can read it; a hashtag channel "
+            "True when the key is SHA256 of the name or of '#' + name (anyone who knows "
+            "the name can read it; a hashtag channel "
             "renamed without its '#' stays derived). Computed, never stored; the share "
             "preview policy 'private' does not auto-load media in such a channel."
         )
