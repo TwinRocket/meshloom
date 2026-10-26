@@ -125,6 +125,17 @@
     "schema": {
       "additionalProperties": false,
       "properties": {
+        "body_type": {
+          "default": "v2",
+          "enum": [
+            "v1",
+            "v2"
+          ],
+          "help_key": "notifications.channels.help.webhook_body_type",
+          "label_key": "notifications.channels.fields.body_type",
+          "title": "Body Type",
+          "type": "string"
+        },
         "hmac_secret": {
           "anyOf": [
             {

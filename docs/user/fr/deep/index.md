@@ -14,6 +14,6 @@ Deux pages valent une lecture avant les autres :
 - [Variables et réglages](/docs/deep/environment/) sépare ce qui se décide au démarrage de ce qui vit dans la base et se change dans l’interface.
 - [Sécurité](/docs/deep/security/) dit ce que Meshloom ne protège pas.
 
-Pour être prévenu quand quelque chose se passe, lisez [Notifications](/docs/deep/notifications/) (canaux, événements et règles ; ntfy, Telegram, Discord, Home Assistant, e-mail, webhooks) et, pour les navigateurs, [Notifications push](/docs/deep/push/). Pour transmettre chaque message à un autre système, lisez [Fanout](/docs/deep/fanout/).
+Pour être prévenu quand quelque chose se passe, lisez [Notifications](/docs/deep/notifications/) (canaux, événements et règles ; ntfy, Telegram, Discord, Home Assistant, e-mail, webhooks ; le corps du webhook : [Webhook de notification](/docs/deep/notifications-webhook/)) et, pour les navigateurs, [Notifications push](/docs/deep/push/). Pour transmettre chaque message à un autre système, lisez [Fanout](/docs/deep/fanout/).
 
 [Meshloom Community](/docs/deep/community/) reste désactivé tant que vous ne l’avez pas rejoint : lisez sa page pour savoir ce qu’il envoie avant de le faire. Il en va de même pour les [Liens courts et photos](/docs/deep/share/), le service de partage optionnel qui raccourcit les longues adresses web : il reste désactivé tant qu’un administrateur ne l’active pas.

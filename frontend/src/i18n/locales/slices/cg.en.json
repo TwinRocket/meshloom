@@ -13,12 +13,14 @@
         "url": "Webhook URL",
         "hmac_secret": "HMAC secret (optional)",
         "urls": "Apprise URLs (one per line)",
-        "format": "Message format"
+        "format": "Message format",
+        "body_type": "Body format"
       },
       "help": {
         "email_to": "Separate several addresses with commas.",
         "webhook_url": "The URL receives a JSON POST. It is write-only: it is never shown again.",
-        "apprise_urls": "One Apprise URL per line, for example ntfys://ntfy.sh/my-topic. Write-only."
+        "apprise_urls": "One Apprise URL per line, for example ntfys://ntfy.sh/my-topic. Write-only.",
+        "webhook_body_type": "v2 (new channels): a typed, documented JSON body whose signature covers the timestamp. v1: the 4.18 body, kept for existing receivers."
       }
     }
   },
@@ -42,7 +44,13 @@
         },
         "webhook": {
           "name": "Webhook",
-          "description": "POST a JSON message to a URL you control."
+          "description": "POST a JSON message to a URL you control.",
+          "body_type": {
+            "options": {
+              "v1": "v1 (legacy)",
+              "v2": "v2 (documented, recommended)"
+            }
+          }
         },
         "apprise": {
           "name": "Apprise",

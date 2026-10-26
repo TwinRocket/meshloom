@@ -13,12 +13,14 @@
         "url": "URL du webhook",
         "hmac_secret": "Secret HMAC (facultatif)",
         "urls": "URL Apprise (une par ligne)",
-        "format": "Format du message"
+        "format": "Format du message",
+        "body_type": "Format du corps"
       },
       "help": {
         "email_to": "Séparez plusieurs adresses par des virgules.",
         "webhook_url": "L'URL reçoit un POST JSON. Elle est en écriture seule : elle n'est jamais réaffichée.",
-        "apprise_urls": "Une URL Apprise par ligne, par exemple ntfys://ntfy.sh/mon-sujet. En écriture seule."
+        "apprise_urls": "Une URL Apprise par ligne, par exemple ntfys://ntfy.sh/mon-sujet. En écriture seule.",
+        "webhook_body_type": "v2 (nouveaux canaux) : un corps JSON typé et documenté dont la signature couvre l'horodatage. v1 : le corps de la 4.18, conservé pour les récepteurs existants."
       }
     }
   },
@@ -42,7 +44,13 @@
         },
         "webhook": {
           "name": "Webhook",
-          "description": "Envoyer un message JSON par POST vers une URL que vous contrôlez."
+          "description": "Envoyer un message JSON par POST vers une URL que vous contrôlez.",
+          "body_type": {
+            "options": {
+              "v1": "v1 (ancien)",
+              "v2": "v2 (documenté, recommandé)"
+            }
+          }
         },
         "apprise": {
           "name": "Apprise",
