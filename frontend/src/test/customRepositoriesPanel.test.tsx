@@ -106,7 +106,7 @@ describe('CustomRepositoriesPanel', () => {
       new ApiError('x', 404, {
         code: 'repository_assets_missing',
         message: 'x',
-        params: { missing: 'plugin.zip' },
+        params: { missing: ['manifest.json', 'plugin.zip'] },
       })
     );
     renderPanel();
@@ -115,7 +115,7 @@ describe('CustomRepositoriesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: t('settings.extensions.store.add') }));
     await waitFor(() =>
       expect(toastMocks.error).toHaveBeenCalledWith(
-        t('errors.repository_assets_missing', { missing: 'plugin.zip' })
+        t('errors.repository_assets_missing', { missing: 'manifest.json, plugin.zip' })
       )
     );
   });
@@ -175,6 +175,7 @@ describe('CustomRepositoriesPanel', () => {
         kind: 'custom',
         plugin_id: 'example.weather',
         repository: 'example/weather',
+        version: expect.any(String),
         granted_permissions: {
           'messages.read': { channels: 'public', direct: false, outgoing: false },
         },

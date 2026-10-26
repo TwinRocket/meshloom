@@ -49,6 +49,8 @@ export interface PluginInstallRequest {
   plugin_id: string;
   /** `owner/name` of a custom Store repository (`kind: 'custom'`). */
   repository?: string;
+  /** The release version shown to the admin: refused when it is no longer the latest. */
+  version?: string;
   label?: string;
   granted_permissions: Record<string, unknown>;
   config?: Record<string, unknown>;

@@ -325,6 +325,7 @@ function InstallBody({
         kind: 'custom',
         plugin_id: entry.plugin_id,
         repository: repo.repository,
+        version: entry.version,
         granted_permissions: entry.permissions,
       });
       toast.success(t('settings.extensions.add.installed', { name: instance.label }));

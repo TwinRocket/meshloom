@@ -448,3 +448,45 @@ async def test_resolver_checks_the_version(net, online, tmp_path):
 
 def test_repository_dataclass_keeps_the_display_case():
     assert parse_repository("Acme/Echo") == Repository("acme/echo", "Acme/Echo")
+
+
+async def test_repository_routes_follow_the_plugins_lock(api, net, online, tmp_path, monkeypatch):
+    """Adding or forgetting a repository is refused while plugins are turned off."""
+    from app.routers import plugins as plugins_router
+
+    publish(net, build_archive(tmp_path))
+    assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
+    net.requests.clear()
+    monkeypatch.setattr(plugins_router.plugin_manager, "disabled_source", lambda: "env")
+    added = await api.post("/api/store/repositories", json={"repository": "other/repo"})
+    assert (added.status_code, detail(added)["code"]) == (403, "plugins_disabled")
+    removed = await api.delete("/api/store/repositories/acme/echo")
+    assert (removed.status_code, detail(removed)["code"]) == (403, "plugins_disabled")
+    assert net.requests == []
+    assert (await api.get("/api/store/repositories")).status_code == 200
+
+
+async def test_second_instance_from_another_repository_is_refused(
+    api, manager, net, online, tmp_path, monkeypatch
+):
+    from app.routers import plugins as plugins_router
+
+    monkeypatch.setattr(installer, "BUNDLED_ROOT", tmp_path / "no-bundled")
+    monkeypatch.setattr(plugins_router, "plugin_manager", manager)
+    set_version(monkeypatch, "5.0.0")
+    publish(net, build_archive(tmp_path))
+    assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
+    body = {
+        "kind": "custom",
+        "plugin_id": "acme.echo",
+        "repository": REPO,
+        "granted_permissions": GRANT,
+    }
+    assert (await api.post("/api/plugins/install", json=body)).status_code == 201
+    # Same repository (any case): the shared code is reused.
+    again = await api.post("/api/plugins/install", json=body | {"repository": "ACME/echo"})
+    assert again.status_code == 201, again.text
+    # Another repository would silently reuse the code of the first one.
+    other = await api.post("/api/plugins/install", json=body | {"repository": "evil/echo"})
+    assert (other.status_code, detail(other)["code"]) == (409, "plugin_repository_conflict")
+    assert detail(other)["params"] == {"repository": "acme/echo"}

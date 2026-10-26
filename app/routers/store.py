@@ -7,10 +7,12 @@ request goes through ``app.plugins.store_egress`` (``store_fetch``).
 - ``GET /store/repositories``: the custom GitHub repositories (MSHL-196) with the
   catalogue entry of each one's last good release (tier ``custom``, ``signed: false``,
   the warning) and the instances installed from it. No egress.
-- ``POST /store/repositories``: add ``owner/name``. Refused (409 ``store_offline``)
+- ``POST /store/repositories``: add ``owner/name``. Refused (403 ``plugins_disabled``)
+  while the host lock or the platform turns plugins off, and (409 ``store_offline``)
   before any request while the Store is off; otherwise the latest release is read and
   checked (``app/plugins/custom_repos.py``) and nothing is stored when it fails.
-- ``DELETE /store/repositories/{owner}/{name}``: forget it. No egress; installed
+- ``DELETE /store/repositories/{owner}/{name}``: forget it (403 ``plugins_disabled``
+  like the add). No egress; installed
   instances keep running, without updates.
 
 Installing from a repository is ``POST /api/plugins/install`` with ``kind: custom``
@@ -31,6 +33,7 @@ from app.plugins import custom_repos, store_egress
 from app.plugins.installer import InstallError
 from app.plugins.store_egress import store_status
 from app.repository.plugins import PluginRepository
+from app.routers.plugins import Writable
 
 router = APIRouter(prefix="/store", tags=["store"])
 Admin = Depends(require("admin"))
@@ -159,7 +162,9 @@ async def list_repositories() -> RepositoriesView:
     )
 
 
-@router.post("/repositories", status_code=201, response_model=RepositoryView, dependencies=[Admin])
+@router.post(
+    "/repositories", status_code=201, response_model=RepositoryView, dependencies=[Admin, Writable]
+)
 async def add_repository(
     body: RepositoryAdd, actor: audit.RequestActor = audit.SYSTEM_ACTOR
 ) -> RepositoryView:
@@ -181,7 +186,7 @@ async def add_repository(
     return next(v for v in await _views() if v.repository == row["repository"])
 
 
-@router.delete("/repositories/{owner}/{name}", status_code=204, dependencies=[Admin])
+@router.delete("/repositories/{owner}/{name}", status_code=204, dependencies=[Admin, Writable])
 async def remove_repository(
     owner: str, name: str, actor: audit.RequestActor = audit.SYSTEM_ACTOR
 ) -> Response:

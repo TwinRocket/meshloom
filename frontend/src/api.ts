@@ -204,7 +204,14 @@ export function formatApiError(err: unknown, t: TFunction): string {
     if (parsed) {
       const key = `errors.${parsed.code}`;
       const retryAfter = err.retryAfter ?? undefined;
-      const translated = t(key, { retry_after: retryAfter, ...parsed.params });
+      // i18next would render an array param without a separator.
+      const params = Object.fromEntries(
+        Object.entries(parsed.params ?? {}).map(([k, v]) => [
+          k,
+          Array.isArray(v) && v.every((x) => typeof x === 'string') ? v.join(', ') : v,
+        ])
+      );
+      const translated = t(key, { retry_after: retryAfter, ...params });
       if (translated !== key) {
         return translated;
       }
