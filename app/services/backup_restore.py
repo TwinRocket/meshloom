@@ -21,6 +21,7 @@ from app.auth import audit
 from app.models import (
     BackupCounts,
     BackupEnvelope,
+    BackupExport,
     BackupExportV2,
     BackupIdentityRelation,
     BackupIdentityRequires,
@@ -326,6 +327,7 @@ async def inspect_backup(
         live_radio_public_key=inputs.live,
         live_radio_name=inputs.live_name,
     )
+    result.secret_store_unavailable = await secret_store_blocks_restore(opened)
     if not isinstance(opened, BackupExportV2):
         return result
 
@@ -979,8 +981,8 @@ def _has_secret(secrets: Mapping[str, Any]) -> bool:
     return any(isinstance(v, str) and v for v in secrets.values())
 
 
-async def _destinations_need_key(doc: BackupV1Document | BackupExportV2) -> bool:
-    """The file's 4.18.x ``notification_destinations``, merged with the current ones the
+async def _destinations_need_key(doc: BackupExport) -> bool:
+    """The file's (or the flat v1 request's) 4.18.x ``notification_destinations``, merged with the current ones the
     way the restore writes them, give a ``legacy:*`` channel a secret: ``sync_destinations``
     encrypts it (and swallows the failure, so the channel would silently go missing)."""
     from app.migrations import _113_notification_channels as import_113
@@ -1067,14 +1069,42 @@ async def check_secret_store(
     from app import secret_store
 
     if await restore_needs_secret_store(doc, options) and not secret_store.available():
-        raise BackupError(
-            "backup_secret_store_unavailable",
-            status=503,
-            message=(
-                "Nothing was restored: the backup holds integration or notification secrets and the "
-                "secrets key file cannot be read or created"
-            ),
-        )
+        raise _secret_store_refusal()
+
+
+def _secret_store_refusal() -> BackupError:
+    return BackupError(
+        "backup_secret_store_unavailable",
+        status=503,
+        message=(
+            "Nothing was restored: the backup holds integration or notification secrets and the "
+            "secrets key file cannot be read or created"
+        ),
+    )
+
+
+async def check_v1_secret_store(request: BackupExport) -> None:
+    """The same refusal for the flat v1 merge (``POST /backup/restore`` without
+    ``backup``), before any write (MSHL-398).
+
+    A v1 body can only carry a secret in its 4.18.x ``notification_destinations``
+    (SMTP password, webhook HMAC secret, ntfy topic...): the settings write mirrors them
+    into the ``legacy:*`` channels, which encrypts them. Without a usable key that mirror
+    swallowed the failure, so the channels silently went missing."""
+    from app import secret_store
+
+    if await _destinations_need_key(request) and not secret_store.available():
+        raise _secret_store_refusal()
+
+
+async def secret_store_blocks_restore(doc: BackupV1Document | BackupExportV2) -> bool:
+    """For the inspection: a restore of this file with the default steps would be refused
+    with ``backup_secret_store_unavailable`` (MSHL-398). Reads only; the key is loaded,
+    or created, only when the file needs it, as the restore itself would."""
+    from app import secret_store
+
+    options = RestoreOptions(steps=BackupRestoreSteps())
+    return await restore_needs_secret_store(doc, options) and not secret_store.available()
 
 
 async def start_restore_backup_v2(

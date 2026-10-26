@@ -796,7 +796,9 @@ run as root).
   `legacy:*` channel a secret, or whose `notifications` section matches a channel with a
   stored secret, is refused with 503
   `backup_secret_store_unavailable` before any step runs, so nothing is half applied
-  (MSHL-397). Reads, and saves without a secret, still work.
+  (MSHL-397). The flat v1 merge refuses the same way (`check_v1_secret_store`), and
+  `POST /backup/inspect` reports it ahead as `secret_store_unavailable` (MSHL-398). Reads, and saves
+  without a secret, still work.
 - Backups: the SQLite download carries ciphertext without the key (the
   `X-Private-Key-Warning` header says so); the JSON backup exports plain values as
   before and a restore encrypts with the local key. Tests: `tests/test_secret_store.py`,

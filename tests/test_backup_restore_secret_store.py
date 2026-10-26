@@ -288,3 +288,111 @@ async def test_with_a_key_the_kept_channel_secret_is_encrypted(backup_db, client
             row = await cursor.fetchone()
     assert row is not None and KEPT_TOPIC not in row[0]
     assert secret_store.is_encrypted(json.loads(row[0])["topic"])
+
+
+# --- MSHL-398: the flat v1 merge, the inspection, a matched channel without a secret ---
+
+
+@pytest.mark.asyncio
+async def test_v1_flat_restore_with_destination_secrets_and_no_key_is_refused(
+    backup_db, client, public_dns, no_key
+):
+    """The flat v1 merge (scripts) runs the same check: before MSHL-398 it applied the
+    contacts, channels and settings, and the ``legacy:*`` channels silently went missing."""
+    before = await _fingerprint(backup_db)
+    response = await client.post("/api/settings/backup/restore", json={"confirm": True, **V1_4_18})
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"]["code"] == "backup_secret_store_unavailable"
+    destinations = V1_4_18["settings"]["notification_destinations"]
+    assert destinations["email"]["password"] not in response.text
+    assert destinations["webhook"]["hmac_secret"] not in response.text
+    assert await _fingerprint(backup_db) == before
+
+
+@pytest.mark.asyncio
+async def test_v1_flat_restore_without_secrets_needs_no_key(backup_db, client, public_dns, no_key):
+    response = await client.post(
+        "/api/settings/backup/restore", json={"confirm": True, **V1_4_18_PLAIN}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["contacts_upserted"] == len(V1_4_18_PLAIN["contacts"])
+
+
+@pytest.mark.asyncio
+async def test_v1_flat_restore_with_a_key_creates_the_legacy_channels(
+    backup_db, client, public_dns
+):
+    response = await client.post("/api/settings/backup/restore", json={"confirm": True, **V1_4_18})
+    assert response.status_code == 200, response.text
+    async with backup_db.tx() as conn:
+        async with conn.execute(
+            "SELECT secrets FROM notification_channels WHERE id LIKE 'legacy:%'"
+        ) as cursor:
+            rows = await cursor.fetchall()
+    stored = [json.loads(row[0]) for row in rows]
+    assert any(v for secrets in stored for v in secrets.values())
+    assert all(secret_store.is_encrypted(v) for secrets in stored for v in secrets.values() if v)
+
+
+async def _inspect(client, backup: dict) -> dict:
+    response = await client.post("/api/settings/backup/inspect", json={"backup": backup})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+@pytest.mark.asyncio
+async def test_inspection_reports_an_unusable_key_when_the_file_needs_it(
+    backup_db, client, public_dns, no_key
+):
+    assert (await _inspect(client, V1_4_18))["secret_store_unavailable"] is True
+    secret_doc = _doc([_fanout(password=FILE_SECRET)])
+    result = await _inspect(client, secret_doc)
+    assert result["secret_store_unavailable"] is True
+    assert FILE_SECRET not in json.dumps(result)
+    assert (await _inspect(client, V1_4_18_PLAIN))["secret_store_unavailable"] is False
+    assert (await _inspect(client, _doc([_fanout()])))["secret_store_unavailable"] is False
+
+
+@pytest.mark.asyncio
+async def test_inspection_with_a_usable_key_reports_nothing(backup_db, client, public_dns):
+    assert (await _inspect(client, V1_4_18))["secret_store_unavailable"] is False
+    secret_doc = _doc([_fanout(password=FILE_SECRET)])
+    assert (await _inspect(client, secret_doc))["secret_store_unavailable"] is False
+
+
+async def _kept_channel_without_secret(db) -> None:
+    """``ntfy-0f0f0f0f`` exists but stores no secret: the restore keeps nothing to encrypt."""
+    await _plain_kept_channel(db)
+    from app.repository.notification_channels import invalidate_cache
+
+    async with db.tx() as conn:
+        await conn.execute(
+            "UPDATE notification_channels SET secrets = ? WHERE id = 'ntfy-0f0f0f0f'",
+            (json.dumps({}),),
+        )
+    invalidate_cache()
+
+
+@pytest.mark.asyncio
+async def test_a_matched_channel_without_a_stored_secret_needs_no_key(
+    backup_db, client, public_dns, tmp_path, monkeypatch
+):
+    """The section matches an existing row, but that row holds no secret: the per-row
+    check must say no (an "always true" on a match would refuse this restore)."""
+    await _kept_channel_without_secret(backup_db)
+    backup = _with_notifications(_doc([]))
+    key_path = secret_store.key_path
+    _block_key(tmp_path, monkeypatch)
+    try:
+        doc = BackupExportV2.model_validate(backup)
+        options = RestoreOptions(steps=BackupRestoreSteps())
+        assert await restore_needs_secret_store(doc, options) is False
+        response = await client.post(
+            "/api/settings/backup/restore", json={"confirm": True, "backup": backup}
+        )
+        assert response.status_code == 202, response.text
+        job = await _wait_job(client, response.json()["job_id"])
+        assert {s["step"]: s["status"] for s in job["steps"]}["meshloom"] == "done", job
+    finally:
+        monkeypatch.setattr(secret_store, "key_path", key_path)
+        secret_store.reset()

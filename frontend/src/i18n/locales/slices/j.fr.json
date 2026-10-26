@@ -144,6 +144,7 @@
       "integrationOn": "{{name}} ({{type}}, activée)",
       "integrationOff": "{{name}} ({{type}}, désactivée)",
       "proxyEnabled": "Le proxy radio est activé dans cette sauvegarde : il démarre dès la fin de la restauration et accepte les connexions sans authentification.",
+      "secretStoreUnavailable": "Le fichier secrets.key, à côté de la base, qui chiffre les secrets enregistrés, ne peut être ni lu ni créé : la restauration des données Meshloom de cette sauvegarde serait refusée, car elle contient des secrets d’intégrations ou de notifications. Vérifiez que Meshloom peut écrire dans le dossier de données, ou décochez les données Meshloom.",
       "pushTargets": "Cette sauvegarde contient des abonnements push : vos notifications de messages partent vers {{list}} dès la fin de la restauration.",
       "pushTarget": "{{label}} ({{host}})",
       "pushTargetOwner": "{{target}}, pour le compte {{owner}}",

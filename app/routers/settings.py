@@ -1260,7 +1260,9 @@ async def restore_backup(
 
     - Flat body (no ``backup`` key): the v1 request, ``{"confirm": true, ...v1
       fields}``, merged synchronously (scripts). A flat body whose ``format`` is
-      not a v1 format answers 400 ``backup_use_full_restore``.
+      not a v1 format answers 400 ``backup_use_full_restore``. Its notification
+      destinations hold a secret and ``secrets.key`` is unusable: 503
+      ``backup_secret_store_unavailable`` before any write, as the job does.
     - ``{"confirm": true, "backup": <file>, "passphrase"?, "steps"?, ...}``: any
       file (v1, v2, encrypted) through the restore job: 202 ``{"job_id"}``, then
       ``GET /backup/restore/jobs/{job_id}``. Identity refusals are 409, before
@@ -1287,6 +1289,11 @@ async def restore_backup(
                     message="This file is a full backup: restore it with the backup field",
                 )
             v1_request = parse_backup_model(BackupRestoreRequest, body)
+            if v1_request.confirm:
+                # Fail closed before any write, as the full restore does (MSHL-398).
+                from app.services.backup_restore import check_v1_secret_store
+
+                await check_v1_secret_store(v1_request)
             try:
                 result = await restore_json_backup(v1_request)
             except HTTPException as exc:
