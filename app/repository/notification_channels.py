@@ -142,6 +142,7 @@ def _row_to_channel(row: aiosqlite.Row) -> Channel:
         template_channel=row["template_channel"] or "",
         heartbeat_interval_s=row["heartbeat_interval_s"] or 0,
         heartbeat_method="POST" if row["heartbeat_method"] == "POST" else "GET",
+        digest_interval_s=row["digest_interval_s"] or 0,
         quiet_hours_exempt=bool(row["quiet_hours_exempt"]),
         rate_per_min=row["rate_per_min"],
         rate_per_hour=row["rate_per_hour"],
@@ -417,8 +418,9 @@ class NotificationChannelRepository:
                      allow_private_network, include_message_text, verify_tls,
                      template_dm, template_channel,
                      quiet_hours_exempt, rate_per_min, rate_per_hour, rate_per_day,
-                     sort_order, created_at, heartbeat_interval_s, heartbeat_method)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     sort_order, created_at, heartbeat_interval_s, heartbeat_method,
+                     digest_interval_s)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     channel_id,
@@ -448,6 +450,7 @@ class NotificationChannelRepository:
                     int(time.time()),
                     body.heartbeat_interval_s,
                     body.heartbeat_method,
+                    body.digest_interval_s,
                 ),
             )
             row = await _fetch(conn, channel_id)
@@ -580,6 +583,7 @@ class NotificationChannelRepository:
             "rate_per_day",
             "heartbeat_interval_s",
             "heartbeat_method",
+            "digest_interval_s",
         ):
             if column in patch.model_fields_set and column != "type":
                 value = getattr(patch, column)
@@ -1092,6 +1096,16 @@ class NotificationJournalRepository:
             except (TypeError, ValueError):
                 continue
         return out
+
+    @staticmethod
+    async def state_load_values(prefix: str) -> dict[str, str]:
+        """``{key: value}`` of every row (expiring or not) whose key starts with ``prefix``."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT key, value FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
+                (_like_prefix(prefix),),
+            ) as cursor:
+                return {row[0]: row[1] for row in await cursor.fetchall()}
 
     @staticmethod
     async def state_prune(now: int | None = None) -> None:

@@ -1,0 +1,20 @@
+{
+  "settings": {
+    "notifications": {
+      "digest": {
+        "title": "Mode résumé",
+        "off": "Désactivé (une notification par message)",
+        "everyMinutes_one": "Chaque minute",
+        "everyMinutes_other": "Toutes les {{count}} minutes",
+        "everyHours_one": "Toutes les heures",
+        "everyHours_other": "Toutes les {{count}} heures",
+        "help": "Au lieu d’une notification par message, ce canal reçoit un résumé par intervalle : des comptes par conversation, jamais le texte des messages. Les messages privés, les messages de canal et les nouveaux contacts sont additionnés. Les mentions, les alertes de mot-clé, les nœuds suivis et les alertes urgentes arrivent toujours immédiatement. Le résumé peut avoir jusqu’à une minute de retard, et un résumé en attente survit à un redémarrage."
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "notification_digest_dropped": "L’intervalle de résumé d’un canal de notification ({{value}}) était hors limites, et a été restauré désactivé."
+      }
+    }
+  }
+}

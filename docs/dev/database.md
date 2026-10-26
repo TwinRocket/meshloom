@@ -215,7 +215,7 @@ reused), `type` (immutable: `web_push`, `email`, `webhook`, `apprise`), `preset`
 `created_at`, `last_ok_at`, `last_error`, `failure_count`, `paused_until`,
 `template_dm`, `template_channel` (migration 130), `heartbeat_interval_s` (0 = off, else 300..86400)
 and `heartbeat_method` (`GET`/`POST`) (migration 131; the optional ping URL is the `heartbeat_url`
-key of `secrets`, not a column).
+key of `secrets`, not a column) and `digest_interval_s` (0 = off, else 300..86400; migration 132, MSHL-136).
 `NotificationChannelRepository` (`notification_channels.py`).
 
 ### `notification_deliveries`
@@ -235,7 +235,7 @@ Small state with an expiry: PK `key`, `value`, `expires_at`. Keys: `dedup:<chann
 and `dedup:urgent:<channel>:<dedup_key>` (the dispatcher's persisted dedup, 24 h, written in
 batches), the pending secrets of a restored channel, and the quiet-hours counters
 `quiet:<channel>[@<account>]:<event>:<conversation>` and, for what the global pause held (MSHL-368),
-`pause:...` of the same shape (no expiry: the digest takes and deletes them, MSHL-124; `builtin:push@<user id>` or `@d` count per wanted account). Expired rows are
+`pause:...` of the same shape, `digest:<channel>[@<account>]:<event>:<conversation>` for a channel in digest mode and its `digest_due:<channel>` row (epoch of the next summary) (MSHL-136) (no expiry: the digest takes and deletes them, MSHL-124; `builtin:push@<user id>` or `@d` count per wanted account). Expired rows are
 pruned hourly by the dispatcher.
 
 The delivery cards' exact 24 h figures (MSHL-390) are keys `stat:<status>:<epoch hour>:<channel>`

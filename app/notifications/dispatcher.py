@@ -51,6 +51,10 @@ delays itself.
   with ``heartbeat_interval_s``, sending ``notify.heartbeat`` (or pinging ``heartbeat_url``)
   outside the rules, the pauses, quiet hours and the buckets; ``start`` and every quiet tick
   reconcile the loops with the channels.
+- **Digest mode** (MSHL-136, ``digest_interval_s``): a channel with an interval counts its digestible
+  events (``quiet.digestible``: not urgent, not ``always_deliver``, not a mention, keyword or watched
+  node) under ``digest:`` counters and a ``digest_due:`` row, and ``digest_tick`` (the minute loop)
+  sends one summary per window; see ``app/notifications/AGENTS.md``, "Digest mode".
 - **Shutdown.** ``drain_background_tasks`` cancels the workers, the long retries
   and the first-seen flushers; each records what it still held as ``aborted``,
   and the counter loop flushes once more.
@@ -357,6 +361,8 @@ class Dispatcher:
         self._journal_task: asyncio.Task[None] | None = None
         self._quiet_task: asyncio.Task[None] | None = None
         self._digest_retries: dict[tuple[str, str], int] = {}
+        # Channels whose digest-mode window is known to be open (``digest_due:`` row exists).
+        self._digest_open: set[str] = set()
         from app.notifications.heartbeat import HeartbeatManager
 
         self.heartbeats = HeartbeatManager(self)
@@ -509,6 +515,16 @@ class Dispatcher:
                 if await self._first_hold(target.channel_id, name, dedup_key):
                     await self._suppress_quiet(by_id[target.channel_id], delivery, rules)
                 continue
+            if (
+                subject_to_holds
+                and by_id[target.channel_id].digest_interval_s > 0
+                and quiet.digestible(name)
+            ):
+                # Digest mode: counted now, sent with the next summary. Same dedup as a quiet
+                # hold: a re-emitted event is one event.
+                if await self._first_hold(target.channel_id, name, dedup_key):
+                    await self._hold_digest(by_id[target.channel_id], delivery, now)
+                continue
             job = _Job(delivery, urgent=urgent, dedup_key=dedup_key, is_open=bool(is_open))
             if await self._admit(by_id[target.channel_id], job, rules):
                 queued += 1
@@ -611,15 +627,22 @@ class Dispatcher:
         await self._count_held(channel, delivery, rules, quiet.COUNTER_PREFIX)
 
     async def _count_held(
-        self, channel: Channel, delivery: Delivery, rules: Mapping[str, Any], prefix: str
+        self,
+        channel: Channel,
+        delivery: Delivery,
+        rules: Mapping[str, Any],
+        prefix: str,
+        *,
+        always: bool = False,
     ) -> None:
-        """Count a held job for the digest of ``prefix`` (quiet hours or pause); nothing when
-        ``digest_at_end`` is off."""
+        """Count a held job for the digest of ``prefix`` (quiet hours, pause or digest mode);
+        nothing when ``digest_at_end`` is off, except for the channel's own digest mode
+        (``always``)."""
         from app.notifications.user_rules import conversation_state_key
         from app.repository.notification_channels import NotificationJournalRepository
 
         event = delivery.event
-        if not quiet.quiet_hours_of(rules)["digest_at_end"]:
+        if not always and not quiet.quiet_hours_of(rules)["digest_at_end"]:
             return
         conversation = (conversation_state_key(event) if event is not None else None) or ""
         audience = delivery.audience if channel.id == BUILTIN_PUSH_ID else None
@@ -642,6 +665,142 @@ class Dispatcher:
         except Exception:
             logger.debug("held-event counter not written", exc_info=True)
 
+    # -- digest mode (MSHL-136) -------------------------------------------------
+
+    async def _hold_digest(self, channel: Channel, delivery: Delivery, now: float) -> None:
+        """Count a digestible event of a channel in digest mode. The first one of a window opens
+        it: ``digest_due:<channel>`` holds the epoch of the summary (``digest_interval_s`` later),
+        written before the counter so a counter never exists without its due row. The WebSocket
+        frame already went out for this event (``_emit``), whatever the channel does with it."""
+        from app.repository.notification_channels import NotificationJournalRepository
+
+        try:
+            if channel.id not in self._digest_open:
+                key = quiet.DIGEST_DUE_PREFIX + channel.id
+                if await NotificationJournalRepository.state_get(key, 0) is None:
+                    due = int(now) + channel.digest_interval_s
+                    await NotificationJournalRepository.state_set(key, str(due))
+                self._digest_open.add(channel.id)
+            self._journal(
+                channel.id,
+                delivery.name,
+                "aggregated",
+                dedup_key=delivery.event.dedup_key if delivery.event is not None else "",
+            )
+        except Exception:
+            logger.debug("digest window not opened", exc_info=True)
+            return
+        await self._count_held(channel, delivery, {}, quiet.DIGEST_PREFIX, always=True)
+
+    async def digest_tick(self) -> int:
+        """Send the summaries of the channels in digest mode that are due, and clear their
+        counters. Run by the minute loop, so a summary is up to ``QUIET_TICK_S`` late.
+
+        Restart safety: counters and due rows are in ``notification_state``, so a restart keeps
+        the window; one that ended while the app was down is sent at the first tick after the
+        restart. A channel switched off (``digest_interval_s`` 0) is flushed at once rather than
+        left holding counters; a disabled or deleted one drops them. Held while the global pause
+        is on, while the channel's own pause lasts, and (but for a ``quiet_hours_exempt``
+        channel) while quiet hours are on. Returns the summaries queued."""
+        from app.repository.notification_channels import NotificationJournalRepository
+
+        repo = NotificationJournalRepository
+        counters = await repo.state_load_values(quiet.DIGEST_PREFIX)
+        dues = await repo.state_load_values(quiet.DIGEST_DUE_PREFIX)
+        if not counters and not dues:
+            self._digest_open.clear()
+            return 0
+        rules = await rules_mod.load_rules()
+        now = self._wall()
+        if rules_mod.globally_paused(rules, now):
+            return 0
+        waiting: set[str] = set()
+        for key in counters:
+            parsed = quiet.parse_counter_key(key, quiet.DIGEST_PREFIX)
+            if parsed is not None:
+                waiting.add(parsed[0])
+        due_ids = {key[len(quiet.DIGEST_DUE_PREFIX) :]: value for key, value in dues.items()}
+        channels = {
+            c.id: c for c in await self._channels(sorted(waiting | set(due_ids)), allow_legacy=True)
+        }
+        is_quiet = quiet.is_quiet(rules, now)
+        queued = 0
+        for channel_id in sorted(waiting | set(due_ids)):
+            channel = channels.get(channel_id)
+            try:
+                due = float(due_ids[channel_id])
+            except (KeyError, ValueError):
+                due = None
+            if channel is None or not channel.enabled:
+                await self._digest_drop(channel_id)
+                continue
+            if due is None and channel.digest_interval_s > 0:
+                # Counters without a due row (a crash, a race): open the window now.
+                await repo.state_set(
+                    quiet.DIGEST_DUE_PREFIX + channel_id, str(int(now) + channel.digest_interval_s)
+                )
+                self._digest_open.add(channel_id)
+                continue
+            if channel.digest_interval_s > 0 and due is not None and due > now:
+                continue
+            if is_quiet and not channel.quiet_hours_exempt:
+                continue  # sent once the window is closed
+            if channel.paused_until is not None and channel.paused_until > now:
+                continue  # the channel's own pause is waited for
+            queued += await self._digest_flush(channel, rules, now)
+        return queued
+
+    async def _digest_drop(self, channel_id: str) -> None:
+        from app.repository.notification_channels import NotificationJournalRepository
+
+        self._digest_open.discard(channel_id)
+        self._digest_retries.pop((quiet.DIGEST_PREFIX, channel_id), None)
+        await NotificationJournalRepository.state_delete(quiet.DIGEST_DUE_PREFIX + channel_id)
+        for prefix in (
+            f"{quiet.DIGEST_PREFIX}{channel_id}:",
+            f"{quiet.DIGEST_PREFIX}{channel_id}@",
+        ):
+            await NotificationJournalRepository.counters_take(prefix)
+
+    async def _digest_flush(self, channel: Channel, rules: Mapping[str, Any], now: float) -> int:
+        """Close the window of ``channel``: take its counters and queue one summary. A summary the
+        limits refuse is put back (the window reopens at once) for at most
+        ``QUIET_DIGEST_RETRIES`` ticks, like the quiet-hours digest."""
+        from app.repository.notification_channels import NotificationJournalRepository
+
+        repo = NotificationJournalRepository
+        # Due row first, then the counters: an event arriving in between opens a new window
+        # instead of leaving a counter without a due row.
+        self._digest_open.discard(channel.id)
+        await repo.state_delete(quiet.DIGEST_DUE_PREFIX + channel.id)
+        taken: dict[str, int] = {}
+        for prefix in (
+            f"{quiet.DIGEST_PREFIX}{channel.id}:",
+            f"{quiet.DIGEST_PREFIX}{channel.id}@",
+        ):
+            taken.update(await repo.counters_take(prefix))
+        accounts: dict[int | str | None, list[quiet.QuietRow]] = {}
+        for key, count in taken.items():
+            parsed = quiet.parse_counter_key(key, quiet.DIGEST_PREFIX)
+            if parsed is not None:
+                _channel_id, account, event, conversation = parsed
+                accounts.setdefault(account, []).append(quiet.QuietRow(event, conversation, count))
+        labels = await quiet.resolve_labels(
+            r.conversation for rows in accounts.values() for r in rows
+        )
+        delivery = await self._digest(channel, accounts, labels, "digest")
+        retry_key = (quiet.DIGEST_PREFIX, channel.id)
+        if delivery is None:
+            self._digest_retries.pop(retry_key, None)
+            return 0
+        if await self._admit(channel, _Job(delivery), rules):
+            self._digest_retries.pop(retry_key, None)
+            return 1
+        if await self._put_back(quiet.DIGEST_PREFIX, channel.id, taken, count_retry=True):
+            await repo.state_set(quiet.DIGEST_DUE_PREFIX + channel.id, str(int(now)))
+            self._digest_open.add(channel.id)
+        return 0
+
     def _start_quiet_loop(self) -> None:
         if self._quiet_task is None or self._quiet_task.done():
             from app.background_tasks import spawn
@@ -657,6 +816,12 @@ class Dispatcher:
                 raise
             except Exception:
                 logger.exception("quiet hours digest failed")
+            try:
+                await self.digest_tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("channel digest failed")
             try:
                 await self.probe_tick()
             except asyncio.CancelledError:

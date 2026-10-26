@@ -178,7 +178,7 @@ class FirstSeenGroupedData(_Model):
 class DigestData(_Model):
     """What quiet hours or a pause held, counted (no text)."""
 
-    scope: str = Field(description="quiet_hours or pause.")
+    scope: str = Field(description="quiet_hours, pause or digest.")
     count: int = Field(description="Notifications held.")
     conversations: int = 0
     items: list[tuple[str, int]] = Field(

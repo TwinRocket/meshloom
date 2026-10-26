@@ -31,6 +31,16 @@ DIGEST_EVENT = "quiet_digest"
 COUNTER_PREFIX = "quiet:"
 # Same key shape, for what the global pause held (the "while you were paused" digest).
 PAUSE_PREFIX = "pause:"
+# Same key shape again, for what a channel in digest mode (``digest_interval_s``, MSHL-136) holds
+# until its next summary. ``DIGEST_DUE_PREFIX`` rows (``digest_due:<channel>``) hold the epoch of
+# that summary; they do not start with ``digest:``, so a counter sweep never takes them.
+DIGEST_PREFIX = "digest:"
+DIGEST_DUE_PREFIX = "digest_due:"
+# What digest mode folds into a summary: every ``message.*`` and ``contact.*`` event except the
+# ones a user asked to be told about (see ``digestible``).
+DIGEST_BYPASS = frozenset(
+    {"message.mention", "message.keyword", "contact.node_seen", "contact.node_back"}
+)
 ACCOUNT_DEFAULT = "d"
 TOP_CONVERSATIONS = 3
 NAME_MAX = 40
@@ -81,6 +91,17 @@ def quiet_hours_of(rules: Mapping[str, Any]) -> dict[str, Any]:
         return validate_quiet_hours(raw)
     except ValueError:
         return dict(DEFAULT_QUIET_HOURS)
+
+
+def digestible(name: str) -> bool:
+    """Whether a channel in digest mode folds ``name`` into its summary (MSHL-136).
+
+    Counted: ``message.dm``, ``message.channel`` and ``contact.first_seen`` (the bulk events of a
+    busy channel). Never counted, sent at once as usual: a mention, a keyword hit and a watched
+    node (``message.mention``, ``message.keyword``, ``contact.node_seen`` / ``node_back``), because
+    the user opted into each of them one by one, so a delay defeats their purpose. The dispatcher
+    also lets through anything ``urgent`` or ``always_deliver``, like the pauses."""
+    return name.startswith(("message.", "contact.")) and name not in DIGEST_BYPASS
 
 
 def is_quiet(rules: Mapping[str, Any], now: float) -> bool:

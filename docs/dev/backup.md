@@ -316,6 +316,7 @@ imported by `services/backup.py`.
 - **Data.** `{"channels": [...], "rules": {...}}`. A channel carries its id, type,
   preset, name, enabled, language, **public** config, `allow_private_network`,
   `include_message_text`, `verify_tls`, `template_dm`, `template_channel`, `quiet_hours_exempt`, the three rates,
+  `digest_interval_s` (MSHL-136; 0 or 300..86400, else restored as 0 with `notification_digest_dropped:<id>`),
   `heartbeat_interval_s`, `heartbeat_method` (MSHL-131; the `heartbeat_url` ping URL is a secret, so
   only named in `secret_omitted`), `sort_order` and `secret_omitted` (`{field: true}` for each write-only field that held a
   value; the values are never exported). `rules` is `app_settings.notification_rules`

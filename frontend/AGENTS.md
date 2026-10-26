@@ -988,6 +988,11 @@ stored custom value; when on, the write-only ping URL with a "saved" placeholder
 `heartbeat_url` (`""` removes it) to the create and edit bodies; a type without heartbeat sends none.
 Test: `notificationsHeartbeat.test.tsx`.
 
+Digest mode (MSHL-136, slice `notifdigest`): the **Advanced** `<details>` of every channel type renders
+`DigestField` (interval select: off, 5 min, 15 min, 30 min, 1 h, 6 h, 24 h, plus a stored custom value) bound to
+`ChannelDraft.digest_interval_s`, sent by `advancedBody` in the create and edit bodies. Test:
+`notificationsDigest.test.tsx`.
+
 The rules half (`NotificationRulesPanel`, same state hook, `setRules` takes each `PATCH /rules` /
 `PUT /rules/conversations/{key}` answer) renders, in order: `GlobalPauseControl` (1 h / 8 h /
 tomorrow 08:00 local / resume, writes `paused_until`; reused by the bell), `RulesMatrix` (events

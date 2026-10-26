@@ -307,11 +307,13 @@ def _plural(n: int, one: str, many: str) -> str:
 
 
 def quiet_digest_text(data: Mapping[str, Any], lang: str) -> tuple[str, str]:
-    """Title and body of the digest of what quiet hours (or a pause) held back:
+    """Title and body of the digest of what quiet hours, a pause or a channel's digest mode held back:
     "During quiet hours: 14 messages in 3 conversations (#paris 9, Léa 3, #test 2), 1 new
     contact". Counts and names only, never a message text."""
     en = lang == "en"
-    pause = data.get("scope") == "pause"
+    scope = data.get("scope")
+    pause = scope == "pause"
+    periodic = scope == "digest"
     messages = int(data.get("count") or 0)
     conversations = int(data.get("conversations") or 0)
     contacts = int(data.get("contacts") or 0)
@@ -344,11 +346,35 @@ def quiet_digest_text(data: Mapping[str, Any], lang: str) -> tuple[str, str]:
             else _plural(others, "autre évènement", "autres évènements")
         )
     if en:
-        title = "Summary of the pause" if pause else "Quiet hours summary"
-        lead = "During the pause: " if pause else "During quiet hours: "
+        title = (
+            "Summary of the pause"
+            if pause
+            else "Periodic summary"
+            if periodic
+            else "Quiet hours summary"
+        )
+        lead = (
+            "During the pause: "
+            if pause
+            else "Since the last summary: "
+            if periodic
+            else "During quiet hours: "
+        )
     else:
-        title = "Résumé de la pause" if pause else "Résumé des heures calmes"
-        lead = "Pendant la pause : " if pause else "Pendant les heures calmes : "
+        title = (
+            "Résumé de la pause"
+            if pause
+            else "Résumé périodique"
+            if periodic
+            else "Résumé des heures calmes"
+        )
+        lead = (
+            "Pendant la pause : "
+            if pause
+            else "Depuis le dernier résumé : "
+            if periodic
+            else "Pendant les heures calmes : "
+        )
     return title, lead + ", ".join(parts)
 
 

@@ -218,7 +218,8 @@ CREATE TABLE IF NOT EXISTS notification_channels (
     template_dm TEXT NOT NULL DEFAULT '',
     template_channel TEXT NOT NULL DEFAULT '',
     heartbeat_interval_s INTEGER NOT NULL DEFAULT 0,
-    heartbeat_method TEXT NOT NULL DEFAULT 'GET'
+    heartbeat_method TEXT NOT NULL DEFAULT 'GET',
+    digest_interval_s INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS notification_deliveries (
