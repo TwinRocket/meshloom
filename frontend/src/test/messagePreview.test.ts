@@ -100,3 +100,35 @@ describe('describeMessagePreview', () => {
     ).toBe('Encore un truc ne va pas');
   });
 });
+
+describe('describeMessagePreview, shared files (text only)', () => {
+  const LINK = 'https://meshl.ink/AbCdEfG';
+  const image = `📷 ${i18n.t('messagePreview.shareImage')}`;
+  const encrypted = `🔒 ${i18n.t('messagePreview.shareEncrypted')}`;
+
+  it('names an image instead of showing its link', () => {
+    expect(describeMessagePreview(`📷 ${LINK}`)).toBe(image);
+    expect(describeMessagePreview(`📷 ${LINK} sunset`)).toBe(image);
+    expect(describeMessagePreview(`Alice: 📷 ${LINK}`)).toBe(`Alice: ${image}`);
+    expect(describeMessagePreview(`Alice: @[Bob] 📷 ${LINK}`)).toBe(`Alice: ${image}`);
+    expect(describeMessagePreview(`📷 ${LINK}`)).not.toContain('meshl.ink');
+  });
+
+  it('names an encrypted file, its key fragment included', () => {
+    expect(describeMessagePreview(`🔒 ${LINK}#k=abc`)).toBe(encrypted);
+    expect(describeMessagePreview(`Alice: 🔒 ${LINK}`)).toBe(`Alice: ${encrypted}`);
+  });
+
+  it('keeps a bare link as a link line, never the URL', () => {
+    const line = describeMessagePreview(LINK);
+    expect(line).toBe(`🔗 ${i18n.t('messagePreview.shareLink')}`);
+    expect(line).not.toContain('meshl.ink');
+  });
+
+  it('leaves an emoji with no service link alone', () => {
+    expect(describeMessagePreview('📷 nice view')).toBe('📷 nice view');
+    expect(describeMessagePreview('📷 https://example.org/AbCdEfG')).toBe(
+      '📷 https://example.org/AbCdEfG'
+    );
+  });
+});

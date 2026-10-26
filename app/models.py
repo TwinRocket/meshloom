@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.data.meshcore_channels import is_public_hashtag_channel
 from app.path_utils import normalize_contact_route, normalize_route_override
 
 # Valid MeshCore contact types: 0=unknown, 1=client, 2=repeater, 3=room, 4=sensor.
@@ -381,6 +382,17 @@ class Channel(BaseModel):
             "for adopt/refuse. Existing rows default to adopted."
         ),
     )
+
+    @computed_field(
+        description=(
+            "True when the key is the one derived from the '#' name (anyone who knows "
+            "the name can read it). Computed, never stored; the share preview policy "
+            "'private' does not auto-load media in such a channel."
+        )
+    )
+    @property
+    def key_derived(self) -> bool:
+        return is_public_hashtag_channel(self.name, self.key)
 
 
 class RejectedChannel(BaseModel):
@@ -3470,6 +3482,27 @@ class ShareMetaResponse(BaseModel):
 
 class ShareCacheClearResponse(BaseModel):
     freed_bytes: int
+
+
+# The contract's report reasons (links-files.md, ``POST /v1/reports``).
+ShareReportReason = Literal[
+    "illegal", "child_abuse", "phishing", "malware", "spam", "copyright", "privacy", "other"
+]
+
+
+class ShareReportRequest(BaseModel):
+    """``POST /api/share/{id}/report``: forwarded to the service (JWT variant)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: ShareReportReason
+    details: str = Field(default="", max_length=2000, description="Optional free text")
+
+
+class ShareReportResponse(BaseModel):
+    """The service took the report (it never says whether it will act on it)."""
+
+    received: bool = True
 
 
 class StoreStatus(BaseModel):

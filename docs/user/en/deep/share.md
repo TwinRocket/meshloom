@@ -40,7 +40,7 @@ Shortening is all or nothing: if the service refuses one address (see below), yo
 
 Meshloom checks the address before sending it and **never sends** one the service would refuse anyway: an address with a user name or password, an IP address, `localhost`, a name without a dot or ending in `.local`, `.lan`, `.internal` or `.home.arpa`, anything that is not `http` or `https`, or longer than 2048 characters. Such an address is skipped by the button and refused by the API (`share_invalid_url`), so a link to your home network or one that contains credentials never leaves it.
 
-**Settings > Share: links and files > Previews of shared images and links** records when previews should be fetched (always, private conversations only, never). Nothing uses it yet: this version fetches no preview.
+**Settings > Share: links and files > Previews of shared images and links** decides when a shared image in a message loads by itself: always, in private conversations only (direct messages and channels with their own secret key; not Public, not `#name` channels), or never. Otherwise the image shows a **Tap to load** button, and nothing is requested before you tap. Images from blocked senders, and on the display screen, always wait for a tap. Link previews are not fetched yet.
 
 ## Reading short links
 

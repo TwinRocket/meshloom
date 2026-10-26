@@ -15,6 +15,7 @@ import {
 } from '../utils/meshcoreOpenPayloads';
 import { useTranslation } from 'react-i18next';
 import { MessageBody } from './message/MessageBody';
+import { isPrivateConversation } from '../utils/sharePayload';
 import { RegionBadge, hasUnexpectedControlChars, isolateBidi } from '../utils/messageText';
 import { getDirectContactRoute, type SenderInfo } from '../utils/pathUtils';
 import { ContactAvatar } from './ContactAvatar';
@@ -1488,6 +1489,8 @@ export function MessageList({
                       content={content}
                       radioName={radioName}
                       onChannelReferenceClick={onChannelReferenceClick}
+                      message={msg}
+                      privateConversation={isPrivateConversation(msg, channels)}
                     />
                     <div
                       data-testid="message-meta"

@@ -580,6 +580,11 @@ export interface Channel {
   muted: boolean;
   muted_until?: number | null;
   membership?: 'adopted' | 'pending';
+  /**
+   * The key is the one derived from the `#` name (anyone who knows the name reads it).
+   * Computed by the backend; absent from an older one.
+   */
+  key_derived?: boolean;
 }
 
 export interface RejectedChannel {
@@ -1636,6 +1641,34 @@ export interface ShareMeta {
   kind: string;
   target_host: string | null;
   expires_at: number | null;
+  /** File members, null (or absent) for a link. */
+  created_at?: number | null;
+  mode?: string | null;
+  /** Set only for the image types the proxy serves inline. */
+  content_type?: string | null;
+  size?: number | null;
+  name?: string | null;
+  decryptable?: boolean | null;
+}
+
+/** The contract's report reasons (`POST /api/share/{id}/report`). */
+export const SHARE_REPORT_REASONS = [
+  'illegal',
+  'child_abuse',
+  'phishing',
+  'malware',
+  'spam',
+  'copyright',
+  'privacy',
+  'other',
+] as const;
+export type ShareReportReason = (typeof SHARE_REPORT_REASONS)[number];
+/** Longest `details` the service accepts. */
+export const SHARE_REPORT_DETAILS_MAX = 2000;
+
+export interface ShareReportRequest {
+  reason: ShareReportReason;
+  details?: string;
 }
 
 export interface AppSettings {

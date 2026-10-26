@@ -547,10 +547,10 @@ and the time. When `terms_stale` is true the section shows a notice and the chec
 reopens the dialog.
 
 `api.getShareStatus()` (no egress), `api.shortenLink(url)` and
-`api.getShareMeta(id)` call `/api/share/*` (and `api.uploadShareFile(blob)`, below); types `ShareStatus`,
+`api.getShareMeta(id)`, `api.reportShare(id, {reason, details?})` call `/api/share/*` (and `api.uploadShareFile(blob)`, below); types `ShareStatus`,
 `ShareLink`, `ShareFile`, `ShareMeta` in `types.ts`. Errors are coded (`errors.share_*`, slice `ah`; a
-`share_disabled` answer means sharing is off). Call `getShareMeta` only on hover
-or focus, never on render.
+`share_disabled` answer means sharing is off). Call `getShareMeta` only on hover,
+focus, a tap or when the preview policy lets a shared image load, never on a plain render.
 
 **Settings section.** `components/settings/SettingsShareSection.tsx` (section id
 `share`, after Community in `settingsConstants.ts`) shows the status line, the
@@ -569,8 +569,8 @@ Acceptance is not recorded server-side yet (follow-up).
 `dm_encryption_available: false`
 (radio key not read yet) shows an explanation that only encrypted DM files are
 unavailable. Strings: slice `ar` (`settings.share.*`, `settingsNav.share`).
-Never rename a slice. `share_preview_policy` is stored and shown but nothing reads it yet
-(no preview fetching). Tests: `src/test/settingsShareSection.test.tsx`. User docs:
+Never rename a slice. `preview_policy` (setting `share_preview_policy`) decides whether a
+shared image in a message loads without a tap (Message rendering, `SharePayload`). Tests: `src/test/settingsShareSection.test.tsx`. User docs:
 `docs/user/{en,fr}/deep/share.md`.
 
 **Composer shortening.** `MessageInput` reads `useShareStatus()` (local, no egress;
@@ -735,14 +735,46 @@ key}`); they are not `Message.conversation_key`.
   `utils/shareLinks.ts`) render through `components/message/ShareLinkAnchor.tsx`
   (re-exported by `richPayloads.tsx`), which `linkifyText` uses for every URL. The
   destination hint (`-> host`) comes from `GET /api/share/{id}/meta` on hover or
-  focus only, through `stores/shareMetaStore.ts` (one request per id, 10-minute
+  focus only (never while the message's shared image may not load yet:
+  `contexts/ShareLinkGateContext.ts`, provided by `MessageBody`), through `stores/shareMetaStore.ts` (one request per id, 10-minute
   memory capped at 200 ids, negative entries kept; once fetched, the hint stays
   visible for every instance of that id until the memory expires). The remote host
   is never shown raw: `displayShareHost` strips control and bidi characters, shows
   an IDN as punycode and cuts it, and the anchor renders it in a `<bdi dir=ltr>`. The store asks `/api/share/status` (local, no
   egress) only for a URL shaped like a service link, and never requests a meta
-  when sharing is off. `utils/messagePreview.ts` previews a service link from the
-  text alone (`🔗 caption`).
+  when sharing is off. `utils/messagePreview.ts` previews from the text alone:
+  `📷 <link>` is `📷 Image`, `🔒 <link>[#fragment]` is `🔒 Encrypted file`
+  (`messagePreview.shareImage`/`shareEncrypted`), a bare link `🔗 caption`; never the URL.
+- Shared images (MSHL-246): `components/message/SharePayload.tsx` (re-exported by
+  `richPayloads.tsx`), rendered by `MessageBody` after the text (the anchor stays).
+  Only the composer's form is an image: `📷 <service link>[ caption]`, optionally behind
+  `@[Name] ` (`utils/sharePayload.ts` `shareImageId`); a bare service link stays an
+  anchor. Whether it loads without a tap is `useShareImage` (`MessageBody`
+  holds the tap) over `shareMediaAutoLoads`: `remoteMedia` false, a blocked sender
+  (`utils/messageBlocking.ts` `isMessageBlocked`, lists from `BlockedSendersProvider`
+  in `App.tsx`) or settings not loaded yet (`loaded` false, also outside a provider)
+  means a tap; then `preview_policy` of the
+  share status: `always` loads, `private` loads in a DM or a private channel
+  (`isPrivateChannel`: `Channel.key_derived === false` and not the Public key; an
+  unknown channel is not private), `never` always asks. `MessageBody` takes
+  `message` (id for `?message_id=`, sender for the block lists) and
+  `privateConversation`; without `message` it always asks. `MessageList` passes
+  `isPrivateConversation(msg, channels)`, the feed `FeedRowLabels.privateConversation`.
+  Before the tap nothing is requested, meta included, and the visible anchor does
+  not warm the meta on hover or focus either (`ShareLinkGateContext`;
+  `src/test/sharePayload.test.tsx` spies `fetch`). `interactive={false}` (Feed
+  display mode, `FeedMessageRow` `readOnly`) shows the plain `sharePayload.notLoaded`
+  label instead of the tap button. On load: meta through `requestShareMeta`; a public image is
+  `<img src="./api/share/{id}?message_id=" loading="lazy">` capped at 240x240 opening
+  the same URL in a new tab, over 8 MiB (`SHARE_INLINE_MAX_BYTES`, meta `size`) a
+  Download card; a 410 meta (`ShareMetaEntry` `missing` with `gone`) shows
+  `sharePayload.gone`; any other failure, a link object, a non-public file or an
+  image `onError` draws nothing (the raw link stays). Encrypted files and the lock
+  badge: T29. The card's Report button (only with `canSend`: viewer and kiosk get 403) opens `ShareReportDialog` (8 contract reasons,
+  details up to 2000) and calls `api.reportShare` (`POST /api/share/{id}/report`),
+  toast on success, `errors.share_*` on failure except `share_quota_key`, which
+  is the report limit (5 per instance key and day): `sharePayload.report.quota`. Strings: slice `sp`
+  (`sharePayload.*`, `messagePreview.share*`).
 - `hasUnexpectedControlChars` flags C0 controls, DEL, bidi embeddings, overrides and
   isolates (U+202A-202E, U+2066-2069), ALM (U+061C), U+200B, U+2060 and U+FEFF. It does
   not flag LRM/RLM, ZWNJ or ZWJ (legitimate in RTL, Indic and emoji text). Its only caller
@@ -752,7 +784,7 @@ key}`); they are not `Message.conversation_key`.
   block sender, reactor rows, the chat title; in plain strings (`title`, `aria-label`)
   wrap them with `isolateBidi()`. Conversation-list and feed names are not isolated yet.
 - `remoteMedia={false}` keeps a GIF as its raw text instead of loading
-  `media.giphy.com`. Only reactions follow `useRichPayloads()`; GIFs and locations
+  `media.giphy.com`, and a shared image behind its "Tap to load" button. Only reactions follow `useRichPayloads()`; GIFs and locations
   always render.
 - `src/test/messageList.test.tsx` ("rendering snapshots") pins the markup: a change
   there is a visual change, not a refactor.

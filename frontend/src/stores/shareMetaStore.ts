@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-import { api } from '../api';
+import { ApiError, api } from '../api';
 import type { ShareMeta, ShareStatus } from '../types';
 
 /**
@@ -9,7 +9,8 @@ import type { ShareMeta, ShareStatus } from '../types';
  * Nothing here runs on render. `loadShareStatus()` reads `GET /api/share/status`,
  * a local route that makes no request to the share service; it tells whether
  * sharing is on and which hosts are service hosts. `requestShareMeta(id)` is
- * called on hover or focus only, and does nothing unless sharing is on, so a
+ * called on hover or focus, or by a shared image once the user taps it (or the
+ * preview policy lets it load), and does nothing unless sharing is on, so a
  * link received in a channel never costs a request, and with sharing off nothing
  * leaves at all. One request per id: answers (and failures, kept as negative
  * entries) are remembered for ten minutes and concurrent calls share one request.
@@ -19,8 +20,9 @@ export const STATUS_TTL_MS = 60 * 1000;
 /** Most ids remembered; the least recently used is dropped first. */
 export const META_MAX_ENTRIES = 200;
 
+/** `gone`: the service answered 410 (expired or removed), not merely unreachable. */
 export type ShareMetaEntry =
-  { state: 'loading' } | { state: 'ready'; meta: ShareMeta } | { state: 'missing' };
+  { state: 'loading' } | { state: 'ready'; meta: ShareMeta } | { state: 'missing'; gone?: boolean };
 
 interface Stored {
   entry: ShareMetaEntry;
@@ -97,7 +99,10 @@ export function useShareStatus(): ShareStatus | null {
   return useSyncExternalStore(subscribe, getShareStatusSnapshot, getShareStatusSnapshot);
 }
 
-/** Fetch the meta of a link once; call from hover/focus only, never from render. */
+/**
+ * Fetch the meta of a link once; call from hover/focus or a user's tap (or a shared
+ * image the preview policy lets load), never from a plain render.
+ */
 export async function requestShareMeta(id: string): Promise<void> {
   const current =
     status && Date.now() - statusAt < STATUS_TTL_MS ? status : await loadShareStatus();
@@ -110,8 +115,9 @@ export async function requestShareMeta(id: string): Promise<void> {
   try {
     const meta = await api.getShareMeta(id);
     remember(id, { state: 'ready', meta }, Date.now());
-  } catch {
-    remember(id, { state: 'missing' }, Date.now());
+  } catch (err) {
+    const gone = err instanceof ApiError && err.status === 410;
+    remember(id, gone ? { state: 'missing', gone } : { state: 'missing' }, Date.now());
   }
   emit(id);
 }

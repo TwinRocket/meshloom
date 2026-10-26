@@ -40,7 +40,7 @@ Le raccourcissement est tout ou rien : si le service refuse une adresse (voir pl
 
 Meshloom vérifie l’adresse avant de l’envoyer et **n’envoie jamais** une adresse que le service refuserait de toute façon : une adresse avec nom d’utilisateur ou mot de passe, une adresse IP, `localhost`, un nom sans point ou finissant par `.local`, `.lan`, `.internal` ou `.home.arpa`, tout ce qui n’est pas `http` ou `https`, ou plus long que 2048 caractères. Le bouton ignore une telle adresse et l’API la refuse (`share_invalid_url`) : un lien vers votre réseau domestique, ou qui contient des identifiants, ne le quitte donc jamais.
 
-**Réglages > Partage : liens et fichiers > Aperçus des images et liens partagés** enregistre quand les aperçus doivent être récupérés (toujours, conversations privées seulement, jamais). Rien ne s’en sert encore : cette version ne récupère aucun aperçu.
+**Réglages > Partage : liens et fichiers > Aperçus des images et liens partagés** décide quand une image partagée dans un message se charge d’elle-même : toujours, dans les conversations privées seulement (messages directs et canaux à clé secrète propre ; ni Public, ni les canaux `#nom`), ou jamais. Sinon l’image affiche un bouton **Toucher pour charger**, et rien n’est demandé avant que vous touchiez. Les images des expéditeurs bloqués, et celles de l’écran d’affichage, attendent toujours un toucher. Les aperçus de liens ne sont pas encore récupérés.
 
 ## Lire les liens courts
 
