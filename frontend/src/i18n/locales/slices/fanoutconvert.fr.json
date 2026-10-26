@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "fanout": {
+      "convert": {
+        "deprecated": "Les intégrations Apprise sont dépréciées : les canaux de notification les remplacent (suppression prévue en 5.2.0).",
+        "button": "Convertir en canal de notification",
+        "confirm": "Convertir « {{name}} » en canal de notification ? Le canal reprend ses URL, son format et sa portée, et cette intégration est désactivée.",
+        "done": "« {{name}} » est maintenant un canal de notification.",
+        "alreadyDone": "« {{name}} » était déjà converti. L’intégration reste désactivée.",
+        "failed": "Échec de la conversion",
+        "openChannels": "Ouvrir les notifications",
+        "badge": "Converti",
+        "badgeHelp": "Converti en canal de notification. Les notifications passent désormais par ce canal.",
+        "confirmReenable": "Cette intégration a été convertie en canal de notification. La réactiver dupliquera les notifications. La réactiver quand même ?",
+        "notes": {
+          "include_outgoing_unsupported": "Vos propres messages sortants ne sont pas notifiés : les canaux de notification n’ont pas d’équivalent.",
+          "private_channels_need_exception": "Les canaux à clé propre ne sont notifiés que par une exception par conversation : ajoutez-la dans les réglages de notification de la conversation.",
+          "template_dm_dropped": "Le format des messages privés était trop long pour un modèle et n’a pas été repris.",
+          "template_channel_dropped": "Le format des messages de canal était trop long pour un modèle et n’a pas été repris."
+        }
+      }
+    },
+    "notifications": {
+      "channels": {
+        "step": {
+          "duplicates": "Une intégration de « MQTT et automatisation » envoie déjà ici."
+        },
+        "fanoutDuplicate": {
+          "body_one": "Ce canal envoie au même endroit qu’une intégration Apprise active :",
+          "body_other": "Ce canal envoie au même endroit que {{count}} intégrations Apprise actives :",
+          "help": "Garder les deux notifie chaque message deux fois. Convertir désactive l’intégration et donne sa portée à ce canal.",
+          "convert_one": "La convertir dans ce canal",
+          "convert_other": "Les convertir dans ce canal",
+          "keep": "Garder les deux",
+          "converted_one": "L’intégration passe maintenant par ce canal.",
+          "converted_other": "Les {{count}} intégrations passent maintenant par ce canal."
+        }
+      }
+    }
+  }
+}

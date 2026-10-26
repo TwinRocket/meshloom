@@ -134,7 +134,7 @@ Integrations you had set up before this check keep working: the upgrade ticks th
 
 ## Apprise
 
-**Notifications have moved.** To be told about events (direct messages, mentions, radio offline, new contacts, alerts) on Telegram, Discord, ntfy, Home Assistant, Gotify or any Apprise service, add a **channel** in [Notifications](/en/docs/deep/notifications/): it has its own rules, a pause, a test button, retries, a delivery log and a text policy that keeps private messages out of third-party services. The Apprise output described here stays, and keeps doing what it did: forward every message of the channels and contacts you pick, rendered with your own templates. It has no rules, no pause and no per-event choice. A one-click conversion of an Apprise output into a notification channel is planned for a later release; until then, if the same address is in both, you will be notified twice.
+**Notifications have moved.** To be told about events (direct messages, mentions, radio offline, new contacts, alerts) on Telegram, Discord, ntfy, Home Assistant, Gotify or any Apprise service, add a **channel** in [Notifications](/en/docs/deep/notifications/): it has its own rules, a pause, a test button, retries, a delivery log and a text policy that keeps private messages out of third-party services. The Apprise output described here stays, and keeps doing what it did: forward every message of the channels and contacts you pick, rendered with your own templates. It has no rules, no pause and no per-event choice. The Apprise output is deprecated and will be removed in 5.2.0: it can no longer be added from the interface, and [converting it](#converting-to-a-notification-channel) into a notification channel takes one click. If the same address is in both, you will be notified twice.
 
 Give one address per line. Each message is sent to all of them. You can write your own text templates for direct messages and channel messages, with variables such as the sender, the text, the channel, the number of hops, and the signal strength. The same variables work in the [message templates](/en/docs/deep/notifications/#message-templates) of a notification channel. Messages you sent yourself are not forwarded unless you tick the option. For Discord, you can keep the webhook's own name and picture.
 
@@ -146,6 +146,17 @@ Meshloom accepts these Apprise services:
 - **A public service with its own address**: Telegram (`tgram://`), Discord, Pushover (`pover://`), Slack, Pushbullet (`pbul://`), Free Mobile, SFR, Google Chat (`gchat://`), Webex, Pushsafer, Prowl, IFTTT, Join and Opsgenie. Their usual web addresses, such as a Discord webhook link, work too.
 
 Every other Apprise service is refused, private network or not: desktop and local ones (`dbus://`, `windows://`, `syslog://`...), the ones that use cloud credentials (`sns://`, `ses://`), and the ones nobody has reviewed yet. A Telegram address needs a chat id (`tgram://bot_token/chat_id`): without one, Apprise would message whoever last wrote to the bot. Meshloom never follows a redirect for Apprise, and it sends only to the host you typed: Matrix server discovery (`.well-known`) and the e-mail PGP key lookup (`wkd=yes`) are turned off. An address that was already saved and is now refused stays in the list; its integration shows the error until you fix it. Restoring an older backup that holds such an address brings its integration back disabled, with a notice: fix the address before enabling it.
+
+### Converting to a notification channel
+
+Each Apprise integration shows **Convert to a notification channel**. After you confirm, Meshloom creates a channel in [Notifications](/en/docs/deep/notifications/) with the same name, addresses and format, and turns the integration off:
+
+- A single Telegram or Gotify address becomes that preset; anything else becomes an Apprise channel. The addresses move into the notification secret store and are never shown again.
+- Your DM and channel message formats become the channel's [message templates](/en/docs/deep/notifications/#message-templates). A format too long for a template is dropped, and the result says so.
+- The scope becomes rules: **All messages** notifies direct messages and channel messages; **Only listed channels/contacts** becomes one exception per conversation; **All except listed channels/contacts** notifies everything but the listed conversations. Channels with their own key are notified only through a conversation exception: add one if you need it.
+- **Forward Meshloom-sent messages** has no equivalent in notifications and is not kept.
+
+The integration stays in the list, turned off, with a **Converted** badge. Turning it back on asks first, since you would then be notified twice. Converting it again does nothing. A backup keeps the converted state: after a restore the integration comes back off and still marked. Adding a notification channel that sends to the same place as an active Apprise integration offers the same conversion (see [Notifications](/en/docs/deep/notifications/#adding-a-channel)).
 
 ## Amazon SQS
 
@@ -161,5 +172,6 @@ The interface uses these endpoints. A saved integration is checked every time, e
 | POST | `/api/fanout` | Create one |
 | PATCH | `/api/fanout/{id}` | Update it and restart it |
 | DELETE | `/api/fanout/{id}` | Stop it and delete it |
+| POST | `/api/fanout/{id}/convert-to-notification-channel` | Convert an Apprise integration into a notification channel (`{"channel_id": ...}` to merge it into an existing one) |
 
 `GET /api/health` reports the state of each enabled integration in `fanout_statuses`. A disabled integration is simply not started.

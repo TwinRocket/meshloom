@@ -31,6 +31,8 @@ import type {
   MyPushRulesPatch,
   NotificationChannel,
   NotificationChannelCreate,
+  NotificationChannelCreated,
+  FanoutConversion,
   NotificationChannelPatch,
   NotificationTemplatePreview,
   NotificationTemplatePreviewRequest,
@@ -1158,6 +1160,15 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(update),
     }),
+  /** MSHL-134: a fanout Apprise row becomes a notification channel (or joins `channelId`). */
+  convertFanoutToChannel: (id: string, channelId?: string) =>
+    fetchJson<FanoutConversion>(
+      `/fanout/${encodeURIComponent(id)}/convert-to-notification-channel`,
+      {
+        method: 'POST',
+        body: JSON.stringify(channelId ? { channel_id: channelId } : {}),
+      }
+    ),
   deleteFanoutConfig: (id: string) =>
     fetchJson<{ deleted: boolean }>(`/fanout/${id}`, {
       method: 'DELETE',
@@ -1447,7 +1458,7 @@ export const api = {
   getNotificationChannel: (id: string) =>
     fetchJson<NotificationChannel>(`/notifications/channels/${encodeURIComponent(id)}`),
   createNotificationChannel: (body: NotificationChannelCreate) =>
-    fetchJson<NotificationChannel>('/notifications/channels', {
+    fetchJson<NotificationChannelCreated>('/notifications/channels', {
       method: 'POST',
       body: JSON.stringify(body),
     }),

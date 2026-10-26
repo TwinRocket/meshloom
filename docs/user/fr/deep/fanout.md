@@ -134,7 +134,7 @@ Les intégrations configurées avant cette vérification continuent de fonctionn
 
 ## Apprise
 
-**Les notifications ont déménagé.** Pour être prévenu d’événements (messages directs, mentions, radio hors ligne, nouveaux contacts, alertes) sur Telegram, Discord, ntfy, Home Assistant, Gotify ou tout service Apprise, ajoutez un **canal** dans les [Notifications](/docs/deep/notifications/) : il a ses propres règles, une pause, un bouton de test, des nouvelles tentatives, un journal des envois et une politique de texte qui garde les messages privés hors des services tiers. La sortie Apprise décrite ici reste, et continue de faire ce qu’elle faisait : transmettre chaque message des salons et contacts que vous choisissez, mis en forme avec vos propres modèles. Elle n’a ni règles, ni pause, ni choix par événement. Une conversion en un clic d’une sortie Apprise en canal de notification est prévue dans une version ultérieure ; d’ici là, si la même adresse figure aux deux endroits, vous serez prévenu deux fois.
+**Les notifications ont déménagé.** Pour être prévenu d’événements (messages directs, mentions, radio hors ligne, nouveaux contacts, alertes) sur Telegram, Discord, ntfy, Home Assistant, Gotify ou tout service Apprise, ajoutez un **canal** dans les [Notifications](/docs/deep/notifications/) : il a ses propres règles, une pause, un bouton de test, des nouvelles tentatives, un journal des envois et une politique de texte qui garde les messages privés hors des services tiers. La sortie Apprise décrite ici reste, et continue de faire ce qu’elle faisait : transmettre chaque message des salons et contacts que vous choisissez, mis en forme avec vos propres modèles. Elle n’a ni règles, ni pause, ni choix par événement. La sortie Apprise est dépréciée et sera retirée en 5.2.0 : elle ne s’ajoute plus depuis l’interface, et [la convertir](#convertir-en-canal-de-notification) en canal de notification prend un clic. Si la même adresse figure aux deux endroits, vous serez prévenu deux fois.
 
 Indiquez une adresse par ligne. Chaque message est envoyé à toutes. Vous pouvez écrire vos propres modèles de texte pour les messages directs et les messages de salon, avec des variables comme l’expéditeur, le texte, le salon, le nombre de sauts et la force du signal. Les mêmes variables servent dans les [modèles de message](/docs/deep/notifications/#modèles-de-message) d’un canal de notification. Les messages que vous avez envoyés vous-même ne sont pas transmis, sauf si vous cochez l’option. Pour Discord, vous pouvez conserver le nom et l’image propres au webhook.
 
@@ -146,6 +146,17 @@ Meshloom accepte ces services Apprise :
 - **Un service public à adresse fixe** : Telegram (`tgram://`), Discord, Pushover (`pover://`), Slack, Pushbullet (`pbul://`), Free Mobile, SFR, Google Chat (`gchat://`), Webex, Pushsafer, Prowl, IFTTT, Join et Opsgenie. Leurs adresses web habituelles, comme un lien de webhook Discord, fonctionnent aussi.
 
 Tous les autres services Apprise sont refusés, réseau privé autorisé ou non : ceux du bureau et de la machine locale (`dbus://`, `windows://`, `syslog://`…), ceux qui utilisent des identifiants cloud (`sns://`, `ses://`) et ceux que personne n’a encore examinés. Une adresse Telegram doit indiquer un identifiant de discussion (`tgram://bot_token/chat_id`) : sans lui, Apprise écrirait à la dernière personne qui a parlé au bot. Meshloom ne suit jamais de redirection pour Apprise et n’envoie qu’à l’hôte que vous avez saisi : la découverte de serveur Matrix (`.well-known`) et la recherche de clé PGP des e-mails (`wkd=yes`) sont désactivées. Une adresse déjà enregistrée et désormais refusée reste dans la liste ; son intégration affiche l’erreur jusqu’à ce que vous la corrigiez. La restauration d’une ancienne sauvegarde qui contient une telle adresse ramène son intégration désactivée, avec un avis : corrigez l’adresse avant de l’activer.
+
+### Convertir en canal de notification
+
+Chaque intégration Apprise affiche **Convertir en canal de notification**. Après confirmation, Meshloom crée un canal dans les [Notifications](/docs/deep/notifications/) avec le même nom, les mêmes adresses et le même format, et désactive l’intégration :
+
+- Une seule adresse Telegram ou Gotify devient ce préréglage ; tout le reste devient un canal Apprise. Les adresses passent dans le coffre des secrets des notifications et ne sont plus jamais affichées.
+- Vos formats de message direct et de message de salon deviennent les [modèles de message](/docs/deep/notifications/#modèles-de-message) du canal. Un format trop long pour un modèle est abandonné, et le résultat le signale.
+- La portée devient des règles : **Tous les messages** notifie les messages directs et les messages de salon ; **Uniquement les canaux/contacts listés** devient une exception par conversation ; **Tous sauf les canaux/contacts listés** notifie tout sauf les conversations listées. Les salons à clé propre ne sont notifiés que par une exception de conversation : ajoutez-en une si besoin.
+- **Transférer les messages envoyés par Meshloom** n’a pas d’équivalent dans les notifications et n’est pas conservé.
+
+L’intégration reste dans la liste, désactivée, avec un badge **Converti**. La réactiver demande d’abord confirmation, puisque vous seriez alors prévenu deux fois. La convertir de nouveau ne fait rien. Une sauvegarde garde l’état converti : après une restauration, l’intégration revient désactivée et toujours marquée. Ajouter un canal de notification qui envoie au même endroit qu’une intégration Apprise active propose la même conversion (voir les [Notifications](/docs/deep/notifications/#ajouter-un-canal)).
 
 ## Amazon SQS
 
@@ -161,5 +172,6 @@ L’interface utilise ces points d’accès. Une intégration enregistrée est v
 | POST | `/api/fanout` | En crée une |
 | PATCH | `/api/fanout/{id}` | La met à jour et la redémarre |
 | DELETE | `/api/fanout/{id}` | L’arrête et la supprime |
+| POST | `/api/fanout/{id}/convert-to-notification-channel` | Convertit une intégration Apprise en canal de notification (`{"channel_id": ...}` pour la fusionner dans un canal existant) |
 
 `GET /api/health` indique l’état de chaque intégration activée dans `fanout_statuses`. Une intégration désactivée n’est simplement pas démarrée.

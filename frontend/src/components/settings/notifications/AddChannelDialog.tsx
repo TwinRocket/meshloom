@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { api, formatApiError } from '../../../api';
 import type {
+  FanoutDuplicate,
   NotificationChannel,
   NotificationEventInfo,
   NotificationRules,
@@ -28,7 +29,7 @@ import {
   type ReceivePreset,
 } from './notificationsShared';
 
-type Step = 'pick' | 'settings' | 'receive';
+type Step = 'pick' | 'settings' | 'receive' | 'duplicates';
 
 const PRESETS: ReceivePreset[] = ['like_push', 'alerts_only', 'everything'];
 
@@ -36,6 +37,10 @@ const PRESETS: ReceivePreset[] = ['like_push', 'alerts_only', 'everything'];
  * Add a channel in three steps: pick a type or preset, fill its form (the **Test** runs
  * before anything is saved), then choose what the channel receives. The type forms are the
  * shared `SchemaForm` fed with the JSON Schemas of `GET /notifications/types`.
+ *
+ * When the new channel sends where an active fanout Apprise row already sends (the
+ * response's `fanout_duplicates`, MSHL-134), a last step offers to convert those rows into
+ * it, so each message is not notified twice.
  */
 export function AddChannelDialog({
   types,
@@ -63,6 +68,8 @@ export function AddChannelDialog({
   const [tested, setTested] = useState(false);
   const [receive, setReceive] = useState<ReceivePreset>('like_push');
   const [busy, setBusy] = useState(false);
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const [duplicates, setDuplicates] = useState<FanoutDuplicate[]>([]);
 
   // A singleton type (Web Push) already exists; it is not offered again.
   const choices = types.filter((e) => !e.singleton);
@@ -94,9 +101,13 @@ export function AddChannelDialog({
     setBusy(true);
     setGeneral(null);
     let id: string;
+    let found: FanoutDuplicate[];
     try {
-      id = (await api.createNotificationChannel(createBody(entry, pending.draft, pending.config)))
-        .id;
+      const created = await api.createNotificationChannel(
+        createBody(entry, pending.draft, pending.config)
+      );
+      id = created.id;
+      found = created.fanout_duplicates ?? [];
     } catch (err) {
       setGeneral(formatApiError(err, t));
       setErrors(fieldErrorsOf(err, t('settings.notifications.channels.fieldInvalid')));
@@ -117,7 +128,34 @@ export function AddChannelDialog({
     }
     setBusy(false);
     onCreated();
+    if (found.length > 0) {
+      setCreatedId(id);
+      setDuplicates(found);
+      setStep('duplicates');
+      return;
+    }
     onClose();
+  };
+
+  const convertDuplicates = async () => {
+    if (!createdId) return;
+    setBusy(true);
+    try {
+      for (const row of duplicates) {
+        await api.convertFanoutToChannel(row.id, createdId);
+      }
+      toast.success(
+        t('settings.notifications.channels.fanoutDuplicate.converted', {
+          count: duplicates.length,
+        })
+      );
+      onCreated();
+      onClose();
+    } catch (err) {
+      setGeneral(formatApiError(err, t));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -263,6 +301,38 @@ export function AddChannelDialog({
                 }}
               >
                 {t('settings.notifications.channels.back')}
+              </Button>
+            </div>
+          </div>
+        )}
+        {step === 'duplicates' && (
+          <div className="space-y-4" data-testid="fanout-duplicate-prompt">
+            <p className="text-sm">
+              {t('settings.notifications.channels.fanoutDuplicate.body', {
+                count: duplicates.length,
+              })}
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-sm">
+              {duplicates.map((row) => (
+                <li key={row.id}>{row.name}</li>
+              ))}
+            </ul>
+            <p className="text-[0.8125rem] text-muted-foreground">
+              {t('settings.notifications.channels.fanoutDuplicate.help')}
+            </p>
+            {general && (
+              <p role="alert" className="text-sm text-destructive">
+                {general}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => void convertDuplicates()} disabled={busy}>
+                {t('settings.notifications.channels.fanoutDuplicate.convert', {
+                  count: duplicates.length,
+                })}
+              </Button>
+              <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+                {t('settings.notifications.channels.fanoutDuplicate.keep')}
               </Button>
             </div>
           </div>

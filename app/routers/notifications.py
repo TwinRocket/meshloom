@@ -146,6 +146,20 @@ class ChannelOut(BaseModel):
     status: ChannelStatusOut
 
 
+class FanoutDuplicate(BaseModel):
+    """An active fanout Apprise row that sends where a new channel sends (MSHL-134)."""
+
+    id: str
+    name: str
+
+
+class ChannelCreatedOut(ChannelOut):
+    """A created channel, plus the fanout Apprise rows it duplicates: their id and name,
+    never their URL. The add dialog offers to convert them into this channel."""
+
+    fanout_duplicates: list[FanoutDuplicate] = Field(default_factory=list)
+
+
 class TestResult(BaseModel):
     __test__ = False  # not a pytest class
 
@@ -301,15 +315,26 @@ async def list_channels() -> list[ChannelOut]:
 
 
 @router.post("/channels", status_code=201)
-async def create_channel(body: ChannelCreate, request: Request) -> ChannelOut:
-    """Create a channel. The destination goes through the egress guard first (400, coded)."""
+async def create_channel(body: ChannelCreate, request: Request) -> ChannelCreatedOut:
+    """Create a channel. The destination goes through the egress guard first (400, coded).
+    ``fanout_duplicates`` names the active fanout Apprise rows sending to the same place."""
+    from app.notifications.fanout_convert import fanout_duplicates
+
     try:
         channel = await NotificationChannelRepository.create(body)
     except ChannelError as exc:
         raise _as_http(exc) from None
     await api_support.announce_channel_change(request, "created", channel)
     await _reconcile_heartbeats()
-    return await _present_one(channel)
+    presented = await _present_one(channel)
+    try:
+        duplicates = await fanout_duplicates(channel.id)
+    except Exception:
+        logger.warning("Fanout duplicate check failed for channel %s", channel.id)
+        duplicates = []
+    return ChannelCreatedOut(
+        **presented.model_dump(), fanout_duplicates=[FanoutDuplicate(**d) for d in duplicates]
+    )
 
 
 async def _reconcile_heartbeats(restart: str | None = None) -> None:
