@@ -9,8 +9,10 @@ request. Writes refuse a request the browser marks ``Sec-Fetch-Site: cross-site`
 under ``<data dir>/share-tmp/``, checks them and uploads them
 (``app.services.share_upload``); nothing leaves before the local checks pass.
 In encrypted mode the image is sealed under the secret of the conversation named
-by ``X-Share-Conversation-Type`` / ``X-Share-Conversation-Key``
-(``app.services.share_secrets``) before it leaves.
+by ``X-Share-Conversation-Type`` / ``X-Share-Conversation-Id``
+(``app.services.share_secrets``) before it leaves: a channel is named by its
+opaque ``share_conversation_id``, never by its key, which the browser never sends
+back (the legacy ``X-Share-Conversation-Key`` header is refused).
 
 ``GET /{id}`` proxies a shared object through the disk cache (``read_object``)
 with headers that never let it run as active content. ``message_id`` names the
@@ -18,8 +20,10 @@ message the id was seen in: the caller must be able to read that message (a
 kiosk never reads a direct message) and its text must carry the id. An
 encrypted object (``application/octet-stream``) is cached as ciphertext and
 decrypted per request with the secret of that message's conversation, resolved
-here from the message row, never supplied by the client. No secret is ever
-logged, returned or sent.
+here from the message row, never supplied by the client. A decrypted image is
+served ``Cache-Control: no-store`` (plaintext never lands in the browser's disk
+cache) under a name whose extension is forced to its checked type. No secret is
+ever logged, returned or sent.
 
 ``POST /{id}/report`` forwards a report (``reason``, optional ``details``) to the
 service, signed with the instance key (``share.report_object``).
@@ -28,6 +32,7 @@ service, signed with the instance key (``share.report_object``).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import logging
 from urllib.parse import quote, urlsplit
@@ -156,9 +161,11 @@ async def upload_share_file(request: Request) -> ShareFileResponse:
     ``X-Share-Name`` (percent-encoded UTF-8; validated, sealed in the envelope
     in encrypted mode, never sent otherwise). Encrypted mode also needs
     ``X-Share-Conversation-Type`` (``channel`` or ``contact``) and
-    ``X-Share-Conversation-Key`` (the channel key or the contact public key, as
-    in a message's ``conversation_key``). Every refusal before the upload reads
-    at most what was declared and makes no request.
+    ``X-Share-Conversation-Id`` (a channel's ``share_conversation_id`` or a
+    contact's public key), resolved here to the secret. A request still carrying
+    ``X-Share-Conversation-Key`` is refused: no channel key travels from the
+    browser. Every refusal before the upload reads at most what was declared and
+    makes no request.
     """
     # Off first: a disabled instance answers share_disabled and reads nothing.
     if await share.share_egress_state() is None:
@@ -173,9 +180,12 @@ async def upload_share_file(request: Request) -> ShareFileResponse:
     length = share_upload.declared_length(headers.get("content-length"), content_type)
     name = share_upload.header_name(headers.get("x-share-name"))
     conversation_type = headers.get("x-share-conversation-type", "").strip()
-    conversation_key = headers.get("x-share-conversation-key", "").strip()
+    conversation = headers.get("x-share-conversation-id", "").strip()
+    if "x-share-conversation-key" in headers:
+        # Retired (MSHL-378): a client must not send key material back.
+        raise ShareError("share_invalid_request")
     if mode == "encrypted" and (
-        conversation_type not in share_secrets.CONVERSATION_TYPES or not conversation_key
+        conversation_type not in share_secrets.CONVERSATION_TYPES or not conversation
     ):
         raise ShareError("share_invalid_request")
     # Known local refusals before receiving megabytes for nothing.
@@ -184,11 +194,13 @@ async def upload_share_file(request: Request) -> ShareFileResponse:
     if share.share_breaker().cooling():
         raise ShareError("share_unavailable")
     secret = (
-        await share_secrets.upload_secret(conversation_type, conversation_key)
+        await share_secrets.upload_secret(conversation_type, conversation)
         if mode == "encrypted"
         else None
     )
-    with share_upload.upload_slot():
+    # The whole encrypted upload runs with the secret registered for redaction.
+    scope = secret_scope(secret) if secret is not None else contextlib.nullcontext()
+    with scope, share_upload.upload_slot():
         async with share_upload.staged_upload(
             request.stream(), content_type=content_type, length=length
         ) as staged:
@@ -217,6 +229,31 @@ _OBJECT_HEADERS = {
     "Content-Security-Policy": "default-src 'none'; sandbox",
     "Cache-Control": "private, max-age=3600",
 }
+# A decrypted image is plaintext of a private conversation: never stored by any cache.
+_DECRYPTED_HEADERS = {**_OBJECT_HEADERS, "Cache-Control": "no-store"}
+
+# Extensions a name may already end with for each served image type.
+_NAME_EXTENSIONS: dict[str, frozenset[str]] = {
+    "image/jpeg": frozenset({"jpg", "jpeg"}),
+    "image/png": frozenset({"png"}),
+    "image/gif": frozenset({"gif"}),
+    "image/webp": frozenset({"webp"}),
+}
+
+
+def _served_name(name: str, content_type: str) -> str:
+    """``name`` with an extension that matches ``content_type`` (an allowlisted image).
+
+    The name is sender-chosen: ``x.html`` on a PNG/HTML polyglot must not keep a
+    dangerous extension once saved and opened locally. A matching extension (any
+    case) is kept; any other is replaced by the type's own, and a name without
+    one gets it.
+    """
+    stem, dot, suffix = name.rpartition(".")
+    if dot and suffix.lower() in _NAME_EXTENSIONS.get(content_type, frozenset()):
+        return name
+    base = stem if dot and stem else name
+    return f"{base}.{share.OBJECT_EXTENSIONS[content_type]}"
 
 
 def _checked_read_query(request: Request) -> None:
@@ -249,7 +286,8 @@ async def _open_envelope(
 ) -> tuple[ShareObject, str]:
     """The image sealed in an encrypted object, checked like a public one, and its name.
 
-    The secret comes from the conversation of ``message`` only: no message, no
+    The name's extension is forced to the checked type (``_served_name``). The
+    secret comes from the conversation of ``message`` only: no message, no
     resolvable secret, or a failed authentication is 422 ``share_undecryptable``
     (no partial output). The decrypted type is sender-controlled: it must be an
     allowlisted image whose magic bytes and header agree (``checked_object``),
@@ -270,7 +308,7 @@ async def _open_envelope(
     checked = await asyncio.to_thread(
         share.checked_object, ShareObject(content=content.data, content_type=content.content_type)
     )
-    return checked, content.name
+    return checked, _served_name(content.name, checked.content_type)
 
 
 # Refusals of a decryption: the object exists but cannot be shown here.
@@ -374,7 +412,8 @@ async def get_share_object(
 
     An encrypted object is decrypted with the secret of ``message_id``'s
     conversation and served as the image it seals (422 ``share_undecryptable``
-    without a message or with the wrong one).
+    without a message or with the wrong one), with ``Cache-Control: no-store``
+    and a name whose extension matches the served type.
     """
     if not share.is_share_id(share_id):
         raise ShareError("share_invalid_id")
@@ -387,7 +426,7 @@ async def get_share_object(
     if obj.content_type == share.OCTET_STREAM:
         image, name = await _open_envelope(share_id, obj.content, message)
         headers = {
-            **_OBJECT_HEADERS,
+            **_DECRYPTED_HEADERS,
             "Content-Disposition": f"inline; filename*=UTF-8''{quote(name, safe='')}",
         }
         return Response(content=image.content, media_type=image.content_type, headers=headers)

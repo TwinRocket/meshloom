@@ -585,6 +585,12 @@ export interface Channel {
    * Computed by the backend; absent from an older one.
    */
   key_derived?: boolean;
+  /**
+   * Opaque id an encrypted share upload names this channel by
+   * (`X-Share-Conversation-Id`), so the key is never sent back to the backend.
+   * Computed by the backend; absent from an older one.
+   */
+  share_conversation_id?: string | null;
 }
 
 export interface RejectedChannel {
@@ -1626,13 +1632,13 @@ export interface ShareLink {
   expires_at: number;
 }
 
-/** `POST /api/share/files` answer (public mode). `text` is the composer's proposed message. */
+/** `POST /api/share/files` answer. `text` is the composer's proposed message. */
 export interface ShareFile {
   id: string;
   url: string;
   expires_at: number;
   size: number;
-  mode: 'public';
+  mode: 'public' | 'encrypted';
   text: string;
 }
 

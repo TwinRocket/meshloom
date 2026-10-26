@@ -349,8 +349,14 @@ Community guard.
   only ever travels inside the envelope. `suggested_text(url, encrypted=True)` is
   `🔒 <url>`.
 - **Conversation secrets (`services/share_secrets.py`, MSHL-255).** Local only.
-  `upload_secret(type, key)` from the `X-Share-Conversation-Type` (`channel` or
-  `contact`) and `X-Share-Conversation-Key` headers: a private channel gives its 16-byte
+  `upload_secret(type, conversation)` from the `X-Share-Conversation-Type` (`channel` or
+  `contact`) and `X-Share-Conversation-Id` headers (MSHL-378: the browser never sends a
+  channel key back). A channel is named by its opaque `Channel.share_conversation_id`
+  (`app/share_conversation.py`: the first 24 hex of SHA-256 over
+  `meshloom-share-conversation-v1\0` and the key bytes; a pydantic `computed_field` on
+  every channel payload, never stored, null for a malformed key), resolved by scanning
+  `ChannelRepository.get_all()` with `hmac.compare_digest`; a raw 32-hex key never
+  matches. A contact is named by its public key. A private channel gives its 16-byte
   `Channel.key`; a contact gives the 32-byte X25519 shared secret
   (`decoder.derive_shared_secret` of the keystore private key and the contact key).
   Malformed or unknown is 400 `share_invalid_request`; the Public channel, a
@@ -422,14 +428,17 @@ Community guard.
   object cannot be fetched now)), `GET /{id}` (`read`; the object bytes:
   bad id 400 `share_invalid_id` with no request, then off `share_disabled`;
   headers `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src
-  'none'; sandbox`, `Cache-Control: private, max-age=3600`, `Content-Disposition`
-  `inline` for an image, `filename*=` built from the id. An
+  'none'; sandbox`, `Cache-Control: private, max-age=3600` (a public object),
+  `Content-Disposition` `inline` for an image, `filename*=` built from the id. An
   `application/octet-stream` object is an envelope: decrypted (`decrypt_envelope_async`
   under `secret_scope`) with the secret of `message_id`'s conversation, else 422
   `share_undecryptable` (no message, wrong conversation, no radio key, any
   `EnvelopeError`; only its code is logged); the decrypted type must be an allowlisted
-  image passing `checked_object`, else 415/413; served `inline` with the sanitised name
-  in `filename*=UTF-8''...` (percent-encoded)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
+  image passing `checked_object`, else 415/413; served `inline` with
+  `Cache-Control: no-store` (plaintext never reaches the browser's disk cache) and the
+  sanitised name in `filename*=UTF-8''...` (percent-encoded), its extension forced to
+  the checked type by `_served_name` (`x.html` on a PNG/HTML polyglot is served
+  `x.png`; `jpg`/`jpeg` and any case are kept; the meta `name` is the same; MSHL-378)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
   sharing off, no egress), `POST /{id}/report` (`send`; MSHL-246; body
   `ShareReportRequest` `{reason, details?}`, `extra=forbid`, the contract's 8 reasons,
   details up to 2000, else 422 with no request; then off `share_disabled`, bad id
@@ -441,9 +450,11 @@ Community guard.
   `Transfer-Encoding` 400, a type outside `IMAGE_CONTENT_TYPES` 415, `Content-Length`
   missing/malformed 400 or over the type cap 413 before reading, `X-Share-Name`
   (optional, percent-encoded UTF-8, validated as a plain name; never sent in public mode)
-  400, in encrypted mode both conversation headers (400), ban, breaker, the conversation
-  secret (`share_secrets.upload_secret`, before staging), then the upload slot, staging
-  and checks above; 201 `ShareFileResponse` `{id, url, expires_at, size, mode, text}`,
+  400, the retired `X-Share-Conversation-Key` header in any mode (400), in encrypted
+  mode both conversation headers (`X-Share-Conversation-Type`, `X-Share-Conversation-Id`;
+  400), ban, breaker, the conversation secret (`share_secrets.upload_secret`, before
+  staging), then the upload slot, staging and checks above, all under
+  `secret_scope(secret)` in encrypted mode; 201 `ShareFileResponse` `{id, url, expires_at, size, mode, text}`,
   `text` = `📷 <url>` (public) or `🔒 <url>` (encrypted), 30 bytes on `meshl.ink`, the
   composer's suggested message; `size` is the stored bytes, the envelope when encrypted). On both reads the only query parameter is
   `message_id` (anything else or a repeat is 400 `share_invalid_request`); when
@@ -1241,7 +1252,8 @@ Mechanics and constants: `docs/dev/community-client.md`. Contracts:
   own secret is private and never leaves.
 - **`Channel.key_derived`** (MSHL-246): a pydantic `computed_field` on the `Channel`
   model, `is_public_hashtag_channel(name, key)`, so every channel payload (REST and WS)
-  carries it and input ignores it; never stored. The Public channel is `false` (its
+  carries it and input ignores it; never stored. `Channel.share_conversation_id`
+  (MSHL-378) follows the same pattern (see "Conversation secrets"). The Public channel is `false` (its
   key is not name-derived): the frontend treats it apart (`isPublicChannelKey`).
   Tests: `tests/test_channel_key_derived.py`.
 - **Parsing.** An unknown `position_precision` parses as `null`, so a successful

@@ -28,6 +28,7 @@ from app.repository import (
     MessageRepository,
 )
 from app.services import share, share_crypto, share_upload
+from app.share_conversation import channel_conversation_id
 from tests.share_fakes import Dns, Recorder, json_response
 
 _RealAsyncClient = httpx.AsyncClient
@@ -44,6 +45,8 @@ RADIO_PRIVATE_KEY = bytes(range(64))
 CONTACT_KEY = derive_public_key(bytes(range(64, 128))).hex()
 DM_SECRET = derive_shared_secret(RADIO_PRIVATE_KEY, bytes.fromhex(CONTACT_KEY))
 SECRETS = (bytes.fromhex(CHANNEL_KEY), DM_SECRET, RADIO_PRIVATE_KEY[:32])
+# What the browser names a channel by: never its key (MSHL-378).
+CHANNEL_ID = channel_conversation_id(CHANNEL_KEY)
 
 
 def _secret_texts() -> set[str]:
@@ -141,7 +144,7 @@ async def service(test_db, monkeypatch):
         keystore.clear_keys()
 
 
-def _headers(conversation_type: str | None, conversation_key: str | None, **extra) -> dict:
+def _headers(conversation_type: str | None, conversation: str | None, **extra) -> dict:
     headers = {
         "Content-Type": "image/png",
         "Content-Length": str(len(PNG)),
@@ -150,17 +153,17 @@ def _headers(conversation_type: str | None, conversation_key: str | None, **extr
     }
     if conversation_type is not None:
         headers["X-Share-Conversation-Type"] = conversation_type
-    if conversation_key is not None:
-        headers["X-Share-Conversation-Key"] = conversation_key
+    if conversation is not None:
+        headers["X-Share-Conversation-Id"] = conversation
     headers.update(extra)
     return headers
 
 
-async def _upload(client, conversation_type="channel", conversation_key=CHANNEL_KEY, **extra):
+async def _upload(client, conversation_type="channel", conversation=CHANNEL_ID, **extra):
     return await client.post(
         "/api/share/files",
         content=PNG,
-        headers=_headers(conversation_type, conversation_key, **extra),
+        headers=_headers(conversation_type, conversation, **extra),
     )
 
 
@@ -191,8 +194,8 @@ def _assert_no_secret_in_requests(service: Service) -> None:
 def _assert_no_secret_in_access_log(client) -> None:
     """The request lines the access log writes (method, path, query) carry no secret.
 
-    The conversation is named in headers, which the access log never writes; the
-    read side names only a message id.
+    The conversation is named in headers (an opaque id for a channel), which the
+    access log never writes; the read side names only a message id.
     """
     texts = _secret_texts()
     for request in client.sent:
@@ -214,14 +217,17 @@ def _assert_no_secret_in_logs(caplog) -> None:
 
 class TestRoundTrip:
     @pytest.mark.parametrize(
-        ("msg_type", "conversation_type", "conversation_key"),
-        [("CHAN", "channel", CHANNEL_KEY), ("PRIV", "contact", CONTACT_KEY)],
+        ("msg_type", "conversation_type", "conversation", "conversation_key"),
+        [
+            ("CHAN", "channel", CHANNEL_ID, CHANNEL_KEY),
+            ("PRIV", "contact", CONTACT_KEY, CONTACT_KEY),
+        ],
     )
     async def test_upload_then_download_and_meta(
-        self, service, client, caplog, msg_type, conversation_type, conversation_key
+        self, service, client, caplog, msg_type, conversation_type, conversation, conversation_key
     ):
         caplog.set_level(logging.DEBUG)
-        response = await _upload(client, conversation_type, conversation_key)
+        response = await _upload(client, conversation_type, conversation)
         assert response.status_code == 201, response.text
         body = response.json()
         assert body["mode"] == "encrypted"
@@ -238,7 +244,7 @@ class TestRoundTrip:
         assert request.headers["x-share-id"] == share_id
         assert request.headers["content-type"] == "application/octet-stream"
         assert request.headers["x-share-sha256"] == hashlib.sha256(blob).hexdigest()
-        for header in ("x-share-name", "x-share-conversation-type", "x-share-conversation-key"):
+        for header in ("x-share-name", "x-share-conversation-type", "x-share-conversation-id"):
             assert header not in request.headers
 
         message_id = await _message(msg_type, conversation_key, body["text"])
@@ -251,6 +257,8 @@ class TestRoundTrip:
         )
         assert image.headers["x-content-type-options"] == "nosniff"
         assert image.headers["content-security-policy"] == "default-src 'none'; sandbox"
+        # Decrypted plaintext never lands in a cache (MSHL-378).
+        assert image.headers["cache-control"] == "no-store"
         meta = await client.get(f"/api/share/{share_id}/meta?message_id={message_id}")
         assert meta.status_code == 200
         assert meta.json() == {
@@ -351,7 +359,7 @@ class TestRefusedConversations:
     )
     async def test_public_channels_are_public_only(self, service, client, name, key):
         await ChannelRepository.upsert(key, name)
-        response = await _upload(client, "channel", key)
+        response = await _upload(client, "channel", channel_conversation_id(key))
         assert response.status_code == 422
         assert _code(response) == "share_mode_not_allowed"
         assert service.recorder.requests == []
@@ -375,19 +383,23 @@ class TestRefusedConversations:
         assert service.recorder.requests == []
 
     @pytest.mark.parametrize(
-        ("conversation_type", "conversation_key"),
+        ("conversation_type", "conversation"),
         [
-            ("channel", "FF" * 16),
+            ("channel", channel_conversation_id("FF" * 16)),
             ("channel", "not-hex"),
+            # The raw key is not an id: a channel is never named by its key.
+            ("channel", CHANNEL_KEY),
+            ("channel", CHANNEL_KEY.lower()),
+            ("channel", CHANNEL_ID.upper()),
             ("contact", "ab" * 32),
-            ("contact", CHANNEL_KEY),
+            ("contact", CHANNEL_ID),
             ("room", CONTACT_KEY),
         ],
     )
     async def test_unknown_or_malformed_is_invalid(
-        self, service, client, conversation_type, conversation_key
+        self, service, client, conversation_type, conversation
     ):
-        response = await _upload(client, conversation_type, conversation_key)
+        response = await _upload(client, conversation_type, conversation)
         assert response.status_code == 400
         assert _code(response) == "share_invalid_request"
         assert service.recorder.requests == []
@@ -466,3 +478,104 @@ def test_new_share_ids_follow_the_grammar_and_skip_reserved_paths(monkeypatch):
     picks = iter("privacyAbCdEfG")
     monkeypatch.setattr(share_upload.secrets, "choice", lambda _alphabet: next(picks))
     assert share_upload.new_share_id() == "AbCdEfG"
+
+
+class TestHardening:
+    """MSHL-378: forced extension, no-store, no key from the browser, scoped secret."""
+
+    @pytest.mark.parametrize(
+        ("name", "content_type", "served"),
+        [
+            ("x.html", "image/png", "x.png"),
+            ("x.HTML", "image/gif", "x.gif"),
+            ("page.svg", "image/webp", "page.webp"),
+            ("archive.tar.html", "image/jpeg", "archive.tar.jpg"),
+            ("photo", "image/png", "photo.png"),
+            ("photo.png", "image/png", "photo.png"),
+            ("PHOTO.PNG", "image/png", "PHOTO.PNG"),
+            ("shot.jpeg", "image/jpeg", "shot.jpeg"),
+            ("shot.JPG", "image/jpeg", "shot.JPG"),
+            ("shot.jpg", "image/png", "shot.png"),
+        ],
+    )
+    def test_served_name_matches_the_type(self, name, content_type, served):
+        from app.routers.share import _served_name
+
+        assert _served_name(name, content_type) == served
+
+    async def test_a_polyglot_cannot_keep_a_dangerous_extension(self, service, client):
+        share_id = "PoLyGxt"
+        service.blobs[share_id] = share_crypto.encrypt_envelope(
+            bytes.fromhex(CHANNEL_KEY), share_id, "x.html", "image/png", PNG
+        )
+        message_id = await _message("CHAN", CHANNEL_KEY, f"https://meshl.ink/{share_id}")
+        image = await client.get(f"/api/share/{share_id}?message_id={message_id}")
+        assert image.status_code == 200, image.text
+        assert image.headers["content-disposition"] == "inline; filename*=UTF-8''x.png"
+        assert image.headers["cache-control"] == "no-store"
+        meta = (await client.get(f"/api/share/{share_id}/meta?message_id={message_id}")).json()
+        assert meta["name"] == "x.png"
+
+    async def test_a_public_object_keeps_its_private_cache(self, service, client):
+        original = service.__call__
+
+        def serve(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/PubPngF":
+                return httpx.Response(200, content=PNG, headers={"Content-Type": "image/png"})
+            return original(request)
+
+        service.recorder.handler = serve
+        image = await client.get("/api/share/PubPngF")
+        assert image.status_code == 200, image.text
+        assert image.headers["cache-control"] == "private, max-age=3600"
+
+    @pytest.mark.parametrize("mode", ["encrypted", "public"])
+    async def test_the_retired_key_header_is_refused(self, service, client, mode):
+        headers = _headers("channel", CHANNEL_ID, **{"X-Share-Conversation-Key": CHANNEL_KEY})
+        headers["X-Share-Mode"] = mode
+        response = await client.post("/api/share/files", content=PNG, headers=headers)
+        assert response.status_code == 400
+        assert _code(response) == "share_invalid_request"
+        assert service.recorder.requests == []
+
+    async def test_the_browser_never_sends_the_channel_key(self, service, client):
+        assert (await _upload(client)).status_code == 201
+        (upload,) = [r for r in client.sent if r.method == "POST"]
+        wire = "".join(f"{k}: {v}\n" for k, v in upload.headers.items()).lower()
+        assert CHANNEL_KEY.lower() not in wire
+        assert upload.headers["x-share-conversation-id"] == CHANNEL_ID
+
+    async def test_channels_api_carries_the_conversation_id(self, service, client):
+        rows = (await client.get("/api/channels")).json()
+        by_key = {row["key"]: row["share_conversation_id"] for row in rows}
+        assert by_key[CHANNEL_KEY] == CHANNEL_ID
+        assert len(CHANNEL_ID) == 24 and CHANNEL_ID not in CHANNEL_KEY.lower()
+        assert by_key[OTHER_CHANNEL_KEY] != CHANNEL_ID
+
+    async def test_the_upload_runs_inside_the_secret_scope(self, service, client, monkeypatch):
+        from app import log_redaction
+
+        seen: list[str] = []
+        check = share_upload.check_staged
+
+        def spying_check(staged):
+            seen.append(log_redaction.redact_text(f"leak {CHANNEL_KEY}"))
+            return check(staged)
+
+        monkeypatch.setattr(share_upload, "check_staged", spying_check)
+        before = log_redaction.registered_secret_count()
+        assert (await _upload(client)).status_code == 201
+        assert seen and CHANNEL_KEY not in seen[0]
+        assert log_redaction.registered_secret_count() == before
+
+
+def test_conversation_ids_are_stable_and_opaque():
+    assert channel_conversation_id(CHANNEL_KEY) == channel_conversation_id(CHANNEL_KEY.lower())
+    assert channel_conversation_id(CHANNEL_KEY) != channel_conversation_id(OTHER_CHANNEL_KEY)
+    assert channel_conversation_id("not-a-key") is None
+    assert channel_conversation_id("AB" * 32) is None
+    # Pinned: the frontend and any stored reference rely on the derivation not drifting.
+    expected = hashlib.sha256(
+        b"meshloom-share-conversation-v1\x00" + bytes.fromhex(CHANNEL_KEY)
+    ).hexdigest()[:24]
+    assert channel_conversation_id(CHANNEL_KEY) == expected
