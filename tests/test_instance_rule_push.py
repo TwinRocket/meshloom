@@ -281,7 +281,7 @@ async def test_a_watched_node_routes_web_push_to_admin_devices(test_db, monkeypa
     transport = Capture()
     dispatcher = _dispatcher(transport)
     now = [float(T0)]
-    dispatcher_module.notification_dispatcher()._dedup._wall = lambda: now[0]
+    monkeypatch.setattr(dispatcher_module.notification_dispatcher()._dedup, "_wall", lambda: now[0])
 
     async def real_emit(event, **kw):
         return await dispatcher.emit(event, **kw)
@@ -438,10 +438,17 @@ def test_the_serialized_push_fits_the_byte_budget(unit, lang):
     long = unit * 5000
     raw = build_push_payload(_keyword(text=long, channel_name="#" + long, sender_name=long), lang)
     assert len(raw.encode()) <= PUSH_PAYLOAD_MAX_BYTES
+    # RFC 8291 aes128gcm: a 4096-byte record holds at most 3993 bytes of payload.
+    assert len(raw.encode()) < 3993
     rendered = json.loads(raw)
     assert rendered["title"]
     if unit.isprintable():  # a control character is not shown at all
         assert rendered["body"].endswith("…") and len(rendered["body"]) > 100
+
+
+def test_the_byte_budget_leaves_room_for_the_encryption():
+    # 4096-byte record minus the 86-byte header, 16-byte tag and padding delimiter: 3993.
+    assert PUSH_PAYLOAD_MAX_BYTES <= 3900
 
 
 def test_a_short_accented_message_is_sent_whole():
