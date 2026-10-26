@@ -866,8 +866,9 @@ async def _process_direct_message(
                 ),
             )
 
-            if not effective_outgoing:
-                # A direct message from a watched node is a sighting too.
+            if not effective_outgoing and msg_id is not None:
+                # A direct message from a watched node is a sighting too, counted once per stored
+                # message: a duplicate reception (msg_id None) is not a new sighting (MSHL-408).
                 from app.notifications.watched_nodes import observe_sighting
 
                 await observe_sighting(

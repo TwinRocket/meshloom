@@ -387,6 +387,54 @@ async def test_a_fallback_direct_message_counts_as_a_sighting(clock, emitted, te
     assert len(emitted) == 1
 
 
+async def test_a_packet_path_direct_message_counts_once_per_stored_message(clock, emitted, test_db):
+    """MSHL-408: the packet-processor path records a sighting for the stored DM only, not for each
+    duplicate reception heard via another repeater (same semantics as the fallback path)."""
+    from unittest.mock import MagicMock, patch
+
+    from app.decoder import DecryptedDirectMessage
+    from app.models import ContactUpsert
+    from app.packet_processor import _process_direct_message
+    from app.repository.contacts import ContactRepository
+    from app.repository.raw_packets import RawPacketRepository
+
+    await ContactRepository.upsert(
+        ContactUpsert(public_key=KEY, name="Hilltop", type=1, last_seen=T0 - 5 * 86_400)
+    )
+    await _watch(_node(silence_s=86_400))
+    our_pub = bytes([0xFA]) + b"\x01" * 31
+    decrypted = DecryptedDirectMessage(
+        timestamp=T0, flags=0, message="hello", dest_hash="fa", src_hash=KEY[:2]
+    )
+    packet_info = MagicMock()
+    packet_info.payload = bytes([0xFA, int(KEY[:2], 16), 0, 0]) + b"\x00" * 20
+    packet_info.path = b""
+    packet_info.path_length = 0
+
+    async def receive(at: int, raw: bytes):
+        pkt_id, _ = await RawPacketRepository.create(raw, at)
+        with (
+            patch("app.packet_processor.has_private_key", return_value=True),
+            patch("app.packet_processor.get_private_key", return_value=b"\x00" * 32),
+            patch("app.packet_processor.get_public_key", return_value=our_pub),
+            patch("app.packet_processor.try_decrypt_dm", return_value=decrypted),
+            patch("app.packet_processor.broadcast_event"),
+        ):
+            return await _process_direct_message(b"\x00" * 40, pkt_id, at, packet_info)
+
+    first = await receive(T0, b"dm-reception-1")
+    assert first is not None
+    assert [e["event"] for e in emitted] == ["contact.node_back"]
+    assert await Journal.state_get(f"{wn.HEARD_PREFIX}{KEY}", T0 + 1) == str(T0)
+
+    # The same DM heard again later via another repeater: not a new sighting. The cooldown would
+    # hide a second emit, so check the stored sighting directly.
+    clock[0] += 10_000
+    await receive(T0 + 10_000, b"dm-reception-2")
+    assert await Journal.state_get(f"{wn.HEARD_PREFIX}{KEY}", T0 + 10_001) == str(T0)
+    assert len(emitted) == 1
+
+
 def test_effective_cooldown_clamps_legacy_values():
     assert wn.effective_cooldown(0) == 60
     assert wn.effective_cooldown(5) == 60
