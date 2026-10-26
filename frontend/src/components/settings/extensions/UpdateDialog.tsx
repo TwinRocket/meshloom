@@ -107,7 +107,10 @@ export function UpdateDialogBody({
   };
 
   const consentNeeded = needsConsent && canConsent;
-  const ready = !consentNeeded || accepted;
+  // A consent the screen cannot list (the Store no longer holds the target release) is not
+  // asked blindly: the update waits until the Store is refreshed.
+  const consentUnavailable = needsConsent && !canConsent;
+  const ready = !consentUnavailable && (!consentNeeded || accepted);
 
   return (
     <>
@@ -216,7 +219,12 @@ export function UpdateDialogBody({
             {update.instances.length > 1 && (
               <p className="text-muted-foreground">{t('pluginStore.updates.sharedNote')}</p>
             )}
-            {(needsConsent || needsConfig) && !canConsent && (
+            {consentUnavailable && (
+              <p role="alert" className="text-destructive" data-testid="update-consent-unavailable">
+                {t('pluginStore.updates.consentUnavailable')}
+              </p>
+            )}
+            {needsConfig && !needsConsent && !canConsent && (
               <p role="status" className="text-muted-foreground">
                 {t('pluginStore.updates.reviewLater')}
               </p>

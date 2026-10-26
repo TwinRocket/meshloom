@@ -552,37 +552,64 @@ async def test_readme_and_config_schema_are_served_from_the_cache(api, net, onli
     assert bad.status_code == 422
 
 
-async def test_refresh_route_runs_once_per_gap(
-    api,
-    manager,
-    net,
-    online,
-    tmp_path,
-    monkeypatch,  # noqa: F811
+async def test_refresh_route_reads_the_listings_once_per_gap(
+    api, net, online, tmp_path, monkeypatch
 ):
-    """MSHL-198: the Refresh button reads the releases again, at most once per gap."""
-    from app.routers import plugins as plugins_router
-
-    monkeypatch.setattr(plugins_router, "plugin_manager", manager)
-    set_version(monkeypatch, "5.0.0")
+    """MSHL-198: the Refresh button reads the listed repositories again (no installed
+    instance needed, so a new repository can be browsed), at most once per gap."""
     now = [1_000_000.0]
     monkeypatch.setattr(store_egress._state, "clock", lambda: now[0])
     publish(net, build_archive(tmp_path))
     assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
-    # Nothing is installed from the Store yet: the refresh does not run.
-    idle = await api.post("/api/store/refresh")
-    assert idle.json() == {"ran": False, "last_refresh_at": None}
-
-    body = {
-        "kind": "custom",
-        "plugin_id": "acme.echo",
-        "repository": REPO,
-        "granted_permissions": GRANT,
-    }
-    assert (await api.post("/api/plugins/install", json=body)).status_code == 201
+    before = len(net.requests)
     first = await api.post("/api/store/refresh")
     assert first.json() == {"ran": True, "last_refresh_at": 1_000_000}
+    assert len(net.requests) > before
     again = await api.post("/api/store/refresh")
     assert again.json() == {"ran": False, "last_refresh_at": 1_000_000}
     now[0] += store_egress.MIN_REFRESH_GAP_S
     assert (await api.post("/api/store/refresh")).json()["ran"] is True
+
+
+async def test_concurrent_refreshes_run_one_tick(api, net, online, tmp_path, monkeypatch):
+    import asyncio
+
+    publish(net, build_archive(tmp_path))
+    assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
+    calls = []
+
+    async def slow():
+        calls.append(1)
+        await asyncio.sleep(0.05)
+
+    store_egress.register_store_refresher(slow)
+    try:
+        results = await asyncio.gather(*[api.post("/api/store/refresh") for _ in range(4)])
+    finally:
+        store_egress.unregister_store_refresher(slow)
+    assert sorted(r.json()["ran"] for r in results) == [False, False, False, True]
+    assert len(calls) == 1
+
+
+async def test_refresh_does_nothing_while_the_store_is_off(api, net, tmp_path):
+    response = await api.post("/api/store/refresh")
+    assert response.json() == {"ran": False, "last_refresh_at": None}
+    assert net.requests == []
+
+
+def test_readme_total_cap(monkeypatch):
+    """All the cached languages together stay under README_TOTAL_MAX_BYTES."""
+    import io
+    import zipfile
+    from types import SimpleNamespace
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name in ("a", "b", "c"):
+            zf.writestr(f"{name}.md", name * 100)
+    manifest = SimpleNamespace(readme={"de": "a.md", "en": "b.md", "fr": "c.md"})
+    monkeypatch.setattr(custom_repos, "README_TOTAL_MAX_BYTES", 250)
+    kept = custom_repos._archive_readme(buf.getvalue(), manifest)
+    assert kept == {"de": "a" * 100, "en": "b" * 100}
+    monkeypatch.setattr(custom_repos, "README_TOTAL_MAX_BYTES", 10_000)
+    assert len(custom_repos._archive_readme(buf.getvalue(), manifest)) == 3

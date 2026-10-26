@@ -519,6 +519,31 @@ describe('Updates tab', () => {
     );
   });
 
+  it('consent_required but the Store no longer holds the target release: Update is disabled', async () => {
+    renderTab({
+      updates: [
+        update({
+          instances: [
+            { ...update().instances[0], hold: 'consent_required', permissions: ['http'] },
+          ],
+        }),
+      ],
+      repos: repositories({
+        repositories: [repo({ entry: { ...repo().entry!, version: '1.3.0' } })],
+      }),
+    });
+    const post = vi.spyOn(api, 'updatePlugin');
+    fireEvent.click(await screen.findByTestId('plugin-update-open'));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByTestId('update-consent-unavailable')).toHaveTextContent(
+      t('pluginStore.updates.consentUnavailable')
+    );
+    const button = within(dialog).getByRole('button', { name: t('pluginStore.updates.update') });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it('config_required: asks the new fields and sends them with the update', async () => {
     const schema = {
       type: 'object',

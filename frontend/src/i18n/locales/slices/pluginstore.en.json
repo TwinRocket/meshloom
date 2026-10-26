@@ -24,7 +24,7 @@
       "last": "Store online. Last refresh: {{time}}.",
       "never": "Store online. No refresh since this Meshloom started.",
       "done": "Releases checked.",
-      "skipped": "Checked less than 10 minutes ago (or nothing to check): showing the stored releases."
+      "skipped": "Checked less than 10 minutes ago: showing the stored releases."
     },
     "card": {
       "custom": "Custom repository",
@@ -88,7 +88,7 @@
       "fieldsRequired": "Now required: {{fields}}",
       "fieldsRemoved": "Removed settings: {{fields}}",
       "sharedNote": "Every instance of this plugin is updated together. The permissions and settings you give here apply to one of them; the others wait for their own review in the Installed tab.",
-      "reviewLater": "This release is no longer the one the Store holds, so its permissions cannot be shown here. It will be installed and wait for your review in the Installed tab.",
+      "reviewLater": "This release is no longer the one the Store holds, so its settings cannot be asked here. It will be installed and wait for your review in the Installed tab.",
       "consentTitle": "Accept the permissions of this release",
       "configIntro": "Fill in the settings this release needs.",
       "updated": "{{name}} updated to v{{version}}.",
@@ -99,7 +99,8 @@
       "openExtensionUpdates": "Plugin updates",
       "linkCount_one": "{{count}} plugin has an update.",
       "linkCount_other": "{{count}} plugins have an update.",
-      "linkNone": "No plugin update is waiting."
+      "linkNone": "No plugin update is waiting.",
+      "consentUnavailable": "The Store no longer holds the release this update targets, so its permissions cannot be shown and accepted here. Refresh the Store (Store tab), then review the update again."
     }
   }
 }

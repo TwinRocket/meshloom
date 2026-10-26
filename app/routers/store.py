@@ -20,8 +20,8 @@ request goes through ``app.plugins.store_egress`` (``store_fetch``).
   No egress.
 - ``POST /store/refresh``: the Refresh button. Runs the background refresh now (every
   repository's latest release is read again) unless one ran in the last
-  ``MIN_REFRESH_GAP_S`` (10 min), the Store is off or no custom instance is installed:
-  ``ran`` is then false and the cached releases stand.
+  ``MIN_REFRESH_GAP_S`` (10 min) or the Store is off (no installed instance needed, so a
+  newly added repository can be browsed): ``ran`` is then false and the cached releases stand.
 - ``GET /store/updates?lang=``: the installed plugins with a newer compatible release
   cached by their source (MSHL-197, ``app/plugins/updates.py``), with the changelog in
   ``lang`` when the source has one, the permission and config schema diffs and the
@@ -221,7 +221,7 @@ async def list_repositories() -> RepositoriesView:
 
 
 class RefreshResult(BaseModel):
-    ran: bool = Field(description="False: rate-limited, Store off or nothing installed from it.")
+    ran: bool = Field(description="False: rate-limited or the Store is off.")
     last_refresh_at: int | None
 
 
@@ -256,8 +256,8 @@ async def get_repository_readme(
 @router.post("/refresh", response_model=RefreshResult, dependencies=[Admin])
 async def refresh_store() -> RefreshResult:
     """Read the custom repositories' latest releases again now (rate-limited like the
-    background refresh: at most one run per ``MIN_REFRESH_GAP_S``)."""
-    ran = await store_egress.run_store_refresh()
+    background refresh: at most one run per ``MIN_REFRESH_GAP_S``, calls serialised)."""
+    ran = await store_egress.run_store_refresh(manual=True)
     return RefreshResult(ran=ran, last_refresh_at=(await store_status()).last_refresh_at)
 
 
