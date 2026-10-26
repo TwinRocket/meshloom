@@ -105,6 +105,8 @@ def _now() -> datetime:
 
 # The auto-update clock (host local time); tests replace it.
 clock: Callable[[], datetime] = _now
+# The retry clock of failed auto-updates (monotonic seconds); tests replace it.
+monotonic: Callable[[], float] = time.monotonic
 # (plugin_id, version) -> monotonic time of a failed auto-update: not retried before
 # REFRESH_INTERVAL_S, so the hourly evaluation downloads no more often than the refresh.
 _failed_auto: dict[tuple[str, str], float] = {}
@@ -609,7 +611,7 @@ async def auto_update() -> None:
             continue
         key = (entry["plugin_id"], entry["to_version"])
         failed_at = _failed_auto.get(key)
-        if failed_at is not None and time.monotonic() - failed_at < REFRESH_INTERVAL_S:
+        if failed_at is not None and monotonic() - failed_at < REFRESH_INTERVAL_S:
             continue
         try:
             done = await update_plugin(
@@ -619,11 +621,21 @@ async def auto_update() -> None:
             code = exc.detail.get("code") if isinstance(exc.detail, dict) else None
             if code == "store_offline":
                 raise StoreOffline() from None
-            _failed_auto[key] = time.monotonic()
+            _failed_auto[key] = monotonic()
             logger.warning("Plugin %s not auto-updated: %s", entry["plugin_id"], code)
             continue
+        except (StoreOffline, asyncio.CancelledError):
+            raise
+        except Exception as exc:
+            # Any other failure waits too. Logged by type only: a message could carry
+            # a config value or a secret.
+            _failed_auto[key] = monotonic()
+            logger.warning(
+                "Plugin %s not auto-updated: unexpected %s", entry["plugin_id"], type(exc).__name__
+            )
+            continue
         if done is None:  # held after the download (a release cached without its schema)
-            _failed_auto[key] = time.monotonic()
+            _failed_auto[key] = monotonic()
         else:
             _failed_auto.pop(key, None)
 

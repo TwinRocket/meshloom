@@ -1223,7 +1223,7 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
   `auto_update()`, and on the computed rows in `update_plugin(auto=True)`, which then
   returns None). A `config_dropped` entry waits for a manual update, which applies it and
   raises the notice. The hourly evaluation honours windows shorter than the 6 h refresh;
-  an entry that failed or came back held after its download is not tried again for
+  an entry that failed (any error but `store_offline`, logged by type only) or came back held after its download is not tried again for
   `REFRESH_INTERVAL_S`, so applying never downloads more often than the refresh did.
 - **Compat at start.** `mark_compat()` runs in `lifecycle.start()` before
   `load_from_db()`: a `custom`/`store` instance whose manifest's `compat.meshloom` no

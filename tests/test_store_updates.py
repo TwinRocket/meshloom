@@ -670,6 +670,85 @@ async def test_the_hourly_evaluation_updates_without_refreshing(api, net, tmp_pa
     assert (await _row(only))["version"] == "1.1.0"
 
 
+async def test_the_hourly_tick_evaluates_between_refreshes(api, net, tmp_path, monkeypatch):
+    """``_wait_evaluating`` over one refresh interval: the evaluators run each hour, the
+    refreshers never, ``last_refresh_at`` stays, and outside the window nothing leaves."""
+    import asyncio
+    from types import SimpleNamespace
+
+    only = await _auto_setup(api, net, tmp_path, monkeypatch)
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 10, 0))
+    refreshed: list[int] = []
+    evaluated: list[int] = []
+
+    async def refresher() -> None:
+        refreshed.append(1)
+
+    async def counting_auto_update() -> None:
+        evaluated.append(1)
+        await updates.auto_update()
+
+    store_egress.register_store_refresher(refresher)
+    store_egress.register_store_evaluator(counting_auto_update)
+    slept: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr(
+        store_egress,
+        "asyncio",
+        SimpleNamespace(sleep=fake_sleep, Lock=asyncio.Lock, CancelledError=asyncio.CancelledError),
+    )
+    store_egress._state.last_refresh_at = 1234
+    before = len(net.requests)
+    await store_egress._wait_evaluating(store_egress.REFRESH_INTERVAL_S)
+    hours = store_egress.REFRESH_INTERVAL_S // store_egress.EVALUATE_INTERVAL_S
+    assert slept == [store_egress.EVALUATE_INTERVAL_S] * hours
+    # One evaluation per hour in between; the last hour ends on the next refresh.
+    assert len(evaluated) == hours - 1
+    assert refreshed == []
+    assert store_egress._state.last_refresh_at == 1234
+    assert net.requests[before:] == []
+    assert (await _row(only))["version"] == "1.0.0"
+
+
+async def test_the_evaluation_runs_no_evaluator_without_the_consent(
+    api, net, tmp_path, monkeypatch
+):
+    await _auto_setup(api, net, tmp_path, monkeypatch)
+    evaluated: list[int] = []
+
+    async def evaluator() -> None:
+        evaluated.append(1)
+
+    store_egress.register_store_evaluator(evaluator)
+    await AppSettingsRepository.update(store_online=False)
+    assert await store_egress.run_store_evaluation() is False
+    assert evaluated == []
+    await AppSettingsRepository.update(store_online=True)
+    assert await store_egress.run_store_evaluation() is True
+    assert evaluated == [1]
+
+
+async def test_a_plain_value_now_declared_secret_is_never_reported(api, net, tmp_path):
+    """A stored plain field the new schema turns into a secret is not a dropped value."""
+    await _setup(api, net, tmp_path)
+    schema = {
+        "type": "object",
+        "properties": {
+            "greeting": {"type": "string", "writeOnly": True},
+            "token": {"type": "string", "writeOnly": True},
+        },
+        "required": [],
+    }
+    await _release(net, tmp_path, schema=schema)
+    [entry] = (await api.get("/api/store/updates")).json()
+    [instance] = entry["instances"]
+    assert instance["dropped_fields"] == []
+    assert instance["auto_hold"] is None
+
+
 async def test_the_evaluation_waits_for_the_store_consent(api, net, tmp_path, monkeypatch):
     only = await _auto_setup(api, net, tmp_path, monkeypatch)
     monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 3, 0))
@@ -694,11 +773,35 @@ async def test_a_failed_auto_update_is_not_retried_every_hour(api, net, tmp_path
 
     monkeypatch.setattr(updates, "update_plugin", failing)
     now = [1000.0]
-    monkeypatch.setattr(updates.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(updates, "monotonic", lambda: now[0])
     await updates.auto_update()
     now[0] += store_egress.EVALUATE_INTERVAL_S
     await updates.auto_update()
     assert len(calls) == 1
+    now[0] += store_egress.REFRESH_INTERVAL_S
+    await updates.auto_update()
+    assert len(calls) == 2
+
+
+async def test_an_unexpected_auto_update_error_waits_too(api, net, tmp_path, monkeypatch, caplog):
+    await _auto_setup(api, net, tmp_path, monkeypatch)
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 3, 0))
+    calls: list[str] = []
+
+    async def crashing(instance_id, **_kwargs):
+        calls.append(instance_id)
+        raise RuntimeError(f"boom {SECRET}")
+
+    monkeypatch.setattr(updates, "update_plugin", crashing)
+    now = [1000.0]
+    monkeypatch.setattr(updates, "monotonic", lambda: now[0])
+    with caplog.at_level("WARNING", logger=updates.logger.name):
+        await updates.auto_update()
+        now[0] += store_egress.EVALUATE_INTERVAL_S
+        await updates.auto_update()
+    assert len(calls) == 1
+    assert "RuntimeError" in caplog.text
+    assert SECRET not in caplog.text
     now[0] += store_egress.REFRESH_INTERVAL_S
     await updates.auto_update()
     assert len(calls) == 2
