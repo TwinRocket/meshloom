@@ -8,7 +8,8 @@ envelope v1", "Which conversations"):
 - a direct message: the 32-byte X25519 shared secret of the radio private key
   and the contact's public key (``decoder.derive_shared_secret``).
 
-The Public channel and name-derived ``#hashtag`` channels are public only (their
+The Public channel and channels whose key is derived from their name (``#`` or
+not, ``channel_key_is_name_derived``) are public only (their
 key can be computed by anyone, TwinRocket included): an encrypted upload there is
 422 ``share_mode_not_allowed``. A room server is refused too: each member shares
 a different secret with the room, so nobody else could decrypt the file. An
@@ -34,7 +35,7 @@ import re
 
 from app import keystore
 from app.channel_constants import PUBLIC_CHANNEL_KEY
-from app.data.meshcore_channels import is_public_hashtag_channel
+from app.data.meshcore_channels import channel_key_is_name_derived
 from app.decoder import derive_shared_secret
 from app.models import CONTACT_TYPE_ROOM, Channel, Message
 from app.repository import ChannelRepository, ContactRepository
@@ -66,7 +67,9 @@ async def _channel_by_conversation_id(value: str) -> Channel | None:
 
 
 def _channel_is_public(name: str, key_hex: str) -> bool:
-    return key_hex.upper() == PUBLIC_CHANNEL_KEY or is_public_hashtag_channel(name, key_hex)
+    # A key derivable from the channel name, '#' or not ('Team' created without a
+    # key, a hashtag renamed to 'foo'): encrypting under it protects nothing.
+    return key_hex.upper() == PUBLIC_CHANNEL_KEY or channel_key_is_name_derived(name, key_hex)
 
 
 def _dm_secret(contact_key_hex: str) -> bytes | None:
