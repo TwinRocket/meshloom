@@ -13,6 +13,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiosqlite
@@ -317,6 +318,41 @@ def _with_secret(raw: object, channel_id: str, name: str, value: str) -> str:
 
 def _utf_trim(value: str | None) -> str | None:
     return value[:LAST_ERROR_MAX] if value else value
+
+
+async def _delete_in_conn(conn: aiosqlite.Connection, channel_id: str) -> None:
+    """Delete a channel's row and every reference to it on an open transaction."""
+    await conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
+    await conn.execute("DELETE FROM notification_deliveries WHERE channel_id = ?", (channel_id,))
+    await conn.execute("DELETE FROM notification_counters WHERE channel_id = ?", (channel_id,))
+    await conn.execute(
+        "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
+    )
+    # the auto-pause step of a channel that kept failing (MSHL-130)
+    await conn.execute("DELETE FROM notification_state WHERE key = ?", (autopause_key(channel_id),))
+    # quiet-hours and pause counters (``quiet_hours.py``), also per account
+    async with conn.execute(
+        "SELECT key FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
+        (_like_prefix(STAT_PREFIX),),
+    ) as cursor:
+        stat_keys = [r[0] for r in await cursor.fetchall()]
+    for key in stat_keys:
+        if key.split(":", 3)[3:] == [channel_id]:
+            await conn.execute("DELETE FROM notification_state WHERE key = ?", (key,))
+    for prefix in ("quiet:", "pause:"):
+        for sep in (":", "@"):
+            await conn.execute(
+                "DELETE FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
+                (_like_prefix(f"{prefix}{channel_id}{sep}"),),
+            )
+    async with conn.execute("SELECT notification_rules FROM app_settings WHERE id = 1") as c:
+        row = await c.fetchone()
+    rules = _loads(row[0]) if row else {}
+    if rules and strip_channel_from_rules(rules, channel_id):
+        await conn.execute(
+            "UPDATE app_settings SET notification_rules = ? WHERE id = 1",
+            (json.dumps(rules, sort_keys=True),),
+        )
 
 
 class NotificationChannelRepository:
@@ -632,47 +668,29 @@ class NotificationChannelRepository:
         async with db.tx() as conn:
             if await _fetch(conn, channel_id) is None:
                 raise ChannelError("channel_missing", 404)
-            await conn.execute("DELETE FROM notification_channels WHERE id = ?", (channel_id,))
-            await conn.execute(
-                "DELETE FROM notification_deliveries WHERE channel_id = ?", (channel_id,)
-            )
-            await conn.execute(
-                "DELETE FROM notification_counters WHERE channel_id = ?", (channel_id,)
-            )
-            await conn.execute(
-                "DELETE FROM notification_state WHERE key = ?", (PENDING_SECRETS + channel_id,)
-            )
-            # the auto-pause step of a channel that kept failing (MSHL-130)
-            await conn.execute(
-                "DELETE FROM notification_state WHERE key = ?", (autopause_key(channel_id),)
-            )
-            # quiet-hours and pause counters (``quiet_hours.py``), also per account
-            async with conn.execute(
-                "SELECT key FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
-                (_like_prefix(STAT_PREFIX),),
-            ) as cursor:
-                stat_keys = [r[0] for r in await cursor.fetchall()]
-            for key in stat_keys:
-                if key.split(":", 3)[3:] == [channel_id]:
-                    await conn.execute("DELETE FROM notification_state WHERE key = ?", (key,))
-            for prefix in ("quiet:", "pause:"):
-                for sep in (":", "@"):
-                    await conn.execute(
-                        "DELETE FROM notification_state WHERE key LIKE ? ESCAPE '\\'",
-                        (_like_prefix(f"{prefix}{channel_id}{sep}"),),
-                    )
-            async with conn.execute(
-                "SELECT notification_rules FROM app_settings WHERE id = 1"
-            ) as c:
-                row = await c.fetchone()
-            rules = _loads(row[0]) if row else {}
-            if rules and strip_channel_from_rules(rules, channel_id):
-                await conn.execute(
-                    "UPDATE app_settings SET notification_rules = ? WHERE id = 1",
-                    (json.dumps(rules, sort_keys=True),),
-                )
+            await _delete_in_conn(conn, channel_id)
         invalidate_cache()
         _orphans_logged.discard(channel_id)
+
+    @staticmethod
+    async def delete_if(
+        channel_id: str, check: Callable[[aiosqlite.Connection], Awaitable[bool]]
+    ) -> bool | None:
+        """Delete a channel only if ``check`` (run on the same transaction, so no write can
+        land between the check and the delete) returns True. ``check`` must use only the
+        connection it gets (the DB lock is not reentrant). None: no such channel; False:
+        kept; True: deleted. Any error rolls the whole transaction back."""
+        if is_builtin(channel_id):
+            raise ChannelError("builtin_channel", 403)
+        async with db.tx() as conn:
+            if await _fetch(conn, channel_id) is None:
+                return None
+            if not await check(conn):
+                return False
+            await _delete_in_conn(conn, channel_id)
+        invalidate_cache()
+        _orphans_logged.discard(channel_id)
+        return True
 
     @staticmethod
     async def mirror_legacy(built: list[dict[str, Any]], legacy_ids: tuple[str, ...]) -> None:
