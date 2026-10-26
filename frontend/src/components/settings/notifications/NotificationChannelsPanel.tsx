@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus } from 'lucide-react';
 
+import { useNotificationsCapped } from '../../../contexts/NotificationStatusContext';
+
 import { api, formatApiError } from '../../../api';
 import type { NotificationChannel } from '../../../notifications/types';
 import type { AppSettings, AppSettingsUpdate } from '../../../types';
@@ -11,9 +13,11 @@ import { SettingsGroupHeader } from '../settingsPrimitives';
 import { AddChannelDialog } from './AddChannelDialog';
 import { ChannelEditDialog } from './ChannelEditDialog';
 import { ChannelList } from './ChannelList';
+import { DeliveryLogSheet } from './DeliveryLogSheet';
 import { entryOfChannel } from './notificationsShared';
 import { LegacyDestinationForm } from './LegacyDestinationForm';
 import { PushDevicesBlock } from './PushDevicesBlock';
+import { useDeliveryStats } from './useDeliveryStats';
 import type { NotificationChannelsState } from './useNotificationChannels';
 
 /** Settings > Notifications, channels: cards, the add dialog and the edit dialog. */
@@ -31,6 +35,9 @@ export function NotificationChannelsPanel({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<NotificationChannel | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [logging, setLogging] = useState<NotificationChannel | null>(null);
+  const capped = useNotificationsCapped();
+  const stats = useDeliveryStats(channels, channels);
 
   const run = async (
     channel: NotificationChannel,
@@ -63,6 +70,15 @@ export function NotificationChannelsPanel({
       <p className="text-[0.8125rem] text-muted-foreground">
         {t('settings.notifications.channels.help')}
       </p>
+      {capped && (
+        <p
+          role="status"
+          className="rounded-md border border-warning/40 bg-warning/10 p-2 text-[0.8125rem]"
+          data-testid="notifications-capped-banner"
+        >
+          {t('settings.notifications.cappedBanner')}
+        </p>
+      )}
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {formatApiError(error, t)}
@@ -89,6 +105,8 @@ export function NotificationChannelsPanel({
           pushBlock={
             <PushDevicesBlock appSettings={appSettings} onSaveAppSettings={onSaveAppSettings} />
           }
+          stats={stats}
+          onLog={setLogging}
           onToggle={(channel, enabled) =>
             void run(
               channel,
@@ -132,6 +150,7 @@ export function NotificationChannelsPanel({
         {t('settings.notifications.channels.add')}
       </Button>
 
+      {logging && <DeliveryLogSheet channel={logging} onClose={() => setLogging(null)} />}
       {adding && (
         <AddChannelDialog
           types={types}

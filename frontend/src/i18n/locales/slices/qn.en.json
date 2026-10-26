@@ -1,0 +1,42 @@
+{
+  "settings": {
+    "notifications": {
+      "cappedBanner": "Notifications are capped: the hourly limit for the whole instance was reached, so new ones are dropped until the count falls again. Check the delivery log of your channels.",
+      "advanced": {
+        "title": "Advanced",
+        "help": "Limits per channel. Over a limit, notifications are grouped into one summary; the daily limit stops sending until midnight (UTC). Leave a field empty to keep the default.",
+        "perMin": "Per minute",
+        "perHour": "Per hour",
+        "perDay": "Per day",
+        "default": "Default: {{count}}",
+        "noDefault": "No default limit"
+      },
+      "log": {
+        "open": "Delivery log",
+        "title": "Delivery log: {{name}}",
+        "help": "The last 50 events of this channel. Message texts are never kept.",
+        "refresh": "Refresh",
+        "empty": "Nothing recorded yet.",
+        "sent24h_one": "{{count}} sent in the last 24 h",
+        "sent24h_other": "{{count}} sent in the last 24 h",
+        "suppressed_one": "{{count}} held during quiet hours",
+        "suppressed_other": "{{count}} held during quiet hours",
+        "grouped_one": "{{count}} grouped",
+        "grouped_other": "{{count}} grouped",
+        "status": {
+          "failed": "Failed",
+          "rate_limited": "Rate limited",
+          "quota_exceeded": "Daily limit",
+          "aggregated": "Grouped",
+          "suppressed_quiet": "Quiet hours",
+          "paused": "Paused",
+          "aborted": "Aborted"
+        }
+      },
+      "matrix": {
+        "alwaysDeliverTip": "Always deliver: sent even during quiet hours. Open the quiet hours settings.",
+        "quietLink": "Quiet hours"
+      }
+    }
+  }
+}

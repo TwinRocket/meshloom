@@ -909,6 +909,17 @@ The server answers `409 legacy_managed` for the `legacy:*` channels' config/dele
 dialog or Delete; `AddChannelDialog` disables a type a `legacy:<type>` channel owns. Secrets are
 write-only (`secret_fields`, `********`): never prefilled. Tests: `src/test/notificationsChannels.test.tsx`.
 
+Limits, journal and cap (MSHL-126, slice `qn`): `ChannelForm` has an **Advanced** `<details>` with
+`rate_per_min/hour/day` (empty = null = type default, shown from `default_limits`) and
+`quiet_hours_exempt`; `advancedBody(draft)` adds them to the create and edit bodies. Each card has
+a **Delivery log** button opening `DeliveryLogSheet` (`GET /notifications/deliveries?channel=&limit=50`:
+rows, status badges, error codes, "sent in 24 h" = sum of the hourly counters). The cards' "held during quiet hours" and
+"grouped" lines come from `useDeliveryStats` (one `limit=200` read per channel, `deliveryStats`
+counts `suppressed_quiet` / `aggregated` rows of the last 24 h; a failed read hides the line).
+`health.notifications_capped` reaches the panel through `NotificationStatusProvider`'s `capped`
+prop (`useNotificationsCapped`) and shows a banner; the `notifications_failing` banner waits for
+the backend field (MSHL-130). Tests: `notificationsQuietHours.test.tsx`, `notificationsDeliveries.test.tsx`.
+
 The rules half (`NotificationRulesPanel`, same state hook, `setRules` takes each `PATCH /rules` /
 `PUT /rules/conversations/{key}` answer) renders, in order: `GlobalPauseControl` (1 h / 8 h /
 tomorrow 08:00 local / resume, writes `paused_until`; reused by the bell), `RulesMatrix` (events

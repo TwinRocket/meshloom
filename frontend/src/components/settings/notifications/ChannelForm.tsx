@@ -22,6 +22,24 @@ import {
 const SELECT_CLASS =
   'h-9 w-full px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2';
 
+const LIMIT_FIELDS = [
+  {
+    field: 'rate_per_min',
+    defaultKey: 'per_min',
+    labelKey: 'settings.notifications.advanced.perMin',
+  },
+  {
+    field: 'rate_per_hour',
+    defaultKey: 'per_hour',
+    labelKey: 'settings.notifications.advanced.perHour',
+  },
+  {
+    field: 'rate_per_day',
+    defaultKey: 'per_day',
+    labelKey: 'settings.notifications.advanced.perDay',
+  },
+] as const;
+
 /** The channel-level settings the JSON Schema does not carry, from the stored channel or the type defaults. */
 export function initialDraft(
   entry: NotificationTypeInfo,
@@ -34,6 +52,10 @@ export function initialDraft(
       channel?.include_message_text ?? entry.include_message_text_default ?? 'always',
     allow_private_network: channel?.allow_private_network ?? false,
     verify_tls: channel?.verify_tls ?? true,
+    rate_per_min: channel?.rate_per_min?.toString() ?? '',
+    rate_per_hour: channel?.rate_per_hour?.toString() ?? '',
+    rate_per_day: channel?.rate_per_day?.toString() ?? '',
+    quiet_hours_exempt: channel?.quiet_hours_exempt ?? entry.quiet_hours_exempt_default ?? false,
   };
 }
 
@@ -204,6 +226,60 @@ export function ChannelForm({
           </div>
         )}
       </div>
+
+      <details className="rounded-md border border-border/60 p-3" data-testid="channel-advanced">
+        <summary className="cursor-pointer text-sm font-medium">
+          {t('settings.notifications.advanced.title')}
+        </summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-[0.8125rem] text-muted-foreground">
+            {t('settings.notifications.advanced.help')}
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {LIMIT_FIELDS.map(({ field, defaultKey, labelKey }) => {
+              const fallback = entry.default_limits[defaultKey];
+              return (
+                <div key={field} className="space-y-1.5">
+                  <Label htmlFor={`${prefix}-${field}`}>{t(labelKey)}</Label>
+                  <Input
+                    id={`${prefix}-${field}`}
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
+                    value={draft[field]}
+                    disabled={disabled}
+                    placeholder={fallback === null ? '' : String(fallback)}
+                    onChange={(event) => patch({ [field]: event.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {fallback === null
+                      ? t('settings.notifications.advanced.noDefault')
+                      : t('settings.notifications.advanced.default', { count: fallback })}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id={`${prefix}-quiet-exempt`}
+              checked={draft.quiet_hours_exempt}
+              disabled={disabled}
+              onCheckedChange={(checked) => patch({ quiet_hours_exempt: checked === true })}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor={`${prefix}-quiet-exempt`}>
+                {t('settings.notifications.channels.quietExempt')}
+              </Label>
+              <p className="text-[0.8125rem] text-muted-foreground">
+                {t('settings.notifications.channels.quietExemptHelp')}
+              </p>
+            </div>
+          </div>
+        </div>
+      </details>
 
       <div className="border-t border-border/60 pt-3">
         {entry.help_key && (
