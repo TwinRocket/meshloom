@@ -22,7 +22,8 @@ the instance before every local check passed.
   forever. Past it: 408 ``share_upload_timeout``, file removed.
 - **Disk errors.** A local ``OSError`` while staging or checking (``ENOSPC``,
   ``share-tmp`` replaced by a link or a file) is 500 ``share_storage_failed``
-  (coded, logged with its errno only), file removed.
+  (coded, logged with its errno name or fixed reason, never a path), file removed.
+  The same goes for an error while the file is streamed to the service.
 - **Checks** (``check_staged``), on the file, before any egress: the magic bytes
   must name the declared type (``share.sniff_image_type``, else 415
   ``share_type_refused``) and ``imagesize`` must read the dimensions from the
@@ -48,6 +49,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import hashlib
 import logging
 import os
@@ -206,11 +208,25 @@ def _remove(path: Path) -> None:
         pass
     except OSError as exc:
         # Never mask the answer; the startup cleanup gets it later.
-        logger.warning("Could not remove a staged share upload: errno %s", exc.errno)
+        logger.warning("Could not remove a staged share upload: %s", _os_reason(exc))
+
+
+def _os_reason(exc: OSError) -> str:
+    """A loggable reason for an ``OSError``: its errno name, else our own message.
+
+    Never the path (``str(exc)`` would carry it). Errors raised by this module
+    itself (``share-tmp is not a directory``) have no errno: their first
+    argument is a fixed text; anything else is reduced to its class name.
+    """
+    if exc.errno is not None:
+        return f"errno {errno.errorcode.get(exc.errno, exc.errno)}"
+    if exc.args and isinstance(exc.args[0], str) and exc.filename is None:
+        return exc.args[0]
+    return type(exc).__name__
 
 
 def _storage_failed(exc: OSError) -> ShareError:
-    logger.warning("Share upload staging failed: errno %s", exc.errno)
+    logger.warning("Share upload staging failed: %s", _os_reason(exc))
     return ShareError("share_storage_failed")
 
 
@@ -279,12 +295,18 @@ def check_staged(staged: StagedFile) -> None:
 
 def _file_chunks(path: Path) -> AsyncIterator[bytes]:
     async def chunks() -> AsyncIterator[bytes]:
-        f = await asyncio.to_thread(open, path, "rb")
+        # A disk error while streaming (the file removed mid-send) is a coded
+        # local failure, not an outage of the service: ``share_request`` passes
+        # a ``ShareError`` through without judging the breaker.
         try:
-            while chunk := await asyncio.to_thread(f.read, READ_CHUNK):
-                yield chunk
-        finally:
-            await asyncio.to_thread(f.close)
+            f = await asyncio.to_thread(open, path, "rb")
+            try:
+                while chunk := await asyncio.to_thread(f.read, READ_CHUNK):
+                    yield chunk
+            finally:
+                await asyncio.to_thread(f.close)
+        except OSError as exc:
+            raise _storage_failed(exc) from None
 
     return chunks()
 
