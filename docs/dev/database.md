@@ -408,7 +408,9 @@ Custom GitHub repositories of the Store (migration 126, MSHL-196): PK `repositor
 check, NULL when it succeeded), and the last good release: `tag`, `plugin_id`,
 `version`, `manifest` (JSON), `archive_sha256`, `archive_size`, and `config_schema`
 (the archive's `config.schema.json` as JSON or NULL, migration 127, MSHL-197: the
-update list diffs it without a download; NULL for a release cached before 127). A
+update list diffs it without a download; NULL for a release cached before 127), and
+`readme` (the archive's README files as JSON `{lang: text}` or NULL, migration 128, MSHL-198: the
+Store page shows it before the install; NULL for a release cached before 128). A
 failed check keeps the last good release. Written only by `app/plugins/custom_repos.py` (add, refresh, remove);
 removing a row never touches installed instances. Excluded from the JSON backup, kept in
 the database download (no secret).

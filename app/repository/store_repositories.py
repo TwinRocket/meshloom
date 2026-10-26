@@ -1,5 +1,5 @@
-"""Repository for the custom Store repositories (``store_repositories``, migrations 126
-and 127, MSHL-196/MSHL-197). Rules and the GitHub lookup: ``app/plugins/custom_repos.py``.
+"""Repository for the custom Store repositories (``store_repositories``, migrations 126,
+127 and 128, MSHL-196/MSHL-197/MSHL-198). Rules and the GitHub lookup: ``app/plugins/custom_repos.py``.
 
 One row per GitHub repository (PK: lowercase ``owner/name``) with the last good release
 read from it. A failed check sets ``last_error`` and keeps that release. Removing a row
@@ -28,6 +28,7 @@ def _view(row: Any) -> dict[str, Any]:
         "archive_sha256": row["archive_sha256"],
         "archive_size": row["archive_size"],
         "config_schema": json.loads(row["config_schema"]) if row["config_schema"] else None,
+        "readme": json.loads(row["readme"]) if row["readme"] else None,
     }
 
 
@@ -71,8 +72,9 @@ class StoreRepositoriesRepository:
         archive_sha256: str,
         archive_size: int | None,
         config_schema: dict[str, Any] | None = None,
+        readme: dict[str, str] | None = None,
     ) -> None:
-        """Record a good read. ``archive_size`` and ``config_schema`` are only known when
+        """Record a good read. ``archive_size``, ``config_schema`` and ``readme`` are only known when
         the archive was downloaded; None keeps the old values when the sha256 is
         unchanged."""
         async with db.tx() as conn:
@@ -84,6 +86,7 @@ class StoreRepositoriesRepository:
                     config_schema = COALESCE(
                         ?, CASE WHEN archive_sha256 = ? THEN config_schema END
                     ),
+                    readme = COALESCE(?, CASE WHEN archive_sha256 = ? THEN readme END),
                     archive_sha256 = ?
                 WHERE repository = ?
                 """,
@@ -99,6 +102,8 @@ class StoreRepositoriesRepository:
                     json.dumps(config_schema, sort_keys=True)
                     if config_schema is not None
                     else None,
+                    archive_sha256,
+                    json.dumps(readme, sort_keys=True) if readme is not None else None,
                     archive_sha256,
                     archive_sha256,
                     key,

@@ -1081,7 +1081,8 @@ an unsigned source.
   the list). It reads the manifest and the sha256 again, and the installer downloads and
   checks the archive (`RemoteArchiveSource`, tier `custom`).
 - **Catalogue.** `catalogue_entry(row)`: `tier: "custom"`, `signed: false`, the manifest's
-  name, summary, permissions, privacy and compat, the archive's sha256 and size, and the
+  name, summary, permissions, privacy and compat (plus `compatible`: `installer.compatible`
+  on the manifest), the archive's sha256 and size, its `config_schema` (the install form), and the
   warning (`warning: "custom_unsigned"`, `warning_text` in en and fr: unsigned, sha256
   is an integrity check over the same channel, no online revocation). The UI shows its
   own i18n copy (`settings.extensions.store.warning`).
@@ -1094,6 +1095,8 @@ Routes (`app/routers/store.py`, all admin; errors `{code, message, params}`):
 |---|---|
 | `GET /store/repositories` | `{store_online, max_repositories, warning, warning_text, repositories: [{repository, display_name, added_at, checked_at, last_error, entry, instances: [{instance_id, label, version}], update_available}]}`. Reads the table only: no request to GitHub. |
 | `POST /store/repositories` | `{repository}`: the lookup and the checks above, then 201 with the row. 403 `plugins_disabled` (host lock or platform, before any request), 409 `store_offline`, 409 `repository_exists`, plus the codes above. Audited `store.repository_added` (target `repository:<key>`, `details.plugin_id` or `details.code`). |
+| `GET /store/repositories/{owner}/{name}/readme?lang=` | `{lang, text, languages}`: the README of the cached release in `lang` (then its short code, `en`, the first language), read from the checked archive at add/refresh time (`store_repositories.readme`, migration 128, each file capped by `validate_package` and 600 KiB in all). Untrusted text: the UI renders it as plain text. Empty for a release cached before 128. No request. 404 `repository_not_found`. |
+| `POST /store/refresh` | `{ran, last_refresh_at}`: `run_store_refresh()` now (the Refresh button). Rate-limited by the refresh gap (`MIN_REFRESH_GAP_S`); `ran` is false when it was skipped (gap, Store off, no custom/store instance). |
 | `DELETE /store/repositories/{owner}/{name}` | 204; 403 `plugins_disabled`, 400 `repository_invalid`, 404 `repository_not_found`. Installed instances stay. Audited `store.repository_removed`. |
 
 ### Updates

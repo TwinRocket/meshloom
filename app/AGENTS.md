@@ -572,7 +572,7 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   followed, assets capped; the `custom` installer resolver and the refresher are wired by
   `custom_repos.register()` in `app/main.py`. Routes `GET/POST/DELETE
   /api/store/repositories` (admin); table `store_repositories` (migration 126; 127 adds
-  `config_schema`). Updates: `plugins/updates.py`, `GET /api/store/updates`.
+  `config_schema`, 128 `readme`; `GET .../{owner}/{name}/readme`, `POST /api/store/refresh`). Updates: `plugins/updates.py`, `GET /api/store/updates`.
 - **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the
   consent, `hosts` (read from `STORE_ALLOWLIST`, so it cannot drift from what the client
   reaches), what is sent (IP address, User-Agent), the cadence, what is missed while off

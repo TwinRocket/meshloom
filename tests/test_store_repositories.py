@@ -209,6 +209,8 @@ async def test_add_list_and_remove(api, net, online, tmp_path):
     assert (entry["plugin_id"], entry["version"], entry["tag"]) == ("acme.echo", "1.0.0", "v1.0.0")
     assert entry["archive_sha256"] == hashlib.sha256(data).hexdigest()
     assert entry["archive_size"] == len(data)
+    assert isinstance(entry["compatible"], bool)
+    assert entry["config_schema"] == {}
     assert entry["permissions"] == entry_of(data)["permissions"]
     # github.com for each lookup, then the asset host: nothing else.
     assert set(hosts(net)) == {"github.com", "objects.githubusercontent.com"}
@@ -514,3 +516,73 @@ async def test_install_pinned_to_a_stale_version_is_refused(
     assert (
         await api.post("/api/plugins/install", json=body | {"version": "1.0.0"})
     ).status_code == 201
+
+
+async def test_readme_and_config_schema_are_served_from_the_cache(api, net, online, tmp_path):
+    """MSHL-198: the Store page reads the README and the install form from the cached
+    release; no request is made. The README is untrusted text, returned as is."""
+    hostile = "# Echo\n<script>alert(1)</script>\n[x](javascript:alert(1))\n"
+    schema = {"type": "object", "properties": {"token": {"type": "string"}}, "required": ["token"]}
+    data = build_archive(tmp_path, schema=schema)
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as src, zipfile.ZipFile(buf, "w") as out:
+        for info in src.infolist():
+            body = hostile.encode() if info.filename == "README.md" else src.read(info)
+            out.writestr(info, body)
+    data = buf.getvalue()
+    publish(net, data)
+    added = await api.post("/api/store/repositories", json={"repository": REPO})
+    assert added.status_code == 201, added.text
+    assert added.json()["entry"]["config_schema"] == schema
+    before = len(net.requests)
+
+    got = await api.get("/api/store/repositories/acme/echo/readme", params={"lang": "fr"})
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["text"] == hostile
+    assert body["lang"] in body["languages"]
+    assert len(net.requests) == before
+
+    missing = await api.get("/api/store/repositories/acme/nope/readme")
+    assert (missing.status_code, detail(missing)["code"]) == (404, "repository_not_found")
+    bad = await api.get("/api/store/repositories/acme/echo/readme", params={"lang": "x"})
+    assert bad.status_code == 422
+
+
+async def test_refresh_route_runs_once_per_gap(
+    api,
+    manager,
+    net,
+    online,
+    tmp_path,
+    monkeypatch,  # noqa: F811
+):
+    """MSHL-198: the Refresh button reads the releases again, at most once per gap."""
+    from app.routers import plugins as plugins_router
+
+    monkeypatch.setattr(plugins_router, "plugin_manager", manager)
+    set_version(monkeypatch, "5.0.0")
+    now = [1_000_000.0]
+    monkeypatch.setattr(store_egress._state, "clock", lambda: now[0])
+    publish(net, build_archive(tmp_path))
+    assert (await api.post("/api/store/repositories", json={"repository": REPO})).status_code == 201
+    # Nothing is installed from the Store yet: the refresh does not run.
+    idle = await api.post("/api/store/refresh")
+    assert idle.json() == {"ran": False, "last_refresh_at": None}
+
+    body = {
+        "kind": "custom",
+        "plugin_id": "acme.echo",
+        "repository": REPO,
+        "granted_permissions": GRANT,
+    }
+    assert (await api.post("/api/plugins/install", json=body)).status_code == 201
+    first = await api.post("/api/store/refresh")
+    assert first.json() == {"ran": True, "last_refresh_at": 1_000_000}
+    again = await api.post("/api/store/refresh")
+    assert again.json() == {"ran": False, "last_refresh_at": 1_000_000}
+    now[0] += store_egress.MIN_REFRESH_GAP_S
+    assert (await api.post("/api/store/refresh")).json()["ran"] is True

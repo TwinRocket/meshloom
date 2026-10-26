@@ -15,6 +15,13 @@ request goes through ``app.plugins.store_egress`` (``store_fetch``).
   like the add). No egress; installed
   instances keep running, without updates.
 
+- ``GET /store/repositories/{owner}/{name}/readme?lang=``: the README of the cached
+  release in ``lang`` (``en`` fallback, then any), as plain text to show as plain text.
+  No egress.
+- ``POST /store/refresh``: the Refresh button. Runs the background refresh now (every
+  repository's latest release is read again) unless one ran in the last
+  ``MIN_REFRESH_GAP_S`` (10 min), the Store is off or no custom instance is installed:
+  ``ran`` is then false and the cached releases stand.
 - ``GET /store/updates?lang=``: the installed plugins with a newer compatible release
   cached by their source (MSHL-197, ``app/plugins/updates.py``), with the changelog in
   ``lang`` when the source has one, the permission and config schema diffs and the
@@ -90,8 +97,14 @@ class CustomCatalogueEntry(BaseModel):
     permissions: dict[str, Any]
     privacy: dict[str, Any] | None = None
     compat: dict[str, Any] | None = None
+    compatible: bool = Field(description="``compat.meshloom`` admits this Meshloom.")
     archive_sha256: str | None
     archive_size: int | None
+    config_schema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The release's ``config.schema.json`` ({} without one): the form the "
+        "install asks for before the first start.",
+    )
     warning: str = Field(description="``custom_unsigned``: the UI shows its own copy of it.")
     warning_text: dict[str, str]
 
@@ -205,6 +218,47 @@ async def list_repositories() -> RepositoriesView:
         warning_text=dict(custom_repos.CUSTOM_WARNING),
         repositories=await _views(),
     )
+
+
+class RefreshResult(BaseModel):
+    ran: bool = Field(description="False: rate-limited, Store off or nothing installed from it.")
+    last_refresh_at: int | None
+
+
+class ReadmeView(BaseModel):
+    lang: str | None = Field(description="Language of ``text`` (None: the release has none).")
+    text: str = Field(description="Untrusted text. Render it as plain text, never as markup.")
+    languages: list[str]
+
+
+@router.get("/repositories/{owner}/{name}/readme", response_model=ReadmeView, dependencies=[Admin])
+async def get_repository_readme(
+    owner: str,
+    name: str,
+    lang: str = Query(default="en", min_length=2, max_length=10, pattern=r"^[a-zA-Z_-]+$"),
+) -> ReadmeView:
+    """The cached release's README in ``lang``, ``en`` or the first language otherwise.
+    Makes no request; empty for a release cached before migration 128."""
+    try:
+        repo = custom_repos.parse_repository(f"{owner}/{name}")
+    except InstallError as exc:
+        raise _error(exc) from None
+    row = await custom_repos.get_row(repo.key)
+    if row is None:
+        raise _error(InstallError("repository_not_found", 404))
+    readme: dict[str, str] = row.get("readme") or {}
+    languages = sorted(readme)
+    short = lang.replace("_", "-").split("-")[0].lower()
+    pick = next((k for k in (lang, short, "en") if k in readme), languages[0] if readme else None)
+    return ReadmeView(lang=pick, text=readme[pick] if pick else "", languages=languages)
+
+
+@router.post("/refresh", response_model=RefreshResult, dependencies=[Admin])
+async def refresh_store() -> RefreshResult:
+    """Read the custom repositories' latest releases again now (rate-limited like the
+    background refresh: at most one run per ``MIN_REFRESH_GAP_S``)."""
+    ran = await store_egress.run_store_refresh()
+    return RefreshResult(ran=ran, last_refresh_at=(await store_status()).last_refresh_at)
 
 
 @router.get("/updates", response_model=list[PluginUpdate], dependencies=[Admin])
