@@ -447,10 +447,20 @@ class TestLocalRefusals:
         assert response.json()["detail"]["code"] == "share_too_large"
         _no_egress(on)
 
-    async def test_encrypted_mode_is_not_available_yet(self, on, client):
-        response = await _post(client, **{"X-Share-Mode": "encrypted"})
-        assert response.status_code == 422
-        assert response.json()["detail"]["code"] == "share_mode_unavailable"
+    @pytest.mark.parametrize(
+        "conversation",
+        [
+            {},
+            {"X-Share-Conversation-Type": "channel"},
+            {"X-Share-Conversation-Key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72"},
+            {"X-Share-Conversation-Type": "room", "X-Share-Conversation-Key": "00" * 32},
+        ],
+    )
+    async def test_encrypted_mode_needs_a_conversation(self, on, client, conversation):
+        """Encrypted mode is sealed for one conversation: it must be named (tests/test_share_encrypted.py)."""
+        response = await _post(client, **{"X-Share-Mode": "encrypted", **conversation})
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "share_invalid_request"
         _no_egress(on)
 
     @pytest.mark.parametrize("mode", [None, "", "secret", "PUBLIC "])
@@ -483,7 +493,21 @@ class TestLocalRefusals:
         assert error.value.code == "share_invalid_request"
 
     @pytest.mark.parametrize(
-        "name", ["../../etc/passwd", "a/b.png", "a\\b.png", "..", ".", "x\n.png", "x" * 256]
+        "name",
+        [
+            "../../etc/passwd",
+            "a/b.png",
+            "a\\b.png",
+            "..",
+            ".",
+            "x\n.png",
+            "x" * 256,
+            # Percent-encoded UTF-8 is decoded first, then checked.
+            "a%2Fb.png",
+            "%2E%2E",
+            "x%0A.png",
+            "%FF.png",
+        ],
     )
     async def test_a_name_with_a_path_is_refused(self, on, client, data_dir, name):
         response = await _post(client, **{"X-Share-Name": name})

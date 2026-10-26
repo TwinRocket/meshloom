@@ -2,11 +2,13 @@
 
 A recorder replaces ``httpx.AsyncClient`` for the whole test (the egress guard's
 pinned clients are ``httpx.AsyncClient`` too). With ``share_enabled`` false, every
-network function of ``app.services.share`` and ``app.services.share_upload``
+network function of ``app.services.share``, ``share_secrets`` and ``share_upload``
 (found from the modules, so a new one must be added to ``SERVICE_CALLS``) and every ``/api/share/*`` route (found from
 ``app.routes``) answers without any request.
 With it on, requests go only to ``SHARE_HOST``, and none of them carries the
-instance seed, a channel key or the radio private key (the DM secret).
+instance seed, a channel key, the radio private key or a DM shared secret, in
+any form (hex either case, or the raw bytes): an encrypted upload sends only
+the sealed envelope.
 """
 
 from __future__ import annotations
@@ -23,8 +25,9 @@ import pytest
 from fastapi.routing import APIRoute
 
 from app import keystore
+from app.decoder import derive_public_key, derive_shared_secret
 from app.repository import AppSettingsRepository, ChannelRepository
-from app.services import share, share_upload
+from app.services import share, share_secrets, share_upload
 from app.services.instance_identity import ensure_instance_key
 from app.services.share import ShareError
 from tests.share_fakes import Dns, Recorder, json_response
@@ -33,6 +36,8 @@ _RealAsyncClient = httpx.AsyncClient
 
 CHANNEL_KEY = "8B3387E9C5CDEA6AC9E5EDBAA115CD72"
 RADIO_PRIVATE_KEY = bytes(range(64))
+CONTACT_PUBLIC_KEY = derive_public_key(bytes(range(64, 128)))
+DM_SECRET = derive_shared_secret(RADIO_PRIVATE_KEY, CONTACT_PUBLIC_KEY)
 
 # A valid 1x1 PNG (the links-files vectors' ``png_1x1``): read_object checks it.
 PNG_1X1 = bytes.fromhex(
@@ -63,9 +68,11 @@ SERVICE_CALLS = {
     "report_object": lambda: share.report_object("AbCdEfG", "spam", "details"),
     "share_request": lambda: share.share_request("GET", "/v1/meta/AbCdEfG", binding=None),
     "upload_file": lambda: share_upload.upload_file(_staged_png()),
+    "upload_encrypted": lambda: share_upload.upload_encrypted(_staged_png(), DM_SECRET, "a.png"),
 }
-# Coroutine functions of the modules that never connect.
-_LOCAL = {"share_egress_state", "clear_object_cache"}
+# Coroutine functions of the modules that never connect (``_seal`` encrypts
+# locally, ``upload_secret`` reads the database and the keystore).
+_LOCAL = {"share_egress_state", "clear_object_cache", "_seal", "upload_secret"}
 
 
 def _answer(request: httpx.Request) -> httpx.Response:
@@ -79,13 +86,15 @@ def _answer(request: httpx.Request) -> httpx.Response:
     if path == "/v1/reports":
         return httpx.Response(202)
     if path == "/v1/files":
+        # An encrypted upload proposes its id, which the answer must echo.
+        share_id = request.headers.get("x-share-id", "AbCdEfG")
         return json_response(
             201,
             {
-                "id": "AbCdEfG",
-                "url": "https://meshl.ink/AbCdEfG",
+                "id": share_id,
+                "url": f"https://meshl.ink/{share_id}",
                 "expires_at": 1,
-                "size": len(PNG_1X1),
+                "size": int(request.headers["content-length"]),
             },
         )
     return httpx.Response(200, content=PNG_1X1, headers={"Content-Type": "image/png"})
@@ -105,7 +114,7 @@ def _share_routes() -> list[tuple[str, str]]:
 def test_every_network_function_is_swept():
     coroutines = {
         name
-        for module in (share, share_upload)
+        for module in (share, share_secrets, share_upload)
         for name, fn in inspect.getmembers(module, inspect.iscoroutinefunction)
         if fn.__module__ == module.__name__
     }
@@ -162,7 +171,9 @@ class TestShareOn:
             recorder = Recorder(monkeypatch, _answer)
             for call in SERVICE_CALLS.values():
                 await call()
-            assert recorder.hosts() == [share.SHARE_HOST] * len(SERVICE_CALLS)
+            channel_secret = bytes.fromhex(CHANNEL_KEY)
+            await share_upload.upload_encrypted(_staged_png(), channel_secret, "b.png")
+            assert recorder.hosts() == [share.SHARE_HOST] * (len(SERVICE_CALLS) + 1)
             assert set(dns.lookups) == {share.SHARE_HOST}
             assert all(r.url.scheme == "https" for r in recorder.requests)
             secrets = {
@@ -172,10 +183,21 @@ class TestShareOn:
                 CHANNEL_KEY.upper(),
                 RADIO_PRIVATE_KEY.hex(),
                 RADIO_PRIVATE_KEY.hex().upper(),
+                DM_SECRET.hex(),
+                DM_SECRET.hex().upper(),
             }
             for text in recorder.dumps():
                 for secret in secrets:
                     assert secret not in text
+            raw = (channel_secret, DM_SECRET, RADIO_PRIVATE_KEY[:32])
+            for request in recorder.requests:
+                wire = bytes(request.url.raw_path) + b"".join(
+                    key + value for key, value in request.headers.raw
+                )
+                body = request.content
+                for secret in raw:
+                    assert secret not in wire
+                    assert secret not in body
         finally:
             keystore.clear_keys()
 
@@ -203,7 +225,9 @@ class SlowServer:
 
 
 class TestTurningOffCutsInFlight:
-    @pytest.mark.parametrize("name", ["create_link", "get_meta", "fetch_object", "upload_file"])
+    @pytest.mark.parametrize(
+        "name", ["create_link", "get_meta", "fetch_object", "upload_file", "upload_encrypted"]
+    )
     async def test_request_in_flight_is_cut(self, test_db, monkeypatch, name):
         await AppSettingsRepository.update(share_enabled=True, share_terms_accepted=True)
         Dns(monkeypatch)

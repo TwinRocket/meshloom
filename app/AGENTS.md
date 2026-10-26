@@ -300,11 +300,12 @@ Community guard.
     received status is authoritative: httpcore reads an answer sent before the
     upload body was read, so an early kill switch is not a write failure).
 - **Functions.** `create_link`, `get_meta`, `fetch_object`, `read_object`,
-  `report_object` (and `share_request` underneath), plus `share_upload.upload_file`;
-  `clear_object_cache` and `share_egress_state` are local (`_LOCAL` in the sweep).
+  `report_object` (and `share_request` underneath), plus `share_upload.upload_file` and
+  `share_upload.upload_encrypted`; `clear_object_cache`, `share_egress_state`,
+  `share_upload._seal` and `share_secrets.upload_secret` are local (`_LOCAL` in the sweep).
   Every new network function must be added to `SERVICE_CALLS` in
-  `tests/test_share_off_no_egress.py` (the test finds them from `services/share.py`
-  and `services/share_upload.py` and fails otherwise); `/api/share/*` routes are found from
+  `tests/test_share_off_no_egress.py` (the test finds them from `services/share.py`,
+  `services/share_secrets.py` and `services/share_upload.py` and fails otherwise); `/api/share/*` routes are found from
   `app.routes` and swept too.
 - **Uploads (`services/share_upload.py`, MSHL-243, MSHL-375).** `upload_file`
   (`POST /v1/files`, public mode) is in `SERVICE_CALLS`; its route is in the
@@ -332,8 +333,38 @@ Community guard.
   through `share_request(body=StreamedBody(...))`; the answer must keep the id grammar,
   a share host, `url == https://<host>/<id>` and the sent size, else 502
   `share_unavailable`. The HA add-on keeps `share-tmp` out of backups.
+  **Encrypted mode (MSHL-255).** `upload_encrypted(staged, secret, name)` reads the
+  checked image, then per attempt (at most `ENCRYPTED_ATTEMPTS`, 3): a fresh id from
+  `new_share_id()` (`secrets.choice` over the base58 alphabet, 7 characters, never a
+  reserved path such as `privacy`), `encrypt_envelope_async` under `secret_scope`, the
+  envelope written to a `share-tmp` file (removed in `finally`), then `POST /v1/files`
+  with `X-Share-Mode: encrypted`, `X-Share-Id`, `X-Share-Sha256` of the envelope,
+  `Content-Type: application/octet-stream` and the binding with the proposed id; no name,
+  type or conversation header leaves. 409 `id_taken` (`share_id_taken`, internal, a
+  breaker success) retries with a new id AND a new envelope (the key derives from the
+  id); three in a row is 502 `share_unavailable`. A service without encrypted mode
+  answers 415 `type_refused`: mapped to 422 `share_mode_unavailable`. The answer must
+  also echo the proposed id. `header_name()` reads `X-Share-Name` as percent-encoded
+  UTF-8 (strict), checks it as a plain name, then `share_crypto.sanitize_name`; the name
+  only ever travels inside the envelope. `suggested_text(url, encrypted=True)` is
+  `🔒 <url>`.
+- **Conversation secrets (`services/share_secrets.py`, MSHL-255).** Local only.
+  `upload_secret(type, key)` from the `X-Share-Conversation-Type` (`channel` or
+  `contact`) and `X-Share-Conversation-Key` headers: a private channel gives its 16-byte
+  `Channel.key`; a contact gives the 32-byte X25519 shared secret
+  (`decoder.derive_shared_secret` of the keystore private key and the contact key).
+  Malformed or unknown is 400 `share_invalid_request`; the Public channel, a
+  name-derived `#hashtag` (`is_public_hashtag_channel`), a room (`CONTACT_TYPE_ROOM`: each
+  member has a different secret with it) or an unusable/low-order contact key is 422
+  `share_mode_not_allowed`; a DM without the radio private key is 503
+  `share_radio_key_unavailable` (public mode and private channels keep working). On the
+  read side `message_secret(message)` resolves the secret from the message row only
+  (`CHAN` → its channel key, `PRIV` → the shared secret with its contact), never from the
+  client; None makes the file `share_undecryptable`. A secret is never logged, returned
+  or sent: `tests/test_share_encrypted.py` scans the service requests (raw bytes and
+  hex), the log records, the access-log request lines and the answers.
 - **Encrypted envelope v1 (`services/share_crypto.py`, MSHL-254).** Pure crypto, no
-  egress, not wired to a route yet (T28). Implements the contract's "Encrypted envelope
+  egress; used by `share_upload.upload_encrypted` and `GET /api/share/{id}` (MSHL-255). Implements the contract's "Encrypted envelope
   v1" with pycryptodome: `derive_file_key` (HKDF-SHA256, salt `meshloom-share-v1`, info
   = id), `encrypt_envelope` (fresh `secrets.token_bytes(12)` nonce per call, AES-256-GCM,
   AAD `MLF1 || id`), `decrypt_envelope` (single shot, `decrypt_and_verify` before any
@@ -369,7 +400,9 @@ Community guard.
   `checked_object`: an image type must match its magic bytes (`sniff_image_type`),
   GIF at most 5 MiB, `imagesize` must read the dimensions, at most 40 Mpx
   (`MAX_IMAGE_PIXELS`); anything else is 415 `share_type_refused`.
-  `application/octet-stream` passes unchanged and is never upgraded to an image.
+  `application/octet-stream` (an encrypted envelope) passes unchanged and is never
+  upgraded to an image; the cache key is the id and the value the ciphertext, so no
+  plaintext or key material is ever stored (decrypted per request by the route).
   A refusal is negatively cached like a 404/410, so a refused object is not
   downloaded again for 10 min. Only validated objects are stored. Opting out does
   not empty the disk cache (`POST /cache/clear` does). Tests:
@@ -382,21 +415,31 @@ Community guard.
   whitespace), `GET /{id}/meta` (`read`, so a viewer or kiosk reads it; the id
   is checked against the grammar before any call; a link keeps `kind`,
   `target_host`, `expires_at`, a file adds `created_at`, `mode`, `content_type`
-  (images only), `size`, `name` (always null: names travel encrypted, M3) and
-  `decryptable` (true for a public file)), `GET /{id}` (`read`; the object bytes:
+  (images only), `size`, `name` (null for a public file) and `decryptable` (true for a
+  public file; for an encrypted one the route fetches and decrypts it with the secret
+  of `message_id`'s conversation: true with the decrypted `content_type`, `name` and
+  `size`, false with those null when that fails or there is no message, null when the
+  object cannot be fetched now)), `GET /{id}` (`read`; the object bytes:
   bad id 400 `share_invalid_id` with no request, then off `share_disabled`;
   headers `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src
   'none'; sandbox`, `Cache-Control: private, max-age=3600`, `Content-Disposition`
-  `inline` for an image and `attachment` (`.bin`) otherwise, `filename*=` built
-  from the id), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
+  `inline` for an image, `filename*=` built from the id. An
+  `application/octet-stream` object is an envelope: decrypted (`decrypt_envelope_async`
+  under `secret_scope`) with the secret of `message_id`'s conversation, else 422
+  `share_undecryptable` (no message, wrong conversation, no radio key, any
+  `EnvelopeError`; only its code is logged); the decrypted type must be an allowlisted
+  image passing `checked_object`, else 415/413; served `inline` with the sanitised name
+  in `filename*=UTF-8''...` (percent-encoded)), `POST /cache/clear` (`admin`, answers `{freed_bytes}`, works with
   sharing off, no egress), `POST /files` (`send`; raw image body, not multipart; checks in
-  order: off `share_disabled`, `X-Share-Mode: encrypted` 422 `share_mode_unavailable`
-  (M3, T28), another mode or a `Transfer-Encoding` 400, a type outside
-  `IMAGE_CONTENT_TYPES` 415, `Content-Length` missing/malformed 400 or over the type cap
-  413 before reading, `X-Share-Name` (optional, validated as a plain name and never used
-  or sent) 400, ban, breaker, then the upload slot, staging and checks above; 201
-  `ShareFileResponse` `{id, url, expires_at, size, mode, text}`, `text` = `📷 <url>`,
-  30 bytes on `meshl.ink`, the composer's suggested message). On both reads the only query parameter is
+  order: off `share_disabled`, a mode other than `public`/`encrypted` or a
+  `Transfer-Encoding` 400, a type outside `IMAGE_CONTENT_TYPES` 415, `Content-Length`
+  missing/malformed 400 or over the type cap 413 before reading, `X-Share-Name`
+  (optional, percent-encoded UTF-8, validated as a plain name; never sent in public mode)
+  400, in encrypted mode both conversation headers (400), ban, breaker, the conversation
+  secret (`share_secrets.upload_secret`, before staging), then the upload slot, staging
+  and checks above; 201 `ShareFileResponse` `{id, url, expires_at, size, mode, text}`,
+  `text` = `📷 <url>` (public) or `🔒 <url>` (encrypted), 30 bytes on `meshl.ink`, the
+  composer's suggested message; `size` is the stored bytes, the envelope when encrypted). On both reads the only query parameter is
   `message_id` (anything else or a repeat is 400 `share_invalid_request`); when
   given, the message must exist and contain the id (else 404 `share_not_found`)
   and a non-channel message needs `read_private` (a kiosk gets 403). Every write route depends on
@@ -408,8 +451,10 @@ Community guard.
   status, the service code (truncated) or `error_code(exc)` only.
 - Tests: `tests/test_share_service.py` (errors, ban, breaker with an injected
   clock, buckets, negative cache, hanging server), `tests/test_share_off_no_egress.py`
-  (off: no request, no DNS lookup; on: only `SHARE_HOST`, no seed, channel key
-  or radio private key in any request). Fakes: `tests/share_fakes.py`. User docs:
+  (off: no request, no DNS lookup; on: only `SHARE_HOST`, no seed, channel key,
+  radio private key or DM shared secret, hex or raw, in any request),
+  `tests/test_share_encrypted.py` (encrypted round trips, refused conversations,
+  retries, no secret in requests, logs, access log, answers or cache). Fakes: `tests/share_fakes.py`. User docs:
   `docs/user/{en,fr}/deep/share.md` (what it says about egress, bans and what is
   not implemented yet must follow this section).
 

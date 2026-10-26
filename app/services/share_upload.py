@@ -1,4 +1,4 @@
-"""Uploads to the share service (``POST /api/share/files``, public mode).
+"""Uploads to the share service (``POST /api/share/files``, public and encrypted mode).
 
 The browser sends the raw bytes of an image to the backend, which checks them
 locally and forwards them to ``POST /v1/files`` with the instance JWT
@@ -41,8 +41,19 @@ the instance before every local check passed.
   ``mode + "\\n" + sha256 + "\\n" + proposed_id + "\\n" + content_length``
   (no ``X-Share-Id`` in public mode, so ``proposed_id`` is empty).
 
-Encrypted mode (M3, T28) comes on the same route; until then it is 422
-``share_mode_unavailable`` with no request. Tests: ``tests/test_share_upload.py``.
+- **Encrypted upload** (``upload_encrypted``, MSHL-255): after the same staging and
+  checks, the image is sealed in an envelope v1 (``share_crypto``) under the
+  conversation secret (``share_secrets.upload_secret``) and a fresh base58 id
+  drawn here (``new_share_id``: the id is in the key derivation and the AAD, so the
+  client proposes it). The envelope goes to its own private file of
+  ``share-tmp/`` and is sent with ``X-Share-Mode: encrypted``, ``Content-Type:
+  application/octet-stream``, ``X-Share-Id``, ``X-Share-Sha256`` and no name
+  header. ``409 id_taken`` draws a new id **and** re-encrypts, at most
+  ``ENCRYPTED_ATTEMPTS`` times (then 502 ``share_unavailable``); a service older
+  than M3 answers ``415 type_refused``, which is 422 ``share_mode_unavailable``.
+  The secret is never logged, returned or sent (``secret_scope`` around its use).
+
+Tests: ``tests/test_share_upload.py``, ``tests/test_share_encrypted.py``.
 """
 
 from __future__ import annotations
@@ -55,6 +66,7 @@ import logging
 import os
 import secrets
 import stat
+import urllib.parse
 from collections.abc import AsyncIterable, AsyncIterator, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,8 +74,9 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel, ConfigDict
 
+from app.log_redaction import secret_scope
 from app.net.egress_guard import StreamedBody
-from app.services import share
+from app.services import share, share_crypto
 from app.services.share import ShareError
 
 logger = logging.getLogger(__name__)
@@ -80,6 +93,13 @@ RECEIVE_TIMEOUT_S = 120.0
 STAGED_PREFIX = "upload-"
 # Longest Content-Length accepted as text (far above any cap).
 _LENGTH_DIGITS = 12
+
+# Uploads of an encrypted file: 409 id_taken draws a new id (and re-encrypts).
+ENCRYPTED_ATTEMPTS = 3
+BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+SHARE_ID_LENGTH = 7
+# Reserved first path segments of the service that match the id grammar.
+RESERVED_IDS = frozenset({"privacy"})
 
 _active = 0
 
@@ -166,6 +186,32 @@ def check_name(raw: str | None) -> None:
         or any(ch in "/\\" or ord(ch) < 32 or ord(ch) == 127 for ch in raw)
     ):
         raise ShareError("share_invalid_request")
+
+
+def header_name(raw: str | None) -> str:
+    """The file name of ``X-Share-Name`` for the envelope header, ``""`` when absent.
+
+    The header is percent-encoded UTF-8 (``encodeURIComponent``), since HTTP
+    headers carry Latin-1 at best; a plain ASCII name decodes to itself. The
+    decoded name passes ``check_name`` (400 ``share_invalid_request``) and the
+    contract's sanitisation; the result never reaches a path.
+    """
+    if raw is None:
+        return ""
+    try:
+        name = urllib.parse.unquote(raw, encoding="utf-8", errors="strict")
+    except UnicodeDecodeError:
+        raise ShareError("share_invalid_request") from None
+    check_name(name)
+    return share_crypto.sanitize_name(name)
+
+
+def new_share_id() -> str:
+    """A uniformly random id of the contract's grammar, never a reserved path."""
+    while True:
+        candidate = "".join(secrets.choice(BASE58_ALPHABET) for _ in range(SHARE_ID_LENGTH))
+        if candidate not in RESERVED_IDS:
+            return candidate
 
 
 @dataclass(frozen=True)
@@ -327,6 +373,24 @@ def binding_string(mode: str, sha256: str, proposed_id: str, length: int) -> str
     return f"{mode}\n{sha256}\n{proposed_id}\n{length}"
 
 
+def _checked_answer(
+    response: share.CheckedResponse, size: int, proposed_id: str | None = None
+) -> ShareFile:
+    """The ``POST /v1/files`` answer when it keeps the contract, else ``share_unavailable``."""
+    answer: ShareFile = share._parse(ShareFile, response)
+    host = httpx.URL(answer.url).host
+    if (
+        not share.is_share_id(answer.id)
+        or not share.is_share_host(host)
+        or answer.url != f"https://{host}/{answer.id}"
+        or answer.size != size
+        or (proposed_id is not None and answer.id != proposed_id)
+    ):
+        logger.warning("Share service answered a file outside the grammar")
+        raise ShareError("share_unavailable")
+    return answer
+
+
 async def upload_file(staged: StagedFile) -> ShareFile:
     """``POST /v1/files`` in public mode, the body streamed from the staged file."""
     mode = "public"
@@ -338,19 +402,84 @@ async def upload_file(staged: StagedFile) -> ShareFile:
         content_type=staged.content_type,
         extra_headers={"X-Share-Mode": mode, "X-Share-Sha256": staged.sha256},
     )
-    answer: ShareFile = share._parse(ShareFile, response)
-    host = httpx.URL(answer.url).host
-    if (
-        not share.is_share_id(answer.id)
-        or not share.is_share_host(host)
-        or answer.url != f"https://{host}/{answer.id}"
-        or answer.size != staged.size
-    ):
-        logger.warning("Share service answered a file outside the grammar")
-        raise ShareError("share_unavailable")
-    return answer
+    return _checked_answer(response, staged.size)
 
 
-def suggested_text(url: str) -> str:
-    """The composer's proposed message: ``📷 <url>`` (30 bytes on ``meshl.ink``)."""
-    return f"\N{CAMERA} {url}"
+def _write_envelope(blob: bytes) -> tuple[Path, str]:
+    """The envelope in a private file of ``share-tmp/`` and its sha256 hex."""
+    path, fd = _new_file()
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(blob)
+    except BaseException:
+        _remove(path)
+        raise
+    return path, hashlib.sha256(blob).hexdigest()
+
+
+async def _seal(secret: bytes, share_id: str, name: str, staged: StagedFile, data: bytes) -> bytes:
+    try:
+        with secret_scope(secret):
+            return await share_crypto.encrypt_envelope_async(
+                secret, share_id, name, staged.content_type, data
+            )
+    except share_crypto.EnvelopeError as exc:
+        # The code only: never the secret, the name or the data.
+        logger.warning("Encrypted share refused locally: %s", exc.code)
+        if exc.code == "refused_secret":
+            raise ShareError("share_mode_not_allowed") from None
+        raise ShareError("share_invalid_request") from None
+
+
+async def upload_encrypted(staged: StagedFile, secret: bytes, name: str) -> ShareFile:
+    """``POST /v1/files`` in encrypted mode: the staged image sealed under ``secret``.
+
+    Each attempt draws a new id and seals again (fresh nonce), so a retry after
+    ``409 id_taken`` never reuses an id. The envelope file is removed after
+    each attempt.
+    """
+    mode = "encrypted"
+    try:
+        data = await asyncio.to_thread(staged.path.read_bytes)
+    except OSError as exc:
+        raise _storage_failed(exc) from None
+    for _attempt in range(ENCRYPTED_ATTEMPTS):
+        share_id = new_share_id()
+        blob = await _seal(secret, share_id, name, staged, data)
+        try:
+            path, digest = await asyncio.to_thread(_write_envelope, blob)
+        except OSError as exc:
+            raise _storage_failed(exc) from None
+        size = len(blob)
+        del blob
+        try:
+            response = await share.share_request(
+                "POST",
+                "/v1/files",
+                binding=binding_string(mode, digest, share_id, size),
+                body=StreamedBody(length=size, open=lambda p=path: _file_chunks(p)),
+                content_type=share.OCTET_STREAM,
+                extra_headers={
+                    "X-Share-Mode": mode,
+                    "X-Share-Id": share_id,
+                    "X-Share-Sha256": digest,
+                },
+            )
+        except ShareError as exc:
+            if exc.code == "share_id_taken":
+                continue
+            if exc.code == "share_type_refused":
+                # A service older than M3 refuses the mode itself (contract).
+                raise ShareError("share_mode_unavailable") from None
+            raise
+        finally:
+            await asyncio.to_thread(_remove, path)
+        return _checked_answer(response, size, share_id)
+    logger.warning("Share service refused %d proposed ids in a row", ENCRYPTED_ATTEMPTS)
+    raise ShareError("share_unavailable")
+
+
+def suggested_text(url: str, *, encrypted: bool = False) -> str:
+    """The composer's proposed message: ``📷 <url>``, ``🔒 <url>`` for an encrypted file."""
+    emoji = "\N{LOCK}" if encrypted else "\N{CAMERA}"
+    return f"{emoji} {url}"

@@ -1,8 +1,9 @@
 """Encrypted envelope v1 against the contract vectors (MSHL-254, app/services/share_crypto.py).
 
 Provenance: tests/fixtures/links_files_vectors.json is a byte-for-byte copy of
-TwinRocket/meshloom-community docs/contracts/vectors/links-files.json on main
-at the merge commit of PR #141 (3856ca17; vectors version 1, MSHL-370), rules in
+TwinRocket/meshloom-community docs/contracts/vectors/links-files.json on main,
+checked against contract commit 56aa4e5 (MSHL-242, 2026-10-26); the vectors last
+changed in eb95a18 (vectors version 1, MSHL-370). Rules in
 docs/contracts/links-files.md, "Encrypted envelope v1". sha256 below (the same
 file is pinned in tests/test_share_identity.py). To update, copy the file again
 and change the hash; never edit the copy to make a test pass. A failure is a

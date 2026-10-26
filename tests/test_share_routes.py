@@ -358,11 +358,11 @@ class TestObjects:
         assert image.headers["content-security-policy"] == "default-src 'none'; sandbox"
         assert image.headers["cache-control"] == "private, max-age=3600"
         assert image.headers["content-disposition"] == "inline; filename*=UTF-8''PnGokAy.png"
+        # An octet-stream object is an encrypted envelope: never served raw, and
+        # without a message to take the secret from it cannot be decrypted.
         binary = await client.get("/api/share/BiNaRyX")
-        assert binary.status_code == 200
-        assert binary.headers["content-type"] == "application/octet-stream"
-        assert binary.headers["content-disposition"] == ("attachment; filename*=UTF-8''BiNaRyX.bin")
-        assert binary.headers["x-content-type-options"] == "nosniff"
+        assert binary.status_code == 422
+        assert binary.json()["detail"]["code"] == "share_undecryptable"
 
     async def test_off_is_refused_even_when_cached(self, objects_on, client):
         assert (await client.get("/api/share/PnGokAy")).status_code == 200
@@ -440,9 +440,12 @@ class TestObjects:
 
     async def test_envelope_cap_is_the_contract_maximum(self, objects_on, client):
         assert share.MAX_ENVELOPE_BYTES == 10_489_891
+        # The largest envelope is fetched and kept (decrypting it then needs a
+        # message), one byte more is refused before any decryption.
         exact = await client.get("/api/share/EnVeLop")
-        assert exact.status_code == 200
-        assert len(exact.content) == share.MAX_ENVELOPE_BYTES
+        assert exact.status_code == 422
+        assert exact.json()["detail"]["code"] == "share_undecryptable"
+        assert len((await share.read_object("EnVeLop")).content) == share.MAX_ENVELOPE_BYTES
         over = await client.get("/api/share/EnVbigg")
         assert over.status_code == 413
         assert over.json()["detail"]["code"] == "share_too_large"
