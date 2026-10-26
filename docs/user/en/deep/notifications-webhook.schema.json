@@ -529,7 +529,7 @@
           "type": "integer"
         },
         "scope": {
-          "description": "quiet_hours or pause.",
+          "description": "quiet_hours, pause or digest.",
           "title": "Scope",
           "type": "string"
         }

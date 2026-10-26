@@ -1,0 +1,20 @@
+{
+  "settings": {
+    "notifications": {
+      "digest": {
+        "title": "Digest mode",
+        "off": "Off (one notification per message)",
+        "everyMinutes_one": "Every minute",
+        "everyMinutes_other": "Every {{count}} minutes",
+        "everyHours_one": "Every hour",
+        "everyHours_other": "Every {{count}} hours",
+        "help": "Instead of one notification per message, this channel gets one summary per interval: counts per conversation, never message text. Direct messages, channel messages and new contacts are summed up. Mentions, keyword alerts, watched nodes and urgent alerts still arrive at once. The summary can be up to a minute late, and a pending one survives a restart."
+      }
+    },
+    "fullRestore": {
+      "warnings": {
+        "notification_digest_dropped": "The digest interval of a notification channel ({{value}}) was out of range, and was restored as off."
+      }
+    }
+  }
+}

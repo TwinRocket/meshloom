@@ -37,6 +37,17 @@ HeartbeatMethod = Literal["GET", "POST"]
 HEARTBEAT_URL_KEY = "heartbeat_url"
 
 
+# Digest mode (MSHL-136, ``dispatcher.py``): 0 is off, otherwise a summary interval in this range.
+DIGEST_MIN_S = 300
+DIGEST_MAX_S = 86400
+
+
+def check_digest_interval(value: int | None) -> int | None:
+    if value is None or value == 0 or DIGEST_MIN_S <= value <= DIGEST_MAX_S:
+        return value
+    raise ValueError(f"0 or {DIGEST_MIN_S}..{DIGEST_MAX_S}")
+
+
 def heartbeat_supported(row_type: str, preset: str | None) -> bool:
     """ntfy, webhook, generic Apprise and its Gotify and Home Assistant presets."""
     if row_type in ("ntfy", "webhook"):
@@ -524,6 +535,8 @@ class Channel(BaseModel):
     # lists ``heartbeat_url`` when one is stored).
     heartbeat_interval_s: int = 0
     heartbeat_method: HeartbeatMethod = "GET"
+    # Digest mode (MSHL-136): 0 is off, else one summary of the digestible events per interval.
+    digest_interval_s: int = 0
     quiet_hours_exempt: bool = False
     # ``None``: the registry default of the type.
     rate_per_min: int | None = None
@@ -558,12 +571,14 @@ class ChannelCreate(BaseModel):
     heartbeat_method: HeartbeatMethod = "GET"
     # A healthchecks-style URL pinged instead of a message (write-only, a secret).
     heartbeat_url: str = Field("", max_length=2048)
+    digest_interval_s: int = 0
     quiet_hours_exempt: bool | None = None
     rate_per_min: int | None = Field(None, ge=1)
     rate_per_hour: int | None = Field(None, ge=1)
     rate_per_day: int | None = Field(None, ge=1)
 
     _interval = field_validator("heartbeat_interval_s")(_check_heartbeat_interval)
+    _digest = field_validator("digest_interval_s")(check_digest_interval)
 
 
 class ChannelUpdate(BaseModel):
@@ -588,9 +603,11 @@ class ChannelUpdate(BaseModel):
     heartbeat_method: HeartbeatMethod | None = None
     # Like a config secret: omitted, null or ``********`` keeps it, ``""`` clears it.
     heartbeat_url: str | None = Field(None, max_length=2048)
+    digest_interval_s: int | None = None
     quiet_hours_exempt: bool | None = None
     rate_per_min: int | None = Field(None, ge=1)
     rate_per_hour: int | None = Field(None, ge=1)
     rate_per_day: int | None = Field(None, ge=1)
 
     _interval = field_validator("heartbeat_interval_s")(_check_heartbeat_interval)
+    _digest = field_validator("digest_interval_s")(check_digest_interval)

@@ -11,6 +11,7 @@ import { i18nKeyResolver, type FieldErrors, type JsonObject } from '../../forms/
 import { Checkbox } from '../../ui/checkbox';
 import { Input } from '../../ui/input';
 import { Label } from '../../ui/label';
+import { DigestField } from './DigestField';
 import { HeartbeatFields } from './HeartbeatFields';
 import { TemplateFields } from './TemplateFields';
 import {
@@ -60,6 +61,7 @@ export function initialDraft(
     rate_per_hour: channel?.rate_per_hour?.toString() ?? '',
     rate_per_day: channel?.rate_per_day?.toString() ?? '',
     quiet_hours_exempt: channel?.quiet_hours_exempt ?? entry.quiet_hours_exempt_default ?? false,
+    digest_interval_s: channel?.digest_interval_s ?? 0,
     heartbeat_interval_s: channel?.heartbeat_interval_s ?? 0,
     heartbeat_method: channel?.heartbeat_method ?? 'GET',
     heartbeat_url: '',
@@ -286,6 +288,7 @@ export function ChannelForm({
               </p>
             </div>
           </div>
+          <DigestField idPrefix={prefix} draft={draft} disabled={disabled} onChange={patch} />
           {entry.heartbeat && (
             <HeartbeatFields
               idPrefix={prefix}

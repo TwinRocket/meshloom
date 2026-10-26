@@ -211,6 +211,8 @@ export interface ChannelDraft {
   rate_per_hour: string;
   rate_per_day: string;
   quiet_hours_exempt: boolean;
+  /** Digest mode (MSHL-136): 0 is off, else a summary every N seconds. */
+  digest_interval_s: number;
   /** Heartbeat: 0 is off. The URL as typed: '' keeps the saved one unless cleared. */
   heartbeat_interval_s: number;
   heartbeat_method: 'GET' | 'POST';
@@ -233,6 +235,7 @@ export function advancedBody(draft: ChannelDraft) {
     rate_per_hour: parseLimit(draft.rate_per_hour),
     rate_per_day: parseLimit(draft.rate_per_day),
     quiet_hours_exempt: draft.quiet_hours_exempt,
+    digest_interval_s: draft.digest_interval_s,
   };
 }
 

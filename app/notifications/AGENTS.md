@@ -76,7 +76,7 @@ This file is a hypothesis: check it against the code.
 - `rules.py`: pure evaluation of `notification_rules` (see "Dispatcher").
 - `fanout_convert.py`: Apprise fanout row → notification channel, and the duplicate check on
   channel creation (MSHL-134, see "API").
-- `quiet_hours.py`: the quiet window, the suppressed-event counters and the digest payload (see "Quiet hours").
+- `quiet_hours.py`: the quiet window, the suppressed-event counters and the digest payload (see "Quiet hours"); also `digestible()` for the per-channel digest mode (see "Digest mode").
 - `user_rules.py`: the per-account layer over those rules, for Web Push only (see "Per-account rules").
 - `limits.py`: the dispatcher's token buckets (`ClockedLimiter`), the daily quota, `effective_limits()` and the persisted dedup keys (see "Dispatcher", "Limits").
 - `dispatcher.py`: `emit()`, the queue and worker per channel, the limiter, the retry
@@ -407,6 +407,39 @@ wall clock in host-local time (an overnight window belongs to its opening weekda
   and the dict only holds channels that are being retried. A disabled or deleted channel gets none. A queued digest that
   still answers `retry` gets the one long retry (`quiet_digest` is in `LONG_RETRY_EVENTS`).
 - Tests: `tests/test_quiet_hours.py`.
+
+### Digest mode (`digest_interval_s`, MSHL-136)
+
+A channel column (migration 132; 0 = off, else 300..86400, checked by `check_digest_interval` on the
+create and update models and by the backup restore, which drops a bad value to 0 with
+`notification_digest_dropped:<id>`). It reuses the quiet-hours counters (`counter_key`, `_count_held`,
+`_digest`, `build_digest`, `_put_back`) under their own prefix, `digest:`, and renders with scope `digest`
+("Since the last summary").
+
+- **Which events.** `_emit` holds an event for a digest-mode channel when `quiet.digestible(name)` and the
+  event is neither `urgent` nor `always_deliver` (the same `subject_to_holds` the pauses use, so "urgent" is
+  the event's `urgent` flag, set on `radio.offline`, `telemetry.alert` and `notify.channel_changed`, or
+  the rule). Digestible: `message.dm`, `message.channel`, `contact.first_seen`. Bypass, delivered at once:
+  `message.mention`, `message.keyword`, `contact.node_seen`, `contact.node_back` (a user opted into each
+  one, so a delay defeats it), and everything outside `message.*` / `contact.*`. The WebSocket frame
+  (`ws_frame.publish`) fires before this, per event. A keyword alert reaches a digest-mode channel at
+  once: `producers._emit_message` does not count a digest channel (unless it gets the mention) as
+  already receiving the message, so `_emit_keywords` still targets it; the message itself is counted once in
+  the summary and the alert never is.
+- **Order.** Rules, then the pauses (`paused`), then quiet hours (a quiet-held event is counted under
+  `quiet:`, never `digest:`), then digest mode, then `_admit`. The re-emit dedup is the quiet one
+  (`_first_hold`).
+- **Window.** The first held event writes `digest_due:<channel>` = now + interval, before its counter
+  (`_hold_digest`, `_digest_open` caches it). `digest_tick()` runs from the minute loop: for each channel
+  with counters or a due row, it flushes when due (`_digest_flush`: delete the due row, take the counters,
+  `_digest`, `_admit`), is a no-op during the global pause, skips a channel in its own pause or (unless
+  `quiet_hours_exempt`) in quiet hours, opens a window for counters that lost their due row, flushes at
+  once when the interval was switched to 0, and drops the counters of a disabled or deleted channel. A
+  window whose end is further than one (new) interval away, because the interval was shortened, is clamped to now + the new interval. A refused summary is put back with the due row set to now (same `QUIET_DIGEST_RETRIES` budget).
+- **Restart safety.** Counters and due rows are in `notification_state` (no expiry): a window survives a
+  restart and an overdue one is flushed at the first tick. No text, sender or name is stored.
+- Tests: `tests/test_digest_mode.py` (fake `wall_clock`, `digest_tick()` by hand),
+  `tests/test_migrations/test_migration_132.py`.
 
 ## Producers
 

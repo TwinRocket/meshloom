@@ -131,6 +131,7 @@ class ChannelOut(BaseModel):
     template_channel: str = ""
     heartbeat_interval_s: int = 0
     heartbeat_method: str = "GET"
+    digest_interval_s: int = 0
     # The ping URL is a secret (its path is the check's token): ``********`` when set.
     heartbeat_url: str = ""
     quiet_hours_exempt: bool
@@ -242,6 +243,7 @@ def _present(channel: Channel, statuses: dict[str, dict[str, Any]]) -> ChannelOu
         template_channel=channel.template_channel,
         heartbeat_interval_s=channel.heartbeat_interval_s,
         heartbeat_method=channel.heartbeat_method,
+        digest_interval_s=channel.digest_interval_s,
         heartbeat_url=REDACTED if HEARTBEAT_URL_KEY in channel.secret_fields_set else "",
         quiet_hours_exempt=channel.quiet_hours_exempt,
         rate_per_min=channel.rate_per_min,

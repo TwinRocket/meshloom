@@ -67,6 +67,8 @@ export interface NotificationChannel {
   rate_per_min: number | null;
   rate_per_hour: number | null;
   rate_per_day: number | null;
+  /** Digest mode (MSHL-136): 0 is off, else a summary every N seconds (300..86400). */
+  digest_interval_s?: number;
   /** Heartbeat (MSHL-131): 0 is off; the ping URL reads `********` when saved, `''` when not. */
   heartbeat_interval_s?: number;
   heartbeat_method?: 'GET' | 'POST';
@@ -124,6 +126,7 @@ export interface NotificationChannelCreate {
   rate_per_min?: number | null;
   rate_per_hour?: number | null;
   rate_per_day?: number | null;
+  digest_interval_s?: number;
   heartbeat_interval_s?: number;
   heartbeat_method?: 'GET' | 'POST';
   /** Omitted or `********` keeps the saved URL, `''` removes it. */

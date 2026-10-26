@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { api } from '../api';
@@ -60,8 +60,14 @@ describe('channel heartbeat', () => {
     expect(screen.queryByLabelText('Ping URL (optional)')).toBeNull();
 
     fireEvent.change(screen.getByLabelText('Heartbeat'), { target: { value: '900' } });
-    expect(screen.getByRole('option', { name: 'Every 15 minutes' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Every 6 hours' })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('channel-heartbeat')).getByRole('option', {
+        name: 'Every 15 minutes',
+      })
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('channel-heartbeat')).getByRole('option', { name: 'Every 6 hours' })
+    ).toBeInTheDocument();
     const url = screen.getByLabelText('Ping URL (optional)');
     expect(url).toHaveAttribute('placeholder', 'https://hc-ping.com/…');
     expect(screen.getByLabelText('Method')).toHaveValue('GET');
@@ -133,7 +139,11 @@ describe('channel heartbeat', () => {
     await i18n.changeLanguage('fr');
     render(<ChannelForm entry={entry({})} onSubmit={vi.fn()} submitLabel="Save" idPrefix="h" />);
     expect(screen.getByLabelText('Battement de cœur')).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Toutes les heures' })).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('channel-heartbeat')).getByRole('option', {
+        name: 'Toutes les heures',
+      })
+    ).toBeInTheDocument();
     await i18n.changeLanguage('en');
   });
 });

@@ -83,6 +83,8 @@ class BackupNotificationChannel(BaseModel):
     # MSHL-131: 0 = off. A ping URL is a secret (``heartbeat_url`` in ``secret_omitted``).
     heartbeat_interval_s: int = Field(default=0, ge=0, le=86400)
     heartbeat_method: Literal["GET", "POST"] = "GET"
+    # MSHL-136: 0 = off, else 300..86400 (an interval outside restores as off, with a warning).
+    digest_interval_s: int = Field(default=0, ge=0, le=86400)
     sort_order: int = 0
     created_at: int = Field(default=0, ge=0)
 
@@ -122,6 +124,7 @@ async def export_notifications() -> BackupSection | None:
             rate_per_day=channel.rate_per_day,
             heartbeat_interval_s=channel.heartbeat_interval_s,
             heartbeat_method=channel.heartbeat_method,
+            digest_interval_s=channel.digest_interval_s,
             sort_order=channel.sort_order,
             created_at=channel.created_at,
         ).model_dump(mode="json")
@@ -178,6 +181,7 @@ async def _restore_channel(
 ) -> bool:
     """Write one channel; True when it ends up needing a secret."""
     from app.notifications.channels import (
+        DIGEST_MIN_S,
         HEARTBEAT_MIN_S,
         HEARTBEAT_URL_KEY,
         ChannelError,
@@ -201,6 +205,7 @@ async def _restore_channel(
         "rate_per_day": item.rate_per_day,
         "heartbeat_interval_s": item.heartbeat_interval_s,
         "heartbeat_method": item.heartbeat_method,
+        "digest_interval_s": item.digest_interval_s,
         "sort_order": item.sort_order,
     }
 
@@ -257,6 +262,10 @@ async def _restore_channel(
         # A file edited by hand: an interval the API would refuse restores as off.
         own["heartbeat_interval_s"] = 0
         warnings.append(f"notification_heartbeat_dropped:{item.id}")
+    if item.digest_interval_s and item.digest_interval_s < DIGEST_MIN_S:
+        # A file edited by hand: an interval the API would refuse restores as off.
+        own["digest_interval_s"] = 0
+        warnings.append(f"notification_digest_dropped:{item.id}")
     public = _public_config(entry, item.config)
     if (
         entry.singleton_id is not None
