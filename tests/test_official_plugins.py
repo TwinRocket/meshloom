@@ -203,11 +203,18 @@ def test_catastrophic_patterns_are_refused_at_config_time(pattern):
 def test_accepted_patterns_are_cheap_on_the_longest_input(pattern):
     import time
 
+    # CPU time (not wall clock) so xdist/CI contention does not count, and the best of a
+    # few runs so a stray preemption or cache miss cannot fail it. A pattern that slips
+    # past the structural guard backtracks exponentially and misses the budget by orders
+    # of magnitude, while an accepted one needs a few milliseconds at most.
     compiled = compile_pattern(pattern, case_sensitive=False)
     for text in HOSTILE_TEXTS:
-        started = time.perf_counter()
-        compiled.search(text[: ar.MATCH_TEXT_LIMIT])
-        assert time.perf_counter() - started < 0.1, (pattern, text[:4])
+        best = float("inf")
+        for _ in range(3):
+            started = time.process_time()
+            compiled.search(text[: ar.MATCH_TEXT_LIMIT])
+            best = min(best, time.process_time() - started)
+        assert best < 0.1, (pattern, text[:4])
 
 
 def test_a_slow_compile_is_refused(monkeypatch):
