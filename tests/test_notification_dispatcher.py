@@ -474,7 +474,7 @@ async def test_a_full_queue_records_rate_limited(test_db):
 
 
 class _FrozenLoop:
-    """The running loop, except `time()` reads a fake clock and timers fire at once."""
+    """The running loop, except `time()` reads a fake clock and timers poll every millisecond."""
 
     def __init__(self, loop: asyncio.AbstractEventLoop, clock: FakeClock) -> None:
         self._loop, self._clock = loop, clock
@@ -482,8 +482,12 @@ class _FrozenLoop:
     def time(self) -> float:
         return self._clock()
 
-    def call_later(self, _delay, callback, *args):
-        return self._loop.call_later(0.001, callback, *args)
+    def call_at(self, _when, callback, *args, **kwargs):
+        # `_when` is on the fake clock: never hand it to the real loop. Poll instead.
+        return self._loop.call_at(self._loop.time() + 0.001, callback, *args, **kwargs)
+
+    def call_later(self, _delay, callback, *args, **kwargs):
+        return self._loop.call_later(0.001, callback, *args, **kwargs)
 
     def __getattr__(self, name):
         return getattr(self._loop, name)
@@ -505,13 +509,18 @@ async def test_first_seen_is_capped_then_grouped(test_db, monkeypatch):
     await _add_channel("webhook-1", "webhook")
     transport = StubTransport()
     dispatcher = _dispatcher(transport, clock, first_seen_per_hour=10, first_seen_period_s=0.5)
-    for n in range(15):
-        await dispatcher.emit(
-            None,
-            payload={"event": "first_seen", "public_key": f"{n:064x}", "contact_type": 1},
-            targets=["webhook-1"],
-        )
-    await asyncio.wait_for(dispatcher.wait_idle(), 5)  # a missing cap would block here
+
+    async def burst() -> None:
+        for n in range(15):
+            await dispatcher.emit(
+                None,
+                payload={"event": "first_seen", "public_key": f"{n:064x}", "contact_type": 1},
+                targets=["webhook-1"],
+            )
+        await dispatcher.wait_idle()
+
+    # A broken cap blocks the 11th emit forever: fail fast instead of hanging CI.
+    await asyncio.wait_for(burst(), 5)
     assert len(transport.payloads) == 10  # the budget, however long the burst took
     worker = dispatcher._workers["webhook-1"]
     assert worker.first_seen_flusher is not None
