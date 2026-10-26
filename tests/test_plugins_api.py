@@ -284,8 +284,12 @@ async def test_install_unknown_bundled_plugin_is_404(api, manager):
 
 
 async def test_install_of_a_kind_without_a_source_is_unavailable(api, manager):
-    """No resolver is registered for ``store`` or ``custom`` here (MSHL-195): nothing to
-    download from, nothing installed. Unknown kinds stay a validation error."""
+    """No resolver registered for ``store`` or ``custom`` (MSHL-195; ``custom`` is
+    registered by the app lifespan since MSHL-196, removed here): nothing to download
+    from, nothing installed. Unknown kinds stay a validation error."""
+    from app.plugins.installer import register_resolver
+
+    register_resolver("custom", None)
     for kind in ("store", "custom"):
         response = await api.post(
             "/api/plugins/install",

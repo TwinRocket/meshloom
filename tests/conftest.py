@@ -47,6 +47,7 @@ async def patched_database(path: str = ":memory:"):
         repeater_pane_cache,
         repeater_telemetry,
         settings,
+        store_repositories,
         telemetry_alert_state,
         user_notification_rules,
     )
@@ -76,6 +77,7 @@ async def patched_database(path: str = ":memory:"):
         push_subscriptions,
         telemetry_alert_state,
         user_notification_rules,
+        store_repositories,
     ]
     originals = [(mod, mod.db) for mod in submodules]
 

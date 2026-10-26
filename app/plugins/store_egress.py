@@ -27,8 +27,8 @@ default, never restored from a backup and reset to 0 in a database copy.
   6 h). Turning it off stops it before its next tick. A
   restore (JSON or SQLite snapshot) re-reads the consent (``on_restore`` hook). The
   refresh work itself (update checks, revocations) registers with
-  ``register_store_refresher`` (later tickets); each refresher sends through
-  ``store_fetch``.
+  ``register_store_refresher`` (custom repositories: ``custom_repos.refresh_repositories``,
+  MSHL-196); each refresher sends through ``store_fetch``.
 - ``store_status()`` builds ``GET /api/store/status`` from the same constants, so
   the activation card names exactly the hosts the guard allows.
 """

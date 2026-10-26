@@ -337,6 +337,8 @@ _PATH_PARAMS = {
     "key": "8B3387E9C5CDEA6AC9E5EDBAA115CD72",
     "job_id": "unknown-job",
     "instance_id": "00000000-0000-4000-8000-000000000000",
+    "owner": "example",
+    "name": "weather",
 }
 _QUERY = {
     "/api/community/airports": {"q": "LYS"},
@@ -362,6 +364,7 @@ _BODIES: dict[tuple[str, str], Any] = {
         "granted_permissions": {},
     },
     ("POST", "/api/plugins"): {"label": "Sweep", "template": "blank"},
+    ("POST", "/api/store/repositories"): {"repository": "example/weather"},
     ("PATCH", "/api/plugins/{instance_id}"): {},
     ("PUT", "/api/plugins/{instance_id}/source"): {"source": "x = 1\n"},
     ("POST", "/api/plugins/{instance_id}/test"): {"text": "hello"},

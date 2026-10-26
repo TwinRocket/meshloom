@@ -396,6 +396,17 @@ an empty `plugin_id`, which nothing reattaches). Holds no secret: excluded from 
 backup (a JSON restore reuses a kept id only for the same owner), kept in the database
 download. `PluginKeptDataRepository` (`plugins.py`).
 
+### `store_repositories`
+
+Custom GitHub repositories of the Store (migration 126, MSHL-196): PK `repository`
+(lowercase `owner/name`), `display_name` (the case GitHub gives), `added_at`,
+`checked_at` (Unix seconds of the last check), `last_error` (error code of the last
+check, NULL when it succeeded), and the last good release: `tag`, `plugin_id`,
+`version`, `manifest` (JSON), `archive_sha256`, `archive_size`. A failed check keeps the
+last good release. Written only by `app/plugins/custom_repos.py` (add, refresh, remove);
+removing a row never touches installed instances. Excluded from the JSON backup, kept in
+the database download (no secret).
+
 ### `plugin_send_quota`
 
 Send counters of the plugin `messages.send` capability (migration 105): PK

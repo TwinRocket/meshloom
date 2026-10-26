@@ -287,6 +287,10 @@ async def lifespan(app: FastAPI):
     from app.plugins.store_egress import start_store_refresh, store_egress_allowed
 
     set_download_gate(store_egress_allowed)
+    # Custom GitHub repositories (MSHL-196): the `custom` resolver and the refresher.
+    from app.plugins import custom_repos
+
+    custom_repos.register()
     try:
         await start_store_refresh()
     except Exception:
@@ -346,6 +350,9 @@ async def lifespan(app: FastAPI):
     try:
         await _shutdown(startup_radio_task, fanout_manager, radio_proxy_manager)
     finally:
+        # Process-wide registrations made above: undo them so a second lifespan in the
+        # same process (tests) starts clean.
+        custom_repos.unregister()
         # Always close the DB, even if an earlier step raised or was cancelled,
         # so the WAL is checkpointed and the file is left consistent.
         try:

@@ -65,6 +65,8 @@
           "plugin.config_changed": "Réglages du plugin modifiés",
           "plugins.paused": "Tous les plugins mis en pause",
           "plugins.resumed": "Tous les plugins relancés",
+          "store.repository_added": "Dépôt personnalisé ajouté",
+          "store.repository_removed": "Dépôt personnalisé retiré",
           "backup.restored": "Sauvegarde restaurée",
           "private_key.imported": "Clé privée importée",
           "factory_reset": "Radio réinitialisée (usine)",

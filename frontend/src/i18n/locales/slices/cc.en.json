@@ -211,6 +211,27 @@
         "resume": "Resume",
         "paused": "All extensions are paused.",
         "resumed": "Extensions resumed."
+      },
+      "store": {
+        "title": "Custom repositories",
+        "intro": "Add a plugin published on GitHub as owner/name. Its latest release must carry manifest.json, plugin.zip and plugin.zip.sha256.",
+        "warning": "Custom repositories are not reviewed or signed by Meshloom: you install them at your own risk. The plugin.zip.sha256 file comes from the same place as the archive, so it only checks that the download is intact (integrity), not who made it. There is no online revocation for these plugins.",
+        "offline": "The Store is offline: nothing is fetched from GitHub until you put it online.",
+        "goOnline": "Put the Store online",
+        "repositoryLabel": "GitHub repository (owner/name)",
+        "add": "Add",
+        "added": "Repository {{repository}} added.",
+        "removed": "Repository {{repository}} removed.",
+        "none": "No custom repository yet.",
+        "unsigned": "unsigned",
+        "install": "Install",
+        "remove": "Remove",
+        "removeTitle": "Remove {{repository}}?",
+        "removeIntro": "Installed plugins from this repository stay installed and keep working; they will no longer be checked for updates.",
+        "updateAvailable": "update available",
+        "checkFailed": "The last check failed.",
+        "accept": "I understand this plugin is not reviewed or signed by Meshloom, and I accept these permissions.",
+        "adminOnly": "Only an administrator can see and manage custom repositories."
       }
     },
     "fullRestore": {
@@ -250,6 +271,23 @@
     "scope_invalid": "The conversations selection is not valid.",
     "secret_required": "A secret value is missing.",
     "plugin_reinstall_required": "This extension was restored without its code: reinstall it before starting it.",
-    "plugin_code_mismatch": "The installed code of this extension does not match its saved version after a failed update. It will not start until Meshloom restarts and finishes the update."
+    "plugin_code_mismatch": "The installed code of this extension does not match its saved version after a failed update. It will not start until Meshloom restarts and finishes the update.",
+    "repository_invalid": "Enter a GitHub repository as owner/name.",
+    "repository_exists": "This repository is already in the list.",
+    "repository_limit": "At most {{limit}} custom repositories.",
+    "repository_not_found": "This repository is not in the list.",
+    "repository_no_release": "This repository has no published release.",
+    "repository_moved": "This repository was renamed or moved on GitHub: add it under its new name.",
+    "repository_tag_invalid": "The latest release has an unusable tag name.",
+    "repository_assets_missing": "The latest release is missing: {{missing}}.",
+    "repository_asset_too_large": "A release file is larger than allowed.",
+    "repository_manifest_invalid": "The release's manifest.json is not a valid plugin manifest.",
+    "repository_archive_invalid": "The release's plugin.zip is not a valid plugin archive, or does not match manifest.json.",
+    "repository_sha256_invalid": "plugin.zip.sha256 is unreadable or does not match plugin.zip.",
+    "archive_mismatch": "The downloaded archive does not match its expected checksum.",
+    "store_offline": "The Store is offline: put it online to do this.",
+    "download_blocked": "The download was refused (host not allowed or redirect to another host).",
+    "download_failed": "The download failed. Try again later.",
+    "plugin_source_unavailable": "This plugin's source is not available."
   }
 }

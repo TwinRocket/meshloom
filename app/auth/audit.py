@@ -79,6 +79,9 @@ AuditAction = Literal[
     "plugin.removed",
     "plugins.paused",
     "plugins.resumed",
+    # Custom Store repositories (`app/routers/store.py`, target `repository:<owner/name>`).
+    "store.repository_added",
+    "store.repository_removed",
     # Instance-wide actions
     "backup.restored",
     "private_key.imported",

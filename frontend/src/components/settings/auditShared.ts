@@ -42,6 +42,8 @@ export const AUDIT_FAMILIES = {
     'plugin.removed',
     'plugins.paused',
     'plugins.resumed',
+    'store.repository_added',
+    'store.repository_removed',
   ],
   instance: [
     'backup.restored',

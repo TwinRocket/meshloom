@@ -288,6 +288,8 @@ def test_vocabulary_covers_the_ticket_events():
         "plugin.config_changed",
         "plugins.paused",
         "plugins.resumed",
+        "store.repository_added",
+        "store.repository_removed",
         "backup.restored",
         "private_key.imported",
         "factory_reset",

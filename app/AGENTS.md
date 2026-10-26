@@ -417,7 +417,13 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   `MIN_REFRESH_GAP_S` (10 min; a tick skipped by that gap waits only the rest of it),
   it runs the steps registered with
   `register_store_refresher()`, and only when at least one `custom` or `store` instance
-  is installed. M2a registers none yet (skeleton).
+  is installed. Registered: `custom_repos.refresh_repositories` (MSHL-196).
+- **Custom repositories** (`plugins/custom_repos.py`, MSHL-196, `docs/dev/plugins.md`,
+  "Custom repositories"): GitHub `owner/name` read through `store_fetch` with
+  `CUSTOM_REPO_HOSTS` (the GitHub hosts only), the `releases/latest` redirect never
+  followed, assets capped; the `custom` installer resolver and the refresher are wired by
+  `custom_repos.register()` in `app/main.py`. Routes `GET/POST/DELETE
+  /api/store/repositories` (admin); table `store_repositories` (migration 126).
 - **Status.** `GET /api/store/status` (admin, `StoreStatus`) makes no request: the
   consent, `hosts` (read from `STORE_ALLOWLIST`, so it cannot drift from what the client
   reaches), what is sent (IP address, User-Agent), the cadence, what is missed while off
@@ -425,7 +431,8 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
 - **Backups.** `store_online` is a consent: left out of the JSON export
   (`_CONSENT_FIELDS`), never restored, reset to 0 in a database copy.
 - Tests: `tests/test_store_egress.py` (nothing leaves while off, Community on or off,
-  loop included); `tests/test_community_off_no_egress.py` allows exactly
+  loop included, the repository routes included); `tests/test_store_repositories.py`
+  (custom repositories, GitHub mocked); `tests/test_community_off_no_egress.py` allows exactly
   `store.meshloom.app` when `store_online` is on.
 
 ## Recovery CLI (`app/cli.py`)
