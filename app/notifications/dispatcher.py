@@ -549,6 +549,20 @@ class Dispatcher:
         ids = channel_ids if listed else [*channel_ids, BUILTIN_PUSH_ID]
         return ids, (audience if overrides or push_mention is not None else None)
 
+    async def claim_cooldown(self, *claims: tuple[str, int]) -> bool:
+        """Start the cooldowns ``(key, seconds)`` unless one is still running: all or nothing,
+        kept in the dedup store (``notification_state``, so a restart forgets nothing). Used by
+        the keyword rules (per rule, and per rule and sender)."""
+        await self._dedup.load()
+        keys = [(f"{DEDUP_PREFIX}cooldown:{key}", ttl) for key, ttl in claims if ttl > 0]
+        if any(self._dedup.seen(key) for key, _ in keys):
+            return False
+        for key, ttl in keys:
+            self._dedup.mark(key, ttl)
+        if keys:
+            self._start_counter_loop()
+        return True
+
     # -- quiet hours ------------------------------------------------------------
 
     async def _first_hold(

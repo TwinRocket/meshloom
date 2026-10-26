@@ -35,6 +35,8 @@ import aiosqlite
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.models import BackupSection
+from app.notifications.keywords import MAX_KEYWORDS
+from app.notifications.keywords import clean_rule as clean_keyword_rule
 from app.repository.notification_channels import PENDING_SECRETS, decode_secrets, encode_secrets
 from app.services.backup_accounts import USER_NOTIFICATION_RULES_SECTION, USERS_SECTION
 from app.services.backup_sections import RestoreSource, register_backup_section, register_on_restore
@@ -435,9 +437,18 @@ def sanitize_rules(raw: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
         kept: list[dict[str, Any]] = []
         for entry in raw_list if isinstance(raw_list, list) else []:
             try:
-                if len(kept) >= MAX_RULE_ENTRIES:
+                if len(kept) >= (MAX_KEYWORDS if name == "keywords" else MAX_RULE_ENTRIES):
                     raise ValueError(name)
-                kept.append(_ListRule.model_validate(entry).model_dump())
+                if name == "keywords":
+                    # The same checks as the API (``keywords.py``): a rule that would be
+                    # refused there is not restored; ids stay unique.
+                    rule = clean_keyword_rule(entry)
+                    if any(rule["id"] == k["id"] for k in kept):
+                        raise ValueError("id")
+                    _ListRule.model_validate(rule)
+                    kept.append(rule)
+                else:
+                    kept.append(_ListRule.model_validate(entry).model_dump())
             except (ValueError, ValidationError):
                 dropped += 1
         if raw_list is not None and not isinstance(raw_list, list):

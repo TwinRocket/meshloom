@@ -138,7 +138,8 @@ export interface NotificationRules {
   events: Record<string, NotificationEventRule>;
   /** `{conversation key: {channel id: on/off}}`. */
   conversations: Record<string, Record<string, boolean>>;
-  keywords: unknown[];
+  /** Keyword rules (`message.keyword`, at most 20). */
+  keywords: NotificationKeywordRule[];
   watched_nodes: unknown[];
   radio_offline_grace_s: number;
   mention_whole_word: boolean;
@@ -157,6 +158,19 @@ export interface NotificationQuietHours {
   digest_at_end: boolean;
 }
 
+/** A keyword rule (`app/notifications/keywords.py`): no regex, 64 characters at most. */
+export interface NotificationKeywordRule {
+  id: string;
+  pattern: string;
+  match: 'contains' | 'word';
+  /** Every conversation, the direct messages, or these conversation keys (`channel-<key>`). */
+  scope: 'all' | 'dms' | string[];
+  channels: string[];
+  cooldown_s: number;
+}
+
+export type NotificationKeywordInput = Omit<NotificationKeywordRule, 'id'> & { id?: string };
+
 export interface NotificationRulesPatch {
   quiet_hours?: Partial<NotificationQuietHours>;
   events?: Record<string, Partial<NotificationEventRule>>;
@@ -164,6 +178,8 @@ export interface NotificationRulesPatch {
   paused_until?: number | null;
   radio_offline_grace_s?: number;
   mention_whole_word?: boolean;
+  /** The whole list; a rule without an `id` gets one from the server. */
+  keywords?: NotificationKeywordInput[];
   push_allow_private_endpoints?: boolean;
 }
 

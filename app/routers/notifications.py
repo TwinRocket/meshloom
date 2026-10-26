@@ -35,6 +35,8 @@ from app.notifications.channels import (
     types_schema,
 )
 from app.notifications.events import EVENT_IDS
+from app.notifications.keywords import KeywordError
+from app.notifications.keywords import clean_rules as clean_keyword_rules
 from app.notifications.legacy_sync import MEDIUM_IDS, sync_columns
 from app.notifications.quiet_hours import quiet_hours_of, validate_quiet_hours
 from app.repository.notification_channels import (
@@ -58,7 +60,10 @@ LOCKED_PUSH_EVENTS = frozenset({"notify.channel_changed", "notify.destination_ch
 # Not rule targets: the test button, and the failing-channel notice (MSHL-130), which
 # goes to Web Push and every other enabled channel whatever the rules say, and the heartbeat
 # (MSHL-131), set per channel (``heartbeat_interval_s``).
-NOT_CONFIGURABLE = frozenset({"notify.test", "notify.channel_failed", "notify.heartbeat"})
+# ``message.keyword`` is driven by the keyword rules (``rules.keywords``), not the matrix.
+NOT_CONFIGURABLE = frozenset(
+    {"notify.test", "notify.channel_failed", "notify.heartbeat", "message.keyword"}
+)
 URGENT_EVENTS = frozenset({"radio.offline", "telemetry.alert", "notify.channel_changed"})
 MAX_PAUSE_S = 366 * 86400
 LEGACY_CHANNELS = frozenset(MEDIUM_IDS - {BUILTIN_PUSH_ID})
@@ -172,6 +177,9 @@ class RulesPatch(BaseModel):
     paused_until: int | None = None
     radio_offline_grace_s: int | None = Field(None, ge=0, le=3600)
     mention_whole_word: bool | None = None
+    # The whole list of keyword rules (``keywords.py``): validated server-side, replaces the
+    # stored list; a rule without an ``id`` gets one.
+    keywords: list[dict[str, Any]] | None = None
     push_allow_private_endpoints: bool | None = None
 
 
@@ -552,7 +560,8 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
     """Change event rules (per event: channels, ``always_deliver``, contact types), the quiet
     hours (``quiet_hours``: ``enabled``, ``start``, ``end``, ``weekdays``, ``digest_at_end``; a
     missing field keeps its value), the global pause (``paused_until``: epoch seconds, ``null`` resumes), the radio offline grace, the
-    mention rule and the private push endpoints."""
+    mention rule, the keyword rules (``keywords``, the whole list: at most 20 rules, patterns of at
+    most 64 characters, no regex) and the private push endpoints."""
     rules = await NotificationChannelRepository.get_rules()
     known = await _known_channel_ids()
     fields = body.model_fields_set
@@ -599,6 +608,11 @@ async def patch_rules(body: RulesPatch, request: Request) -> dict[str, Any]:
             raise fail("invalid_config", 400, fields=[f"quiet_hours.{exc.args[0]}"]) from None
     if "mention_whole_word" in fields and body.mention_whole_word is not None:
         rules["mention_whole_word"] = body.mention_whole_word
+    if body.keywords is not None:
+        try:
+            rules["keywords"] = clean_keyword_rules(body.keywords, known_channels=known)
+        except KeywordError as exc:
+            raise fail("invalid_config", 400, fields=[f"keywords.{exc.args[0]}"]) from None
     rules.setdefault("version", 1)
     await NotificationChannelRepository.set_rules(rules)
     if body.events:

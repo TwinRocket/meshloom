@@ -13,10 +13,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from app.channel_constants import is_public_channel_key
+from app.notifications import keywords as keywords_mod
 from app.notifications import rules as rules_mod
 from app.notifications.channels import BUILTIN_PUSH_ID
-from app.notifications.dispatcher import emit
-from app.notifications.events import NotificationEvent, event_from_payload
+from app.notifications.dispatcher import emit, notification_dispatcher
+from app.notifications.events import NotificationEvent, dedup_hash, event_from_payload
 from app.notifications.mention import is_mention
 from app.notifications.user_rules import build_audience
 
@@ -45,6 +46,8 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
     payload = dict(data)
     payload.setdefault("event", "message")
     payload.pop("mention", None)  # decided here, from the radio name: never taken from the input
+    payload.pop("keyword", None)  # likewise decided here, from the keyword rules
+    payload.pop("keyword_id", None)
     event = event_from_payload(payload)
     if event is None:
         return
@@ -109,6 +112,11 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
         muted=muted,
         blocked=blocked,
     )
+    receiving = {*candidates, *mentioned}
+    if not audience.empty:
+        receiving.add(BUILTIN_PUSH_ID)
+    if not (muted or blocked):
+        await _emit_keywords(payload, rules, receiving, is_open)
     # Nobody to reach: no instance channel left after the mention split, and no account's
     # Web Push wants it.
     if audience.empty and not [
@@ -125,6 +133,60 @@ async def _emit_message(data: Mapping[str, Any]) -> None:
         blocked=blocked,
         push_mention=push_mention,
     )
+
+
+async def _emit_keywords(
+    payload: Mapping[str, Any],
+    rules: Mapping[str, Any],
+    receiving: set[str],
+    is_open: bool,
+) -> None:
+    """``message.keyword`` for each keyword rule the message triggers (``keywords.py``).
+
+    Only on the rule's channels that do not already receive this message (``receiving``: the
+    channels of ``message.dm`` / ``message.channel`` / ``message.mention`` for it, so no channel
+    gets it twice). The caller skips muted conversations and blocked senders; the dispatcher
+    applies the pauses. A rule fires once per message (dedup key per rule and message) and
+    starts its cooldown per rule and per rule and sender, only when it reaches a channel.
+    A match is never urgent: the text is forgeable."""
+    try:
+        hits = keywords_mod.matching_rules(rules, payload)
+        if not hits:
+            return
+        sender = dedup_hash(keywords_mod.sender_id(payload))
+        for rule in hits:
+            rule_id = str(rule.get("id") or "")
+            ids = rule.get("channels")
+            targets = [
+                c
+                for c in (ids if isinstance(ids, list) else [])
+                if isinstance(c, str) and c != BUILTIN_PUSH_ID and c not in receiving
+            ]
+            if not rule_id or not targets:
+                continue
+            cooldown = rule.get("cooldown_s")
+            if not await notification_dispatcher().claim_cooldown(
+                (f"kw:{rule_id}", cooldown if isinstance(cooldown, int) else 0),
+                (f"kw:{rule_id}:{sender}", keywords_mod.sender_cooldown_s(rule)),
+            ):
+                continue
+            keyword_payload = {
+                **payload,
+                "keyword": str(rule.get("pattern") or ""),
+                "keyword_id": rule_id,
+            }
+            keyword_event = event_from_payload(keyword_payload)
+            if keyword_event is None:
+                continue
+            await emit(
+                keyword_event,
+                payload=keyword_payload,
+                targets=targets,
+                rules=rules,
+                is_open=is_open,
+            )
+    except Exception:
+        logger.debug("keyword notification failed", exc_info=True)
 
 
 def _radio_name() -> str | None:

@@ -1,0 +1,43 @@
+{
+  "settings": {
+    "notifications": {
+      "keywords": {
+        "title": "Keywords",
+        "help": "Notify a channel when a message holds a word or phrase, in addition to the usual notifications. A channel that already receives the message does not get it twice. A keyword never makes a notification urgent, and muted, blocked and paused conversations stay silent.",
+        "forgery": "Anyone in range can write a keyword in a channel: channel messages are not authenticated, so a message that matches may be forged. Do not rely on a keyword alone for anything critical. Each rule has a cooldown, and the same sender cannot trigger the same rule again within 15 minutes. Web Push is not available for keywords.",
+        "empty": "No keyword rule yet.",
+        "count": "{{count}} of {{max}} rules",
+        "full": "Limit reached ({{max}} rules).",
+        "add": "Add a keyword",
+        "addTitle": "Add a keyword",
+        "editTitle": "Edit the keyword",
+        "dialogHelp": "Text is compared without regard to case. No regular expressions.",
+        "edit": "Edit the keyword {{pattern}}",
+        "remove": "Remove the keyword {{pattern}}",
+        "pattern": "Word or phrase",
+        "patternHelp": "Up to {{max}} characters.",
+        "match": "Match",
+        "match_contains": "Contains the text",
+        "match_word": "Whole word",
+        "scope": "Where",
+        "scopeAll": "All conversations",
+        "scopeDms": "Direct messages only",
+        "scopeChosen": "Chosen conversations",
+        "scopeFilter": "Filter conversations",
+        "scopeNone": "Pick at least one conversation.",
+        "channels": "Notify these channels",
+        "channelsHelp": "Web Push is not offered: it is decided per account.",
+        "noChannel": "no channel",
+        "cooldown": "Cooldown (minutes)",
+        "cooldownHelp": "After a match, the rule stays quiet for this long, whoever writes. 0 turns the rule cooldown off; a sender still has to wait at least 15 minutes.",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
+      "log": {
+        "events": {
+          "message_keyword": "Keyword"
+        }
+      }
+    }
+  }
+}

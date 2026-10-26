@@ -212,6 +212,7 @@ Les mêmes choix sont disponibles par `GET`, `PATCH` et `DELETE /api/push/my-rul
 | Messages privés | Un message direct arrive, y compris les messages de serveurs de salon |
 | Messages de canal | Un message arrive sur le salon Public ou sur un salon `#`. Un salon à clé privée reste muet sans exception qui l’active |
 | Mentions | Un message de salon vous nomme, voir [Les mentions](#les-mentions) |
+| Mot-clé | Un message contient le texte d’une règle de mot-clé, voir [Les mots-clés](#les-mots-clés). Réglé dans sa propre carte, pas dans ce tableau |
 | Nouveau nœud vu | Un nœud est entendu pour la première fois, avec une sous-ligne par type : **Compagnons** (la radio d’une personne), **Répéteurs** et **Capteurs**. Seul compte un nouveau contact ajouté une fois le démarrage de la radio terminé : un nœud déjà connu, un nœud inconnu et un serveur de salon ne le déclenchent jamais |
 | Canal trouvé | Meshloom trouve un nouveau salon hashtag |
 | Alerte de télémétrie | Un répéteur ou un contact suivi franchit un seuil d’alerte. Les seuils et les canaux qui les reçoivent (une pastille par canal) se règlent sur la page **Alertes** |
@@ -241,6 +242,22 @@ Un canal ntfy, webhook, Apprise, Gotify ou Home Assistant peut envoyer un **batt
 Un message de canal **vous mentionne** quand il contient `@[` + le nom de votre radio + `]` (par exemple `@[Bob]`), quelle que soit la casse. Avec **Mots entiers uniquement** coché (ligne *Mentions* du tableau), le nom de votre radio écrit comme un mot entier compte aussi : *Al* correspond à « salut al ! » mais pas à « Alpha ». Une mention est envoyée aux canaux cochés sur la ligne **Mentions**, à la place de la notification ordinaire du canal sur ces canaux : un canal ne reçoit donc jamais les deux ; elle s’intitule « Mention dans #paris par Léa » et remplace la notification ordinaire de cette conversation dans la barre de notifications. Les canaux où **Mentions** n’est pas coché continuent de recevoir la notification ordinaire. La sourdine d’un canal, les listes de blocage et Ne pas déranger s’appliquent comme pour tout message, et une mention n’est **jamais urgente**. Elle est activée par défaut pour les canaux qui reçoivent les messages privés.
 
 **N’importe qui à portée peut forger une mention :** les messages de canal ne sont pas authentifiés, donc quiconque écrit `@[votre nom]` fait « mentionner » votre radio. C’est pourquoi une mention n’est jamais urgente, et pourquoi, sur un **canal privé** (qui a sa propre clé), elle n’atteint que les canaux qui ne sont pas un tiers (Web Push, un ntfy auto-hébergé, un relais e-mail sur votre réseau…) ou ceux que vous avez explicitement autorisés pour cette conversation par une exception (**activé**) dans la liste des conversations ; une exception sur **activé** reçoit la mention même si le canal n’est pas coché sur la ligne **Mentions**. Les canaux Apprise et webhook, et les préréglages construits sur Apprise (Telegram, Gotify, Home Assistant, Pushover et les autres), comptent toujours comme un tiers, car le type ne dit pas où ils envoient. Les messages privés ne sont pas des mentions.
+
+## Les mots-clés
+
+Une **règle de mot-clé** notifie un canal quand un message contient un mot ou une expression, **en plus** des notifications habituelles : « secours » ou le nom d’un lieu peut atteindre un canal dédié. On les ajoute dans **Réglages → Notifications → Mots-clés** (administrateurs) : le texte (64 caractères au plus), le mode de correspondance, où, quels canaux et un délai de récupération.
+
+- **Correspondance.** *Contient le texte* trouve le texte n’importe où (« secours » dans « au secours ! » comme dans « secoursx »). *Mot entier* demande autre chose qu’une lettre, un chiffre ou `_` de chaque côté : « secours » correspond à « au secours ! » mais pas à « secoursx ». Un bord qui n’est ni une lettre, ni un chiffre, ni `_` (comme dans `#paris` ou un émoji) n’exige rien autour de ce côté : `🆘` correspond dans « aide🆘vite ». La casse ne compte pas, et les lettres accentuées écrites sous l’une ou l’autre forme Unicode sont égales (« é » en un caractère ou « e » plus un accent). Les accents comptent encore : « cafe » ne correspond pas à « café ». Pas d’expressions régulières, volontairement : rien de ce qu’un inconnu écrit ne peut ralentir Meshloom.
+- **Où.** Toutes les conversations, les messages privés seulement, ou les conversations que vous cochez. Le nom de l’expéditeur qui commence un message de canal n’est pas cherché.
+- **Canaux.** Choisissez les canaux de la règle. **Web Push n’est pas proposé** : il se décide compte par compte, et une règle de mot-clé est un réglage d’instance. Un canal qui **reçoit déjà ce message** (en message privé, en message de canal ou en mention) ne reçoit pas en plus la notification de mot-clé : une notification par canal. Le titre est « Mot-clé « secours » dans #paris ».
+- **Délai de récupération.** Après une correspondance, la règle reste silencieuse pendant le délai choisi (5 minutes par défaut, de 0 à 24 heures), quel que soit l’expéditeur. En plus, un même expéditeur ne peut pas redéclencher la même règle avant 15 minutes, ou avant le délai s’il est plus long. Un message ne déclenche une règle qu’une fois.
+- **Limites.** 20 règles au plus ; le serveur refuse une 21ᵉ règle et un texte de plus de 64 caractères.
+
+Une conversation en sourdine, un expéditeur bloqué, un canal en attente, *Ne pas déranger* et la pause d’un canal l’emportent toujours : un mot-clé ne les traverse pas, et une notification de mot-clé n’est **jamais urgente**. La politique de texte de chaque canal s’applique comme pour tout message.
+
+**Un mot-clé peut être forgé par n’importe qui à portée :** les messages de canal ne sont pas authentifiés, donc quiconque écrit le mot déclenche la règle. C’est pourquoi un mot-clé n’est jamais urgent et a des délais de récupération. Ne vous fiez pas à un mot-clé seul pour quoi que ce soit de critique.
+
+Les règles voyagent dans la sauvegarde complète (partie *Notifications*), vérifiées comme le fait l’API ; une règle qui serait refusée est écartée avec un avertissement.
 
 ## Conversations et exceptions
 

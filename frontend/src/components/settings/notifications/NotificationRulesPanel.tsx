@@ -10,6 +10,7 @@ import { toast } from '../../ui/sonner';
 import { SettingsGroupHeader } from '../settingsPrimitives';
 import { ConversationExceptions } from './ConversationExceptions';
 import { GlobalPauseControl } from './GlobalPauseControl';
+import { KeywordRulesCard } from './KeywordRulesCard';
 import { QuietHoursControl } from './QuietHoursControl';
 import { RulesMatrix } from './RulesMatrix';
 import type { NotificationChannelsState } from './useNotificationChannels';
@@ -106,6 +107,27 @@ export function NotificationRulesPanel({
           channels={channels}
           disabled={busy}
           onPatch={patch}
+        />
+      </div>
+
+      <Separator />
+
+      <div className="space-y-3" id="notification-keywords-section">
+        <SettingsGroupHeader
+          title={t('settings.notifications.keywords.title')}
+          storedOn="server"
+          instant
+        />
+        <p className="text-[0.8125rem] text-muted-foreground">
+          {t('settings.notifications.keywords.help')}
+        </p>
+        <KeywordRulesCard
+          rules={rules.keywords ?? []}
+          channels={channels}
+          contacts={contacts}
+          chatChannels={chatChannels}
+          disabled={busy}
+          onSave={(keywords) => patch({ keywords })}
         />
       </div>
 
