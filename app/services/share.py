@@ -55,8 +55,11 @@ the Community guard.
   so the next read answers ``share_gone`` without a request. The in-memory
   state is updated before the disk delete, and the id is tombstoned for as
   long as a disk entry can live (``_state.deleted``, checked by
-  ``read_object`` before and after the disk cache), so a failed disk delete or
-  a read racing the delete never serves the object again. A 410 (the operator
+  ``read_object`` before and after the disk cache and by ``get_meta`` before
+  and after its fetch), so a failed disk delete or a read racing the delete
+  never serves the object (or its meta) again. The disk cache also keeps a
+  tombstone of its own (``ShareCache.delete``), so an entry whose disk delete
+  failed is not served after a restart either. A 410 (the operator
   blocked it) is ``share_object_blocked`` and a 403 ``not_owner``
   ``share_not_owner``; the local copies go on a 404 or 410 too.
 
@@ -323,8 +326,9 @@ class _State:
         )
         self.meta: TtlLruCache[str, ShareMeta] = TtlLruCache(META_CACHE_SIZE)
         # Ids deleted from this instance, kept as long as a disk-cache entry can
-        # live (``share_cache.TTL_S``): ``read_object`` checks it before the disk
-        # cache, so a failed or racing disk delete never serves a deleted object.
+        # live (``share_cache.TTL_S``): ``read_object`` checks it around the disk
+        # cache and ``get_meta`` around its fetch, so a failed or racing disk
+        # delete never serves a deleted object or re-caches its meta.
         self.deleted: TtlLruCache[str, bool] = TtlLruCache(NEGATIVE_CACHE_SIZE)
         self.banned_until: float | None = None
         # Bumped when sharing is turned off: a request that passed the opt-in
@@ -637,14 +641,23 @@ async def create_link(url: str) -> ShareLink:
 
 
 async def get_meta(share_id: str) -> ShareMeta:
-    """``GET /v1/meta/{id}``: what a link or file is, without following it."""
+    """``GET /v1/meta/{id}``: what a link or file is, without following it.
+
+    An id deleted here (``_state.deleted``) is ``share_gone`` before the cache
+    and again after the fetch, so a request in flight during the delete never
+    re-caches the meta (name, type) of the deleted object.
+    """
     path = f"/v1/meta/{_checked_id(share_id)}"
     if await share_egress_state() is None:
         raise ShareError("share_disabled")
+    if _deleted(share_id):
+        raise ShareError("share_gone")
     cached = _state.meta.get(share_id, _state.clock())
     if cached is not None:
         return cached
     meta: ShareMeta = _parse(ShareMeta, await share_request("GET", path, binding=None, read="meta"))
+    if _deleted(share_id):  # deleted while it was fetched: never cache or serve it
+        raise ShareError("share_gone")
     now = _state.clock()
     _state.meta.set(share_id, meta, now + META_CACHE_S, now)
     return meta

@@ -316,10 +316,15 @@ Community guard.
   evict the local copies (`_forget_object`: first, with no await, a tombstone in
   `_state.deleted` for `ShareCache.ttl_s`, the meta cache entry dropped and a negative
   `gone` for both read keys; then `ShareCache.delete`). `read_object` checks the
-  tombstone before and after the disk cache read and around its store, so the next
-  read answers 410 with no request, even when the disk delete failed or a read raced
-  it (MSHL-383). `gone` (blocked by the service) is re-raised as 409
-  `share_object_blocked`; `not_owner` is 403 `share_not_owner` and keeps the local
+  tombstone before and after the disk cache read and around its store, and `get_meta`
+  before its cache and after its fetch (never re-caching a deleted object's meta), so
+  the next read answers 410 with no request, even when the disk delete failed or a read
+  raced it (MSHL-383, MSHL-387). `ShareCache.delete` writes a disk tombstone
+  (`deleted:<id>`, expiring after `TTL_S`) before dropping the entry, so an entry whose
+  drop failed is still never served (`get` drops it then) nor stored again after a
+  restart; a failed tombstone write is logged and the drop still attempted; if both
+  fail, the entry lives at most `TTL_S`. `gone` (blocked by the service) is re-raised
+  as 409 `share_object_blocked`; `not_owner` is 403 `share_not_owner` and keeps the local
   copy. A disk eviction failure is logged (exception type only) and never fails the
   delete.
   Every new network function must be added to `SERVICE_CALLS` in
@@ -433,7 +438,9 @@ Community guard.
   plaintext or key material is ever stored (decrypted per request by the route).
   A refusal is negatively cached like a 404/410, so a refused object is not
   downloaded again for 10 min. Only validated objects are stored. Opting out does
-  not empty the disk cache (`POST /cache/clear` does). Tests:
+  not empty the disk cache (`POST /cache/clear` does). Deletion tombstones
+  (`deleted:<id>`, see Own objects) are entries too: they count toward the 5000 and
+  `POST /cache/clear` drops them with the objects. Tests:
   `tests/test_share_cache.py`.
 - **Routes (`routers/share.py`, prefix `/api/share`).** `GET /status` (`read`; no
   egress: `enabled`, `host`, `hosts`, `identity_ready`, `dm_encryption_available`
