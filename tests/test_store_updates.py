@@ -534,3 +534,171 @@ async def test_a_held_instance_reports_the_dropped_value_on_its_hold(api, net, t
     attention = (await _row(only))["attention"]
     assert attention["type"] == "consent_required"
     assert attention["config_dropped"] == ["greeting"]
+
+
+# --- auto-update holds and the hourly evaluation (MSHL-393) -------------------------
+
+# Like SCHEMA_INT, and the secret's declaration changes too: a secret is never reported.
+SCHEMA_INT_SECRET = {
+    "type": "object",
+    "properties": {
+        "greeting": {"type": "integer"},
+        # The stored secret is longer: the new schema rejects it, and it is never reported.
+        "token": {"type": "string", "writeOnly": True, "maxLength": 3},
+    },
+    "required": [],
+}
+
+
+async def _updated_audits() -> list:
+    from app.repository.auth import AuthAuditRepository
+
+    return [
+        e for e in await AuthAuditRepository.list_recent(limit=1000) if e.action == "plugin.updated"
+    ]
+
+
+async def test_auto_update_holds_a_dropped_value_for_a_manual_update(
+    api, manager, net, tmp_path, monkeypatch
+):
+    only = await _auto_setup(api, net, tmp_path, monkeypatch, schema=SCHEMA_INT)
+    [entry] = (await api.get("/api/store/updates")).json()
+    [instance] = entry["instances"]
+    assert (instance["hold"], instance["auto_hold"]) == (None, "config_dropped")
+    assert instance["dropped_fields"] == ["greeting"]
+
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 3, 0))
+    before = len(net.requests)
+    await updates.auto_update()
+    row = await _row(only)
+    assert (row["version"], row["attention"]) == ("1.0.0", None)
+    assert row["config"]["greeting"] == "hi 0"
+    assert net.requests[before:] == []  # held before any download
+
+    # The manual update keeps today's behaviour: applied, with the notice.
+    response = await api.post(f"/api/plugins/{only}/update", json={})
+    assert response.status_code == 200, response.text
+    row = await _row(only)
+    assert row["version"] == "1.1.0"
+    assert row["attention"]["type"] == "config_dropped"
+    assert row["attention"]["fields"] == ["greeting"]
+    assert manager.get(only) is not None
+
+
+async def test_the_update_guard_holds_a_dropped_value_on_its_own(api, net, tmp_path, monkeypatch):
+    """The guard inside ``update_plugin`` (a release cached before its schema was)."""
+    only = await _auto_setup(api, net, tmp_path, monkeypatch, schema=SCHEMA_INT)
+    assert await updates.update_plugin(only, auto=True) is None
+    row = await _row(only)
+    assert (row["version"], row["attention"]) == ("1.0.0", None)
+    assert row["config"]["greeting"] == "hi 0"
+
+
+async def test_the_dropped_value_is_audited(api, net, tmp_path):
+    ids = await _setup(api, net, tmp_path, instances=2)
+    await _release(net, tmp_path, schema=SCHEMA_INT)
+    assert (await api.post(f"/api/plugins/{ids[0]}/update", json={})).status_code == 200
+    audits = await _updated_audits()
+    assert len(audits) == len(ids)  # the route's row and the sibling's
+    for e in audits:
+        assert e.details["config_dropped"] == ["greeting"]
+        assert e.details["held"] is None
+
+
+async def test_a_secret_is_never_reported_as_dropped(api, net, tmp_path):
+    [only] = await _setup(api, net, tmp_path)
+    await _release(net, tmp_path, schema=SCHEMA_INT_SECRET)
+    [entry] = (await api.get("/api/store/updates")).json()
+    [instance] = entry["instances"]
+    assert instance["dropped_fields"] == ["greeting"]
+    assert (await api.post(f"/api/plugins/{only}/update", json={})).status_code == 200
+    row = await _row(only)
+    assert row["attention"]["fields"] == ["greeting"]
+    [audit_row] = await _updated_audits()
+    assert audit_row.details["config_dropped"] == ["greeting"]
+    assert SECRET not in str(audit_row.details) and "token" not in str(audit_row.details)
+
+
+@pytest.mark.parametrize("kind", ["config_required", "review_permissions"])
+async def test_leaving_incompatible_brings_a_hold_back(api, manager, net, tmp_path, kind):
+    [only] = await _setup(api, net, tmp_path)
+    await manager.stop_all(5.0)
+    attention = (
+        {"type": kind, "fields": ["greeting"]}
+        if kind == "config_required"
+        else {
+            "type": kind,
+            "added": ["contacts.read"],
+        }
+    )
+    await PluginRepository.update(only, status="incompatible", attention=attention)
+    await updates.mark_compat()
+    row = await _row(only)
+    assert (row["status"], row["attention"]["type"]) == ("needs_attention", kind)
+
+
+async def test_leaving_incompatible_with_a_notice_only_is_installed(api, manager, net, tmp_path):
+    [only] = await _setup(api, net, tmp_path)
+    await manager.stop_all(5.0)
+    notice = {"type": "config_dropped", "fields": ["greeting"]}
+    await PluginRepository.update(only, status="incompatible", attention=notice)
+    await updates.mark_compat()
+    assert (await _row(only))["status"] == "installed"
+
+
+async def test_the_hourly_evaluation_updates_without_refreshing(api, net, tmp_path, monkeypatch):
+    only = await _auto_setup(api, net, tmp_path, monkeypatch)
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 3, 0))
+    refreshed: list[int] = []
+
+    async def refresher() -> None:
+        refreshed.append(1)
+
+    store_egress.register_store_refresher(refresher)
+    updates.register()
+    # Outside the window an evaluation reads the cache only: no request at all.
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 10, 0))
+    before = len(net.requests)
+    assert await store_egress.run_store_evaluation() is True
+    assert net.requests[before:] == []
+    assert (await _row(only))["version"] == "1.0.0"
+    # Inside it, the cached release is applied (the install pipeline downloads it).
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 3, 0))
+    assert await store_egress.run_store_evaluation() is True
+    assert refreshed == []
+    assert store_egress._state.last_refresh_at is None
+    assert (await _row(only))["version"] == "1.1.0"
+
+
+async def test_the_evaluation_waits_for_the_store_consent(api, net, tmp_path, monkeypatch):
+    only = await _auto_setup(api, net, tmp_path, monkeypatch)
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 3, 0))
+    updates.register()
+    await AppSettingsRepository.update(store_online=False)
+    before = len(net.requests)
+    assert await store_egress.run_store_evaluation() is False
+    assert net.requests[before:] == []
+    assert (await _row(only))["version"] == "1.0.0"
+
+
+async def test_a_failed_auto_update_is_not_retried_every_hour(api, net, tmp_path, monkeypatch):
+    from fastapi import HTTPException
+
+    await _auto_setup(api, net, tmp_path, monkeypatch)
+    monkeypatch.setattr(updates, "clock", lambda: datetime(2026, 10, 26, 3, 0))
+    calls: list[str] = []
+
+    async def failing(instance_id, **_kwargs):
+        calls.append(instance_id)
+        raise HTTPException(500, {"code": "update_failed"})
+
+    monkeypatch.setattr(updates, "update_plugin", failing)
+    now = [1000.0]
+    monkeypatch.setattr(updates.time, "monotonic", lambda: now[0])
+    await updates.auto_update()
+    now[0] += store_egress.EVALUATE_INTERVAL_S
+    await updates.auto_update()
+    assert len(calls) == 1
+    now[0] += store_egress.REFRESH_INTERVAL_S
+    await updates.auto_update()
+    assert len(calls) == 2
