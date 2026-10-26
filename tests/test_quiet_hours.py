@@ -210,7 +210,8 @@ async def test_one_update_per_event_and_no_text_stored(test_db):
             await dispatcher.emit(None, payload=_dm(n=n), targets=["email-1"])
     finally:
         await conn.set_trace_callback(None)
-    state = [s for s in statements if "notification_state" in s]
+    # The journal rows queue their own 24 h tallies (``stat:`` keys, MSHL-390): not counted here.
+    state = [s for s in statements if "notification_state" in s and "stat:" not in s]
     assert len(state) == 5 and all(s.startswith("UPDATE") for s in state)
     [(key, value)] = (await _counters(test_db)).items()
     assert key == f"quiet:email-1:message.dm:contact-{DM_KEY}" and value == "6"
