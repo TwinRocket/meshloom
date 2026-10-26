@@ -32,6 +32,7 @@ from app.decoder import (
 )
 from app.keystore import get_private_key, get_public_key, has_private_key
 from app.models import (
+    CONTACT_TYPE_REPEATER,
     Contact,
     ContactUpsert,
     RawPacketBroadcast,
@@ -866,17 +867,26 @@ async def _process_direct_message(
                 ),
             )
 
+            # A direct message from a watched node is a sighting too, counted once per message:
+            # a stored one when it is stored (a duplicate reception returns None and is not a new
+            # sighting), a decoded-but-never-stored one (a repeater's reply, a CLI response) once
+            # per (sender, timestamp, text) (MSHL-408).
             if not effective_outgoing:
-                # A direct message from a watched node is a sighting too.
-                from app.notifications.watched_nodes import observe_sighting
+                from app.notifications.watched_nodes import claim_unstored_dm, observe_sighting
 
-                await observe_sighting(
-                    contact.public_key,
-                    name=contact.name or "",
-                    contact_type=contact.type or 0,
-                    previous_seen=contact.last_seen,
-                    now=int(timestamp),
-                )
+                unstored = result.txt_type == 1 or contact.type == CONTACT_TYPE_REPEATER
+                if (
+                    claim_unstored_dm(contact.public_key, result.timestamp, result.message)
+                    if unstored
+                    else msg_id is not None
+                ):
+                    await observe_sighting(
+                        contact.public_key,
+                        name=contact.name or "",
+                        contact_type=contact.type or 0,
+                        previous_seen=contact.last_seen,
+                        now=int(timestamp),
+                    )
 
             return {
                 "decrypted": True,

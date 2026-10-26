@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Collection, Mapping
 from typing import Any
 
@@ -181,6 +182,25 @@ async def _record_sighting(public_key: str, now: int) -> None:
 
 
 # --- the service -------------------------------------------------------------------
+
+
+_UNSTORED_SEEN: OrderedDict[tuple[str, int, str], None] = OrderedDict()
+_UNSTORED_SEEN_MAX = 256
+
+
+def claim_unstored_dm(public_key: str, sender_timestamp: int, text: str) -> bool:
+    """True the first time a DM that is decoded but never stored (a repeater's reply, a CLI
+    response) is seen. Stored DMs are deduplicated by the message table; these have no row, so a
+    small bounded memory of recent ones stops several receptions, or both ingest paths, counting
+    one DM twice (MSHL-408)."""
+    ident = (public_key.lower(), int(sender_timestamp), text)
+    if ident in _UNSTORED_SEEN:
+        _UNSTORED_SEEN.move_to_end(ident)
+        return False
+    _UNSTORED_SEEN[ident] = None
+    while len(_UNSTORED_SEEN) > _UNSTORED_SEEN_MAX:
+        _UNSTORED_SEEN.popitem(last=False)
+    return True
 
 
 async def observe_sighting(
