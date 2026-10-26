@@ -71,6 +71,10 @@
           "private_key.imported": "Clé privée importée",
           "factory_reset": "Radio réinitialisée (usine)",
           "update.triggered": "Mise à jour lancée",
+          "share.enabled": "Partage activé",
+          "share.disabled": "Partage désactivé",
+          "share.object_deleted": "Objet partagé supprimé",
+          "share.report_sent": "Objet partagé signalé",
           "remote.linked": "Accès à distance lié",
           "remote.enabled": "Accès à distance activé",
           "remote.disabled": "Accès à distance désactivé"

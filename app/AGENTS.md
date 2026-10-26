@@ -495,11 +495,22 @@ Community guard.
   composer's suggested message; `size` is the stored bytes, the envelope when encrypted). On both reads the only query parameter is
   `message_id` (anything else or a repeat is 400 `share_invalid_request`); when
   given, the message must exist and contain the id (else 404 `share_not_found`)
-  and a non-channel message needs `read_private` (a kiosk gets 403). Every write route depends on
+  and a non-channel message needs `read_private` (a kiosk gets 403 `share_role_forbidden`,
+  checked in the router before any cache read or egress; MSHL-248). Every write route depends on
   `refuse_cross_site`: 403 `share_cross_site` when `Sec-Fetch-Site` is
   `cross-site` (defence in depth: the auth gate already refuses unsafe
   cross-origin requests that are not bearer-token ones). Tests:
   `tests/test_share_routes.py`.
+- **Roles and audit (MSHL-248).** Writes (`/links`, `/files`, `/mine`, `DELETE /{id}`,
+  `/{id}/report`) are `send` (member, admin); `/cache/clear` and the share settings
+  (`PATCH /api/settings`) are `admin`; status and the two reads are `read` (every role,
+  kiosk limited to channel messages as above). Audit rows (`app/auth/audit.py`), actor
+  from `RequestActor`: `share.enabled` / `share.disabled` from `PATCH /api/settings` only
+  when `share_enabled` actually changes (`details.terms_version` on enable),
+  `share.object_deleted` (target `share:<id>`) and `share.report_sent` (target
+  `share:<id>`, `details.reason` only, never the free-text details) through `audited()`;
+  a request refused by the permission gate writes nothing. Tests:
+  `tests/test_share_roles.py`.
 - **Never log** a token, a request body or a response body: log lines carry the
   status, the service code (truncated) or `error_code(exc)` only.
 - Tests: `tests/test_share_service.py` (errors, ban, breaker with an injected

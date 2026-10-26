@@ -71,6 +71,10 @@
           "private_key.imported": "Private key imported",
           "factory_reset": "Radio factory reset",
           "update.triggered": "Update started",
+          "share.enabled": "Sharing turned on",
+          "share.disabled": "Sharing turned off",
+          "share.object_deleted": "Shared object deleted",
+          "share.report_sent": "Shared object reported",
           "remote.linked": "Remote access linked",
           "remote.enabled": "Remote access enabled",
           "remote.disabled": "Remote access disabled"

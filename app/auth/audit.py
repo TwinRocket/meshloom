@@ -89,6 +89,11 @@ AuditAction = Literal[
     "update.triggered",
     "notify.channel_changed",
     "notify.rules_changed",
+    # Link and file sharing (`app/routers/share.py`, `PATCH /settings`).
+    "share.enabled",
+    "share.disabled",
+    "share.object_deleted",
+    "share.report_sent",
     # Remote access (later)
     "remote.linked",
     "remote.enabled",

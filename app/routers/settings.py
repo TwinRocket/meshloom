@@ -425,12 +425,16 @@ async def get_settings_view(request: Request) -> AppSettingsView:
 async def update_settings(
     update: AppSettingsUpdate,
     response: Response = None,  # type: ignore[assignment]  # injected by FastAPI
+    actor: audit.RequestActor = audit.SYSTEM_ACTOR,
 ) -> AppSettings:
     """Update application settings.
 
-    Settings are persisted to the database and survive restarts.
+    Settings are persisted to the database and survive restarts. A change of
+    ``share_enabled`` writes one ``share.enabled`` / ``share.disabled`` audit row
+    with the actor (MSHL-248); a repeat of the current value writes nothing.
     """
     kwargs = {}
+    share_was_enabled: bool | None = None
     if update.ui_preferences is not None:
         start_view = update.ui_preferences.start_view
         if start_view and not is_valid_start_view(start_view):
@@ -568,6 +572,7 @@ async def update_settings(
     if update.share_enabled is not None:
         logger.info("Updating share_enabled to %s", update.share_enabled)
         kwargs["share_enabled"] = update.share_enabled
+        share_was_enabled = (await AppSettingsRepository.get()).share_enabled
     if update.store_online is not None:
         logger.info("Updating store_online to %s", update.store_online)
         kwargs["store_online"] = update.store_online
@@ -600,6 +605,16 @@ async def update_settings(
 
     if kwargs:
         result = await AppSettingsRepository.update(**kwargs)
+
+        if share_was_enabled is not None and share_was_enabled != result.share_enabled:
+            await audit.record(
+                "share.enabled" if result.share_enabled else "share.disabled",
+                "success",
+                actor=actor,
+                details=(
+                    {"terms_version": result.share_terms_version} if result.share_enabled else None
+                ),
+            )
 
         # The poll loop chose its interval before sleeping: restart it so a switch
         # to (or from) the 10-second fallback applies now, not after an hour.

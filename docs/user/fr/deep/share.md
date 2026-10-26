@@ -112,7 +112,9 @@ La page déchiffre avec le code que `meshl.ink` envoie à chaque ouverture : s�
 
 ## Qui peut faire quoi
 
-Activer ou désactiver le partage et régler les modes demande le rôle **administrateur**. Raccourcir un lien, envoyer une photo, signaler un objet et la liste **Mes envois** demandent le rôle **membre** ou plus. Les lecteurs et les bornes peuvent lire les indications et voir les photos des conversations qu’ils ont le droit de lire (une borne ne voit jamais les messages directs ; voir [Comptes et accès](/docs/deep/access/) pour les rôles). Le serveur le vérifie à chaque requête, quoi que l’interface affiche, et refuse une requête que le navigateur signale comme venant d’un autre site web.
+Activer ou désactiver le partage, régler les modes et vider le cache de ce Meshloom demandent le rôle **administrateur**. Raccourcir un lien, envoyer une photo, signaler un objet et la liste **Mes envois** demandent le rôle **membre** ou plus. Les lecteurs et les bornes peuvent lire les indications et voir les photos des conversations qu’ils ont le droit de lire (une borne ne voit jamais les messages directs, ni une photo ou un aperçu de lien partagé dans l’un d’eux ; voir [Comptes et accès](/docs/deep/access/) pour les rôles). Le serveur le vérifie à chaque requête, quoi que l’interface affiche, et refuse une requête que le navigateur signale comme venant d’un autre site web.
+
+Sur un Meshloom à plusieurs comptes, le [journal d’audit](/docs/deep/access/#le-journal-daudit) (administrateurs) note qui a activé ou désactivé le partage, qui a supprimé un objet partagé et qui en a signalé un, avec le motif choisi (jamais les détails saisis).
 
 Un Meshloom a **une seule** identité de partage, un seul consentement, un seul quota et un seul bannissement, quelle que soit la personne qui l’utilise. Sur un Meshloom partagé par plusieurs personnes, chaque membre voit dans **Mes envois** tout ce que ce Meshloom a partagé, peut le supprimer, et partage le même quota quotidien. Un bannissement pour l’abus d’une personne arrête tout le monde.
 
