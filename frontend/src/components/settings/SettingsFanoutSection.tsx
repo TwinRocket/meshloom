@@ -269,6 +269,12 @@ const CREATE_INTEGRATION_DEFINITIONS: readonly CreateIntegrationDefinition[] = [
   },
 ];
 
+/** A fanout Apprise row converted into a notification channel (MSHL-134). */
+function isConvertedFanout(cfg: FanoutConfig): boolean {
+  const target = cfg.config.converted_to;
+  return typeof target === 'string' && target.length > 0;
+}
+
 const CREATE_INTEGRATION_DEFINITIONS_BY_VALUE = Object.fromEntries(
   CREATE_INTEGRATION_DEFINITIONS.map((definition) => [definition.value, definition])
 ) as Record<DraftType, CreateIntegrationDefinition>;
@@ -3175,7 +3181,11 @@ export function SettingsFanoutSection({
     void loadConfigs();
   }, [loadConfigs]);
 
-  const availableCreateOptions = CREATE_INTEGRATION_DEFINITIONS;
+  // Apprise is deprecated (MSHL-134): notification channels replace it, so it is no
+  // longer offered here. Existing rows still show, edit and convert.
+  const availableCreateOptions = CREATE_INTEGRATION_DEFINITIONS.filter(
+    (definition) => definition.value !== 'apprise'
+  );
 
   // While the create dialog is open, fall back to the first available type when the
   // user's pick is missing or no longer offered (derived, not synced in an effect).
@@ -3188,7 +3198,47 @@ export function SettingsFanoutSection({
         ? selectedCreateType
         : availableCreateOptions[0].value;
 
+  // A converted row (MSHL-134) turned back on sends next to its notification channel.
+  const confirmReenableConverted = (cfg: FanoutConfig) =>
+    !isConvertedFanout(cfg) || confirm(t('settings.fanout.convert.confirmReenable'));
+
+  const handleConvert = async (cfg: FanoutConfig) => {
+    if (!confirm(t('settings.fanout.convert.confirm', { name: cfg.name }))) return;
+    setBusy(true);
+    try {
+      const result = await api.convertFanoutToChannel(cfg.id);
+      await loadConfigs();
+      if (onHealthRefresh) await onHealthRefresh();
+      const notes = result.notes
+        .map((note) => t(`settings.fanout.convert.notes.${note}`, { defaultValue: '' }))
+        .filter(Boolean)
+        .join(' ');
+      toast.success(
+        result.already_converted
+          ? t('settings.fanout.convert.alreadyDone', { name: result.channel.name })
+          : t('settings.fanout.convert.done', { name: result.channel.name }),
+        {
+          description: notes || undefined,
+          duration: notes ? 15000 : undefined,
+          action: {
+            label: t('settings.fanout.convert.openChannels'),
+            onClick: () => {
+              window.location.hash = 'settings/notifications';
+            },
+          },
+        }
+      );
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? formatApiError(err, t) : t('settings.fanout.convert.failed')
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleToggleEnabled = async (cfg: FanoutConfig) => {
+    if (!cfg.enabled && !confirmReenableConverted(cfg)) return;
     try {
       await api.updateFanoutConfig(cfg.id, { enabled: !cfg.enabled });
       await loadConfigs();
@@ -3295,6 +3345,10 @@ export function SettingsFanoutSection({
           scope: editScope,
         };
         if (enabled !== undefined) update.enabled = enabled;
+        const editing = configs.find((cfg) => cfg.id === currentEditingId);
+        if (enabled && editing && !editing.enabled && !confirmReenableConverted(editing)) {
+          return;
+        }
         await api.updateFanoutConfig(currentEditingId, update);
       }
       setDraftType(null);
@@ -3660,6 +3714,15 @@ export function SettingsFanoutSection({
                           )}
                         </div>
 
+                        {isConvertedFanout(cfg) && (
+                          <span
+                            className="rounded border border-input px-1.5 py-0.5 text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground"
+                            title={t('settings.fanout.convert.badgeHelp')}
+                          >
+                            {t('settings.fanout.convert.badge')}
+                          </span>
+                        )}
+
                         <div
                           className={cn(
                             'w-2 h-2 rounded-full transition-colors',
@@ -3707,6 +3770,24 @@ export function SettingsFanoutSection({
                           {t('settings.fanout.list.edit')}
                         </Button>
                       </div>
+
+                      {cfg.type === 'apprise' && !isConvertedFanout(cfg) && (
+                        <div className="flex flex-wrap items-center gap-2 border-t border-input px-3 py-2 text-xs text-muted-foreground">
+                          <span className="flex-1 min-w-0">
+                            {t('settings.fanout.convert.deprecated')}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={busy}
+                            onClick={() => void handleConvert(cfg)}
+                          >
+                            {t('settings.fanout.convert.button')}
+                          </Button>
+                        </div>
+                      )}
 
                       {cfg.type === 'mqtt_community' && (
                         <div className="space-y-1 border-t border-input px-3 py-2 text-xs text-muted-foreground">

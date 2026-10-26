@@ -162,6 +162,20 @@ reach every module.
   the one block-list rule the notification rules use too); `mqtt_private`, `sqs` and
   `webhook` still forward them (machine integrations,
   `tests/test_message_filters.py`).
+  Deprecated since 5.0.0 (removal in 5.2.0, MSHL-134): `POST /api/fanout` still
+  accepts it but answers with a `Deprecation: true` header and logs a warning; the
+  UI no longer offers it. `POST /api/fanout/{id}/convert-to-notification-channel`
+  (`app/notifications/fanout_convert.py`) moves a row into a notification channel:
+  the URLs go through `NotificationChannelRepository.create()` (secret store, egress
+  guard), the scope becomes rules, the row is disabled and marked
+  `config.converted_to = <channel id>`. Before creating the channel it writes
+  `config.converting_to = <new channel id>` (write-ahead): a retry after a failure in
+  between reuses that channel or creates it under that id, never a second one. Clients
+  cannot set or clear either key (create drops them, update keeps the stored values);
+  backup and restore carry them as part of `config`. A second call is a no-op
+  (`already_converted`). The answer has no `config` at all (channel and row by id,
+  name, type, state); refusals are `{code, params}` with no config. Never log or
+  return a URL. A converted row turned back on is not reported as a duplicate.
 - **`map_upload`** defaults to `dry_run: true` (logs only), signs each upload with
   the radio's private key from `keystore` and skips without it. Uploads go
   through `_post()` (guard, then pinned client).

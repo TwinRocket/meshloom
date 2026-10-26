@@ -1,5 +1,7 @@
 /** Types of the notifications API (`/api/notifications`, `app/routers/notifications.py`). */
 
+import type { FanoutConfig } from '../types';
+
 export type NotificationChannelType = 'web_push' | 'email' | 'webhook' | 'apprise';
 export type NotificationIncludeText = 'always' | 'public_only' | 'never';
 export type NotificationChannelStatusName = 'connected' | 'error' | 'paused' | 'disconnected';
@@ -80,6 +82,28 @@ export interface NotificationChannel {
     last_error: string | null;
     last_ok_at: number | null;
   };
+}
+
+/** An active fanout Apprise row sending where a new channel sends (MSHL-134): never its URL. */
+export interface FanoutDuplicate {
+  id: string;
+  name: string;
+}
+
+/** `POST /notifications/channels`: the channel, plus the fanout Apprise rows it duplicates. */
+export interface NotificationChannelCreated extends NotificationChannel {
+  fanout_duplicates?: FanoutDuplicate[];
+}
+
+/** `POST /fanout/{id}/convert-to-notification-channel` (MSHL-134). */
+/** The convert answer: ids, names and state only, never a config (no URL or secret). */
+export interface FanoutConversion {
+  channel: Pick<NotificationChannel, 'id' | 'name' | 'type' | 'preset' | 'enabled'>;
+  fanout: Pick<FanoutConfig, 'id' | 'name' | 'type' | 'enabled'> & { converted_to: string | null };
+  already_converted: boolean;
+  /** `include_outgoing_unsupported`, `private_channels_need_exception`,
+   * `template_dm_dropped`, `template_channel_dropped`. */
+  notes: string[];
 }
 
 /** The body of a creation, and of a test before saving. Secrets go in `config`. */

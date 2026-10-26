@@ -5,7 +5,7 @@ import re
 import string
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from app.auth.permissions import require
@@ -17,6 +17,7 @@ from app.net.apprise_urls import (
     validate_apprise_urls,
 )
 from app.net.egress_guard import EgressBlocked, egress_detail, validate_destination
+from app.notifications.fanout_convert import CONVERSION_KEYS, CONVERTED_TO
 from app.plugins import bot_conversion
 from app.repository.fanout import FanoutConfigRepository
 from app.secret_fields import (
@@ -525,8 +526,11 @@ def _bot_retired() -> HTTPException:
 
 
 @router.post("", dependencies=[Depends(require("admin"))])
-async def create_fanout_config(body: FanoutConfigCreate) -> dict:
-    """Create a new fanout config. ``type: "bot"`` answers 410 ``bot_type_retired``."""
+async def create_fanout_config(body: FanoutConfigCreate, response: Response) -> dict:
+    """Create a new fanout config. ``type: "bot"`` answers 410 ``bot_type_retired``.
+
+    ``type: "apprise"`` is deprecated (MSHL-134, removed in 5.2.0): still accepted, with a
+    ``Deprecation: true`` header; notification channels replace it."""
     if body.type == "bot":
         raise _bot_retired()
     if body.type not in _VALID_TYPES:
@@ -535,8 +539,15 @@ async def create_fanout_config(body: FanoutConfigCreate) -> dict:
             detail=f"Invalid type '{body.type}'. Must be one of: {', '.join(sorted(_VALID_TYPES))}",
         )
 
+    if body.type == "apprise":
+        response.headers["Deprecation"] = "true"
+        logger.warning("Fanout type apprise is deprecated: use a notification channel")
+
     # A new row has no stored secret: a sentinel sent back reads as unset.
     config = merge_secrets(body.type, None, body.config)
+    # Only a conversion marks a row converted (a restore keeps the mark: backup.py).
+    for key in CONVERSION_KEYS:
+        config.pop(key, None)
     normalized_config, scope = prepare_fanout_config(body.type, config, body.scope)
     if body.enabled:
         await _check_destinations(body.type, normalized_config)
@@ -640,6 +651,12 @@ async def update_fanout_config(
         raise HTTPException(status_code=400, detail=exc.detail()) from None
     normalized_config = _validate_and_normalize_config(existing["type"], config_to_validate)
     _carry_grandfathered_flag(existing["type"], normalized_config, existing["config"])
+    # A converted (or converting) row stays marked (MSHL-134) whatever config an edit sends.
+    for key in CONVERSION_KEYS:
+        if existing["config"].get(key):
+            normalized_config[key] = existing["config"][key]
+        else:
+            normalized_config.pop(key, None)
     # A disabled row sends nothing: it can be saved (or turned off) while its
     # host does not resolve. Enabling it runs the check.
     will_be_enabled = body.enabled if body.enabled is not None else bool(existing["enabled"])
@@ -656,6 +673,60 @@ async def update_fanout_config(
 
     logger.info("Updated fanout config %s", config_id)
     return present_fanout_config(updated)
+
+
+class ConvertBody(BaseModel):
+    """``channel_id``: attach the row to this existing channel (the duplicate prompt)."""
+
+    channel_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+@router.post(
+    "/{config_id}/convert-to-notification-channel", dependencies=[Depends(require("admin"))]
+)
+async def convert_to_notification_channel(
+    config_id: str, request: Request, body: ConvertBody | None = None
+) -> dict:
+    """Convert a fanout Apprise row into a notification channel (MSHL-134,
+    ``app/notifications/fanout_convert.py``). Idempotent. The response carries the channel
+    and the row by id, name, type and state only (no ``config``, so no URL, secret or
+    redacted URL), ``already_converted`` and ``notes``."""
+    from app.notifications import api_support
+    from app.notifications.channels import ChannelError
+    from app.notifications.fanout_convert import ConversionError, convert_fanout_row
+    from app.routers.notifications import _reconcile_heartbeats
+
+    try:
+        result = await convert_fanout_row(config_id, into=body.channel_id if body else None)
+    except ConversionError as exc:
+        raise HTTPException(
+            status_code=exc.status, detail={"code": exc.code, "params": exc.params}
+        ) from None
+    except ChannelError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail()) from None
+    if result.created:
+        await api_support.announce_channel_change(request, "created", result.channel)
+        await _reconcile_heartbeats()
+    channel, row = result.channel, result.fanout
+    row_config = row.get("config") or {}
+    return {
+        "channel": {
+            "id": channel.id,
+            "name": channel.name,
+            "type": channel.type,
+            "preset": channel.preset,
+            "enabled": channel.enabled,
+        },
+        "fanout": {
+            "id": str(row["id"]),
+            "name": str(row.get("name") or ""),
+            "type": row.get("type"),
+            "enabled": bool(row.get("enabled")),
+            CONVERTED_TO: row_config.get(CONVERTED_TO),
+        },
+        "already_converted": result.already_converted,
+        "notes": result.notes,
+    }
 
 
 @router.delete("/{config_id}", dependencies=[Depends(require("admin"))])

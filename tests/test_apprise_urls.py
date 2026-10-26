@@ -250,11 +250,14 @@ class TestRedaction:
 
 
 async def _create(config_type: str, config: dict, *, enabled: bool = True) -> dict:
+    from fastapi import Response
+
     from app.routers.fanout import FanoutConfigCreate, create_fanout_config
 
     with patch("app.routers.fanout.fanout_manager.reload_config", new=AsyncMock()):
         return await create_fanout_config(
-            FanoutConfigCreate(type=config_type, name="t", config=config, enabled=enabled)
+            FanoutConfigCreate(type=config_type, name="t", config=config, enabled=enabled),
+            Response(),
         )
 
 

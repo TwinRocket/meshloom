@@ -205,6 +205,8 @@ async def test_create_get_list_redact_secrets(test_db, client, payload, secret_n
     for name in secret_names:
         assert created["config"][name] == "********"
     fetched = await client.get(f"/api/notifications/channels/{created['id']}")
+    # The creation answer alone carries the Apprise fanout duplicates (MSHL-134).
+    assert created.pop("fanout_duplicates") == []
     assert fetched.json() == created
     assert_no_secret(fetched)
     assert created["id"].startswith(payload["type"] + "-")

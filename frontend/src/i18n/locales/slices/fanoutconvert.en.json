@@ -1,0 +1,41 @@
+{
+  "settings": {
+    "fanout": {
+      "convert": {
+        "deprecated": "Apprise integrations are deprecated: notification channels replace them (removal planned in 5.2.0).",
+        "button": "Convert to a notification channel",
+        "confirm": "Convert “{{name}}” to a notification channel? The channel takes over its URLs, format and scope, and this integration is turned off.",
+        "done": "“{{name}}” is now a notification channel.",
+        "alreadyDone": "“{{name}}” was already converted. The integration stays off.",
+        "failed": "Conversion failed",
+        "openChannels": "Open notifications",
+        "badge": "Converted",
+        "badgeHelp": "Converted to a notification channel. Notifications now go through that channel.",
+        "confirmReenable": "This integration was converted to a notification channel. Turning it back on will duplicate notifications. Turn it on anyway?",
+        "notes": {
+          "include_outgoing_unsupported": "Your own outgoing messages are not notified: notification channels have no equivalent.",
+          "private_channels_need_exception": "Channels with their own key are notified only through a per-conversation exception: add one in the conversation’s notification settings.",
+          "template_dm_dropped": "The DM format was too long for a template and was not kept.",
+          "template_channel_dropped": "The channel message format was too long for a template and was not kept."
+        }
+      }
+    },
+    "notifications": {
+      "channels": {
+        "step": {
+          "duplicates": "An integration under MQTT & Automation already sends here."
+        },
+        "fanoutDuplicate": {
+          "body_one": "This channel sends to the same place as an active Apprise integration:",
+          "body_other": "This channel sends to the same place as {{count}} active Apprise integrations:",
+          "help": "Keeping both notifies every message twice. Converting turns the integration off and gives its scope to this channel.",
+          "convert_one": "Convert it into this channel",
+          "convert_other": "Convert them into this channel",
+          "keep": "Keep both",
+          "converted_one": "The integration now goes through this channel.",
+          "converted_other": "The {{count}} integrations now go through this channel."
+        }
+      }
+    }
+  }
+}

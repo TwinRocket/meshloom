@@ -74,6 +74,8 @@ This file is a hypothesis: check it against the code.
   in-memory cache of the public channels, status updates, `get_rules()`) and
   `NotificationJournalRepository` (deliveries, batched `add_deliveries()`, counters, state).
 - `rules.py`: pure evaluation of `notification_rules` (see "Dispatcher").
+- `fanout_convert.py`: Apprise fanout row → notification channel, and the duplicate check on
+  channel creation (MSHL-134, see "API").
 - `quiet_hours.py`: the quiet window, the suppressed-event counters and the digest payload (see "Quiet hours").
 - `user_rules.py`: the per-account layer over those rules, for Web Push only (see "Per-account rules").
 - `limits.py`: the dispatcher's token buckets (`ClockedLimiter`), the daily quota, `effective_limits()` and the persisted dedup keys (see "Dispatcher", "Limits").
@@ -291,6 +293,23 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   `name` = the device label). Emitted with `targets` = `builtin:push` and every enabled channel,
   minus the failing one. Payload `channel_id`, `name`, `error` (`safe_error_code`). The 15-failure
   eviction and the egress-guard removals of push subscriptions do not announce.
+- **Fanout duplicates and conversion** (`fanout_convert.py`, MSHL-134): `POST /channels`
+  answers `fanout_duplicates: [{id, name}]`, the enabled, unconverted Apprise fanout rows whose
+  URLs match the new channel's (presets compiled, generic Apprise `urls`, Discord `webhook_url`).
+  The match compares HMAC-SHA256 fingerprints of the scheme-less, slash-trimmed URL under a
+  per-process random key with `hmac.compare_digest`; no URL is returned or logged. A failure there
+  logs the channel id and returns `[]`. The fanout route
+  `POST /api/fanout/{id}/convert-to-notification-channel` (`{channel_id?}`) creates the channel
+  (single Telegram or Gotify URL → preset, else generic Apprise with `urls` and `format`), or with
+  `channel_id` merges into that one, maps `body_format_dm`/`body_format_channel` to
+  `template_dm`/`template_channel` (invalid ones dropped with a note), turns the scope into
+  `message.dm`/`message.channel` channels and conversation exceptions (`set_rules` then
+  `legacy_sync.sync_columns()`), then disables the row with `config.converted_to` (write-ahead `config.converting_to` before the
+  channel is created, so a retry never makes a second channel). Answer:
+  `{channel: {id, name, type, preset, enabled}, fanout: {id, name, type, enabled, converted_to},
+  already_converted, notes}`, no `config`; a converted row turned back on is never reported as a
+  duplicate (the owner confirmed keeping both); errors `fanout_missing` (404),
+  `fanout_not_apprise`, `secret_unreadable` (409), `channel_missing` (404).
 - **Resume** (`POST /channels/{id}/resume`, admin like the whole router): clears the auto-pause
   (`paused_until`, `autopause:<id>` state), `failure_count` and `last_error`, then broadcasts
   `health`; 404 `channel_missing`. No audit row.

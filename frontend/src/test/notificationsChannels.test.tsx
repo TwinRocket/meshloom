@@ -621,3 +621,44 @@ describe('4.18.x destinations (legacy channels)', () => {
     expect(within(picker).getByText('ntfy').closest('button')).not.toBeDisabled();
   });
 });
+
+describe('fanout duplicates (MSHL-134)', () => {
+  it('offers to convert the Apprise fanout rows that send to the new channel', async () => {
+    mockApi();
+    vi.spyOn(api, 'testNotificationConfig').mockResolvedValue({ status: 'sent' });
+    vi.spyOn(api, 'createNotificationChannel').mockResolvedValue({
+      ...channel({ id: 'ntfy-dddddddd' }),
+      fanout_duplicates: [{ id: 'ap-1', name: 'Old feed' }],
+    });
+    vi.spyOn(api, 'patchNotificationRules').mockResolvedValue(RULES);
+    const convert = vi
+      .spyOn(api, 'convertFanoutToChannel')
+      .mockResolvedValue({} as Awaited<ReturnType<typeof api.convertFanoutToChannel>>);
+
+    const picker = await openAdd();
+    fireEvent.click(within(picker).getByText('ntfy'));
+    fireEvent.change(screen.getByLabelText(t('settings.notifications.channels.name')), {
+      target: { value: 'My phone' },
+    });
+    fireEvent.change(screen.getByLabelText(/Topic/), { target: { value: 'meshloom-x' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: t('settings.notifications.channels.testAndContinue') })
+    );
+    await screen.findByText(t('settings.notifications.channels.receiveTitle'));
+    fireEvent.click(screen.getByRole('button', { name: t('settings.notifications.channels.add') }));
+
+    const prompt = await screen.findByTestId('fanout-duplicate-prompt');
+    // The row's name only, never its URL.
+    expect(prompt).toHaveTextContent('Old feed');
+    fireEvent.click(
+      within(prompt).getByRole('button', {
+        name: t('settings.notifications.channels.fanoutDuplicate.convert', { count: 1 }),
+      })
+    );
+    await waitFor(() => expect(convert).toHaveBeenCalledWith('ap-1', 'ntfy-dddddddd'));
+    await waitFor(() => expect(toastMocks.success).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByTestId('fanout-duplicate-prompt')).not.toBeInTheDocument()
+    );
+  });
+});

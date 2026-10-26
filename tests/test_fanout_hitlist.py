@@ -392,6 +392,8 @@ class TestFanoutConfigMutationInvariant:
 
     @pytest.mark.asyncio
     async def test_disabled_create_still_validates_config(self, test_db):
+        from fastapi import Response
+
         from app.routers.fanout import FanoutConfigCreate, create_fanout_config
 
         with pytest.raises(HTTPException) as exc_info:
@@ -402,7 +404,8 @@ class TestFanoutConfigMutationInvariant:
                     config={},
                     scope={},
                     enabled=False,
-                )
+                ),
+                Response(),
             )
 
         assert exc_info.value.status_code == 400

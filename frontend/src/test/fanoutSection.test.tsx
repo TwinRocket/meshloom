@@ -7,11 +7,15 @@ import fanoutEn from '../i18n/locales/slices/d.en.json';
 import fanoutFr from '../i18n/locales/slices/d.fr.json';
 import egressEn from '../i18n/locales/slices/p.en.json';
 import egressFr from '../i18n/locales/slices/p.fr.json';
+import convertEn from '../i18n/locales/slices/fanoutconvert.en.json';
+import convertFr from '../i18n/locales/slices/fanoutconvert.fr.json';
 
 i18n.addResourceBundle('en', 'translation', fanoutEn, true, true);
 i18n.addResourceBundle('fr', 'translation', fanoutFr, true, true);
 i18n.addResourceBundle('en', 'translation', egressEn, true, true);
 i18n.addResourceBundle('fr', 'translation', egressFr, true, true);
+i18n.addResourceBundle('en', 'translation', convertEn, true, true);
+i18n.addResourceBundle('fr', 'translation', convertFr, true, true);
 
 function tf(key: string, options?: Record<string, unknown>) {
   return i18n.t(`settings.fanout.${key}`, options);
@@ -31,6 +35,7 @@ vi.mock('../api', () => ({
     createFanoutConfig: vi.fn(),
     updateFanoutConfig: vi.fn(),
     deleteFanoutConfig: vi.fn(),
+    convertFanoutToChannel: vi.fn(),
     getChannels: vi.fn(),
     getContacts: vi.fn(),
     getSettings: vi.fn(),
@@ -39,7 +44,12 @@ vi.mock('../api', () => ({
   formatApiError: (err: unknown) => (err instanceof Error ? err.message : String(err)),
 }));
 
+vi.mock('../components/ui/sonner', () => ({
+  toast: Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn(), info: vi.fn() }),
+}));
+
 import { api } from '../api';
+import { toast } from '../components/ui/sonner';
 
 const mockedApi = vi.mocked(api);
 
@@ -146,14 +156,14 @@ beforeEach(() => {
 });
 
 describe('SettingsFanoutSection', () => {
-  it('shows add integration dialog with all integration types', async () => {
+  it('shows add integration dialog with every type but the deprecated Apprise', async () => {
     renderSection();
     const dialog = await openCreateIntegrationDialog();
 
     const optionButtons = within(dialog)
       .getAllByRole('button')
       .filter((button) => button.hasAttribute('aria-pressed'));
-    expect(optionButtons).toHaveLength(10);
+    expect(optionButtons).toHaveLength(9);
     expect(within(dialog).getByRole('button', { name: tf('create.close') })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: tf('create.create') })).toBeInTheDocument();
     expect(
@@ -187,10 +197,10 @@ describe('SettingsFanoutSection', () => {
       })
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByRole('button', {
+      within(dialog).queryByRole('button', {
         name: startsWithAccessibleName(tf('create.apprise.label')),
       })
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     expect(
       within(dialog).getByRole('button', { name: startsWithAccessibleName(tf('create.sqs.label')) })
     ).toBeInTheDocument();
@@ -579,55 +589,82 @@ describe('SettingsFanoutSection', () => {
     );
   });
 
-  it('creates Apprise with outgoing forwarding disabled by default', async () => {
-    const createdApprise: FanoutConfig = {
-      id: 'ap-new',
+  it('converts an Apprise row to a notification channel and toasts a link', async () => {
+    const row: FanoutConfig = {
+      id: 'ap-1',
       type: 'apprise',
-      name: 'Apprise #1',
+      name: 'Apprise Feed',
       enabled: true,
-      config: {
-        urls: '',
-        preserve_identity: true,
-        include_outgoing: false,
-        markdown_format: true,
-        body_format_dm: '**DM:** {sender_name}: {text} **via:** [{hops_backticked}]',
-        body_format_channel:
-          '**{channel_name}:** {sender_name}: {text} **via:** [{hops_backticked}]',
-      },
+      config: { urls: '********', markdown_format: true },
       scope: { messages: 'all', raw_packets: 'none' },
       sort_order: 0,
-      created_at: 2000,
+      created_at: 1000,
     };
-    mockedApi.createFanoutConfig.mockResolvedValue(createdApprise);
-    mockedApi.getFanoutConfigs.mockResolvedValueOnce([]).mockResolvedValueOnce([createdApprise]);
+    const converted = { ...row, enabled: false, config: { ...row.config, converted_to: 'ch-1' } };
+    mockedApi.getFanoutConfigs.mockResolvedValueOnce([row]).mockResolvedValue([converted]);
+    mockedApi.convertFanoutToChannel.mockResolvedValue({
+      channel: { id: 'ch-1', name: 'Apprise Feed' } as never,
+      fanout: {
+        id: 'ap-1',
+        name: 'Apprise Feed',
+        type: 'apprise',
+        enabled: false,
+        converted_to: 'ch-1',
+      },
+      already_converted: false,
+      notes: [],
+    });
 
     renderSection();
-    await openCreateIntegrationDialog();
-    selectCreateIntegration(tf('create.apprise.label'));
-    confirmCreateIntegration();
-    await waitFor(() => expect(screen.getByText(tf('list.backToList'))).toBeInTheDocument());
+    const group = await screen.findByRole('group', {
+      name: tf('list.integrationAria', { name: 'Apprise Feed' }),
+    });
+    expect(within(group).getByText(tf('convert.deprecated'))).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole('button', { name: tf('convert.button') }));
 
-    expect(screen.getByLabelText(tf('apprise.includeOutgoing'))).not.toBeChecked();
-    expect(screen.getByText(tf('apprise.includeOutgoingHelp'))).toBeInTheDocument();
+    await waitFor(() => expect(mockedApi.convertFanoutToChannel).toHaveBeenCalledWith('ap-1'));
+    const after = await screen.findByRole('group', {
+      name: tf('list.integrationAria', { name: 'Apprise Feed' }),
+    });
+    await waitFor(() => expect(within(after).getByText(tf('convert.badge'))).toBeInTheDocument());
+    expect(within(after).queryByRole('button', { name: tf('convert.button') })).toBeNull();
+    const calls = vi.mocked(toast.success).mock.calls;
+    const [message, options] = calls[calls.length - 1] ?? [];
+    expect(message).toBe(tf('convert.done', { name: 'Apprise Feed' }));
+    const action = (options as { action: { label: string; onClick: () => void } }).action;
+    expect(action.label).toBe(tf('convert.openChannels'));
+    action.onClick();
+    expect(window.location.hash).toBe('#settings/notifications');
+    window.location.hash = '';
+  });
 
-    fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
+  it('asks before turning a converted row back on', async () => {
+    const row: FanoutConfig = {
+      id: 'ap-2',
+      type: 'apprise',
+      name: 'Old Feed',
+      enabled: false,
+      config: { urls: '********', converted_to: 'ch-1' },
+      scope: { messages: 'all', raw_packets: 'none' },
+      sort_order: 0,
+      created_at: 1000,
+    };
+    mockedApi.getFanoutConfigs.mockResolvedValue([row]);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
+    renderSection();
+    const checkbox = await screen.findByRole('checkbox', {
+      name: tf('list.enableAria', { name: 'Old Feed' }),
+    });
+    fireEvent.click(checkbox);
+    expect(confirmSpy).toHaveBeenCalledWith(tf('convert.confirmReenable'));
+    expect(mockedApi.updateFanoutConfig).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    mockedApi.updateFanoutConfig.mockResolvedValue({ ...row, enabled: true });
+    fireEvent.click(checkbox);
     await waitFor(() =>
-      expect(mockedApi.createFanoutConfig).toHaveBeenCalledWith({
-        type: 'apprise',
-        name: tf('defaultNameCounted', { label: tf('types.apprise'), n: 1 }),
-        config: {
-          urls: '',
-          preserve_identity: true,
-          include_outgoing: false,
-          markdown_format: true,
-          body_format_dm: '**DM:** {sender_name}: {text} **via:** [{hops_backticked}]',
-          body_format_channel:
-            '**{channel_name}:** {sender_name}: {text} **via:** [{hops_backticked}]',
-        },
-        scope: { messages: 'all', raw_packets: 'none' },
-        enabled: true,
-      })
+      expect(mockedApi.updateFanoutConfig).toHaveBeenCalledWith('ap-2', { enabled: true })
     );
   });
 

@@ -45,6 +45,8 @@ Everything about a channel, its secrets included, is explained in [Adding a chan
 
 **Add a channel** opens a dialog in three steps. First pick a type or a preset (Email, Webhook, ntfy, Discord, Telegram, Gotify, Home Assistant, Pushover, Matrix, Signal, Slack, Mattermost, Rocket.Chat, SMS Free Mobile, SMS SFR or Apprise). Then fill its form, which the server describes itself: required fields are starred, the server's validation errors appear under the field, and a secret (a password, a token, a webhook address) is never shown, not even after saving: the form says a value is set and offers **Replace** and **Clear** (leaving it alone keeps it). A third-party service (a "cloud" one) shows a privacy note and lets you choose whether the message text is included (public channels only by default). **Send a test and continue** sends a test before anything is saved; if it fails, the error is explained and you can fix the form, or continue without a successful test. Last, **What to receive here?** pre-fills the events: **Like Push** (the events Web Push receives, the default), **Alerts only** (radio offline or back, telemetry alerts, mentions, channel changes) or **Everything**. Change it later in the table below.
 
+If the new channel sends to the same place as an active Apprise integration under **MQTT & Automation**, the dialog names that integration (never its address) before closing: keeping both would notify every message twice. **Convert it into this channel** gives the integration's scope to the new channel and turns it off, like the [conversion](/en/docs/deep/fanout/#converting-to-a-notification-channel) in fanout; **Keep both** leaves it as it is.
+
 The `legacy:email`, `legacy:webhook` and `legacy:apprise` channels (your 4.18.x destinations) keep their address and options in the 4.18.x setting, which their sender still reads at each send; the rules decide what they receive like for any channel. Their card's **Edit** opens the same form as in 4.18.x (it saves as you leave a field), and **Remove this destination** empties it; their type is not offered again in **Add a channel**.
 
 ### ntfy channels
@@ -374,7 +376,7 @@ On a Meshloom older than 5.0 there was no sign-in at all: anyone who could reach
 
 **Deprecated endpoints.** `GET`/`PATCH /api/push/preferences`, `PUT /api/push/preferences/conversations/{key}`, `notification_destinations` in `PATCH /api/settings` and `POST /api/settings/notification-destinations/test` still work as in 4.18.x. They answer a `Deprecation: @1792368000` header (RFC 9745) and a `Link` to the rules endpoint, and **will be removed in 5.2.0**. Every change they make is copied into the rules, and the other way round, for the four media push, e-mail, webhook and Apprise; the other channels are invisible to them. Asking for e-mail, webhook or Apprise on a conversation when that destination is not configured answers `400 channel_missing`. Move scripts to `/api/notifications`.
 
-**Apprise in fanout.** The Apprise output of [fanout](/en/docs/deep/fanout/#apprise) is not converted: it keeps working and keeps forwarding every message. Create an Apprise channel (or a preset) for notifications; a one-click conversion is planned.
+**Apprise in fanout.** The Apprise output of [fanout](/en/docs/deep/fanout/#apprise) is not converted automatically: it keeps working and keeps forwarding every message. It is deprecated (removal in 5.2.0): [convert it](/en/docs/deep/fanout/#converting-to-a-notification-channel) into a notification channel in one click.
 
 **Downgrading.** Going back to a version older than 5.0 reads the old settings again. **Channels added after the update are not visible after a downgrade**, the rules you changed in the table are not read, and a channel that was not a 4.18.x destination (ntfy, Discord, Telegram, Gotify, Home Assistant, a second e-mail or webhook) stops notifying. Note down the destinations you need before you go back, and restore from a backup taken before the update if you want the old state exactly.
 
@@ -396,7 +398,7 @@ Administrators manage the channels under `/api/notifications`:
 | Method | Endpoint | Effect |
 |--------|----------|--------|
 | GET | `/api/notifications/types` | The channel types: JSON Schema (secret fields are `writeOnly`), default limits |
-| GET, POST | `/api/notifications/channels` | List and create channels (secrets read `********`) |
+| GET, POST | `/api/notifications/channels` | List and create channels (secrets read `********`; a creation also returns `fanout_duplicates`, the Apprise fanout integrations sending to the same place, by id and name) |
 | POST | `/api/notifications/channels/test` | Test a configuration before saving it (nothing is stored) |
 | POST | `/api/notifications/channels/preview-template` | Render `template_dm` and `template_channel` on a sample direct and channel message (`markdown`, `include_message_text` and `language` are optional); `400 template_too_long` or `template_invalid` for a refused template |
 | GET, PATCH, DELETE | `/api/notifications/channels/{id}` | Read, change (the type cannot change) and delete a channel; `builtin:push` cannot be deleted (`403 builtin_channel`) |
