@@ -10,6 +10,8 @@ on:
       - "pkg/keys/**"
       - "scripts/build/check_*"
       - "scripts/build/build_nfpm_packages.sh"
+      - "scripts/test/fail2ban_filter.sh"
+      - "docs/dev/auth-fail-log.md"
       - "scripts/build/neutralize_project_version.py"
       - "Dockerfile.nfpm-armhf"
       - "Dockerfile.nfpm-armhf.dockerignore"
@@ -102,8 +104,25 @@ jobs:
           deb="$(ls dist/meshloom_*_amd64.deb | head -n 1)"
           dpkg-deb -c "$deb" | grep -E -- '^-rwxr-xr-x .* \./usr/lib/meshloom/meshloom-kiosk$'
 
+      # The fail2ban filter and jail (MSHL-423): shipped as kept config files,
+      # jail disabled, fail2ban only suggested, and the real fail2ban-regex
+      # matches the AUTH_FAIL contract's example lines (docs/dev/auth-fail-log.md)
+      # and skips proxied=1, on the files as unpacked from the .deb.
+      - name: Check the fail2ban filter and jail in the amd64 package
+        run: |
+          deb="$(ls dist/meshloom_*_amd64.deb | head -n 1)"
+          dpkg-deb -I "$deb" | grep -E '^ Suggests: .*fail2ban'
+          ! dpkg-deb -f "$deb" Depends Pre-Depends | grep -q fail2ban
+          unpack="$(mktemp -d)"
+          dpkg-deb -e "$deb" "$unpack/control"
+          grep -x '/etc/fail2ban/filter.d/meshloom.conf' "$unpack/control/conffiles"
+          grep -x '/etc/fail2ban/jail.d/meshloom.conf' "$unpack/control/conffiles"
+          dpkg-deb -x "$deb" "$unpack/root"
+          sudo apt-get install -y --no-install-recommends fail2ban
+          scripts/test/fail2ban_filter.sh "$unpack/root"
+
       - name: shellcheck the kiosk launcher, meshloom-admin, its tty test and the maintainer script
-        run: shellcheck -e SC2174 pkg/rpi/meshloom-kiosk pkg/nfpm/meshloom-admin pkg/nfpm/postinstall.sh scripts/test/meshloom_admin_tty.sh
+        run: shellcheck -e SC2174 pkg/rpi/meshloom-kiosk pkg/nfpm/meshloom-admin pkg/nfpm/postinstall.sh scripts/test/meshloom_admin_tty.sh scripts/test/fail2ban_filter.sh
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

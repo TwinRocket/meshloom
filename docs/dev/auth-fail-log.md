@@ -1,10 +1,11 @@
 # The `AUTH_FAIL` log line
 
 One log line per refused credential, stable enough for a log watcher (fail2ban,
-CrowdSec) to key on the client address. The built-in ban (MSHL-422,
-`app/auth/ip_ban.py`, `docs/dev/auth.md` "IP ban") consumes the same events:
-`fail_log` hands it the fields of each line it writes, so it counts exactly the
-`proxied=0` lines, with the same address, and never a local one.
+CrowdSec, the shipped fail2ban filter, MSHL-423) to key on the client address.
+The built-in ban (MSHL-422, `app/auth/ip_ban.py`, `docs/dev/auth.md` "IP ban")
+consumes the same events: `fail_log` hands it the fields of each line it
+writes, so it counts exactly the `proxied=0` lines, with the same address, and
+never a local one.
 Decided as a contract with the Accès scoping (remote propositions v2, §5.3 and
 decision 6, MSHL-421). Code: `app/auth/fail_log.py` (rules in its header) and
 the call sites listed under "Routes". Tests: `tests/test_auth_fail_log.py`,
@@ -85,9 +86,23 @@ to act on); the test reads it from this page:
 ```
 
 It matches a record rendered through the same formatter and never a
-`proxied=1` line. A fail2ban filter built on it (MSHL-423) needs a
-`datepattern` of `%%Y-%%m-%%d %%H:%%M:%%S`, local time, not the ISO UTC form
-of the scoping example.
+`proxied=1` line. The shipped fail2ban filter (MSHL-423,
+`pkg/nfpm/fail2ban/meshloom-filter.conf`, installed disabled by the deb and rpm
+packages) is this regex with two changes, which
+`tests/test_fail2ban_filter.py` and `scripts/test/fail2ban_filter.sh` (real
+`fail2ban-regex`, run in `.github/workflows/nfpm.yml` on the unpacked `.deb`)
+hold to this page and its Example below:
+
+- `ip=<ADDR>` for `(?P<host>\S+)`;
+- an optional leading `<host> <ident>[<pid>]: ` and an optional date: with the
+  systemd backend fail2ban hands the filter the journal line with the message
+  unchanged, date included; with a log file it cuts the date off before matching.
+
+It also needs a `datepattern` of `%%Y-%%m-%%d %%H:%%M:%%S`, local time, not the
+ISO UTC form of the scoping example. The jail reads the journal of
+`meshloom.service` (`journalmatch = _SYSTEMD_UNIT=meshloom.service`); under Docker
+the logs must reach the journal (`logging: driver: journald`), see
+`docs/user/en/deep/fail2ban.md`.
 
 ## Example
 

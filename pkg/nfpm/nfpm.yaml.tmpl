@@ -64,6 +64,18 @@ contents:
     type: config|noreplace
     file_info:
       mode: 0640
+  # fail2ban filter and jail (MSHL-423): config files kept on upgrade, jail
+  # shipped disabled (docs/user/en/deep/fail2ban.md). fail2ban is only suggested.
+  - src: __PKGDIR__/fail2ban/meshloom-filter.conf
+    dst: /etc/fail2ban/filter.d/meshloom.conf
+    type: config|noreplace
+    file_info:
+      mode: 0644
+  - src: __PKGDIR__/fail2ban/meshloom-jail.conf
+    dst: /etc/fail2ban/jail.d/meshloom.conf
+    type: config|noreplace
+    file_info:
+      mode: 0644
   - src: __PKGDIR__/meshloom.sysusers
     dst: /usr/lib/sysusers.d/meshloom.conf
     file_info:
@@ -97,11 +109,15 @@ overrides:
       - libc6
     recommends:
       - bubblewrap
+    suggests:
+      - fail2ban
   rpm:
     depends:
       - glibc
     recommends:
       - bubblewrap
+    suggests:
+      - fail2ban
 rpm:
   scripts:
     posttrans: __PKGDIR__/posttrans.sh
