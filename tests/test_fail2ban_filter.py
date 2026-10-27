@@ -49,9 +49,11 @@ def test_failregex_is_the_contract_regex_with_an_optional_date_and_prefix() -> N
     contract = _contract_regex()
     date = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
     assert contract.startswith("^" + date + " - meshloom")
-    tail = contract[len("^" + date) :].replace(r"(?P<host>\S+)", "<ADDR>")
-    # Same fields, same order, same proxied=0 ending; only the leading part is relaxed.
-    assert _failregex().endswith(r"\s*" + tail.lstrip(" "))
+    tail = contract[len("^" + date + " ") :].replace(r"(?P<host>\S+)", "<ADDR>")
+    # The whole regex, anchors included: the contract's fields, order and proxied=0
+    # ending, behind an optional journal prefix and an optional date, nothing else.
+    prefix = r"(?:\S+ \S+?(?:\[\d+\])?: )?"
+    assert _failregex() == "^" + prefix + "(?:" + date + r")?\s*" + tail
 
 
 def test_failregex_matches_the_contract_samples_and_never_proxied_lines() -> None:
@@ -92,8 +94,15 @@ def test_jail_ships_disabled_and_reads_the_journal_of_the_unit() -> None:
     assert re.search(r"^filter = meshloom$", JAIL, re.MULTILINE)
     assert re.search(r"^backend = systemd$", JAIL, re.MULTILINE)
     assert re.search(r"^journalmatch = _SYSTEMD_UNIT=meshloom\.service$", JAIL, re.MULTILINE)
-    for line in ("maxretry = 5", "findtime = 10m", "bantime = 1h", "bantime.increment = true"):
-        assert line in JAIL
+    for line in (
+        "maxretry = 5",
+        "findtime = 10m",
+        "bantime = 1h",
+        "bantime.increment = true",
+        "bantime.maxtime = 1w",
+        "port = 8000",
+    ):
+        assert re.search(rf"^{re.escape(line)}$", JAIL, re.MULTILINE), line
 
 
 def test_packages_install_both_files_as_kept_config_and_only_suggest_fail2ban() -> None:

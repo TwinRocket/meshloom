@@ -20,20 +20,27 @@ fail2ban itself is only suggested: Meshloom works without it, and installing the
 
 ## Turn it on (Linux package)
 
-1. Install fail2ban: `sudo apt install fail2ban` or `sudo dnf install fail2ban` (on Fedora and RHEL it comes from EPEL).
-2. Edit `/etc/fail2ban/jail.d/meshloom.conf` and change `enabled = false` to `enabled = true`. If you changed the port with `--port` in the service, change `port = 8000` as well.
+1. Install fail2ban: `sudo apt install fail2ban` or `sudo dnf install fail2ban` (on RHEL, AlmaLinux and Rocky it comes from EPEL; Fedora has it in its own repositories).
+2. Create `/etc/fail2ban/jail.d/meshloom.local` with this content (the shipped `.conf` stays untouched, so an upgrade never asks you about it):
+
+   ```ini
+   [meshloom]
+   enabled = true
+   ```
+
+   If you changed the port with `--port` in the service, add `port = ` and your port.
 3. `sudo fail2ban-client reload`, then `sudo fail2ban-client status meshloom` shows the jail.
 4. To test, fail a sign-in 5 times from another computer, then look at `sudo fail2ban-client status meshloom`: its address is in the list. `sudo fail2ban-client set meshloom unbanip <address>` lifts the ban.
 
-To never ban an address of yours, add `ignoreip = 127.0.0.1/8 ::1 192.168.1.0/24` under `[meshloom]` (your own network).
+To never ban an address of yours, add `ignoreip = 127.0.0.1/8 ::1 192.168.1.0/24` under `[meshloom]` in the same `.local` file (your own network).
 
 ## Behind a reverse proxy on the same machine
 
-List the proxy in [Trusted proxies](/en/docs/deep/https/#trusted-proxies) first. Until you do, every visitor looks like the proxy: Meshloom marks the line `proxied=1` and the filter **ignores it**, because banning your own proxy would lock everyone out. Once the proxy is declared, the line carries the visitor's address. A firewall ban on this machine then blocks the proxy's traffic from that visitor's address only if the proxy forwards the visitor's own address, which a normal reverse proxy does not: the firewall sees the proxy as the source. To block at the proxy, use the next section.
+List the proxy in [Trusted proxies](/en/docs/deep/https/#trusted-proxies) first. Until you do, every visitor looks like the proxy: when the proxy sends forwarding headers (they all do), Meshloom marks the line `proxied=1` and the filter **ignores it**, because banning your own proxy would lock everyone out. Once the proxy is declared, the line carries the visitor's address. A firewall ban on this machine then blocks the proxy's traffic from that visitor's address only if the proxy forwards the visitor's own address, which a normal reverse proxy does not: the firewall sees the proxy as the source. To block at the proxy, use the next section.
 
 ## Docker
 
-The container logs to its standard error, so the jail changes in two places: where it reads and where it blocks.
+The container logs to its standard error, so the jail changes in two places: where it reads and where it blocks. Put both in `/etc/fail2ban/jail.d/meshloom.local`.
 
 - **Where it reads.** Docker's default `json-file` driver wraps every line in JSON, which the filter does not read. Send the container's logs to the journal instead. In `docker-compose.yml`, under the Meshloom service:
 
@@ -44,17 +51,30 @@ The container logs to its standard error, so the jail changes in two places: whe
       tag: meshloom
   ```
 
-  Run `docker compose up -d`, then set `journalmatch = CONTAINER_NAME=meshloom` in the jail (your container's name, as `docker ps` shows it) in place of `_SYSTEMD_UNIT=meshloom.service`.
-- **Where it blocks.** Docker publishes a port before the usual firewall chains see the traffic, so the default ban would have no effect. Add to the jail:
+  Run `docker compose up -d`. The jail then reads Docker's journal entries for your container (its name, as `docker ps` shows it). Naming Docker's own unit as well matters: the container name alone could be forged by another program writing to the journal.
 
   ```ini
-  chain = DOCKER-USER
-  port = 8000
+  journalmatch = _SYSTEMD_UNIT=docker.service CONTAINER_NAME=meshloom
+  ```
+- **Where it blocks.** Traffic to a published port is forwarded to the container, not delivered to the host, so the default ban (the `input` hook) has no effect. Pick one:
+
+  ```ini
+  # nftables hosts (the default on current Debian and Fedora)
+  banaction = nftables[chain_hook=forward]
   ```
 
-  with `port` set to the port Docker publishes.
+  ```ini
+  # or iptables (needs the iptables command; the jail then blocks in Docker's own chain)
+  banaction = iptables-multiport
+  chain = DOCKER-USER
+  ```
 
-Meshloom must also see each visitor's own address. In a container without `network_mode: host` and without a declared proxy, it sees Docker's address for everyone and marks the line `proxied=1`: nothing is banned. [Sign-in delays](/en/docs/deep/access/#sign-in-delays) lists the two ways out (host network, or **Client addresses identify clients**).
+  In both, set `port` to the **container's** port, 8000, not the one Docker publishes on the host: by the time the firewall sees the packet, Docker has already rewritten the destination. With `ports: "8080:8000"`, you reach Meshloom on 8080 and write `port = 8000`.
+
+Two more things for Docker:
+
+- Meshloom must see each visitor's own address. In a container without `network_mode: host` and without a declared proxy, it sees the address of Docker's gateway for everyone (`172.x.x.x`) and logs it like any other address: the jail would ban the gateway, that is, every visitor. Always add the Docker networks to `ignoreip`: `ignoreip = 127.0.0.1/8 ::1 172.16.0.0/12` (add `192.168.0.0/16` if your Docker networks use it). [Sign-in delays](/en/docs/deep/access/#sign-in-delays) lists the two ways to make Meshloom see real addresses (host network, or **Client addresses identify clients**); until one of them is in place the jail cannot help.
+- Lines marked `proxied=1` are ignored by the filter; they name a reverse proxy on a local network that is not in **Trusted proxies**.
 
 ## A reverse proxy on another machine
 
@@ -63,8 +83,7 @@ fail2ban on the Meshloom machine only sees the proxy. Ban on the proxy's machine
 ```ini
 # /etc/fail2ban/filter.d/meshloom-nginx.conf
 [Definition]
-failregex = ^<ADDR> \S+ \S+ \[[^\]]+\] "POST /api/auth/login HTTP/[\d.]+" 401\b
-datepattern = {^LN-BEG}%%d/%%b/%%Y:%%H:%%M:%%S %%z
+failregex = ^<ADDR> \S+ \S+ \[\] "POST /api/auth/login HTTP/[\d.]+" 401\b
 ```
 
 ```ini

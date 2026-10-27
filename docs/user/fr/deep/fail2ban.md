@@ -20,20 +20,27 @@ fail2ban lui-même n’est que suggéré : Meshloom fonctionne sans, et installe
 
 ## L’activer (paquet Linux)
 
-1. Installez fail2ban : `sudo apt install fail2ban` ou `sudo dnf install fail2ban` (sous Fedora et RHEL, il vient d’EPEL).
-2. Modifiez `/etc/fail2ban/jail.d/meshloom.conf` et remplacez `enabled = false` par `enabled = true`. Si vous avez changé le port avec `--port` dans le service, changez aussi `port = 8000`.
+1. Installez fail2ban : `sudo apt install fail2ban` ou `sudo dnf install fail2ban` (sous RHEL, AlmaLinux et Rocky, il vient d’EPEL ; Fedora l’a dans ses dépôts).
+2. Créez `/etc/fail2ban/jail.d/meshloom.local` avec ce contenu (le `.conf` livré reste intact, donc une mise à jour ne vous pose aucune question à son sujet) :
+
+   ```ini
+   [meshloom]
+   enabled = true
+   ```
+
+   Si vous avez changé le port avec `--port` dans le service, ajoutez `port = ` suivi de votre port.
 3. `sudo fail2ban-client reload`, puis `sudo fail2ban-client status meshloom` montre le jail.
 4. Pour tester, ratez 5 connexions depuis un autre ordinateur, puis regardez `sudo fail2ban-client status meshloom` : son adresse est dans la liste. `sudo fail2ban-client set meshloom unbanip <adresse>` lève le bannissement.
 
-Pour ne jamais bannir une de vos adresses, ajoutez `ignoreip = 127.0.0.1/8 ::1 192.168.1.0/24` sous `[meshloom]` (votre propre réseau).
+Pour ne jamais bannir une de vos adresses, ajoutez `ignoreip = 127.0.0.1/8 ::1 192.168.1.0/24` sous `[meshloom]` dans ce même fichier `.local` (votre propre réseau).
 
 ## Derrière un reverse-proxy sur la même machine
 
-Listez d’abord le proxy dans les [Proxies de confiance](/docs/deep/https/#proxies-de-confiance). Tant que ce n’est pas fait, chaque visiteur ressemble au proxy : Meshloom marque la ligne `proxied=1` et le filtre **l’ignore**, car bannir votre propre proxy enfermerait tout le monde dehors. Une fois le proxy déclaré, la ligne porte l’adresse du visiteur. Un bannissement par le pare-feu de cette machine ne bloque alors le trafic de ce visiteur que si le proxy transmet l’adresse du visiteur lui-même, ce que ne fait pas un reverse-proxy normal : le pare-feu voit le proxy comme source. Pour bloquer au niveau du proxy, voir la section suivante.
+Listez d’abord le proxy dans les [Proxies de confiance](/docs/deep/https/#proxies-de-confiance). Tant que ce n’est pas fait, chaque visiteur ressemble au proxy : quand le proxy envoie des en-têtes de transmission (tous le font), Meshloom marque la ligne `proxied=1` et le filtre **l’ignore**, car bannir votre propre proxy enfermerait tout le monde dehors. Une fois le proxy déclaré, la ligne porte l’adresse du visiteur. Un bannissement par le pare-feu de cette machine ne bloque alors le trafic de ce visiteur que si le proxy transmet l’adresse du visiteur lui-même, ce que ne fait pas un reverse-proxy normal : le pare-feu voit le proxy comme source. Pour bloquer au niveau du proxy, voir la section suivante.
 
 ## Docker
 
-Le conteneur écrit sur sa sortie d’erreur, donc le jail change à deux endroits : où il lit et où il bloque.
+Le conteneur écrit sur sa sortie d’erreur, donc le jail change à deux endroits : où il lit et où il bloque. Mettez les deux dans `/etc/fail2ban/jail.d/meshloom.local`.
 
 - **Où il lit.** Le pilote `json-file`, par défaut, enveloppe chaque ligne dans du JSON, que le filtre ne lit pas. Envoyez plutôt les journaux du conteneur au journal systemd. Dans `docker-compose.yml`, sous le service Meshloom :
 
@@ -44,17 +51,30 @@ Le conteneur écrit sur sa sortie d’erreur, donc le jail change à deux endroi
       tag: meshloom
   ```
 
-  Lancez `docker compose up -d`, puis mettez `journalmatch = CONTAINER_NAME=meshloom` dans le jail (le nom de votre conteneur, tel que l’affiche `docker ps`) à la place de `_SYSTEMD_UNIT=meshloom.service`.
-- **Où il bloque.** Docker publie un port avant que les chaînes habituelles du pare-feu voient le trafic : le bannissement par défaut n’aurait aucun effet. Ajoutez au jail :
+  Lancez `docker compose up -d`. Le jail lit alors les entrées du journal que Docker écrit pour votre conteneur (son nom, tel que l’affiche `docker ps`). Nommer aussi l’unité de Docker compte : le nom du conteneur seul pourrait être imité par un autre programme qui écrit dans le journal.
 
   ```ini
-  chain = DOCKER-USER
-  port = 8000
+  journalmatch = _SYSTEMD_UNIT=docker.service CONTAINER_NAME=meshloom
+  ```
+- **Où il bloque.** Le trafic vers un port publié est transmis au conteneur, pas remis à l’hôte : le bannissement par défaut (le point d’accroche `input`) n’a aucun effet. Choisissez l’un des deux :
+
+  ```ini
+  # hôtes nftables (le défaut des Debian et Fedora actuelles)
+  banaction = nftables[chain_hook=forward]
   ```
 
-  avec `port` réglé sur le port que Docker publie.
+  ```ini
+  # ou iptables (demande la commande iptables ; le jail bloque alors dans la chaîne propre à Docker)
+  banaction = iptables-multiport
+  chain = DOCKER-USER
+  ```
 
-Meshloom doit aussi voir l’adresse propre de chaque visiteur. Dans un conteneur sans `network_mode: host` et sans proxy déclaré, il voit l’adresse de Docker pour tout le monde et marque la ligne `proxied=1` : rien n’est banni. [Les délais de connexion](/docs/deep/access/#les-délais-de-connexion) donne les deux issues (réseau hôte, ou **Les adresses identifient les clients**).
+  Dans les deux cas, réglez `port` sur le port **du conteneur**, 8000, pas celui que Docker publie sur l’hôte : quand le pare-feu voit le paquet, Docker a déjà réécrit la destination. Avec `ports: "8080:8000"`, vous joignez Meshloom sur 8080 et écrivez `port = 8000`.
+
+Deux autres points pour Docker :
+
+- Meshloom doit voir l’adresse propre de chaque visiteur. Dans un conteneur sans `network_mode: host` et sans proxy déclaré, il voit l’adresse de la passerelle de Docker pour tout le monde (`172.x.x.x`) et la consigne comme n’importe quelle adresse : le jail bannirait la passerelle, donc tous les visiteurs. Ajoutez toujours les réseaux Docker à `ignoreip` : `ignoreip = 127.0.0.1/8 ::1 172.16.0.0/12` (ajoutez `192.168.0.0/16` si vos réseaux Docker l’utilisent). [Les délais de connexion](/docs/deep/access/#les-délais-de-connexion) donne les deux moyens de faire voir à Meshloom les vraies adresses (réseau hôte, ou **Les adresses identifient les clients**) ; tant que l’un n’est pas en place, le jail ne peut pas aider.
+- Les lignes marquées `proxied=1` sont ignorées par le filtre ; elles désignent un reverse-proxy d’un réseau local absent des **Proxies de confiance**.
 
 ## Un reverse-proxy sur une autre machine
 
@@ -63,8 +83,7 @@ fail2ban sur la machine de Meshloom ne voit que le proxy. Bannissez plutôt sur 
 ```ini
 # /etc/fail2ban/filter.d/meshloom-nginx.conf
 [Definition]
-failregex = ^<ADDR> \S+ \S+ \[[^\]]+\] "POST /api/auth/login HTTP/[\d.]+" 401\b
-datepattern = {^LN-BEG}%%d/%%b/%%Y:%%H:%%M:%%S %%z
+failregex = ^<ADDR> \S+ \S+ \[\] "POST /api/auth/login HTTP/[\d.]+" 401\b
 ```
 
 ```ini
