@@ -95,7 +95,7 @@ From a browser Meshloom does not know yet (a new device, a cleared cookie, after
 
 The delays live in memory and start again empty when Meshloom restarts. A delay is written to the audit log once, not for each refused attempt.
 
-Each refused password, code, passkey, token or installation code also writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from (and never the account name, only a short code that changes at each restart). A tool such as fail2ban can watch these lines and block an address that keeps failing. A line marked `proxied=1` names a reverse proxy that is not in **Trusted proxies**, shared by all its visitors: such a tool must ignore it. Sign-ins through Home Assistant write no line.
+Each refused password, code, passkey, token or installation code also writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from (and never the account name, only a short code that changes at each restart). A tool such as fail2ban can watch these lines and block an address that keeps failing. A line marked `proxied=1` names a reverse proxy on your network that is not in **Trusted proxies**, shared by all its visitors: such a tool must ignore it. A visitor from the internet that sends forwarding headers itself is still logged with its own address. Sign-ins through Home Assistant write no line.
 
 ## Behind a reverse proxy
 

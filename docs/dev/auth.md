@@ -955,10 +955,12 @@ and none by IP alone behind Docker:
   not a lock on the name.
 - **`AUTH_FAIL` line.** Each refused credential (login, second factor, passkey,
   Basic, Bearer, pairing code, setup code) also writes one `WARNING` line on the
-  logger `meshloom.auth`, keyed on `client_ip()`, with `proxied=1` when
-  forwarding headers come from an undeclared peer (`forwarded_by_untrusted_peer()`,
-  the same test as the untrusted-proxy warning) and the typed name only as a
-  keyed hash. Attempts refused by a delay write none. Format and routes:
+  logger `meshloom.auth`, keyed on `client_ip()`, with `via` the transport
+  (`request_via()`), `proxied=1` when a local peer (RFC 1918, CGNAT, loopback, link-local, ULA)
+  that is not a declared proxy sends forwarding headers
+  (`forwarded_by_untrusted_peer()`, the same test as the untrusted-proxy
+  warning, narrowed to local peers: a public peer adding a header is the
+  client), and the typed name only as a keyed hash. Attempts refused by a delay write none. Format and routes:
   `docs/dev/auth-fail-log.md`, a contract.
 
 ## Second factor (TOTP)
