@@ -118,5 +118,5 @@ bantime = 1h
 ## À lire aussi
 
 - [Les délais de connexion, le blocage intégré et la ligne `AUTH_FAIL`](/docs/deep/access/#les-délais-de-connexion)
-- [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/)
+- [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/), avec les pages courtes [Tailscale serve](/docs/deep/self-host-tailscale/) et [Meshloom derrière votre reverse-proxy](/docs/deep/self-host-proxy/)
 - [Sécurité](/docs/deep/security/)

@@ -16,4 +16,6 @@ Two pages are worth reading before the others:
 
 To be told when something happens, read [Notifications](/en/docs/deep/notifications/) (channels, events and rules; ntfy, Telegram, Discord, Home Assistant, e-mail, webhooks; the webhook body: [Notification webhook](/en/docs/deep/notifications-webhook/)) and, for browsers, [Push notifications](/en/docs/deep/push/). To forward every message to another system, read [Fanout](/en/docs/deep/fanout/).
 
+To reach Meshloom from outside your home with your own tools, start with the short pages [Tailscale serve](/en/docs/deep/self-host-tailscale/) or [Meshloom behind your reverse proxy](/en/docs/deep/self-host-proxy/) (Caddy, nginx, Traefik); the full guide is [Remote access on your own](/en/docs/deep/remote-self-hosted/).
+
 [Meshloom Community](/en/docs/deep/community/) is off until you join it, so read its page to know what it sends before you do. The same goes for [Short links and photos](/en/docs/deep/share/), the optional sharing service that shortens long web addresses: it is off until an administrator turns it on.

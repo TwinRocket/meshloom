@@ -118,5 +118,5 @@ bantime = 1h
 ## Related
 
 - [Sign-in delays, the built-in ban and the `AUTH_FAIL` line](/en/docs/deep/access/#sign-in-delays)
-- [Remote access on your own](/en/docs/deep/remote-self-hosted/)
+- [Remote access on your own](/en/docs/deep/remote-self-hosted/), with the short pages [Tailscale serve](/en/docs/deep/self-host-tailscale/) and [Meshloom behind your reverse proxy](/en/docs/deep/self-host-proxy/)
 - [Security](/en/docs/deep/security/)
