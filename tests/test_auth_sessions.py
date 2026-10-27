@@ -4,7 +4,7 @@ import pytest
 
 from app.auth import sessions
 from app.repository.auth import AuthSessionRepository, UserRepository
-from tests.auth_helpers import ADMIN, PASSWORD, basic, create_user, login, make_client
+from tests.auth_helpers import ADMIN, PASSWORD, create_user, login, make_client
 
 pytestmark = [pytest.mark.real_auth, pytest.mark.usefixtures("test_db", "fast_argon2")]
 
@@ -129,8 +129,6 @@ async def test_password_change_needs_the_current_one_applies_the_policy_and_revo
         )
         assert weak.json()["detail"]["code"] == "auth_password_policy"
 
-        # Warm the Basic cache with the old password, then change it.
-        assert (await here.get("/api/auth/me", headers=basic(ADMIN, PASSWORD))).status_code == 200
         changed = await here.patch(
             "/api/auth/me",
             json={"current_password": PASSWORD, "new_password": "a new long phrase"},
@@ -138,8 +136,6 @@ async def test_password_change_needs_the_current_one_applies_the_policy_and_revo
         assert changed.status_code == 200
         assert (await here.get("/api/auth/me")).status_code == 200
         assert (await there.get("/api/auth/me")).status_code == 401
-        old_basic = await here.get("/api/auth/me", headers=basic(ADMIN, PASSWORD))
-        assert old_basic.status_code == 401
     async with make_client() as client:
         await login(client, ADMIN, "a new long phrase")
 

@@ -162,9 +162,9 @@ class TestRouteMatrix:
         _forbidden(await client.patch("/api/settings", json={}), "admin")
         _forbidden(await client.get("/api/settings"), "admin")
 
-    @pytest.mark.parametrize("credential", ["session", "basic"])
+    @pytest.mark.parametrize("credential", ["session", "trusted_network"])
     async def test_an_admin_keeps_full_access(self, sign_in_as, client, credential):
-        # The first admin and the account imported from 4.x Basic are admins.
+        # A session or a trusted network rule naming an admin account.
         sign_in_as("admin", credential=credential)
         assert (await client.get("/api/settings")).status_code == 200
         assert (await client.get("/api/fanout")).status_code == 200

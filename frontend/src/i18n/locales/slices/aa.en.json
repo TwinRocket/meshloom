@@ -58,7 +58,7 @@
       "open": "Account of {{name}}",
       "signOut": "Sign out",
       "ingressNote": "Home Assistant signs you in: there is no Meshloom session to end.",
-      "basicNote": "This browser signs in with saved Basic credentials, so there is no session to end. Close the browser or forget the saved login to sign out."
+      "stillSignedInNote": "This device is still signed in: the server signs it in without a login (login-free on the local network). An administrator can change that in Settings → Users & Access."
     }
   }
 }

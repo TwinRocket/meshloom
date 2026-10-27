@@ -405,7 +405,7 @@ class WebSocketManager:
 
     def close_user(self, user_id: int, *, except_session_id: str | None = None) -> int:
         """Close every socket a user opened, whatever its credential (session,
-        Basic, ingress, token), except those of ``except_session_id``: a role
+        ingress, trusted network, token), except those of ``except_session_id``: a role
         change, a disable or a deletion (a socket keeps the role it opened with).
         Returns how many."""
         clients = [

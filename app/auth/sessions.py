@@ -161,8 +161,8 @@ async def revoke_user_sessions(user_id: int, *, except_session_id: str | None = 
 
 
 async def sign_out_user(user_id: int, *, except_session_id: str | None = None) -> int:
-    """``revoke_user_sessions`` plus every other socket of the user (Basic,
-    ingress: no session to revoke), for a change of the account itself: a role
+    """``revoke_user_sessions`` plus every other socket of the user (ingress,
+    trusted network, token: no session to revoke), for a change of the account itself: a role
     change, a disable, a deletion, a password set by an admin. A socket keeps
     the role it opened with, so it must reconnect. Returns the sessions revoked."""
     revoked = await revoke_user_sessions(user_id, except_session_id=except_session_id)

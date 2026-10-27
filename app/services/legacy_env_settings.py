@@ -23,10 +23,9 @@ import: it could only switch the clock wraparound on, and ``auto_clock_wraparoun
 startup warning, plus a second one when it is set to a false value (it kept the fix
 off, the setting now starts on).
 
-``MESHCORE_BASIC_AUTH_USERNAME`` / ``_PASSWORD`` are retired too, but their one-time
-import is not here: ``app/security.py`` turns them into the administrator account
-(``app/auth/setup_code.py`` runs it first). They only get the startup warning, plus a
-second one when only one of the two is set.
+``MESHCORE_BASIC_AUTH_USERNAME`` / ``_PASSWORD`` are retired without an import
+(MSHL-100): HTTP Basic auth is gone, ``Authorization: Basic`` is ignored and the
+variables no longer become an account. They only get the startup warning.
 
 The 4.18.x bot lock (``ENV_BOT_LOCK``) is retired with the bots (MSHL-192):
 migration 122 reads it once to store the converted bots disabled, then each start
@@ -66,9 +65,8 @@ ENV_BOT_LOCK = "MESHCORE_DISABLE_BOTS"
 ENV_BASIC_USERNAME = "MESHCORE_BASIC_AUTH_USERNAME"
 ENV_BASIC_PASSWORD = "MESHCORE_BASIC_AUTH_PASSWORD"
 _BASIC_UI = (
-    "Settings → Users & Access (read only at the first start with no account, to create "
-    "the administrator, see app/security.py; Authorization: Basic is still accepted "
-    "until 5.2)"
+    "Settings → Users & Access (HTTP Basic auth is removed: sign in with an account; "
+    "a script uses an API token)"
 )
 # Never imported: the setting that replaces it is on by default.
 ENV_CLOCK_WRAPAROUND = "__CLOWNTOWN_DO_CLOCK_WRAPAROUND"
@@ -117,12 +115,6 @@ def warn_about_retired_env() -> list[str]:
             "Remove the variable from your environment.",
             name,
             RETIRED_ENV[name],
-        )
-    if len({ENV_BASIC_USERNAME, ENV_BASIC_PASSWORD} & set(still_set)) == 1:
-        # Never an error since 5.0 (it used to stop the start): half a pair imports nothing.
-        logger.warning(
-            "Only one of MESHCORE_BASIC_AUTH_USERNAME and MESHCORE_BASIC_AUTH_PASSWORD "
-            "is set: nothing was imported as an account."
         )
     if ENV_CLOCK_WRAPAROUND in still_set and not _env_true(ENV_CLOCK_WRAPAROUND):
         # The variable kept the fix off; the setting that replaces it starts on.

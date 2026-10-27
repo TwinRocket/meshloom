@@ -20,13 +20,13 @@ from app.auth.models import Role, User
 # ``relay`` comes with a later Access ticket.
 Via = Literal["lan", "ingress", "trusted", "relay"]
 
-# Which credential proved the principal. ``session`` (the cookie), ``basic``,
+# Which credential proved the principal. ``session`` (the cookie),
 # ``ingress`` (the Supervisor headers, which follow Home Assistant's own
 # ingress cookie) and ``trusted_network`` (the client address alone) are
 # ambient: a browser replays them on its own, so unsafe methods need the Origin
 # rule. ``token`` (``Authorization: Bearer``) is not.
-CredentialKind = Literal["session", "basic", "token", "ingress", "trusted_network"]
-AMBIENT_CREDENTIALS: frozenset[str] = frozenset({"session", "basic", "ingress", "trusted_network"})
+CredentialKind = Literal["session", "token", "ingress", "trusted_network"]
+AMBIENT_CREDENTIALS: frozenset[str] = frozenset({"session", "ingress", "trusted_network"})
 
 PRINCIPAL_STATE_KEY = "principal"
 

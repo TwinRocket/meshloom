@@ -1,6 +1,6 @@
 """``/api/auth/webauthn/*``: passkeys (Access T52).
 
-The caller's own passkeys, from a session only (never a token, Basic, a
+The caller's own passkeys, from a session only (never a token, a
 trusted network or ingress): ``POST /auth/webauthn/register/options`` (current
 password; the creation options), ``POST .../register/verify`` (the browser's
 answer and a name; stores the passkey), ``GET /auth/webauthn/credentials``,

@@ -62,7 +62,50 @@ async function addRule(cidr: string, userId: string) {
 }
 
 describe('AccessTrustedNetworksPanel', () => {
-  it('saves a rule and offers only enabled accounts', async () => {
+  it('shows the login-free switch off with its warning, and saves it at once', async () => {
+    settings.trusted_networks = [{ cidr: '192.168.1.0/24', user_id: 2 }];
+    const patch = vi
+      .spyOn(api, 'patchAuthSettings')
+      .mockResolvedValue({ ...settings, lan_login_free: true });
+    render(<AccessTrustedNetworksPanel />);
+    const box = await screen.findByLabelText(t('settings.access.trustedNetworks.switch'));
+    expect(box).not.toBeChecked();
+    expect(screen.getByTestId('lan-login-free-warning')).toHaveTextContent(
+      t('settings.access.trustedNetworks.switchWarning')
+    );
+    expect(screen.getByTestId('lan-login-free-off-notice')).toBeInTheDocument();
+    fireEvent.click(box);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ lan_login_free: true }));
+    await waitFor(() => expect(box).toBeChecked());
+    expect(screen.queryByTestId('lan-login-free-off-notice')).toBeNull();
+    expect(toast.success).toHaveBeenCalledWith(t('settings.access.trustedNetworks.switchOn'));
+  });
+
+  it('reads the switch as on, and turns it off', async () => {
+    settings.lan_login_free = true;
+    const patch = vi
+      .spyOn(api, 'patchAuthSettings')
+      .mockResolvedValue({ ...settings, lan_login_free: false });
+    render(<AccessTrustedNetworksPanel />);
+    const box = await screen.findByLabelText(t('settings.access.trustedNetworks.switch'));
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ lan_login_free: false }));
+    await waitFor(() => expect(box).not.toBeChecked());
+  });
+
+  it('keeps the switch as it was when the server refuses', async () => {
+    vi.spyOn(api, 'patchAuthSettings').mockRejectedValue(
+      new ApiError('Forbidden', 403, { code: 'auth_forbidden', message: 'x' })
+    );
+    render(<AccessTrustedNetworksPanel />);
+    const box = await screen.findByLabelText(t('settings.access.trustedNetworks.switch'));
+    fireEvent.click(box);
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(box).not.toBeChecked();
+  });
+
+  it('saves a rule and offers only enabled, non-administrator accounts', async () => {
     const patch = vi.spyOn(api, 'patchAuthSettings').mockResolvedValue({
       ...settings,
       trusted_networks: [{ cidr: '192.168.1.0/24', user_id: 2 }],
@@ -76,7 +119,7 @@ describe('AccessTrustedNetworksPanel', () => {
     const options = Array.from(
       screen.getByLabelText(t('settings.access.trustedNetworks.user')).querySelectorAll('option')
     ).map((option) => option.getAttribute('value'));
-    expect(options).toEqual(['', '1', '2']);
+    expect(options).toEqual(['', '2']);
 
     fireEvent.click(save);
     await waitFor(() =>
@@ -89,13 +132,58 @@ describe('AccessTrustedNetworksPanel', () => {
     );
   });
 
-  it('warns strongly when a rule maps to an administrator', async () => {
+  it('lists a saved rule naming an administrator as refused, and never offers one', async () => {
+    settings.trusted_networks = [
+      { cidr: '10.0.0.0/24', user_id: 1 },
+      { cidr: '192.168.1.0/24', user_id: 2 },
+    ];
+    render(<AccessTrustedNetworksPanel />);
+    const warning = await screen.findByTestId('trusted-networks-admin-warning');
+    expect(warning).toHaveTextContent(
+      t('settings.access.trustedNetworks.adminWarning', { networks: '10.0.0.0/24' })
+    );
+    expect(warning).not.toHaveTextContent('192.168.1.0/24');
+    const [adminSelect, tabletSelect] = screen.getAllByLabelText(
+      t('settings.access.trustedNetworks.user')
+    );
+    // The saved admin stays visible on its own rule, and is offered nowhere else.
+    expect(adminSelect).toHaveValue('1');
+    const offered = Array.from(tabletSelect.querySelectorAll('option')).map((o) => o.value);
+    expect(offered).toEqual(['', '2']);
+  });
+
+  it('shows the refused switch with the rules naming an administrator', async () => {
+    settings.trusted_networks = [{ cidr: '10.0.0.0/24', user_id: 1 }];
+    vi.spyOn(api, 'patchAuthSettings').mockRejectedValue(
+      new ApiError('Conflict', 409, {
+        code: 'auth_lan_login_free_admin_rules',
+        message: 'admin rules',
+        params: { cidrs: '10.0.0.0/24' },
+      })
+    );
+    render(<AccessTrustedNetworksPanel />);
+    const box = await screen.findByLabelText(t('settings.access.trustedNetworks.switch'));
+    fireEvent.click(box);
+    const expected = t('errors.auth_lan_login_free_admin_rules', { cidrs: '10.0.0.0/24' });
+    expect(expected).toContain('10.0.0.0/24');
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expected));
+    expect(box).not.toBeChecked();
+  });
+
+  it('explains the refusal of a rule naming an administrator', async () => {
+    vi.spyOn(api, 'patchAuthSettings').mockRejectedValue(
+      new ApiError('Bad Request', 400, {
+        code: 'auth_trusted_network_user_admin',
+        message: 'admin',
+        params: { cidr: '10.0.0.0/24' },
+      })
+    );
     render(<AccessTrustedNetworksPanel />);
     await addRule('10.0.0.0/24', '2');
-    expect(screen.queryByTestId('trusted-networks-admin-warning')).toBeNull();
-    const select = screen.getByLabelText(t('settings.access.trustedNetworks.user'));
-    fireEvent.change(select, { target: { value: '1' } });
-    expect(screen.getByTestId('trusted-networks-admin-warning')).toHaveTextContent('10.0.0.0/24');
+    fireEvent.click(screen.getByText(t('settings.access.trustedNetworks.save')));
+    const expected = t('errors.auth_trusted_network_user_admin', { cidr: '10.0.0.0/24' });
+    expect(expected).toContain('10.0.0.0/24');
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expected));
   });
 
   it('shows the coded refusal of an overlap with a trusted proxy', async () => {

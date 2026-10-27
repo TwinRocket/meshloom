@@ -286,11 +286,3 @@ def test_basic_auth_variables_are_retired_with_the_users_and_access_hint(monkeyp
     assert "Settings → Users & Access" in caplog.text
     assert "Only one of" not in caplog.text
     assert "s3cret-value" not in caplog.text
-
-
-@pytest.mark.parametrize("name", ["MESHCORE_BASIC_AUTH_USERNAME", "MESHCORE_BASIC_AUTH_PASSWORD"])
-def test_half_a_basic_auth_pair_only_warns(monkeypatch, caplog, name):
-    monkeypatch.setenv(name, "x")
-    with caplog.at_level(logging.WARNING, logger="app.services.legacy_env_settings"):
-        assert warn_about_retired_env() == [name]
-    assert "Only one of" in caplog.text

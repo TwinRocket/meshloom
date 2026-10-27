@@ -357,14 +357,15 @@ async def _keep_trusted_networks(
             "UPDATE auth_settings SET trusted_networks = ? WHERE id = 1", (json.dumps(kept),)
         )
     # Fail closed until the hook reloads them: no rule names an account that changed,
-    # and no public URL passes the rules' Host check (AuthSettings default).
+    # no public URL passes the rules' Host check, and login-free on the local
+    # network stays off (explicit, and the AuthSettings default too).
     rules = []
     for entry in kept:
         try:
             rules.append(TrustedNetworkRule.model_validate(entry))
         except ValueError:
             continue
-    trusted_network.apply(AuthSettings(trusted_networks=rules))
+    trusted_network.apply(AuthSettings(trusted_networks=rules, lan_login_free=False))
     return warnings
 
 
@@ -387,8 +388,8 @@ async def _updated_at_before(conn: aiosqlite.Connection) -> dict[int, int]:
 
 
 def _close_account_sockets(user_ids: set[int]) -> None:
-    """Close every socket of these accounts at once (sessions, Basic, ingress,
-    trusted networks): an id kept from the file may now name another person."""
+    """Close every socket of these accounts at once (sessions, ingress, trusted
+    networks): an id kept from the file may now name another person."""
     from app.websocket import ws_manager
 
     closed = sum(ws_manager.close_user(user_id) for user_id in user_ids)

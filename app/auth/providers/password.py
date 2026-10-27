@@ -1,7 +1,7 @@
 """Username and password, checked against ``users.password_hash`` (argon2id).
 
-Used by ``POST /api/auth/login`` and by the ``Authorization: Basic``
-compatibility credential (``app/security.py``). At most
+Used by ``POST /api/auth/login`` (``Authorization: Basic`` is never a
+credential since MSHL-100, so no header runs argon2id). At most
 ``MAX_CONCURRENT_VERIFICATIONS`` argon2id checks run at once (64 MiB each,
 ``app/auth/passwords.py``); the others wait. On ``POST /api/auth/login`` the
 login delays (``app/auth/ratelimit.py``) run first, so an attempt they refuse

@@ -13,7 +13,6 @@ const session = (mustChange: boolean): AuthSessionInfo => ({
   setup_required: false,
   setup_code_required: false,
   methods: { password: true, ingress: false },
-  auth_compat: { basic: false },
   user: {
     id: 2,
     username: 'lea',

@@ -14,9 +14,8 @@ API_DESCRIPTION = (
     "Meshloom exposes the MeshCore companion radio as a local REST and WebSocket API.\n\n"
     "REST endpoints are mounted below `/api`. The live WebSocket stream is available at "
     "`/api/ws` for health, message, raw-packet, contact, and telemetry events.\n\n"
-    "**Trusted network note:** Meshloom is designed for trusted local networks. Optional "
-    "HTTP Basic auth can be enabled for the whole app, but operators should pair it with "
-    "HTTPS when credentials cross the network."
+    "**Authentication:** sign in with an account (session cookie) or send an API token "
+    "in `Authorization: Bearer`. Use HTTPS when credentials cross the network."
 )
 
 API_TAGS_METADATA: list[dict[str, Any]] = [
@@ -186,7 +185,7 @@ def _add_common_error_responses(openapi_schema: dict[str, Any]) -> None:
 
 # How a client authenticates (``docs/dev/auth.md``): an API or device token in
 # ``Authorization: Bearer`` (scripts, meshenger; never in a query string), or the
-# browser's session cookie. Basic stays as the 4.x compatibility credential.
+# browser's session cookie.
 SECURITY_SCHEMES: dict[str, dict[str, Any]] = {
     "bearerToken": {
         "type": "http",
@@ -548,7 +547,7 @@ def _build_swagger_docs_html(app: FastAPI) -> str:
         <div class="docs-meta" aria-label="API metadata">
           <span class="docs-pill">Version <span>{version}</span></span>
           <span class="docs-pill">REST base <span>/api</span></span>
-          <span class="docs-pill">Auth <span>optional Basic</span></span>
+          <span class="docs-pill">Auth <span>session or Bearer token</span></span>
         </div>
       </div>
     </header>

@@ -2,9 +2,7 @@
 
 At startup, while no account exists (``prepare_first_run``, called by the lifespan):
 
-- the retired ``MESHCORE_BASIC_AUTH_*`` variables, when set, become the
-  administrator (``app/security.py``): nothing else is asked;
-- otherwise, on a database that existed before this start (an instance that
+- on a database that existed before this start (an instance that
   updated itself overnight, ``app/routers/updates.py``), an **installation
   code** of ``SETUP_CODE_DIGITS`` digits is generated, its SHA-256 stored in
   ``auth_settings.setup_code_hash``, and the code logged at WARNING.
@@ -203,11 +201,13 @@ async def clear_setup_code() -> None:
 async def prepare_first_run(
     *,
     existing_database: bool,
-    basic_username: str,
-    basic_password: str,
     keep_stored_code: bool = False,
 ) -> None:
-    """Import Basic, or issue the installation code, while no account exists.
+    """Issue the installation code while no account exists.
+
+    The retired ``MESHCORE_BASIC_AUTH_*`` variables are no longer imported as
+    an account (MSHL-100): an instance upgraded from 4.x Basic gets the
+    installation code like any existing database without an account.
 
     Setup stays refused until this returns without raising (module docstring).
     ``keep_stored_code`` (the retry from the setup route) issues no new code
@@ -223,28 +223,16 @@ async def prepare_first_run(
     except Exception:
         # The screen only lacks its account; setup does not depend on it.
         logger.exception("Failed to create the kiosk account or its device token")
-    _last_args = {
-        "existing_database": existing_database,
-        "basic_username": basic_username,
-        "basic_password": basic_password,
-    }
+    _last_args = {"existing_database": existing_database}
     _existing_database = None
-    await _prepare(existing_database, basic_username, basic_password, keep_stored_code)
+    await _prepare(existing_database, keep_stored_code)
     _existing_database = existing_database
 
 
-async def _prepare(
-    existing_database: bool, basic_username: str, basic_password: str, keep_stored_code: bool
-) -> None:
-    from app.security import import_basic_credentials
-
-    basic_configured = bool(basic_username and basic_password)
+async def _prepare(existing_database: bool, keep_stored_code: bool) -> None:
     if await UserRepository.any_exist():
         if await AuthSettingsRepository.get_setup_code_hash() is not None:
             await clear_setup_code()
-        return
-    if basic_configured and await import_basic_credentials(basic_username, basic_password):
-        await clear_setup_code()
         return
     from app.services.kiosk import kiosk_host, remember_displayed_code
 

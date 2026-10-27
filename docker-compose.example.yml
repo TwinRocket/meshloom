@@ -33,9 +33,8 @@ services:
       # Security
       # Lock every extension (plugin): none starts, whatever the UI says.
       # MESHCORE_DISABLE_PLUGINS: "true"
-      # Accounts live in the database (Settings → Users & Access). The retired
-      # MESHCORE_BASIC_AUTH_* variables are imported once into an administrator
-      # on a database with no account, then ignored: do not set them.
+      # Accounts live in the database (Settings → Users & Access). HTTP Basic
+      # auth is removed: MESHCORE_BASIC_AUTH_* are no longer read.
 
       # Web Push: the contact address (a real mailto: for iPhones) is set in
       # Settings → Notifications. MESHCORE_VAPID_SUBJECT is no longer read.

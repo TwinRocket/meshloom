@@ -1,15 +1,24 @@
-"""Trusted networks: a listed CIDR signs in as a chosen user without a login (docs/dev/auth.md).
+"""Login-free on the local network: a listed CIDR signs in as a chosen user (docs/dev/auth.md).
 
 Home Assistant's ``trusted_networks``, closed whenever a proxy is in the loop.
-The rules are ``auth_settings.trusted_networks`` (``[{cidr, user_id}]``,
-``GET/PATCH /api/auth/settings``, admin), empty by default. The gate
-(``app/auth/middleware.py``) asks ``resolve_trusted_user()`` only for a request
-that sent no credential at all (no ``Authorization``, no session that resolved).
-A rule applies only when **all** of these hold (``rule_blocker`` names the
-first that does not; anything unexpected also refuses, fail closed):
+The master switch is ``auth_settings.lan_login_free`` (MSHL-100), off by
+default and off after the upgrade (migration 136): while it is off no rule
+applies at all. The rules are ``auth_settings.trusted_networks`` (``[{cidr,
+user_id}]``), empty by default; both are set with ``GET/PATCH
+/api/auth/settings`` (admin, audited). Each rule names the account it signs in
+as, so the role is the one the admin chose for that account (least privilege:
+a ``viewer`` or ``kiosk`` account for a shared screen), never a new anonymous
+role. The gate (``app/auth/middleware.py``) asks ``resolve_trusted_user()``
+only for a request whose session did not resolve. A rule applies only when
+**all** of these hold (``rule_blocker`` names the first that does not;
+anything unexpected also refuses, fail closed):
 
 - the request did not come through the relay or Home Assistant ingress
   (``via`` is ``lan``);
+- it carries no ``Authorization`` header (a Bearer token that did not check,
+  or ``Basic``, which is never a credential since MSHL-100, gets its 401;
+  checked in ``resolve_trusted_user``, not ``rule_blocker``, which the kiosk
+  launcher's own checks reuse);
 - the TCP peer (``peer_address``, before any trusted-proxy rewrite) is not a
   trusted proxy (``auth_settings.trusted_proxies``): a proxied request is never
   auto-signed in, whatever its forwarded address;
@@ -22,12 +31,20 @@ first that does not; anything unexpected also refuses, fail closed):
   (``LOOPBACK_ALLOWED_KINDS``): on a package, a source checkout or a container
   that may share the host's network, a local proxy or tunnel (``ssh -L`` adds
   no header at all) makes every internet visitor arrive from ``127.0.0.1``;
+- the peer is a local address (``ip_ban.is_local``: ``fail_log.LOCAL_NETWORKS``
+  or an on-link global IPv6 prefix of the host), whatever the rule covers: a
+  rule listing a public network never applies. A router port forwarded to
+  Meshloom with source NAT still makes internet visitors look local, which the
+  settings page warns about;
 - the ``Host`` header passes the strict guard (``host_allowed``, in
   ``app/middleware/host_guard.py``, whatever ``host_guard_mode`` says): an IP
   literal, ``localhost``, a ``.local``/``.home.arpa``/``.lan``/``.internal``
   name, this machine's short or full name, or a declared public URL. Without
   it a DNS-rebinding page would get a principal with no cookie at all;
-- the mapped account exists, is enabled and has no pending password change.
+- the mapped account exists, is enabled, has no pending password change and
+  is not an administrator (``PATCH /api/auth/settings`` refuses a rule for an
+  admin and refuses the switch while one exists; this check also covers an
+  account promoted afterwards or a rule restored from a backup).
 
 The most specific matching rule wins (longest prefix, then the first listed).
 The principal has ``via = "trusted"`` and the ambient credential
@@ -37,7 +54,7 @@ Every auto-login writes one ``login`` audit row (``details.method =
 "trusted_network"``), at most once per client address, user and UTC day
 (``_audited``, bounded), so a LAN tablet polling the API does not flood the log.
 
-The rules and the declared public URLs the ``Host`` check needs are kept in
+The switch, the rules and the declared public URLs the ``Host`` check needs are kept in
 memory: read from the database on first use, replaced by ``apply()`` after
 every ``AuthSettingsRepository.update()``. Every check before the account
 lookup is synchronous and in memory, so a request from an unlisted or proxied
@@ -105,6 +122,7 @@ _SHARED = ipaddress.ip_network("100.64.0.0/10")
 MAX_AUDITED = 4096
 
 _rules: tuple[TrustedNetworkRule, ...] | None = None
+_enabled = False
 _public_urls: tuple[str, ...] = ()
 _audited: dict[tuple[str, int], int] = {}
 
@@ -147,14 +165,16 @@ def overlapping_proxy(cidr: str, proxies: Iterable[str]) -> str | None:
 
 def public_or_wide(cidr: str) -> bool:
     """A network that is almost always a mistake: as wide as allowed (``/8``
-    IPv4, ``/16`` IPv6) or not private (``is_private``; the shared address
-    space ``100.64.0.0/10`` counts as private). Accepted, but named by the
+    IPv4, ``/16`` IPv6), not private (``is_private``), or inside the shared
+    address space ``100.64.0.0/10`` and wider than one address (a Tailscale or
+    carrier-grade NAT range: every device of the tailnet, or the carrier's other
+    customers, would be signed in). Accepted, but named by the
     ``trusted_network_public_or_wide`` security notice."""
     network = _network(cidr)
     if network.prefixlen <= proxy_headers.MIN_PREFIX[network.version]:
         return True
     if network.version == 4 and network.subnet_of(_SHARED):  # type: ignore[arg-type]
-        return False
+        return network.prefixlen < 32
     return not network.is_private
 
 
@@ -239,27 +259,31 @@ def valid_stored_rules(stored: Iterable[TrustedNetworkRule]) -> tuple[TrustedNet
 
 
 def apply(auth_settings: AuthSettings) -> tuple[TrustedNetworkRule, ...]:
-    """Replace the in-memory rules with the valid ``trusted_networks``, and the
-    public URLs the ``Host`` check accepts with ``public_urls``."""
-    global _rules, _public_urls
+    """Replace the in-memory switch (``lan_login_free``), the rules with the
+    valid ``trusted_networks``, and the public URLs the ``Host`` check accepts
+    with ``public_urls``."""
+    global _rules, _enabled, _public_urls
+    _enabled = auth_settings.lan_login_free
     _public_urls = tuple(auth_settings.public_urls)
     _rules = valid_stored_rules(auth_settings.trusted_networks)
     return _rules
 
 
 async def current() -> tuple[TrustedNetworkRule, ...]:
-    """The rules, read from the database on first use."""
+    """The rules in force: none while ``lan_login_free`` is off. Read from the
+    database on first use."""
     if _rules is None:
         from app.repository.auth import AuthSettingsRepository
 
-        return apply(await AuthSettingsRepository.get())
-    return _rules
+        apply(await AuthSettingsRepository.get())
+    return _rules if _enabled and _rules is not None else ()
 
 
 def reset() -> None:
     """Forget the rules and the audit memory (tests, and a fresh process)."""
-    global _rules, _public_urls
+    global _rules, _enabled, _public_urls
     _rules = None
+    _enabled = False
     _public_urls = ()
     _audited.clear()
 
@@ -326,6 +350,10 @@ def rule_blocker(
         return "proxy_headers"
     if peer.is_loopback and not loopback_allowed(install_kind):
         return "loopback"
+    from app.auth.ip_ban import is_local
+
+    if not is_local(peer):
+        return "not_local"
     if not host_allowed(headers.get("host"), public_urls):
         return "host"
     return None
@@ -341,6 +369,10 @@ async def resolve_trusted_user(
     """
     rules = await current()
     if not rules:
+        return None
+    if headers.get("authorization") is not None:
+        # A Bearer token that did not check, or Basic (never a credential since
+        # MSHL-100), gets its 401: a header is never ignored into a sign-in.
         return None
     peer = _parse_address(proxy_headers.peer_address(scope))
     if peer is None:
@@ -360,6 +392,10 @@ async def resolve_trusted_user(
 
     user = await UserRepository.get(rule.user_id)
     if user is None or user.disabled or user.must_change_password:
+        return None
+    if user.role == "admin":
+        # Never an administrator without a login (MSHL-100): the settings refuse such a
+        # rule, and an account promoted after its rule was saved stops matching here.
         return None
     await _audit_login(str(peer), user, rule)
     return user, rule

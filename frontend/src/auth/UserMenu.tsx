@@ -103,9 +103,9 @@ export function UserMenu({ className }: { className?: string }) {
             </Button>
           )}
           {stillSignedIn && (
-            // Saved Basic credentials (4.x) authenticate every request: no session to end.
+            // The server signs this device in again (login-free on the local network).
             <p role="status" className="text-sm text-muted-foreground">
-              {t('auth.userMenu.basicNote')}
+              {t('auth.userMenu.stillSignedInNote')}
             </p>
           )}
         </DialogContent>

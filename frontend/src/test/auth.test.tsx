@@ -15,7 +15,6 @@ const base: AuthSessionInfo = {
   setup_required: false,
   setup_code_required: false,
   methods: { password: true, ingress: false },
-  auth_compat: { basic: false },
 };
 const admin = { id: 1, username: 'owner', display_name: 'Olive', role: 'admin' as const };
 const signedIn: AuthSessionInfo = {
@@ -309,19 +308,6 @@ describe('session gate', () => {
     );
   });
 
-  it('shows no login wall when the credentials already authenticate (Basic compat)', async () => {
-    stubFetch({
-      'GET /auth/session': () => jsonResponse({ ...signedIn, auth_compat: { basic: true } }),
-    });
-    render(
-      <SessionProvider>
-        <Probe />
-      </SessionProvider>
-    );
-    expect(await screen.findByTestId('app')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: t('auth.login.title') })).toBeNull();
-  });
-
   it('offers a retry when the server cannot be reached', async () => {
     const user = userEvent.setup();
     let up = false;
@@ -531,7 +517,7 @@ describe('review fixes', () => {
     expect(screen.queryByTestId('relogin-dialog')).toBeNull();
   });
 
-  it('says so when Sign out cannot end a Basic session, and frees the button', async () => {
+  it('says so when Sign out cannot end a server-side sign-in, and frees the button', async () => {
     const user = userEvent.setup();
     stubFetch({
       'GET /auth/session': () => jsonResponse(signedIn),
@@ -545,7 +531,7 @@ describe('review fixes', () => {
     );
     await user.click(await screen.findByRole('button', { name: /Olive/ }));
     await user.click(screen.getByRole('button', { name: t('auth.userMenu.signOut') }));
-    expect(await screen.findByText(t('auth.userMenu.basicNote'))).toBeInTheDocument();
+    expect(await screen.findByText(t('auth.userMenu.stillSignedInNote'))).toBeInTheDocument();
     expect(screen.getByRole('button', { name: t('auth.userMenu.signOut') })).toBeEnabled();
   });
 });

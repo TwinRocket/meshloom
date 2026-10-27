@@ -197,7 +197,6 @@ describe('TrustedProxiesSettings behind an untrusted https proxy', () => {
               setup_required: false,
               setup_code_required: false,
               methods: { password: true, ingress: false },
-              auth_compat: { basic: false },
               secure,
               user: { id: 1, username: 'owner', display_name: 'Olive', role: 'admin' },
               via: 'lan',

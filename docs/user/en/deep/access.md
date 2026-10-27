@@ -1,6 +1,6 @@
 ---
 title: Accounts and access
-description: Accounts, roles, sessions, trusted networks, tokens, two-factor authentication and passkeys, Home Assistant and the kiosk screen, the 4.x Basic login, the audit log, and meshloom-admin, the command that gets you back in from the machine, for each way of installing Meshloom.
+description: Accounts, roles, sessions, trusted networks, tokens, two-factor authentication and passkeys, Home Assistant and the kiosk screen, the removed 4.x Basic login, the audit log, and meshloom-admin, the command that gets you back in from the machine, for each way of installing Meshloom.
 level: deep
 order: 21
 ---
@@ -39,7 +39,7 @@ Every role receives the instance's theme, its blocked contacts and names and the
 
 An action the server refuses anyway (for example from a page left open before a role change) shows one message, “This account is not allowed to do that.”
 
-The first administrator, and the account Meshloom creates from the Basic login of a 4.x installation ([below](#the-4x-basic-login)), are `admin`: an installation with a single administrator works as before.
+The first administrator is `admin`: an installation with a single administrator works as before.
 
 ## Managing accounts
 
@@ -123,7 +123,13 @@ Sign-in delays, the audit log and the session list record the address a request 
 
 ## Trusted networks
 
-An administrator can let devices on a chosen network in without a login, in **Settings → Users & Access → Trusted networks**: each rule is a network (`192.168.1.50`, `192.168.1.0/24`) and the account those devices act as. The list is empty by default. Use it for a device you control, such as a wall tablet, and give it the smallest network (its own address) and the weakest role that does the job (kiosk or viewer). A sign-in through a rule is written to the audit log once per device and per day.
+An administrator can let devices on the local network in without a login, in **Settings → Users & Access → Trusted networks**. This is the **Login-free on the local network** switch, plus rules: each rule is a network (`192.168.1.50`, `192.168.1.0/24`) and the account those devices act as. The list is empty by default.
+
+The switch is the master control: it is **off by default, and off after an upgrade even if rules already exist**, so existing rules sign nobody in until an administrator turns it on (the start-up log says so). Only an administrator can turn it on or off, and each change is written to the audit log. While it is on, a rule applies only to a device connecting **directly from a local address**: the private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), the shared range `100.64.0.0/10` (CGNAT), link-local addresses, loopback only inside the Home Assistant add-on, and IPv6 unique-local or link-local addresses or the host's own on-link prefix. A public address is never signed in, even if a rule covers it. A request that carries an `Authorization` header is never signed in by a rule either.
+
+**Warning.** If your internet box forwards a port to the Meshloom machine and rewrites the source address (source NAT), visitors from the internet look local and would be signed in: do not turn the switch on in that case. Requests through Meshloom Remote never count as local. The shared range `100.64.0.0/10` is also what Tailscale and some VPNs use: a rule over it signs in every device of your tailnet or VPN, so Settings asks for the same confirmation as for a wide network unless the rule names a single address. A dedicated mode for exposing Meshloom directly is planned for later.
+
+ Use it for a device you control, such as a wall tablet, and give it the smallest network (its own address) and the least-privileged account that does the job (kiosk or viewer). A rule never signs in an **administrator**: Meshloom refuses to save one that names an administrator, keeps the switch off while a saved rule (from before, or restored from a backup) still names one and lists those rules, and stops signing in an account promoted to administrator afterwards. A sign-in through a rule is written to the audit log once per device and per day.
 
 A rule is **off as soon as a proxy is in the loop**, because behind a proxy or a tunnel every visitor, from anywhere, arrives from the proxy's address:
 
@@ -132,7 +138,7 @@ A rule is **off as soon as a proxy is in the loop**, because behind a proxy or a
 - a rule never covers this machine's own loopback (`127.0.0.1`, `::1`), except inside the Home Assistant add-on: a local proxy or an `ssh -L` tunnel would bring every visitor from there;
 - the address in the browser must be an IP address, `localhost`, a local name (`.local`, `.home.arpa`, `.lan`, `.internal`), this machine's name or a public address you declared, so a web page cannot use a name of its own to reach Meshloom as that account.
 
-Meshloom refuses to save a rule that overlaps a trusted proxy, one that covers loopback outside the add-on, one whose account must change its password first (the rule would never apply), and, while a public address is configured, one that covers the Docker gateway. Settings warns in red when a rule signs in an **administrator**: anyone on that network can then change every setting, account and plugin. It also warns as you type when a network is public or as wide as allowed, and flags a saved rule whose account has since been disabled or must change its password (the rule never applies). The **Access security notice** at the top of **Users & Access** says when a rule signs in an administrator while plugins run with reduced isolation (even while they are paused, since the risk comes back on resume), covers loopback or the Docker gateway while a public address is configured, or is a public network or one as wide as allowed (a `/8` IPv4 or `/16` IPv6 range), which is almost always a mistake.
+Meshloom refuses to save a rule that overlaps a trusted proxy, one that covers loopback outside the add-on, one whose account must change its password first (the rule would never apply), one whose account is an administrator, and, on a Docker install, one that covers the Docker gateway (every client of the published port, the internet included, arrives from it). Settings warns as you type when a network is public or as wide as allowed, or a Tailscale/CGNAT range wider than one address, and flags a saved rule whose account has since been disabled or must change its password (the rule never applies). The **Access security notice** at the top of **Users & Access** says when a saved rule names an administrator while plugins run with reduced isolation (even while they are paused, since the risk comes back on resume), covers loopback or the Docker gateway while a public address is configured, or is a public network or one as wide as allowed (a `/8` IPv4 or `/16` IPv6 range), which is almost always a mistake.
 
 ## API and device tokens
 
@@ -183,7 +189,7 @@ Signed in through Home Assistant, or with an account that has no Meshloom passwo
 - **Signing in.** After a correct password, `POST /api/auth/login` answers `"authenticated": false` with a `second_factor.pending_token`; send it with the code to `POST /api/auth/login/2fa` within 5 minutes to get the session. A recovery code works in place of the app's code, once each. Five wrong codes, or a change to the account, mean starting again with the password.
 - **A code works once.** A code already used, or an older one, is refused even while it is still shown in the app: wait for the next one.
 - **Wrong codes count like wrong passwords**, with the same delays (above).
-- **Scripts.** `Authorization: Basic` ([the 4.x window](#the-4x-basic-login)) stops working for an account with a second factor: use an [API token](#api-and-device-tokens).
+- **Scripts.** A second factor applies to sign-in with a password; scripts use an [API token](#api-and-device-tokens).
 - **Require it for administrators.** `PATCH /api/auth/settings` with `{"require_2fa_for_admins": true}` (off by default). An administrator without a second factor can then only set one up (and sign out) until it is done; members, viewers, the kiosk and Home Assistant users are not affected. Recommended when Meshloom is reachable from the Internet.
 - **Lost phone.** Use a recovery code. Without one, an administrator runs `meshloom-admin disable-2fa <user>` on the machine (below), then the user signs in with the password alone and sets it up again.
 
@@ -237,15 +243,15 @@ On the Home Assistant add-on, Home Assistant signs you in. Opened from the sideb
 The `kiosk` role is for a screen on a wall (a club, a workshop): it reads channels, contacts, packets, statistics and the map, never a direct message, and has no password and no settings. Two ways to use it:
 
 - **The Raspberry Pi kiosk image** creates the `kiosk` account itself and signs the screen in with a **device token** it writes on the Pi, readable only by the desktop user, working only from the Pi itself and never shown in an address (see [Raspberry Pi](/en/docs/rpi/#kiosk-image-screen-on-the-wall)). An administrator sees it as **Kiosk screen** in **API and device tokens**; **Revoke** replaces it, and disabling the `kiosk` account keeps the screen signed out.
-- **Any other screen**: create a `kiosk` account in **Users & Access**, then add a trusted-network rule that maps the screen's own address to it ([below](#trusted-networks)). A `kiosk` account has no password, so it cannot sign in any other way.
+- **Any other screen**: create a `kiosk` account in **Users & Access**, then turn on **Login-free on the local network** and add a trusted-network rule that maps the screen's own address to it ([below](#trusted-networks)). A `kiosk` account has no password, so it cannot sign in any other way.
 
 ## The 4.x Basic login
 
-Up to 4.18, `MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` (the add-on's `basic_auth_username` and `basic_auth_password`) were one shared login. From 5.0:
+Up to 4.18, `MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` (the add-on's `basic_auth_username` and `basic_auth_password`) were one shared login. That login is removed:
 
-- At the **first start with no account**, when both are set, they become the administrator account (same name, same password, no installation code needed). Meshloom never reads them again; it logs a warning at every start while they are set: remove them. Only one set imports nothing.
-- **Compatibility window.** Until 5.2, scripts that send that user name and password with `Authorization: Basic` keep working, for any account that has a password and no second factor, with a short pause after a failure. It logs a deprecation warning. In 5.2 the header is removed: move scripts to an [API token](#api-and-device-tokens) now.
-- A 4.x user name longer than 64 characters cannot become an account: the import is skipped, with an error in the log, and the normal first sign-in applies.
+- The variables are no longer imported as an account. Meshloom only logs a warning at every start while they are set: remove them. The add-on options are gone.
+- A request with an `Authorization: Basic` header is ignored like any unknown scheme: a plain 401, with no sign-in pop-up in the browser. Browsers sign in with an account; scripts use an [API token](#api-and-device-tokens) (`Authorization: Bearer`).
+- A 4.x installation that relied only on the Basic login goes through the first-run setup with the installation code printed in the server log (see [First sign-in](#first-sign-in)).
 
 ## Audit log
 
@@ -311,7 +317,7 @@ With `docker run`, use `docker exec -it <container> meshloom-admin reset-passwor
 
 ### Home Assistant add-on
 
-Through the sidebar, Home Assistant signs you in: Meshloom accepts the Home Assistant user who opens it, with no password of its own. The first Home Assistant user to open Meshloom becomes its administrator, even if a Meshloom administrator already exists (from the 4.18 `basic_auth_*` options or `meshloom-admin`), so the sidebar always reaches an administrator; the next ones get the **Member** role (an administrator can change it, and each user's role: see "Managing accounts" above). Only Home Assistant administrators see the Meshloom panel, so these are people who already administer your Home Assistant. If you cannot open Meshloom, fix your access in Home Assistant itself. If you gave the add-on's port 8000 a host port, that address asks for a Meshloom account like any other install. The command still exists for the rare case where you need it. It runs in the add-on's container, so it needs a way to reach the host's Docker: the *Advanced SSH & Web Terminal* add-on with **Protection mode** turned off.
+Through the sidebar, Home Assistant signs you in: Meshloom accepts the Home Assistant user who opens it, with no password of its own. The first Home Assistant user to open Meshloom becomes its administrator, even if a Meshloom administrator already exists (created with `meshloom-admin` or by the first-run setup on a published port), so the sidebar always reaches an administrator; the next ones get the **Member** role (an administrator can change it, and each user's role: see "Managing accounts" above). Only Home Assistant administrators see the Meshloom panel, so these are people who already administer your Home Assistant. If you cannot open Meshloom, fix your access in Home Assistant itself. If you gave the add-on's port 8000 a host port, that address asks for a Meshloom account like any other install. The command still exists for the rare case where you need it. It runs in the add-on's container, so it needs a way to reach the host's Docker: the *Advanced SSH & Web Terminal* add-on with **Protection mode** turned off.
 
 ```bash
 docker ps --format '{{.Names}}' | grep meshloom

@@ -481,10 +481,10 @@ async def test_close_user_closes_every_socket_of_the_user_but_the_kept_session(m
 
     kept = client(5, "keep")
     other_session = client(5, "other")
-    basic = client(5, None, credential="basic")
+    trusted = client(5, None, credential="trusted_network")
     someone_else = client(6, "x")
     assert manager.close_user(5, except_session_id="keep") == 2
-    assert evicted == [other_session, basic]
+    assert evicted == [other_session, trusted]
     assert kept not in evicted and someone_else not in evicted
 
 

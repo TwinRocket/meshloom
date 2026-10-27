@@ -15,7 +15,7 @@ from app.repository.auth import (
     TotpRepository,
     UserRepository,
 )
-from tests.auth_helpers import ADMIN, PASSWORD, basic, create_user, login, make_client
+from tests.auth_helpers import ADMIN, PASSWORD, create_user, login, make_client
 
 pytestmark = [pytest.mark.real_auth, pytest.mark.usefixtures("test_db", "fast_argon2")]
 
@@ -267,17 +267,6 @@ async def test_an_account_change_voids_the_pending_login(clock):
             json={"pending_token": token, "code": _code(secret, clock["t"], 1)},
         )
         assert response.json()["detail"]["code"] == "auth_2fa_pending_invalid"
-
-
-async def test_basic_never_signs_in_an_account_with_a_second_factor(clock):
-    await create_user()
-    async with make_client() as owner:
-        await login(owner)
-        assert (await owner.get("/api/auth/me", headers=basic(ADMIN, PASSWORD))).status_code == 200
-        await _enrol(owner)
-    async with make_client() as client:
-        response = await client.get("/api/auth/me", headers=basic(ADMIN, PASSWORD))
-        assert response.status_code == 401
 
 
 async def test_enrolment_needs_the_password_and_never_returns_the_secret_afterwards(clock):

@@ -22,7 +22,7 @@ from app.log_redaction import RedactingFormatter
 from app.middleware import proxy_headers
 from app.repository.auth import AuthSettingsRepository
 from app.routers import auth as auth_router
-from tests.auth_helpers import ADMIN, PASSWORD, basic, create_user, login, make_client
+from tests.auth_helpers import ADMIN, PASSWORD, create_user, login, make_client
 from tests.test_auth_totp import _enrol, _password_step
 from tests.webauthn_authenticator import SoftAuthenticator
 
@@ -121,7 +121,7 @@ async def test_a_good_login_writes_nothing(lines):
 
 async def test_setup_with_a_wrong_installation_code(lines, monkeypatch):
     monkeypatch.setattr(auth_router, "SETUP_FAILURE_DELAY_S", 0)
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     async with make_client() as client:
         response = await client.post(
             "/api/auth/setup",
@@ -249,14 +249,6 @@ async def test_an_unknown_bearer_token(lines):
         response = await client.get("/api/auth/me", headers={"Authorization": "Bearer mlt_bogus"})
     assert response.status_code == 401
     assert _one(lines(), "bearer", "invalid_token")["user"] == "-"
-
-
-async def test_a_wrong_basic_credential(lines):
-    await create_user()
-    async with make_client() as client:
-        response = await client.get("/api/auth/me", headers=basic(ADMIN, "wrong password!"))
-    assert response.status_code == 401
-    assert _one(lines(), "basic", "invalid_credentials")["user"] == fail_log.user_field(ADMIN)
 
 
 @pytest.mark.parametrize("code", ["not-a-code", "mlp_" + "x" * 120])
@@ -437,7 +429,8 @@ async def test_a_trusted_network_request_is_logged_as_lan(lines, monkeypatch):
     await create_user()
     tablet = await create_user("tablet", password=None, role="member")
     await AuthSettingsRepository.update(
-        trusted_networks=[TrustedNetworkRule(cidr="192.168.1.0/24", user_id=tablet.id)]
+        trusted_networks=[TrustedNetworkRule(cidr="192.168.1.0/24", user_id=tablet.id)],
+        lan_login_free=True,
     )
     async with make_client("http://192.168.1.10:8000", ("192.168.1.20", 40000)) as client:
         assert (await client.get("/api/auth/session")).json()["via"] == "trusted"

@@ -90,7 +90,7 @@ def test_a_relayed_request_is_never_ingress():
 
 async def test_first_ingress_visit_on_an_empty_database_creates_the_admin():
     # A 4.18.x database: setup would ask for the installation code.
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     assert await AuthSettingsRepository.get_setup_code_hash() is not None
     async with make_client(client=SUPERVISOR) as client:
         anonymous = (await client.get("/api/auth/session")).json()
@@ -118,7 +118,7 @@ async def test_first_ingress_visit_on_an_empty_database_creates_the_admin():
 
 
 async def test_later_identities_take_the_default_role_and_a_local_admin_does_not_count():
-    # 4.18.x with basic_auth_*: the imported account exists before any ingress visit.
+    # A local account exists before any ingress visit.
     await create_user()
     await AuthSettingsRepository.update(ingress_default_role="viewer")
     async with make_client(client=SUPERVISOR) as client:
@@ -265,11 +265,10 @@ def test_websocket_upgrade_through_ingress_carries_the_identity(monkeypatch):
             pass
 
 
-async def test_no_basic_challenge_under_ingress():
+async def test_no_challenge_under_ingress_or_on_the_lan():
     await create_user()
-    await AuthSettingsRepository.update(basic_imported=True)
     async with make_client(client=LAN_PEER) as client:
-        assert "www-authenticate" in (await client.get("/api/contacts")).headers
+        assert "www-authenticate" not in (await client.get("/api/contacts")).headers
     async with make_client(client=SUPERVISOR) as client:
         anonymous = await client.get("/api/contacts")
         assert anonymous.status_code == 401

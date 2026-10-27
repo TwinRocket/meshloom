@@ -27,7 +27,7 @@ None of this weakens MeshCore's own encryption over the air: direct messages and
 
 Signing in is mandatory and uses accounts: a password of at least 12 characters, optionally a second factor (an authenticator app, recovery codes) and passkeys. Wrong passwords slow the next attempts down without ever locking an account, and sensitive actions are written to an audit log that administrators read. All of it is in [Accounts and access](/en/docs/deep/access/). Without HTTPS the password travels in clear text on every sign-in, so pair it with [HTTPS](/en/docs/deep/https/) beyond a network you trust.
 
-Up to 4.18 the only lock was a shared HTTP Basic login (`MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD`). On the first start of 5.0 it becomes the administrator account, then Meshloom stops reading the variables and warns while they are still set: remove them. Scripts that send it with `Authorization: Basic` keep working until 5.2 ([The 4.x Basic login](/en/docs/deep/access/#the-4x-basic-login)). On the Home Assistant add-on, Home Assistant signs you in through the sidebar; its port 8000 is not published by default, and where you publish it a Meshloom account is asked.
+Up to 4.18 the only lock was a shared HTTP Basic login (`MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD`). It no longer exists: Meshloom ignores the variables (with a warning while they are set) and any `Authorization: Basic` header gets a plain 401. Browsers sign in with an account, scripts use an API token ([The 4.x Basic login](/en/docs/deep/access/#the-4x-basic-login)). On the Home Assistant add-on, Home Assistant signs you in through the sidebar; its port 8000 is not published by default, and where you publish it a Meshloom account is asked.
 
 ## Lock extensions
 
@@ -43,7 +43,7 @@ The key can always be read back by any administrator: `GET /api/radio/private-ke
 
 Importing a key (**Set Private Key**, write-only) never shows the key. A key that does not match the radio the database is bound to is refused until you confirm the identity change (see [First launch](/en/docs/first-run/)).
 
-On Linux, the server also marks itself as not dumpable at startup, so another program running as the same user cannot read its memory or its environment (where a 4.x Basic login set in the environment would live). The cost: the server writes no core dump, and debugging tools such as `py-spy` or `gdb` need `sudo` to attach to it. This protects against other non-root programs and does nothing against root; the default Docker image and the Home Assistant add-on run as root, so the protection mainly matters for the deb/rpm packages and installs that run as a dedicated user.
+On Linux, the server also marks itself as not dumpable at startup, so another program running as the same user cannot read its memory or its environment. The cost: the server writes no core dump, and debugging tools such as `py-spy` or `gdb` need `sudo` to attach to it. This protects against other non-root programs and does nothing against root; the default Docker image and the Home Assistant add-on run as root, so the protection mainly matters for the deb/rpm packages and installs that run as a dedicated user.
 
 ## The sharing key
 
@@ -90,7 +90,7 @@ Some features need Internet access: [notifications](/en/docs/deep/notifications/
 
 ## Trusted networks
 
-A trusted network rule signs a device in without a password (see [Accounts and access](/en/docs/deep/access/#trusted-networks)). It never applies through a reverse proxy, a tunnel, Meshloom Remote or Home Assistant ingress, nor from this machine's loopback outside the add-on, and only when the browser uses an IP address or a local name. Keep the list empty unless you need it, and never map a network to an administrator you would not hand the machine to.
+A trusted network rule signs a device in without a password (see [Accounts and access](/en/docs/deep/access/#trusted-networks)), but only while **Login-free on the local network** is on: it is off by default, and off after an upgrade even if rules exist. Only an administrator can turn it on, and each change is audited. A rule only applies to a device connecting directly from a local address: a public address is never signed in, even if a rule covers it. It never applies through a reverse proxy, a tunnel, Meshloom Remote or Home Assistant ingress, nor from this machine's loopback outside the add-on, never to a request that carries an `Authorization` header, and only when the browser uses an IP address or a local name. If your internet box forwards a port to the Meshloom machine and rewrites the source address, internet visitors look local and would be signed in: do not turn the switch on in that case. Keep the switch off and the list empty unless you need them, give each rule the least-privileged account that works (viewer or kiosk). A rule never signs in an administrator: Meshloom refuses it. A rule over the CGNAT range `100.64.0.0/10` also covers Tailscale and some VPNs.
 
 ## A reasonable posture
 

@@ -58,14 +58,13 @@ logger = logging.getLogger("meshloom.auth")
 
 MARKER = "AUTH_FAIL"
 
-Route = Literal["login", "login_2fa", "passkey", "basic", "bearer", "pair", "setup"]
+Route = Literal["login", "login_2fa", "passkey", "bearer", "pair", "setup"]
 
 # The reasons each route may give. Adding one is a contract change.
 ROUTE_REASONS: Mapping[str, frozenset[str]] = {
     "login": frozenset({"invalid_credentials"}),
     "login_2fa": frozenset({"bad_code", "bad_passkey", "pending_invalid"}),
     "passkey": frozenset({"bad_passkey"}),
-    "basic": frozenset({"invalid_credentials"}),
     "bearer": frozenset({"invalid_token"}),
     "pair": frozenset({"invalid_code"}),
     "setup": frozenset({"invalid_setup_code"}),

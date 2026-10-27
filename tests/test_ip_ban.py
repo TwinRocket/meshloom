@@ -332,27 +332,27 @@ class TestEnforcement:
 
     @pytest.mark.parametrize("path", ["/", "/assets/x.js", "/some/page"])
     async def test_a_banned_client_reaches_no_credential_check_anywhere(self, monkeypatch, path):
-        """Basic on a public path would run argon2id: a banned client is anonymous there."""
-        from app.auth import middleware
+        """A session cookie on a public path is looked up: a banned client is anonymous there."""
+        from app.auth import middleware, sessions
 
         await create_user()
         await _strict()
         calls: list[str] = []
-        real = middleware.authenticate_basic
+        real = sessions.resolve_session
 
         async def counting(*args, **kwargs):
             calls.append(path)
             return await real(*args, **kwargs)
 
-        monkeypatch.setattr(middleware, "authenticate_basic", counting)
-        basic = {"Authorization": "Basic YWRtaW46d3Jvbmc="}  # admin:wrong
+        monkeypatch.setattr(middleware.sessions, "resolve_session", counting)
+        cookie = {"Cookie": f"{sessions.cookie_name(False)}=not-a-session"}
         async with make_client(client=(OTHER, 50000)) as client:
-            await client.get(path, headers=basic)
-        assert calls == [path]  # not banned: the header is checked
+            await client.get(path, headers=cookie)
+        assert calls == [path]  # not banned: the cookie is checked
         calls.clear()
         await _fail(PUBLIC, 3)
         async with make_client(client=(PUBLIC, 50000)) as client:
-            response = await client.get(path, headers=basic)
+            response = await client.get(path, headers=cookie)
         assert calls == []
         assert response.status_code != 429
 

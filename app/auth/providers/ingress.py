@@ -135,8 +135,8 @@ async def _create(
         role = "admin" if first else (await AuthSettingsRepository.get()).ingress_default_role
         no_account = not await UserRepository.any_exist()
         if no_account:
-            # Let the 4.x Basic import run first if it has not yet (it only
-            # acts while no account exists); ingress does not depend on it.
+            # Prepare the first run (installation code) if it has not run
+            # yet; ingress does not depend on it.
             from app.auth.setup_code import SetupUnavailable, ensure_first_run_ready
 
             try:

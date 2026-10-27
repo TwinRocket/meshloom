@@ -33,9 +33,7 @@ def _clean_code():
 
 
 async def _prepare(existing: bool = False) -> None:
-    await setup_code.prepare_first_run(
-        existing_database=existing, basic_username="", basic_password=""
-    )
+    await setup_code.prepare_first_run(existing_database=existing)
 
 
 @pytest.mark.real_auth

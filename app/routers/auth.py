@@ -89,7 +89,6 @@ from app.repository.auth import (
     UserRepository,
 )
 from app.routers import auth_bans, auth_kiosk, auth_pairing, auth_tokens
-from app.security import basic_compat_active, invalidate_basic_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -149,7 +148,15 @@ _MESSAGES = {
         "A trusted network covers loopback, where a local proxy or tunnel would bring every visitor"
     ),
     "auth_trusted_network_overlaps_gateway": (
-        "A trusted network covers the Docker gateway while a public address is configured"
+        "A trusted network covers the Docker gateway, where clients of the published port "
+        "arrive from, the internet included"
+    ),
+    "auth_trusted_network_user_admin": (
+        "A trusted network may not sign in an administrator: pick a viewer or kiosk account"
+    ),
+    "auth_lan_login_free_admin_rules": (
+        "Login-free on the local network stays off while a trusted network names an "
+        "administrator: change or remove those rules first"
     ),
     "auth_2fa_invalid": "Invalid or already used code",
     "auth_2fa_pending_invalid": "This sign-in expired: enter your password again",
@@ -205,10 +212,6 @@ class AuthMethods(BaseModel):
     passkey: bool = False
 
 
-class AuthCompat(BaseModel):
-    basic: bool = False
-
-
 class SessionUser(BaseModel):
     id: int
     username: str
@@ -246,7 +249,6 @@ class AuthSessionResponse(BaseModel):
     setup_required: bool
     setup_code_required: bool
     methods: AuthMethods
-    auth_compat: AuthCompat
     # Whether the server saw this request as https (``scope["scheme"]``, from a
     # trusted proxy's X-Forwarded-Proto behind one): the session cookie is the
     # ``__Host-`` Secure one only then. A browser on https that reads false sits
@@ -357,7 +359,6 @@ async def _session_payload(
             ingress=under_ingress,
             passkey=await webauthn.available(request.scope),
         ),
-        auth_compat=AuthCompat(basic=await basic_compat_active()),
         secure=_secure(request),
     )
     if setup_required:
@@ -825,7 +826,6 @@ async def patch_me(body: MePatch, request: Request) -> MeResponse:
         # Clears must_change_password; moving updated_at forgets the user's
         # known-device cookies (app/auth/device_cookie.py).
         await UserRepository.set_password_hash(user.id, await hash_password_async(new_password))
-        invalidate_basic_cache(user.id)
         revoked = await sessions.sign_out_user(user.id, except_session_id=principal.session_id)
         await audit.record_request(
             request,
@@ -870,10 +870,18 @@ class AuthSettingsView(BaseModel):
             "addresses or CIDRs, canonical network form. Empty trusts no peer."
         )
     )
+    lan_login_free: bool = Field(
+        description=(
+            "Login-free on the local network: while on, the trusted_networks rules sign a "
+            "direct request from a local peer in as their account. Off by default, and off "
+            "after the 5.0 upgrade. Never through a proxy, the relay or ingress."
+        )
+    )
     trusted_networks: list[TrustedNetworkRuleView] = Field(
         description=(
-            "Networks whose direct requests act as an account without a login. Never "
-            "applies through a proxy, the relay or ingress. Empty by default."
+            "Networks whose direct requests act as an account without a login, only while "
+            "lan_login_free is on and only from a local address. Never applies through a "
+            "proxy, the relay or ingress. Empty by default."
         )
     )
     audit_retention_days: int = Field(
@@ -978,6 +986,7 @@ class AuthSettingsPatch(BaseModel):
     host_guard_mode: HostGuardMode | None = None
     require_2fa_for_admins: bool | None = None
     addresses_identify_clients: bool | None = None
+    lan_login_free: StrictBool | None = None
     ip_ban_enabled: StrictBool | None = None
     ip_ban_max_failures: StrictInt | None = Field(
         default=None, ge=MIN_IP_BAN_MAX_FAILURES, le=MAX_IP_BAN_MAX_FAILURES
@@ -1040,6 +1049,7 @@ async def _security_notices(settings: AuthSettings) -> list[SecurityNotice]:
 async def _settings_view(settings: AuthSettings, request: Request) -> AuthSettingsView:
     return AuthSettingsView(
         trusted_proxies=settings.trusted_proxies,
+        lan_login_free=settings.lan_login_free,
         trusted_networks=[
             TrustedNetworkRuleView(cidr=rule.cidr, user_id=rule.user_id)
             for rule in settings.trusted_networks
@@ -1077,9 +1087,15 @@ def _normalize_rules(raw: list[TrustedNetworkRuleIn]) -> list[TrustedNetworkRule
     return rules
 
 
-async def _check_rules(
-    rules: list[TrustedNetworkRule], proxies: list[str], public_urls: list[str]
-) -> None:
+def _admin_rule_cidrs(rules: list[TrustedNetworkRule], admins: set[int]) -> list[str]:
+    return [rule.cidr for rule in rules if rule.user_id in admins]
+
+
+async def _admin_ids() -> set[int]:
+    return {user.id for user in await UserRepository.list_all() if user.role == "admin"}
+
+
+async def _check_rules(rules: list[TrustedNetworkRule], proxies: list[str]) -> None:
     """Refuse a rule set the gate could be tricked with (coded 400s)."""
     for rule in rules:
         proxy = trusted_network.overlapping_proxy(rule.cidr, proxies)
@@ -1089,14 +1105,15 @@ async def _check_rules(
             )
         if trusted_network.covers_loopback(rule.cidr) and not trusted_network.loopback_allowed():
             raise _error(400, "auth_trusted_network_loopback", {"cidr": rule.cidr})
-        if public_urls:
-            gateway = trusted_network.covered_gateway(rule.cidr, trusted_network.docker_gateways())
-            if gateway is not None:
-                raise _error(
-                    400,
-                    "auth_trusted_network_overlaps_gateway",
-                    {"cidr": rule.cidr, "gateway": gateway},
-                )
+        # Always on a container install: a client reaching the published port through
+        # docker-proxy arrives from the bridge gateway, from the internet as well.
+        gateway = trusted_network.covered_gateway(rule.cidr, trusted_network.docker_gateways())
+        if gateway is not None:
+            raise _error(
+                400,
+                "auth_trusted_network_overlaps_gateway",
+                {"cidr": rule.cidr, "gateway": gateway},
+            )
         user = await UserRepository.get(rule.user_id)
         if user is None or user.disabled:
             raise _error(400, "auth_trusted_network_user_invalid", {"cidr": rule.cidr})
@@ -1149,8 +1166,21 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         await _check_rules(
             trusted_networks if trusted_networks is not None else current.trusted_networks,
             trusted_proxies if trusted_proxies is not None else current.trusted_proxies,
-            public_urls if public_urls is not None else current.public_urls,
         )
+    if trusted_networks is not None or body.lan_login_free:
+        # Never an administrator without a login: a new rule for one is refused, and
+        # so is the switch while a saved rule (older, or restored) still names one.
+        admins = await _admin_ids()
+        if trusted_networks is not None and (cidrs := _admin_rule_cidrs(trusted_networks, admins)):
+            raise _error(400, "auth_trusted_network_user_admin", {"cidr": cidrs[0]})
+        if body.lan_login_free:
+            rules = (
+                trusted_networks
+                if trusted_networks is not None
+                else (await AuthSettingsRepository.get()).trusted_networks
+            )
+            if cidrs := _admin_rule_cidrs(rules, admins):
+                raise _error(409, "auth_lan_login_free_admin_rules", {"cidrs": ", ".join(cidrs)})
     settings = await AuthSettingsRepository.update(
         trusted_proxies=trusted_proxies,
         trusted_networks=trusted_networks,
@@ -1161,6 +1191,7 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         host_guard_mode=body.host_guard_mode,
         require_2fa_for_admins=body.require_2fa_for_admins,
         addresses_identify_clients=body.addresses_identify_clients,
+        lan_login_free=body.lan_login_free,
         ip_ban_enabled=body.ip_ban_enabled,
         ip_ban_max_failures=body.ip_ban_max_failures,
         ip_ban_window_minutes=body.ip_ban_window_minutes,
@@ -1243,6 +1274,17 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             "success",
             target="auth_settings.addresses_identify_clients",
             details={"addresses_identify_clients": settings.addresses_identify_clients},
+        )
+    if body.lan_login_free is not None:
+        logger.info(
+            "Login-free on the local network: %s", "on" if settings.lan_login_free else "off"
+        )
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.lan_login_free",
+            details={"lan_login_free": settings.lan_login_free},
         )
     changed_ban_fields = [name for name in _IP_BAN_FIELDS if getattr(body, name) is not None]
     if changed_ban_fields:
@@ -1516,7 +1558,6 @@ async def patch_user(user_id: int, body: UserPatch, request: Request) -> UserVie
         raise _error(404, "auth_user_not_found")
     revoked = 0
     if role is not None or disabled or to_kiosk:
-        invalidate_basic_cache(user_id)
         # Their own account included: the admin's socket keeps the role it opened with.
         revoked = await sessions.sign_out_user(user_id)
     elif must_change:
@@ -1571,7 +1612,6 @@ async def delete_user(user_id: int, request: Request) -> OkResponse:
         raise _error(409, "auth_last_admin") from None
     if not deleted:
         raise _error(404, "auth_user_not_found")
-    invalidate_basic_cache(user_id)
     from app.websocket import ws_manager
 
     ws_manager.close_user(user_id)
@@ -1614,7 +1654,6 @@ async def set_user_password(user_id: int, body: UserPasswordSet, request: Reques
         raise _error(400, "auth_password_not_applicable") from None
     if not found:
         raise _error(404, "auth_user_not_found")
-    invalidate_basic_cache(user_id)
     revoked = await sessions.sign_out_user(
         user_id, except_session_id=_sign_out_scope(principal, user_id)
     )

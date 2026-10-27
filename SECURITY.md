@@ -81,11 +81,15 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   `viewer`, `kiosk`; `docs/dev/auth.md`). Whoever holds an account has its
   powers: an `admin` can read all history, send as the node, write extensions and
   change every setting, and a `member` can send as the node. A trusted-network
-  rule, which an administrator can add, signs a device in without a login, and
-  the rule is closed behind any proxy, tunnel, ingress or relay. A Basic
-  `Authorization` header with an account's name and password is still accepted
-  until 5.2 (short pauses after a failure; never for an account with a second
-  factor). Wrong
+  rule, which an administrator can add, signs a device in without a login with
+  the account it names (choose a viewer or kiosk account; an administrator is
+  refused, and never signed in by a rule). Rules apply only
+  once an administrator turns on **Login-free on the local network** (off by
+  default and after an upgrade, audited), only to a direct peer on a local
+  address, and never behind any proxy, tunnel, ingress or relay. A router that
+  forwards a port with source NAT makes Internet visitors look local: do not
+  turn it on there. HTTP Basic auth is removed: an `Authorization: Basic`
+  header is ignored and gets a 401. Wrong
   passwords slow sign-in down; they never lock an account. On a Docker install
   with no trusted proxy, sign-in delays apply per account only until an
   administrator turns on **Client addresses identify clients** (Users & Access).

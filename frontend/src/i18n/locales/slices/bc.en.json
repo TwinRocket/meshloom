@@ -3,8 +3,13 @@
     "access": {
       "trustedNetworks": {
         "title": "Trusted networks",
+        "switch": "Login-free on the local network",
+        "switchWarning": "Off by default. When on, a device whose own address is local (a private, link-local or CGNAT address) and on one of the networks below is signed in as the chosen account without a password. CGNAT addresses (100.64.0.0/10) include Tailscale and some VPNs: a rule over that range signs in every device of your tailnet or VPN. An administrator is never signed in this way. Requests through Meshloom Remote (the relay) never count as local. Careful: if your internet box forwards a port to this machine and rewrites the source address (SNAT), visitors from the internet look local and would be signed in: do not turn this on in that case.",
+        "switchOn": "Login-free on the local network is on",
+        "switchOff": "Login-free on the local network is off",
+        "switchOffNotice": "Login-free on the local network is off: these rules sign nobody in until you turn it on.",
         "help": "A device on one of these networks is signed in as the chosen account without a login. Empty by default: only add a network you control, such as a kiosk's own address.",
-        "proxyClosed": "A rule never applies to a request that came through a reverse proxy, a tunnel, Meshloom Remote or Home Assistant ingress, nor from this machine's loopback outside the Home Assistant add-on, and only when the address in the browser is a local name or an IP address.",
+        "proxyClosed": "A rule never applies to a public address, to a request that came through a reverse proxy, a tunnel, Meshloom Remote or Home Assistant ingress, nor from this machine's loopback outside the Home Assistant add-on, and only when the address in the browser is a local name or an IP address.",
         "none": "No trusted network: every device signs in.",
         "cidr": "Network (CIDR)",
         "user": "Signed in as",
@@ -14,8 +19,8 @@
         "save": "Save networks",
         "saving": "Saving…",
         "saved": "Trusted networks saved",
-        "adminWarning": "Anyone on {{networks}} gets administrator rights without a password: they can change every setting, account and plugin. Prefer a member, viewer or kiosk account.",
-        "publicOrWideWarning": "{{cidr}} is public or as wide as allowed (a /8 IPv4 or /16 IPv6 range): everyone in it would be signed in without a password.",
+        "adminWarning": "{{networks}}: a trusted network may not name an administrator. The server refuses these rules, and login-free on the local network stays off while one is saved. Pick a member, viewer or kiosk account.",
+        "publicOrWideWarning": "{{cidr}} is public or as wide as allowed (a /8 IPv4 or /16 IPv6 range), or a CGNAT range (100.64.0.0/10, Tailscale) wider than one address: a public address is never signed in, and every local device in such a range would be.",
         "userDisabledNotice": "The account of {{cidr}} is disabled: this rule never applies. Pick another account or remove the rule.",
         "userMustChangeNotice": "The account of {{cidr}} must change its password first: this rule never applies until it does. Pick another account or sign in once as that account."
       },
@@ -23,7 +28,7 @@
         "title": "Access security notice",
         "trusted_admin_reduced_plugin_isolation": "A trusted network signs in an administrator while plugins run with reduced isolation (hooks only): anyone on that network can install or configure code that runs on this machine.",
         "trusted_loopback_or_gateway_public": "A trusted network covers loopback or the Docker gateway while a public address is configured: visitors arriving through a proxy or a published port could be signed in.",
-        "trusted_network_public_or_wide": "A trusted network is public or as wide as allowed (a /8 IPv4 or /16 IPv6 range): everyone in it is signed in without a password. List only your own local network or a device's own address."
+        "trusted_network_public_or_wide": "A trusted network is public or as wide as allowed (a /8 IPv4 or /16 IPv6 range): a public address is never signed in, and every local device in a wide range is. List only your own local network or a device's own address."
       }
     }
   },
@@ -33,6 +38,8 @@
     "auth_trusted_network_user_must_change": "The network {{cidr}} names an account that must change its password first: the rule would never apply. Pick another account, or sign in once as that account to change the password.",
     "auth_trusted_network_overlaps_proxy": "The network {{cidr}} overlaps the trusted proxy {{proxy}}: requests from a proxy are never signed in automatically.",
     "auth_trusted_network_loopback": "The network {{cidr}} covers loopback: a local proxy or tunnel would bring every visitor from there.",
-    "auth_trusted_network_overlaps_gateway": "The network {{cidr}} covers the Docker gateway {{gateway}} while a public address is configured."
+    "auth_trusted_network_overlaps_gateway": "The network {{cidr}} covers the Docker gateway {{gateway}}: every client of the published port arrives from it, the internet included.",
+    "auth_trusted_network_user_admin": "The network {{cidr}} names an administrator: a trusted network may not sign in an administrator. Pick a member, viewer or kiosk account.",
+    "auth_lan_login_free_admin_rules": "Login-free on the local network stays off while a trusted network names an administrator ({{cidrs}}): change or remove those rules first."
   }
 }

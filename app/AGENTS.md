@@ -26,9 +26,10 @@ and the OpenAPI page (`/docs`), not a table here.
 - `auth/middleware.py` (`AuthMiddleware`) is the one gate for HTTP and the
   WebSocket upgrade: it resolves the `Principal` (the Home Assistant ingress
   identity, `auth/providers/ingress.py`, only from the Supervisor address on
-  the add-on; the Basic compatibility credential; then the session cookie,
+  the add-on; then the session cookie (any other `Authorization` scheme, Basic
+  included, is no credential),
   never under ingress; last a trusted network rule, `auth/providers/trusted_network.py`,
-  never through any proxy, the relay, ingress or (outside the add-on) loopback,
+  only while `lan_login_free` is on, never for an admin account, never through any proxy, the relay, ingress or (outside the add-on) loopback,
   with a strict `Host` guard; `Authorization: Bearer` API and device tokens,
   `auth/providers/token.py`, header only, refused under ingress), applies the CSRF
   rule to unsafe methods (`origin_policy.unsafe_request_allowed`) and refuses
@@ -59,14 +60,14 @@ and the OpenAPI page (`/docs`), not a table here.
   `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
   every table bounded (`docs/dev/auth.md`, "Login delays").
 - `auth/fail_log.py` writes one `AUTH_FAIL` line (logger `meshloom.auth`) per refused
-  credential: login, second factor, passkey, Basic, Bearer, pairing code, setup code.
+  credential: login, second factor, passkey, Bearer, pairing code, setup code.
   The format is a contract (`docs/dev/auth-fail-log.md`, `CONTRACTS:` commits): a new
   credential check calls `log_auth_failure()` with a route and reason from
   `ROUTE_REASONS`, never a clear-text name; ingress never writes it.
 - `auth/totp.py` is the TOTP second factor (pyotp; replay refused through
   `users.totp_last_counter`; argon2id recovery codes, single use; in-memory pending
   logins between `POST /api/auth/login` and `POST /api/auth/login/2fa`). Sessions are
-  issued only after the second factor; Basic never signs in an account that has one;
+  issued only after the second factor;
   `require_2fa_for_admins` confines an admin without one to the enrolment routes (the
   gate, fail closed). Details: `docs/dev/auth.md`, "Second factor (TOTP)".
 - `auth/webauthn.py` is passkeys on **py_webauthn** (the `webauthn` dependency, with
@@ -653,8 +654,7 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
 through `ctypes`; it is the first line of the lifespan, before the database
 opens. Linux only: elsewhere it does nothing, and a failure is logged at
 warning and never stops startup. With the flag at 0, `/proc/<pid>/environ` and
-`/proc/<pid>/mem` are unreadable by every non-root process (the retired Basic auth
-credentials, the radio private key held by `keystore.py`), and no core dump is
+`/proc/<pid>/mem` are unreadable by every non-root process (the radio private key held by `keystore.py`), and no core dump is
 written. Side effects: `py-spy dump`, `gdb -p` and `strace -p` on the server
 need root (`sudo`); a same-uid debugger gets "permission denied". There is no
 switch to turn it off (no environment variable on purpose): to debug, start the
@@ -1352,7 +1352,7 @@ floor, never the percentage alone, and do not remove the floor.
   Client frames slide the session once a minute (`note_activity`), so a
   socket-only kiosk stays signed in. A socket keeps its opening role: a change of
   the account (role, disable, deletion, password) goes through
-  `sessions.sign_out_user()`, which also closes its Basic and ingress sockets
+  `sessions.sign_out_user()`, which also closes its ingress and trusted network sockets
   (`ws_manager.close_user()`).
 - On connect the server sends `health` only; contacts and channels load over REST.
 - Each client has a bounded queue drained by one writer task, so
