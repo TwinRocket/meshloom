@@ -1,4 +1,5 @@
 import asyncio
+import heapq
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -10,6 +11,17 @@ from app.decoder import PayloadType, extract_payload, get_packet_payload_type, p
 logger = logging.getLogger(__name__)
 
 UNDECRYPTED_PACKET_BATCH_SIZE = 500
+
+# ``raw_packets.payload_type`` (migration 133): the header's payload type, or this value for a
+# packet whose header does not parse. Never NULL once a row is classified, so NULL means "not
+# backfilled yet" and nothing else; no filter can match this value.
+UNPARSEABLE_PAYLOAD_TYPE = -1
+
+
+def stored_payload_type(data: bytes) -> int:
+    """The value stored in ``raw_packets.payload_type`` for these packet bytes."""
+    parsed = get_packet_payload_type(data)
+    return UNPARSEABLE_PAYLOAD_TYPE if parsed is None else int(parsed)
 
 
 class RawPacketRepository:
@@ -37,8 +49,9 @@ class RawPacketRepository:
 
         async with db.tx() as conn:
             async with conn.execute(
-                "INSERT OR IGNORE INTO raw_packets (timestamp, data, payload_hash) VALUES (?, ?, ?)",
-                (ts, data, payload_hash),
+                "INSERT OR IGNORE INTO raw_packets (timestamp, data, payload_hash, payload_type) "
+                "VALUES (?, ?, ?, ?)",
+                (ts, data, payload_hash, stored_payload_type(data)),
             ) as cursor:
                 rowcount = cursor.rowcount
                 lastrowid = cursor.lastrowid
@@ -303,6 +316,61 @@ class RawPacketRepository:
         return where, params
 
     @staticmethod
+    async def payload_type_populated() -> bool:
+        """True when no row is left without a ``payload_type`` (an index seek on NULL)."""
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT 1 FROM raw_packets WHERE payload_type IS NULL LIMIT 1"
+            ) as cursor:
+                return await cursor.fetchone() is None
+
+    @staticmethod
+    def _history_indexed_sql(
+        since: int | None,
+        until: int | None,
+        cursor_ts: int | None,
+        cursor_id: int | None,
+        id_before: int | None,
+    ) -> tuple[str, list[int]]:
+        """The per-type query: ``payload_type = ?`` leads, so the index orders by timestamp."""
+        window, params = RawPacketRepository._history_window_sql(
+            since, until, cursor_ts, cursor_id, id_before
+        )
+        extra = f" AND {window[len('WHERE ') :]}" if window else ""
+        sql = (
+            "SELECT id, data, timestamp, message_id FROM raw_packets "
+            f"WHERE payload_type = ?{extra} ORDER BY timestamp DESC, id DESC LIMIT ?"
+        )
+        return sql, params
+
+    @staticmethod
+    async def _list_history_indexed(
+        payload_types: frozenset[PayloadType],
+        since: int | None,
+        until: int | None,
+        cursor_ts: int | None,
+        cursor_id: int | None,
+        id_before: int | None,
+        limit: int,
+    ) -> list[tuple[int, bytes, int, int | None]]:
+        sql, params = RawPacketRepository._history_indexed_sql(
+            since, until, cursor_ts, cursor_id, id_before
+        )
+        per_type: list[list[tuple[int, bytes, int, int | None]]] = []
+        async with db.readonly() as conn:
+            for ptype in sorted(payload_types):
+                async with conn.execute(sql, [int(ptype), *params, limit]) as cursor:
+                    fetched = await cursor.fetchall()
+                per_type.append(
+                    [
+                        (row["id"], bytes(row["data"]), row["timestamp"], row["message_id"])
+                        for row in fetched
+                    ]
+                )
+        merged = heapq.merge(*per_type, key=lambda r: (r[2], r[0]), reverse=True)
+        return [row for _, row in zip(range(limit), merged, strict=False)]
+
+    @staticmethod
     async def list_history(
         *,
         since: int | None = None,
@@ -315,12 +383,16 @@ class RawPacketRepository:
     ) -> tuple[list[tuple[int, bytes, int, int | None]], int, bool, int]:
         """Bounded newest-first history using ``idx_raw_packets_timestamp``.
 
-        ``payload_types`` (any of the given types) is applied by parsing each
-        header during the scan (there is no stored payload_type column). Returns
-        ``(rows, total, truncated, scanned)`` where ``total`` is the SQL COUNT
-        of the time/id window, ``scanned`` is rows walked, and ``truncated``
-        is true when the scan stopped at ``max_scan`` with more window rows
-        left.
+        ``payload_types`` (any of the given types) is served by the
+        ``(payload_type, timestamp)`` index once every row carries a
+        ``payload_type`` (migration 133 and its background backfill): one
+        bounded query per type, merged newest first. ``max_scan`` then bounds
+        nothing (``scanned`` is the rows returned, ``truncated`` is false).
+        While some row is still NULL, each header is parsed during a scan
+        capped by ``max_scan``. Returns ``(rows, total, truncated, scanned)``
+        where ``total`` is the SQL COUNT of the time/id window, ``scanned`` is
+        rows walked, and ``truncated`` is true when the scan stopped at
+        ``max_scan`` with more window rows left.
         """
         cursor_ts: int | None = None
         cursor_id: int | None = None
@@ -343,6 +415,12 @@ class RawPacketRepository:
             ) as cursor:
                 count_row = await cursor.fetchone()
         total = count_row["count"] if count_row else 0
+
+        if payload_types is not None and await RawPacketRepository.payload_type_populated():
+            indexed = await RawPacketRepository._list_history_indexed(
+                payload_types, since, until, cursor_ts, cursor_id, id_before, limit
+            )
+            return indexed, total, False, len(indexed)
 
         rows: list[tuple[int, bytes, int, int | None]] = []
         scanned = 0
@@ -456,3 +534,41 @@ class RawPacketRepository:
             ) as cursor:
                 rowcount = cursor.rowcount
         return rowcount
+
+
+BACKFILL_BATCH_SIZE = 2000
+
+
+async def backfill_payload_types(batch_size: int = BACKFILL_BATCH_SIZE) -> int:
+    """Fill ``raw_packets.payload_type`` for the rows still NULL (migration 133). Returns the count.
+
+    Batched and resumable: each batch reads the first header byte of the next ``batch_size``
+    unclassified rows (keyset on ``id``) and writes them in its own short transaction, then yields
+    the connection, so live traffic is never held behind one long write. A crash or a restart
+    simply carries on from the rows still NULL. Writers classify new rows on insert, so a row
+    never goes back to NULL.
+    """
+    last_id = -1
+    done = 0
+    while True:
+        async with db.readonly() as conn:
+            async with conn.execute(
+                "SELECT id, substr(data, 1, 1) AS head FROM raw_packets "
+                "WHERE id > ? AND payload_type IS NULL ORDER BY id LIMIT ?",
+                (last_id, batch_size),
+            ) as cursor:
+                rows = list(await cursor.fetchall())
+        if not rows:
+            return done
+        updates = [
+            (stored_payload_type(bytes(row["head"]) if row["head"] is not None else b""), row["id"])
+            for row in rows
+        ]
+        last_id = rows[-1]["id"]
+        async with db.tx() as conn:
+            await conn.executemany(
+                "UPDATE raw_packets SET payload_type = ? WHERE id = ? AND payload_type IS NULL",
+                updates,
+            )
+        done += len(rows)
+        await asyncio.sleep(0)

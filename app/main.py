@@ -165,6 +165,25 @@ async def _connect_radio_on_startup() -> bool:
     return bool(connected)
 
 
+async def _backfill_raw_packet_types() -> None:
+    from app.repository.raw_packets import backfill_payload_types
+
+    started = time.monotonic()
+    try:
+        done = await backfill_payload_types()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Backfill of raw_packets.payload_type failed; it resumes at next start")
+        return
+    if done:
+        logger.info(
+            "Classified %d stored packets by payload type in %.1fs",
+            done,
+            time.monotonic() - started,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage database and radio connection lifecycle."""
@@ -174,6 +193,12 @@ async def lifespan(app: FastAPI):
 
     await db.connect()
     logger.info("Database connected")
+
+    # Migration 133 leaves raw_packets.payload_type NULL: classify the stored packets in the
+    # background, in short batches (a no-op once every row has it).
+    from app.background_tasks import spawn
+
+    spawn(_backfill_raw_packet_types(), name="raw-packet-payload-type-backfill")
 
     # A SQLite snapshot put back in place: the restore hooks run once.
     from app.services.backup_sections import run_sqlite_restore_hooks

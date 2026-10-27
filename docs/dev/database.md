@@ -159,12 +159,23 @@ the user, and wiped on identity change.
 ### `raw_packets`
 
 Every received packet, kept so it can be decrypted later: `timestamp`, `data`
-(BLOB), `payload_hash` (BLOB, unique), `message_id` (FK to `messages`, `ON DELETE
-SET NULL`). Written by `RawPacketRepository` (`raw_packets.py`) in
+(BLOB), `payload_hash` (BLOB, unique), `payload_type` (INTEGER: the header's payload type, `-1`
+when the header does not parse, NULL while not classified; migration 133, MSHL-163), `message_id`
+(FK to `messages`, `ON DELETE SET NULL`). Written by `RawPacketRepository` (`raw_packets.py`) in
 `packet_processor.py`. Retention: opt-in `raw_packet_retention_days` prunes
 undecrypted rows (`message_id IS NULL`) older than that in batches; decrypted
 rows are never pruned by it. The packets maintenance route can also prune undecrypted rows on request and
 purge rows linked to messages. Wiped on identity change.
+
+`payload_type` serves `GET /api/packets/history` with a `payload_type` filter (the Feed's control
+history, `#raw`): migration 133 adds the column and the index `(payload_type, timestamp)` but
+backfills nothing (one transaction over a large table is not safe on a Raspberry Pi). The lifespan
+starts `backfill_payload_types` (`repository/raw_packets.py`) in the background: it reads the first
+byte of the next 2 000 unclassified rows by `id`, writes them in its own short transaction, and
+yields the connection; a restart resumes on the rows still NULL, and `create()` classifies new rows
+on insert. While any row is NULL, `list_history` keeps the old path (parse each header, scan capped
+by `max_scan`, `truncated`); once none is left it runs one bounded query per requested type on the
+index and merges them newest first (`scanned` = rows returned, `truncated` always false).
 
 ### `repeater_telemetry_history` and `contact_telemetry_history`
 
@@ -507,6 +518,7 @@ databases). The current set:
 | `idx_push_subscriptions_user` | `push_subscriptions(user_id)` |
 | `idx_raw_packets_message_id` | `raw_packets(message_id)` |
 | `idx_raw_packets_payload_hash` | unique, `raw_packets(payload_hash)` |
+| `idx_raw_packets_payload_type_timestamp` | `raw_packets(payload_type, timestamp)` |
 | `idx_raw_packets_timestamp` | `raw_packets(timestamp)` |
 | `idx_repeater_pane_cache_pk` | `repeater_pane_cache(public_key)` |
 | `idx_repeater_telemetry_pk_ts` | `repeater_telemetry_history(public_key, timestamp)` |

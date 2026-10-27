@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS raw_packets (
     data BLOB NOT NULL,
     message_id INTEGER,
     payload_hash BLOB,
+    payload_type INTEGER,
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE SET NULL
 );
 
@@ -523,6 +524,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_packet_hash
 CREATE INDEX IF NOT EXISTS idx_raw_packets_message_id ON raw_packets(message_id);
 CREATE INDEX IF NOT EXISTS idx_raw_packets_timestamp ON raw_packets(timestamp);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_packets_payload_hash ON raw_packets(payload_hash);
+CREATE INDEX IF NOT EXISTS idx_raw_packets_payload_type_timestamp
+    ON raw_packets(payload_type, timestamp);
 CREATE INDEX IF NOT EXISTS idx_contacts_type_last_seen ON contacts(type, last_seen);
 CREATE INDEX IF NOT EXISTS idx_messages_type_received_conversation
     ON messages(type, received_at, conversation_key);

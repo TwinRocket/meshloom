@@ -1006,7 +1006,10 @@ class TestPacketHistoryMultiType:
         assert response.status_code == 200
         data = response.json()
         assert [item["payload_type"] for item in data["items"]] == ["RESPONSE", "REQUEST"]
-        assert data["scanned"] == 4
+        # Rows written by the repository carry payload_type: served by the index, so only the
+        # matching rows are read (a NULL row would be walked and parsed: test_payload_type.py).
+        assert data["scanned"] == 2
+        assert data["truncated"] is False
 
         bad = await client.get("/api/packets/history?payload_type=REQUEST,NOPE")
         assert bad.status_code == 422

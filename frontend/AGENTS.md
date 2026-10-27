@@ -56,7 +56,10 @@ feed view reads `useFeedRows()`, no ancestor of `MessageList` may subscribe
   any type matches), `limit=200`, `max_scan=20000`. `mergeControlHistory` marks them `replayed`
   (no RSSI/SNR, `observation_id` dropped: one row per packet), skips a database `id` a live row
   already holds, and only fills the room left under `FEED_CONTROL_MAX`, so it never evicts a live row.
-  `snapshot.controlHistory` carries `truncated` / `scanned` (the scan-limit hint), the `after_id`
+  `snapshot.controlHistory` carries `truncated` / `scanned` (the scan-limit hint: the server only
+  reports `truncated` while some stored packet has no `payload_type` yet, MSHL-163; once the
+  column is populated the index serves the filter, `truncated` stays false and the hint
+  never shows; `max_scan` is then ignored), the `after_id`
   cursor of the **Load earlier control packets** button (`'more'`) and `exhausted`. A 403 ends it
   silently. The purge `raw_packet_retention_days` removes undecrypted packets (third-party
   Request/AnonRequest), so they may be missing. `resetFeedStore()` clears it.
