@@ -97,6 +97,7 @@ A trusted network rule signs a device in without a password (see [Accounts and a
 - Give accounts only to people you trust, each the weakest role that does the job; turn on two-factor authentication for administrators, and **Require two-factor authentication for administrators** when Meshloom can be reached from the Internet.
 - Never expose port 8000 or the radio proxy port directly to the Internet. For remote access, use a VPN, or a reverse proxy with HTTPS that you list in **Trusted proxies**.
 - Set `MESHCORE_DISABLE_PLUGINS=true` if you do not need extensions.
+- If Meshloom runs on a Linux package, [fail2ban](/en/docs/deep/fail2ban/) can block addresses that keep failing to sign in (a jail is shipped, off by default).
 - Encrypt a full backup with a passphrase when you store it away from that network.
 - Always serve Meshloom over HTTPS beyond a network you trust: the session cookie and the password travel in clear over plain HTTP.
 

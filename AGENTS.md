@@ -78,7 +78,8 @@ meshloom/             the Home Assistant add-on (not a Python package): config.y
 meshloom_plugin/      plugin child runtime (runner, RPC framing, import policy): stdlib only,
                       shipped next to app/ (docs/dev/plugins.md, "Runner")
 pkg/keys/             public release key and its procedure (README.md)
-pkg/nfpm/             .deb/.rpm packaging, systemd units, root update helper apply-update
+pkg/nfpm/             .deb/.rpm packaging, systemd units, root update helper apply-update,
+                      fail2ban filter and jail (fail2ban/, disabled by default; docs/dev/auth-fail-log.md)
 scripts/quality/      all_quality.sh (the gate)
 scripts/build/        publish.sh (release), tag_release.sh (recovery); see CONTRIBUTING.md
 scripts/setup/        install.sh and the embeds it carries (sync_installer_embeds.py)

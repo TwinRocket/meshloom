@@ -97,6 +97,7 @@ Une règle de réseau de confiance connecte un appareil sans mot de passe (voir 
 - Ne donnez de compte qu’à des personnes de confiance, chacune avec le rôle le plus faible qui suffit ; activez la double authentification pour les administrateurs, et **Exiger la double authentification pour les administrateurs** quand Meshloom est joignable depuis Internet.
 - N’exposez jamais directement le port 8000 ni celui du proxy radio à Internet. Pour un accès à distance, utilisez un VPN, ou un reverse-proxy en HTTPS que vous listez dans **Proxies de confiance**.
 - Définissez `MESHCORE_DISABLE_PLUGINS=true` si vous n’avez pas besoin d’extensions.
+- Si Meshloom tourne sur un paquet Linux, [fail2ban](/docs/deep/fail2ban/) peut bloquer les adresses qui ratent sans cesse leur connexion (un jail est livré, désactivé par défaut).
 - Chiffrez une sauvegarde complète avec une phrase secrète quand vous la rangez hors de ce réseau.
 - Servez toujours Meshloom en HTTPS au-delà d’un réseau de confiance : le cookie de session et le mot de passe circulent en clair en HTTP simple.
 

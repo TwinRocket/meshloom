@@ -140,6 +140,10 @@ Then, in Meshloom: declare `https://meshloom.example.org` in **Public addresses*
 
 Opened from the Home Assistant sidebar, Meshloom signs the Home Assistant user in and needs none of the above; ingress is never refused for its name and has its own address. The sidebar has no stable public address, so passkeys, trusted networks and Web Push do not work through it. To reach Meshloom from outside with the **Cloudflared** add-on (or any of the paths above): in the Meshloom add-on's **Network** panel give `8000/tcp` a host port, route the hostname to `http://<home-assistant-ip>:<that port>`, declare the hostname in **Public addresses**, then look at the sign-in page through the tunnel: if it warns that Meshloom saw plain HTTP, Trusted proxies is what is missing. **Which address to list depends on where the connection comes from.** If the tunnel is a container of its own on Home Assistant's add-on network (the Cloudflared add-on), list that container's address, as Meshloom sees it (the audit log and **My sessions** show it). If the connection arrives through the published host port, Meshloom usually sees the Docker gateway of that network instead: **do not list it** (the rule above), leave Trusted proxies empty and accept that visitors share one address and that the session cookie is the plain one, or route the tunnel to the add-on's container address directly rather than to the published port. The address is not verified on Home Assistant hardware by the author. This address asks for a Meshloom account, not a Home Assistant login. See [Home Assistant](/en/docs/deep/access/#home-assistant) and the install note in [Install](/en/docs/install/).
 
+## Blocking guessers with fail2ban
+
+With a proxy on your own machine, or with Meshloom on the open Internet, [fail2ban](/en/docs/deep/fail2ban/) can ban an address that keeps failing to sign in. It does not help behind a Cloudflare Tunnel, where every visitor arrives from Cloudflare.
+
 ## Checklist
 
 - Accounts exist, administrators have a strong password and a second factor or a passkey.
