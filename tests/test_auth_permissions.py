@@ -225,6 +225,23 @@ class TestKiosk:
         around = (await client.get(f"/api/messages/around/{chan_id}")).json()
         assert [m["id"] for m in around["messages"]] == [chan_id]
 
+    async def test_kiosk_conversation_keys_refuse_a_contact_key(self, sign_in_as, client):
+        chan_id, dm_id = await _seed_messages()
+        sign_in_as("kiosk")
+        channel = {"conversation_keys": [CHANNEL_KEY]}
+        assert [m["id"] for m in (await client.get("/api/messages", params=channel)).json()] == [
+            chan_id
+        ]
+        for keys in ([CONTACT_KEY], [CHANNEL_KEY, CONTACT_KEY.upper()]):
+            _forbidden(
+                await client.get("/api/messages", params={"conversation_keys": keys}),
+                "read_private",
+            )
+        sign_in_as("viewer")
+        both = {"conversation_keys": [CHANNEL_KEY, CONTACT_KEY]}
+        got = (await client.get("/api/messages", params=both)).json()
+        assert {m["id"] for m in got} == {chan_id, dm_id}
+
     async def test_viewer_still_gets_dms(self, sign_in_as, client):
         chan_id, dm_id = await _seed_messages()
         sign_in_as("viewer")

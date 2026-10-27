@@ -140,7 +140,9 @@ PK `key`. `name`, `is_hashtag`, `on_radio`, overrides (`flood_scope_override`,
 `path_hash_mode_override`), `last_read_at`, `favorite`, `pinned`, `muted`,
 `muted_until`, and `membership` (`adopted` or `pending`, see
 `services/channel_membership.py`). `ChannelRepository` (`channels.py`). The
-radio slot cache is memory-only; `on_radio` is its persisted hint.
+radio slot cache is memory-only; `on_radio` is its persisted hint. A mute holds while
+`muted = 1 AND (muted_until IS NULL OR muted_until > now)`: `effective_channel_muted`
+in Python, `effective_mute_sql` for the Feed filter and the unread counts.
 
 ### `messages`
 

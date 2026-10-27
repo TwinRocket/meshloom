@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -15,6 +15,7 @@ from app.models import (
     SendDirectMessageRequest,
 )
 from app.repository import AmbiguousPublicKeyPrefixError, AppSettingsRepository, MessageRepository
+from app.repository.messages import normalize_conversation_keys
 from app.services.message_send import (
     SCOPE_UNSET,
     resend_channel_message_record,
@@ -108,6 +109,29 @@ async def list_messages(
             "(historical rows included). Cannot be combined with before, after or offset"
         ),
     ),
+    muted: Literal["all", "exclude", "only"] = Query(
+        default="all",
+        description=(
+            "Channels muted at this moment (a timed mute that has ended is not muted): "
+            "all, exclude (keeps direct messages and rows of deleted channels) or only"
+        ),
+    ),
+    membership: Literal["all", "adopted", "pending"] = Query(
+        default="all",
+        description=(
+            "Channel membership: all, adopted (keeps direct messages and rows of deleted "
+            "channels) or pending"
+        ),
+    ),
+    conversation_keys: Annotated[
+        list[str] | None,
+        Query(
+            description=(
+                "Repeatable, 1 to 50 values of 32 (channel) or 64 (contact) hex characters, "
+                "any case: only these conversations. Cannot be combined with conversation_key"
+            ),
+        ),
+    ] = None,
 ) -> list[Message]:
     """List messages from the database."""
     if since_id is not None and not 1 <= since_id <= _SQLITE_MAX_INT:
@@ -123,7 +147,21 @@ async def list_messages(
             status_code=400,
             detail="since_id cannot be combined with before, after or offset",
         )
+    keys: list[str] | None = None
+    if conversation_keys is not None:
+        if conversation_key is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="conversation_keys cannot be combined with conversation_key",
+            )
+        try:
+            keys = normalize_conversation_keys(conversation_keys)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     msg_type = _visible_type(request, type, conversation_key)
+    if keys and not can_read_private(request) and any(len(k) > _CHANNEL_KEY_LENGTH for k in keys):
+        # Same rule as conversation_key: a contact key is a private conversation, a 403.
+        raise forbidden("read_private")
     settings = await AppSettingsRepository.get()
     blocked_keys = settings.blocked_keys or None
     blocked_names = settings.blocked_names or None
@@ -141,6 +179,10 @@ async def list_messages(
         blocked_names=blocked_names,
         outgoing=outgoing,
         since_id=since_id,
+        muted=muted,
+        membership=membership,
+        conversation_keys=keys,
+        now=int(time.time()),
     )
 
 

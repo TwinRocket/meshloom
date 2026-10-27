@@ -629,8 +629,8 @@ body validation, so a refused caller never gets a 422.
 
 - `GET /messages` and `GET /messages/around/{id}` answer `CHAN` rows only
   (search `q` and `since_id` included); `type=PRIV`, any other type, or a
-  `conversation_key` longer than a channel key (32 characters: a contact key)
-  answers 403.
+  `conversation_key`, or a `conversation_keys` value, longer than a channel key
+  (32 characters: a contact key) answers 403.
 - `GET /read-state/unreads` keeps only the `channel-*` keys of every map.
 - `GET /contacts` and the contact in `GET /contacts/analytics` have
   `last_contacted` and `last_read_at` emptied; the analytics count no DM

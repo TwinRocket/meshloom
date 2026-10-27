@@ -8,7 +8,10 @@ import { isPendingChannel } from './channelMembership';
  * pushed over the WebSocket alike. Two of the filters (`type`, `outgoing`) are also sent
  * to `GET /api/messages` through `filtersToQuery` so hidden rows are not fetched; the
  * server answers the same question as the evaluator, which `feedFilters.json` pins on
- * both sides. Everything else (muted, pending) is client-side only.
+ * both sides. Everything else (muted, pending, the conversation pick, the node) is
+ * client-side only: the route also takes `muted`, `membership` and `conversation_keys`
+ * (`feedFilters.json` replays them), but the chips' hidden counts and the facet lists are
+ * computed from the loaded rows, which a server-side filter would empty.
  */
 
 export interface FeedFilters {

@@ -21,6 +21,23 @@ def effective_channel_muted(muted: bool, muted_until: int | None, now: int | Non
     return muted_until > (now if now is not None else int(time.time()))
 
 
+def effective_mute_sql(alias: str, now: int) -> str:
+    """SQL for "channel ``alias`` is muted at ``now``", the SQL twin of ``effective_channel_muted``.
+
+    ``muted = 1 AND (muted_until IS NULL OR muted_until > now)``. On a LEFT JOIN row without a
+    channel every column is NULL, so the fragment is NULL there, never true: callers wrap it in
+    ``COALESCE(..., 0)`` or test ``<alias>.key IS NULL`` first (``MessageRepository.get_all``
+    and the unread query both do). ``now`` goes through ``int()`` and is inlined (a clock value,
+    never user text) so one fragment serves queries whose parameters are positional and spread
+    over several CTEs.
+    """
+    if not alias.isidentifier():
+        raise ValueError(f"not an SQL alias: {alias!r}")
+    return (
+        f"({alias}.muted = 1 AND ({alias}.muted_until IS NULL OR {alias}.muted_until > {int(now)}))"
+    )
+
+
 def _row_pinned(row: Any) -> bool:
     try:
         return bool(row["pinned"])

@@ -1099,6 +1099,9 @@ conversations with an index skip-scan. `tests/test_unreads_equivalence.py` keeps
 the old `ROW_NUMBER()` query as an oracle: both outputs must stay identical.
 `first_unread_ids` is the first unread row by `(received_at, id)`; `MIN(id)` would
 be wrong, because historical decryption inserts old messages with new ids.
+A muted channel is skipped by `effective_mute_sql` (the Feed filter's fragment): an indefinite
+mute and a timed mute still running hide the channel, an expired one does not. The oracle
+writes that rule out on its own and takes the same `now`.
 
 ## Backups
 
@@ -1621,6 +1624,31 @@ service's body (`tests/test_test_route_error_oracles.py`).
   implicit). `idx_messages_feed_*` (migration 98) cover no filter, `type`, `outgoing` and
   `type`+`outgoing`; `tests/test_messages_feed_filters.py` asserts no temp B-tree sort. With `since_id`, `type`/`outgoing` are written `+col` so the planner walks the rowid range instead of sorting.
   A conversation prefix in `conversation_key` is LIKE-escaped.
+- `muted=all|exclude|only` and `membership=all|adopted|pending` (enumerations, 422 otherwise)
+  and `conversation_keys` (repeatable, 1 to 50 values of 32 or 64 hex characters, any case;
+  normalised like `conversation_key`, 64 lowercase / 32 uppercase, duplicates collapsed;
+  `normalize_conversation_keys` in `repository/messages.py`; 400 otherwise, and 400 with
+  `conversation_key`; a contact key without `read_private` is a 403) are the filters the Feed
+  can push to the server (the client does not send them yet, see `frontend/AGENTS.md`, "Feed";
+  `feedFilters.json` replays them). They read the `channels` LEFT JOIN, whose columns are NULL for every
+  `PRIV` row and for a `CHAN` row whose channel was deleted (`ChannelRepository.delete` removes
+  only the channel): the predicates are NULL-safe (`channels.key IS NULL OR NOT
+  COALESCE(muted, 0)`, `COALESCE(channels.membership, 'adopted') <> 'pending'`), so those rows
+  are kept by `exclude` and `adopted`, and dropped by `only` and `pending`. "Muted" is
+  `effective_mute_sql` (`repository/channels.py`: `muted = 1 AND (muted_until IS NULL OR
+  muted_until > now)`, the SQL twin of `effective_channel_muted`), judged at the request's
+  clock, so a timed mute that has ended is not muted. `get_unread_counts` builds its mute rule
+  from the same fragment (it used to read `muted` alone and hid an expired mute's channel).
+  The keys are bound as `IN (?, ...)`. Plans (`test_messages_feed_filters.py`): type + 1 key
+  seeks `idx_messages_pagination`; type + several keys walks `idx_messages_feed_type` newest
+  first and filters (no index orders by `received_at` across keys, and a temp sort would read
+  every row of the picked conversations at each page); none sorts. With `since_id` the unary
+  plus is also on the join terms (`+messages.type = 'CHAN'`): a filter that needs a channel
+  makes the join inner, and its `type` term would otherwise pull the planner onto a type index
+  and a temp sort by id.
+  These plans hold because nothing runs `ANALYZE` or `PRAGMA optimize`: with statistics SQLite
+  picks temp-sort plans (for instance CHAN + 10 keys with a cursor and `membership=pending`), and
+  the plan tests would fail. Do not add either without redoing them.
 
 ## Route behaviours that are easy to break
 

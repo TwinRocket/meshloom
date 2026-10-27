@@ -704,6 +704,34 @@ describe('fetchJson (via api methods)', () => {
       expect(url).toContain('before_id=99');
     });
 
+    it('sends muted, membership and every conversation_keys value as repeated parameters', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+      const keys = ['ab'.repeat(16), 'cd'.repeat(32), 'ef'.repeat(16)];
+
+      await api.getMessages({
+        muted: 'exclude',
+        membership: 'pending',
+        conversation_keys: keys,
+      });
+
+      const [url] = mockFetch.mock.calls[0];
+      const params = new URL(url as string, 'http://x/').searchParams;
+      expect(params.get('muted')).toBe('exclude');
+      expect(params.get('membership')).toBe('pending');
+      expect(params.getAll('conversation_keys')).toEqual(keys);
+      expect((url as string).match(/conversation_keys=/g)).toHaveLength(3);
+    });
+
+    it('sends neither muted, membership nor conversation_keys when they are not given', async () => {
+      installMockFetch();
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) });
+
+      await api.getMessages({ limit: 5, conversation_keys: [] });
+
+      expect(mockFetch.mock.calls[0][0]).toBe('./api/messages?limit=5');
+    });
+
     it('builds URL without query string when no params given', async () => {
       installMockFetch();
       mockFetch.mockResolvedValueOnce({

@@ -12,6 +12,30 @@ from app.models import (
     Message,
     MessagePath,
 )
+from app.repository.channels import effective_mute_sql
+
+MUTED_FILTERS = ("all", "exclude", "only")
+MEMBERSHIP_FILTERS = ("all", "adopted", "pending")
+# One `conversation_keys` value is a channel key (32 hex) or a contact public key (64 hex).
+MAX_CONVERSATION_KEYS = 50
+_CONVERSATION_KEY_RE = re.compile(r"(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{64})")
+
+
+def normalize_conversation_keys(values: list[str]) -> list[str]:
+    """Validate and normalise the ``conversation_keys`` of the listing.
+
+    1 to 50 values, each 32 or 64 hex characters (case-insensitive on input). Normalised like
+    ``conversation_key``: a 64-hex contact key lowercase, a 32-hex channel key uppercase.
+    Duplicates collapse (first occurrence wins). Raises ``ValueError`` with the reason.
+    """
+    if not 1 <= len(values) <= MAX_CONVERSATION_KEYS:
+        raise ValueError(f"conversation_keys takes 1 to {MAX_CONVERSATION_KEYS} values")
+    out: dict[str, None] = {}
+    for value in values:
+        if not _CONVERSATION_KEY_RE.fullmatch(value):
+            raise ValueError("conversation_keys values must be 32 or 64 hexadecimal characters")
+        out[value.lower() if len(value) == 64 else value.upper()] = None
+    return list(out)
 
 
 class MessageRepository:
@@ -469,13 +493,40 @@ class MessageRepository:
         blocked_names: list[str] | None = None,
         outgoing: bool | None = None,
         since_id: int | None = None,
+        muted: str = "all",
+        membership: str = "all",
+        conversation_keys: list[str] | None = None,
+        now: int | None = None,
     ) -> list[Message]:
+        """List messages, newest first (oldest id first with ``since_id``).
+
+        ``muted`` (``all``, ``exclude``, ``only``) and ``membership`` (``all``, ``adopted``,
+        ``pending``) apply to the channel a ``CHAN`` row belongs to, evaluated at ``now`` (unix
+        seconds, the clock when ``None``) for timed mutes. They are NULL-safe: the channel join
+        is a LEFT JOIN, so a ``PRIV`` row and a ``CHAN`` row whose channel was deleted have no
+        channel and are never hidden by ``exclude`` or ``adopted``; ``only`` and ``pending``
+        keep only rows that have a channel. ``conversation_keys`` keeps the listed
+        conversations (``normalize_conversation_keys``); it does not combine with
+        ``conversation_key``.
+        """
+        if muted not in MUTED_FILTERS:
+            raise ValueError(f"muted must be one of {MUTED_FILTERS}")
+        if membership not in MEMBERSHIP_FILTERS:
+            raise ValueError(f"membership must be one of {MEMBERSHIP_FILTERS}")
+        if conversation_keys is not None and conversation_key:
+            raise ValueError("conversation_keys cannot be combined with conversation_key")
         search_query = MessageRepository._parse_search_query(q) if q else None
+        # With since_id the rowid range is the access path: the unary plus keeps the planner
+        # off the type/outgoing indexes, which would force a temp sort by id. It goes on the
+        # joins too: a filter that needs a channel (muted=only, membership=pending) turns the
+        # LEFT JOIN into an inner one and the ON term `messages.type = 'CHAN'` would otherwise
+        # become a usable type constraint.
+        plus = "+" if since_id is not None else ""
         query = (
             f"SELECT {MessageRepository._message_select('messages')} FROM messages "
-            "LEFT JOIN contacts ON messages.type = 'PRIV' "
+            f"LEFT JOIN contacts ON {plus}messages.type = 'PRIV' "
             "AND messages.conversation_key = contacts.public_key "
-            "LEFT JOIN channels ON messages.type = 'CHAN' "
+            f"LEFT JOIN channels ON {plus}messages.type = 'CHAN' "
             "AND messages.conversation_key = channels.key "
             "WHERE 1=1"
         )
@@ -488,9 +539,6 @@ class MessageRepository:
             query += f" AND {blocked_clause}"
             params.extend(blocked_params)
 
-        # With since_id the rowid range is the access path: the unary plus keeps the planner
-        # off the type/outgoing indexes, which would force a temp sort by id.
-        plus = "+" if since_id is not None else ""
         if msg_type:
             query += f" AND {plus}messages.type = ?"
             params.append(msg_type)
@@ -501,6 +549,21 @@ class MessageRepository:
             clause, norm_key = MessageRepository._normalize_conversation_key(conversation_key)
             query += f" {clause.replace('conversation_key', 'messages.conversation_key')}"
             params.append(norm_key)
+        if conversation_keys is not None:
+            keys = normalize_conversation_keys(conversation_keys)
+            query += f" AND messages.conversation_key IN ({', '.join('?' * len(keys))})"
+            params.extend(keys)
+
+        channel_now = int(time.time()) if now is None else now
+        muted_sql = effective_mute_sql("channels", channel_now)
+        if muted == "exclude":
+            query += f" AND (channels.key IS NULL OR NOT COALESCE({muted_sql}, 0))"
+        elif muted == "only":
+            query += f" AND COALESCE({muted_sql}, 0)"
+        if membership == "adopted":
+            query += " AND COALESCE(channels.membership, 'adopted') <> 'pending'"
+        elif membership == "pending":
+            query += " AND channels.membership = 'pending'"
 
         if search_query and search_query.user_terms:
             scope_clauses: list[str] = []
@@ -853,6 +916,7 @@ class MessageRepository:
         name: str | None = None,
         blocked_keys: list[str] | None = None,
         blocked_names: list[str] | None = None,
+        now: int | None = None,
     ) -> dict:
         """Get unread counts, mention flags, last-message times/previews, and read boundaries.
 
@@ -860,6 +924,8 @@ class MessageRepository:
             name: User's display name for @[name] mention detection. If None, mentions are skipped.
             blocked_keys: Public keys whose messages should be excluded from counts.
             blocked_names: Display names whose messages should be excluded from counts.
+            now: Unix seconds at which a timed mute is judged (the clock when None). A channel
+                counts as muted by ``effective_mute_sql``, the fragment the feed filter uses.
 
         Returns:
             Dict with 'counts', 'mentions', 'last_message_times',
@@ -887,7 +953,8 @@ class MessageRepository:
         # through idx_messages_pagination / idx_messages_unread_covering. The
         # previous ROW_NUMBER() windows sorted the whole messages table while
         # holding the DB lock (~0.5 s at 300k messages).
-        conversations_cte = """
+        muted_sql = effective_mute_sql("ch", int(time.time()) if now is None else now)
+        conversations_cte = f"""
             WITH RECURSIVE
             types(t) AS (
                 SELECT MIN(type) FROM messages
@@ -908,7 +975,7 @@ class MessageRepository:
             convs AS (
                 SELECT conv.t, conv.ck,
                        ch.key IS NOT NULL AS has_channel,
-                       COALESCE(ch.muted, 0) AS muted,
+                       COALESCE({muted_sql}, 0) AS muted,
                        COALESCE(
                            CASE WHEN conv.t = 'CHAN' THEN ch.last_read_at
                                 WHEN conv.t = 'PRIV' THEN ct.last_read_at END,
