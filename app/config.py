@@ -11,6 +11,7 @@ from app.log_redaction import (
     clamp_quiet_third_party_loggers,
     install_meshcore_log_redaction,
     install_redacting_formatter,
+    install_uncaught_handlers,
 )
 
 
@@ -244,3 +245,6 @@ def setup_logging() -> None:
         logging.getLogger(logger_name).addFilter(uvicorn_hygiene)
     # dictConfig may have lowered the root level; the BLE libraries stay at INFO.
     clamp_quiet_third_party_loggers()
+    # Warnings and uncaught exceptions would reach standard error raw, outside
+    # the redacting formatter (MSHL-435).
+    install_uncaught_handlers()
