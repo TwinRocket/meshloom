@@ -390,21 +390,34 @@ async def test_a_declared_proxy_logs_the_client_it_forwarded(lines):
     assert FAILREGEX.match(_rendered(lines()[0]))["host"] == "203.0.113.9"
 
 
-async def test_a_public_peer_with_forwarding_headers_is_the_client(lines):
+@pytest.mark.parametrize("peer", ["198.51.100.20", "192.0.2.10", "2606:4700::1111"])
+async def test_a_public_peer_with_forwarding_headers_is_the_client(lines, peer):
     await create_user()
-    async with make_client(client=("198.51.100.20", 50000)) as client:
+    async with make_client(client=(peer, 50000)) as client:
         await client.post(
             "/api/auth/login",
             json={"username": ADMIN, "password": "wrong password!"},
             headers={"X-Forwarded-For": "203.0.113.50"},
         )
     match = _one(lines(), "login", "invalid_credentials")
-    assert match["ip"] == "198.51.100.20" and match["proxied"] == "0"
-    assert FAILREGEX.match(_rendered(lines()[0]))["host"] == "198.51.100.20"
+    assert match["ip"] == fail_log.ip_field(peer) and match["proxied"] == "0"
+    assert FAILREGEX.match(_rendered(lines()[0]))["host"] == fail_log.ip_field(peer)
 
 
 @pytest.mark.parametrize(
-    "peer", ["127.0.0.1", "192.168.1.30", "172.18.0.1", "100.100.1.2", "fd00::5", "fe80::1"]
+    "peer",
+    [
+        "127.0.0.1",
+        "10.1.2.3",
+        "192.168.1.30",
+        "172.18.0.1",
+        "100.100.1.2",
+        "169.254.1.1",
+        "::1",
+        "fd00::5",
+        "fe80::1",
+        "::ffff:192.168.1.30",
+    ],
 )
 async def test_forwarding_headers_from_an_undeclared_local_peer_mark_the_line_proxied(lines, peer):
     await create_user()
@@ -428,9 +441,11 @@ async def test_a_trusted_network_request_is_logged_as_lan(lines, monkeypatch):
     )
     async with make_client("http://192.168.1.10:8000", ("192.168.1.20", 40000)) as client:
         assert (await client.get("/api/auth/session")).json()["via"] == "trusted"
-        response = await client.get("/api/auth/me", headers={"Authorization": "Bearer mlt_bogus"})
+        response = await client.post(
+            "/api/auth/login", json={"username": ADMIN, "password": "wrong password!"}
+        )
     assert response.status_code == 401
-    assert _one(lines(), "bearer", "invalid_token")["via"] == "lan"
+    assert _one(lines(), "login", "invalid_credentials")["via"] == "lan"
 
 
 async def test_forwarding_headers_from_an_undeclared_peer_mark_the_line_proxied(lines):
