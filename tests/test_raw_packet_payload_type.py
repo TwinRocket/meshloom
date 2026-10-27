@@ -145,3 +145,50 @@ async def test_four_type_history_on_100000_rows_is_fast(test_db):
     print(f"backfill 100k rows: {backfill:.1f} s; four-type history: {elapsed * 1000:.0f} ms")
     assert len(items) == 200 and truncated is False and scanned == 200
     assert elapsed < 1.0
+
+
+@pytest.mark.asyncio
+async def test_backfill_query_is_a_rowid_scan_without_sort_or_payload_type_index(test_db):
+    from app.repository.raw_packets import BACKFILL_SELECT_SQL
+
+    async with test_db.readonly() as conn:
+        async with conn.execute(f"EXPLAIN QUERY PLAN {BACKFILL_SELECT_SQL}", [0, 2000]) as cur:
+            plan = " | ".join(row[3] for row in await cur.fetchall())
+    assert "idx_raw_packets_payload_type_timestamp" not in plan, plan
+    assert "TEMP B-TREE" not in plan, plan
+
+
+@pytest.mark.asyncio
+async def test_merge_orders_by_timestamp_then_id_when_ids_are_out_of_time_order(test_db):
+    """A clock jump: later ids carry older timestamps, across types."""
+    types = sorted(CONTROL)
+    stamps = [BASE + 500, BASE + 100, BASE + 400, BASE + 100, BASE + 300, BASE + 200, BASE + 500]
+    rows = [(ts, _packet(types[i % 4], i)) for i, ts in enumerate(stamps)]
+    await _insert_null(test_db, rows)
+    await backfill_payload_types()
+    items, *_ = await RawPacketRepository.list_history(
+        limit=100, max_scan=100, payload_types=CONTROL
+    )
+    got = [(r[2], r[0]) for r in items]
+    assert got == sorted(got, reverse=True)
+    assert [r[0] for r in items] != sorted((r[0] for r in items), reverse=True)  # not id order
+    assert len(items) == 7
+
+
+@pytest.mark.asyncio
+async def test_a_page_supplied_by_one_type_is_full(test_db):
+    await _insert_null(
+        test_db,
+        [(BASE + 1000 + i, _packet(PayloadType.REQUEST, i)) for i in range(50)]
+        + [(BASE + i, _packet(PayloadType.RESPONSE, i)) for i in range(5)],
+    )
+    await backfill_payload_types()
+    first, _t, _tr, scanned = await RawPacketRepository.list_history(
+        limit=20, max_scan=100, payload_types=CONTROL
+    )
+    assert len(first) == 20 and scanned == 20
+    assert all(r[2] >= BASE + 1000 for r in first)
+    second, *_ = await RawPacketRepository.list_history(
+        limit=40, max_scan=100, payload_types=CONTROL, after_id=first[-1][0]
+    )
+    assert len(second) == 35  # the 30 REQUEST left, then the 5 RESPONSE

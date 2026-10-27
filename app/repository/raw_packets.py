@@ -537,6 +537,13 @@ class RawPacketRepository:
 
 
 BACKFILL_BATCH_SIZE = 2000
+# ``+payload_type`` keeps the planner off idx_raw_packets_payload_type_timestamp: through it each
+# batch would re-read every remaining NULL row and sort them by id (quadratic, long lock holds).
+# A rowid range scan stops at the first ``LIMIT`` unclassified rows.
+BACKFILL_SELECT_SQL = (
+    "SELECT id, substr(data, 1, 1) AS head FROM raw_packets "
+    "WHERE id > ? AND +payload_type IS NULL ORDER BY id LIMIT ?"
+)
 
 
 async def backfill_payload_types(batch_size: int = BACKFILL_BATCH_SIZE) -> int:
@@ -553,8 +560,7 @@ async def backfill_payload_types(batch_size: int = BACKFILL_BATCH_SIZE) -> int:
     while True:
         async with db.readonly() as conn:
             async with conn.execute(
-                "SELECT id, substr(data, 1, 1) AS head FROM raw_packets "
-                "WHERE id > ? AND payload_type IS NULL ORDER BY id LIMIT ?",
+                BACKFILL_SELECT_SQL,
                 (last_id, batch_size),
             ) as cursor:
                 rows = list(await cursor.fetchall())
