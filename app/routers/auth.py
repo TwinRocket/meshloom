@@ -337,7 +337,8 @@ async def _session_payload(
     setup_required = not await UserRepository.any_exist()
     under_ingress = via == "ingress"
     exposed = False
-    if setup_required:
+    if setup_required and not under_ingress:
+        # Setup is refused under ingress (auth_ingress_only): no code to issue.
         exposed = await request_exposed(request.scope)
         if exposed:
             await ensure_exposure_code()

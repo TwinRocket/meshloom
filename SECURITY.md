@@ -94,7 +94,9 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   without a code for a local-network visitor. From a public address, through an
   unlisted proxy, or once a public address is declared, it asks for the
   installation code it logs (so does a Meshloom that already held data). Behind
-  Docker's userland proxy every client looks local: declare a public address
+  Docker's userland proxy every client looks local, and so does a visitor
+  arriving through a local tunnel that adds no forwarding header (`ssh -R`,
+  `socat`, HAProxy in TCP mode, seen as 127.0.0.1): declare a public address
   before publishing such an install.
 - **Other web pages are kept out, with documented gaps.** CORS is same-origin
   plus the origins listed in **Settings > Local Configuration > Allowed

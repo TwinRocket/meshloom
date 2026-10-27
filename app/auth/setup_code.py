@@ -24,17 +24,21 @@ must not go to its first visitor. A first-run request is *exposed*
 it came through the relay, its client address (after a trusted proxy's
 rewrite, ``app/middleware/proxy_headers.py``) is not private or loopback (not
 ``is_global``: RFC 1918, loopback, link-local, ULA and CGNAT count as local),
-it carries forwarding headers from a peer that is not a trusted proxy (the
-client is unknown), or a public address is declared (``auth_settings.public_urls``).
+it carries forwarding headers (any of ``PROXY_HEADERS``,
+``app/auth/providers/trusted_network.py``) from a peer that is not a trusted
+proxy (the client is unknown), or a public address is declared (``auth_settings.public_urls``).
 An exposed request always needs the code: on a fresh database with none
 stored, the first exposed ``GET /api/auth/session`` or ``POST /api/auth/setup``
 issues one and logs it (``ensure_exposure_code()``), and setup answers 403
 ``auth_setup_code_invalid`` without it. A request from the local network
 still needs no code on a fresh database, even after such a code was issued:
 only a code issued for that reason (its hash is remembered in memory) is
-waived. A code from the CLI or a restart is asked of everyone. Docker's
-userland proxy (every client seen as the gateway) is the case this cannot see:
-declaring the public address closes it.
+waived. A code from the CLI or a restart is asked of everyone. Two cases this cannot
+see, both closed by declaring the public address: Docker's userland proxy
+(every client seen as the gateway), and a local tunnel that forwards without
+headers (``ssh -R``, ``socat``, HAProxy in TCP mode: Internet visitors arrive
+from 127.0.0.1). Under Home Assistant ingress no code is issued: setup is
+refused there anyway (403 ``auth_ingress_only``).
 
 **Fail closed.** Setup is refused (503 ``auth_setup_unavailable``) until
 ``prepare_first_run`` has succeeded in this process: when it fails at startup
@@ -108,25 +112,18 @@ def reset_first_run_state() -> None:
 async def request_exposed(scope: MutableMapping[str, Any]) -> bool:
     """Whether a first-run request may come from outside the local network
     (module docstring, "Exposed first run")."""
-    import ipaddress
-
     from starlette.datastructures import Headers
 
     from app.auth.providers import trusted_network
-    from app.auth.ratelimit import client_is_public
+    from app.auth.ratelimit import _is_trusted_proxy, client_is_public
     from app.middleware import proxy_headers
 
     if scope.get("auth_via", "lan") != "lan":
         return True
-    if trusted_network.carries_proxy_headers(Headers(scope=scope)):
-        try:
-            peer = ipaddress.ip_address(proxy_headers.peer_address(scope) or "")
-        except ValueError:
-            return True
-        if isinstance(peer, ipaddress.IPv6Address) and peer.ipv4_mapped is not None:
-            peer = peer.ipv4_mapped
-        if not any(peer in ipaddress.ip_network(p) for p in proxy_headers.current()):
-            return True
+    if trusted_network.carries_proxy_headers(Headers(scope=scope)) and not _is_trusted_proxy(
+        proxy_headers.peer_address(scope), proxy_headers.current()
+    ):
+        return True
     if client_is_public(scope):
         return True
     return bool((await AuthSettingsRepository.get()).public_urls)

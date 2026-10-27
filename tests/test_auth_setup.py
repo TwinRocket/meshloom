@@ -408,3 +408,47 @@ async def test_an_existing_database_without_a_code_stays_closed_to_public_peers(
     assert response.status_code == 503
     assert not any("installation code" in r.getMessage() for r in caplog.records)
     assert not (await AuthSettingsRepository.get()).setup_code_set
+
+
+async def test_a_relayed_request_is_exposed_even_from_loopback():
+    """The relay connects from the host itself: its auth_via alone marks it."""
+    scope = {"type": "http", "auth_via": "relay", "client": ("127.0.0.1", 1), "headers": []}
+    assert await setup_code.request_exposed(scope) is True
+    assert await setup_code.request_exposed({**scope, "auth_via": "lan"}) is False
+
+
+async def test_a_session_under_ingress_issues_no_code(monkeypatch, caplog):
+    """Setup is refused under ingress: an anonymous session there must not issue
+    a code nor log a warning about an Internet visitor."""
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
+    await _fresh()
+    with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):
+        async with make_client(client=("172.30.32.2", 40000)) as client:
+            session = (await client.get("/api/auth/session")).json()
+    assert session["setup_required"] is True
+    assert session["setup_code_required"] is False
+    assert not any("installation code" in r.getMessage() for r in caplog.records)
+    assert not (await AuthSettingsRepository.get()).setup_code_set
+
+
+async def test_an_ipv4_mapped_declared_proxy_forwarding_a_lan_client_needs_no_code():
+    await AuthSettingsRepository.update(trusted_proxies=["192.168.1.2/32"])
+    await _fresh()
+    headers = {"X-Forwarded-For": "192.168.1.20"}
+    async with make_client(client=("::ffff:192.168.1.2", 40000)) as client:
+        session = (await client.get("/api/auth/session", headers=headers)).json()
+        assert session["setup_code_required"] is False
+        response = await client.post("/api/auth/setup", json=_setup_body(), headers=headers)
+        assert response.status_code == 200, response.text
+
+
+async def test_a_public_peer_needs_a_code_while_first_run_was_never_prepared():
+    """Startup preparation failed (``_existing_database`` is None, no code stored):
+    the session must still tell a public visitor that a code is required."""
+    setup_code.reset_first_run_state()
+    assert setup_code._existing_database is None
+    assert not (await AuthSettingsRepository.get()).setup_code_set
+    async with make_client(client=PUBLIC) as client:
+        assert (await client.get("/api/auth/session")).json()["setup_code_required"] is True
+    async with make_client(client=("192.168.1.10", 40000)) as client:
+        assert (await client.get("/api/auth/session")).json()["setup_code_required"] is False

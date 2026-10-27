@@ -1144,8 +1144,9 @@ no account exists:
 
 **Exposed first run (MSHL-424).** On a fresh database a request is *exposed*
 (`setup_code.request_exposed(scope)`) when it does not come through the LAN
-path (`auth_via` other than `lan`), carries `X-Forwarded-For`, `X-Real-IP` or
-`Forwarded` from a peer that is not a trusted proxy, comes from a client
+path (`auth_via` other than `lan`), carries any forwarding header (`PROXY_HEADERS`
+in `app/auth/providers/trusted_network.py`: `X-Forwarded-*`, `Forwarded`,
+`X-Real-IP`, `CF-Connecting-IP` and the rest) from a peer that is not a trusted proxy, comes from a client
 address that is not private, loopback, link-local, ULA or CGNAT
 (`ratelimit.client_is_public`, on the address a trusted proxy forwarded), or
 when `auth_settings.public_urls` is not empty. The first exposed `GET
@@ -1155,9 +1156,11 @@ WARNING and answers `setup_code_required: true`; setup without it answers 403
 `auth_setup_code_invalid`. That code is waived for later non-exposed requests
 (kept in memory as `_exposure_code_hash`), so an internet visitor cannot lock
 the owner on the LAN out. A code from `meshloom-admin setup-code` or from a
-restart is required from everyone. Limit: under Docker's userland proxy every
-client appears as the gateway (private), so declare a public URL when the
-instance is published that way.
+restart is required from everyone. Under ingress the session issues no code
+(setup is refused there, `auth_ingress_only`). Limits, both closed by declaring
+a public URL: under Docker's userland proxy every client appears as the gateway
+(private); a local tunnel that forwards without headers (`ssh -R`, `socat`,
+HAProxy in TCP mode) makes Internet visitors appear as 127.0.0.1.
 
 **Fail closed.** `POST /api/auth/setup` answers 503 `auth_setup_unavailable`
 until `prepare_first_run()` has succeeded in this process: when it raised at
