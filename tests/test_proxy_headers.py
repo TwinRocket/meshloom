@@ -318,6 +318,10 @@ class TestSettingsRoute:
             "addresses_identify_clients": False,
             "shared_address_install": body["shared_address_install"],
             "client_public": False,
+            "ip_ban_enabled": True,
+            "ip_ban_max_failures": 10,
+            "ip_ban_window_minutes": 10,
+            "ip_ban_duration_minutes": 60,
         }
         response = await client.patch(
             "/api/auth/settings", json={"trusted_proxies": [" 10.0.0.1 ", "fd00:1::/64", ""]}

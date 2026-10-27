@@ -31,6 +31,14 @@ MAX_AUDIT_RETENTION_DAYS = 36500
 MIN_SESSION_LIFETIME_DAYS = 1
 MAX_SESSION_LIFETIME_DAYS = 365
 
+# The built-in ban bounds (``app/auth/ip_ban.py``): 10 failures in 10 minutes ban
+# for 60 minutes by default.
+MIN_IP_BAN_MAX_FAILURES = 3
+MAX_IP_BAN_MAX_FAILURES = 1000
+MIN_IP_BAN_MINUTES = 1
+MAX_IP_BAN_WINDOW_MINUTES = 1440
+MAX_IP_BAN_DURATION_MINUTES = 43200
+
 
 class User(BaseModel):
     id: int
@@ -151,6 +159,17 @@ class AuthSettings(BaseModel):
     # The TCP peer is the client on a Docker install without a trusted proxy: the
     # per-address login rules apply there too (``app/auth/ratelimit.py``). Off by default.
     addresses_identify_clients: bool = False
+    # The built-in per-address ban (``app/auth/ip_ban.py``, MSHL-422).
+    ip_ban_enabled: bool = True
+    ip_ban_max_failures: int = Field(
+        default=10, ge=MIN_IP_BAN_MAX_FAILURES, le=MAX_IP_BAN_MAX_FAILURES
+    )
+    ip_ban_window_minutes: int = Field(
+        default=10, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_WINDOW_MINUTES
+    )
+    ip_ban_duration_minutes: int = Field(
+        default=60, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_DURATION_MINUTES
+    )
 
     @field_validator("trusted_proxies")
     @classmethod

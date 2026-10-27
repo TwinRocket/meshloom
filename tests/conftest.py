@@ -37,6 +37,7 @@ async def patched_database(path: str = ":memory:"):
         contact_telemetry,
         contacts,
         directory,
+        ip_ban,
         messages,
         notification_channels,
         plugins,
@@ -63,6 +64,7 @@ async def patched_database(path: str = ":memory:"):
         channels,
         contact_groups,
         directory,
+        ip_ban,
         messages,
         notification_channels,
         plugins,
@@ -248,6 +250,16 @@ def _reset_trusted_proxies():
     proxy_headers.reset()
     yield
     proxy_headers.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_ip_bans():
+    """Failures counted and bans known by one test must not leak into the next one."""
+    from app.auth import ip_ban
+
+    ip_ban.reset()
+    yield
+    ip_ban.reset()
 
 
 @pytest.fixture(autouse=True)

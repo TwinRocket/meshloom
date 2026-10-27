@@ -290,6 +290,14 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "access settings of this host (networks, proxies, URLs), the setup code hash and the"
         " known-device cookie key (both cleared in the SQLite download)",
     ),
+    "ip_bans": (
+        "excluded",
+        "addresses banned after failed sign-ins (app/auth/ip_ban.py): state of this host",
+    ),
+    "ip_ban_whitelist": (
+        "excluded",
+        "addresses never banned: like the trusted networks, a setting of this host's network",
+    ),
     # Notification channels (MSHL-108, MSHL-117): the ``notifications`` backup section
     # (services/backup_notifications.py) holds the channels without their secrets and the
     # rules. The SQLite download carries the secrets, encrypted with ``secrets.key`` (not in

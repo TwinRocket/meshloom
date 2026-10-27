@@ -94,6 +94,11 @@ AuditAction = Literal[
     "share.disabled",
     "share.object_deleted",
     "share.report_sent",
+    # The built-in ban (`app/auth/ip_ban.py`, MSHL-422), target `ip:<key or network>`.
+    "ip.banned",
+    "ip.unbanned",
+    "ip.whitelisted",
+    "ip.unwhitelisted",
     # Remote access (later)
     "remote.linked",
     "remote.enabled",

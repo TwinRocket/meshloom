@@ -29,15 +29,20 @@ from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
 
 from app.auth import audit, device_cookie, ratelimit, sessions, totp, webauthn
 from app.auth.fail_log import log_auth_failure
 from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import (
     MAX_AUDIT_RETENTION_DAYS,
+    MAX_IP_BAN_DURATION_MINUTES,
+    MAX_IP_BAN_MAX_FAILURES,
+    MAX_IP_BAN_WINDOW_MINUTES,
     MAX_SESSION_LIFETIME_DAYS,
     MIN_AUDIT_RETENTION_DAYS,
+    MIN_IP_BAN_MAX_FAILURES,
+    MIN_IP_BAN_MINUTES,
     MIN_SESSION_LIFETIME_DAYS,
     USERNAME_MAX_LENGTH,
     AuthAuditEntry,
@@ -83,7 +88,7 @@ from app.repository.auth import (
     UsernameTakenError,
     UserRepository,
 )
-from app.routers import auth_kiosk, auth_pairing, auth_tokens
+from app.routers import auth_bans, auth_kiosk, auth_pairing, auth_tokens
 from app.security import basic_compat_active, invalidate_basic_cache
 
 logger = logging.getLogger(__name__)
@@ -924,6 +929,20 @@ class AuthSettingsView(BaseModel):
             "so the per-address login delays apply there. Off by default."
         )
     )
+    ip_ban_enabled: bool = Field(
+        description=(
+            "The built-in ban: an address with ip_ban_max_failures failed sign-ins within "
+            "ip_ban_window_minutes is refused (429 auth_ip_banned) for "
+            "ip_ban_duration_minutes. Never a local address. On by default."
+        )
+    )
+    ip_ban_max_failures: int = Field(description="Failures that ban an address (10 by default).")
+    ip_ban_window_minutes: int = Field(
+        description="The window the failures are counted in, in minutes (10 by default)."
+    )
+    ip_ban_duration_minutes: int = Field(
+        description="How long a ban lasts, in minutes (60 by default)."
+    )
     shared_address_install: bool = Field(
         description=(
             "Read-only. A Docker install (compose or container): without a trusted proxy or "
@@ -959,6 +978,24 @@ class AuthSettingsPatch(BaseModel):
     host_guard_mode: HostGuardMode | None = None
     require_2fa_for_admins: bool | None = None
     addresses_identify_clients: bool | None = None
+    ip_ban_enabled: StrictBool | None = None
+    ip_ban_max_failures: StrictInt | None = Field(
+        default=None, ge=MIN_IP_BAN_MAX_FAILURES, le=MAX_IP_BAN_MAX_FAILURES
+    )
+    ip_ban_window_minutes: StrictInt | None = Field(
+        default=None, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_WINDOW_MINUTES
+    )
+    ip_ban_duration_minutes: StrictInt | None = Field(
+        default=None, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_DURATION_MINUTES
+    )
+
+
+_IP_BAN_FIELDS = (
+    "ip_ban_enabled",
+    "ip_ban_max_failures",
+    "ip_ban_window_minutes",
+    "ip_ban_duration_minutes",
+)
 
 
 def _plugins_isolation_reduced() -> bool:
@@ -1016,6 +1053,10 @@ async def _settings_view(settings: AuthSettings, request: Request) -> AuthSettin
         security_notices=await _security_notices(settings),
         require_2fa_for_admins=settings.require_2fa_for_admins,
         addresses_identify_clients=settings.addresses_identify_clients,
+        ip_ban_enabled=settings.ip_ban_enabled,
+        ip_ban_max_failures=settings.ip_ban_max_failures,
+        ip_ban_window_minutes=settings.ip_ban_window_minutes,
+        ip_ban_duration_minutes=settings.ip_ban_duration_minutes,
         shared_address_install=ratelimit.shared_address_install(),
         client_public=ratelimit.client_is_public(request.scope),
     )
@@ -1120,6 +1161,10 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         host_guard_mode=body.host_guard_mode,
         require_2fa_for_admins=body.require_2fa_for_admins,
         addresses_identify_clients=body.addresses_identify_clients,
+        ip_ban_enabled=body.ip_ban_enabled,
+        ip_ban_max_failures=body.ip_ban_max_failures,
+        ip_ban_window_minutes=body.ip_ban_window_minutes,
+        ip_ban_duration_minutes=body.ip_ban_duration_minutes,
     )
     if trusted_proxies is not None:
         logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))
@@ -1198,6 +1243,15 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             "success",
             target="auth_settings.addresses_identify_clients",
             details={"addresses_identify_clients": settings.addresses_identify_clients},
+        )
+    changed_ban_fields = [name for name in _IP_BAN_FIELDS if getattr(body, name) is not None]
+    if changed_ban_fields:
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.ip_ban",
+            details={name: getattr(settings, name) for name in changed_ban_fields},
         )
     return await _settings_view(settings, request)
 
@@ -1634,5 +1688,7 @@ async def get_audit(
 # ``/auth/tokens``: API and device tokens (``app/routers/auth_tokens.py``).
 router.include_router(auth_tokens.router)
 router.include_router(auth_pairing.router)
+# ``/auth/bans``, ``/auth/ban-whitelist``: the built-in ban (``app/routers/auth_bans.py``).
+router.include_router(auth_bans.router)
 # ``/auth/kiosk-*``: the kiosk launcher's device-token sign-in (``app/routers/auth_kiosk.py``).
 router.include_router(auth_kiosk.router)
