@@ -22,7 +22,7 @@ Depuis la 5.0, chaque page et chaque route d’API demande un compte : le proxy 
 En administrateur :
 
 - **Réglages → Utilisateurs et accès → Adresses publiques** : ajoutez `https://meshloom.example.org` (le nom que l’on tape, avec `:port` s’il n’est pas 443). La [vérification du Host](/docs/deep/https/#les-noms-auxquels-meshloom-répond) n’accepte que les noms déclarés à partir de la 5.1.
-- **Réglages → Configuration locale → Proxies de confiance** (`trusted_proxies`) : l’adresse propre du proxy, une par ligne. `127.0.0.1` s’il tourne sur la même machine que Meshloom. Un autre conteneur : donnez-lui une adresse fixe sur un réseau à part et listez cette adresse. Une autre machine : son adresse sur votre réseau. La liste est vide par défaut et `127.0.0.1` n’est pas sous-entendu. **Ne listez jamais un réseau Docker entier ni sa passerelle**, ni un réseau d’où viennent vos visiteurs. Exemple de fichier Compose : [HTTPS, Proxies de confiance](/docs/deep/https/#proxies-de-confiance).
+- **Réglages → Configuration locale → Proxies de confiance** (`trusted_proxies`) : l’adresse propre du proxy, une par ligne. `127.0.0.1` s’il tourne sur la même machine qu’une installation par paquet ou depuis les sources de Meshloom. Meshloom sous Docker avec le port 8000 publié : les connexions du proxy arrivent alors depuis la passerelle du pont Docker, que vous ne devez pas lister ; placez plutôt le proxy et Meshloom sur un réseau Docker à part, donnez une adresse fixe au proxy, listez cette adresse et ne publiez pas le port 8000. Une autre machine : son adresse sur votre réseau. La liste est vide par défaut et `127.0.0.1` n’est pas sous-entendu. **Ne listez jamais un réseau Docker entier ni sa passerelle**, ni un réseau d’où viennent vos visiteurs. Exemple de fichier Compose : [HTTPS, Proxies de confiance](/docs/deep/https/#proxies-de-confiance).
 - **Réglages → Utilisateurs et accès → Réseaux de confiance** : laissez **Accès sans connexion sur le réseau local** désactivé et la liste vide. Il est désactivé par défaut. Il doit le rester dès que Meshloom est joint par un proxy, ou par une redirection de port de la box qui réécrit l’adresse source (SNAT), car les visiteurs d’Internet sembleraient alors locaux. Une règle ne s’applique de toute façon jamais à une requête passée par un proxy ([détails](/docs/deep/access/#les-réseaux-de-confiance)).
 
 Le serveur de Meshloom ne lit jamais lui-même les en-têtes transmis ; chaque commande de démarrage porte `--no-proxy-headers`, et celle que vous écrivez vous-même doit le garder.
@@ -40,10 +40,16 @@ Caddy garde le `Host`, pose les deux en-têtes transmis et laisse passer le WebS
 ## nginx
 
 ```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 443 ssl;
     server_name meshloom.example.org;
     # ssl_certificate / ssl_certificate_key : votre certificat
+    client_max_body_size 64m;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -52,16 +58,16 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection $connection_upgrade;
     }
 }
 ```
 
-Sans les lignes `Upgrade` et `Connection`, le WebSocket reçoit un 404 et rien n’arrive en direct.
+Sans les lignes `Upgrade` et `Connection`, le WebSocket reçoit un 404 et rien n’arrive en direct. `client_max_body_size 64m;` compte : nginx refuse par défaut les corps de requête de plus de 1 Mo (413), alors que la restauration ou l’inspection d’une sauvegarde accepte jusqu’à 64 Mio et les partages de photos jusqu’à 10 Mio. Caddy et Traefik n’imposent aucune limite de taille de requête tant que vous n’en ajoutez pas.
 
 ## Traefik (v3)
 
-Configuration dynamique (fournisseur de fichiers), avec un point d’entrée `websecure` et un certificat pour le nom déjà définis ; le même routeur et le même service peuvent s’écrire en labels Docker :
+Configuration dynamique (fournisseur de fichiers), avec un point d’entrée `websecure` et un certificat pour le nom déjà définis ; le même routeur et le même service peuvent s’écrire en labels Docker (*non testé de bout en bout* sous cette forme) :
 
 ```yaml
 http:
@@ -78,6 +84,8 @@ http:
           - url: http://127.0.0.1:8000
 ```
 
+`127.0.0.1:8000` suppose que Traefik tourne sur l’hôte. En conteneur, placez-le sur un réseau Docker partagé avec Meshloom et utilisez `http://meshloom:8000` (le nom du service), puis listez l’adresse fixe de Traefik dans les Proxies de confiance.
+
 Traefik garde le `Host`, pose les deux en-têtes et laisse passer le WebSocket. Laissez `forwardedHeaders.trustedIPs` vide sauf si un autre proxy se trouve devant lui.
 
 ## Vérifier
@@ -86,5 +94,5 @@ Ouvrez `https://meshloom.example.org` et connectez-vous. La page de connexion ne
 
 ## Rester prudent
 
-- **Ne publiez ni le port 8000 ni le port du proxy radio.** Dès que le proxy est devant Meshloom, le port 8000 ne doit plus être joignable autrement. Le proxy radio (**Réglages > Proxy**, port 5051 par défaut) écoute sur `0.0.0.0` et n’a pas de connexion : ne le redirigez jamais, ne le placez jamais derrière le proxy ([Sécurité](/docs/deep/security/#proxy-radio)).
+- **Ne publiez ni le port 8000 ni le port du proxy radio.** Dès que le proxy est devant Meshloom, le port 8000 ne doit plus être joignable autrement. Le proxy radio (**Réglages → Proxy**, port 5051 par défaut) écoute sur `0.0.0.0` et n’a pas de connexion : ne le redirigez jamais, ne le placez jamais derrière le proxy ([Sécurité](/docs/deep/security/#proxy-radio)).
 - **Échecs de connexion répétés.** Le [bannissement intégré](/docs/deep/access/#les-délais-de-connexion) de Meshloom est actif par défaut et compte chaque visiteur séparément dès que le proxy est listé dans les Proxies de confiance. Pour un blocage au pare-feu, ou dans le journal du proxy, voir [fail2ban](/docs/deep/fail2ban/#derrière-un-reverse-proxy-sur-la-même-machine).

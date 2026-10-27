@@ -22,7 +22,7 @@ From 5.0 every page and API route asks for an account, so the proxy never opens 
 As an administrator:
 
 - **Settings → Users & Access → Public addresses**: add `https://meshloom.example.org` (the name people type, with `:port` if it is not 443). The [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) accepts only declared names from 5.1.
-- **Settings → Local Configuration → Trusted proxies** (`trusted_proxies`): the proxy's own address, one per line. `127.0.0.1` if it runs on the same machine as Meshloom. Another container: give it a fixed address on a network of its own and list that address. Another machine: its address on your network. The list is empty by default and `127.0.0.1` is not implied. **Never list a whole Docker network or its gateway**, and never a network your visitors come from. Example Compose file: [HTTPS, Trusted proxies](/en/docs/deep/https/#trusted-proxies).
+- **Settings → Local Configuration → Trusted proxies** (`trusted_proxies`): the proxy's own address, one per line. `127.0.0.1` if it runs on the same machine as a package or source install of Meshloom. Meshloom in Docker with port 8000 published: the proxy's connections then arrive from the Docker bridge gateway, which you must not list; instead put the proxy and Meshloom on a Docker network of their own, give the proxy a fixed address, list that address and publish no port 8000. Another machine: its address on your network. The list is empty by default and `127.0.0.1` is not implied. **Never list a whole Docker network or its gateway**, and never a network your visitors come from. Example Compose file: [HTTPS, Trusted proxies](/en/docs/deep/https/#trusted-proxies).
 - **Settings → Users & Access → Trusted networks**: leave **Login-free on the local network** off and the list empty. It is off by default. It must stay off whenever Meshloom is reached through a proxy, or through a router port-forward that rewrites the source address (SNAT), because internet visitors would then look local. Rules never apply to a proxied request anyway ([details](/en/docs/deep/access/#trusted-networks)).
 
 Meshloom's own server never reads forwarded headers itself; every start command carries `--no-proxy-headers`, and one you write yourself must keep it.
@@ -40,10 +40,16 @@ Caddy keeps `Host`, sets both forwarded headers and passes the WebSocket.
 ## nginx
 
 ```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 443 ssl;
     server_name meshloom.example.org;
     # ssl_certificate / ssl_certificate_key: your certificate
+    client_max_body_size 64m;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -52,16 +58,16 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection $connection_upgrade;
     }
 }
 ```
 
-Without the `Upgrade` and `Connection` lines the WebSocket is answered 404 and nothing arrives live.
+Without the `Upgrade` and `Connection` lines the WebSocket is answered 404 and nothing arrives live. `client_max_body_size 64m;` matters: nginx refuses request bodies over 1 MB by default (413), while restoring or inspecting a backup accepts up to 64 MiB and photo shares up to 10 MiB. Caddy and Traefik set no request size limit unless you add one.
 
 ## Traefik (v3)
 
-Dynamic configuration (file provider), with an entry point `websecure` and a certificate for the name already defined; the same router and service can be written as Docker labels:
+Dynamic configuration (file provider), with an entry point `websecure` and a certificate for the name already defined; the same router and service can be written as Docker labels (*untested end to end* in that form):
 
 ```yaml
 http:
@@ -78,6 +84,8 @@ http:
           - url: http://127.0.0.1:8000
 ```
 
+`127.0.0.1:8000` assumes Traefik runs on the host. As a container, put it on a Docker network shared with Meshloom and use `http://meshloom:8000` (the service name), and list Traefik's fixed address in Trusted proxies.
+
 Traefik keeps `Host`, sets both headers and passes the WebSocket. Leave `forwardedHeaders.trustedIPs` empty unless another proxy sits in front of it.
 
 ## Check it
@@ -86,5 +94,5 @@ Open `https://meshloom.example.org` and sign in. The sign-in page must not warn 
 
 ## Keep it safe
 
-- **Do not publish port 8000 or the radio proxy port.** Once the proxy fronts Meshloom, port 8000 should not be reachable any other way. The radio proxy (**Settings > Proxy**, port 5051 by default) listens on `0.0.0.0` and has no sign-in: never forward it, never put it behind the proxy ([Security](/en/docs/deep/security/#radio-proxy)).
+- **Do not publish port 8000 or the radio proxy port.** Once the proxy fronts Meshloom, port 8000 should not be reachable any other way. The radio proxy (**Settings → Proxy**, port 5051 by default) listens on `0.0.0.0` and has no sign-in: never forward it, never put it behind the proxy ([Security](/en/docs/deep/security/#radio-proxy)).
 - **Repeated failed sign-ins.** Meshloom's [built-in ban](/en/docs/deep/access/#sign-in-delays) is on by default and counts each visitor on their own once the proxy is listed in Trusted proxies. For a block at the firewall, or at the proxy's own log, see [fail2ban](/en/docs/deep/fail2ban/#behind-a-reverse-proxy-on-the-same-machine).
