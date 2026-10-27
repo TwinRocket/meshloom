@@ -49,18 +49,70 @@ async def test_sign_out_everywhere_else_keeps_this_session():
         assert (await there.get("/api/auth/me")).status_code == 401
 
 
-async def test_logout_revokes_and_clears_the_cookie():
+def _expired(response) -> dict[str, list[str]]:
+    """Name -> attributes of each ``Set-Cookie`` of a response."""
+    cookies = {}
+    for header in response.headers.get_list("set-cookie"):
+        first, *attributes = [part.strip() for part in header.split(";")]
+        cookies[first.split("=", 1)[0]] = attributes
+    return cookies
+
+
+async def test_logout_revokes_and_expires_only_meshloom_cookies():
+    """No Clear-Site-Data (it would clear the whole registrable domain: every
+    <slug>.meshloom.link instance, or the other apps of a self-hoster's domain);
+    the session and known-device cookies are expired by name, host-only."""
     await create_user()
     async with make_client() as client:
         await login(client)
         token = client.cookies.get("meshloom_session")
+        assert client.cookies.get("meshloom_device")
         response = await client.post("/api/auth/logout")
         assert response.status_code == 200
-        assert response.headers["clear-site-data"] == '"cookies"'
-        assert "Max-Age=0" in response.headers["set-cookie"]
+        assert "clear-site-data" not in response.headers
+        cookies = _expired(response)
+        assert set(cookies) == {"meshloom_session", "meshloom_device"}
+        for attributes in cookies.values():
+            assert "Max-Age=0" in attributes and "Path=/" in attributes
+            assert "Secure" not in attributes
+            assert not any(a.lower().startswith("domain") for a in attributes)
+        assert client.cookies.get("meshloom_session") is None
+        assert client.cookies.get("meshloom_device") is None
     async with make_client() as replay:
         replay.cookies.set("meshloom_session", token)
         assert (await replay.get("/api/auth/me")).status_code == 401
+
+
+async def test_logout_over_https_expires_the_host_cookies_and_the_plain_ones():
+    await create_user()
+    async with make_client(base_url="https://test") as client:
+        await login(client)
+        assert client.cookies.get("__Host-meshloom_session")
+        assert client.cookies.get("__Host-meshloom_device")
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        assert "clear-site-data" not in response.headers
+        cookies = _expired(response)
+        assert set(cookies) == {
+            "__Host-meshloom_session",
+            "__Host-meshloom_device",
+            "meshloom_session",
+            "meshloom_device",
+        }
+        for name, attributes in cookies.items():
+            assert "Max-Age=0" in attributes and "Path=/" in attributes
+            assert ("Secure" in attributes) is name.startswith("__Host-")
+            assert not any(a.lower().startswith("domain") for a in attributes)
+        assert client.cookies.get("__Host-meshloom_session") is None
+        assert client.cookies.get("__Host-meshloom_device") is None
+
+
+async def test_anonymous_logout_sends_no_clear_site_data():
+    async with make_client() as client:
+        response = await client.post("/api/auth/logout")
+        assert response.status_code == 200
+        assert "clear-site-data" not in response.headers
+        assert set(_expired(response)) == {"meshloom_session", "meshloom_device"}
 
 
 async def test_password_change_needs_the_current_one_applies_the_policy_and_revokes_others():

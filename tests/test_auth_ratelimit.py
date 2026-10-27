@@ -651,8 +651,40 @@ async def test_route_device_cookie_attributes(clock):
         ok = await client.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
     [cookie] = [c for c in ok.headers.get_list("set-cookie") if "meshloom_device" in c]
     attributes = [part.strip() for part in cookie.split(";")]
-    assert attributes[0].startswith("__Secure-meshloom_device=")
-    assert {"Path=/api/auth", "HttpOnly", "SameSite=Strict", "Secure"} <= set(attributes)
+    # __Host-: Secure, Path=/ and no Domain, so a sibling host on the same
+    # registrable domain (no Public Suffix List) cannot toss one that hides it.
+    assert attributes[0].startswith("__Host-meshloom_device=")
+    assert {"Path=/", "HttpOnly", "SameSite=Strict", "Secure"} <= set(attributes)
+    assert not any(a.lower().startswith("domain") for a in attributes)
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_route_device_cookie_attributes_over_plain_http(clock):
+    await create_user()
+    async with make_client() as client:
+        ok = await client.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
+    [cookie] = [c for c in ok.headers.get_list("set-cookie") if "meshloom_device" in c]
+    attributes = [part.strip() for part in cookie.split(";")]
+    assert attributes[0].startswith("meshloom_device=")
+    assert {"Path=/", "HttpOnly", "SameSite=Strict"} <= set(attributes)
+    assert "Secure" not in attributes
+    assert not any(a.lower().startswith("domain") for a in attributes)
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_device_cookie_is_read_only_under_the_name_for_the_scheme():
+    from app.auth import device_cookie
+
+    owner = await create_user()
+    value = await device_cookie.issue(owner.id, owner.updated_at, "dev1")
+    assert (await device_cookie.read(f"__Host-meshloom_device={value}", secure=True)) is not None
+    # Over https a plain or a __Secure- cookie (which may carry a Domain) is ignored.
+    assert await device_cookie.read(f"meshloom_device={value}", secure=True) is None
+    assert await device_cookie.read(f"__Secure-meshloom_device={value}", secure=True) is None
+    assert await device_cookie.read(f"__Host-meshloom_device={value}", secure=False) is None
+    assert (await device_cookie.read(f"meshloom_device={value}", secure=False)) is not None
 
 
 @pytest.mark.real_auth

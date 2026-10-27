@@ -25,11 +25,17 @@ fast it sends.
   until its next successful login. ``meshloom-admin rotate-device-key``
   replaces it (every browser forgotten). Without the ``auth_settings`` row
   (hand-edited database) a presented cookie is unknown (fail closed).
-- **Attributes.** ``HttpOnly``, ``SameSite=Strict``, ``Path=/api/auth``,
-  ``Max-Age`` ``DEVICE_COOKIE_TTL_S`` (also checked against ``issued at``),
-  plus ``Secure`` and the ``__Secure-`` name prefix when the request is https
-  (not ``__Host-``, which requires ``Path=/``). Never under ingress (login is refused there). One cookie
-  per browser: the last user who signed in on it.
+- **Attributes.** ``HttpOnly``, ``SameSite=Strict``, ``Path=/``, never a
+  ``Domain`` (host-only), ``Max-Age`` ``DEVICE_COOKIE_TTL_S`` (also checked
+  against ``issued at``). Over https it is ``__Host-meshloom_device`` with
+  ``Secure``: the prefix forbids a ``Domain``, so a sibling host on the same
+  registrable domain (``<slug>.meshloom.link`` without the Public Suffix List,
+  or another app on a self-hoster's domain) cannot toss a cookie of that name
+  that would hide ours. Over plain http it is ``meshloom_device`` without
+  ``Secure``. Only the name for the request's scheme is read. Never under
+  ingress (login is refused there). One cookie per browser: the last user who
+  signed in on it. Logout expires it (``clear_cookie_header``) together with
+  the session cookie.
 
 Nothing here logs a cookie value.
 """
@@ -47,9 +53,9 @@ from starlette.requests import cookie_parser
 from app.repository.auth import AuthSettingsMissingError, AuthSettingsRepository, UserRepository
 
 DEVICE_COOKIE_TTL_S = 180 * 86400
-SECURE_COOKIE_NAME = "__Secure-meshloom_device"
+SECURE_COOKIE_NAME = "__Host-meshloom_device"
 PLAIN_COOKIE_NAME = "meshloom_device"
-COOKIE_PATH = "/api/auth"
+COOKIE_PATH = "/"
 _VERSION = "v1"
 _MAX_LENGTH = 256
 
@@ -130,6 +136,20 @@ def cookie_header(value: str, *, secure: bool) -> str:
         f"{cookie_name(secure)}={value}",
         f"Path={COOKIE_PATH}",
         f"Max-Age={DEVICE_COOKIE_TTL_S}",
+        "HttpOnly",
+        "SameSite=Strict",
+    ]
+    if secure:
+        parts.append("Secure")
+    return "; ".join(parts)
+
+
+def clear_cookie_header(*, secure: bool) -> str:
+    """The ``Set-Cookie`` value that expires the cookie for this scheme."""
+    parts = [
+        f'{cookie_name(secure)}=""',
+        f"Path={COOKIE_PATH}",
+        "Max-Age=0",
         "HttpOnly",
         "SameSite=Strict",
     ]
