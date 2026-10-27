@@ -204,3 +204,49 @@ async def test_full_walk_collects_all_messages(test_db):
 
     assert len(collected_ids) == total
     assert len(set(collected_ids)) == total  # no duplicates
+
+
+@pytest.mark.asyncio
+async def test_filtered_cursor_pages_cover_exactly_the_kept_rows(test_db):
+    """Walking `before`/`before_id` with muted/membership/keys never skips or repeats a kept
+    row, whatever the page size: the cursor cuts after the filter, over equal timestamps."""
+    now = 1_000
+    async with test_db.tx() as conn:
+        await conn.execute(
+            "INSERT INTO channels (key, name, muted, muted_until) VALUES (?, 'm', 1, NULL)",
+            (CHAN_KEY,),
+        )
+        await conn.execute(
+            "INSERT INTO channels (key, name, muted, muted_until) VALUES (?, 'e', 1, ?)",
+            ("EE" * 16, now - 1),
+        )
+    kept = set()
+    for i in range(30):
+        key, msg_type = [(CHAN_KEY, "CHAN"), ("EE" * 16, "CHAN"), (DM_KEY, "PRIV")][i % 3]
+        msg_id = await MessageRepository.create(
+            msg_type=msg_type,
+            text=f"m{i}",
+            conversation_key=key,
+            sender_timestamp=i // 4,
+            received_at=100 + i // 4,  # four rows share each second
+        )
+        if key != CHAN_KEY:
+            kept.add(msg_id)
+    for size in (1, 2, 3, 7, 50):
+        seen: list[int] = []
+        before = before_id = None
+        while True:
+            page = await MessageRepository.get_all(
+                limit=size,
+                muted="exclude",
+                membership="adopted",
+                now=now,
+                before=before,
+                before_id=before_id,
+            )
+            if not page:
+                break
+            seen.extend(m.id for m in page)
+            before, before_id = page[-1].received_at, page[-1].id
+        assert len(seen) == len(set(seen)), size
+        assert set(seen) == kept, size

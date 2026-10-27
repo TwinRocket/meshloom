@@ -19,6 +19,7 @@ import {
   rowPassesFilters,
   saveFeedFilters,
   type FeedFilters,
+  type FeedQuery,
   withoutPrivate,
 } from '../utils/feedFilters';
 import fixture from './fixtures/feedFilters.json';
@@ -34,8 +35,11 @@ interface FixtureCase {
   filters: Record<string, unknown>;
   row: { type: 'CHAN' | 'PRIV'; channel?: string; outgoing: boolean };
   expected: boolean;
-  query: { type?: 'CHAN' | 'PRIV'; outgoing?: boolean } | null;
+  query: FeedQuery | null;
+  /** False when the route cannot decide the case (a pick it cannot take): client-only. */
   server: boolean;
+  /** `muted`, `membership`, `conversation_keys`: what the pytest replay adds to `query`. */
+  serverParams?: Record<string, unknown>;
 }
 
 const fixtureChannels = fixture.channels as Record<string, FixtureChannel>;
@@ -70,6 +74,42 @@ describe('rowPassesFilters (shared fixture)', () => {
     expect(filtersToQuery(filters)).toEqual(c.query ?? filtersToQuery(filtersOf({})));
     expect(hasNoMessages(filters)).toBe(c.query === null);
   });
+});
+
+describe('filtersToQuery and the route parameters the fixture replays', () => {
+  it('sends the type and direction chips only; muted, pending, the pick and the node stay client-side', () => {
+    expect(filtersToQuery(defaultFeedFilters)).toEqual({});
+    const query = filtersToQuery({
+      ...defaultFeedFilters,
+      includeMuted: false,
+      includePending: false,
+      conversations: [`chan:${'ab'.repeat(16)}`],
+      node: `channel:${'ab'.repeat(16)}`,
+    });
+    expect(query).toEqual({});
+    for (const key of ['muted', 'membership', 'conversation_keys']) {
+      expect(query).not.toHaveProperty(key);
+    }
+  });
+
+  // `GET /api/messages?muted=...&membership=...&conversation_keys=...` answers the same question as
+  // rowPassesFilters: the fixture's serverParams must be what the filters translate to, or the
+  // pytest replay would test something else than the evaluator.
+  it.each(cases.filter((c) => c.query !== null).map((c) => [c.name, c] as const))(
+    'serverParams of "%s" follow from its filters',
+    (_name, c) => {
+      const filters = filtersOf(c.filters);
+      const expected: Record<string, unknown> = {};
+      if (!filters.includeMuted) expected.muted = 'exclude';
+      if (!filters.includePending) expected.membership = 'adopted';
+      if (c.server && filters.conversations.length > 0) {
+        expected.conversation_keys = [
+          ...new Set(filters.conversations.map((id) => id.slice(id.indexOf(':') + 1))),
+        ];
+      }
+      expect(c.serverParams ?? {}).toEqual(expected);
+    }
+  );
 });
 
 describe('isChannelMuted', () => {

@@ -806,6 +806,10 @@ export const api = {
       q?: string;
       outgoing?: boolean;
       since_id?: number;
+      muted?: 'all' | 'exclude' | 'only';
+      membership?: 'all' | 'adopted' | 'pending';
+      /** Repeated `conversation_keys` (1 to 50 hex keys); not with `conversation_key`. */
+      conversation_keys?: readonly string[];
     },
     signal?: AbortSignal
   ) => {
@@ -821,6 +825,10 @@ export const api = {
     if (params?.q) searchParams.set('q', params.q);
     if (params?.outgoing !== undefined) searchParams.set('outgoing', String(params.outgoing));
     if (params?.since_id !== undefined) searchParams.set('since_id', params.since_id.toString());
+    if (params?.muted) searchParams.set('muted', params.muted);
+    if (params?.membership) searchParams.set('membership', params.membership);
+    for (const key of params?.conversation_keys ?? [])
+      searchParams.append('conversation_keys', key);
     const query = searchParams.toString();
     return fetchJson<Message[]>(`/messages${query ? `?${query}` : ''}`, { signal });
   },

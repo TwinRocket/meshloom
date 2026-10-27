@@ -152,6 +152,7 @@ Release 5.0.0 changes your database in ways an older version cannot undo. **Befo
 
 ### Fixed
 
+- **A channel whose mute has ended counts its unread messages again.** The unread counts skipped a muted channel without looking at the end of a timed mute, so a channel muted for an hour stayed out of the unread badges until you unmuted it by hand. They now use the same rule as the rest of Meshloom: muted until the end time. Indefinite mutes are unchanged. `GET /api/messages` also takes `muted=all|exclude|only`, `membership=all|adopted|pending` and a repeatable `conversation_keys` (1 to 50 keys of 32 or 64 hex characters, any case) for scripts and the Feed to come; direct messages and the rows of a deleted channel are never dropped by `exclude` or `adopted`.
 - **Notification limits hold under a flood.** The pending and stored dedup keys are now bounded and trimmed, the global cap is checked and charged in one step, and the grouped summaries count against the 600-an-hour cap.
 - **Apprise links point to the current documentation.** The "Apprise URL formats" links in Settings → Notifications and Settings → Fanout, and in the push documentation, went to the archived Apprise wiki. They now open the Apprise URL syntax page on appriseit.com.
 
@@ -335,6 +336,7 @@ La version 5.0.0 modifie votre base de données d’une façon qu’une version 
 
 #### Corrections
 
+- **Un canal dont la sourdine est terminée compte de nouveau ses messages non lus.** Le décompte des non-lus ignorait la fin d’une sourdine temporaire : un canal en sourdine pour une heure restait absent des pastilles jusqu’à ce que vous le réactiviez à la main. Il applique maintenant la même règle que le reste de Meshloom : en sourdine jusqu’à l’heure de fin. Les sourdines sans limite ne changent pas. `GET /api/messages` accepte aussi `muted=all|exclude|only`, `membership=all|adopted|pending` et un `conversation_keys` répétable (1 à 50 clés de 32 ou 64 caractères hexadécimaux, majuscules ou minuscules) pour les scripts et le futur Feed ; `exclude` et `adopted` ne retirent jamais les messages privés ni ceux d’un canal supprimé.
 - **Les limites de notifications tiennent sous un afflux.** Les clés de dédoublonnage en attente et stockées sont désormais bornées et élaguées, le plafond global est vérifié et débité en une seule étape, et les résumés groupés comptent dans le plafond de 600 par heure.
 - **Les liens Apprise mènent à la documentation actuelle.** Les liens « Formats d’URL Apprise » de Réglages → Notifications et Réglages → Fanout, ainsi que ceux de la documentation push, menaient au wiki Apprise archivé. Ils ouvrent désormais la page de syntaxe des URL Apprise sur appriseit.com.
 

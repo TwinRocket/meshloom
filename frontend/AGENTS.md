@@ -118,15 +118,22 @@ nowSec)`, the only place that decides whether a row shows: REST rows and WebSock
   view re-reads the clock once a minute (an expired timed mute reappears) and the
   `channels` prop changes on every `channel` frame, so both re-evaluate in place. A
   `CHAN` row of a deleted channel and every `PRIV` row ignore mute and pending.
-  `src/test/fixtures/feedFilters.json` drives the evaluator in `feedFilters.test.ts` and,
-  for the `server` cases, `tests/test_messages_feed_filters.py` against the route.
+  `src/test/fixtures/feedFilters.json` drives the evaluator and `filtersToQuery` in
+  `feedFilters.test.ts` and, for the `server` cases, `tests/test_messages_feed_filters.py`
+  against the route (fixture channels in the table, the fixture clock; `serverParams` are the
+  `muted` / `membership` / `conversation_keys` the route takes for the same question, checked
+  against the case's filters on the vitest side).
 - **Which filters are server-side, and why.** Only `type` (Channels/Direct messages) and
   `outgoing` (Received/Sent) are sent to `GET /api/messages` (`filtersToQuery`), so a
   hidden kind is not fetched at all. Changing one empties the store (`clearFeedRows`:
   its cursor belongs to the old query) and reloads the first page after a 250 ms
   debounce; both chips of a pair off is an empty state and sends nothing. Muted and
-  pending stay client-side (a timed mute changes with the clock, and a server-side
-  version needs the NULL-safe join of T22). The price is hollow pages:
+  pending stay client-side. The route has taken `muted=all|exclude|only`,
+  `membership=all|adopted|pending` and `conversation_keys` since MSHL-162 (NULL-safe, timed
+  mutes judged at the server's clock; `app/AGENTS.md`, "Messages listing"), but `filtersToQuery`
+  does not send them: the "N hidden" counts on the Muted and Pending chips and the Channels /
+  Contacts facet lists are computed from the loaded rows, which a server-side filter would
+  empty. Wiring them needs counts and facet lists from the server first. The price is hollow pages:
   `fillHiddenPages` fetches the next page while fewer than `FEED_MIN_VISIBLE` (20) rows
   show, at most `FEED_MAX_PAGES_PER_GESTURE` (5) pages per gesture (mount, filter
   change, scroll to the top, ticking Muted/Pending).
