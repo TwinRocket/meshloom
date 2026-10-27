@@ -1550,6 +1550,7 @@ async def _fetch_settings(conn: aiosqlite.Connection) -> AuthSettings:
         ip_ban_max_failures=row["ip_ban_max_failures"],
         ip_ban_window_minutes=row["ip_ban_window_minutes"],
         ip_ban_duration_minutes=row["ip_ban_duration_minutes"],
+        ip_ban_max_duration_minutes=row["ip_ban_max_duration_minutes"],
     )
 
 
@@ -1586,6 +1587,7 @@ class AuthSettingsRepository:
         ip_ban_max_failures: int | None = None,
         ip_ban_window_minutes: int | None = None,
         ip_ban_duration_minutes: int | None = None,
+        ip_ban_max_duration_minutes: int | None = None,
     ) -> AuthSettings:
         """Validate the merged result as ``AuthSettings``, then write the given fields."""
         async with db.tx() as conn:
@@ -1607,6 +1609,7 @@ class AuthSettingsRepository:
                     "ip_ban_max_failures": ip_ban_max_failures,
                     "ip_ban_window_minutes": ip_ban_window_minutes,
                     "ip_ban_duration_minutes": ip_ban_duration_minutes,
+                    "ip_ban_max_duration_minutes": ip_ban_max_duration_minutes,
                 }.items()
                 if value is not None
             }

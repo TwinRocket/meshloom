@@ -13,10 +13,30 @@ Chaque mot de passe, code, passkey, jeton ou code d’installation refusé écri
 
 Meshloom a aussi un [blocage intégré](/docs/deep/access/#les-délais-de-connexion), activé par défaut : 10 connexions refusées en 10 minutes depuis une même adresse la bloquent pendant 60 minutes. Il compte les mêmes lignes `AUTH_FAIL`, fonctionne partout où Meshloom tourne, Docker compris (les connexions par Home Assistant ne sont jamais comptées) et ne demande rien à installer. Un administrateur le règle, lève les blocages et tient une liste blanche dans **Réglages → Utilisateurs et accès → Bannissement d’adresses**, ou avec `meshloom-admin unban`.
 
-La différence tient à l’endroit du blocage. Le blocage intégré répond à une adresse bloquée par une erreur avant de vérifier le moindre mot de passe : elle joint encore Meshloom, ce qui coûte peu. fail2ban la bloque au pare-feu : elle ne joint plus du tout le port, et il peut la bloquer plus longtemps à chaque retour.
+La différence tient à l’endroit du blocage. Le blocage intégré répond à une adresse bloquée par une erreur avant de vérifier le moindre mot de passe : elle joint encore Meshloom, ce qui coûte peu. fail2ban la bloque au pare-feu : elle ne joint plus du tout le port. Les deux bloquent plus longtemps à chaque retour de l’adresse.
 
 - **Le blocage intégré seul** suffit à la plupart des installations, et c’est le seul choix sous Docker sans journald, ou sous macOS ou Windows.
 - **Les deux** sur une machine Linux ouverte sur internet : le blocage intégré agit tout de suite, fail2ban tient une adresse obstinée loin de la machine. Ils ne se gênent pas.
+
+### Les lignes que compte le blocage intégré
+
+Une ligne `AUTH_FAIL` compte pour le blocage intégré seulement si toutes ces conditions sont réunies :
+
+- elle porte `proxied=0` (une ligne `proxied=1` désigne un proxy de votre réseau partagé par tous ses visiteurs) ;
+- elle porte une adresse, pas `ip=-` (via Meshloom Remote, seul un visiteur à adresse publique est nommé) ;
+- cette adresse n’est ni la boucle locale (`127.0.0.0/8`, `::1`), ni privée (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), ni de lien local (`169.254.0.0/16`, `fe80::/10`), ni une adresse IPv6 locale (`fc00::/7`, sauf la plage Tailscale `fd7a:115c:a1e0::/48`) ;
+- sous Linux avec le paquet ou l’image Raspberry Pi, elle n’est pas dans un bloc IPv6 du réseau de cette machine : un `/64` ou plus étroit, lu sur les interfaces réseau, ou sur les routes directes quand l’adresse vient de DHCPv6 sous forme d’un seul `/128`. Un bloc plus large (`/48`, `/56`) est partagé avec d’autres réseaux et ne compte pas comme local ;
+- elle n’est pas dans la liste blanche.
+
+Les connexions par Home Assistant n’écrivent aucune ligne. Tout le reste compte : une adresse publique, et une adresse Tailscale ou d’un autre tailnet (`100.64.0.0/10`, et la plage IPv6 de Tailscale `fd7a:115c:a1e0::/48`), qu’elle joigne Meshloom directement ou par un proxy listé dans les Proxies de confiance (`tailscale serve` avec `127.0.0.1` listé). Un visiteur qui ajoute un faux en-tête `X-Forwarded-For` sans être un proxy de confiance est compté, et bloqué, sous sa propre adresse, jamais sous celle qu’il a écrite.
+
+**Un reverse-proxy ailleurs sur votre tailnet doit être déclaré.** Un proxy qui joint Meshloom depuis un autre appareil du tailnet (une adresse `100.x.y.z` ou `fd7a:115c:a1e0::`) et qui n’est pas dans les [Proxies de confiance](/docs/deep/https/#proxies-de-confiance) compte comme un visiteur : ses connexions échouées sont comptées sous sa propre adresse, il finit donc bloqué, et tous les visiteurs derrière lui sont coupés avec lui. Listez son adresse tailnet dans les Proxies de confiance : le blocage tombe alors sur chaque visiteur.
+
+Un nouveau blocage qui commence moins de 7 jours après la fin du précédent dure deux fois plus longtemps, jusqu’au **Bannissement le plus long** (24 heures par défaut, 30 jours au plus), dans les mêmes réglages. Lever un blocage l’oublie : le suivant repart à la durée normale.
+
+**Vos propres appareils du tailnet peuvent être bloqués.** Un de vos téléphones qui tape 10 fois un mauvais mot de passe par Tailscale est bloqué comme n’importe quel visiteur. Pour lever le blocage : **Débannir** depuis un autre appareil, `meshloom-admin unban 100.x.y.z` (ou l’adresse `fd7a:115c:a1e0::` de l’appareil) depuis un terminal sur la machine, ou un ordinateur de votre réseau local. Pour ne jamais bloquer votre tailnet, ajoutez `100.64.0.0/10` et `fd7a:115c:a1e0::/48` (ou seulement les adresses de vos appareils) à la liste blanche ; les [délais de connexion](/docs/deep/access/#les-délais-de-connexion) s’appliquent toujours.
+
+Le filtre fail2ban fourni est plus large : il lit toutes les lignes `proxied=0`, adresses privées comprises. Gardez vos propres réseaux dans son `ignoreip`.
 
 ## Ce que les paquets Linux installent
 
@@ -113,7 +133,7 @@ bantime = 1h
 
 - **Cloudflare Tunnel.** La connexion vient de Cloudflare, pas du visiteur : un bannissement par le pare-feu bloquerait Cloudflare pour tout le monde. Utilisez la limitation de débit et Access de Cloudflare, et laissez ce jail désactivé.
 - **Add-on Home Assistant.** fail2ban ne peut pas s’installer dans l’add-on, et les connexions par Home Assistant n’écrivent aucune ligne. Home Assistant a son propre bannissement d’IP.
-- **Tailscale ou WireGuard seulement.** Seuls vos propres appareils se connectent : rien à bannir.
+- **Tailscale ou WireGuard seulement.** Seuls vos propres appareils se connectent : un bannissement au pare-feu apporte peu. Le blocage intégré compte quand même les adresses du tailnet (voir plus haut).
 
 ## À lire aussi
 

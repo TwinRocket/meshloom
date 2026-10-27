@@ -941,7 +941,9 @@ class AuthSettingsView(BaseModel):
         description=(
             "The built-in ban: an address with ip_ban_max_failures failed sign-ins within "
             "ip_ban_window_minutes is refused (429 auth_ip_banned) for "
-            "ip_ban_duration_minutes. Never a local address. On by default."
+            "ip_ban_duration_minutes, a repeated ban twice as long each time up to "
+            "ip_ban_max_duration_minutes. Never a LAN, loopback, link-local or ULA address "
+            "(a CGNAT or tailnet one can be). On by default."
         )
     )
     ip_ban_max_failures: int = Field(description="Failures that ban an address (10 by default).")
@@ -949,7 +951,13 @@ class AuthSettingsView(BaseModel):
         description="The window the failures are counted in, in minutes (10 by default)."
     )
     ip_ban_duration_minutes: int = Field(
-        description="How long a ban lasts, in minutes (60 by default)."
+        description="How long a first ban lasts, in minutes (60 by default)."
+    )
+    ip_ban_max_duration_minutes: int = Field(
+        description=(
+            "The longest a repeated ban lasts, in minutes (1440 by default). At or below "
+            "ip_ban_duration_minutes, a repeated ban lasts as long as the first."
+        )
     )
     shared_address_install: bool = Field(
         description=(
@@ -997,6 +1005,9 @@ class AuthSettingsPatch(BaseModel):
     ip_ban_duration_minutes: StrictInt | None = Field(
         default=None, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_DURATION_MINUTES
     )
+    ip_ban_max_duration_minutes: StrictInt | None = Field(
+        default=None, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_DURATION_MINUTES
+    )
 
 
 _IP_BAN_FIELDS = (
@@ -1004,6 +1015,7 @@ _IP_BAN_FIELDS = (
     "ip_ban_max_failures",
     "ip_ban_window_minutes",
     "ip_ban_duration_minutes",
+    "ip_ban_max_duration_minutes",
 )
 
 
@@ -1067,6 +1079,7 @@ async def _settings_view(settings: AuthSettings, request: Request) -> AuthSettin
         ip_ban_max_failures=settings.ip_ban_max_failures,
         ip_ban_window_minutes=settings.ip_ban_window_minutes,
         ip_ban_duration_minutes=settings.ip_ban_duration_minutes,
+        ip_ban_max_duration_minutes=settings.ip_ban_max_duration_minutes,
         shared_address_install=ratelimit.shared_address_install(),
         client_public=ratelimit.client_is_public(request.scope),
     )
@@ -1196,6 +1209,7 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         ip_ban_max_failures=body.ip_ban_max_failures,
         ip_ban_window_minutes=body.ip_ban_window_minutes,
         ip_ban_duration_minutes=body.ip_ban_duration_minutes,
+        ip_ban_max_duration_minutes=body.ip_ban_max_duration_minutes,
     )
     if trusted_proxies is not None:
         logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))

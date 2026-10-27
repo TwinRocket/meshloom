@@ -13,10 +13,30 @@ Each refused password, code, passkey, token or installation code writes one line
 
 Meshloom also has a [built-in ban](/en/docs/deep/access/#sign-in-delays), on by default: 10 refused sign-ins within 10 minutes from one address ban it for 60 minutes. It counts the same `AUTH_FAIL` lines, works wherever Meshloom runs, Docker included (sign-ins through Home Assistant are never counted) and needs nothing installed. An administrator tunes it, lifts bans and keeps a whitelist in **Settings → Users & Access → Address bans**, or with `meshloom-admin unban`.
 
-The difference is where the block happens. The built-in ban answers a banned address with an error before checking any password: it still reaches Meshloom, which costs little. fail2ban blocks it at the firewall, so it no longer reaches the port at all, and can ban longer each time it comes back.
+The difference is where the block happens. The built-in ban answers a banned address with an error before checking any password: it still reaches Meshloom, which costs little. fail2ban blocks it at the firewall, so it no longer reaches the port at all. Both ban longer each time the address comes back.
 
 - **The built-in ban alone** is enough for most installations, and is the only choice in Docker without journald, or on macOS or Windows.
 - **Both** on a Linux machine open to the internet: the built-in ban acts at once, fail2ban keeps a stubborn address off the machine. They do not get in each other's way.
+
+### Which lines the built-in ban counts
+
+An `AUTH_FAIL` line counts toward the built-in ban only when all of these hold:
+
+- it reads `proxied=0` (a `proxied=1` line names a proxy of your network shared by all its visitors);
+- it reads an address, not `ip=-` (through Meshloom Remote, only a visitor with a public address is named);
+- that address is not loopback (`127.0.0.0/8`, `::1`), private (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local (`169.254.0.0/16`, `fe80::/10`) or a local IPv6 address (`fc00::/7`, except the Tailscale range `fd7a:115c:a1e0::/48`);
+- on Linux with the package or the Raspberry Pi image, it is not in an IPv6 block of this machine's own network: a `/64` or narrower read from the network interfaces, or from the on-link routes when the address came from DHCPv6 as a single `/128`. A wider block (`/48`, `/56`) is shared with other networks and does not count as local;
+- it is not in the whitelist.
+
+Sign-ins through Home Assistant write no line at all. Everything else counts: a public address, and a Tailscale or other tailnet address (`100.64.0.0/10`, and Tailscale's IPv6 range `fd7a:115c:a1e0::/48`), whether it reaches Meshloom directly or through a proxy listed in Trusted proxies (`tailscale serve` with `127.0.0.1` listed). A visitor that adds a forged `X-Forwarded-For` header without being a trusted proxy is counted, and banned, under its own address, never the one it wrote.
+
+**A reverse proxy elsewhere on your tailnet must be declared.** A proxy that reaches Meshloom from another tailnet device (a `100.x.y.z` or `fd7a:115c:a1e0::` address) and is not in [Trusted proxies](/en/docs/deep/https/#trusted-proxies) counts as a visitor: its failed sign-ins are counted under its own address, so it gets banned, and every visitor behind it is cut off with it. List its tailnet address in Trusted proxies: the ban then falls on each visitor instead.
+
+A new ban that starts less than 7 days after the previous one ended lasts twice as long, up to **Longest ban** (24 hours by default, at most 30 days), in the same settings. Lifting a ban forgets it: the next one starts again at the normal length.
+
+**Your own tailnet devices can be banned.** A phone of yours that types a wrong password 10 times over Tailscale is banned like any visitor. To lift it: **Unban** from another device, `meshloom-admin unban 100.x.y.z` (or the device's `fd7a:115c:a1e0::` address) from a shell on the machine, or a computer of your local network. To never ban your tailnet, add `100.64.0.0/10` and `fd7a:115c:a1e0::/48` (or just your devices' addresses) to the whitelist; the [sign-in delays](/en/docs/deep/access/#sign-in-delays) still apply.
+
+The shipped fail2ban filter is wider: it reads every `proxied=0` line, private addresses included. Keep your own networks in its `ignoreip`.
 
 ## What the Linux packages install
 
@@ -113,7 +133,7 @@ bantime = 1h
 
 - **Cloudflare Tunnel.** The connection comes from Cloudflare, not from the visitor: a firewall ban would block Cloudflare for everybody. Use Cloudflare's own rate limiting and Access, and keep this jail off.
 - **Home Assistant add-on.** fail2ban cannot be installed in the add-on, and sign-ins through Home Assistant write no line. Home Assistant has its own IP ban.
-- **Tailscale or WireGuard only.** Only your own devices connect: nothing to ban.
+- **Tailscale or WireGuard only.** Only your own devices connect: a firewall ban adds little. The built-in ban still counts tailnet addresses (see above).
 
 ## Related
 

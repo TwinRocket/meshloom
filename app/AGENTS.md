@@ -69,8 +69,10 @@ and the OpenAPI page (`/docs`), not a table here.
 - "Local client address" has one definition, `app/net/local_address.py`
   (`is_local`, `is_public`, `parse_address`, `network_is_local`; RFC 1918, loopback,
   link-local, ULA, CGNAT; documentation and reserved ranges are public): the login
-  delays' `client_is_public`, the exposed first run, `AUTH_FAIL` `proxied`, the ban's
-  exclusions and the trusted-network gate all ask it. Never `is_private`/`is_global`.
+  delays' `client_is_public`, the exposed first run and the trusted-network gate ask
+  `is_local`; `AUTH_FAIL` `proxied` and the ban's exclusions ask `is_ban_exempt`
+  (the same without `TAILNET_NETWORKS`, `100.64.0.0/10` and
+  `fd7a:115c:a1e0::/48`: a tailnet address is bannable, MSHL-434). Never `is_private`/`is_global`.
   `ratelimit.is_trusted_proxy(peer, proxies)` is the one "peer is a declared proxy" test.
 - `auth/totp.py` is the TOTP second factor (pyotp; replay refused through
   `users.totp_last_counter`; argon2id recovery codes, single use; in-memory pending
@@ -123,12 +125,15 @@ and the OpenAPI page (`/docs`), not a table here.
   It also holds `auth_settings.addresses_identify_clients` in memory
   (`addresses_identify_clients()`, read live by the login limiter, MSHL-424).
   The built-in IP ban (`app/auth/ip_ban.py`, MSHL-422) is fed only by `fail_log`
-  (same events and address as `AUTH_FAIL`, `proxied=0` and non-local only) and
+  (same events and address as `AUTH_FAIL`, `proxied=0` and not ban-exempt only) and
   checked first in `AuthMiddleware`; thresholds are `auth_settings` columns
   (`apply()` on load and on `PATCH /auth/settings`), never env vars. `meshloom-admin`
   writes the tables directly; the server re-reads a cached ban on each request
   (a whitelisted address is cached 10 s) and treats the host's on-link global
-  IPv6 prefixes (`/proc/net/if_inet6`) as local for the ban only (`docs/dev/auth.md`, "IP ban").
+  IPv6 prefixes (`/proc/net/if_inet6` /64 to /128, `/proc/net/ipv6_route` on-link
+  routes, both failing safe) as local for the ban only. A repeat ban within 7 days
+  doubles, capped by `ip_ban_max_duration_minutes` (`ip_bans.strikes`, MSHL-434;
+  `docs/dev/auth.md`, "IP ban").
   **Launchers rule:** every uvicorn command line (the four launchers, the
   snake-oil compose, every documented command) carries `--no-proxy-headers`, so
   uvicorn never rewrites the scope itself (`tests/test_auth_ingress.py` parses the
@@ -687,6 +692,8 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 137 (MSHL-434) adds `auth_settings.ip_ban_max_duration_minutes` (1440)
+  and `ip_bans.strikes` (1), each only when its table exists; no `SCHEMA_TABLES` change.
 - Migration 135 (MSHL-422) adds the four `auth_settings.ip_ban_*` columns and the
   `ip_bans` and `ip_ban_whitelist` tables (`IF NOT EXISTS`, safe on any database);
   no `SCHEMA_TABLES` change. `patched_database()` patches `app.repository.ip_ban`.

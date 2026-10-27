@@ -6,8 +6,8 @@ decision that depends on it asks this module:
 
 - the login limiter's "public client" hint and the exposed first run
   (``app/auth/ratelimit.client_is_public``, ``app/auth/setup_code.request_exposed``);
-- the ``AUTH_FAIL`` line's ``proxied`` field (``app/auth/fail_log.py``);
-- the built-in ban's exclusions (``app/auth/ip_ban.is_local`` / ``bannable``);
+- the built-in ban's exclusions, through ``is_ban_exempt`` (``app/auth/ip_ban.bannable``,
+  ``check``), and the ``AUTH_FAIL`` line's ``proxied`` field, through the same;
 - the login-free-on-the-local-network gate and its notice
   (``app/auth/providers/trusted_network.py``: ``rule_blocker``, ``public_or_wide``).
 
@@ -24,8 +24,14 @@ heuristics (``app/services/backup.endpoint_looks_private``,
 - private: ``10.0.0.0/8``, ``172.16.0.0/12``, ``192.168.0.0/16`` (RFC 1918),
   ``fc00::/7`` (unique local, ULA);
 - link-local: ``169.254.0.0/16``, ``fe80::/10``;
-- shared address space ``100.64.0.0/10`` (carrier-grade NAT, Tailscale). Kept
-  local as before; its ban policy is tracked by MSHL-434.
+- shared address space ``100.64.0.0/10`` (carrier-grade NAT, Tailscale).
+
+**Ban-exempt** (``is_ban_exempt``, MSHL-434) is local minus ``TAILNET_NETWORKS``:
+the shared address space and Tailscale's IPv6 ULA ``fd7a:115c:a1e0::/48``
+(MagicDNS hands out both). A tailnet device or a CGNAT neighbour is a distinct
+remote client, so its failed sign-ins are counted and it can be banned, while
+the LAN, loopback, link-local and the rest of ULA never are. Its other callers still read CGNAT as local
+(the limiter hint, the exposed first run, the login-free gate).
 
 Everything else is **public**, deliberately including ranges that are not
 routable either: the documentation ranges (``192.0.2.0/24``,
@@ -72,12 +78,18 @@ LOCAL_NETWORKS: tuple[IPNetwork, ...] = tuple(
         "172.16.0.0/12",
         "192.168.0.0/16",
         "169.254.0.0/16",
-        "100.64.0.0/10",
+        "100.64.0.0/10",  # SHARED_ADDRESS_SPACE
         "::1/128",
         "fc00::/7",
         "fe80::/10",
     )
 )
+
+# Carrier-grade NAT and Tailscale: local, but not exempt from the ban (MSHL-434).
+SHARED_ADDRESS_SPACE = ipaddress.IPv4Network("100.64.0.0/10")
+# Tailscale's IPv6 range, inside fc00::/7: local, but not exempt from the ban.
+TAILSCALE_IPV6 = ipaddress.IPv6Network("fd7a:115c:a1e0::/48")
+TAILNET_NETWORKS: tuple[IPNetwork, ...] = (SHARED_ADDRESS_SPACE, TAILSCALE_IPV6)
 
 
 def parse_address(raw: str | None) -> IPAddress | None:
@@ -115,6 +127,16 @@ def is_local(value: IPAddress | str | None) -> bool:
     return any(
         address.version == network.version and address in network for network in LOCAL_NETWORKS
     )
+
+
+def is_ban_exempt(value: IPAddress | str | None) -> bool:
+    """Whether the built-in ban must never count ``value``: local, the tailnet
+    ranges excepted (module docstring). Not an address: False."""
+    address = _address(value)
+    if address is None or not is_local(address):
+        return False
+    # ``in`` is False across IP versions, so no version check is needed.
+    return not any(address in network for network in TAILNET_NETWORKS)
 
 
 def is_public(value: IPAddress | str | None) -> bool:

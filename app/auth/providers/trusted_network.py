@@ -32,7 +32,8 @@ anything unexpected also refuses, fail closed):
   that may share the host's network, a local proxy or tunnel (``ssh -L`` adds
   no header at all) makes every internet visitor arrive from ``127.0.0.1``;
 - the peer is a local address (``ip_ban.is_local``: ``app/net/local_address.py``
-  or an on-link global IPv6 prefix of the host), whatever the rule covers: a
+  or an on-link global /64 to /128 IPv6 prefix of the host, from ``if_inet6``
+  or ``ipv6_route``), whatever the rule covers: a
   rule listing a public network never applies. A router port forwarded to
   Meshloom with source NAT still makes internet visitors look local, which the
   settings page warns about;

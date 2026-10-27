@@ -32,7 +32,8 @@ MIN_SESSION_LIFETIME_DAYS = 1
 MAX_SESSION_LIFETIME_DAYS = 365
 
 # The built-in ban bounds (``app/auth/ip_ban.py``): 10 failures in 10 minutes ban
-# for 60 minutes by default.
+# for 60 minutes by default, a repeated ban for twice as long each time, up to
+# 1440 minutes.
 MIN_IP_BAN_MAX_FAILURES = 3
 MAX_IP_BAN_MAX_FAILURES = 1000
 MIN_IP_BAN_MINUTES = 1
@@ -171,6 +172,11 @@ class AuthSettings(BaseModel):
     )
     ip_ban_duration_minutes: int = Field(
         default=60, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_DURATION_MINUTES
+    )
+    # A repeated ban doubles, up to this (MSHL-434). At or below the duration:
+    # no escalation.
+    ip_ban_max_duration_minutes: int = Field(
+        default=1440, ge=MIN_IP_BAN_MINUTES, le=MAX_IP_BAN_DURATION_MINUTES
     )
 
     @field_validator("trusted_proxies")

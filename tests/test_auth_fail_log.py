@@ -382,7 +382,20 @@ async def test_a_declared_proxy_logs_the_client_it_forwarded(lines):
     assert FAILREGEX.match(_rendered(lines()[0]))["host"] == "203.0.113.9"
 
 
-@pytest.mark.parametrize("peer", ["198.51.100.20", "192.0.2.10", "2606:4700::1111"])
+@pytest.mark.parametrize(
+    "peer",
+    [
+        "198.51.100.20",
+        "192.0.2.10",
+        "2606:4700::1111",
+        # CGNAT and tailnet devices (MSHL-434): a client, never Meshloom's own proxy.
+        "100.64.0.1",
+        "100.100.1.2",
+        "100.127.255.254",
+        "::ffff:100.100.1.2",
+        "fd7a:115c:a1e0::1",  # Tailscale IPv6
+    ],
+)
 async def test_a_public_peer_with_forwarding_headers_is_the_client(lines, peer):
     await create_user()
     async with make_client(client=(peer, 50000)) as client:
@@ -403,7 +416,6 @@ async def test_a_public_peer_with_forwarding_headers_is_the_client(lines, peer):
         "10.1.2.3",
         "192.168.1.30",
         "172.18.0.1",
-        "100.100.1.2",
         "169.254.1.1",
         "::1",
         "fd00::5",
@@ -422,6 +434,21 @@ async def test_forwarding_headers_from_an_undeclared_local_peer_mark_the_line_pr
     match = _one(lines(), "login", "invalid_credentials")
     assert match["proxied"] == "1" and match["ip"] == fail_log.ip_field(peer)
     assert FAILREGEX.match(_rendered(lines()[0])) is None
+
+
+async def test_a_declared_loopback_proxy_logs_the_tailnet_client_it_forwarded(lines):
+    """``tailscale serve`` on loopback (MSHL-434): the tailnet device is named, ``proxied=0``."""
+    proxy_headers.apply(AuthSettings(trusted_proxies=["127.0.0.1"]))
+    await create_user()
+    async with make_client(client=("127.0.0.1", 50000)) as client:
+        await client.post(
+            "/api/auth/login",
+            json={"username": ADMIN, "password": "wrong password!"},
+            headers={"X-Forwarded-For": "100.101.102.103"},
+        )
+    match = _one(lines(), "login", "invalid_credentials")
+    assert match["ip"] == "100.101.102.103" and match["proxied"] == "0"
+    assert FAILREGEX.match(_rendered(lines()[0]))["host"] == "100.101.102.103"
 
 
 async def test_a_trusted_network_request_is_logged_as_lan(lines, monkeypatch):
@@ -519,7 +546,17 @@ def banned(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "client", ["127.0.0.1", "::1", "192.168.1.30", "10.0.0.2", "100.100.1.2", "fe80::1", None]
+    "client",
+    [
+        "127.0.0.1",
+        "::1",
+        "192.168.1.30",
+        "10.0.0.2",
+        "100.100.1.2",
+        "fd7a:115c:a1e0::1",
+        "fe80::1",
+        None,
+    ],
 )
 def test_a_relayed_line_never_names_a_local_client(lines, banned, client):
     """The tunnel's local end is not a client: ``ip=-``, nothing banned, never proxied."""

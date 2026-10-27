@@ -992,7 +992,9 @@ and none by IP alone behind Docker:
 - **`AUTH_FAIL` line.** Each refused credential (login, second factor, passkey,
   Bearer, pairing code, setup code) also writes one `WARNING` line on the
   logger `meshloom.auth`, keyed on `client_ip()`, with `via` the transport
-  (`request_via()`), `proxied=1` when a local peer (RFC 1918, CGNAT, loopback, link-local, ULA)
+  (`request_via()`), `proxied=1` when a ban-exempt peer (RFC 1918, loopback,
+  link-local, ULA; not the tailnet ranges `100.64.0.0/10` and
+  `fd7a:115c:a1e0::/48` since MSHL-434, `local_address.is_ban_exempt()`)
   that is not a declared proxy sends forwarding headers
   (`forwarded_by_untrusted_peer()`, the same test as the untrusted-proxy
   warning, narrowed to local peers: a public peer adding a header is the
@@ -1002,18 +1004,38 @@ and none by IP alone behind Docker:
 ## IP ban
 
 `app/auth/ip_ban.py` (MSHL-422, remote propositions v2 §5.3 and decision 6),
-storage `app/repository/ip_ban.py`, migration 135. A persistent ban per
+storage `app/repository/ip_ban.py`, migrations 135 and 137 (MSHL-434). A persistent ban per
 address, on top of the login delays, fed by the `AUTH_FAIL` events
 (`docs/dev/auth-fail-log.md`): `fail_log` calls `ip_ban.note_failure()` with the
 fields of the line it just wrote, so the ban and an external log watcher judge
 the same failures with the same address.
 
 - **What counts.** Only a failure whose line reads `proxied=0`; never a
-  local address (`app/net/local_address.py`: loopback, RFC 1918, CGNAT,
-  link-local, ULA) nor a missing one; never under ingress. Nor, for the ban only (the
-  `AUTH_FAIL` line and its `proxied` rule are unchanged), a global IPv6 address
-  inside a prefix on-link on the host: `/proc/net/if_inet6`, scope global,
-  prefix length 48 to 128, re-read at most every 60 s (`HOST_PREFIXES_TTL_S`).
+  ban-exempt address (`local_address.is_ban_exempt()`: loopback, RFC 1918,
+  link-local, ULA) nor a missing one; never under ingress. A tailnet address
+  (`local_address.TAILNET_NETWORKS`: CGNAT `100.64.0.0/10`, Tailscale,
+  Headscale, and Tailscale's IPv6 `fd7a:115c:a1e0::/48` inside `fc00::/7`)
+  counts since MSHL-434, as the peer or as the client a declared proxy
+  forwarded: it is a client, and the owner's own tailnet device can be banned
+  (whitelist both ranges, or `meshloom-admin unban`). An undeclared reverse
+  proxy on another tailnet device is therefore banned under its own address,
+  cutting off all its visitors: declare it in Trusted proxies. A forged
+  `X-Forwarded-For` from an untrusted peer bans that peer, never the forged
+  address. `is_local()` (both tailnet ranges included) still decides the
+  login-free gate, the login delays and the setup code.
+  Nor, for the ban only (the `AUTH_FAIL` line and its `proxied` rule are
+  unchanged), a global IPv6 address inside a prefix on-link on the host,
+  re-read at most every 60 s (`HOST_PREFIXES_TTL_S`), each file read capped at
+  1 MiB:
+  - `/proc/net/if_inet6` (read once per refresh): a public address
+    (`local_address.is_public`, never `ipaddress.is_global`) with a prefix of
+    64 to 128 (a /48 or /56 is a site prefix, shared with other hosts, never
+    local; before MSHL-434 from 48; a length past 128 is skipped);
+  - `/proc/net/ipv6_route` (MSHL-434, DHCPv6 hosts whose address is a /128):
+    a route of 64 to 128 bits to a destination that is not `is_local()`, up, with no next hop,
+    not a gateway, reject, cache, anycast or local route, not on `lo`, and
+    holding a host address of the same interface. A missing file or a
+    malformed line adds nothing (fail safe: the address stays bannable).
   Unreadable (macOS, Windows) it adds nothing; in a Docker bridge network or
   the Home Assistant add-on it sees only the container's interfaces, so a LAN
   client on the household's global /64 counts as public: the user doc tells to
@@ -1026,7 +1048,14 @@ the same failures with the same address.
 - **Threshold.** `auth_settings.ip_ban_max_failures` (10, 3 to 1000) failures
   within `ip_ban_window_minutes` (10, 1 to 1440) ban the key for
   `ip_ban_duration_minutes` (60, 1 to 43200): a row in `ip_bans` and an
-  `ip.banned` audit row. `ip_ban_enabled` (on) turns it off: nothing is counted
+  `ip.banned` audit row (details include `strikes`).
+- **Escalation** (MSHL-434). A key banned again while its previous ban ended
+  less than 7 days ago (`STRIKE_MEMORY_S`, `app/repository/ip_ban.py`) gets
+  `ip_bans.strikes` + 1 (at most `MAX_STRIKES`, 32) and a ban of
+  `ban_seconds()`: the duration doubled per strike, capped at
+  `max(ip_ban_duration_minutes, ip_ban_max_duration_minutes)`
+  (`ip_ban_max_duration_minutes`: 1440, 1 to 43200). Strikes are persisted
+  with the row; an unban deletes the row and so forgets them. `ip_ban_enabled` (on) turns it off: nothing is counted
   and no ban applies; the rows stay. `GET/PATCH /auth/settings`, Settings →
   Users & Access → Address bans; never an environment variable.
 - **Whitelist.** `ip_ban_whitelist` (addresses or CIDR networks, host bits
@@ -1047,17 +1076,19 @@ the same failures with the same address.
 - **Memory.** Failure counts live in memory (at most 4096 keys, the oldest
   goes) and start again empty after a restart; the bans do not. `ip_bans`
   holds at most 10000 rows (`MAX_BANS`; past it, the ones that end first go);
-  ended rows are deleted when a new ban is written. The in-memory map of bans
+  a row ended more than 7 days ago is deleted when a new ban is written (a
+  more recent ended row is kept for its strikes but no longer listed nor
+  applied). Failure counters are not persisted (MSHL-434 left that out). The in-memory map of bans
   follows the same rule (`_prune()`).
 - **Managing.** `GET /auth/bans`, `DELETE /auth/bans?address=`,
   `POST /auth/ban-whitelist`, `DELETE /auth/ban-whitelist?network=` (admin,
   routes table), the panel, and `meshloom-admin list-bans [--json]`,
   `unban ADDRESS|--all`, `whitelist list|add NETWORK [--note]|remove NETWORK`.
-- **Not covered.** No escalation for repeat offenders, no lower thresholds for
-  a directly exposed instance yet (the "direct exposure" mode of the Accès
-  scoping). fail2ban files ship separately (MSHL-423).
+- **Not covered.** No lower thresholds for a directly exposed instance yet
+  (the "direct exposure" mode of the Accès scoping, not built). fail2ban files ship separately (MSHL-423).
 - Tests: `tests/test_ip_ban.py`, `tests/test_cli_ip_ban.py`,
-  `tests/test_migrations/test_migration_135.py`.
+  `tests/test_migrations/test_migration_135.py`,
+  `tests/test_migrations/test_migration_137.py`.
 
 ## Second factor (TOTP)
 
@@ -1337,10 +1368,10 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/pair` | public, login delays per client (no username slow-down) | `{code, device_name (1-64), extensions?}` → 201 `{token, token_id, scopes, user {id, username, display_name}, urls}`: the device token (origin `pairing`, no expiry) of the code's creator with exactly its scopes. 410 `auth_pairing_expired` for every bad code (one answer), 403 `auth_pairing_ingress`, 429 `auth_rate_limited`, 409 `auth_token_limit` ([Device pairing](device-pairing.md)) |
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
-| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, session_lifetime_days, ingress_default_role, security_notices, require_2fa_for_admins, addresses_identify_clients, ip_ban_enabled, ip_ban_max_failures, ip_ban_window_minutes, ip_ban_duration_minutes, shared_address_install, client_public}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; days, 30 by default; `member` by default; the Access security notice codes, read only; `shared_address_install`: a `compose` or `container` install; `client_public`: this request's client address is public; both read only) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `session_lifetime_days` 1 to 365 (422 otherwise; audited with the key `lifetime_days`, because the audit filter refuses keys containing `session`); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway`, `auth_trusted_network_user_admin` (`params.cidr`); 409 `auth_lan_login_free_admin_rules` (`params.cidrs`) when `lan_login_free: true` while a rule names an admin ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). `addresses_identify_clients` (bool, off by default; "Login delays"). `ip_ban_enabled` (strict bool), `ip_ban_max_failures` 3 to 1000, `ip_ban_window_minutes` 1 to 1440, `ip_ban_duration_minutes` 1 to 43200 (strict integers, 422 otherwise; "IP ban"). One `settings.changed` row per field, except the `ip_ban_*` fields: one row for all of them, target `auth_settings.ip_ban`, `details` holding the changed fields and their new values |
+| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, session_lifetime_days, ingress_default_role, security_notices, require_2fa_for_admins, addresses_identify_clients, ip_ban_enabled, ip_ban_max_failures, ip_ban_window_minutes, ip_ban_duration_minutes, ip_ban_max_duration_minutes, shared_address_install, client_public}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; days, 30 by default; `member` by default; the Access security notice codes, read only; `shared_address_install`: a `compose` or `container` install; `client_public`: this request's client address is public; both read only) |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `session_lifetime_days` 1 to 365 (422 otherwise; audited with the key `lifetime_days`, because the audit filter refuses keys containing `session`); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway`, `auth_trusted_network_user_admin` (`params.cidr`); 409 `auth_lan_login_free_admin_rules` (`params.cidrs`) when `lan_login_free: true` while a rule names an admin ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). `addresses_identify_clients` (bool, off by default; "Login delays"). `ip_ban_enabled` (strict bool), `ip_ban_max_failures` 3 to 1000, `ip_ban_window_minutes` 1 to 1440, `ip_ban_duration_minutes` 1 to 43200, `ip_ban_max_duration_minutes` 1 to 43200 (strict integers, 422 otherwise; "IP ban"). One `settings.changed` row per field, except the `ip_ban_*` fields: one row for all of them, target `auth_settings.ip_ban`, `details` holding the changed fields and their new values |
 | `GET /auth/bans` | `admin` | `{bans: [{address, banned_at, expires_at, failures, route}], whitelist: [{network, note, created_at}]}`: the running bans (the one that ends last first) and the whitelist ("IP ban") |
-| `DELETE /auth/bans?address=` | `admin` | 204: lifts one ban at once (an address is reduced to its key). 400 `auth_ban_address_invalid`, 404 `auth_ban_not_found` |
+| `DELETE /auth/bans?address=` | `admin` | 204: lifts one ban at once (an address is reduced to its key), and forgets its strikes: a row ended less than 7 days ago, kept for escalation, also answers 204. 400 `auth_ban_address_invalid`, 404 `auth_ban_not_found` |
 | `POST /auth/ban-whitelist` | `admin` | 201 `{network, note?}`: never ban it; a ban on it stops applying. 400 `auth_ban_whitelist_invalid`, 409 `auth_ban_whitelist_exists`, `auth_ban_whitelist_full` (`params.max`) |
 | `DELETE /auth/ban-whitelist?network=` | `admin` | 204. 400 `auth_ban_whitelist_invalid`, 404 `auth_ban_whitelist_not_found` |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |

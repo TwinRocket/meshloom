@@ -1,4 +1,4 @@
-"""``ip_bans`` and ``ip_ban_whitelist`` (migration 135): the built-in ban's state.
+"""``ip_bans`` and ``ip_ban_whitelist`` (migrations 135, 137): the built-in ban's state.
 
 Rules in ``app/auth/ip_ban.py``. The service and ``meshloom-admin`` share these
 tables, so a ban or whitelist change made by the CLI while the service runs is
@@ -17,6 +17,9 @@ from app.database import db
 # Bounds: a distributed attack cannot grow the tables without limit. Past
 # MAX_BANS, the ban that ends first makes room; past MAX_WHITELIST, an add is refused.
 MAX_BANS = 10000
+# An ended ban is kept this long, so a repeat offender's next ban is longer
+# (``IpBan.strikes``, MSHL-434). ``unban`` forgets it at once.
+STRIKE_MEMORY_S = 7 * 86400
 MAX_WHITELIST = 256
 NOTE_MAX_LENGTH = 200
 
@@ -30,6 +33,9 @@ class IpBan(BaseModel):
     expires_at: int
     failures: int
     route: str
+    # 1 for a first ban, one more for each ban that follows one that ended
+    # less than ``STRIKE_MEMORY_S`` before (MSHL-434).
+    strikes: int = 1
 
 
 class WhitelistEntry(BaseModel):
@@ -98,6 +104,7 @@ def _ban(row: Any) -> IpBan:
         expires_at=row["expires_at"],
         failures=row["failures"],
         route=row["route"],
+        strikes=row["strikes"],
     )
 
 
@@ -114,6 +121,8 @@ class IpBanRepository:
 
     @staticmethod
     async def get(address: str) -> IpBan | None:
+        """The row of ``address``: a running ban, or one that ended less than
+        ``STRIKE_MEMORY_S`` ago (check ``expires_at``)."""
         async with db.readonly() as conn:
             async with conn.execute("SELECT * FROM ip_bans WHERE address = ?", (address,)) as c:
                 row = await c.fetchone()
@@ -121,15 +130,27 @@ class IpBanRepository:
 
     @staticmethod
     async def ban(ban: IpBan) -> None:
-        """Write ``ban`` (replacing one on the same key), dropping ended bans and,
-        past ``MAX_BANS``, the ones that end first."""
+        """Write ``ban`` (replacing one on the same key), dropping the bans that
+        ended more than ``STRIKE_MEMORY_S`` ago and, past ``MAX_BANS``, the ones
+        that end first."""
         async with db.tx() as conn:
             for sql, params in (
-                ("DELETE FROM ip_bans WHERE expires_at <= ?", (ban.banned_at,)),
+                (
+                    "DELETE FROM ip_bans WHERE expires_at <= ?",
+                    (ban.banned_at - STRIKE_MEMORY_S,),
+                ),
                 (
                     "INSERT OR REPLACE INTO ip_bans"
-                    " (address, banned_at, expires_at, failures, route) VALUES (?, ?, ?, ?, ?)",
-                    (ban.address, ban.banned_at, ban.expires_at, ban.failures, ban.route),
+                    " (address, banned_at, expires_at, failures, route, strikes)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        ban.address,
+                        ban.banned_at,
+                        ban.expires_at,
+                        ban.failures,
+                        ban.route,
+                        ban.strikes,
+                    ),
                 ),
                 (
                     "DELETE FROM ip_bans WHERE address NOT IN"
@@ -142,6 +163,8 @@ class IpBanRepository:
 
     @staticmethod
     async def unban(address: str) -> bool:
+        """Delete the row of ``address``, a running ban or the memory of an ended
+        one (its next ban is a first one again). False when there is none."""
         async with db.tx() as conn:
             async with conn.execute("DELETE FROM ip_bans WHERE address = ?", (address,)) as c:
                 return c.rowcount > 0
