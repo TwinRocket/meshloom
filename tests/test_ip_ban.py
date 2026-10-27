@@ -1032,9 +1032,7 @@ class TestOnLinkRoutes:
         }
         assert ip_ban.is_local(canonical_address(DHCP_CLIENT))  # the login-free gate too
 
-    async def test_without_the_route_file_the_client_counts_as_public(
-        self, monkeypatch, tmp_path
-    ):
+    async def test_without_the_route_file_the_client_counts_as_public(self, monkeypatch, tmp_path):
         inet6, routes = _files(tmp_path, DHCP_IF_INET6, None)
         monkeypatch.setattr(ip_ban, "IF_INET6_PATH", inet6)
         monkeypatch.setattr(ip_ban, "IPV6_ROUTE_PATH", routes)

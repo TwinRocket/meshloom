@@ -231,9 +231,7 @@ def read_onlink_routes(
         if interface == "lo":
             continue
         network = IPv6Network((destination, length), strict=False)
-        if any(
-            host.interface == interface and host.address in network for host in addresses
-        ):
+        if any(host.interface == interface and host.address in network for host in addresses):
             networks.add(network)
     return tuple(sorted(networks))
 
@@ -366,9 +364,7 @@ def note_failure(ip: str | None, *, via: str, proxied: bool, route: str) -> None
         del _failures[key]
         from app.background_tasks import spawn
 
-        _pending[key] = spawn(
-            _ban(key, address, failures, route, now, _config), name="ip-ban"
-        )
+        _pending[key] = spawn(_ban(key, address, failures, route, now, _config), name="ip-ban")
     except Exception:
         logger.exception("Could not count an authentication failure for the ban")
 
