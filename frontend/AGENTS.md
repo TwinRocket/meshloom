@@ -427,7 +427,7 @@ purpose.
   trusted proxy; strings `settings.access.clientAddresses.*` in slice `clientaddresses`;
   test `src/test/accessClientAddressesPanel.test.tsx`), as does the IP ban panel
   (`AccessIpBanPanel`, MSHL-422: `ip_ban_*` settings with `IP_BAN_BOUNDS` mirroring the
-  server's, the running bans with Unban, the whitelist; `GET/DELETE /auth/bans`,
+  server's, the longest ban of an escalation included (MSHL-434), the running bans with Unban, the whitelist; `GET/DELETE /auth/bans`,
   `POST/DELETE /auth/ban-whitelist`; strings `settings.access.ipBan.*` and the
   `errors.auth_ip_banned`/`auth_ban_*` codes in slice `ipban`; test
   `src/test/accessIpBanPanel.test.tsx`), as does the audit log (`AccessAuditPanel`: cursor pages of

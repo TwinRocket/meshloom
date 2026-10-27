@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 136 (the value of
+- Numbering is contiguous from 001. The current head is 137 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -381,7 +381,8 @@ rotate-device-key`, cleared in the SQLite download), `addresses_identify_clients
 apply only when it is on, `docs/dev/auth.md`, "Login delays"), and the IP ban
 settings of migration 135: `ip_ban_enabled` (1), `ip_ban_max_failures` (10, 3 to
 1000), `ip_ban_window_minutes` (10, 1 to 1440), `ip_ban_duration_minutes` (60, 1
-to 43200) (`docs/dev/auth.md`, "IP ban"). The CORS list stays `app_settings.auth_allowed_origins`.
+to 43200), and `ip_ban_max_duration_minutes` (migration 137, MSHL-434: 1440, 1 to
+43200, the cap of an escalating ban) (`docs/dev/auth.md`, "IP ban"). The CORS list stays `app_settings.auth_allowed_origins`.
 `AuthSettingsRepository` (`auth.py`).
 
 ### `ip_bans`
@@ -389,8 +390,10 @@ to 43200) (`docs/dev/auth.md`, "IP ban"). The CORS list stays `app_settings.auth
 Addresses banned after repeated failed sign-ins (migration 135, `app/auth/ip_ban.py`,
 `docs/dev/auth.md`, "IP ban"): PK `address` (an IPv4 address or an IPv6 /64 such
 as `2001:db8:1:2::/64`), `banned_at`, `expires_at` (epoch seconds), `failures`,
-`route`. An expired row is ignored and purged on the next ban; the table holds at
-most 10,000 rows (oldest expiry dropped first). `IpBanRepository` (`ip_ban.py`).
+`route`, `strikes` (migration 137, MSHL-434: how many bans in a row, 1 for a first
+one; it doubles the next ban's length). An expired row is ignored by the gate and
+the listing but kept 7 days (`STRIKE_MEMORY_S`) for its strikes, then purged on
+the next ban; the table holds at most 10,000 rows (oldest expiry dropped first). `IpBanRepository` (`ip_ban.py`).
 Excluded from backups.
 
 ### `ip_ban_whitelist`
@@ -571,8 +574,8 @@ databases). The current set:
 - `auth_audit` rows past `auth_settings.audit_retention_days` (366 by default) are
   deleted by `purge_audit()` (`app/auth/audit.py`) in the hourly housekeeping loop
   (`app/services/stale_contacts.py`).
-- Expired `ip_bans` rows are deleted when a new ban is written; nothing else
-  reads them.
+- `ip_bans` rows that ended more than 7 days ago are deleted when a new ban is
+  written; a more recent ended row is only read for its `strikes`.
 - Everything else (messages, channels, fanout configs) is kept until the user
   deletes it.
 

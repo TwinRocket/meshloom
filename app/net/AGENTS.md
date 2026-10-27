@@ -287,8 +287,8 @@ above, and `pairing.is_lan_host`, `backup.endpoint_looks_private` and
 `channels.email_is_cloud` keep their own heuristics.
 
 - `LOCAL_NETWORKS`: `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`,
-  `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10` (CGNAT stays local,
-  MSHL-434), `::1/128`, `fc00::/7`, `fe80::/10`. Everything else is public,
+  `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10` (CGNAT stays local
+  for `is_local()`), `::1/128`, `fc00::/7`, `fe80::/10`. Everything else is public,
   documentation, benchmarking, reserved, unspecified, multicast, NAT64, 6to4,
   Teredo, `fec0::/10` and IPv4-compatible included: a LAN never hands those
   out, so every caller takes its safe side.
@@ -299,9 +299,14 @@ above, and `pairing.is_lan_host`, `backup.endpoint_looks_private` and
   verbatim, so trimming would turn `127.0.0.1%x` local. `is_local()` /
   `is_public()` take text or an address object, and anything that is not an
   address is public (fail closed); `network_is_local()` for a rule's CIDR.
+- `is_ban_exempt()` (MSHL-434): `is_local()` minus `SHARED_ADDRESS_SPACE`
+  (`100.64.0.0/10`). A tailnet address is a client: it can be banned and an
+  `AUTH_FAIL` line from such a peer is never `proxied=1`.
 - Callers: `ratelimit.client_is_public` (login panel hint, `setup_code`
-  exposure), `fail_log` (`proxied`), `ip_ban.is_local`/`bannable` (adds the
-  host's on-link global IPv6 prefixes), `trusted_network.rule_blocker` (via
+  exposure), `fail_log` (`proxied`, via `is_ban_exempt`), `ip_ban.bannable`/`check`
+  (`is_ban_exempt` plus the host's on-link global IPv6 prefixes from
+  `/proc/net/if_inet6` and `/proc/net/ipv6_route`), `ip_ban.is_local` (CGNAT
+  included), `trusted_network.rule_blocker` (via
   `ip_ban.is_local`) and `public_or_wide`. Listed range by range, never
   `is_private`/`is_global` (they differ between Python versions). Tests:
   `tests/test_local_address.py`.
