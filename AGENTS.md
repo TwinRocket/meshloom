@@ -57,8 +57,8 @@ User docs: `docs/user/` (en, fr). Environment variables for users:
   its role must hold (`app/auth/permissions.py`, default deny); CORS is
   same-origin plus the Allowed origins list and unsafe cross-site requests are
   refused. The rest of the posture (extensions running administrator-approved Python, the radio proxy on
-  5051 unauthenticated and bound to `0.0.0.0` by owner decision, the
-  `Authorization: Basic` window until 5.2) is described in `SECURITY.md`,
+  5051 unauthenticated and bound to `0.0.0.0` by owner decision, login-free
+  trusted network rules, off until an admin turns them on) is described in `SECURITY.md`,
   "Known limits". It is a fact, not a recommendation. The user page is
   `docs/user/{en,fr}/deep/access.md` (same headings in both languages).
 - **No environment variable for anything a user tunes.** Settings live in

@@ -68,8 +68,8 @@ can sign in, set `disable_plugins` (see below) to lock every extension off.
 Opened from the sidebar, Meshloom signs you in with your Home Assistant user:
 no Meshloom password and no account creation page, also after an update from
 4.18. The first Home Assistant user to open it becomes its administrator, even
-if a Meshloom administrator already exists (one made from `basic_auth_*` or with
-`meshloom-admin`): the sidebar is the add-on's way in and must always reach an
+if a Meshloom administrator already exists (one made with the installation code
+or with `meshloom-admin`): the sidebar is the add-on's way in and must always reach an
 administrator. The next ones get the **Member** role, which can read and send
 but not change settings. Only Home Assistant administrators see the Meshloom
 panel (the add-on keeps it admin-only), so these are always people who
@@ -90,7 +90,6 @@ itself.
 |---|---|
 | `log_level` | How much the add-on writes to its log: `DEBUG`, `INFO` (default), `WARNING` or `ERROR`. The private key and Wi-Fi passwords are redacted even at `DEBUG`. Channel names and channel keys may appear at any level; repeater and room login passwords and the Bluetooth PIN may also appear at `DEBUG`. |
 | `proxy_port` | Container-side port of the radio proxy, `5051` by default. Applied at every start, and it has to match the port the add-on forwards: leave it alone. See below. |
-| `basic_auth_username` / `basic_auth_password` | **Deprecated, removed in the next release.** Home Assistant now signs you in through the sidebar (see *Signing in* below). If both are set, Meshloom turns them into an administrator account once, at its first start while it has no account, for the published port; it never reads them again. Empty them afterwards. |
 | `vapid_subject` | **Deprecated, removed in the next release.** The contact address for Web Push now lives in Meshloom's **Settings → Notifications**, VAPID subject field. If you set it here, Meshloom copies it there once, at its first start, when that field is empty, and never reads this option again: change the address in Settings from now on. |
 | `disable_plugins` | Locks the plugin system off: no plugin can be installed, changed or started, whatever Meshloom's settings say; you can still view and delete them, and pause them all, and plugins restored from a backup come back turned off. Each plugin copy runs under its own unprivileged user, without the add-on's root rights nor its D-Bus access, but if you want no third-party code in the add-on at all, turn this on. `false` by default. |
 | `disable_bots` | Removed in 5.0.0 (bots are extensions). A leftover `true` is only used once, by the migration of the bots at the first 5.0.0 start: the converted extensions arrive switched off. The add-on log says the option is gone. Use `disable_plugins` to lock extensions. |
@@ -146,8 +145,9 @@ yours (and list the tunnel or proxy in **Trusted proxies**, so Meshloom sees
 HTTPS and the real visitor). Ingress is never refused for its name and keeps
 working meanwhile; the two ways in are independent. A published port is
 reachable by anything that can route to that machine: it asks for a Meshloom
-account and password (the one made from `basic_auth_*`, or one created with
-`meshloom-admin`, see *Recovering access*).
+account and password (one created on that port with the installation code, or
+with `meshloom-admin`, see *Recovering access*). The old `basic_auth_*` options
+are gone: HTTP Basic auth is removed.
 
 ## Meshloom Community
 

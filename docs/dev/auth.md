@@ -43,7 +43,6 @@ works on the same tables.
 | `AUTH_FAIL` log line (one per refused credential; a contract) | `app/auth/fail_log.py`, `docs/dev/auth-fail-log.md`, `tests/test_auth_fail_log.py` |
 | Login delays (per pair, per username, per IP; known devices) | `app/auth/ratelimit.py`, `app/auth/device_cookie.py`, `tests/test_auth_ratelimit.py` |
 | Home Assistant ingress provider | `app/auth/providers/ingress.py` |
-| `Authorization: Basic` compatibility, Basic import | `app/security.py` |
 | Installation code, first run | `app/auth/setup_code.py` |
 | CSRF rule, https detection, `X-Forwarded-Host` for same-origin | `app/origin_policy.py` |
 | Trusted proxies (the one interpreter of `X-Forwarded-For`/`-Proto`) | `app/middleware/proxy_headers.py`, `tests/test_proxy_headers.py` |
@@ -53,7 +52,7 @@ works on the same tables.
 | TOTP second factor (codes, replay rule, recovery codes, pending logins) | `app/auth/totp.py`, routes in `app/routers/auth_totp.py`, `tests/test_auth_totp.py` |
 | Passkeys (WebAuthn: RP id rules, ceremonies, counter) | `app/auth/webauthn.py` (py_webauthn), routes in `app/routers/auth_webauthn.py`, `app/migrations/_110_webauthn_credentials.py`, `tests/test_auth_webauthn.py` (py_webauthn's vectors in `tests/fixtures/webauthn_vectors.json`, a software authenticator in `tests/webauthn_authenticator.py`) |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py`, `scripts/test/meshloom_admin_tty.sh` |
-| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_basic.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_auth_totp.py`, `tests/test_migrations/test_migration_109.py`, `tests/test_auth_webauthn.py`, `tests/test_migrations/test_migration_110.py`, `tests/test_cli.py` |
+| Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_auth_totp.py`, `tests/test_migrations/test_migration_109.py`, `tests/test_auth_webauthn.py`, `tests/test_migrations/test_migration_110.py`, `tests/test_migrations/test_migration_136.py`, `tests/test_cli.py` |
 
 Column lists: `docs/dev/database.md`, sections `users`, `sessions`, `auth_audit`
 and `auth_settings`.
@@ -66,10 +65,9 @@ present decides. Details are in the sections named in the last column.
 | Credential | Principal | Where it works | Notes | Section |
 |---|---|---|---|---|
 | Bearer token `mlt_…` | the token's account, narrowed by its scopes | HTTP and WebSocket, direct only (never ingress) | never from a query string or cookie; exempt from the CSRF rule once resolved | "API and device tokens" |
-| `Authorization: Basic` | any account with a password and no second factor | HTTP and WebSocket | compatibility until 5.2; ambient, so the CSRF rule applies | "`Authorization: Basic`…" |
 | Session cookie | the session's account | HTTP and WebSocket, never under ingress | `__Host-meshloom_session` (https) or `meshloom_session`; sliding 30 days, or a browser-session cookie | "Sessions and the cookie" |
 | Ingress headers | the Home Assistant user (`provider = ingress`) | add-on only, peer `172.30.32.2` | no password, no cookie, no 2FA | "Ingress" |
-| Trusted network rule | the rule's account | direct LAN only, tried last | closed behind any proxy; strict `Host` | "Trusted networks" |
+| Trusted network rule | the rule's account | direct peer with a local address only, while `lan_login_free` is on; tried last | closed behind any proxy; strict `Host` | "Trusted networks" |
 | Kiosk device token | the system `kiosk` account | `POST /api/auth/kiosk-bootstrap` from loopback only | opens a one-time session code | "Kiosk device token" |
 
 Second factors (TOTP, passkeys) add a step to the password login and are
@@ -208,7 +206,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `token.created`, `token.revoked` | `POST /auth/tokens` (`details.scopes`, `expires_at`, `origin`), `DELETE /auth/tokens/{id}` (`details.owner` when an admin revokes someone else's); refusals too, outcome `failure` (`refused` for a 403) with `details = {reason, status}` (`token_scope`, `token_expiry_invalid`, `token_limit`, `token_not_found`, `forbidden`) |
   | `token.used` | A refused use of a token that exists (outcome `failure`, `details.reason` `revoked`, `expired`, `owner_disabled`, `ingress`, `scopes_invalid`, `kiosk_route`), at most once a minute per token; successful uses only move `last_used_at`. A refused `POST /auth/kiosk-bootstrap` (outcome `refused`, or `delayed` past the rate limit, `details.route = "kiosk_bootstrap"`) |
   | `session.revoked` | `DELETE /auth/sessions[/{id}]`, `DELETE /auth/users/{id}/sessions` (`details.scope = all`), `meshloom-admin revoke-sessions` |
-  | `user.created` | `POST /auth/users` (`details.role`, `must_change`), ingress first visit, the 4.x Basic import (`system`), `meshloom-admin create-admin` |
+  | `user.created` | `POST /auth/users` (`details.role`, `must_change`), ingress first visit, `meshloom-admin create-admin` |
   | `user.changed` | `PATCH /auth/me` display name, a Home Assistant rename, `PATCH /auth/users/{id}` (`details.fields`; `role` and `previous_role` for a role change; `password_removed` when the role became `kiosk`; `sessions_revoked`) |
   | `user.disabled`, `user.enabled` | `PATCH /auth/users/{id}` (`disabled`), `meshloom-admin disable-user` / `enable-user` |
   | `user.deleted` | `DELETE /auth/users/{id}` (`details.role`, `provider`) |
@@ -300,13 +298,15 @@ and `websocket` scope:
    this order, and the first one present decides:
    - `Authorization: Bearer`: API and device tokens ("API and device
      tokens" below). A token that does not resolve leaves the request
-     anonymous, with `auth_invalid_credentials` on a protected route and no
-     Basic challenge. Never read from a query string or a cookie.
-   - `Authorization: Basic`: the compatibility credential (below).
+     anonymous, with `auth_invalid_credentials` on a protected route. Never
+     read from a query string or a cookie.
+   - Any other `Authorization` scheme, `Basic` included, is no credential
+     (HTTP Basic auth was removed, MSHL-100): the request stays anonymous and
+     gets the plain 401, with no argon2id work and no `WWW-Authenticate`.
    - The session cookie, under the name for the request's scheme (below).
      Never read under ingress.
 
-   A Basic or login check that finds the argon2id queue full answers 503
+   A login check that finds the argon2id queue full answers 503
    `auth_busy` with `Retry-After: 1` at once (below).
 2. **CSRF.** Every `POST`, `PUT`, `PATCH` and `DELETE` not authenticated by a
    bearer token that resolved must pass `origin_policy.unsafe_request_allowed()`,
@@ -350,10 +350,9 @@ and `websocket` scope:
    password-less account is ever stuck behind this gate. `meshloom-admin
    reset-password` refuses a kiosk account.
 
-Every answer under `/api/auth/` carries `Cache-Control: no-store`. The 401
-carries `WWW-Authenticate: Basic realm="Meshloom", charset="UTF-8"` only while
-the instance came from 4.x Basic (`auth_settings.basic_imported`), so a
-browser that used the native dialog keeps working; never on `/api/auth/*`.
+Every answer under `/api/auth/` carries `Cache-Control: no-store`. No 401
+carries a `WWW-Authenticate` challenge (HTTP Basic auth is removed), so a
+browser never shows its native login dialog.
 
 `app/middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the
 proxy-headers middleware so it reads the rewritten scheme) adds three headers.
@@ -406,8 +405,8 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
 - The HA user maps to `users.provider = 'ingress'`, `external_id = <HA id>`
   (unique per provider), created on first sight with no password. The first
   ingress identity of the instance is `admin`, whatever local accounts exist
-  (cadrage R3: a 4.18.x add-on with `basic_auth_*` has an imported local admin,
-  or one made with `meshloom-admin`, and the sidebar, the add-on's only way in
+  (cadrage R3: a 4.18.x add-on may have a local admin, imported from the
+  former `basic_auth_*` options or made with `meshloom-admin`, and the sidebar, the add-on's only way in
   by default, must still reach an administrator); the next ones get
   `auth_settings.ingress_default_role` (`member` by default). "First" is
   decided once: creating that admin sets `auth_settings.ingress_admin_granted`
@@ -465,7 +464,7 @@ MSHL-279).** Not run yet; record the result here.
 4. Sign in to HA as a non-administrator and open the ingress URL copied from
    an administrator's session: no access (the panel is admin-only through
    `panel_admin`, which users cannot change).
-5. Upgrade a 4.18.x add-on (with and without `basic_auth_*`): the sidebar lands
+5. Upgrade a 4.18.x add-on (with and without the former `basic_auth_*`): the sidebar lands
    signed in with no setup step.
 6. Publish port 8000: `curl -H 'X-Remote-User-Id: x' http://<ha>:<port>/api/contacts`
    answers 401, and the login page asks for a password there.
@@ -479,14 +478,28 @@ MSHL-279).** Not run yet; record the result here.
 
 `app/auth/providers/trusted_network.py`: Home Assistant's `trusted_networks`,
 closed whenever a proxy is in the loop. Rules are `auth_settings.trusted_networks`
-(`[{cidr, user_id}]`, migration 101, empty by default), kept in memory with
+(`[{cidr, user_id}]`, migration 101, empty by default). They apply only while
+the master switch `auth_settings.lan_login_free` ("Login-free on the local
+network", migration 136) is on. It is off by default and stays off on upgrade,
+even with rules: migration 136 adds it off and logs a warning when rules exist.
+Only an admin changes it (`PATCH /api/auth/settings`), which writes a
+`settings.changed` audit row with target `auth_settings.lan_login_free`. The
+settings show a FR and EN warning: a box that forwards a port with SNAT makes
+internet visitors look local, and a relayed request never counts as local. A
+"direct exposure" mode is deferred (ROADMAP §4). **Role choice:** no anonymous
+or new role. Each rule names an account the admin picks, and the
+recommendation is the least privilege that works (a `viewer` or `kiosk`
+account). The settings warn when a rule names an admin. The rules are kept in
+memory with
 the `public_urls` the `Host` check needs (read on first use, replaced by
 `AuthSettingsRepository.update()`). Every check before the account lookup is
 synchronous and in memory (peer, rule match, `rule_blocker`), so a request from
 an unlisted or proxied peer costs no database read. The gate asks the
 provider **last**: only when the request sent no `Authorization` header and no
-session cookie resolved (an expired cookie still gets the rule; a wrong Basic or
-Bearer credential never does). The principal is `via = "trusted"`, credential
+session cookie resolved (an expired cookie still gets the rule; a request with
+any `Authorization` header, a wrong Bearer token or a `Basic` header, never
+does: `resolve_trusted_user` checks it itself, since the kiosk reuses
+`rule_blocker`). The principal is `via = "trusted"`, credential
 `trusted_network`, which is ambient: unsafe methods keep the Origin rule.
 
 A rule never applies (`rule_blocker`, fail closed) when:
@@ -503,6 +516,12 @@ A rule never applies (`rule_blocker`, fail closed) when:
   add-on (`LOOPBACK_ALLOWED_KINDS`): on a package, a source checkout or a container
   that may share the host's network, a local proxy or `ssh -L` (no header at all)
   brings every visitor from `127.0.0.1`;
+- the peer is not a local address (`ip_ban.is_local`: `fail_log.LOCAL_NETWORKS`,
+  i.e. RFC 1918, CGNAT `100.64.0.0/10`, loopback, link-local, ULA, plus the
+  host's on-link global IPv6 prefixes), the same rule as the ban and `AUTH_FAIL`
+  use. A rule covering a public range never signs in a public peer (`not_local`).
+  A box that port-forwards with SNAT still presents internet visitors with a
+  local address: the settings warn about it;
 - `Host` fails the strict guard (`host_allowed`): accepted are an IP literal,
   `localhost`, `*.local`, `*.home.arpa`, `*.lan`, `*.internal`, the machine's
   short name and FQDN, and the hosts of `auth_settings.public_urls`. This is the
@@ -573,8 +592,8 @@ with uvicorn's default (`forwarded_allow_ips=127.0.0.1`) a loopback caller's
 `X-Forwarded-For: 172.30.32.2` would become the peer before the app sees it.
 `tests/test_auth_ingress.py` parses the launchers with uvicorn's CLI and
 `tests/test_proxy_headers.py` greps every tracked command line.
-A 401 under ingress never carries the Basic challenge (the browser would
-prompt inside the Home Assistant panel).
+No 401 carries a `WWW-Authenticate` challenge, under ingress or elsewhere
+(the browser would prompt, inside the Home Assistant panel too).
 
 ## Permissions
 
@@ -686,8 +705,9 @@ ports and radio errors. A caller lowers it only for a text that reveals none
 of that (`audience="send"` for a member's send failure, `"read"` for a channel
 decrypt run, `"read_private"` for a DM decrypt run).
 
-**4.x upgrade.** The account imported from Basic and the first administrator
-are `admin`: a single-admin installation sees no change.
+**4.x upgrade.** The first administrator is `admin` (and an account an earlier
+5.x imported from the retired Basic variables stays one): a single-admin
+installation sees no change.
 
 The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and hides or disables what a role cannot use (`useCapabilities()`, `frontend/AGENTS.md`, "Capability gating"). It is a courtesy, not a control: the declarations above are the only enforcement.
 
@@ -755,13 +775,13 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
   `SESSION_RECHECK_INTERVAL_SECONDS` (30 s) which of its sessions and tokens are
   still live (`AuthSessionRepository.filter_live()`,
   `ApiTokenRepository.filter_live()`, one query each) and closes the others: that catches `meshloom-admin` (another process, writing the database),
-  expiries and disabled accounts. Basic-auth sockets carry no session and are
-  not rechecked. A socket keeps the role it opened with (the recheck checks
+  expiries and disabled accounts. Sockets with no session (ingress, a trusted
+  network rule) are not rechecked. A socket keeps the role it opened with (the recheck checks
   liveness, not the role), so a change of the account itself (role, disable,
   deletion, a password set by an admin or by the user) goes through
   `sessions.sign_out_user()`: `revoke_user_sessions()` plus
   `ws_manager.close_user()`, which closes every socket of that user whatever its
-  credential (Basic and ingress sockets have no session), except those of the
+  credential (ingress and trusted-network sockets have no session), except those of the
   session kept.
 - **Purge.** `sessions.purge_sessions()` runs in the hourly housekeeping loop
   (`app/services/stale_contacts.py`) and deletes expired and revoked rows.
@@ -836,47 +856,28 @@ curl -b jar -H 'Content-Type: application/json' \
 curl -H "Authorization: Bearer mlt_..." http://HOST:8000/api/channels
 ```
 
-## `Authorization: Basic` and the 4.x Basic auth
+## HTTP Basic auth (removed)
 
-Up to 4.18 `MESHCORE_BASIC_AUTH_USERNAME` / `_PASSWORD` were the only gate.
-Upgrade path (cadrage P3, `app/security.py`):
+Up to 4.18 `MESHCORE_BASIC_AUTH_USERNAME` / `_PASSWORD` were the only gate;
+5.0 previews imported them as an admin and accepted `Authorization: Basic`.
+HTTP Basic auth is removed (MSHL-100):
 
-- At startup, when both are set and no account exists, they become an `admin`
-  account (no password policy, no installation code: the credentials prove
-  ownership) and `auth_settings.basic_imported` is set. The variables are then
-  never read again; each start logs a warning while they are still set
-  (both names are in `RETIRED_ENV`, `app/services/legacy_env_settings.py`,
-  plus a second warning when only one is set: nothing is imported and the
-  start is no longer refused). The first `Authorization: Basic` use of a
-  process logs a deprecation warning once. Removal in 5.2: the header path,
-  `auth_compat` and the two `RETIRED_ENV` entries.
-  A user name the account rules refuse is logged as an error and the normal
-  first run applies.
-- The header stays accepted in 5.0 and 5.1 (removed in 5.2), checked against
-  any account with a password. It is ambient (a browser replays it), so the
-  CSRF rule applies to it.
-- A successful check is cached in memory for 5 minutes under
-  a low-cost scrypt of the password (n=1024, r=8: 1 MiB, about a millisecond;
-  salt = a random per-process secret + `username_key`; at most 256 entries): 100 requests, one
-  argon2id verification. The scrypt runs in a worker thread. The account is
-  read again on every request and the cache entry is used only while its
-  stored password hash is the one it was verified against, so a disabled
-  account or a password reset applies at once, even from another process and
-  in the same second. A password change through `PATCH /api/auth/me` drops the
-  entries.
-- **Failures.** After a failed check, Basic attempts from that client IP that
-  are not already cached fail at once for 3 seconds, without argon2id (at most
-  1024 IPs tracked). The IP is `client_ip()`: behind a trusted proxy each
-  forwarded client has its own cooldown, otherwise the proxy's address is
-  shared by all of them. A script sharing the IP of a failing client (Docker
-  gateway, an untrusted proxy) waits those seconds too. Basic does not go
-  through the login delays.
-- **Load cap** (`app/auth/providers/password.py`). At most 2 argon2id checks
-  run and 8 wait; one more answers 503 `auth_busy` at once, on any route and
-  on `POST /api/auth/login`, instead of queueing behind a flood. On the login
-  route the login delays run before it ("Login delays").
-- A user name longer than 64 characters (the account limit) cannot be
-  imported: the error is logged and the first run continues without it.
+- The variables are never read: each start logs the retired-variable warning
+  while they are set (`RETIRED_ENV`). A 4.x install that had only them goes
+  through the first run with the installation code. An account an earlier
+  preview imported stays a normal account.
+- A `Basic` header is no credential: the gate ignores it like any unknown
+  scheme, so the request gets the plain 401 with no argon2id work, no
+  `WWW-Authenticate` challenge and no `AUTH_FAIL` line. A valid session cookie
+  next to it still signs the request in. A script uses an API token.
+- The add-on options `basic_auth_username` / `basic_auth_password` are gone
+  from `meshloom/config.yaml` and `meshloom/run.py`.
+- Migration 136 drops `auth_settings.basic_imported`.
+
+**Password check load cap** (`app/auth/providers/password.py`). At most 2
+argon2id checks run and 8 wait; one more answers 503 `auth_busy` at once
+instead of queueing behind a flood. On the login route the login delays run
+before it ("Login delays").
 
 ## Login delays
 
@@ -969,7 +970,7 @@ and none by IP alone behind Docker:
   one slot a second; the per-IP rule and the relay's edge lock answer that,
   not a lock on the name.
 - **`AUTH_FAIL` line.** Each refused credential (login, second factor, passkey,
-  Basic, Bearer, pairing code, setup code) also writes one `WARNING` line on the
+  Bearer, pairing code, setup code) also writes one `WARNING` line on the
   logger `meshloom.auth`, keyed on `client_ip()`, with `via` the transport
   (`request_via()`), `proxied=1` when a local peer (RFC 1918, CGNAT, loopback, link-local, ULA)
   that is not a declared proxy sends forwarding headers
@@ -1088,8 +1089,7 @@ Access T50, owner decision Q-A16 (optional for users) and lead decision Q16
   token; a change to the account (`updated_at`), a disable or a removed factor
   void it too; a restart forgets every token (sign in again). The session and the
   known-device cookie are issued only after the second factor.
-- **No other way around it.** `Authorization: Basic` never signs in an
-  account whose factor is on (no code in the header: 401). A trusted network
+- **No other way around it.** A trusted network
   rule still signs its account in without a password or a code: that is the
   admin's explicit choice, as before; the settings warn about rules naming an
   administrator.
@@ -1099,7 +1099,7 @@ Access T50, owner decision Q-A16 (optional for users) and lead decision Q16
   `GET /auth/me`, `GET /auth/2fa`, `POST /auth/2fa/enrol`, `POST
   /auth/2fa/confirm`); every other `/api` route answers 403
   `auth_2fa_enrolment_required` and the WebSocket upgrade is refused (the gate,
-  `app/auth/middleware.py`), whatever the credential (session, Basic, an API
+  `app/auth/middleware.py`), whatever the credential (session, an API
   token of that admin, a trusted network rule). Members, viewers, kiosks and
   ingress identities are not affected. `must_change_password` comes first. An unreadable setting
   counts as on (fail closed). `GET /auth/session` says
@@ -1122,7 +1122,7 @@ signature code here), routes in `app/routers/auth_webauthn.py`, storage in
 
 - **Who.** A `local` account with a password, outside `kiosk`
   (`webauthn.applicable`). The account's passkeys are managed from a session only:
-  a token, Basic, a trusted network rule or ingress gets 403
+  a token, a trusted network rule or ingress gets 403
   `auth_passkey_not_applicable`. A passkey adds a way in next to the password and
   never replaces it, so removing the last one locks nobody out.
 - **Relying party** (`relying_party_for`). WebAuthn needs a secure context and
@@ -1207,7 +1207,9 @@ signature code here), routes in `app/routers/auth_webauthn.py`, storage in
 `prepare_first_run()` (`app/auth/setup_code.py`) runs in the lifespan, while
 no account exists:
 
-1. The Basic variables, when set, are imported (above). Done.
+1. The retired `MESHCORE_BASIC_AUTH_*` variables are never imported (HTTP
+   Basic auth was removed, MSHL-100): when set, they only get the
+   retired-variable warning (`RETIRED_ENV`, `app/services/legacy_env_settings.py`).
 2. On a database that existed before this start (the file was there, or the
    radio history says so: the same `existing_database` as the legacy imports)
    an 8-digit installation code is generated, its SHA-256 stored in
@@ -1265,8 +1267,7 @@ characters or more (keyboard walks in QWERTY, AZERTY and QWERTZ, digit runs,
 breach-list words with digits, English and French, plus names a Meshloom user
 reaches for). Refusal: 400 `auth_password_policy` with
 `params.reason` (`too_short`, `too_long`, `same_as_username`, `too_common`)
-and `params.min_length`. Applied at setup and on a password change, not to
-the Basic import.
+and `params.min_length`. Applied at setup and on a password change.
 
 ## Routes (`/api/auth`)
 
@@ -1276,7 +1277,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey}, auth_compat: {basic}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required (existing database, or an exposed request, "Exposed first run") and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/login/2fa` | public | `{pending_token, code}` or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
@@ -1301,7 +1302,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/users` | `admin` | 201. `{username, role, display_name?, password?, must_change_password = true}`. `password` required for every role but `kiosk` (400 `auth_password_required`) and refused for `kiosk` (400 `auth_password_not_applicable`); 400 `auth_password_policy`, `auth_username_invalid`; 409 `auth_username_taken`. Local accounts only (ingress ones come from Home Assistant) |
 | `PATCH /auth/users/{id}` | `admin` | `{display_name?, role?, disabled?, must_change_password?}`; a field equal to the stored value is no change. 409 `auth_last_admin` when no enabled admin would be left (checked in the write's transaction); 404 `auth_user_not_found`; 400 `auth_password_not_applicable` for `must_change_password: true` on an account without a password (also when the account changes between that check and the write). A role change or a disable signs the user out everywhere (`sign_out_user`, the admin's own session included); a role of `kiosk` removes the password; raising `must_change_password` closes the user's sockets |
 | `DELETE /auth/users/{id}` | `admin` | Deletes the account and its sessions, closes its sockets. 409 `auth_last_admin`, 404 |
-| `POST /auth/users/{id}/password` | `admin` | `{password, must_change_password = true}`, password policy against the target's name. Local accounts outside `kiosk` only (400 `auth_password_not_applicable`, also when the account changes before the write). Signs the user out everywhere (the admin's own session stays when it is their account), forgets its known devices, drops its Basic cache entries |
+| `POST /auth/users/{id}/password` | `admin` | `{password, must_change_password = true}`, password policy against the target's name. Local accounts outside `kiosk` only (400 `auth_password_not_applicable`, also when the account changes before the write). Signs the user out everywhere (the admin's own session stays when it is their account), forgets its known devices |
 | `DELETE /auth/users/{id}/sessions` | `admin` | Signs the user out everywhere (sessions and sockets; the admin's own session stays): `{revoked}` |
 | `GET /auth/tokens` | own account, `member` or `admin` (403 `auth_forbidden` otherwise; never a token) | Live tokens, newest first: `{id, name, scopes, created_at, last_used_at, expires_at, origin, user_id, username}`, the caller's own, every user's for an admin. Never the secret or the hash |
 | `POST /auth/tokens` | same | 201. `{name (1-64), scopes (1-5 of read, read_private, send, repeater_admin, admin), expires_at?}` (Unix seconds, null never). Answers the row plus `token` (`mlt_…`), the only time it is shown. 400 `auth_token_scope` (`params.scope`) for a scope the caller's role does not grant, 400 `auth_token_expiry_invalid` for an expiry not in the future, 409 `auth_token_limit` (`params.max`, 100 live tokens per user) |
@@ -1609,11 +1610,14 @@ B. **Upgrade from 4.18.**
    `docker logs`, the add-on **Log** tab); a wrong code is refused, one per
    second; `meshloom-admin setup-code` prints a new one and the old one stops
    working.
-2. With `MESHCORE_BASIC_AUTH_*` set: the first start creates the administrator
-   from them, no setup page, a warning in the log at every start; a script
-   using `Authorization: Basic` still works; remove the variables and restart:
-   it still works with the account.
-3. The 4.18 history, contacts and channels are intact, the radio still binds
+2. With the retired `MESHCORE_BASIC_AUTH_*` set: they are not imported, the
+   log warns they are retired, and the setup page asks the installation code
+   as in 1; a script using `Authorization: Basic` gets a plain 401 (use an API
+   token).
+3. With trusted network rules: after the update they sign nobody in until an
+   admin turns on **Login-free on the local network** (migration 136 logs a
+   warning).
+4. The 4.18 history, contacts and channels are intact, the radio still binds
    (**Bind without wipe**).
 
 ### Per install kind

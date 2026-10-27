@@ -1,6 +1,6 @@
 ---
 title: Comptes et accès
-description: Comptes, rôles, sessions, réseaux de confiance, jetons, double authentification et passkeys, Home Assistant et l’écran kiosque, la connexion Basic de la 4.x, le journal d’audit, et meshloom-admin, la commande qui permet de rentrer depuis la machine, pour chaque mode d’installation de Meshloom.
+description: Comptes, rôles, sessions, réseaux de confiance, jetons, double authentification et passkeys, Home Assistant et l’écran kiosque, la connexion Basic de la 4.x (retirée), le journal d’audit, et meshloom-admin, la commande qui permet de rentrer depuis la machine, pour chaque mode d’installation de Meshloom.
 level: deep
 order: 21
 ---
@@ -39,7 +39,7 @@ Chaque rôle reçoit le thème de l’instance, ses contacts et noms bloqués et
 
 Une action que le serveur refuse malgré tout (par exemple depuis une page restée ouverte avant un changement de rôle) affiche un seul message : « Ce compte n’a pas le droit de faire cela. »
 
-Le premier administrateur, et le compte que Meshloom crée à partir de l’identifiant Basic d’une installation 4.x ([plus bas](#la-connexion-basic-de-la-4x)), sont `admin` : une installation avec un seul administrateur fonctionne comme avant.
+Le premier administrateur est `admin` : une installation avec un seul administrateur fonctionne comme avant.
 
 ## Gérer les comptes
 
@@ -123,7 +123,13 @@ Les délais de connexion, le journal d’audit et la liste des sessions notent l
 
 ## Les réseaux de confiance
 
-Un administrateur peut laisser entrer sans identification les appareils d’un réseau choisi, dans **Réglages → Utilisateurs et accès → Réseaux de confiance** : chaque règle est un réseau (`192.168.1.50`, `192.168.1.0/24`) et le compte avec lequel ces appareils agissent. La liste est vide par défaut. Réservez-la à un appareil que vous maîtrisez, comme une tablette murale, avec le plus petit réseau (sa propre adresse) et le rôle le plus faible qui suffit (kiosque ou lecteur). Une connexion par une règle est notée dans le journal d’audit une fois par appareil et par jour.
+Un administrateur peut laisser entrer sans identification les appareils du réseau local, dans **Réglages → Utilisateurs et accès → Réseaux de confiance**. C’est l’interrupteur **Accès sans connexion sur le réseau local**, plus des règles : chaque règle est un réseau (`192.168.1.50`, `192.168.1.0/24`) et le compte avec lequel ces appareils agissent. La liste est vide par défaut.
+
+L’interrupteur est la commande générale : il est **désactivé par défaut, et désactivé après une mise à jour même si des règles existent déjà**, donc les règles existantes ne connectent personne tant qu’un administrateur ne l’a pas activé (le journal de démarrage le dit). Seul un administrateur peut l’activer ou le désactiver, et chaque changement est écrit dans le journal d’audit. Tant qu’il est activé, une règle ne s’applique qu’à un appareil qui se connecte **directement depuis une adresse locale** : les plages privées (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), la plage partagée `100.64.0.0/10` (CGNAT), les adresses de lien local, le loopback seulement dans l’add-on Home Assistant, et les adresses IPv6 locales uniques ou de lien local ou le préfixe on-link de l’hôte. Une adresse publique n’est jamais connectée, même couverte par une règle. Une requête qui porte un en-tête `Authorization` n’est jamais connectée par une règle non plus.
+
+**Attention.** Si votre box Internet redirige un port vers la machine de Meshloom en réécrivant l’adresse source (SNAT), les visiteurs d’Internet paraissent locaux et seraient connectés : n’activez pas l’interrupteur dans ce cas. Les requêtes passées par Meshloom Remote ne comptent jamais comme locales. Un mode dédié pour exposer Meshloom directement est prévu plus tard.
+
+ Réservez-la à un appareil que vous maîtrisez, comme une tablette murale, avec le plus petit réseau (sa propre adresse) et le compte aux privilèges les plus faibles qui suffit (kiosque ou lecteur), jamais un administrateur. Une connexion par une règle est notée dans le journal d’audit une fois par appareil et par jour.
 
 Une règle est **coupée dès qu’un proxy est dans la boucle**, car derrière un proxy ou un tunnel chaque visiteur, d’où qu’il vienne, arrive avec l’adresse du proxy :
 
@@ -183,7 +189,7 @@ Connecté par Home Assistant, ou avec un compte sans mot de passe Meshloom (un k
 - **Se connecter.** Après un mot de passe correct, `POST /api/auth/login` répond `"authenticated": false` avec un `second_factor.pending_token` ; envoyez-le avec le code à `POST /api/auth/login/2fa` dans les 5 minutes pour obtenir la session. Un code de secours remplace le code de l’application, une fois chacun. Cinq mauvais codes, ou une modification du compte, obligent à recommencer avec le mot de passe.
 - **Un code ne sert qu’une fois.** Un code déjà utilisé, ou plus ancien, est refusé même s’il est encore affiché dans l’application : attendez le suivant.
 - **Les mauvais codes comptent comme de mauvais mots de passe**, avec les mêmes délais (plus haut).
-- **Scripts.** `Authorization: Basic` ([la fenêtre 4.x](#la-connexion-basic-de-la-4x)) cesse de fonctionner pour un compte qui a un second facteur : utilisez un [jeton d’API](#les-jetons-dapi-et-dappareil).
+- **Scripts.** Le second facteur s’applique à la connexion par mot de passe ; les scripts utilisent un [jeton d’API](#les-jetons-dapi-et-dappareil).
 - **L’exiger pour les administrateurs.** `PATCH /api/auth/settings` avec `{"require_2fa_for_admins": true}` (désactivé par défaut). Un administrateur sans second facteur ne peut alors que le configurer (et se déconnecter) tant que ce n’est pas fait ; membres, lecteurs, kiosque et utilisateurs Home Assistant ne sont pas concernés. Recommandé quand Meshloom est joignable depuis Internet.
 - **Téléphone perdu.** Utilisez un code de secours. Sans code, un administrateur lance `meshloom-admin disable-2fa <utilisateur>` sur la machine (plus bas) ; l’utilisateur se connecte alors avec son seul mot de passe et la configure de nouveau.
 
@@ -237,15 +243,15 @@ Sur l’add-on Home Assistant, c’est Home Assistant qui vous connecte. Ouvert 
 Le rôle `kiosk` est pour un écran au mur (un club, un atelier) : il lit les canaux, les contacts, les paquets, les statistiques et la carte, jamais un message direct, et n’a ni mot de passe ni réglages. Deux façons de l’utiliser :
 
 - **L’image kiosque Raspberry Pi** crée elle-même le compte `kiosk` et connecte l’écran avec un **jeton d’appareil** qu’elle écrit sur le Pi, lisible seulement par l’utilisateur du bureau, valable seulement depuis le Pi lui-même et jamais visible dans une adresse (voir [Raspberry Pi](/docs/rpi/#image-kiosque-écran-au-mur)). Un administrateur le voit sous le nom **Kiosk screen** dans **Jetons d’API et d’appareil** ; **Révoquer** le remplace, et désactiver le compte `kiosk` garde l’écran déconnecté.
-- **Tout autre écran** : créez un compte `kiosk` dans **Utilisateurs et accès**, puis ajoutez une règle de réseau de confiance qui associe l’adresse de l’écran à ce compte ([plus bas](#les-réseaux-de-confiance)). Un compte `kiosk` n’a pas de mot de passe : il ne peut se connecter autrement.
+- **Tout autre écran** : créez un compte `kiosk` dans **Utilisateurs et accès**, puis activez **Accès sans connexion sur le réseau local** et ajoutez une règle de réseau de confiance qui associe l’adresse de l’écran à ce compte ([plus bas](#les-réseaux-de-confiance)). Un compte `kiosk` n’a pas de mot de passe : il ne peut se connecter autrement.
 
 ## La connexion Basic de la 4.x
 
-Jusqu’à la 4.18, `MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD` (les options `basic_auth_username` et `basic_auth_password` de l’add-on) formaient un identifiant partagé. À partir de la 5.0 :
+Jusqu’à la 4.18, `MESHCORE_BASIC_AUTH_USERNAME` et `MESHCORE_BASIC_AUTH_PASSWORD` (les options `basic_auth_username` et `basic_auth_password` de l’add-on) formaient un identifiant partagé. Cette connexion est retirée :
 
-- Au **premier démarrage sans compte**, quand les deux sont définies, elles deviennent le compte administrateur (même nom, même mot de passe, sans code d’installation). Meshloom ne les relit jamais ; il écrit un avertissement à chaque démarrage tant qu’elles sont définies : retirez-les. Une seule définie n’importe rien.
-- **Fenêtre de compatibilité.** Jusqu’à la 5.2, les scripts qui envoient ce nom et ce mot de passe avec `Authorization: Basic` continuent de fonctionner, pour tout compte qui a un mot de passe et pas de second facteur, avec une courte pause après un échec. Un avertissement d’obsolescence est écrit dans le journal. En 5.2 l’en-tête est retiré : passez dès maintenant vos scripts à un [jeton d’API](#les-jetons-dapi-et-dappareil).
-- Un nom d’utilisateur 4.x de plus de 64 caractères ne peut pas devenir un compte : l’import est ignoré, avec une erreur dans le journal, et la première connexion normale s’applique.
+- Les variables ne sont plus importées comme compte. Meshloom se contente d’écrire un avertissement à chaque démarrage tant qu’elles sont définies : retirez-les. Les options de l’add-on n’existent plus.
+- Une requête avec un en-tête `Authorization: Basic` est ignorée comme tout schéma inconnu : un simple 401, sans fenêtre de connexion dans le navigateur. Les navigateurs se connectent avec un compte ; les scripts utilisent un [jeton d’API](#les-jetons-dapi-et-dappareil) (`Authorization: Bearer`).
+- Une installation 4.x qui ne reposait que sur la connexion Basic passe par la configuration du premier lancement, avec le code d’installation imprimé dans le journal du serveur (voir [Première connexion](#première-connexion)).
 
 ## Le journal d’audit
 

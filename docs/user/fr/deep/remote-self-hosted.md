@@ -20,7 +20,7 @@ Quelle que soit la voie, quatre éléments décident du bon comportement de Mesh
 | **Adresses publiques** | **Réglages → Utilisateurs et accès → Adresses publiques** | Le nom que l’on tape pour joindre Meshloom, écrit `https://nom[:port][/préfixe]`. Nécessaire à la vérification du Host ([plus bas](#noms-dhôte)) et aux passkeys. |
 | **Proxies de confiance** | **Réglages → Configuration locale → Proxies de confiance** | L’adresse du programme qui transmet vers Meshloom (tunnel, proxy). Permet à Meshloom de voir l’adresse du visiteur et que la page est en HTTPS. |
 | **Refuser les noms inconnus (strict)** | Même page que les adresses publiques | Passe la vérification du Host de l’observation (défaut de la 5.0.0) au mode strict. Facultatif en 5.0.0. |
-| **Réseaux de confiance** | **Réglages → Utilisateurs et accès → Réseaux de confiance** | Gardez cette liste **vide** pour tout ce qui passe par un tunnel ou un proxy ([plus bas](#réseaux-de-confiance-désactivés)). |
+| **Réseaux de confiance** | **Réglages → Utilisateurs et accès → Réseaux de confiance** | Gardez **Accès sans connexion sur le réseau local** désactivé et cette liste **vide** pour tout ce qui passe par un tunnel ou un proxy ([plus bas](#réseaux-de-confiance-désactivés)). |
 
 ### Noms d’hôte
 
@@ -42,7 +42,7 @@ Une fois celui qui transmet listé, les délais de connexion, le journal d’aud
 
 ### Réseaux de confiance désactivés
 
-Une règle de réseau de confiance connecte un appareil sans mot de passe. Elle est **désactivée** pour toute requête passée par un tunnel ou un proxy, parce que chaque visiteur, d’où qu’il vienne, arrive depuis l’adresse de celui qui transmet : une requête portant `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `CF-Connecting-IP` ou équivalent, ou venant d’un proxy de confiance listé, n’est jamais connectée par une règle, et une règle ne couvre jamais la boucle locale de cette machine hors de l’add-on Home Assistant. Meshloom refuse aussi d’enregistrer une règle qui recouvre un proxy de confiance. Derrière un proxy, tout le monde se connecte donc avec un compte, vous compris sur votre téléphone ; gardez vos règles de réseau de confiance, s’il y en a, pour les appareils du réseau local qui joignent Meshloom par son adresse IP ([détails](/docs/deep/access/#les-réseaux-de-confiance)).
+Une règle de réseau de confiance connecte un appareil sans mot de passe, mais seulement quand **Accès sans connexion sur le réseau local** est activé (il est désactivé par défaut). Elle est **désactivée** pour toute requête passée par un tunnel ou un proxy, parce que chaque visiteur, d’où qu’il vienne, arrive depuis l’adresse de celui qui transmet : une requête portant `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `CF-Connecting-IP` ou équivalent, ou venant d’un proxy de confiance listé, n’est jamais connectée par une règle, et une règle ne couvre jamais la boucle locale de cette machine hors de l’add-on Home Assistant. Meshloom refuse aussi d’enregistrer une règle qui recouvre un proxy de confiance. Derrière un proxy, tout le monde se connecte donc avec un compte, vous compris sur votre téléphone ; gardez vos règles de réseau de confiance, s’il y en a, pour les appareils du réseau local qui joignent Meshloom par son adresse IP ([détails](/docs/deep/access/#les-réseaux-de-confiance)).
 
 ### HTTPS, HSTS et passkeys
 
@@ -87,7 +87,7 @@ Le push vers un nom `*.ts.net` pour les points d’arrivée des notifications es
 
 *Non testé de bout en bout.* Faites tourner un serveur WireGuard sur votre box ou sur la machine de Meshloom, avec un pair par appareil, et ouvrez Meshloom à son adresse dans le tunnel (par exemple `http://10.8.0.1:8000`). Une adresse IP est toujours acceptée par la vérification du Host : aucune déclaration n’est nécessaire. Comme avec Tailscale, le HTTP simple veut dire ni push ni passkeys : ajoutez un reverse-proxy avec certificat (section suivante) qui écoute sur l’adresse du tunnel, ou utilisez un nom pour lequel vous avez un certificat.
 
-Dans les deux cas, le visiteur joint Meshloom directement (aucun intermédiaire) : laissez donc les Proxies de confiance tels quels, et notez qu’une [règle de réseau de confiance](/docs/deep/access/#les-réseaux-de-confiance) qui couvrirait la plage du VPN connecterait tous ceux qui sont sur ce VPN : n’en ajoutez pas.
+Dans les deux cas, le visiteur joint Meshloom directement (aucun intermédiaire) : laissez donc les Proxies de confiance tels quels, et notez qu’une [règle de réseau de confiance](/docs/deep/access/#les-réseaux-de-confiance) qui couvrirait la plage du VPN connecterait tous ceux qui sont sur ce VPN (si **Accès sans connexion sur le réseau local** est activé) : n’en ajoutez pas.
 
 ## Votre propre reverse-proxy
 
@@ -149,5 +149,5 @@ Avec un proxy sur votre propre machine, ou Meshloom exposé sur Internet, [fail2
 - Les comptes existent, les administrateurs ont un mot de passe solide et un second facteur ou une passkey.
 - La page est servie en HTTPS par celui qui transmet, et la page de connexion n’avertit pas d’un HTTP simple.
 - Le nom public est dans **Adresses publiques** ; l’adresse propre de celui qui transmet, et rien de plus large, est dans **Proxies de confiance**.
-- **Réseaux de confiance** est vide, ou ne contient que des appareils locaux joints par adresse IP.
+- **Accès sans connexion sur le réseau local** est désactivé, ou **Réseaux de confiance** ne contient que des appareils locaux joints par adresse IP.
 - Le port 8000 et le port du proxy radio (5051) ne sont pas redirigés sur votre box. Le proxy radio n’a pas d’authentification : voir [Sécurité](/docs/deep/security/).

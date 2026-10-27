@@ -388,8 +388,8 @@ async def _updated_at_before(conn: aiosqlite.Connection) -> dict[int, int]:
 
 
 def _close_account_sockets(user_ids: set[int]) -> None:
-    """Close every socket of these accounts at once (sessions, Basic, ingress,
-    trusted networks): an id kept from the file may now name another person."""
+    """Close every socket of these accounts at once (sessions, ingress, trusted
+    networks): an id kept from the file may now name another person."""
     from app.websocket import ws_manager
 
     closed = sum(ws_manager.close_user(user_id) for user_id in user_ids)

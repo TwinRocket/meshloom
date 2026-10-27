@@ -92,7 +92,7 @@ The button opens the right dialog on your own Home Assistant, with the address f
 
 A few things work differently there:
 
-**Home Assistant signs you in.** Opened from the sidebar, Meshloom asks for no password and shows no account creation page: the first Home Assistant user to open it becomes its administrator, the next ones get the **Member** role. This includes an add-on updated from 4.18. The `basic_auth_username` and `basic_auth_password` options are deprecated: if you had set them, they become a Meshloom account once (for the published port, below), then you can empty them; they will be removed in the next release.
+**Home Assistant signs you in.** Opened from the sidebar, Meshloom asks for no password and shows no account creation page: the first Home Assistant user to open it becomes its administrator, the next ones get the **Member** role. This includes an add-on updated from 4.18. The `basic_auth_username` and `basic_auth_password` options are removed: Meshloom no longer reads them, so empty them if you had set them. Where you publish the port (below), you now go through the normal first-run setup, with the installation code printed in the add-on log.
 
 **The radio-sharing port is set in Home Assistant, not in Meshloom.** The interface is reached through the sidebar and publishes nothing, so the radio proxy (see [Radio transports](/en/docs/deep/transports/)) is the only thing visible on the network. Change its port in the add-on's **Network** panel. The field inside Meshloom only displays it, because a value typed there would make Meshloom listen where nothing is forwarded.
 

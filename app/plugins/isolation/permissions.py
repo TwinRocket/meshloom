@@ -13,8 +13,7 @@ is about the other bits:
   backup) is born `0600` and the model holds after startup; a plugin directory
   written later is opened up again before its child starts
   (`SetuidBackend.prepare_plugin_dir`).
-- `/data/options.json` (the add-on's options, which may hold the retired Basic
-  credentials) is `0600` when it exists.
+- `/data/options.json` (the add-on's options) is `0600` when it exists.
 
 Symbolic links are never followed or changed. Applied only when the server is
 root and the `setuid` level is selected; elsewhere the server's own uid owns

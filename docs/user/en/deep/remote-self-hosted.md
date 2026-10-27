@@ -20,7 +20,7 @@ Whatever you choose, four things decide whether Meshloom behaves well behind it.
 | **Public addresses** | **Settings → Users & Access → Public addresses** | The name people type to reach Meshloom, written `https://name[:port][/prefix]`. Needed for the Host check ([below](#host-names)) and for passkeys. |
 | **Trusted proxies** | **Settings → Local Configuration → Trusted proxies** | The address of the program that forwards to Meshloom (tunnel, proxy). Lets Meshloom see the visitor's own address and that the page is on HTTPS. |
 | **Refuse unknown names (enforce)** | Same page as Public addresses | Switches the Host check from observation (the 5.0.0 default) to strict. Optional in 5.0.0. |
-| **Trusted networks** | **Settings → Users & Access → Trusted networks** | Keep this list **empty** for anything reached through a tunnel or proxy ([below](#trusted-networks-off)). |
+| **Trusted networks** | **Settings → Users & Access → Trusted networks** | Keep **Login-free on the local network** off and this list **empty** for anything reached through a tunnel or proxy ([below](#trusted-networks-off)). |
 
 ### Host names
 
@@ -42,7 +42,7 @@ Once the forwarder is listed, sign-in delays, the audit log and the session list
 
 ### Trusted networks off
 
-A trusted-network rule signs a device in without a password. It is **disabled** for any request that came through a tunnel or proxy, because every visitor from anywhere arrives from the forwarder's address: a request carrying `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `CF-Connecting-IP` or similar, or coming from a listed trusted proxy, is never signed in by a rule, and a rule never covers this machine's loopback outside the Home Assistant add-on. Meshloom also refuses to save a rule that overlaps a trusted proxy. So behind a proxy everyone signs in with an account, including you on your phone; keep your trusted-network rules, if any, for devices on the local network that reach Meshloom by its IP address ([details](/en/docs/deep/access/#trusted-networks)).
+A trusted-network rule signs a device in without a password, but only when **Login-free on the local network** is on (it is off by default). It is **disabled** for any request that came through a tunnel or proxy, because every visitor from anywhere arrives from the forwarder's address: a request carrying `X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `CF-Connecting-IP` or similar, or coming from a listed trusted proxy, is never signed in by a rule, and a rule never covers this machine's loopback outside the Home Assistant add-on. Meshloom also refuses to save a rule that overlaps a trusted proxy. So behind a proxy everyone signs in with an account, including you on your phone; keep your trusted-network rules, if any, for devices on the local network that reach Meshloom by its IP address ([details](/en/docs/deep/access/#trusted-networks)).
 
 ### HTTPS, HSTS and passkeys
 
@@ -87,7 +87,7 @@ Push to a `*.ts.net` name for the notification endpoints is a separate matter: s
 
 *Untested end to end.* Run a WireGuard server on your router or on the Meshloom machine, with a peer per device, and open Meshloom at its address inside the tunnel (for example `http://10.8.0.1:8000`). An IP address is always accepted by the Host check, so no declaration is needed. As with Tailscale, plain HTTP means no push or passkeys: add a reverse proxy with a certificate (next section) listening on the tunnel address, or use a name you have a certificate for.
 
-On both, a visitor reaches Meshloom directly (no forwarder), so leave Trusted proxies as it is, and note that a [trusted-network rule](/en/docs/deep/access/#trusted-networks) matching the VPN's range would sign in everyone on that VPN: do not add one.
+On both, a visitor reaches Meshloom directly (no forwarder), so leave Trusted proxies as it is, and note that a [trusted-network rule](/en/docs/deep/access/#trusted-networks) matching the VPN's range would sign in everyone on that VPN (if **Login-free on the local network** is on): do not add one.
 
 ## Your own reverse proxy
 
@@ -149,5 +149,5 @@ With a proxy on your own machine, or with Meshloom on the open Internet, [fail2b
 - Accounts exist, administrators have a strong password and a second factor or a passkey.
 - The page is served in HTTPS by the forwarder, and the sign-in page does not warn about plain HTTP.
 - The public name is in **Public addresses**; the forwarder's own address, and nothing wider, is in **Trusted proxies**.
-- **Trusted networks** is empty, or holds only local devices reached by IP address.
+- **Login-free on the local network** is off, or **Trusted networks** holds only local devices reached by IP address.
 - Port 8000 and the radio proxy port (5051) are not forwarded on your router. The radio proxy has no authentication: see [Security](/en/docs/deep/security/).
