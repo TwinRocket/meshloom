@@ -510,7 +510,9 @@ Community guard.
   and a non-channel message needs `read_private` (a kiosk gets 403 `share_role_forbidden`,
   checked in the router before any cache read or egress; MSHL-248). Every write route depends on
   `refuse_cross_site`: 403 `share_cross_site` when `Sec-Fetch-Site` is
-  `cross-site` (defence in depth: the auth gate already refuses unsafe
+  anything but `same-origin` or `none` (`same-site` included: without the
+  Public Suffix List every `<slug>.meshloom.link` instance is the same site; a
+  missing header passes. Defence in depth: the auth gate already refuses unsafe
   cross-origin requests that are not bearer-token ones). Tests:
   `tests/test_share_routes.py`.
 - **Roles and audit (MSHL-248).** Member+ routes (`send`: `POST /links`, `POST /files`,
