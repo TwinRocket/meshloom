@@ -11,12 +11,16 @@ The format is a contract (``docs/dev/auth-fail-log.md``): change it only in a
   forwarded, ``app/middleware/proxy_headers.py``) in canonical form, ``-`` when
   there is none or it is not an IP address (never free text: no log injection).
 - ``route`` and ``reason``: the closed vocabulary of ``ROUTE_REASONS``.
-- ``via``: ``lan`` or ``relay`` (``request_via()``). Ingress requests never
-  emit: their peer is the Home Assistant Supervisor, which must never be banned.
-- ``proxied``: ``1`` when the request carries forwarding headers
-  (``X-Forwarded-For``, ``X-Real-IP``, ``Forwarded``) from a peer that is not a
-  trusted proxy. Its ``ip`` is then that proxy, shared by every client behind
-  it: consumers must ignore the line.
+- ``via``: the transport, ``lan`` or ``relay`` (``request_via()``), never the
+  provider that signed the request in (a trusted-network rule is still
+  ``lan``). Ingress requests never emit: their peer is the Home Assistant
+  Supervisor, which must never be banned.
+- ``proxied``: ``1`` when a peer in ``LOCAL_NETWORKS`` that is not a
+  declared trusted proxy sends forwarding headers (``X-Forwarded-For``,
+  ``X-Real-IP``, ``Forwarded``): most likely a local reverse proxy nobody
+  declared, so ``ip`` is shared by every client behind it and consumers must
+  ignore the line. A public peer sending those headers is the client itself:
+  ``proxied=0``, ``ip`` is that peer (adding a header must not escape a ban).
 - ``user``: ``h:`` and 6 hex characters of an HMAC-SHA256 of the typed name
   (``username_key()``) under a random per-process key, ``-`` when the route
   takes no name. Never the name itself: a password typed into the username
@@ -59,6 +63,24 @@ ROUTE_REASONS: Mapping[str, frozenset[str]] = {
 
 USER_HASH_HEX = 6
 
+# Where an undeclared local reverse proxy can sit (RFC 1918, CGNAT, loopback,
+# link-local, ULA). Spelled out: ``is_private`` also covers documentation and
+# other reserved ranges.
+LOCAL_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "127.0.0.0/8",
+        "169.254.0.0/16",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
+
 # Per process: the hash correlates attempts on one name in one run and nothing more.
 _USER_KEY = secrets.token_bytes(32)
 
@@ -88,6 +110,23 @@ def ip_field(raw: str | None) -> str:
     return str(address)
 
 
+def _undeclared_local_proxy(scope: Mapping[str, Any]) -> bool:
+    """Forwarding headers from a local peer that is not a declared trusted proxy."""
+    from app.auth.ratelimit import forwarded_by_untrusted_peer
+    from app.middleware import proxy_headers
+
+    if not forwarded_by_untrusted_peer(scope):
+        return False
+    peer = proxy_headers.peer_address(scope)
+    try:
+        address = ipaddress.ip_address(peer or "")
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return any(address in network for network in LOCAL_NETWORKS)
+
+
 def format_line(
     *, ip: str | None, route: str, reason: str, via: str, proxied: bool, username: str | None
 ) -> str:
@@ -104,12 +143,11 @@ def log_auth_failure(
     """Emit the ``AUTH_FAIL`` line for this request. Never raises."""
     # Imported here: the middleware imports the providers and the routers import it.
     from app.auth.middleware import client_ip, request_via
-    from app.auth.ratelimit import forwarded_by_untrusted_peer
 
     try:
         if reason not in ROUTE_REASONS[route]:
             raise ValueError(f"reason {reason!r} is not in the contract for route {route!r}")
-        via = scope.get("auth_via") or request_via(scope)  # type: ignore[arg-type]
+        via = request_via(scope)  # type: ignore[arg-type]
         if via == "ingress":
             return
         line = format_line(
@@ -117,7 +155,7 @@ def log_auth_failure(
             route=route,
             reason=reason,
             via=via,
-            proxied=forwarded_by_untrusted_peer(scope),
+            proxied=_undeclared_local_proxy(scope),
             username=username,
         )
     except Exception:
