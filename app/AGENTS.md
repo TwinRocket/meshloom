@@ -1646,6 +1646,9 @@ service's body (`tests/test_test_route_error_oracles.py`).
   plus is also on the join terms (`+messages.type = 'CHAN'`): a filter that needs a channel
   makes the join inner, and its `type` term would otherwise pull the planner onto a type index
   and a temp sort by id.
+  These plans hold because nothing runs `ANALYZE` or `PRAGMA optimize`: with statistics SQLite
+  picks temp-sort plans (for instance CHAN + 10 keys with a cursor and `membership=pending`), and
+  the plan tests would fail. Do not add either without redoing them.
 
 ## Route behaviours that are easy to break
 

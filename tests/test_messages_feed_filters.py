@@ -452,10 +452,31 @@ async def test_muted_and_membership_combine(test_db):
 
 @pytest.mark.asyncio
 async def test_a_channel_with_a_lowercase_stored_key_still_joins(test_db):
-    """The feed joins on the stored key: a row is never lost to a NULL-ing predicate."""
-    await _mute_world()
-    got = await MessageRepository.get_all(muted="exclude", membership="adopted", now=NOW, limit=1)
-    assert len(got) == 1
+    """The join is on the stored key as is: a channel stored in lowercase, with messages under
+    the same lowercase key, is found, so its mute and membership apply to its rows."""
+    low_muted, low_pending = "ab" * 16, "cd" * 16
+    await _insert_channel(low_muted, muted=1)
+    await _insert_channel(low_pending, membership="pending")
+    await _create("low muted", received_at=1, key=low_muted)
+    await _create("low pending", received_at=2, key=low_pending)
+    assert await _names(muted="exclude") == {"low pending"}
+    assert await _names(muted="only") == {"low muted"}
+    assert await _names(membership="adopted") == {"low muted"}
+    assert await _names(membership="pending") == {"low pending"}
+
+
+@pytest.mark.asyncio
+async def test_a_channel_with_a_null_muted_flag_is_not_muted(test_db):
+    """`muted` is nullable (DEFAULT 0, no NOT NULL): NULL means not muted, like in Python."""
+    await _insert_channel(K_PLAIN)
+    async with test_db.tx() as conn:
+        await conn.execute("UPDATE channels SET muted = NULL WHERE key = ?", (K_PLAIN,))
+    await _create("null muted", received_at=1, key=K_PLAIN)
+    assert await _names(muted="exclude") == {"null muted"}
+    assert await _names(muted="only") == set()
+    assert (await MessageRepository.get_unread_counts(now=NOW))["counts"] == {
+        f"channel-{K_PLAIN}": 1
+    }
 
 
 @pytest.mark.asyncio
@@ -796,8 +817,6 @@ def _filter_plan_cases():
         },
     }.items():
         for mtype in (None, "CHAN", "PRIV"):
-            if mtype is None and "keys" in label and label != "ten-keys-exclude-adopted":
-                pass
             for cursor in ("first", "before", "since_id"):
                 kw: dict = {"limit": 200, "now": NOW, **extra}
                 if mtype:
