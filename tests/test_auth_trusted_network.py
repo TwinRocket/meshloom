@@ -217,7 +217,7 @@ async def test_explicit_credentials_win_over_the_rule():
 
 
 async def test_unsafe_methods_keep_the_origin_rule():
-    await _rule(role="admin", username="lanadmin")
+    await _rule()
     async with make_client(LAN_URL, LAN_PEER) as client:
         refused = await client.post(
             "/api/auth/logout", headers={"Origin": "http://evil.example.com"}
@@ -342,7 +342,7 @@ async def test_invalid_rules_are_refused_with_a_code(rules, code):
     assert (await AuthSettingsRepository.get()).trusted_networks == []
 
 
-async def test_the_docker_gateway_is_refused_while_a_public_address_exists(monkeypatch, tmp_path):
+async def test_the_docker_gateway_is_always_refused_on_a_container(monkeypatch, tmp_path):
     monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "compose")
     route = tmp_path / "route"
     route.write_text(
@@ -355,14 +355,26 @@ async def test_the_docker_gateway_is_refused_while_a_public_address_exists(monke
     async with _admin_client() as client:
         tablet = await create_user("tablet", password=None, role="viewer")
         rules = {"trusted_networks": [{"cidr": "172.17.0.0/16", "user_id": tablet.id}]}
-        # No public address: allowed (the published port is the LAN's way in).
-        assert (await client.patch("/api/auth/settings", json=rules)).status_code == 200
-        await AuthSettingsRepository.update(public_urls=["https://mesh.example.org"])
+        # No public address: still refused. Behind docker-proxy, every client of
+        # the published port (the internet included) arrives from the gateway.
+        response = await client.patch("/api/auth/settings", json=rules)
+        assert response.status_code == 400
+        assert _code(response) == "auth_trusted_network_overlaps_gateway"
+        assert (await AuthSettingsRepository.get()).trusted_networks == []
+        # A rule saved before (directly) still raises the notice once a public
+        # address exists.
+        await AuthSettingsRepository.update(
+            trusted_networks=[TrustedNetworkRule(cidr="172.17.0.0/16", user_id=tablet.id)],
+            public_urls=["https://mesh.example.org"],
+        )
         notices = (await client.get("/api/auth/settings")).json()["security_notices"]
         assert "trusted_loopback_or_gateway_public" in notices
         response = await client.patch("/api/auth/settings", json=rules)
         assert response.status_code == 400
         assert _code(response) == "auth_trusted_network_overlaps_gateway"
+        # A rule beside the gateway is fine.
+        beside = {"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": tablet.id}]}
+        assert (await client.patch("/api/auth/settings", json=beside)).status_code == 200
 
 
 async def test_the_notice_names_an_admin_rule_with_reduced_plugin_isolation(monkeypatch):
@@ -372,12 +384,12 @@ async def test_the_notice_names_an_admin_rule_with_reduced_plugin_isolation(monk
     monkeypatch.setattr(lifecycle, "health_fields", lambda: fields)
     async with _admin_client() as client:
         lanadmin = await create_user("lanadmin", password=None, role="admin")
-        body = (
-            await client.patch(
-                "/api/auth/settings",
-                json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": lanadmin.id}]},
-            )
-        ).json()
+        # The API refuses such a rule; one left from before (or restored) is
+        # stored directly here and still named by the notice.
+        await AuthSettingsRepository.update(
+            trusted_networks=[TrustedNetworkRule(cidr="192.168.1.0/24", user_id=lanadmin.id)]
+        )
+        body = (await client.get("/api/auth/settings")).json()
         assert body["security_notices"] == ["trusted_admin_reduced_plugin_isolation"]
         # The global pause does not lift it: the risk is back on resume (MSHL-341).
         fields["plugins_disabled_source"] = "paused"
@@ -559,7 +571,9 @@ async def test_a_rule_for_an_account_that_must_change_its_password_is_refused():
     [
         ("192.168.1.0/24", False),
         ("10.0.0.0/16", False),
-        ("100.64.0.0/10", False),
+        ("100.64.0.0/10", True),
+        ("100.64.0.0/24", True),
+        ("100.64.1.5/32", False),
         ("fd00:1234::/48", False),
         ("10.0.0.0/8", True),
         ("8.8.8.0/24", True),
@@ -590,3 +604,72 @@ async def test_the_notice_names_a_public_or_wide_network():
             )
         ).json()
         assert body["security_notices"] == ["trusted_network_public_or_wide"]
+
+
+# ---------------------------------------------------------------- never an administrator
+
+
+async def test_a_rule_naming_an_admin_is_refused():
+    async with _admin_client() as client:
+        lanadmin = await create_user("lanadmin", password=None, role="admin")
+        response = await client.patch(
+            "/api/auth/settings",
+            json={"trusted_networks": [{"cidr": "192.168.1.0/24", "user_id": lanadmin.id}]},
+        )
+        assert response.status_code == 400, response.text
+        assert _code(response) == "auth_trusted_network_user_admin"
+        assert response.json()["detail"]["params"] == {"cidr": "192.168.1.0/24"}
+    assert (await AuthSettingsRepository.get()).trusted_networks == []
+
+
+async def test_the_switch_stays_off_while_a_rule_names_an_admin():
+    async with _admin_client() as client:
+        lanadmin = await create_user("lanadmin", password=None, role="admin")
+        tablet = await create_user("tablet", password=None, role="viewer")
+        await AuthSettingsRepository.update(
+            trusted_networks=[
+                TrustedNetworkRule(cidr="192.168.1.0/24", user_id=lanadmin.id),
+                TrustedNetworkRule(cidr="192.168.2.0/24", user_id=tablet.id),
+                TrustedNetworkRule(cidr="192.168.3.7/32", user_id=lanadmin.id),
+            ]
+        )
+        response = await client.patch("/api/auth/settings", json={"lan_login_free": True})
+        assert response.status_code == 409, response.text
+        assert _code(response) == "auth_lan_login_free_admin_rules"
+        assert response.json()["detail"]["params"] == {"cidrs": "192.168.1.0/24, 192.168.3.7/32"}
+        assert (await AuthSettingsRepository.get()).lan_login_free is False
+        # Other changes still go through while the switch stays off.
+        assert (
+            await client.patch("/api/auth/settings", json={"trusted_proxies": []})
+        ).status_code == 200
+        # Without the admin rules, the switch turns on.
+        response = await client.patch(
+            "/api/auth/settings",
+            json={
+                "lan_login_free": True,
+                "trusted_networks": [{"cidr": "192.168.2.0/24", "user_id": tablet.id}],
+            },
+        )
+        assert response.status_code == 200, response.text
+    assert (await AuthSettingsRepository.get()).lan_login_free is True
+
+
+async def test_an_account_promoted_to_admin_is_no_longer_signed_in():
+    tablet = await _rule()
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await _session(client))["user"]["id"] == tablet.id
+    await UserRepository.update(tablet.id, role="admin")
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await _session(client))["authenticated"] is False
+        assert (await client.get("/api/contacts")).status_code == 401
+    scope = {"client": LAN_PEER, "headers": []}
+    assert (
+        await trusted_network.resolve_trusted_user(scope, {"host": "192.168.1.10:8000"}, "lan")
+        is None
+    )
+
+
+def test_login_free_is_off_by_default():
+    from app.auth.models import AuthSettings
+
+    assert AuthSettings().lan_login_free is False

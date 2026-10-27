@@ -358,14 +358,14 @@ async def _keep_trusted_networks(
         )
     # Fail closed until the hook reloads them: no rule names an account that changed,
     # no public URL passes the rules' Host check, and login-free on the local
-    # network stays off (AuthSettings defaults).
+    # network stays off (explicit, and the AuthSettings default too).
     rules = []
     for entry in kept:
         try:
             rules.append(TrustedNetworkRule.model_validate(entry))
         except ValueError:
             continue
-    trusted_network.apply(AuthSettings(trusted_networks=rules))
+    trusted_network.apply(AuthSettings(trusted_networks=rules, lan_login_free=False))
     return warnings
 
 

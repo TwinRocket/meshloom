@@ -148,7 +148,15 @@ _MESSAGES = {
         "A trusted network covers loopback, where a local proxy or tunnel would bring every visitor"
     ),
     "auth_trusted_network_overlaps_gateway": (
-        "A trusted network covers the Docker gateway while a public address is configured"
+        "A trusted network covers the Docker gateway, where clients of the published port "
+        "arrive from, the internet included"
+    ),
+    "auth_trusted_network_user_admin": (
+        "A trusted network may not sign in an administrator: pick a viewer or kiosk account"
+    ),
+    "auth_lan_login_free_admin_rules": (
+        "Login-free on the local network stays off while a trusted network names an "
+        "administrator: change or remove those rules first"
     ),
     "auth_2fa_invalid": "Invalid or already used code",
     "auth_2fa_pending_invalid": "This sign-in expired: enter your password again",
@@ -1079,9 +1087,15 @@ def _normalize_rules(raw: list[TrustedNetworkRuleIn]) -> list[TrustedNetworkRule
     return rules
 
 
-async def _check_rules(
-    rules: list[TrustedNetworkRule], proxies: list[str], public_urls: list[str]
-) -> None:
+def _admin_rule_cidrs(rules: list[TrustedNetworkRule], admins: set[int]) -> list[str]:
+    return [rule.cidr for rule in rules if rule.user_id in admins]
+
+
+async def _admin_ids() -> set[int]:
+    return {user.id for user in await UserRepository.list_all() if user.role == "admin"}
+
+
+async def _check_rules(rules: list[TrustedNetworkRule], proxies: list[str]) -> None:
     """Refuse a rule set the gate could be tricked with (coded 400s)."""
     for rule in rules:
         proxy = trusted_network.overlapping_proxy(rule.cidr, proxies)
@@ -1091,14 +1105,15 @@ async def _check_rules(
             )
         if trusted_network.covers_loopback(rule.cidr) and not trusted_network.loopback_allowed():
             raise _error(400, "auth_trusted_network_loopback", {"cidr": rule.cidr})
-        if public_urls:
-            gateway = trusted_network.covered_gateway(rule.cidr, trusted_network.docker_gateways())
-            if gateway is not None:
-                raise _error(
-                    400,
-                    "auth_trusted_network_overlaps_gateway",
-                    {"cidr": rule.cidr, "gateway": gateway},
-                )
+        # Always on a container install: a client reaching the published port through
+        # docker-proxy arrives from the bridge gateway, from the internet as well.
+        gateway = trusted_network.covered_gateway(rule.cidr, trusted_network.docker_gateways())
+        if gateway is not None:
+            raise _error(
+                400,
+                "auth_trusted_network_overlaps_gateway",
+                {"cidr": rule.cidr, "gateway": gateway},
+            )
         user = await UserRepository.get(rule.user_id)
         if user is None or user.disabled:
             raise _error(400, "auth_trusted_network_user_invalid", {"cidr": rule.cidr})
@@ -1151,8 +1166,21 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         await _check_rules(
             trusted_networks if trusted_networks is not None else current.trusted_networks,
             trusted_proxies if trusted_proxies is not None else current.trusted_proxies,
-            public_urls if public_urls is not None else current.public_urls,
         )
+    if trusted_networks is not None or body.lan_login_free:
+        # Never an administrator without a login: a new rule for one is refused, and
+        # so is the switch while a saved rule (older, or restored) still names one.
+        admins = await _admin_ids()
+        if trusted_networks is not None and (cidrs := _admin_rule_cidrs(trusted_networks, admins)):
+            raise _error(400, "auth_trusted_network_user_admin", {"cidr": cidrs[0]})
+        if body.lan_login_free:
+            rules = (
+                trusted_networks
+                if trusted_networks is not None
+                else (await AuthSettingsRepository.get()).trusted_networks
+            )
+            if cidrs := _admin_rule_cidrs(rules, admins):
+                raise _error(409, "auth_lan_login_free_admin_rules", {"cidrs": ", ".join(cidrs)})
     settings = await AuthSettingsRepository.update(
         trusted_proxies=trusted_proxies,
         trusted_networks=trusted_networks,

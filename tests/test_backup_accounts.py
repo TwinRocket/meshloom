@@ -680,3 +680,33 @@ async def test_passkeys_restore_only_on_accounts_that_can_have_them(backup_db, s
     section["version"] = 3
     job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())
     assert f"section_failed:{USERS_SECTION}" in job.result.warnings
+
+
+@pytest.mark.asyncio
+async def test_remapped_rules_stay_off_until_the_reload(backup_db):
+    """Between the accounts restore and ``_reload_access_state()`` no rule signs in."""
+    from app.services.backup_accounts import _keep_trusted_networks
+
+    await _seed_accounts(backup_db)
+    bob = await UserRepository.get_by_username("bob")
+    assert bob is not None
+    await AuthSettingsRepository.update(
+        trusted_networks=[TrustedNetworkRule(cidr="192.168.1.0/24", user_id=bob.id)],
+        lan_login_free=True,
+    )
+    trusted_network.apply(await AuthSettingsRepository.get())
+    assert await trusted_network.current() != ()
+    scope = {"client": ("192.168.1.20", 40000), "headers": []}
+    headers = {"host": "192.168.1.10:8000"}
+    assert await trusted_network.resolve_trusted_user(scope, headers, "lan") is not None
+    ids = {bob.id: "bob"}
+    warnings = await _keep_trusted_networks(backup_db.conn, ids, ids)
+    assert warnings == []
+    assert await trusted_network.current() == ()
+    assert await trusted_network.resolve_trusted_user(scope, headers, "lan") is None
+
+
+def test_auth_settings_default_keeps_login_free_off():
+    from app.auth.models import AuthSettings
+
+    assert AuthSettings().lan_login_free is False

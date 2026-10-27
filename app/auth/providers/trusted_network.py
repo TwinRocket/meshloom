@@ -41,7 +41,10 @@ anything unexpected also refuses, fail closed):
   literal, ``localhost``, a ``.local``/``.home.arpa``/``.lan``/``.internal``
   name, this machine's short or full name, or a declared public URL. Without
   it a DNS-rebinding page would get a principal with no cookie at all;
-- the mapped account exists, is enabled and has no pending password change.
+- the mapped account exists, is enabled, has no pending password change and
+  is not an administrator (``PATCH /api/auth/settings`` refuses a rule for an
+  admin and refuses the switch while one exists; this check also covers an
+  account promoted afterwards or a rule restored from a backup).
 
 The most specific matching rule wins (longest prefix, then the first listed).
 The principal has ``via = "trusted"`` and the ambient credential
@@ -162,14 +165,16 @@ def overlapping_proxy(cidr: str, proxies: Iterable[str]) -> str | None:
 
 def public_or_wide(cidr: str) -> bool:
     """A network that is almost always a mistake: as wide as allowed (``/8``
-    IPv4, ``/16`` IPv6) or not private (``is_private``; the shared address
-    space ``100.64.0.0/10`` counts as private). Accepted, but named by the
+    IPv4, ``/16`` IPv6), not private (``is_private``), or inside the shared
+    address space ``100.64.0.0/10`` and wider than one address (a Tailscale or
+    carrier-grade NAT range: every device of the tailnet, or the carrier's other
+    customers, would be signed in). Accepted, but named by the
     ``trusted_network_public_or_wide`` security notice."""
     network = _network(cidr)
     if network.prefixlen <= proxy_headers.MIN_PREFIX[network.version]:
         return True
     if network.version == 4 and network.subnet_of(_SHARED):  # type: ignore[arg-type]
-        return False
+        return network.prefixlen < 32
     return not network.is_private
 
 
@@ -387,6 +392,10 @@ async def resolve_trusted_user(
 
     user = await UserRepository.get(rule.user_id)
     if user is None or user.disabled or user.must_change_password:
+        return None
+    if user.role == "admin":
+        # Never an administrator without a login (MSHL-100): the settings refuse such a
+        # rule, and an account promoted after its rule was saved stops matching here.
         return None
     await _audit_login(str(peer), user, rule)
     return user, rule
