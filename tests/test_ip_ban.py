@@ -417,6 +417,8 @@ class TestEnforcement:
             for _ in range(3):
                 _note(f"198.51.100.{n + 1}")
             await ip_ban.settle()
+            if n == 0:  # under the cap: only the ended rule drops it
+                assert set(ip_ban._bans) == {"198.51.100.1"}
             clock.now += 1
         assert "192.0.2.99" not in ip_ban._bans
         assert set(ip_ban._bans) == {"198.51.100.2", "198.51.100.3"}
@@ -611,6 +613,8 @@ def _if_inet6(tmp_path, *lines: str) -> str:
 
 IF_INET6 = (
     "2a010e0a001234500211223344556677 02 40 00 00 eth0",  # global /64: the LAN
+    "2a010e0a001256000000000000000001 05 38 00 00 eth1",  # global /56
+    "2a010e0a001278000000000000000005 06 80 00 00 eth2",  # global /128: one address
     "fe800000000000000211223344556677 02 40 20 80 eth0",  # link-local
     "00000000000000000000000000000001 01 80 10 80 lo",  # loopback
     "2a010e0a00ff00000000000000000001 03 20 00 00 wan0",  # /32: too wide for a LAN
@@ -619,7 +623,11 @@ IF_INET6 = (
 
 
 def test_the_host_prefixes_are_its_global_on_link_ones(tmp_path):
-    assert [str(n) for n in ip_ban.read_host_prefixes(_if_inet6(tmp_path, *IF_INET6))] == [HOST_LAN]
+    assert [str(n) for n in ip_ban.read_host_prefixes(_if_inet6(tmp_path, *IF_INET6))] == [
+        HOST_LAN,
+        "2a01:e0a:12:5600::/56",
+        "2a01:e0a:12:7800::5/128",
+    ]
 
 
 @pytest.mark.parametrize("content", [None, "", "garbage\nzz 1 2\nxyz 02 40 00 00 eth0\n"])
@@ -642,6 +650,17 @@ class TestHostPrefixes:
             _note("2a01:e0a:12:9999::1")  # another /64 of the same /48: public
         await ip_ban.settle()
         assert await IpBanRepository.get("2a01:e0a:12:9999::/64") is not None
+
+    async def test_the_prefix_length_is_kept(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ip_ban, "IF_INET6_PATH", _if_inet6(tmp_path, *IF_INET6))
+        for _ in range(20):
+            _note("2a01:e0a:12:56ab::1")  # another /64 of the host's /56: local
+        await ip_ban.settle()
+        assert await IpBanRepository.active(ip_ban.clock()) == []
+        for _ in range(10):
+            _note("2a01:e0a:12:7800::6")  # beside the host's /128: public
+        await ip_ban.settle()
+        assert await IpBanRepository.get("2a01:e0a:12:7800::/64") is not None
 
     async def test_without_the_file_it_counts_as_public(self):
         for _ in range(10):
