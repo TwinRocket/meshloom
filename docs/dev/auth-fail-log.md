@@ -37,11 +37,11 @@ AUTH_FAIL ip=<ip> route=<route> reason=<reason> via=<via> proxied=<0|1> user=<us
 ```
 
 Fields are separated by one space, in this order, and no value contains a
-space.
+space or any other control character (see "Escaping").
 
 | Field | Value |
 |---|---|
-| `ip` | The client address as the auth gate sees it, `client_ip()`: the TCP peer, or the client a declared trusted proxy forwarded (`docs/dev/auth.md`, "Proxy headers"). Canonical form (`2001:db8::1`, lower case); an IPv4-mapped IPv6 address is shown as IPv4. `-` when there is none or it is not an IP address, so no request data reaches the line as free text |
+| `ip` | The client address as the auth gate sees it, `client_ip()`: the TCP peer, or the client a declared trusted proxy forwarded (`docs/dev/auth.md`, "Proxy headers"). Canonical form (`2001:db8::1`, lower case); an IPv4-mapped IPv6 address is shown as IPv4. `-` when there is none, it is not an IP address, or it carries an IPv6 zone id (`fe80::1%eth0`: Python keeps any text after the `%`), so no request data reaches the line as free text |
 | `route` | Where the credential was presented, see "Routes" |
 | `reason` | Why it was refused, from the closed list of its route |
 | `via` | The transport: `lan` or `relay` (`request_via()`), never the provider that signed the request in (a request a trusted-network rule signs in is `lan`). Home Assistant ingress never writes the line: its peer is the Supervisor, which must never be banned |
@@ -72,6 +72,34 @@ Not written:
 - anything under ingress;
 - a password or code checked on an authenticated route (re-authentication,
   enrolment), a kiosk exchange, an expired or unknown session cookie.
+
+## Escaping
+
+Untrusted text must never produce a line of its own (MSHL-432). Two layers, both
+tested in `tests/test_log_forging.py` against the regex of this page and the
+shipped filter:
+
+- **Every record, every handler.** The formatter of each app handler (standard
+  error and so the journal, the uvicorn access log, the in-app log view;
+  `RedactingFormatter`, `app/log_redaction.py`) writes every control character
+  of the record (the message with its arguments, however they were formatted,
+  and the text of an exception, its chain, notes and groups) as a visible
+  escape: `\n`, `\r`, `\t` by name, `\xNN` for the other C0 and C1 characters
+  and DEL, `\uNNNN` for U+2028 and U+2029. The only line breaks left in a
+  record are those between the message line and the structural lines of a
+  traceback (its frames); an exception message stays on one line. A
+  handler added later must go through `install_redacting_formatter()`.
+- **Every `AUTH_FAIL` field.** `format_line()` raises, and writes nothing, for a
+  `route`, `reason` or `via` outside `[a-z0-9_]+`, or when the finished line has a
+  character outside `[A-Za-z0-9_.:-]` apart from its spaces. `ip` can only be a
+  canonical address or `-` (a zone id is refused, see the table), `user` only
+  `-` or `h:` and hex digits. So no value a client chooses can contain a line
+  break, a space or the marker.
+
+A consumer may therefore treat each line of the log as one record. The built-in
+ban is not fed from the log text: `fail_log` hands it the same fields in
+process, and `canonical_address()` refuses anything that is not a plain address,
+so text that reaches the log cannot add a failure to any address.
 
 ## The full line
 

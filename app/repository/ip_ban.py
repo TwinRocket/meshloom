@@ -44,7 +44,8 @@ class WhitelistFullError(Exception):
 
 def canonical_address(raw: str | None) -> IPAddress | None:
     """The address, IPv4-mapped IPv6 as IPv4, or None when ``raw`` is not one."""
-    if not raw:
+    if not raw or "%" in raw:
+        # An IPv6 zone id is free text after the ``%``, and not a client address.
         return None
     try:
         address = ipaddress.ip_address(raw.strip())

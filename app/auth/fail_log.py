@@ -9,7 +9,9 @@ The format is a contract (``docs/dev/auth-fail-log.md``): change it only in a
 
 - ``ip``: ``client_ip()`` (the TCP peer, or the client a trusted proxy
   forwarded, ``app/middleware/proxy_headers.py``) in canonical form, ``-`` when
-  there is none or it is not an IP address (never free text: no log injection).
+  there is none, it is not an IP address, or it carries an IPv6 zone id
+  (``fe80::1%eth0``: ``ipaddress`` keeps any text after the ``%``, a newline
+  included). Never free text: no log injection (MSHL-432).
 - ``route`` and ``reason``: the closed vocabulary of ``ROUTE_REASONS``.
 - ``via``: the transport, ``lan`` or ``relay`` (``request_via()``), never the
   provider that signed the request in (a trusted-network rule is still
@@ -27,6 +29,12 @@ The format is a contract (``docs/dev/auth-fail-log.md``): change it only in a
   field must not reach the logs. The hash is stable for the life of the process
   only, and cannot be checked against a guess offline.
 
+Every field is checked again when the line is built (``format_line()``):
+``route``, ``reason`` and ``via`` must be ``[a-z0-9_]+``, the others come out
+of the functions above, and a value outside its alphabet raises instead of
+being written (MSHL-432). The logging layer escapes control characters in every
+record anyway (``app/log_redaction.py``).
+
 Only a credential that was presented and refused emits: an attempt refused
 before any check by a login delay (429 ``auth_rate_limited``, ``app/auth/ratelimit.py``)
 does not, nor does a precondition (409, 403 under ingress, a full token table).
@@ -38,6 +46,7 @@ import hashlib
 import hmac
 import ipaddress
 import logging
+import re
 import secrets
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -62,6 +71,11 @@ ROUTE_REASONS: Mapping[str, frozenset[str]] = {
 }
 
 USER_HASH_HEX = 6
+
+# What route, reason and via may be made of (the contract's closed vocabulary).
+_WORD_RE = re.compile(r"[a-z0-9_]+")
+# What any whole line may contain: no space, no control character, nothing but this.
+_LINE_RE = re.compile(r"AUTH_FAIL(?: [a-z_]+=[A-Za-z0-9_.:\-]+)+")
 
 # Where an undeclared local reverse proxy can sit (RFC 1918, CGNAT, loopback,
 # link-local, ULA). Spelled out: ``is_private`` also covers documentation and
@@ -99,7 +113,8 @@ def user_field(username: str | None) -> str:
 
 def ip_field(raw: str | None) -> str:
     """The canonical address, or ``-``. IPv4-mapped IPv6 is shown as IPv4."""
-    if not raw:
+    if not raw or "%" in raw:
+        # No zone id: ``str(ip_address("fe80::1%x\ny"))`` would give it back verbatim.
         return "-"
     try:
         address = ipaddress.ip_address(raw)
@@ -130,11 +145,20 @@ def _undeclared_local_proxy(scope: Mapping[str, Any]) -> bool:
 def format_line(
     *, ip: str | None, route: str, reason: str, via: str, proxied: bool, username: str | None
 ) -> str:
-    """The message of one ``AUTH_FAIL`` record (the contract)."""
-    return (
+    """The message of one ``AUTH_FAIL`` record (the contract).
+
+    Raises ``ValueError`` rather than write a field outside its alphabet.
+    """
+    for name, value in (("route", route), ("reason", reason), ("via", via)):
+        if not _WORD_RE.fullmatch(value):
+            raise ValueError(f"{name} is not a plain word")
+    line = (
         f"{MARKER} ip={ip_field(ip)} route={route} reason={reason} via={via} "
         f"proxied={1 if proxied else 0} user={user_field(username)}"
     )
+    if not _LINE_RE.fullmatch(line):
+        raise ValueError("the AUTH_FAIL line holds a character outside its alphabet")
+    return line
 
 
 def log_auth_failure(
@@ -152,12 +176,17 @@ def log_auth_failure(
             return
         ip = client_ip(scope)  # type: ignore[arg-type]
         proxied = _undeclared_local_proxy(scope)
+    except Exception:
+        logger.error("Could not read an AUTH_FAIL line's fields for route %s", route, exc_info=True)
+        return
+    try:
         line = format_line(
             ip=ip, route=route, reason=reason, via=via, proxied=proxied, username=username
         )
     except Exception:
+        # No line is better than a doubtful one, but the failure still counts.
         logger.error("Could not format an AUTH_FAIL line for route %s", route, exc_info=True)
-        return
-    logger.warning(line)
+    else:
+        logger.warning(line)
     # The built-in ban counts the same failure, with the same fields (MSHL-422).
     ip_ban.note_failure(ip, via=via, proxied=proxied, route=route)
