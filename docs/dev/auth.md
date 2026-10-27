@@ -892,7 +892,14 @@ and none by IP alone behind Docker:
   is its IPv4). **None**, so the pair and per-IP rules are skipped and only the
   username rule applies, only when the configuration says clients share one
   address: `install_kind` `compose` or `container` with
-  `auth_settings.trusted_proxies` empty (read live). Request headers never
+  `auth_settings.trusted_proxies` empty and
+  `auth_settings.addresses_identify_clients` off (both read live, from
+  `proxy_headers`). The owner turns that setting on (Users & Access, "Client
+  addresses", MSHL-424) when the peer address is really the client's own (host
+  network, or a port published without Docker's userland proxy); the panel
+  suggests it when `GET /auth/settings` reports `shared_address_install` and
+  `client_public` (`ratelimit.client_is_public`: the address is global, or
+  unparseable) with no trusted proxy. Request headers never
   decide it: `X-Forwarded-For`, `X-Real-IP` or `Forwarded` from a peer that is
   not a trusted proxy is ignored (the peer is the client, as everywhere) and
   logs a warning once per peer pointing to Trusted proxies, next to the login
@@ -1131,16 +1138,33 @@ no account exists:
    `auth_settings.setup_code_hash`, and the code logged at WARNING. A new code
    replaces the old one at every start. `meshloom-admin setup-code` prints a
    fresh one (`issue_setup_code()`).
-3. On a database created by this start nothing is asked: whoever installed it
-   is in front of it. A restart before the setup makes the database existing,
-   and the code is then asked.
+3. On a database created by this start nothing is asked from the local
+   network: whoever installed it is in front of it. A restart before the setup
+   makes the database existing, and the code is then asked.
+
+**Exposed first run (MSHL-424).** On a fresh database a request is *exposed*
+(`setup_code.request_exposed(scope)`) when it does not come through the LAN
+path (`auth_via` other than `lan`), carries `X-Forwarded-For`, `X-Real-IP` or
+`Forwarded` from a peer that is not a trusted proxy, comes from a client
+address that is not private, loopback, link-local, ULA or CGNAT
+(`ratelimit.client_is_public`, on the address a trusted proxy forwarded), or
+when `auth_settings.public_urls` is not empty. The first exposed `GET
+/api/auth/session` or `POST /api/auth/setup` issues a code
+(`ensure_exposure_code()`, under a lock, only when none is stored), logs it at
+WARNING and answers `setup_code_required: true`; setup without it answers 403
+`auth_setup_code_invalid`. That code is waived for later non-exposed requests
+(kept in memory as `_exposure_code_hash`), so an internet visitor cannot lock
+the owner on the LAN out. A code from `meshloom-admin setup-code` or from a
+restart is required from everyone. Limit: under Docker's userland proxy every
+client appears as the gateway (private), so declare a public URL when the
+instance is published that way.
 
 **Fail closed.** `POST /api/auth/setup` answers 503 `auth_setup_unavailable`
 until `prepare_first_run()` has succeeded in this process: when it raised at
 startup (a locked database), the setup route runs it again and keeps refusing
 while it fails. Setup is also refused when the database existed before this
-start and no code hash is stored, whatever code is sent. `GET
-/api/auth/session` then says `setup_code_required: true`.
+start and no code hash is stored, whatever code is sent, and no exposure code is
+issued then. `GET /api/auth/session` then says `setup_code_required: true`.
 
 Once an account exists the hash is cleared. `POST /api/auth/setup` checks the
 code with digits only (`1234 5678` and `1234-5678` match); wrong codes are
@@ -1174,7 +1198,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | Route | Access | Behaviour |
 |---|---|---|
 | `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey}, auth_compat: {basic}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via`, `instance {name, version}` (name: the radio's name, or absent) |
-| `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
+| `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required (existing database, or an exposed request, "Exposed first run") and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
 | `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
 | `POST /auth/login/2fa` | public | `{pending_token, code}` or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
@@ -1209,8 +1233,8 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/pair` | public, login delays per client (no username slow-down) | `{code, device_name (1-64), extensions?}` → 201 `{token, token_id, scopes, user {id, username, display_name}, urls}`: the device token (origin `pairing`, no expiry) of the code's creator with exactly its scopes. 410 `auth_pairing_expired` for every bad code (one answer), 403 `auth_pairing_ingress`, 429 `auth_rate_limited`, 409 `auth_token_limit` ([Device pairing](device-pairing.md)) |
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
-| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, session_lifetime_days, ingress_default_role, security_notices, require_2fa_for_admins}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; days, 30 by default; `member` by default; the Access security notice codes, read only) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `session_lifetime_days` 1 to 365 (422 otherwise; audited with the key `lifetime_days`, because the audit filter refuses keys containing `session`); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). One `settings.changed` row per field |
+| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, session_lifetime_days, ingress_default_role, security_notices, require_2fa_for_admins, addresses_identify_clients, shared_address_install, client_public}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; days, 30 by default; `member` by default; the Access security notice codes, read only; `shared_address_install`: a `compose` or `container` install; `client_public`: this request's client address is public; both read only) |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `session_lifetime_days` 1 to 365 (422 otherwise; audited with the key `lifetime_days`, because the audit filter refuses keys containing `session`); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). `addresses_identify_clients` (bool, off by default; "Login delays"). One `settings.changed` row per field |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
 
 Every route above that changes something writes one audit row ("Audit log").
@@ -1225,7 +1249,7 @@ The setup page does this in a browser; from a shell (scripts, tests) it is:
 ```bash
 curl -c jar -H 'Content-Type: application/json' \
   -d '{"username":"owner","password":"a long passphrase","setup_code":"12345678"}' \
-  http://HOST:8000/api/auth/setup        # setup_code only on an existing database
+  http://HOST:8000/api/auth/setup        # setup_code: existing database, or reached from outside the LAN
 curl -c jar -H 'Content-Type: application/json' \
   -d '{"username":"owner","password":"a long passphrase"}' http://HOST:8000/api/auth/login
 curl -b jar http://HOST:8000/api/auth/session

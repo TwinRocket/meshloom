@@ -376,7 +376,9 @@ Assistant identity was made admin; never cleared), `require_2fa_for_admins`
 (migration 109, off: admins with a password and no second factor reach only the
 enrolment routes), `device_cookie_key` (migration 119: hex HMAC-SHA256 key of the
 known-device cookies, NULL until first use, replaced by `meshloom-admin
-rotate-device-key`, cleared in the SQLite download). The CORS list stays `app_settings.auth_allowed_origins`.
+rotate-device-key`, cleared in the SQLite download), `addresses_identify_clients`
+(migration 134, off: under Docker without a trusted proxy the per-IP login rules
+apply only when it is on, `docs/dev/auth.md`, "Login delays"). The CORS list stays `app_settings.auth_allowed_origins`.
 `AuthSettingsRepository` (`auth.py`).
 
 ### `plugins`

@@ -11,7 +11,7 @@ If you lose the administrator's password, you do not need the web interface to g
 
 ## First sign-in
 
-The first time Meshloom opens, it asks for the administrator account (see [First launch](/en/docs/first-run/)). A Meshloom that already held data before it asked for accounts also asks for an [installation code](#the-installation-code), so nobody else on the network can claim it first. Under Home Assistant, the first Home Assistant user to open Meshloom becomes its administrator and nothing is asked ([Home Assistant](#home-assistant)). A kiosk screen has its own way in ([Kiosk screen](#kiosk-screen)).
+The first time Meshloom opens, it asks for the administrator account (see [First launch](/en/docs/first-run/)). A Meshloom that already held data before it asked for accounts also asks for an [installation code](#the-installation-code), so nobody else on the network can claim it first. So does a new Meshloom opened from outside the local network (from a public address, through a proxy you have not listed, or once a public address is declared), so the first internet visitor cannot claim it; from the local network a new Meshloom asks for no code. Under Home Assistant, the first Home Assistant user to open Meshloom becomes its administrator and nothing is asked ([Home Assistant](#home-assistant)). A kiosk screen has its own way in ([Kiosk screen](#kiosk-screen)).
 
 ## Roles
 
@@ -89,7 +89,7 @@ An IPv6 address counts by its /64 block: one home or server usually holds a whol
 
 From a browser Meshloom does not know yet (a new device, a cleared cookie, after a key rotation):
 
-- **On a Docker install (Compose or a plain container) with no trusted proxy set**, every visitor can arrive from Docker's own address, so the first and last rules are off and only the per-account rule applies. A guesser on the same address competes with you for the one attempt a second: one sending many attempts a second can keep you out until you use a browser Meshloom knows, or list your reverse proxy in **Trusted proxies**.
+- **On a Docker install (Compose or a plain container) with no trusted proxy set**, every visitor can arrive from Docker's own address, so the first and last rules are off and only the per-account rule applies. A guesser on the same address competes with you for the one attempt a second: one sending many attempts a second can keep you out until you use a browser Meshloom knows, or list your reverse proxy in **Trusted proxies**. When the address Meshloom sees really is each visitor's own (host network, or a port published without Docker's proxy), turn on **Settings → Users & Access → Client addresses → Client addresses identify clients**: all three rules then apply. The panel suggests it when you connect from a public address and no proxy is listed. API: `PATCH /api/auth/settings` with `{"addresses_identify_clients": true}` (off by default).
 - **Behind a reverse proxy that is not listed in Trusted proxies**, every visitor counts as the proxy's address, so one guesser's delays apply to everyone behind it. List the proxy. Meshloom logs a warning naming it.
 - **Otherwise**, each visitor has their own address and a guesser elsewhere only makes you wait up to a second.
 
@@ -259,7 +259,7 @@ Passwords are at least 12 characters and are never taken from the command line, 
 
 ### The installation code
 
-When Meshloom is updated from an older version, the first administrator must prove they have access to the machine by typing an installation code. Meshloom stores only a fingerprint of the code, so it cannot be shown again: `meshloom-admin setup-code` makes a **new** one and the previous code stops working. The command only works while no account exists; afterwards use `create-admin` or `reset-password`.
+When Meshloom is updated from an older version, the first administrator must prove they have access to the machine by typing an installation code. A new Meshloom asks for one too when it is first opened from outside the local network: it writes the code to its log at that moment, and the code stays valid until the next restart. The owner on the local network still sets up without it, unless a public address is declared or the code came from `meshloom-admin setup-code` or a restart. Meshloom stores only a fingerprint of the code, so it cannot be shown again: `meshloom-admin setup-code` makes a **new** one and the previous code stops working. The command only works while no account exists; afterwards use `create-admin` or `reset-password`.
 
 The code has 8 digits; Meshloom also prints a new one in its log at each start while no account exists. Spaces or dashes typed inside it are ignored. A fresh installation asks for no code. If Meshloom could not prepare the first start (the log says so), creating the administrator is refused until it can; restart Meshloom if it lasts. A code printed by `meshloom-admin setup-code` in the meantime stays valid: Meshloom does not replace it when it tries again.
 

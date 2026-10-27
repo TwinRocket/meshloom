@@ -17,7 +17,7 @@ From another device on the same network, use the machine's IP address with port 
 
 The first time you open Meshloom, before anything else, it asks you to create the administrator account. Choose a user name and a password of at least 12 characters (a few words in a row make a good one; it must differ from the user name and not be a common password), and optionally a display name. The language buttons under the form switch the interface.
 
-If this Meshloom already held data before it asked for accounts (an upgrade), the page also asks for the **installation code**: 8 digits that Meshloom prints in its log each time it starts while no account exists. Spaces and dashes in the code do not matter. To find it:
+If this Meshloom already held data before it asked for accounts (an upgrade), the page also asks for the **installation code**: 8 digits that Meshloom prints in its log each time it starts while no account exists. A new Meshloom opened for the first time from outside the local network (from a public address, through a proxy you have not listed, or with a public address declared) asks for one too: it prints it in its log at that moment. From the local network, a new Meshloom asks for no code. Spaces and dashes in the code do not matter. To find it:
 
 - **Docker:** `docker logs <container>` and look for "installation code".
 - **Package install:** `journalctl -u meshloom`.

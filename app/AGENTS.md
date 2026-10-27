@@ -106,6 +106,8 @@ and the OpenAPI page (`/docs`), not a table here.
   `X-Forwarded-For` entry) and `scope["scheme"]` for a listed peer only;
   everything else (`client_ip()`, `request_is_secure()`, audit, sessions) reads
   the scope. `peer_address(scope)` keeps the TCP peer (the ingress check uses it).
+  It also holds `auth_settings.addresses_identify_clients` in memory
+  (`addresses_identify_clients()`, read live by the login limiter, MSHL-424).
   **Launchers rule:** every uvicorn command line (the four launchers, the
   snake-oil compose, every documented command) carries `--no-proxy-headers`, so
   uvicorn never rewrites the scope itself (`tests/test_auth_ingress.py` parses the
@@ -665,6 +667,8 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 134 (MSHL-424) adds `auth_settings.addresses_identify_clients` (off); no
+  `SCHEMA_TABLES` change, like the other columns added after 101.
 - Migration 133 (MSHL-163) adds `raw_packets.payload_type` and its index but does not backfill:
   the lifespan runs `backfill_payload_types` in the background (batched, resumable); the
   history route uses the index only once no row is NULL (`docs/dev/database.md`, `raw_packets`).
