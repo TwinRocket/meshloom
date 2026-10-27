@@ -62,6 +62,49 @@ async function addRule(cidr: string, userId: string) {
 }
 
 describe('AccessTrustedNetworksPanel', () => {
+  it('shows the login-free switch off with its warning, and saves it at once', async () => {
+    settings.trusted_networks = [{ cidr: '192.168.1.0/24', user_id: 2 }];
+    const patch = vi
+      .spyOn(api, 'patchAuthSettings')
+      .mockResolvedValue({ ...settings, lan_login_free: true });
+    render(<AccessTrustedNetworksPanel />);
+    const box = await screen.findByLabelText(t('settings.access.trustedNetworks.switch'));
+    expect(box).not.toBeChecked();
+    expect(screen.getByTestId('lan-login-free-warning')).toHaveTextContent(
+      t('settings.access.trustedNetworks.switchWarning')
+    );
+    expect(screen.getByTestId('lan-login-free-off-notice')).toBeInTheDocument();
+    fireEvent.click(box);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ lan_login_free: true }));
+    await waitFor(() => expect(box).toBeChecked());
+    expect(screen.queryByTestId('lan-login-free-off-notice')).toBeNull();
+    expect(toast.success).toHaveBeenCalledWith(t('settings.access.trustedNetworks.switchOn'));
+  });
+
+  it('reads the switch as on, and turns it off', async () => {
+    settings.lan_login_free = true;
+    const patch = vi
+      .spyOn(api, 'patchAuthSettings')
+      .mockResolvedValue({ ...settings, lan_login_free: false });
+    render(<AccessTrustedNetworksPanel />);
+    const box = await screen.findByLabelText(t('settings.access.trustedNetworks.switch'));
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ lan_login_free: false }));
+    await waitFor(() => expect(box).not.toBeChecked());
+  });
+
+  it('keeps the switch as it was when the server refuses', async () => {
+    vi.spyOn(api, 'patchAuthSettings').mockRejectedValue(
+      new ApiError('Forbidden', 403, { code: 'auth_forbidden', message: 'x' })
+    );
+    render(<AccessTrustedNetworksPanel />);
+    const box = await screen.findByLabelText(t('settings.access.trustedNetworks.switch'));
+    fireEvent.click(box);
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(box).not.toBeChecked();
+  });
+
   it('saves a rule and offers only enabled accounts', async () => {
     const patch = vi.spyOn(api, 'patchAuthSettings').mockResolvedValue({
       ...settings,

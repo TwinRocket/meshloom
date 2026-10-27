@@ -48,7 +48,6 @@ const sessionOf = (role: AuthRole): AuthSessionInfo => ({
   setup_required: false,
   setup_code_required: false,
   methods: { password: true, ingress: false },
-  auth_compat: { basic: false },
   user: { id: 1, username: role, display_name: role, role },
   via: 'lan',
 });

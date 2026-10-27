@@ -75,7 +75,7 @@ type GateState =
 /**
  * The session gate: nothing under it mounts, so nothing loads, until the server knows
  * who is calling. A first run shows the setup page, an anonymous visit the login page;
- * a deployment whose Basic credentials already authenticate is simply signed in, and
+ * a request the server already signs in (Home Assistant ingress, a trusted network)
  * sees neither. A session that ends while the app is open keeps the app mounted under a
  * re-login dialog, so navigation state and drafts survive.
  */

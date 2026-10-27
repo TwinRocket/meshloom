@@ -12,7 +12,9 @@ import type {
 import { isPublicOrWideCidr } from '../../lib/cidr';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 import { toast } from '../ui/sonner';
 import { SELECT_CLASS } from './accessShared';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
@@ -56,9 +58,12 @@ export function AccessSecurityNoticeBanner({ notices }: { notices: AccessSecurit
 }
 
 /**
- * Administrator only: trusted networks, `cidr → account` rules that sign a direct
- * request in without a login (`app/auth/providers/trusted_network.py`). The server
- * has the final say on every rule (coded errors under `errors.auth_trusted_*`).
+ * Administrator only: login-free on the local network (`lan_login_free`, off by
+ * default, saved at once and audited by the server) and its trusted networks,
+ * `cidr → account` rules that sign a direct request from a local address in without a
+ * login (`app/auth/providers/trusted_network.py`). The rules apply only while the
+ * switch is on. The server has the final say on every rule (coded errors under
+ * `errors.auth_trusted_*`).
  */
 export function AccessTrustedNetworksPanel({
   onNotices,
@@ -70,6 +75,8 @@ export function AccessTrustedNetworksPanel({
   const [draft, setDraft] = useState<DraftRule[]>([]);
   const [users, setUsers] = useState<AuthUserRow[]>([]);
   const [saving, setSaving] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +86,7 @@ export function AccessTrustedNetworksPanel({
         setUsers(list);
         setSaved(settings.trusted_networks ?? []);
         setDraft(toDraft(settings.trusted_networks));
+        setEnabled(settings.lan_login_free ?? false);
         onNotices?.(settings.security_notices ?? []);
       })
       .catch(() => {
@@ -112,6 +120,25 @@ export function AccessTrustedNetworksPanel({
   const update = (index: number, patch: Partial<DraftRule>) =>
     setDraft((rules) => rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)));
 
+  const toggle = async (next: boolean) => {
+    setSwitching(true);
+    try {
+      const settings: AuthSettings = await api.patchAuthSettings({ lan_login_free: next });
+      setEnabled(settings.lan_login_free ?? next);
+      toast.success(
+        t(
+          next
+            ? 'settings.access.trustedNetworks.switchOn'
+            : 'settings.access.trustedNetworks.switchOff'
+        )
+      );
+    } catch (err) {
+      toast.error(formatAccessError(err, t));
+    } finally {
+      setSwitching(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true);
     try {
@@ -137,6 +164,30 @@ export function AccessTrustedNetworksPanel({
         storedOn="server"
         dirty={dirty}
       />
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="access-lan-login-free"
+          checked={enabled}
+          disabled={switching}
+          onCheckedChange={(checked) => void toggle(checked === true)}
+        />
+        <Label htmlFor="access-lan-login-free">{t('settings.access.trustedNetworks.switch')}</Label>
+      </div>
+      <p
+        role="note"
+        data-testid="lan-login-free-warning"
+        className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-[0.8125rem]"
+      >
+        {t('settings.access.trustedNetworks.switchWarning')}
+      </p>
+      {!enabled && saved.length > 0 && (
+        <p
+          className="text-[0.8125rem] text-muted-foreground"
+          data-testid="lan-login-free-off-notice"
+        >
+          {t('settings.access.trustedNetworks.switchOffNotice')}
+        </p>
+      )}
       <p className="text-[0.8125rem] text-muted-foreground">
         {t('settings.access.trustedNetworks.help')}
       </p>

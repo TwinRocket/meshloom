@@ -20,7 +20,6 @@ const sessionOf = (role: AuthRole, via: 'lan' | 'ingress' = 'lan'): AuthSessionI
   setup_required: false,
   setup_code_required: false,
   methods: { password: true, ingress: false },
-  auth_compat: { basic: false },
   user: { id: 1, username: 'root', display_name: 'Root', role },
   via,
 });

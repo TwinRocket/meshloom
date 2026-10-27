@@ -58,7 +58,7 @@
       "open": "Compte de {{name}}",
       "signOut": "Se déconnecter",
       "ingressNote": "Home Assistant vous connecte : il n'y a pas de session Meshloom à terminer.",
-      "basicNote": "Ce navigateur se connecte avec des identifiants Basic enregistrés : il n'y a pas de session à terminer. Fermez le navigateur ou oubliez l'identifiant enregistré pour vous déconnecter."
+      "stillSignedInNote": "Cet appareil est toujours connecté : le serveur le connecte sans identification (accès sans connexion sur le réseau local). Un administrateur peut le changer dans Réglages → Utilisateurs et accès."
     }
   }
 }

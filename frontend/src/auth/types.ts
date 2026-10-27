@@ -31,7 +31,6 @@ export interface AuthSessionInfo {
   setup_required: boolean;
   setup_code_required: boolean;
   methods: { password: boolean; ingress: boolean; passkey?: boolean };
-  auth_compat: { basic: boolean };
   /** Whether the server saw the request as https (a trusted proxy's `X-Forwarded-Proto`). */
   secure?: boolean;
   /** The installation code, only for the kiosk screen (a direct loopback request, setup open). */
@@ -55,6 +54,8 @@ export interface AuthSettings {
   ingress_default_role: AuthRole;
   /** Networks whose direct requests act as an account without a login. Empty by default. */
   trusted_networks?: TrustedNetworkRule[];
+  /** Login-free on the local network: the master switch of `trusted_networks` (off by default). */
+  lan_login_free?: boolean;
   /** The Access security notice, computed by the server (read only). */
   security_notices?: AccessSecurityNotice[];
   /** Declared public addresses, canonical `https://host[:port][/prefix]`. Their hosts pass the Host guard. */
