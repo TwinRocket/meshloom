@@ -6,8 +6,8 @@ The built-in ban (MSHL-422, `app/auth/ip_ban.py`, `docs/dev/auth.md` "IP ban")
 consumes the same events: `fail_log` hands it the fields of each line it
 writes, so it counts exactly the `proxied=0` lines, with the same address, and
 never a ban-exempt one (loopback, private, link-local, ULA, or the host's own
-on-link IPv6 prefixes; a tailnet `100.64.0.0/10` address is counted since
-MSHL-434).
+on-link IPv6 prefixes; a tailnet address, `100.64.0.0/10` or Tailscale's IPv6
+`fd7a:115c:a1e0::/48`, is counted since MSHL-434).
 Decided as a contract with the Accès scoping (remote propositions v2, §5.3 and
 decision 6, MSHL-421). Code: `app/auth/fail_log.py` (rules in its header) and
 the call sites listed under "Routes". Tests: `tests/test_auth_fail_log.py`,
@@ -30,7 +30,7 @@ to this contract is a `CONTRACTS:` commit.
 | 1 | First version (MSHL-421): `via` is the transport; `proxied=1` only for a local peer that is not a declared proxy. |
 | 1 | Route `basic` removed with HTTP Basic auth (MSHL-100): a `Basic` header is no credential and writes no line. |
 | 1 | `via=relay` lines pinned (MSHL-431, before the relay ships): always `proxied=0`, and `ip=-` unless the relayed client is public. Same format and fields. |
-| 1 | A tailnet peer (`100.64.0.0/10`) is no longer a local proxy (MSHL-434): with forwarding headers it writes `proxied=0` and `ip` is that peer, like a public one. A tailnet hop (Tailscale, Headscale) forwards from loopback, so a `100.x` peer is a client. Same format and fields. |
+| 1 | A tailnet peer (`100.64.0.0/10`, or Tailscale's IPv6 `fd7a:115c:a1e0::/48` inside `fc00::/7`) is no longer a local proxy (MSHL-434): with forwarding headers it writes `proxied=0` and `ip` is that peer, like a public one. A tailnet hop (Tailscale, Headscale) forwards from loopback, so a tailnet peer is a client; a reverse proxy on another tailnet device must be declared, or its lines name it and it gets banned. Same format and fields. |
 
 ## The record
 
@@ -45,11 +45,11 @@ space or any other control character (see "Escaping").
 
 | Field | Value |
 |---|---|
-| `ip` | The client address as the auth gate sees it, `client_ip()`: the TCP peer, or the client a declared trusted proxy forwarded (`docs/dev/auth.md`, "Proxy headers"). Canonical form (`2001:db8::1`, lower case); an IPv4-mapped IPv6 address is shown as IPv4. `-` when there is none, it is not an IP address, or it carries an IPv6 zone id (`fe80::1%eth0`: Python keeps any text after the `%`), so no request data reaches the line as free text. Through the relay (`via=relay`), `ip` is the client the dispatcher set only when it is a public address (not in the ranges listed under `proxied` below, nor the tailnet range `100.64.0.0/10`); a local, tailnet or missing one is `-`, since the TCP peer is then the tunnel's local end, never a client |
+| `ip` | The client address as the auth gate sees it, `client_ip()`: the TCP peer, or the client a declared trusted proxy forwarded (`docs/dev/auth.md`, "Proxy headers"). Canonical form (`2001:db8::1`, lower case); an IPv4-mapped IPv6 address is shown as IPv4. `-` when there is none, it is not an IP address, or it carries an IPv6 zone id (`fe80::1%eth0`: Python keeps any text after the `%`), so no request data reaches the line as free text. Through the relay (`via=relay`), `ip` is the client the dispatcher set only when it is a public address (not in the ranges listed under `proxied` below, nor the tailnet ranges `100.64.0.0/10` and `fd7a:115c:a1e0::/48`); a local, tailnet or missing one is `-`, since the TCP peer is then the tunnel's local end, never a client |
 | `route` | Where the credential was presented, see "Routes" |
 | `reason` | Why it was refused, from the closed list of its route |
 | `via` | The transport: `lan` or `relay` (`request_via()`), never the provider that signed the request in (a request a trusted-network rule signs in is `lan`). Home Assistant ingress never writes the line: its peer is the Supervisor, which must never be banned |
-| `proxied` | `1` when the TCP peer is a ban-exempt address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `169.254.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`; `local_address.is_ban_exempt()` in `app/net/local_address.py`, an IPv4-mapped address judged as its IPv4; the tailnet range `100.64.0.0/10` is not in it since MSHL-434), is not a declared trusted proxy, and sends `X-Forwarded-For`, `X-Real-IP` or `Forwarded`: most likely a local reverse proxy nobody declared, so `ip` is that proxy, shared by every client behind it: **a consumer must ignore `proxied=1` lines**. `0` otherwise, including a public peer that sends those headers: it is the client itself, `ip` is that peer, and adding a header never escapes a ban. Always `0` with `via=relay`: the local peer is the tunnel and any forwarding header comes from the remote client |
+| `proxied` | `1` when the TCP peer is a ban-exempt address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `127.0.0.0/8`, `169.254.0.0/16`, `::1`, `fc00::/7` except `fd7a:115c:a1e0::/48`, `fe80::/10`; `local_address.is_ban_exempt()` in `app/net/local_address.py`, an IPv4-mapped address judged as its IPv4; the tailnet ranges `100.64.0.0/10` and `fd7a:115c:a1e0::/48` are not in it since MSHL-434), is not a declared trusted proxy, and sends `X-Forwarded-For`, `X-Real-IP` or `Forwarded`: most likely a local reverse proxy nobody declared, so `ip` is that proxy, shared by every client behind it: **a consumer must ignore `proxied=1` lines**. `0` otherwise, including a public peer that sends those headers: it is the client itself, `ip` is that peer, and adding a header never escapes a ban. Always `0` with `via=relay`: the local peer is the tunnel and any forwarding header comes from the remote client |
 | `user` | `h:` and 6 lower-case hex characters: an HMAC-SHA256 of the typed name, folded like a username (`username_key()`), under a random key drawn at each start. `-` when the route takes no name. Never the name itself (someone typing a password into the name field must not leave it in the logs). The hash groups attempts on one name within one run and cannot be checked against a guess offline; it changes at each restart |
 
 ## Routes
