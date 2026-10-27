@@ -5,11 +5,11 @@ level: deep
 order: 24
 ---
 
-Meshloom écoute sur le port 8000 de la machine qui l’exécute, et rien de plus. Pour le joindre depuis l’extérieur de chez vous ou de votre bureau, ne redirigez pas ce port sur votre box : placez devant lui un élément que vous contrôlez. Cette page présente trois voies, toutes sur votre propre compte ou vos propres machines, sans rien demander au projet Meshloom. L’add-on Home Assistant a [sa propre note](#add-on-home-assistant).
+Meshloom écoute sur le port 8000 de la machine qui l’exécute, et rien de plus. Pour le joindre depuis l’extérieur de chez vous ou de votre bureau, ne redirigez pas ce port sur votre box : placez devant lui un élément que vous contrôlez. Cette page présente trois voies, toutes sur votre propre compte ou vos propres machines, sans rien demander au projet Meshloom. L’add-on Home Assistant a [sa propre note](#add-on-home-assistant). Deux pages d’entrée courtes couvrent les cas les plus courants : [Tailscale serve](/docs/deep/self-host-tailscale/) et [votre reverse-proxy existant](/docs/deep/self-host-proxy/) (Caddy, nginx, Traefik).
 
 Depuis la 5.0, chaque page et chaque route d’API demande un compte, quelle que soit la voie : un tunnel ou un proxy n’ouvre donc jamais Meshloom sans connexion. Lisez d’abord [Comptes et accès](/docs/deep/access/), et donnez à chaque administrateur un mot de passe solide, la [double authentification](/docs/deep/access/#la-double-authentification) ou une [passkey](/docs/deep/access/#les-passkeys).
 
-> **Ce qui a été testé.** Le côté Meshloom de chaque voie (quel réglage changer, ce que Meshloom fait des en-têtes reçus) a été vérifié dans le code de cette version. Les configurations Cloudflare, Tailscale, Caddy, nginx et Traefik ci-dessous sont les méthodes documentées par ces produits et n’ont **pas** été exécutées de bout en bout par l’auteur de cette page : elles sont marquées *non testé* là où elles apparaissent. Dites-nous ce que vous constatez.
+> **Ce qui a été testé.** Le côté Meshloom de chaque voie (quel réglage changer, ce que Meshloom fait des en-têtes reçus) a été vérifié dans le code de cette version. Les extraits Caddy et nginx ci-dessous, et la forme « fournisseur de fichiers » de Traefik, ont été exécutés devant Meshloom 5.0 lors d’un essai local (connexion, cookie sécurisé, WebSocket en direct). Les configurations Cloudflare, Tailscale et WireGuard, et les labels Docker de Traefik, sont les méthodes documentées par ces produits et n’ont **pas** été exécutées de bout en bout par l’auteur de cette page : elles sont marquées *non testé* là où elles apparaissent. Dites-nous ce que vous constatez.
 
 ## Ce que Meshloom doit savoir
 
@@ -91,7 +91,7 @@ Dans les deux cas, le visiteur joint Meshloom directement (aucun intermédiaire)
 
 ## Votre propre reverse-proxy
 
-*Non testé de bout en bout* pour les extraits exacts ; les en-têtes qu’ils posent sont ceux listés dans [HTTPS](/docs/deep/https/#proxies-de-confiance). Il faut un nom qui pointe vers le proxy et un certificat pour ce nom (Caddy en obtient un tout seul). Laisser le port 80 ou 443 joignable depuis Internet chez vous est votre décision : le proxy est alors exposé, gardez-le à jour.
+Les extraits Caddy et nginx ont été exécutés de bout en bout ; les labels Docker de Traefik non (sa forme « fournisseur de fichiers » oui). Les en-têtes qu’ils posent sont ceux listés dans [HTTPS](/docs/deep/https/#proxies-de-confiance). Il faut un nom qui pointe vers le proxy et un certificat pour ce nom (Caddy en obtient un tout seul). Laisser le port 80 ou 443 joignable depuis Internet chez vous est votre décision : le proxy est alors exposé, gardez-le à jour.
 
 **Caddy.** Conserve `Host`, pose les deux en-têtes de transfert, laisse passer le WebSocket :
 
