@@ -20,7 +20,7 @@ to this contract is a `CONTRACTS:` commit.
 
 | Version | Change |
 |---|---|
-| 1 | First version (MSHL-421). |
+| 1 | First version (MSHL-421): `via` is the transport; `proxied=1` only for a local peer that is not a declared proxy. |
 
 ## The record
 
@@ -38,8 +38,8 @@ space.
 | `ip` | The client address as the auth gate sees it, `client_ip()`: the TCP peer, or the client a declared trusted proxy forwarded (`docs/dev/auth.md`, "Proxy headers"). Canonical form (`2001:db8::1`, lower case); an IPv4-mapped IPv6 address is shown as IPv4. `-` when there is none or it is not an IP address, so no request data reaches the line as free text |
 | `route` | Where the credential was presented, see "Routes" |
 | `reason` | Why it was refused, from the closed list of its route |
-| `via` | `lan` or `relay` (`request_via()`). Home Assistant ingress never writes the line: its peer is the Supervisor, which must never be banned |
-| `proxied` | `1` when the request carries `X-Forwarded-For`, `X-Real-IP` or `Forwarded` from a peer that is not a declared trusted proxy. `ip` is then that proxy, shared by every client behind it: **a consumer must ignore `proxied=1` lines**. `0` otherwise |
+| `via` | The transport: `lan` or `relay` (`request_via()`), never the provider that signed the request in (a request a trusted-network rule signs in is `lan`). Home Assistant ingress never writes the line: its peer is the Supervisor, which must never be banned |
+| `proxied` | `1` when the TCP peer is a local address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`; `LOCAL_NETWORKS`), is not a declared trusted proxy, and sends `X-Forwarded-For`, `X-Real-IP` or `Forwarded`: most likely a local reverse proxy nobody declared, so `ip` is that proxy, shared by every client behind it: **a consumer must ignore `proxied=1` lines**. `0` otherwise, including a public peer that sends those headers: it is the client itself, `ip` is that peer, and adding a header never escapes a ban |
 | `user` | `h:` and 6 lower-case hex characters: an HMAC-SHA256 of the typed name, folded like a username (`username_key()`), under a random key drawn at each start. `-` when the route takes no name. Never the name itself (someone typing a password into the name field must not leave it in the logs). The hash groups attempts on one name within one run and cannot be checked against a guess offline; it changes at each restart |
 
 ## Routes
@@ -53,7 +53,7 @@ space.
 | `passkey` | `POST /api/auth/webauthn/login/verify`: unknown or used challenge, or an assertion that does not check | `bad_passkey` |
 | `basic` | `Authorization: Basic` (4.x compatibility, until it is removed): wrong credential, or an account with a second factor | `invalid_credentials` |
 | `bearer` | `Authorization: Bearer`: unknown, revoked or expired API or device token | `invalid_token` |
-| `pair` | `POST /api/auth/pair`: unknown, malformed, used or expired pairing code | `invalid_code` |
+| `pair` | `POST /api/auth/pair`: unknown, malformed (within the body's length limit), used or expired pairing code (410) | `invalid_code` |
 | `setup` | `POST /api/auth/setup`: wrong installation code | `invalid_setup_code` |
 
 Not written:
@@ -62,6 +62,8 @@ Not written:
   `auth_rate_limited`), or by the busy argon2id queue (503 `auth_busy`);
 - a precondition: setup already done (409), a full token table on pairing
   (409), a route closed under ingress (403);
+- a body that fails validation (422), such as a pairing code longer than the
+  body allows;
 - anything under ingress;
 - a password or code checked on an authenticated route (re-authentication,
   enrolment), a kiosk exchange, an expired or unknown session cookie.
@@ -72,8 +74,8 @@ The handlers (`app/config.py`) write
 `%(asctime)s - %(name)s - %(levelname)s - %(message)s` with the date as
 `%Y-%m-%d %H:%M:%S` in the host's local time, to standard error (the journal on
 a package install, the container log under Docker). That prefix is the logging
-setup, not this contract. The full line, as the test pins it (Python regex,
-`host` is the address to act on):
+setup, not this contract. The full line (Python regex, `host` is the address
+to act on); the test reads it from this page:
 
 ```
 ^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} - meshloom\.auth - WARNING - AUTH_FAIL ip=(?P<host>\S+) route=\S+ reason=\S+ via=\S+ proxied=0 user=\S+$
