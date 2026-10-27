@@ -72,20 +72,29 @@ async def _channel(client, channel_id):
     return response.json()
 
 
-def _walk_strings(value):
+# Keys whose values are ids the server generates (``apprise-<8 random hex>``).
+_GENERATED_ID_KEYS = {"id", "converted_to"}
+
+
+def _walk_strings(value, key=None):
+    """Yield ``(text, is_generated_id)`` for every key and value of a JSON payload."""
     if isinstance(value, dict):
-        for key, item in value.items():
-            yield str(key)
-            yield from _walk_strings(item)
+        for k, item in value.items():
+            yield str(k), False
+            yield from _walk_strings(item, k)
     elif isinstance(value, list):
         for item in value:
-            yield from _walk_strings(item)
+            yield from _walk_strings(item, key)
     elif value is not None:
-        yield str(value)
+        yield str(value), key in _GENERATED_ID_KEYS
 
 
 def _assert_no_url_or_secret(payload, urls) -> None:
-    """No secret part, no URL (whole or with its scheme) and no ``config`` anywhere."""
+    """No secret part, no URL (whole or with its scheme) and no ``config`` anywhere.
+
+    A generated id is random hex, so a short secret part (``1001``, a chat id) can occur in
+    it by chance: ids are only checked against the needles too long to match by chance
+    (a leaked URL or token would still hit those, and ``://``)."""
     from app.net.apprise_urls import url_secret_parts
 
     needles = set(SECRETS)
@@ -93,9 +102,11 @@ def _assert_no_url_or_secret(payload, urls) -> None:
         needles.add(url)
         needles.add(url.split("://", 1)[1])
         needles.update(p for p in url_secret_parts(url) if len(p) >= 4)
-    for text in _walk_strings(payload):
+    for text, generated_id in _walk_strings(payload):
         assert "://" not in text, text
         for needle in needles:
+            if generated_id and len(needle) < 8:
+                continue
             assert needle not in text, needle
     assert "config" not in list(_walk_keys(payload))
 
