@@ -143,7 +143,10 @@ async function reconcileOnce(): Promise<void> {
 
 /** Control packets asked per history request (the route's `limit`). */
 export const FEED_CONTROL_HISTORY_LIMIT = 200;
-/** Newest stored packets the server may walk per request (its own maximum). */
+/**
+ * Newest stored packets the server may walk per request (its own maximum). Ignored once
+ * `raw_packets.payload_type` is populated (the index serves the filter, no scan cap).
+ */
 export const FEED_CONTROL_HISTORY_MAX_SCAN = 20_000;
 
 /**

@@ -298,7 +298,13 @@ async def get_raw_packet_history(
     until: int | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=HISTORY_ITEM_LIMIT),
     after_id: int | None = Query(default=None, ge=1),
-    max_scan: int = Query(default=HISTORY_SCAN_LIMIT, ge=1, le=HISTORY_SCAN_LIMIT),
+    max_scan: int = Query(
+        default=HISTORY_SCAN_LIMIT,
+        ge=1,
+        le=HISTORY_SCAN_LIMIT,
+        description="Cap on rows whose header is parsed for a payload_type filter. Ignored once "
+        "every stored packet has a payload_type (migration 133): the index serves the filter.",
+    ),
 ) -> RawPacketHistoryResponse:
     """Return a bounded newest-first page of stored raw packets."""
     if since is not None and until is not None and since > until:

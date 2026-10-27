@@ -14,6 +14,7 @@ so the guards count work instead.
 | Guard | Where | What it pins |
 |---|---|---|
 | Query plans | `tests/test_messages_feed_filters.py::test_listing_plan_uses_index_without_temp_sort` | `EXPLAIN QUERY PLAN` of `GET /api/messages` for every combination the Feed sends: type (any, CHAN, PRIV) x outgoing (any, true, false) x cursor (first page, `before`/`before_id`, `since_id`), plus the blocked lists, on a seeded table. Each plan must use an index and no temp B-tree. No index was added: no plan degrades. |
+| Control history plan | `tests/test_raw_packet_payload_type.py::test_plan_uses_the_payload_type_index_without_temp_sort` | `EXPLAIN QUERY PLAN` of the per-type query behind `GET /api/packets/history` (`raw_packets.payload_type`, migration 133): `idx_raw_packets_payload_type_timestamp`, no temp B-tree. The slow-marked `test_four_type_history_on_100000_rows_is_fast` (`-m slow`) times the four-type page and the backfill. |
 | Store load | `frontend/src/test/feedLoad.test.ts` | 2 000 message frames and 500 raw packets: comparisons per insertion stay under 2 x (log2(n+1) + 1) in and out of order, one publish per burst, memory bounded (`FEED_MAX_ROWS` = 2 000 messages, `FEED_CONTROL_MAX` = 500 control rows). |
 | Chat isolation | `frontend/src/test/appFeedIsolation.test.tsx` | The `MessageList` mock render count does not change under 2 000 messages and 500 packets. |
 | Row memoisation | `frontend/src/test/feedPerf.test.tsx` | A new message re-renders no row already shown; `createFeedNameResolver` hands a row the same labels object. |

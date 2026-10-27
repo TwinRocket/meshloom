@@ -665,6 +665,9 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 133 (MSHL-163) adds `raw_packets.payload_type` and its index but does not backfill:
+  the lifespan runs `backfill_payload_types` in the background (batched, resumable); the
+  history route uses the index only once no row is NULL (`docs/dev/database.md`, `raw_packets`).
 - Migration 124 (MSHL-365) rewrites Slack preset channels from `token_a`/`token_b`/`token_c` to one
   `webhook` secret (`tests/test_migrations/test_migration_124.py`).
 - Migration 102 adds the share settings to `app_settings` (`share_enabled`,

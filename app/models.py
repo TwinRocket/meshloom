@@ -622,9 +622,13 @@ class RawPacketHistoryResponse(BaseModel):
         description="Rows in the since/until/after_id window (idx_raw_packets_timestamp)"
     )
     truncated: bool = Field(
-        description="True when the bounded header scan stopped at max_scan with more rows left"
+        description="True when the bounded header scan stopped at max_scan with more rows left. "
+        "Always false when the payload_type index serves the filter (no scan, no cap)"
     )
-    scanned: int = Field(description="Rows walked while building this page")
+    scanned: int = Field(
+        description="Rows walked while building this page; with the payload_type index, "
+        "the rows returned"
+    )
 
 
 class UndecryptedGroupTextSample(BaseModel):
