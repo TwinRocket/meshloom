@@ -149,7 +149,12 @@ def is_local(address: IPAddress) -> bool:
 
 
 def bannable(raw: str | None) -> IPAddress | None:
-    """The address a failure from ``raw`` counts against, or None."""
+    """The address a failure from ``raw`` counts against, or None.
+
+    Surrounding whitespace counts nothing, as the ``AUTH_FAIL`` line shows
+    ``ip=-`` for it (``fail_log.ip_field``)."""
+    if raw is not None and raw != raw.strip():
+        return None
     address = canonical_address(raw)
     if address is None or _local(address) or address.is_unspecified:
         return None

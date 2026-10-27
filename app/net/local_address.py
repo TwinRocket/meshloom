@@ -43,10 +43,13 @@ Rules that hold for every caller:
 
 - An IPv4-mapped IPv6 address (``::ffff:a.b.c.d``) is judged as its IPv4
   address (a dual-stack socket reports IPv4 clients that way).
-- A value that is not an IP address (absent, empty, a name, garbage) is
-  public (fail closed).
-- An IPv6 zone id (``fe80::1%eth0``) is ignored: the address before the
-  ``%`` decides.
+- A value that is not exactly an IP address (absent, empty, a name, garbage,
+  surrounding whitespace, a ``%`` on an IPv4 or IPv4-mapped address) is
+  public (fail closed): a trusted proxy's ``X-Forwarded-For`` value reaches
+  ``scope["client"]`` verbatim, so ``127.0.0.1%x`` or `` 10.0.0.1`` must never
+  read as local.
+- A zone id on a plain IPv6 address (``fe80::1%eth0``) is dropped after
+  ``ipaddress`` accepted it: the address before the ``%`` decides.
 - Listed range by range, never ``ipaddress.is_private`` / ``is_global``: those
   changed between Python 3.11 and 3.13 and cover the documentation ranges.
 
@@ -80,17 +83,21 @@ LOCAL_NETWORKS: tuple[IPNetwork, ...] = tuple(
 def parse_address(raw: str | None) -> IPAddress | None:
     """``raw`` as an address, IPv4-mapped IPv6 as IPv4, or None when it is not one.
 
-    A zone id is dropped (``fe80::1%eth0`` gives ``fe80::1``), so the result
-    never carries request text."""
+    Strict: no whitespace is stripped and ``ipaddress`` alone decides (it
+    refuses a ``%`` on IPv4 and an empty zone). A zone id on a plain IPv6
+    address is dropped (``fe80::1%eth0`` gives ``fe80::1``), so the result never
+    carries request text; on an IPv4-mapped address it is refused."""
     if not raw:
         return None
-    text = raw.strip().split("%", 1)[0]
     try:
-        address = ipaddress.ip_address(text)
+        address = ipaddress.ip_address(raw)
     except ValueError:
         return None
-    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
-        return address.ipv4_mapped
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return None if address.scope_id is not None else address.ipv4_mapped
+        if address.scope_id is not None:
+            address = ipaddress.IPv6Address(int(address))
     return address
 
 

@@ -245,6 +245,9 @@ def test_the_addresses_identify_clients_setting_is_read_live():
         ("::", True),
         ("240.0.0.1", True),
         ("", True),
+        ("127.0.0.1%x", True),
+        (" 10.0.0.1", True),
+        ("::ffff:127.0.0.1%x", True),
         ("not-an-address", True),
     ],
 )

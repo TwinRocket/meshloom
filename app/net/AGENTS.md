@@ -292,8 +292,12 @@ above, and `pairing.is_lan_host`, `backup.endpoint_looks_private` and
   documentation, benchmarking, reserved, unspecified, multicast, NAT64, 6to4,
   Teredo, `fec0::/10` and IPv4-compatible included: a LAN never hands those
   out, so every caller takes its safe side.
-- `parse_address()` unmaps IPv4-mapped IPv6 and drops a zone id; `is_local()`
-  / `is_public()` take text or an address object, and anything that is not an
+- `parse_address()` is strict (`ipaddress.ip_address(raw)`, no strip, no
+  split): whitespace, a `%` on IPv4 or IPv4-mapped, an empty zone are not
+  addresses; a plain IPv6 zone id is dropped after parsing; IPv4-mapped is
+  unmapped. A trusted proxy's `X-Forwarded-For` reaches `scope["client"]`
+  verbatim, so trimming would turn `127.0.0.1%x` local. `is_local()` /
+  `is_public()` take text or an address object, and anything that is not an
   address is public (fail closed); `network_is_local()` for a rule's CIDR.
 - Callers: `ratelimit.client_is_public` (login panel hint, `setup_code`
   exposure), `fail_log` (`proxied`), `ip_ban.is_local`/`bannable` (adds the

@@ -379,6 +379,17 @@ async def test_a_relayed_request_is_exposed_even_from_loopback():
     assert await setup_code.request_exposed({**scope, "auth_via": "lan"}) is False
 
 
+@pytest.mark.parametrize(
+    "client", ["127.0.0.1%x", "10.0.0.1%eth0", " 10.0.0.1", "::ffff:127.0.0.1%x"]
+)
+async def test_a_client_that_is_not_exactly_a_local_address_is_exposed(client):
+    """MSHL-431: a trusted proxy's X-Forwarded-For lands in scope["client"] verbatim."""
+    scope = {"type": "http", "auth_via": "lan", "client": (client, 1), "headers": []}
+    assert await setup_code.request_exposed(scope) is True
+    exact = client.strip().split("%")[0].removeprefix("::ffff:")
+    assert await setup_code.request_exposed({**scope, "client": (exact, 1)}) is False
+
+
 async def test_a_session_under_ingress_issues_no_code(monkeypatch, caplog):
     """Setup is refused under ingress: an anonymous session there must not issue
     a code nor log a warning about an Internet visitor."""

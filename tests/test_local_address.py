@@ -29,8 +29,7 @@ LOCAL = [
     # Spellings
     ("::ffff:192.168.1.30", "IPv4-mapped RFC 1918"),
     ("::ffff:127.0.0.1", "IPv4-mapped loopback"),
-    ("fe80::1%eth0", "zone id ignored"),
-    (" 10.0.0.1 ", "surrounding spaces"),
+    ("fe80::1%eth0", "zone id dropped on plain IPv6"),
 ]
 
 PUBLIC = [
@@ -72,6 +71,13 @@ PUBLIC = [
     ("192.168.1", "truncated"),
     ("192.168.1.10/24", "a network"),
     ("%eth0", "a zone id alone"),
+    # Never local by trimming (a trusted proxy's X-Forwarded-For is verbatim).
+    ("127.0.0.1%x", "zone id on IPv4"),
+    ("10.0.0.1%eth0", "zone id on IPv4"),
+    (" 10.0.0.1", "leading space"),
+    ("10.0.0.1\n", "trailing newline"),
+    ("::ffff:127.0.0.1%x", "zone id on IPv4-mapped"),
+    ("fe80::1%", "empty zone id"),
 ]
 
 
@@ -85,10 +91,6 @@ def test_local_addresses(raw, label):
 def test_public_addresses(raw, label):
     assert local_address.is_public(raw), label
     assert not local_address.is_local(raw), label
-
-
-def test_surrounding_whitespace_is_ignored():
-    assert local_address.is_local("192.168.1.10\n")
 
 
 @pytest.mark.parametrize("raw", ["192.168.1.10", "fd00::5", "::ffff:10.0.0.1", "fe80::1%eth0"])
@@ -110,6 +112,9 @@ def test_mapped_address_objects_are_unmapped():
         ("::ffff:192.168.1.30", "192.168.1.30"),
         ("fe80::1%eth0", "fe80::1"),
         ("fe80::1%x\ny", "fe80::1"),
+        ("127.0.0.1%x", None),
+        ("::ffff:127.0.0.1%x", None),
+        (" 10.0.0.1", None),
         ("2001:DB8::1", "2001:db8::1"),
         (None, None),
         ("", None),
