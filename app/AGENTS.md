@@ -58,6 +58,11 @@ and the OpenAPI page (`/docs`), not a table here.
   No lockout by name. 429
   `auth_rate_limited` with `retry_after`; one audit row per delay; in memory,
   every table bounded (`docs/dev/auth.md`, "Login delays").
+- `auth/fail_log.py` writes one `AUTH_FAIL` line (logger `meshloom.auth`) per refused
+  credential: login, second factor, passkey, Basic, Bearer, pairing code, setup code.
+  The format is a contract (`docs/dev/auth-fail-log.md`, `CONTRACTS:` commits): a new
+  credential check calls `log_auth_failure()` with a route and reason from
+  `ROUTE_REASONS`, never a clear-text name; ingress never writes it.
 - `auth/totp.py` is the TOTP second factor (pyotp; replay refused through
   `users.totp_last_counter`; argon2id recovery codes, single use; in-memory pending
   logins between `POST /api/auth/login` and `POST /api/auth/login/2fa`). Sessions are

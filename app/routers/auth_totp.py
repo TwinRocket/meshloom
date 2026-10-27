@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from app.auth import audit, device_cookie, ratelimit, sessions, totp, webauthn
+from app.auth.fail_log import log_auth_failure
 from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH
@@ -367,6 +368,12 @@ async def login_second_factor(
         or user.updated_at != entry.generation
         or user.totp_enabled_at is None
     ):
+        log_auth_failure(
+            request.scope,
+            "login_2fa",
+            "pending_invalid",
+            username=user.username if user is not None else None,
+        )
         raise _error(401, "auth_2fa_pending_invalid")
     client = totp.client_binding(client_ip(request.scope), request.headers.get("user-agent"))
     if not hmac.compare_digest(client, entry.client):
@@ -377,6 +384,7 @@ async def login_second_factor(
             target=audit.user_target(user.id),
             details={"reason": "pending_client_mismatch"},
         )
+        log_auth_failure(request.scope, "login_2fa", "pending_invalid", username=user.username)
         raise _error(401, "auth_2fa_pending_invalid")
     secure = _secure(request)
     presented = await device_cookie.read(request.headers.get("cookie"), secure=secure)
@@ -390,7 +398,15 @@ async def login_second_factor(
                 request, user, body.code, "login", allow_recovery=True, status=401, device=device
             )
     except BaseException as exc:
-        totp.pending_logins.put_back(token, entry, failed=getattr(exc, "status_code", None) == 401)
+        failed = getattr(exc, "status_code", None) == 401
+        totp.pending_logins.put_back(token, entry, failed=failed)
+        if failed:
+            log_auth_failure(
+                request.scope,
+                "login_2fa",
+                "bad_passkey" if body.passkey is not None else "bad_code",
+                username=user.username,
+            )
         raise
     principal = await _start_session(request, response, user, remember=entry.remember)
     await _remember_device(

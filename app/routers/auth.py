@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt
 
 from app.auth import audit, device_cookie, ratelimit, sessions, totp, webauthn
+from app.auth.fail_log import log_auth_failure
 from app.auth.middleware import client_ip, second_factor_enrolment_required
 from app.auth.models import (
     MAX_AUDIT_RETENTION_DAYS,
@@ -534,6 +535,7 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
             await audit.record_request(
                 request, "setup", "failure", details={"reason": "setup_code_invalid"}
             )
+            log_auth_failure(request.scope, "setup", "invalid_setup_code", username=body.username)
             await asyncio.sleep(SETUP_FAILURE_DELAY_S)
             raise _error(403, "auth_setup_code_invalid")
         password = body.password.get_secret_value()
@@ -614,6 +616,7 @@ async def login(body: LoginRequest, request: Request, response: Response) -> Aut
             "failure",
             target=await audit.typed_username_target(body.username),
         )
+        log_auth_failure(request.scope, "login", "invalid_credentials", username=body.username)
         raise _error(401, "auth_invalid_credentials")
     if user.totp_enabled_at is not None:
         return await _second_factor_challenge(request, user, body.remember)

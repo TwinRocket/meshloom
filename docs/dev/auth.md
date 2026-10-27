@@ -40,6 +40,7 @@ works on the same tables.
 | Audit log (events, retention purge) | `app/auth/audit.py`, `tests/test_auth_audit.py` |
 | Username + password provider | `app/auth/providers/password.py` |
 | Trusted networks provider | `app/auth/providers/trusted_network.py`, `tests/test_auth_trusted_network.py` |
+| `AUTH_FAIL` log line (one per refused credential; a contract) | `app/auth/fail_log.py`, `docs/dev/auth-fail-log.md`, `tests/test_auth_fail_log.py` |
 | Login delays (per pair, per username, per IP; known devices) | `app/auth/ratelimit.py`, `app/auth/device_cookie.py`, `tests/test_auth_ratelimit.py` |
 | Home Assistant ingress provider | `app/auth/providers/ingress.py` |
 | `Authorization: Basic` compatibility, Basic import | `app/security.py` |
@@ -959,6 +960,15 @@ and none by IP alone behind Docker:
   addresses (or many /64s, or one shared address), the owner competes for the
   one slot a second; the per-IP rule and the relay's edge lock answer that,
   not a lock on the name.
+- **`AUTH_FAIL` line.** Each refused credential (login, second factor, passkey,
+  Basic, Bearer, pairing code, setup code) also writes one `WARNING` line on the
+  logger `meshloom.auth`, keyed on `client_ip()`, with `via` the transport
+  (`request_via()`), `proxied=1` when a local peer (RFC 1918, CGNAT, loopback, link-local, ULA)
+  that is not a declared proxy sends forwarding headers
+  (`forwarded_by_untrusted_peer()`, the same test as the untrusted-proxy
+  warning, narrowed to local peers: a public peer adding a header is the
+  client), and the typed name only as a keyed hash. Attempts refused by a delay write none. Format and routes:
+  `docs/dev/auth-fail-log.md`, a contract.
 
 ## Second factor (TOTP)
 

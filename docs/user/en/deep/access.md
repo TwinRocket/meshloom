@@ -95,6 +95,8 @@ From a browser Meshloom does not know yet (a new device, a cleared cookie, after
 
 The delays live in memory and start again empty when Meshloom restarts. A delay is written to the audit log once, not for each refused attempt.
 
+Each refused password, code, passkey, token or installation code also writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from (and never the account name, only a short code that changes at each restart). A tool such as fail2ban can watch these lines and block an address that keeps failing. A line marked `proxied=1` names a reverse proxy on your network that is not in **Trusted proxies**, shared by all its visitors: such a tool must ignore it. A visitor from the internet that sends forwarding headers itself is still logged with its own address. Sign-ins through Home Assistant write no line.
+
 ## Behind a reverse proxy
 
 Sign-in delays, the audit log and the session list record the address a request comes from. Behind a reverse proxy that is the proxy's, for every visitor, until you list the proxy in **Settings → Local Configuration → Trusted proxies**; Meshloom then uses the visitor's address the proxy forwards. List the proxy's own address only, never a Docker network or its gateway. See [HTTPS, trusted proxies](/en/docs/deep/https/#trusted-proxies). Meshloom also looks at the name in the browser's address: in 5.0.0 an unknown name (your proxy's DNS name, say) is only noted; from 5.1 it will be refused unless declared (**Settings → Users & Access → Public addresses**). See [Host names Meshloom answers to](/en/docs/deep/https/#host-names-meshloom-answers-to). A step-by-step setup for a tunnel, a VPN or a proxy: [Remote access on your own](/en/docs/deep/remote-self-hosted/).
