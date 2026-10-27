@@ -91,7 +91,8 @@ function inside(inner: Range, outerBase: bigint, outerPrefix: number, bits: numb
 }
 
 /**
- * True for a network that is public or as wide as allowed (/8 IPv4, /16 IPv6), false for a
+ * True for a network that is public or as wide as allowed (/8 IPv4, /16 IPv6), or a subnet
+ * of the shared 100.64.0.0/10 (Tailscale, CGNAT) wider than one address; false for a
  * private one or for text that is not (yet) a network, so nothing flashes while typing.
  */
 export function isPublicOrWideCidr(raw: string): boolean {
@@ -100,6 +101,8 @@ export function isPublicOrWideCidr(raw: string): boolean {
   const { version, range } = parsed;
   if (range.prefix <= (version === 4 ? 8 : 16)) return true;
   const bits = version === 4 ? 32 : 128;
+  // The shared 100.64.0.0/10 (Tailscale, CGNAT): anything wider than one address.
+  if (version === 4 && inside(range, parseV4('100.64.0.0')!, 10, bits)) return range.prefix < 32;
   const table = version === 4 ? PRIVATE_V4 : PRIVATE_V6;
   return !table.some(([base, prefix]) => {
     const value = version === 4 ? parseV4(base) : parseV6(base);

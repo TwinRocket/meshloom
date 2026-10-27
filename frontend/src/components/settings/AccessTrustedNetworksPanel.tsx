@@ -99,7 +99,8 @@ export function AccessTrustedNetworksPanel({
 
   if (saved === null) return null;
 
-  const enabledUsers = users.filter((user) => !user.disabled);
+  // An administrator is never offered: the server refuses such a rule (MSHL-100).
+  const enabledUsers = users.filter((user) => !user.disabled && user.role !== 'admin');
   const userById = new Map(users.map((user) => [user.id, user]));
   const dirty = !sameRules(draft, saved);
   const incomplete = draft.some((rule) => !rule.cidr.trim() || rule.userId === null);
@@ -225,9 +226,11 @@ export function AccessTrustedNetworksPanel({
                   }
                 >
                   <option value="">{t('settings.access.trustedNetworks.pickUser')}</option>
-                  {rule.userId !== null && userById.get(rule.userId)?.disabled && (
-                    <option value={rule.userId}>{userById.get(rule.userId)!.username}</option>
-                  )}
+                  {rule.userId !== null &&
+                    (userById.get(rule.userId)?.disabled ||
+                      userById.get(rule.userId)?.role === 'admin') && (
+                      <option value={rule.userId}>{userById.get(rule.userId)!.username}</option>
+                    )}
                   {enabledUsers.map((user) => (
                     <option key={user.id} value={user.id}>
                       {user.display_name || user.username} ({t(`auth.role.${user.role}`)})

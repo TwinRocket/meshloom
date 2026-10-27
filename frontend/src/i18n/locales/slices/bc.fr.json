@@ -4,7 +4,7 @@
       "trustedNetworks": {
         "title": "Réseaux de confiance",
         "switch": "Accès sans connexion sur le réseau local",
-        "switchWarning": "Désactivé par défaut. Une fois activé, un appareil dont l'adresse est locale (adresse privée, lien local ou CGNAT) et qui se trouve sur l'un des réseaux ci-dessous est connecté avec le compte choisi, sans mot de passe. Les requêtes passées par Meshloom Remote (le relais) ne comptent jamais comme locales. Attention : si votre box redirige un port vers cette machine en réécrivant l'adresse source (SNAT), les visiteurs venus d'internet paraissent locaux et seraient connectés : ne l'activez pas dans ce cas.",
+        "switchWarning": "Désactivé par défaut. Une fois activé, un appareil dont l'adresse est locale (adresse privée, lien local ou CGNAT) et qui se trouve sur l'un des réseaux ci-dessous est connecté avec le compte choisi, sans mot de passe. Les adresses CGNAT (100.64.0.0/10) incluent Tailscale et certains VPN : une règle sur cette plage connecte chaque appareil de votre tailnet ou de votre VPN. Un administrateur n'est jamais connecté de cette façon. Les requêtes passées par Meshloom Remote (le relais) ne comptent jamais comme locales. Attention : si votre box redirige un port vers cette machine en réécrivant l'adresse source (SNAT), les visiteurs venus d'internet paraissent locaux et seraient connectés : ne l'activez pas dans ce cas.",
         "switchOn": "Accès sans connexion sur le réseau local activé",
         "switchOff": "Accès sans connexion sur le réseau local désactivé",
         "switchOffNotice": "L'accès sans connexion sur le réseau local est désactivé : ces règles ne connectent personne tant que vous ne l'activez pas.",
@@ -19,8 +19,8 @@
         "save": "Enregistrer les réseaux",
         "saving": "Enregistrement…",
         "saved": "Réseaux de confiance enregistrés",
-        "adminWarning": "Toute personne sur {{networks}} obtient les droits d'administrateur sans mot de passe : elle peut changer chaque réglage, compte et plugin. Préférez un compte membre, lecteur ou kiosque.",
-        "publicOrWideWarning": "{{cidr}} est public ou aussi large que permis (une plage /8 en IPv4 ou /16 en IPv6) : une adresse publique n'est jamais connectée, et tous les appareils locaux d'une plage large le seraient.",
+        "adminWarning": "{{networks}} : un réseau de confiance ne peut pas désigner un administrateur. Le serveur refuse ces règles, et la connexion sans identifiant sur le réseau local reste désactivée tant qu'il en reste une. Choisissez un compte membre, lecteur ou kiosque.",
+        "publicOrWideWarning": "{{cidr}} est public ou aussi large que permis (une plage /8 en IPv4 ou /16 en IPv6), ou est une plage CGNAT (100.64.0.0/10, Tailscale) plus large qu'une seule adresse : une adresse publique n'est jamais connectée, et tous les appareils locaux d'une telle plage le seraient.",
         "userDisabledNotice": "Le compte de {{cidr}} est désactivé : cette règle ne s'applique jamais. Choisissez un autre compte ou supprimez la règle.",
         "userMustChangeNotice": "Le compte de {{cidr}} doit d'abord changer son mot de passe : cette règle ne s'applique pas tant qu'il ne l'a pas fait. Choisissez un autre compte ou connectez-vous une fois avec ce compte."
       },
@@ -38,6 +38,8 @@
     "auth_trusted_network_user_must_change": "Le réseau {{cidr}} désigne un compte qui doit d'abord changer son mot de passe : la règle ne s'appliquerait jamais. Choisissez un autre compte, ou connectez-vous une fois avec ce compte pour changer le mot de passe.",
     "auth_trusted_network_overlaps_proxy": "Le réseau {{cidr}} recoupe le proxy de confiance {{proxy}} : les requêtes d'un proxy ne sont jamais connectées automatiquement.",
     "auth_trusted_network_loopback": "Le réseau {{cidr}} couvre le loopback : un proxy ou un tunnel local y ferait arriver chaque visiteur.",
-    "auth_trusted_network_overlaps_gateway": "Le réseau {{cidr}} couvre la passerelle Docker {{gateway}} alors qu'une adresse publique est configurée."
+    "auth_trusted_network_overlaps_gateway": "Le réseau {{cidr}} couvre la passerelle Docker {{gateway}} : chaque client du port publié arrive par elle, internet compris.",
+    "auth_trusted_network_user_admin": "Le réseau {{cidr}} désigne un administrateur : un réseau de confiance ne peut pas connecter un administrateur. Choisissez un compte membre, lecteur ou kiosque.",
+    "auth_lan_login_free_admin_rules": "La connexion sans identifiant sur le réseau local reste désactivée tant qu'un réseau de confiance désigne un administrateur ({{cidrs}}) : modifiez ou supprimez d'abord ces règles."
   }
 }
