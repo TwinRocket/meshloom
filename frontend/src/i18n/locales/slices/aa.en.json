@@ -47,7 +47,7 @@
         "strong": "Strong"
       },
       "code": "Installation code",
-      "codeHint": "This Meshloom already holds data, so it asks for the 8-digit code it printed at start-up. Find it here:",
+      "codeHint": "This Meshloom asks for the 8-digit code it printed in its log: it already holds data, or it was opened from outside the local network (from the local network, a new Meshloom needs no code). Find it here:",
       "codeWhereDocker": "Docker: docker logs <container> and look for “installation code”.",
       "codeWhereSystemd": "Package install: journalctl -u meshloom.",
       "codeWhereAddon": "Home Assistant add-on: the Log tab of the add-on.",

@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "access": {
+      "clientAddresses": {
+        "title": "Adresses des clients",
+        "toggle": "Les adresses identifient les clients",
+        "help": "Meshloom tourne dans Docker, où tous les visiteurs peuvent arriver par une même adresse partagée. Il limite alors les échecs de connexion par compte uniquement. Activez cette option si l'adresse indiquée ci-dessous est bien celle du visiteur (réseau de l'hôte, ou port publié sans le proxy de Docker) : les échecs sont alors aussi limités par adresse. Derrière un proxy inverse, déclarez plutôt ce proxy dans la configuration locale.",
+        "seen": "Adresse que Meshloom voit pour vous : {{kind}}.",
+        "seenPublic": "une adresse publique",
+        "seenLocal": "une adresse du réseau local",
+        "suggest": "Votre connexion arrive d'une adresse publique et aucun proxy n'est déclaré : activer cette option permet à Meshloom de ralentir un attaquant par adresse.",
+        "on": "Les adresses identifient désormais les clients.",
+        "off": "Les adresses n'identifient plus les clients."
+      }
+    }
+  }
+}

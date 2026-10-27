@@ -65,6 +65,12 @@ export interface AuthSettings {
   rejected_hosts?: RejectedHost[];
   /** Admins with a password and no second factor reach only the 2FA enrolment routes. */
   require_2fa_for_admins?: boolean;
+  /** The peer address is the client's own: per-IP login rules apply under Docker without a proxy. */
+  addresses_identify_clients?: boolean;
+  /** Read only: Docker install where every client may share one address. */
+  shared_address_install?: boolean;
+  /** Read only: the address the server sees for this request is a public one. */
+  client_public?: boolean;
 }
 
 export type HostGuardMode = 'observe' | 'enforce';
