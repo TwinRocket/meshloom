@@ -38,7 +38,7 @@ const whole = (value: string, min: number, max: number): number | null => {
 
 /**
  * Administrator only: the built-in address ban (MSHL-422, `app/auth/ip_ban.py`). Its
- * settings (a repeat ban doubles up to the longest length, MSHL-434), the running bans (each with Unban) and the whitelist of networks never
+ * settings (a repeat ban doubles up to the longest ban, MSHL-434), the running bans (each with Unban) and the whitelist of networks never
  * banned. The server validates everything again; `meshloom-admin` does the same from
  * the host.
  */

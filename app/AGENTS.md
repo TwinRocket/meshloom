@@ -71,7 +71,8 @@ and the OpenAPI page (`/docs`), not a table here.
   link-local, ULA, CGNAT; documentation and reserved ranges are public): the login
   delays' `client_is_public`, the exposed first run and the trusted-network gate ask
   `is_local`; `AUTH_FAIL` `proxied` and the ban's exclusions ask `is_ban_exempt`
-  (the same without CGNAT: a tailnet address is bannable, MSHL-434). Never `is_private`/`is_global`.
+  (the same without `TAILNET_NETWORKS`, `100.64.0.0/10` and
+  `fd7a:115c:a1e0::/48`: a tailnet address is bannable, MSHL-434). Never `is_private`/`is_global`.
   `ratelimit.is_trusted_proxy(peer, proxies)` is the one "peer is a declared proxy" test.
 - `auth/totp.py` is the TOTP second factor (pyotp; replay refused through
   `users.totp_last_counter`; argon2id recovery codes, single use; in-memory pending

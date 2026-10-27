@@ -299,14 +299,15 @@ above, and `pairing.is_lan_host`, `backup.endpoint_looks_private` and
   verbatim, so trimming would turn `127.0.0.1%x` local. `is_local()` /
   `is_public()` take text or an address object, and anything that is not an
   address is public (fail closed); `network_is_local()` for a rule's CIDR.
-- `is_ban_exempt()` (MSHL-434): `is_local()` minus `SHARED_ADDRESS_SPACE`
-  (`100.64.0.0/10`). A tailnet address is a client: it can be banned and an
+- `is_ban_exempt()` (MSHL-434): `is_local()` minus `TAILNET_NETWORKS`
+  (`100.64.0.0/10` and Tailscale's IPv6 `fd7a:115c:a1e0::/48`, inside
+  `fc00::/7`). A tailnet address is a client: it can be banned and an
   `AUTH_FAIL` line from such a peer is never `proxied=1`.
 - Callers: `ratelimit.client_is_public` (login panel hint, `setup_code`
   exposure), `fail_log` (`proxied`, via `is_ban_exempt`), `ip_ban.bannable`/`check`
   (`is_ban_exempt` plus the host's on-link global IPv6 prefixes from
-  `/proc/net/if_inet6` and `/proc/net/ipv6_route`), `ip_ban.is_local` (CGNAT
-  included), `trusted_network.rule_blocker` (via
+  `/proc/net/if_inet6` and `/proc/net/ipv6_route`), `ip_ban.is_local` (both
+  tailnet ranges included), `trusted_network.rule_blocker` (via
   `ip_ban.is_local`) and `public_or_wide`. Listed range by range, never
   `is_private`/`is_global` (they differ between Python versions). Tests:
   `tests/test_local_address.py`.

@@ -993,7 +993,8 @@ and none by IP alone behind Docker:
   Bearer, pairing code, setup code) also writes one `WARNING` line on the
   logger `meshloom.auth`, keyed on `client_ip()`, with `via` the transport
   (`request_via()`), `proxied=1` when a ban-exempt peer (RFC 1918, loopback,
-  link-local, ULA; not CGNAT since MSHL-434, `local_address.is_ban_exempt()`)
+  link-local, ULA; not the tailnet ranges `100.64.0.0/10` and
+  `fd7a:115c:a1e0::/48` since MSHL-434, `local_address.is_ban_exempt()`)
   that is not a declared proxy sends forwarding headers
   (`forwarded_by_untrusted_peer()`, the same test as the untrusted-proxy
   warning, narrowed to local peers: a public peer adding a header is the
@@ -1012,21 +1013,26 @@ the same failures with the same address.
 - **What counts.** Only a failure whose line reads `proxied=0`; never a
   ban-exempt address (`local_address.is_ban_exempt()`: loopback, RFC 1918,
   link-local, ULA) nor a missing one; never under ingress. A tailnet address
-  (CGNAT `100.64.0.0/10`, Tailscale, Headscale) counts since MSHL-434, as the
-  peer or as the client a declared proxy forwarded: it is a client, and the
-  owner's own tailnet device can be banned (whitelist `100.64.0.0/10`, or
-  `meshloom-admin unban`). A forged `X-Forwarded-For` from an untrusted peer
-  bans that peer, never the forged address. `is_local()` (CGNAT included)
-  still decides the login-free gate, the login delays and the setup code.
+  (`local_address.TAILNET_NETWORKS`: CGNAT `100.64.0.0/10`, Tailscale,
+  Headscale, and Tailscale's IPv6 `fd7a:115c:a1e0::/48` inside `fc00::/7`)
+  counts since MSHL-434, as the peer or as the client a declared proxy
+  forwarded: it is a client, and the owner's own tailnet device can be banned
+  (whitelist both ranges, or `meshloom-admin unban`). An undeclared reverse
+  proxy on another tailnet device is therefore banned under its own address,
+  cutting off all its visitors: declare it in Trusted proxies. A forged
+  `X-Forwarded-For` from an untrusted peer bans that peer, never the forged
+  address. `is_local()` (both tailnet ranges included) still decides the
+  login-free gate, the login delays and the setup code.
   Nor, for the ban only (the `AUTH_FAIL` line and its `proxied` rule are
   unchanged), a global IPv6 address inside a prefix on-link on the host,
   re-read at most every 60 s (`HOST_PREFIXES_TTL_S`), each file read capped at
   1 MiB:
-  - `/proc/net/if_inet6`: a global address with a prefix of 64 to 128 (a /48
-    or /56 is a site prefix, shared with other hosts, never local; before
-    MSHL-434 from 48);
+  - `/proc/net/if_inet6` (read once per refresh): a public address
+    (`local_address.is_public`, never `ipaddress.is_global`) with a prefix of
+    64 to 128 (a /48 or /56 is a site prefix, shared with other hosts, never
+    local; before MSHL-434 from 48; a length past 128 is skipped);
   - `/proc/net/ipv6_route` (MSHL-434, DHCPv6 hosts whose address is a /128):
-    a route of 64 to 128 bits to a global destination, up, with no next hop,
+    a route of 64 to 128 bits to a destination that is not `is_local()`, up, with no next hop,
     not a gateway, reject, cache, anycast or local route, not on `lo`, and
     holding a host address of the same interface. A missing file or a
     malformed line adds nothing (fail safe: the address stays bannable).
