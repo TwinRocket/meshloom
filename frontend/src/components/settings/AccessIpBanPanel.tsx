@@ -21,12 +21,13 @@ export const IP_BAN_BOUNDS = {
   maxDuration: 43200,
 } as const;
 
-type Thresholds = { failures: string; window: string; duration: string };
+type Thresholds = { failures: string; window: string; duration: string; maxDuration: string };
 
 const thresholdsOf = (s: AuthSettings): Thresholds => ({
   failures: String(s.ip_ban_max_failures ?? ''),
   window: String(s.ip_ban_window_minutes ?? ''),
   duration: String(s.ip_ban_duration_minutes ?? ''),
+  maxDuration: String(s.ip_ban_max_duration_minutes ?? ''),
 });
 
 const whole = (value: string, min: number, max: number): number | null => {
@@ -37,14 +38,19 @@ const whole = (value: string, min: number, max: number): number | null => {
 
 /**
  * Administrator only: the built-in address ban (MSHL-422, `app/auth/ip_ban.py`). Its
- * settings, the running bans (each with Unban) and the whitelist of networks never
+ * settings (a repeat ban doubles up to the longest length, MSHL-434), the running bans (each with Unban) and the whitelist of networks never
  * banned. The server validates everything again; `meshloom-admin` does the same from
  * the host.
  */
 export function AccessIpBanPanel() {
   const { t, i18n } = useTranslation();
   const [settings, setSettings] = useState<AuthSettings | null>(null);
-  const [values, setValues] = useState<Thresholds>({ failures: '', window: '', duration: '' });
+  const [values, setValues] = useState<Thresholds>({
+    failures: '',
+    window: '',
+    duration: '',
+    maxDuration: '',
+  });
   const [view, setView] = useState<IpBansView | null>(null);
   const [busy, setBusy] = useState(false);
   const [invalid, setInvalid] = useState(false);
@@ -91,7 +97,8 @@ export function AccessIpBanPanel() {
   const unchanged =
     values.failures === saved.failures &&
     values.window === saved.window &&
-    values.duration === saved.duration;
+    values.duration === saved.duration &&
+    values.maxDuration === saved.maxDuration;
 
   const run = async (work: () => Promise<void>) => {
     setBusy(true);
@@ -116,7 +123,8 @@ export function AccessIpBanPanel() {
     const failures = whole(values.failures, IP_BAN_BOUNDS.minFailures, IP_BAN_BOUNDS.maxFailures);
     const window = whole(values.window, IP_BAN_BOUNDS.min, IP_BAN_BOUNDS.maxWindow);
     const duration = whole(values.duration, IP_BAN_BOUNDS.min, IP_BAN_BOUNDS.maxDuration);
-    if (failures === null || window === null || duration === null) {
+    const longest = whole(values.maxDuration, IP_BAN_BOUNDS.min, IP_BAN_BOUNDS.maxDuration);
+    if (failures === null || window === null || duration === null || longest === null) {
       setInvalid(true);
       return;
     }
@@ -126,6 +134,7 @@ export function AccessIpBanPanel() {
         ip_ban_max_failures: failures,
         ip_ban_window_minutes: window,
         ip_ban_duration_minutes: duration,
+        ip_ban_max_duration_minutes: longest,
       });
       setSettings(next);
       setValues(thresholdsOf(next));
@@ -216,6 +225,13 @@ export function AccessIpBanPanel() {
             'duration',
             'access-ip-ban-duration',
             t('settings.access.ipBan.durationMinutes'),
+            IP_BAN_BOUNDS.maxDuration,
+            IP_BAN_BOUNDS.min
+          )}
+          {field(
+            'maxDuration',
+            'access-ip-ban-max-duration',
+            t('settings.access.ipBan.maxDurationMinutes'),
             IP_BAN_BOUNDS.maxDuration,
             IP_BAN_BOUNDS.min
           )}

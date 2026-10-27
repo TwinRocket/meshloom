@@ -78,8 +78,10 @@ export interface AuthSettings {
   ip_ban_max_failures?: number;
   /** The window those failures are counted in, minutes (1 to 1440, 10 by default). */
   ip_ban_window_minutes?: number;
-  /** How long a ban lasts, minutes (1 to 43200, 60 by default). */
+  /** How long a first ban lasts, minutes (1 to 43200, 60 by default). */
   ip_ban_duration_minutes?: number;
+  /** A repeat ban doubles up to this length, minutes (1 to 43200, 1440 by default). */
+  ip_ban_max_duration_minutes?: number;
 }
 
 /** One running ban (`GET /auth/bans`): an IPv4 address or an IPv6 /64. */

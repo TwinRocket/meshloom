@@ -21,6 +21,7 @@ const settings = (over: Partial<AuthSettings> = {}): AuthSettings =>
     ip_ban_max_failures: 10,
     ip_ban_window_minutes: 10,
     ip_ban_duration_minutes: 60,
+    ip_ban_max_duration_minutes: 1440,
     ...over,
   }) as AuthSettings;
 
@@ -90,6 +91,33 @@ describe('AccessIpBanPanel', () => {
       ip_ban_max_failures: 5,
       ip_ban_window_minutes: 10,
       ip_ban_duration_minutes: 60,
+      ip_ban_max_duration_minutes: 1440,
+    });
+  });
+
+  it('saves the longest ban and refuses one out of bounds', async () => {
+    vi.spyOn(api, 'getAuthSettings').mockResolvedValue(settings());
+    vi.spyOn(api, 'getIpBans').mockResolvedValue(VIEW);
+    const patch = vi.spyOn(api, 'patchAuthSettings');
+    render(<AccessIpBanPanel />);
+
+    const longest = await screen.findByLabelText(t('settings.access.ipBan.maxDurationMinutes'));
+    expect(longest).toHaveValue(1440);
+    await userEvent.clear(longest);
+    await userEvent.type(longest, '43201');
+    await userEvent.click(screen.getByRole('button', { name: t('settings.access.ipBan.save') }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(patch).not.toHaveBeenCalled();
+
+    await userEvent.clear(longest);
+    await userEvent.type(longest, '10080');
+    patch.mockResolvedValue(settings({ ip_ban_max_duration_minutes: 10080 }));
+    await userEvent.click(screen.getByRole('button', { name: t('settings.access.ipBan.save') }));
+    expect(patch).toHaveBeenCalledWith({
+      ip_ban_max_failures: 10,
+      ip_ban_window_minutes: 10,
+      ip_ban_duration_minutes: 60,
+      ip_ban_max_duration_minutes: 10080,
     });
   });
 
