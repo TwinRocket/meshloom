@@ -54,7 +54,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
-from collections.abc import Mapping
+from collections.abc import MutableMapping
 from typing import Any
 
 from app.auth.tokens import hash_token, token_matches
@@ -105,7 +105,7 @@ def reset_first_run_state() -> None:
     remember_displayed_code(None)
 
 
-async def request_exposed(scope: Mapping[str, Any]) -> bool:
+async def request_exposed(scope: MutableMapping[str, Any]) -> bool:
     """Whether a first-run request may come from outside the local network
     (module docstring, "Exposed first run")."""
     import ipaddress
