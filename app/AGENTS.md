@@ -63,7 +63,15 @@ and the OpenAPI page (`/docs`), not a table here.
   credential: login, second factor, passkey, Bearer, pairing code, setup code.
   The format is a contract (`docs/dev/auth-fail-log.md`, `CONTRACTS:` commits): a new
   credential check calls `log_auth_failure()` with a route and reason from
-  `ROUTE_REASONS`, never a clear-text name; ingress never writes it.
+  `ROUTE_REASONS`, never a clear-text name; ingress never writes it. Through the
+  relay the line is always `proxied=0` and `ip` is the frame's client only when it
+  is public (else `-`, nothing banned, MSHL-431).
+- "Local client address" has one definition, `app/net/local_address.py`
+  (`is_local`, `is_public`, `parse_address`, `network_is_local`; RFC 1918, loopback,
+  link-local, ULA, CGNAT; documentation and reserved ranges are public): the login
+  delays' `client_is_public`, the exposed first run, `AUTH_FAIL` `proxied`, the ban's
+  exclusions and the trusted-network gate all ask it. Never `is_private`/`is_global`.
+  `ratelimit.is_trusted_proxy(peer, proxies)` is the one "peer is a declared proxy" test.
 - `auth/totp.py` is the TOTP second factor (pyotp; replay refused through
   `users.totp_last_counter`; argon2id recovery codes, single use; in-memory pending
   logins between `POST /api/auth/login` and `POST /api/auth/login/2fa`). Sessions are

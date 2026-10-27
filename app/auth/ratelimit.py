@@ -39,7 +39,7 @@ Settings → Users & Access, read live), since behind Docker's userland proxy
 every client may arrive from the gateway address. Docker's default port
 publishing keeps the client's address, so the Access panel proposes that
 setting when the admin's own request comes from a public address
-(``client_is_public()``). Request headers never decide it: ``X-Forwarded-For`` (or ``X-Real-IP``, ``Forwarded``) from a peer
+(``client_is_public()``, ``app/net/local_address.py``). Request headers never decide it: ``X-Forwarded-For`` (or ``X-Real-IP``, ``Forwarded``) from a peer
 that is not a trusted proxy is ignored, the peer is the client, and the admin
 gets a log line (once per peer) pointing to the Trusted proxies setting.
 
@@ -82,13 +82,14 @@ import ipaddress
 import logging
 import math
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Literal
 
 from aiolimiter import AsyncLimiter
 
+from app.net import local_address
 from app.repository.auth import InvalidUsernameError, username_key
 
 logger = logging.getLogger(__name__)
@@ -187,20 +188,12 @@ def _carries_forwarding_headers(scope: Mapping[str, Any]) -> bool:
     return any(name.lower() in _FORWARDING_HEADERS for name, _ in scope.get("headers") or ())
 
 
-def _parse_address(raw: str | None) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    if not raw:
-        return None
-    try:
-        address = ipaddress.ip_address(raw)
-    except ValueError:
-        return None
-    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
-        return address.ipv4_mapped
-    return address
+def is_trusted_proxy(peer: str | None, proxies: Iterable[str]) -> bool:
+    """Whether the TCP peer is in one of ``proxies`` (``auth_settings.trusted_proxies``).
 
-
-def _is_trusted_proxy(peer: str | None, proxies: tuple[str, ...]) -> bool:
-    address = _parse_address(peer)
+    Used by ``forwarded_by_untrusted_peer`` and by the exposed first run
+    (``app/auth/setup_code.request_exposed``). A peer that is not an address is not one."""
+    address = local_address.parse_address(peer)
     return address is not None and any(address in ipaddress.ip_network(proxy) for proxy in proxies)
 
 
@@ -209,14 +202,14 @@ def forwarded_by_untrusted_peer(scope: Mapping[str, Any]) -> bool:
     ignored, and the client address is that proxy, shared by everyone behind it."""
     from app.middleware import proxy_headers
 
-    return _carries_forwarding_headers(scope) and not _is_trusted_proxy(
+    return _carries_forwarding_headers(scope) and not is_trusted_proxy(
         proxy_headers.peer_address(scope), proxy_headers.current()
     )
 
 
 def client_address_key(raw: str) -> str:
     """IPv4 by address, IPv6 by its /64: one host gets a whole /64 to rotate in."""
-    address = _parse_address(raw)
+    address = local_address.parse_address(raw)
     if address is None:
         return raw
     if address.version == 6:
@@ -248,11 +241,11 @@ def shared_address_install() -> bool:
 
 
 def client_is_public(scope: Mapping[str, Any]) -> bool:
-    """Whether the request's client address (after a trusted proxy's rewrite) is a
-    global one. An address that does not parse counts as public (fail closed)."""
+    """Whether the request's client address (after a trusted proxy's rewrite) is
+    public: anything but a local address (``app/net/local_address.py``). A missing
+    address or one that does not parse counts as public (fail closed)."""
     client = scope.get("client")
-    address = _parse_address(client[0] if client else None)
-    return address is None or address.is_global
+    return local_address.is_public(client[0] if client else None)
 
 
 class LoginLimiter:

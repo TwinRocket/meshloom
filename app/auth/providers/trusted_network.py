@@ -31,7 +31,7 @@ anything unexpected also refuses, fail closed):
   (``LOOPBACK_ALLOWED_KINDS``): on a package, a source checkout or a container
   that may share the host's network, a local proxy or tunnel (``ssh -L`` adds
   no header at all) makes every internet visitor arrive from ``127.0.0.1``;
-- the peer is a local address (``ip_ban.is_local``: ``fail_log.LOCAL_NETWORKS``
+- the peer is a local address (``ip_ban.is_local``: ``app/net/local_address.py``
   or an on-link global IPv6 prefix of the host), whatever the rule covers: a
   rule listing a public network never applies. A router port forwarded to
   Meshloom with source NAT still makes internet visitors look local, which the
@@ -74,6 +74,7 @@ from app.auth import audit
 from app.auth.models import TrustedNetworkRule, User
 from app.middleware import proxy_headers
 from app.middleware.host_guard import host_allowed
+from app.net import local_address
 
 if TYPE_CHECKING:
     from app.auth.models import AuthSettings
@@ -114,8 +115,9 @@ ROUTE_TABLE = Path("/proc/net/route")
 
 _MAPPED = ipaddress.ip_network("::ffff:0:0/96")
 
-# Shared address space (carrier-grade NAT, Tailscale): not ``is_private`` in
-# Python, yet not reachable from the internet either.
+# Shared address space (carrier-grade NAT, Tailscale): local
+# (``app/net/local_address.py``), yet shared with every other device of the
+# tailnet or customer of the carrier.
 _SHARED = ipaddress.ip_network("100.64.0.0/10")
 
 # Bound of the "already audited today" set.
@@ -165,7 +167,8 @@ def overlapping_proxy(cidr: str, proxies: Iterable[str]) -> str | None:
 
 def public_or_wide(cidr: str) -> bool:
     """A network that is almost always a mistake: as wide as allowed (``/8``
-    IPv4, ``/16`` IPv6), not private (``is_private``), or inside the shared
+    IPv4, ``/16`` IPv6), not local (``local_address.network_is_local``: a
+    documentation or reserved range counts as public too), or inside the shared
     address space ``100.64.0.0/10`` and wider than one address (a Tailscale or
     carrier-grade NAT range: every device of the tailnet, or the carrier's other
     customers, would be signed in). Accepted, but named by the
@@ -175,7 +178,7 @@ def public_or_wide(cidr: str) -> bool:
         return True
     if network.version == 4 and network.subnet_of(_SHARED):  # type: ignore[arg-type]
         return network.prefixlen < 32
-    return not network.is_private
+    return not local_address.network_is_local(network)
 
 
 def covers_loopback(cidr: str) -> bool:
@@ -291,18 +294,6 @@ def reset() -> None:
 # ---------------------------------------------------------------- matching
 
 
-def _parse_address(raw: str | None) -> Address | None:
-    if not raw:
-        return None
-    try:
-        address = ipaddress.ip_address(raw)
-    except ValueError:
-        return None
-    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
-        return address.ipv4_mapped
-    return address
-
-
 def matching_rule(
     address: Address, rules: Iterable[TrustedNetworkRule]
 ) -> TrustedNetworkRule | None:
@@ -341,7 +332,7 @@ def rule_blocker(
     if isinstance(state, Mapping) and state.get("via") is not None:
         # Anything that tagged the request (the relay) is not a direct LAN client.
         return "via"
-    peer = _parse_address(proxy_headers.peer_address(scope))
+    peer = local_address.parse_address(proxy_headers.peer_address(scope))
     if peer is None:
         return "no_peer"
     if any(peer in _network(proxy) for proxy in trusted_proxies):
@@ -374,7 +365,7 @@ async def resolve_trusted_user(
         # A Bearer token that did not check, or Basic (never a credential since
         # MSHL-100), gets its 401: a header is never ignored into a sign-in.
         return None
-    peer = _parse_address(proxy_headers.peer_address(scope))
+    peer = local_address.parse_address(proxy_headers.peer_address(scope))
     if peer is None:
         return None
     rule = matching_rule(peer, rules)

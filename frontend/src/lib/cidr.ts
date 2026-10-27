@@ -9,31 +9,22 @@ interface Range {
   prefix: number;
 }
 
-// Python `is_private` for IPv4 (the shared 100.64.0.0/10 counts as private here too).
-const PRIVATE_V4: Array<[string, number]> = [
-  ['0.0.0.0', 8],
-  ['10.0.0.0', 8],
-  ['100.64.0.0', 10],
+// The local ranges of app/net/local_address.py (LOCAL_NETWORKS): anything else, documentation
+// and reserved ranges included, is public.
+const LOCAL_V4: Array<[string, number]> = [
   ['127.0.0.0', 8],
-  ['169.254.0.0', 16],
+  ['10.0.0.0', 8],
   ['172.16.0.0', 12],
-  ['192.0.0.0', 24],
-  ['192.0.2.0', 24],
   ['192.168.0.0', 16],
-  ['198.18.0.0', 15],
-  ['198.51.100.0', 24],
-  ['203.0.113.0', 24],
-  ['240.0.0.0', 4],
-  ['255.255.255.255', 32],
+  ['169.254.0.0', 16],
+  ['100.64.0.0', 10],
 ];
 
-// Loopback, unspecified, unique local, link-local, documentation.
-const PRIVATE_V6: Array<[string, number]> = [
-  ['::', 128],
+// Loopback, unique local, link-local.
+const LOCAL_V6: Array<[string, number]> = [
   ['::1', 128],
   ['fc00::', 7],
   ['fe80::', 10],
-  ['2001:db8::', 32],
 ];
 
 function parseV4(text: string): bigint | null {
@@ -93,7 +84,7 @@ function inside(inner: Range, outerBase: bigint, outerPrefix: number, bits: numb
 /**
  * True for a network that is public or as wide as allowed (/8 IPv4, /16 IPv6), or a subnet
  * of the shared 100.64.0.0/10 (Tailscale, CGNAT) wider than one address; false for a
- * private one or for text that is not (yet) a network, so nothing flashes while typing.
+ * local one or for text that is not (yet) a network, so nothing flashes while typing.
  */
 export function isPublicOrWideCidr(raw: string): boolean {
   const parsed = parseNetwork(raw);
@@ -103,7 +94,7 @@ export function isPublicOrWideCidr(raw: string): boolean {
   const bits = version === 4 ? 32 : 128;
   // The shared 100.64.0.0/10 (Tailscale, CGNAT): anything wider than one address.
   if (version === 4 && inside(range, parseV4('100.64.0.0')!, 10, bits)) return range.prefix < 32;
-  const table = version === 4 ? PRIVATE_V4 : PRIVATE_V6;
+  const table = version === 4 ? LOCAL_V4 : LOCAL_V6;
   return !table.some(([base, prefix]) => {
     const value = version === 4 ? parseV4(base) : parseV6(base);
     return value !== null && inside(range, value, prefix, bits);

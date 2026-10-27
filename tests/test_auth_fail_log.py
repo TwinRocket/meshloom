@@ -492,3 +492,61 @@ def test_the_contract_lists_every_route_and_reason():
     for route, reasons in fail_log.ROUTE_REASONS.items():
         for reason in reasons:
             assert re.search(rf"`{route}`.*`{reason}`", text), (route, reason)
+
+
+# --- Through the relay (MSHL-431) -------------------------------------------------------
+
+
+def _relayed(client: str | None, *, forwarded: bool = True) -> dict:
+    headers = [(b"x-forwarded-for", b"198.51.100.9")] if forwarded else []
+    return {
+        "type": "http",
+        "client": (client, 50000) if client is not None else None,
+        "headers": headers,
+        "state": {"via": "relay"},
+    }
+
+
+@pytest.fixture
+def banned(monkeypatch):
+    calls: list[tuple[str | None, str, bool]] = []
+
+    def note_failure(ip, *, via, proxied, route):
+        calls.append((ip, via, proxied))
+
+    monkeypatch.setattr(fail_log.ip_ban, "note_failure", note_failure)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "client", ["127.0.0.1", "::1", "192.168.1.30", "10.0.0.2", "100.100.1.2", "fe80::1", None]
+)
+def test_a_relayed_line_never_names_a_local_client(lines, banned, client):
+    """The tunnel's local end is not a client: ``ip=-``, nothing banned, never proxied."""
+    fail_log.log_auth_failure(_relayed(client), "login", "invalid_credentials")
+    match = _one(lines(), "login", "invalid_credentials")
+    assert (match["ip"], match["via"], match["proxied"]) == ("-", "relay", "0")
+    assert banned == [(None, "relay", False)]
+
+
+@pytest.mark.parametrize("client", ["203.0.113.7", "2606:4700::1111", "::ffff:198.51.100.4"])
+def test_a_relayed_line_names_a_public_client_and_is_never_proxied(lines, banned, client):
+    """Forwarding headers from the relay's local end never make the line ``proxied=1``."""
+    fail_log.log_auth_failure(_relayed(client), "bearer", "invalid_token")
+    match = _one(lines(), "bearer", "invalid_token")
+    assert (match["ip"], match["via"], match["proxied"]) == (
+        fail_log.ip_field(client),
+        "relay",
+        "0",
+    )
+    assert banned == [(client, "relay", False)]
+    assert FAILREGEX.match(_rendered(lines()[0]))["host"] == fail_log.ip_field(client)
+
+
+def test_the_same_local_peer_without_the_relay_is_proxied(lines, banned):
+    scope = _relayed("127.0.0.1")
+    scope["state"] = {}
+    fail_log.log_auth_failure(scope, "login", "invalid_credentials")
+    match = _one(lines(), "login", "invalid_credentials")
+    assert (match["ip"], match["via"], match["proxied"]) == ("127.0.0.1", "lan", "1")
+    assert banned == [("127.0.0.1", "lan", True)]

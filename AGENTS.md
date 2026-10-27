@@ -9,7 +9,7 @@ This file is the entry point for every coding agent. Area files, read only when
 you work there:
 
 - `app/AGENTS.md`: backend (radio lifecycle, sending, migrations, Community client, updates, telemetry, push).
-- `app/net/AGENTS.md`: the egress guard for user-chosen destinations (SSRF, IP pinning).
+- `app/net/AGENTS.md`: the egress guard for user-chosen destinations (SSRF, IP pinning), and the one definition of a local client address (`local_address.py`).
 - `app/fanout/AGENTS.md`: the fanout bus (MQTT, webhooks, Apprise, SQS, map upload).
 - `frontend/AGENTS.md`: frontend (state, WebSocket client, i18n, layout).
 - `frontend/src/components/visualizer/AGENTS.md`: the 3D packet visualizer.

@@ -20,8 +20,9 @@ At startup, while no account exists (``prepare_first_run``, called by the lifesp
 must not go to its first visitor. A first-run request is *exposed*
 (``request_exposed()``) when it did not come straight from the local network:
 it came through the relay, its client address (after a trusted proxy's
-rewrite, ``app/middleware/proxy_headers.py``) is not private or loopback (not
-``is_global``: RFC 1918, loopback, link-local, ULA and CGNAT count as local),
+rewrite, ``app/middleware/proxy_headers.py``) is not a local address
+(``app/net/local_address.py``: RFC 1918, loopback, link-local, ULA and CGNAT;
+a documentation or reserved address counts as public),
 it carries forwarding headers (any of ``PROXY_HEADERS``,
 ``app/auth/providers/trusted_network.py``) from a peer that is not a trusted
 proxy (the client is unknown), or a public address is declared (``auth_settings.public_urls``).
@@ -113,12 +114,12 @@ async def request_exposed(scope: MutableMapping[str, Any]) -> bool:
     from starlette.datastructures import Headers
 
     from app.auth.providers import trusted_network
-    from app.auth.ratelimit import _is_trusted_proxy, client_is_public
+    from app.auth.ratelimit import client_is_public, is_trusted_proxy
     from app.middleware import proxy_headers
 
     if scope.get("auth_via", "lan") != "lan":
         return True
-    if trusted_network.carries_proxy_headers(Headers(scope=scope)) and not _is_trusted_proxy(
+    if trusted_network.carries_proxy_headers(Headers(scope=scope)) and not is_trusted_proxy(
         proxy_headers.peer_address(scope), proxy_headers.current()
     ):
         return True

@@ -6,8 +6,8 @@ and fail2ban judge the same failures with the same address:
 
 - Only a line that would read ``proxied=0`` counts: an undeclared local
   reverse proxy is the address of every client behind it.
-- Never an address in ``fail_log.LOCAL_NETWORKS`` (loopback, RFC 1918, CGNAT,
-  link-local, ULA): the LAN, the Docker gateway and a local proxy stay
+- Never a local address (``app/net/local_address.py``: loopback, RFC 1918,
+  CGNAT, link-local, ULA): the LAN, the Docker gateway and a local proxy stay
   reachable whatever happens. Never under ingress (no line either).
 - Nor, on Linux, a global IPv6 address inside a prefix that is on-link on one
   of the host's interfaces (``/proc/net/if_inet6``): a LAN client reaching
@@ -17,7 +17,9 @@ and fail2ban judge the same failures with the same address:
   interfaces), it adds nothing and such a client counts as public.
 - Through the relay (``via=relay``), the address is ``client_ip()``, the
   client the dispatcher read from the frame, never the tunnel: a dispatcher
-  that sets no client, or a local one, bans nothing.
+  that sets no client, or a local one, bans nothing (the line then reads
+  ``ip=-``). A relayed line is always ``proxied=0``: its forwarding headers
+  come from the remote client, so adding one never escapes the ban.
 - An address covered by the whitelist (``ip_ban_whitelist``) is never banned,
   and a ban on it stops applying: the whitelist always wins.
 
@@ -48,6 +50,7 @@ from dataclasses import dataclass
 from ipaddress import IPv6Address, IPv6Network
 
 from app.auth.models import AuthSettings
+from app.net import local_address
 from app.repository.ip_ban import (
     MAX_BANS,
     IPAddress,
@@ -133,15 +136,13 @@ def _host_networks() -> tuple[IPv6Network, ...]:
 
 
 def _local(address: IPAddress) -> bool:
-    from app.auth.fail_log import LOCAL_NETWORKS
-
-    if any(address.version == network.version and address in network for network in LOCAL_NETWORKS):
+    if local_address.is_local(address):
         return True
     return address.version == 6 and any(address in network for network in _host_networks())
 
 
 def is_local(address: IPAddress) -> bool:
-    """A local address (``fail_log.LOCAL_NETWORKS`` or an on-link global IPv6
+    """A local address (``local_address.is_local`` or an on-link global IPv6
     prefix of the host): never banned, and the only peers "login-free on the
     local network" may apply to (``app/auth/providers/trusted_network.py``)."""
     return _local(address)
