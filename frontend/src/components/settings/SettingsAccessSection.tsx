@@ -4,6 +4,7 @@ import { useCapabilities } from '../../auth/SessionProvider';
 import type { AccessSecurityNotice } from '../../auth/types';
 import { AccessAuditPanel } from './AccessAuditPanel';
 import { AccessClientAddressesPanel } from './AccessClientAddressesPanel';
+import { AccessIpBanPanel } from './AccessIpBanPanel';
 import { AccessIngressPanel } from './AccessIngressPanel';
 import { AccessPairingPanel } from './AccessPairingPanel';
 import { AccessPasskeysPanel } from './AccessPasskeysPanel';
@@ -41,6 +42,7 @@ export function SettingsAccessSection({ className }: { className?: string }) {
       {isAdmin && <AccessTrustedNetworksPanel onNotices={setNotices} />}
       {isAdmin && <AccessPublicAddressesPanel />}
       {isAdmin && <AccessClientAddressesPanel />}
+      {isAdmin && <AccessIpBanPanel />}
       {isAdmin && <AccessSessionLifetimePanel />}
       {isAdmin && <AccessIngressPanel />}
       {isAdmin && <AccessAuditPanel />}

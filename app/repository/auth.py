@@ -1546,6 +1546,10 @@ async def _fetch_settings(conn: aiosqlite.Connection) -> AuthSettings:
         setup_code_set=row["setup_code_hash"] is not None,
         require_2fa_for_admins=bool(row["require_2fa_for_admins"]),
         addresses_identify_clients=bool(row["addresses_identify_clients"]),
+        ip_ban_enabled=bool(row["ip_ban_enabled"]),
+        ip_ban_max_failures=row["ip_ban_max_failures"],
+        ip_ban_window_minutes=row["ip_ban_window_minutes"],
+        ip_ban_duration_minutes=row["ip_ban_duration_minutes"],
     )
 
 
@@ -1578,6 +1582,10 @@ class AuthSettingsRepository:
         basic_imported: bool | None = None,
         require_2fa_for_admins: bool | None = None,
         addresses_identify_clients: bool | None = None,
+        ip_ban_enabled: bool | None = None,
+        ip_ban_max_failures: int | None = None,
+        ip_ban_window_minutes: int | None = None,
+        ip_ban_duration_minutes: int | None = None,
     ) -> AuthSettings:
         """Validate the merged result as ``AuthSettings``, then write the given fields."""
         async with db.tx() as conn:
@@ -1595,6 +1603,10 @@ class AuthSettingsRepository:
                     "basic_imported": basic_imported,
                     "require_2fa_for_admins": require_2fa_for_admins,
                     "addresses_identify_clients": addresses_identify_clients,
+                    "ip_ban_enabled": ip_ban_enabled,
+                    "ip_ban_max_failures": ip_ban_max_failures,
+                    "ip_ban_window_minutes": ip_ban_window_minutes,
+                    "ip_ban_duration_minutes": ip_ban_duration_minutes,
                 }.items()
                 if value is not None
             }
@@ -1626,6 +1638,9 @@ class AuthSettingsRepository:
 
         trusted_network.apply(updated)
         host_guard.apply(updated)
+        from app.auth import ip_ban
+
+        ip_ban.apply(updated)
         return updated
 
     @staticmethod

@@ -37,6 +37,7 @@ async def patched_database(path: str = ":memory:"):
         contact_telemetry,
         contacts,
         directory,
+        ip_ban,
         messages,
         notification_channels,
         plugins,
@@ -63,6 +64,7 @@ async def patched_database(path: str = ":memory:"):
         channels,
         contact_groups,
         directory,
+        ip_ban,
         messages,
         notification_channels,
         plugins,
@@ -248,6 +250,19 @@ def _reset_trusted_proxies():
     proxy_headers.reset()
     yield
     proxy_headers.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_ip_bans(monkeypatch):
+    """Failures counted and bans known by one test must not leak into the next one.
+    The host's own IPv6 prefixes are not read: a test that wants them sets
+    ``IF_INET6_PATH`` to a file of its own."""
+    from app.auth import ip_ban
+
+    monkeypatch.setattr(ip_ban, "IF_INET6_PATH", "/nonexistent/if_inet6")
+    ip_ban.reset()
+    yield
+    ip_ban.reset()
 
 
 @pytest.fixture(autouse=True)

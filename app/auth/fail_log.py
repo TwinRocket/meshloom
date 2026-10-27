@@ -42,6 +42,7 @@ import secrets
 from collections.abc import Mapping
 from typing import Any, Literal
 
+from app.auth import ip_ban
 from app.repository.auth import InvalidUsernameError, username_key
 
 logger = logging.getLogger("meshloom.auth")
@@ -150,15 +151,14 @@ def log_auth_failure(
         via = request_via(scope)  # type: ignore[arg-type]
         if via == "ingress":
             return
+        ip = client_ip(scope)  # type: ignore[arg-type]
+        proxied = _undeclared_local_proxy(scope)
         line = format_line(
-            ip=client_ip(scope),  # type: ignore[arg-type]
-            route=route,
-            reason=reason,
-            via=via,
-            proxied=_undeclared_local_proxy(scope),
-            username=username,
+            ip=ip, route=route, reason=reason, via=via, proxied=proxied, username=username
         )
     except Exception:
         logger.error("Could not format an AUTH_FAIL line for route %s", route, exc_info=True)
         return
     logger.warning(line)
+    # The built-in ban counts the same failure, with the same fields (MSHL-422).
+    ip_ban.note_failure(ip, via=via, proxied=proxied, route=route)

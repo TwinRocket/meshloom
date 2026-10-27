@@ -58,6 +58,8 @@ import type {
   AuthUserRow,
   AuthSessionInfo,
   AuthSettings,
+  IpBansView,
+  IpBanWhitelistEntry,
   AuthSetupRequest,
   PasskeyRow,
   RecoveryCodes,
@@ -568,6 +570,19 @@ export const api = {
   getAuthSettings: () => fetchJson<AuthSettings>('/auth/settings', { cache: 'no-store' }),
   patchAuthSettings: (patch: Partial<AuthSettings>) =>
     fetchJson<AuthSettings>('/auth/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  // IP bans and their whitelist (admin)
+  getIpBans: () => fetchJson<IpBansView>('/auth/bans', { cache: 'no-store' }),
+  unbanIp: (address: string) =>
+    fetchJson<void>(`/auth/bans?address=${encodeURIComponent(address)}`, { method: 'DELETE' }),
+  addIpBanWhitelist: (network: string, note: string) =>
+    fetchJson<IpBanWhitelistEntry>('/auth/ban-whitelist', {
+      method: 'POST',
+      body: JSON.stringify({ network, note }),
+    }),
+  removeIpBanWhitelist: (network: string) =>
+    fetchJson<void>(`/auth/ban-whitelist?network=${encodeURIComponent(network)}`, {
+      method: 'DELETE',
+    }),
 
   // Health
   getHealth: () => fetchJson<HealthStatus>('/health'),

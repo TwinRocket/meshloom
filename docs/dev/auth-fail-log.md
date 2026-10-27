@@ -1,7 +1,11 @@
 # The `AUTH_FAIL` log line
 
 One log line per refused credential, stable enough for a log watcher (fail2ban,
-CrowdSec, the built-in ban, MSHL-422, and the shipped fail2ban filter, MSHL-423) to key on the client address.
+CrowdSec, the shipped fail2ban filter, MSHL-423) to key on the client address.
+The built-in ban (MSHL-422, `app/auth/ip_ban.py`, `docs/dev/auth.md` "IP ban")
+consumes the same events: `fail_log` hands it the fields of each line it
+writes, so it counts exactly the `proxied=0` lines, with the same address, and
+never a local one.
 Decided as a contract with the Accès scoping (remote propositions v2, §5.3 and
 decision 6, MSHL-421). Code: `app/auth/fail_log.py` (rules in its header) and
 the call sites listed under "Routes". Tests: `tests/test_auth_fail_log.py`,

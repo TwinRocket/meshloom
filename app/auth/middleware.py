@@ -3,6 +3,12 @@
 Replaces the 4.x ``BasicAuthMiddleware``. For each ``http`` and ``websocket``
 scope it:
 
+0. refuses a banned address (``app/auth/ip_ban.py``, outside ingress) on the
+   ``/api`` routes, the API docs and their WebSocket upgrades, before reading
+   any credential (no argon2id work): 429 ``auth_ip_banned`` with
+   ``Retry-After`` and ``params.retry_after`` (seconds), or a refused upgrade;
+   on any other path it reads no credential either and the request is
+   anonymous;
 1. resolves the principal (``Principal``, ``app/auth/principal.py``) from, in
    order, the Home Assistant identity on an ingress request
    (``app/auth/providers/ingress.py``), ``Authorization: Bearer`` (API and
@@ -63,7 +69,7 @@ from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import origin_policy
-from app.auth import sessions
+from app.auth import ip_ban, sessions
 from app.auth.fail_log import log_auth_failure
 from app.auth.principal import Principal, Via, set_principal
 from app.auth.providers import ingress, trusted_network
@@ -155,6 +161,7 @@ _MESSAGES = {
     "auth_busy": "Too many sign-in checks at once: retry in a moment",
     "auth_password_change_required": "Change your password first",
     "auth_2fa_enrolment_required": "Set up two-factor authentication first",
+    ip_ban.BANNED_CODE: "Too many failed sign-ins from this address: retry later",
 }
 
 
@@ -211,8 +218,11 @@ def client_ip(scope: Scope) -> str | None:
     return client[0] if client else None
 
 
-def coded_body(code: str) -> bytes:
-    return json.dumps({"detail": {"code": code, "message": _MESSAGES.get(code, code)}}).encode()
+def coded_body(code: str, params: dict[str, Any] | None = None) -> bytes:
+    detail: dict[str, Any] = {"code": code, "message": _MESSAGES.get(code, code)}
+    if params:
+        detail["params"] = params
+    return json.dumps({"detail": detail}).encode()
 
 
 async def users_exist() -> bool:
@@ -352,13 +362,30 @@ class AuthMiddleware:
         scope["auth_secure"] = secure
         scope["auth_via"] = via
 
-        try:
-            result = await resolve(scope, headers, via, secure)
-        except Exception:
-            # Fail closed: a database error never lets a request through.
-            logger.exception("Could not resolve the principal of a request")
+        # A banned address (app/auth/ip_ban.py) never reaches a credential check
+        # (no argon2id work for it): refused on the API, the API docs and their
+        # upgrades; anonymous elsewhere, so the page loads and can say why. Never
+        # under ingress (never banned).
+        banned_for = None if via == "ingress" else await ip_ban.check(client_ip(scope))
+        if banned_for is not None and (
+            is_api_path(path) or (path.rstrip("/") or "/") in AUTHENTICATED_NON_API_PATHS
+        ):
+            if scope["type"] == "websocket":
+                await self._refuse_websocket(receive, send)
+            else:
+                await self._respond(send, 429, ip_ban.BANNED_CODE, path, retry_after=banned_for)
+            return
+
+        if banned_for is not None:
             result = _Resolution()
-            result.credential_failed = True
+        else:
+            try:
+                result = await resolve(scope, headers, via, secure)
+            except Exception:
+                # Fail closed: a database error never lets a request through.
+                logger.exception("Could not resolve the principal of a request")
+                result = _Resolution()
+                result.credential_failed = True
         set_principal(scope, result.principal)
         if result.principal is not None and result.principal.via != via:
             # A trusted network rule signed the request in: audit rows say so.
@@ -457,9 +484,15 @@ class AuthMiddleware:
 
     @staticmethod
     async def _respond(
-        send: Send, status: int, code: str, path: str, *, challenge: bool = False
+        send: Send,
+        status: int,
+        code: str,
+        path: str,
+        *,
+        challenge: bool = False,
+        retry_after: int | None = None,
     ) -> None:
-        body = coded_body(code)
+        body = coded_body(code, {"retry_after": retry_after} if retry_after else None)
         headers: list[tuple[bytes, bytes]] = [
             (b"content-type", b"application/json"),
             (b"cache-control", b"no-store"),
@@ -474,6 +507,8 @@ class AuthMiddleware:
             headers.append((b"www-authenticate", BASIC_CHALLENGE.encode("latin-1")))
         if status == 503:
             headers.append((b"retry-after", b"1"))
+        elif retry_after:
+            headers.append((b"retry-after", str(retry_after).encode("ascii")))
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": body})
 

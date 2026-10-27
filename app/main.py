@@ -265,6 +265,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         # No trusted proxy (the default): forwarded headers stay ignored.
         logger.exception("Failed to load the trusted proxies from auth_settings")
+    from app.auth import ip_ban
+
+    try:
+        await ip_ban.load()
+    except Exception:
+        # The defaults apply and the stored bans wait for the next start.
+        logger.exception("Failed to load the address bans")
 
     # Accounts: import the retired Basic credentials, or issue the installation
     # code on an existing database with no account yet (app/auth/setup_code.py).

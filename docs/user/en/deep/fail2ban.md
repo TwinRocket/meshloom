@@ -9,6 +9,15 @@ Meshloom already slows down someone who keeps guessing a password ([Sign-in dela
 
 Each refused password, code, passkey, token or installation code writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from. fail2ban watches those lines. Nothing in them identifies the account: only a short code that changes at each restart.
 
+## The built-in ban and fail2ban
+
+Meshloom also has a [built-in ban](/en/docs/deep/access/#sign-in-delays), on by default: 10 refused sign-ins within 10 minutes from one address ban it for 60 minutes. It counts the same `AUTH_FAIL` lines, works wherever Meshloom runs, Docker included (sign-ins through Home Assistant are never counted) and needs nothing installed. An administrator tunes it, lifts bans and keeps a whitelist in **Settings → Users & Access → Address bans**, or with `meshloom-admin unban`.
+
+The difference is where the block happens. The built-in ban answers a banned address with an error before checking any password: it still reaches Meshloom, which costs little. fail2ban blocks it at the firewall, so it no longer reaches the port at all, and can ban longer each time it comes back.
+
+- **The built-in ban alone** is enough for most installations, and is the only choice in Docker without journald, or on macOS or Windows.
+- **Both** on a Linux machine open to the internet: the built-in ban acts at once, fail2ban keeps a stubborn address off the machine. They do not get in each other's way.
+
 ## What the Linux packages install
 
 The `.deb` and `.rpm` packages carry two files, both kept when you upgrade (an edit of yours is never overwritten):
@@ -108,6 +117,6 @@ bantime = 1h
 
 ## Related
 
-- [Sign-in delays and the `AUTH_FAIL` line](/en/docs/deep/access/#sign-in-delays)
+- [Sign-in delays, the built-in ban and the `AUTH_FAIL` line](/en/docs/deep/access/#sign-in-delays)
 - [Remote access on your own](/en/docs/deep/remote-self-hosted/)
 - [Security](/en/docs/deep/security/)

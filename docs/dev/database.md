@@ -29,7 +29,7 @@ a migration must tolerate columns that `SCHEMA_TABLES` already created. Never re
 - One file per version: `app/migrations/_NNN_description.py`, exposing
   `async def migrate(conn)`. The runner (`app/migrations/__init__.py`) discovers
   them by numeric prefix and runs those above `PRAGMA user_version`, in order.
-- Numbering is contiguous from 001. The current head is 125 (the value of
+- Numbering is contiguous from 001. The current head is 135 (the value of
   `LATEST_SCHEMA_VERSION` in `tests/test_migrations/conftest.py`).
 - Each migration runs in one transaction together with the `user_version` bump; a
   failure rolls both back. `await conn.commit()` inside a migration is a no-op
@@ -378,8 +378,27 @@ enrolment routes), `device_cookie_key` (migration 119: hex HMAC-SHA256 key of th
 known-device cookies, NULL until first use, replaced by `meshloom-admin
 rotate-device-key`, cleared in the SQLite download), `addresses_identify_clients`
 (migration 134, off: under Docker without a trusted proxy the per-IP login rules
-apply only when it is on, `docs/dev/auth.md`, "Login delays"). The CORS list stays `app_settings.auth_allowed_origins`.
+apply only when it is on, `docs/dev/auth.md`, "Login delays"), and the IP ban
+settings of migration 135: `ip_ban_enabled` (1), `ip_ban_max_failures` (10, 3 to
+1000), `ip_ban_window_minutes` (10, 1 to 1440), `ip_ban_duration_minutes` (60, 1
+to 43200) (`docs/dev/auth.md`, "IP ban"). The CORS list stays `app_settings.auth_allowed_origins`.
 `AuthSettingsRepository` (`auth.py`).
+
+### `ip_bans`
+
+Addresses banned after repeated failed sign-ins (migration 135, `app/auth/ip_ban.py`,
+`docs/dev/auth.md`, "IP ban"): PK `address` (an IPv4 address or an IPv6 /64 such
+as `2001:db8:1:2::/64`), `banned_at`, `expires_at` (epoch seconds), `failures`,
+`route`. An expired row is ignored and purged on the next ban; the table holds at
+most 10,000 rows (oldest expiry dropped first). `IpBanRepository` (`ip_ban.py`).
+Excluded from backups.
+
+### `ip_ban_whitelist`
+
+Networks the IP ban never touches (migration 135): PK `network` (a canonical
+CIDR), `note` (at most 200 characters), `created_at`. At most 256 rows. Managed
+from Settings > Access, `/api/auth/ban-whitelist` and `meshloom-admin whitelist`.
+`IpBanRepository` (`ip_ban.py`). Excluded from backups.
 
 ### `plugins`
 
@@ -504,6 +523,7 @@ databases). The current set:
 | `idx_pairing_codes_user` | `pairing_codes(created_by, created_at)` |
 | `idx_recovery_codes_user` | `recovery_codes(user_id)` |
 | `idx_webauthn_credentials_user` | `webauthn_credentials(user_id)` |
+| `idx_ip_bans_expires` | `ip_bans(expires_at)` |
 | `idx_contacts_type_last_seen` | `contacts(type, last_seen)` |
 | `idx_messages_chan_unattributed_sender` | `messages(sender_name)` where `CHAN` and `sender_key IS NULL` |
 | `idx_messages_dedup_null_safe` | unique, `messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))` where `CHAN` |
@@ -551,6 +571,8 @@ databases). The current set:
 - `auth_audit` rows past `auth_settings.audit_retention_days` (366 by default) are
   deleted by `purge_audit()` (`app/auth/audit.py`) in the hourly housekeeping loop
   (`app/services/stale_contacts.py`).
+- Expired `ip_bans` rows are deleted when a new ban is written; nothing else
+  reads them.
 - Everything else (messages, channels, fanout configs) is kept until the user
   deletes it.
 

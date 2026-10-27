@@ -71,6 +71,35 @@ export interface AuthSettings {
   shared_address_install?: boolean;
   /** Read only: the address the server sees for this request is a public one. */
   client_public?: boolean;
+  /** Ban an address after repeated failed sign-ins (on by default). */
+  ip_ban_enabled?: boolean;
+  /** Failures within the window that ban an address (3 to 1000, 10 by default). */
+  ip_ban_max_failures?: number;
+  /** The window those failures are counted in, minutes (1 to 1440, 10 by default). */
+  ip_ban_window_minutes?: number;
+  /** How long a ban lasts, minutes (1 to 43200, 60 by default). */
+  ip_ban_duration_minutes?: number;
+}
+
+/** One running ban (`GET /auth/bans`): an IPv4 address or an IPv6 /64. */
+export interface IpBan {
+  address: string;
+  banned_at: number;
+  expires_at: number;
+  failures: number;
+  route: string;
+}
+
+/** A network the ban never touches. */
+export interface IpBanWhitelistEntry {
+  network: string;
+  note: string;
+  created_at: number;
+}
+
+export interface IpBansView {
+  bans: IpBan[];
+  whitelist: IpBanWhitelistEntry[];
 }
 
 export type HostGuardMode = 'observe' | 'enforce';

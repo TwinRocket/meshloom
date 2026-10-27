@@ -3,7 +3,16 @@
  * in `app/auth/audit.py`). A name the server adds later still shows, as its raw key.
  */
 export const AUDIT_FAMILIES = {
-  signin: ['setup', 'login', 'logout', 'session.revoked'],
+  signin: [
+    'setup',
+    'login',
+    'logout',
+    'session.revoked',
+    'ip.banned',
+    'ip.unbanned',
+    'ip.whitelisted',
+    'ip.unwhitelisted',
+  ],
   accounts: [
     'user.created',
     'user.changed',

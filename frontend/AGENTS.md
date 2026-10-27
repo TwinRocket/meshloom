@@ -425,7 +425,12 @@ purpose.
   (`AccessClientAddressesPanel`, `addresses_identify_clients`, MSHL-424: shown on a
   `shared_address_install` or when already on; suggests it when `client_public` and no
   trusted proxy; strings `settings.access.clientAddresses.*` in slice `clientaddresses`;
-  test `src/test/accessClientAddressesPanel.test.tsx`), as does the audit log (`AccessAuditPanel`: cursor pages of
+  test `src/test/accessClientAddressesPanel.test.tsx`), as does the IP ban panel
+  (`AccessIpBanPanel`, MSHL-422: `ip_ban_*` settings with `IP_BAN_BOUNDS` mirroring the
+  server's, the running bans with Unban, the whitelist; `GET/DELETE /auth/bans`,
+  `POST/DELETE /auth/ban-whitelist`; strings `settings.access.ipBan.*` and the
+  `errors.auth_ip_banned`/`auth_ban_*` codes in slice `ipban`; test
+  `src/test/accessIpBanPanel.test.tsx`), as does the audit log (`AccessAuditPanel`: cursor pages of
   `GET /auth/audit`, filters applied client-side to the loaded rows, labels from
   `auditShared.ts`; rows virtualised with `@tanstack/react-virtual` in a fixed-height
   scroller; `details` is never shown). Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded
