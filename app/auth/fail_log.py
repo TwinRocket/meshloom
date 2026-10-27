@@ -177,12 +177,17 @@ def log_auth_failure(
             return
         ip = client_ip(scope)  # type: ignore[arg-type]
         proxied = _undeclared_local_proxy(scope)
+    except Exception:
+        logger.error("Could not read an AUTH_FAIL line's fields for route %s", route, exc_info=True)
+        return
+    try:
         line = format_line(
             ip=ip, route=route, reason=reason, via=via, proxied=proxied, username=username
         )
     except Exception:
+        # No line is better than a doubtful one, but the failure still counts.
         logger.error("Could not format an AUTH_FAIL line for route %s", route, exc_info=True)
-        return
-    logger.warning(line)
+    else:
+        logger.warning(line)
     # The built-in ban counts the same failure, with the same fields (MSHL-422).
     ip_ban.note_failure(ip, via=via, proxied=proxied, route=route)

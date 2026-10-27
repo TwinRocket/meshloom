@@ -145,8 +145,8 @@ def test_the_logger_name_and_a_dict_argument_are_covered_too():
 def _raise_in_chain(text: str) -> tuple:
     try:
         try:
-            raise KeyError(text)
-        except KeyError as inner:
+            raise OSError(text)
+        except OSError as inner:
             raise ValueError(text) from inner
     except ValueError:
         try:
@@ -158,11 +158,15 @@ def _raise_in_chain(text: str) -> tuple:
 
 @pytest.mark.parametrize("injection", INJECTIONS)
 def test_exception_text_cannot_forge_a_line(injection):
-    out = _render("failed", exc_info=_raise_in_chain(injection))
+    exc_info = _raise_in_chain(injection)
+    out = _render("failed", exc_info=exc_info)
     assert forged_matches(out) == []
     # The structure of a traceback is kept (frames on their own lines).
     assert "Traceback (most recent call last):" in out and "_raise_in_chain" in out
     assert "The above exception was the direct cause" in out
+    assert "OSError" in out
+    # Positive control: the plain traceback formatter lets the same text through.
+    assert forged_matches(logging.Formatter().formatException(exc_info)) != []
     assert "\\n" in out or "\\r" in out or "\\x" in out or "\\u" in out
 
 
@@ -172,9 +176,20 @@ def test_exception_notes_and_groups_cannot_forge_a_line():
         error.add_note(f"note\n{FORGED_LINE}")
         raise ExceptionGroup(f"g\n{FORGED_LINE}", [error, OSError(f"b\n{FORGED_LINE}")])
     except ExceptionGroup:
-        out = _render("failed", exc_info=sys.exc_info())
+        exc_info = sys.exc_info()
+        out = _render("failed", exc_info=exc_info)
+        plain = logging.Formatter().formatException(exc_info)
     assert forged_matches(out) == []
     assert "ExceptionGroup" in out and "ValueError" in out
+    # An exception message stays on one line, sub-groups included: every copy of
+    # the injected text follows an escaped break, never a raw one.
+    assert out.count(FORGED_LINE) == 4
+    assert out.count("\\n" + FORGED_LINE) == 4
+    assert out.count("\n" + FORGED_LINE) == 0
+    # Not matchable either way (sub-group lines carry a "| " prefix), but the
+    # contract says one line per message: the plain formatter breaks them, ours does not.
+    for raw in ("g\n", "a\n", "b\n", "note\n"):
+        assert raw in plain and raw not in out
 
 
 def test_a_syntax_error_cannot_forge_a_line():
@@ -261,11 +276,20 @@ def test_stderr_and_the_ring_buffer_never_hold_a_forged_line(real_logging, injec
 
 
 def test_the_access_log_cannot_forge_a_line(real_logging):
+    # The decoded path is the real vector: /x%0A<line>%0A reaches the record as text.
     logger = logging.getLogger("uvicorn.access")
     logger.setLevel(logging.INFO)
-    logger.info('%s - "%s %s HTTP/%s" %d', "1.2.3.4:5", f"GET\n{FORGED_LINE}", "/x", "1.1", 200)
+    path = f"/x\n{FORGED_LINE}\n"
+    args = ("1.2.3.4:5", "GET", path, "1.1", 200)
+    logger.info('%s - "%s %s HTTP/%s" %d', *args)
     err = real_logging.readouterr().err
-    assert "GET" in err and forged_matches(err) == []
+    assert "/x\\n2026" in err and forged_matches(err) == []
+    # Positive control: through the same formatter without the escaping, it matches.
+    handler = next(h for h in logger.handlers if isinstance(h.formatter, RedactingFormatter))
+    record = logging.LogRecord(
+        "uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d', args, None
+    )
+    assert forged_matches(handler.formatter.inner.format(record)) != []
 
 
 # --- Realistic inputs ----------------------------------------------------------------
@@ -382,3 +406,46 @@ def test_a_username_with_control_characters_only_reaches_the_line_as_a_hash():
         username=f"x\n{FORGED_LINE}\x00",
     )
     assert "\n" not in line and re.search(r"user=h:[0-9a-f]{6}$", line)
+
+
+def test_a_meshcore_exception_cannot_forge_a_line():
+    # The meshcore filter formats the traceback itself and caches it on the record.
+    from app.log_redaction import install_meshcore_log_redaction
+
+    install_meshcore_log_redaction()
+    logger = logging.getLogger("meshcore")
+    records: list[logging.LogRecord] = []
+
+    class Grab(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = Grab()
+    logger.addHandler(handler)
+    old_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    try:
+        try:
+            raise ValueError(f"radio said\n{FORGED_LINE}")
+        except ValueError:
+            logger.exception("handle_rx failed")
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(old_level)
+    [record] = records
+    assert record.exc_text and forged_matches(record.exc_text) == []
+    out = RedactingFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT)).format(record)
+    assert forged_matches(out) == [] and "radio said\\n2026" in out
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db")
+def test_the_ban_is_fed_even_when_the_line_cannot_be_formatted(monkeypatch, caplog):
+    seen = []
+    monkeypatch.setattr(ip_ban, "note_failure", lambda ip, **kw: seen.append((ip, kw)))
+    monkeypatch.setattr(fail_log, "format_line", lambda **kw: (_ for _ in ()).throw(ValueError()))
+    caplog.set_level(logging.WARNING, logger="meshloom.auth")
+    fail_log.log_auth_failure(_scope("198.51.100.20"), "bearer", "invalid_token")
+    assert [ip for ip, _ in seen] == ["198.51.100.20"]
+    assert seen[0][1]["route"] == "bearer" and seen[0][1]["proxied"] is False
+    assert not [r for r in caplog.records if r.getMessage().startswith("AUTH_FAIL ")]
