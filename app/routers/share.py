@@ -2,8 +2,9 @@
 
 The browser never talks to the service: these routes do, through
 ``app.services.share`` (opt-in, egress guard, coded errors). ``status`` makes no
-request. Writes refuse a request the browser marks ``Sec-Fetch-Site: cross-site``
-(defence in depth, SECURITY.md); CORS is untouched.
+request. Writes refuse a request the browser marks ``Sec-Fetch-Site`` other than
+``same-origin`` or ``none`` (``same-site`` included; defence in depth,
+SECURITY.md); CORS is untouched.
 
 ``POST /files`` takes the raw bytes of an image (not multipart), stages them
 under ``<data dir>/share-tmp/``, checks them and uploads them
@@ -81,13 +82,21 @@ router = APIRouter(prefix="/share", tags=["share"])
 MAX_URL_LENGTH = 2048
 
 
-def refuse_cross_site(request: Request) -> None:
-    """Dependency of every write route: 403 ``share_cross_site`` from another site.
+# Sec-Fetch-Site values a write may carry: this origin's own page, or a request
+# the user started. ``same-site`` is refused like ``cross-site``: without the
+# Public Suffix List every ``<slug>.meshloom.link`` instance is the same site,
+# and so are the other apps of a self-hoster's domain.
+_ALLOWED_FETCH_SITES = frozenset({"same-origin", "none"})
 
-    A request without the header (curl, bots) and ``same-origin``, ``same-site``
-    and ``none`` pass.
+
+def refuse_cross_site(request: Request) -> None:
+    """Dependency of every write route: 403 ``share_cross_site`` unless same-origin.
+
+    A request without the header (curl, bots), ``same-origin`` and ``none``
+    pass; ``same-site``, ``cross-site`` and any other value are refused.
     """
-    if request.headers.get("sec-fetch-site", "").strip().lower() == "cross-site":
+    fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site and fetch_site not in _ALLOWED_FETCH_SITES:
         raise ShareError("share_cross_site")
 
 

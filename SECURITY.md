@@ -77,9 +77,10 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   (an unknown name is logged and let through, so a reverse proxy name keeps
   working; refused by default in 5.1), and always strictly before a trusted
   network signs anyone in.
-- **Share writes refuse requests marked cross-site.** `POST /api/share/links`
+- **Share writes accept only same-origin browser requests.** `POST /api/share/links`
   (and every later write under `/api/share`) answers 403 `share_cross_site` when
-  the browser sends `Sec-Fetch-Site: cross-site`. A request without the header
+  the browser sends a `Sec-Fetch-Site` other than `same-origin` or `none`
+  (`same-site` included). A request without the header
   (curl, scripts) passes; the route's permission (`send`) still applies. Defence in
   depth on top of the auth gate.
 - **Extensions run administrator-approved Python.** Each runs in a process of its
