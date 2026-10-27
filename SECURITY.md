@@ -30,20 +30,46 @@ patched: update to the latest release (see [Update](README.md#update)).
 ## Plugin isolation
 
 Plugins (Meshloom 5) run in a child process behind an operating-system
-boundary: a bubblewrap sandbox on Linux, a dedicated uid per plugin
-instance in the Docker image and the Home Assistant add-on
-(`docs/dev/plugins-security.md`, "OS isolation"). **A plugin that escapes that
-boundary is a vulnerability**: reading the database, the server's environment
-or memory, another plugin's memory, writing Meshloom's files, reaching the network under bubblewrap, or
-outliving its kill under bubblewrap. Report it as above. A bypass of the
-in-process guards alone (the audit hook, the import allowlist) is not one: they
-are documented as defence in depth, not as the boundary. The "hooks only" level
-(no bubblewrap and no dedicated account) is a known limit, logged at every
-start and reported in `/api/health`; so are the limits listed in that document
-for the dedicated account (plugins share one uid, so they can read each
-other's work directories and signal each other, but not each other's memory;
-the network, loopback and the unauthenticated radio proxy included, is not
-cut).
+boundary: a bubblewrap sandbox (deb/rpm, Raspberry Pi image, source install),
+or a uid of its own per plugin instance (Docker image, Home Assistant add-on).
+`docs/dev/plugins-security.md` ("OS isolation") describes both, and the level in
+force is shown in the extension settings and in `/api/health`. These are
+vulnerabilities; report them as above:
+
+- **An escape from that boundary**: a plugin that reads the database, the data
+  directory, the server's environment or memory, or another plugin's work
+  directory or memory; that writes Meshloom's files; that signals the server or
+  another plugin; that starts a process or thread; that reaches the network
+  or outlives its kill under bubblewrap.
+- **A bypass of the lock**: starting or running an extension while
+  `MESHCORE_DISABLE_PLUGINS=true` is set or the global pause holds.
+- **A bypass of the permissions**, at any level: a plugin that receives events,
+  or calls the server, beyond what an administrator granted it (scope, quotas,
+  the egress guard of `http.fetch`).
+
+**The "hooks only" level (`none`) is weaker by design.** It applies where
+neither bubblewrap nor a dedicated account is available (macOS, a Linux host
+without bubblewrap or user namespaces). The child then runs under the server's
+uid, guarded only by in-process hooks: a plugin that gets past them can read the
+database and Meshloom's code, use the network, and, when the server runs as
+root, read its environment. It is logged at every start and reported in
+`/api/health`. Do not install a plugin you would not run as the server's user at
+that level.
+
+Out of scope, documented as known limits:
+
+- a bypass of the in-process guards alone (the audit hook, the module purge, the
+  import allowlist): they are defence in depth, not the boundary;
+- what a plugin past its hooks reaches at the "hooks only" level;
+- under the dedicated uid, a plugin past its hooks reaching the network,
+  loopback and the unauthenticated radio proxy included (no network namespace
+  in default Docker);
+- under the dedicated uid or "hooks only", a process that left its session
+  surviving the group kill until the service or container stops;
+- what a plugin does with the permissions an administrator granted it, and two
+  plugins exchanging data through what they are both allowed to reach;
+- code an administrator writes or installs: any administrator can already run
+  code on the host (see below).
 
 ## Known limits, not vulnerabilities
 
