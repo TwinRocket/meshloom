@@ -44,9 +44,7 @@ def kiosk_host(tmp_path, monkeypatch):
 
 
 async def _start() -> None:
-    await setup_code.prepare_first_run(
-        existing_database=False, basic_username="", basic_password=""
-    )
+    await setup_code.prepare_first_run(existing_database=False)
 
 
 def _secret(path: Path) -> str:

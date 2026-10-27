@@ -1,7 +1,9 @@
 """The auth gate: resolves a principal for every HTTP request and WebSocket upgrade.
 
-Replaces the 4.x ``BasicAuthMiddleware``. For each ``http`` and ``websocket``
-scope it:
+Replaces the 4.x ``BasicAuthMiddleware``; ``Authorization: Basic`` is no
+longer a credential at all (MSHL-100): it is ignored like any unknown scheme,
+never checked (no argon2id work), and a 401 never carries a
+``WWW-Authenticate`` challenge. For each ``http`` and ``websocket`` scope it:
 
 0. refuses a banned address (``app/auth/ip_ban.py``, outside ingress) on the
    ``/api`` routes, the API docs and their WebSocket upgrades, before reading
@@ -13,15 +15,15 @@ scope it:
    order, the Home Assistant identity on an ingress request
    (``app/auth/providers/ingress.py``), ``Authorization: Bearer`` (API and
    device tokens, ``app/auth/providers/token.py``: from the header only, never
-   a query string; refused under ingress),
-   ``Authorization: Basic`` (the compatibility credential,
-   ``app/security.py``), then the session cookie (``app/auth/sessions.py``,
-   never under ingress), and last, for a request that sent no credential or
-   only a cookie that did not resolve, a trusted network rule
+   a query string; refused under ingress), then the session cookie
+   (``app/auth/sessions.py``, never under ingress), and last, for a request
+   that sent no credential or only a cookie that did not resolve, a trusted
+   network rule while "login-free on the local network" is on
    (``app/auth/providers/trusted_network.py``: ``via`` becomes ``trusted``,
-   never through a proxy, the relay or ingress, strict ``Host`` guard); it
-   stores it in ``scope["state"]``; when the argon2id queue is full
-   (``VerificationBusy``) it answers 503 ``auth_busy``;
+   only from a local peer, never through a proxy, the relay or ingress,
+   strict ``Host`` guard); it
+   stores it in ``scope["state"]``. No credential the gate reads costs an
+   argon2id check (tokens are SHA-256, sessions a lookup);
 2. applies the CSRF rule to unsafe methods (``origin_policy.unsafe_request_allowed``):
    403 ``auth_origin_rejected`` unless a bearer token resolved;
 3. refuses any ``/api`` route outside ``PUBLIC_ROUTES``, and the API docs
@@ -40,11 +42,7 @@ scope it:
    ``SECOND_FACTOR_ENROLMENT_ROUTES`` (403 ``auth_2fa_enrolment_required``) and
    every WebSocket upgrade. An unreadable setting counts as on (fail closed).
 
-``Authorization: Basic`` never signs in an account whose second factor is on:
-the header carries no code (``auth_invalid_credentials``).
-
-A bearer token or a Basic credential that does not check writes one
-``AUTH_FAIL`` line (``app/auth/fail_log.py``, ``docs/dev/auth-fail-log.md``).
+A bearer token that does not check writes one ``AUTH_FAIL`` line (``app/auth/fail_log.py``, ``docs/dev/auth-fail-log.md``).
 
 Which role may call which route is the permission registry's decision
 (``app/auth/permissions.py``), once a principal is known. The other paths
@@ -53,10 +51,6 @@ outside ``/api`` (the frontend) stay public: the login page must load.
 ``/api/auth/*`` answers carry ``Cache-Control: no-store``; a session whose
 expiry slid on this request gets its cookie again. An ingress answer never
 carries ``Set-Cookie``: any is dropped on the way out.
-
-The Basic challenge (``WWW-Authenticate``) is sent on 401 only while the
-instance came from 4.x Basic (``auth_settings.basic_imported``), so browsers
-that used the native dialog keep working; never under ingress.
 """
 
 from __future__ import annotations
@@ -74,14 +68,7 @@ from app.auth.fail_log import log_auth_failure
 from app.auth.principal import Principal, Via, set_principal
 from app.auth.providers import ingress, trusted_network
 from app.auth.providers import token as token_provider
-from app.auth.providers.password import VerificationBusy
 from app.repository.auth import AuthSettingsRepository
-from app.security import (
-    BASIC_CHALLENGE,
-    authenticate_basic,
-    basic_compat_active,
-    parse_basic_authorization,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +145,6 @@ _MESSAGES = {
     "auth_invalid_credentials": "Invalid credentials",
     "auth_setup_required": "No account exists yet: create the administrator first",
     "auth_origin_rejected": "Cross-origin request refused",
-    "auth_busy": "Too many sign-in checks at once: retry in a moment",
     "auth_password_change_required": "Change your password first",
     "auth_2fa_enrolment_required": "Set up two-factor authentication first",
     ip_ban.BANNED_CODE: "Too many failed sign-ins from this address: retry later",
@@ -232,15 +218,11 @@ async def users_exist() -> bool:
 
 
 class _Resolution:
-    __slots__ = ("principal", "bearer_sent", "credential_failed", "busy", "refreshed_cookie")
+    __slots__ = ("principal", "credential_failed", "refreshed_cookie")
 
     def __init__(self) -> None:
         self.principal: Principal | None = None
-        # An ``Authorization: Bearer`` header was sent (valid or not).
-        self.bearer_sent = False
         self.credential_failed = False
-        # The argon2id queue was full: answer 503 ``auth_busy``.
-        self.busy = False
         self.refreshed_cookie: str | None = None
 
 
@@ -279,7 +261,6 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
     if authorization:
         scheme = authorization.split(" ", 1)[0].lower()
         if scheme == "bearer":
-            result.bearer_sent = True
             token = authorization.split(" ", 1)[1].strip() if " " in authorization else ""
             principal = (
                 await resolve_bearer_token(
@@ -293,28 +274,8 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
                 log_auth_failure(scope, "bearer", "invalid_token")
             result.principal = principal
             return result
-        if scheme == "basic":
-            credentials = parse_basic_authorization(authorization)
-            try:
-                user = (
-                    await authenticate_basic(credentials, client_ip(scope)) if credentials else None
-                )
-            except VerificationBusy:
-                result.busy = True
-                return result
-            if user is None or user.totp_enabled_at is not None:
-                # Basic carries no second factor: an account with one never
-                # signs in this way.
-                result.credential_failed = True
-                log_auth_failure(
-                    scope,
-                    "basic",
-                    "invalid_credentials",
-                    username=credentials.username if credentials else None,
-                )
-                return result
-            result.principal = Principal(user=user, via=via, credential="basic")
-            return result
+        # Any other scheme (``Basic`` since MSHL-100) is ignored: never
+        # checked, so it costs no argon2id work and signs nobody in.
     if via == "ingress":
         # No cookie under ingress: the Home Assistant origin is shared by every add-on.
         return result
@@ -403,10 +364,6 @@ class AuthMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if result.busy:
-            await self._respond(send, 503, "auth_busy", path)
-            return
-
         method = scope.get("method", "GET").upper()
         # Only a bearer token that resolved exempts from the Origin rule.
         token_principal = result.principal is not None and result.principal.credential == "token"
@@ -428,10 +385,7 @@ class AuthMiddleware:
                 code = "auth_invalid_credentials"
             else:
                 code = "auth_required"
-            # No Basic challenge under ingress: the browser would prompt for a
-            # password inside the Home Assistant panel.
-            challenge = not result.bearer_sent and via != "ingress"
-            await self._respond(send, 401, code, path, challenge=challenge)
+            await self._respond(send, 401, code, path)
             return
 
         if (
@@ -489,7 +443,6 @@ class AuthMiddleware:
         code: str,
         path: str,
         *,
-        challenge: bool = False,
         retry_after: int | None = None,
     ) -> None:
         body = coded_body(code, {"retry_after": retry_after} if retry_after else None)
@@ -498,16 +451,7 @@ class AuthMiddleware:
             (b"cache-control", b"no-store"),
             (b"content-length", str(len(body)).encode("ascii")),
         ]
-        if (
-            status == 401
-            and challenge
-            and not path.startswith(AUTH_PREFIX)
-            and await basic_compat_active()
-        ):
-            headers.append((b"www-authenticate", BASIC_CHALLENGE.encode("latin-1")))
-        if status == 503:
-            headers.append((b"retry-after", b"1"))
-        elif retry_after:
+        if retry_after:
             headers.append((b"retry-after", str(retry_after).encode("ascii")))
         await send({"type": "http.response.start", "status": status, "headers": headers})
         await send({"type": "http.response.body", "body": body})

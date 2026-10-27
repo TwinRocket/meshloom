@@ -1,20 +1,12 @@
 """Tests for configuration validation.
 
 Radio transport is no longer part of Settings. These tests cover remaining
-Settings env validation (basic auth pairing and experimental aliases).
+Settings env validation (experimental aliases).
 """
 
 import logging
 
 from app.config import Settings, _UvicornLogHygiene
-
-
-class TestBasicAuthConfiguration:
-    """The retired Basic variables are plain strings: a partial pair no longer stops the start."""
-
-    def test_unpaired_credentials_are_accepted(self):
-        assert Settings(basic_auth_username="mesh").basic_auth_password == ""
-        assert Settings(basic_auth_password="secret").basic_auth_username == ""
 
 
 class TestRetiredVariables:
@@ -32,6 +24,8 @@ class TestRetiredVariables:
         s = Settings()
         for field in (
             "vapid_subject",
+            "basic_auth_username",
+            "basic_auth_password",
             "enable_message_poll_fallback",
             "force_channel_slot_reconfigure",
             "load_with_autoevict",

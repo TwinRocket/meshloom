@@ -33,14 +33,22 @@ def test_a_nonsense_port_is_ignored_rather_than_passed_on() -> None:
 
 def test_blank_options_are_left_unset_rather_than_set_to_nothing() -> None:
     """An empty string would override Meshloom's own default with nothing."""
-    env = addon.build_environment({"basic_auth_username": "   ", "vapid_subject": ""})
-    assert "MESHCORE_BASIC_AUTH_USERNAME" not in env
+    env = addon.build_environment({"log_level": "   ", "vapid_subject": ""})
+    assert "MESHCORE_LOG_LEVEL" not in env
     assert "MESHCORE_VAPID_SUBJECT" not in env
 
 
 def test_values_are_trimmed_before_they_are_passed_on() -> None:
-    env = addon.build_environment({"basic_auth_username": "  mesh  "})
-    assert env["MESHCORE_BASIC_AUTH_USERNAME"] == "mesh"
+    env = addon.build_environment({"log_level": "  DEBUG  "})
+    assert env["MESHCORE_LOG_LEVEL"] == "DEBUG"
+
+
+def test_the_removed_basic_auth_options_are_not_passed_on() -> None:
+    """MSHL-100: HTTP Basic auth is gone; a stale options.json value reaches nothing."""
+    env = addon.build_environment({"basic_auth_username": "mesh", "basic_auth_password": "x"})
+    assert not any(name.startswith("MESHCORE_BASIC_AUTH") for name in env)
+    assert "basic_auth_username" not in addon.RETIRED_PASS_THROUGH
+    assert "basic_auth_password" not in addon.RETIRED_PASS_THROUGH
 
 
 def test_the_deprecated_vapid_subject_is_handed_on_for_the_one_shot_import() -> None:

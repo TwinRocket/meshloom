@@ -273,16 +273,12 @@ async def lifespan(app: FastAPI):
         # The defaults apply and the stored bans wait for the next start.
         logger.exception("Failed to load the address bans")
 
-    # Accounts: import the retired Basic credentials, or issue the installation
-    # code on an existing database with no account yet (app/auth/setup_code.py).
+    # Accounts: issue the installation code on an existing database with no
+    # account yet (app/auth/setup_code.py).
     from app.auth.setup_code import prepare_first_run
 
     try:
-        await prepare_first_run(
-            existing_database=existing_database,
-            basic_username=server_settings.basic_auth_username,
-            basic_password=server_settings.basic_auth_password,
-        )
+        await prepare_first_run(existing_database=existing_database)
     except Exception:
         # Fail closed: setup answers 503 until a retry from the setup route succeeds
         # (app/auth/setup_code.py), and every other route still needs an account.

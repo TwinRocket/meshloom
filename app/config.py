@@ -33,8 +33,6 @@ class Settings(BaseSettings):
     disable_plugins: bool = False
     # DEV-ONLY debug switch (see app/AGENTS.md "Developer-only variables"): not a user setting.
     skip_post_connect_sync: bool = False
-    basic_auth_username: str = ""
-    basic_auth_password: str = ""
     embeddable_same_origin: bool = Field(
         default=False,
         description=(

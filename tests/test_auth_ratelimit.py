@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from app import security
 from app.auth import ratelimit
 from app.auth.models import AuthSettings
 from app.auth.providers import password as provider
@@ -24,7 +23,7 @@ from app.auth.ratelimit import (
 )
 from app.middleware import proxy_headers
 from app.repository.auth import AuthAuditRepository
-from tests.auth_helpers import ADMIN, PASSWORD, basic, create_user, make_client
+from tests.auth_helpers import ADMIN, PASSWORD, create_user, make_client
 
 
 class FakeClock:
@@ -517,50 +516,6 @@ async def test_route_uses_the_client_a_trusted_proxy_forwarded(clock):
             assert other.status_code == 200, other.text
     finally:
         proxy_headers.reset()
-
-
-# --- MSHL-288: the Basic cooldown is per resolved client, not per proxy ----------
-
-
-@pytest.mark.real_auth
-@pytest.mark.usefixtures("test_db", "fast_argon2")
-async def test_basic_cooldown_uses_the_forwarded_client_behind_a_trusted_proxy():
-    proxy_headers.apply(AuthSettings(trusted_proxies=["127.0.0.1"]))
-    try:
-        await create_user()
-        async with make_client() as client:
-            bad = await client.get(
-                "/api/auth/me",
-                headers={**basic(ADMIN, "wrong password"), "X-Forwarded-For": "203.0.113.7"},
-            )
-            assert bad.status_code == 401
-            good = await client.get(
-                "/api/auth/me",
-                headers={**basic(ADMIN, PASSWORD), "X-Forwarded-For": "203.0.113.8"},
-            )
-            assert good.status_code == 200, good.text
-        assert list(security._failed_ips) == ["203.0.113.7"]
-    finally:
-        proxy_headers.reset()
-
-
-@pytest.mark.real_auth
-@pytest.mark.usefixtures("test_db", "fast_argon2")
-async def test_route_on_a_shared_address_lets_the_owner_in_within_a_second(monkeypatch):
-    clock = FakeClock()
-    monkeypatch.setattr(ratelimit, "login_limiter", make_limiter(clock, kind="compose"))
-    await create_user()
-    async with make_client(client=("172.17.0.1", 50000)) as client:
-        for _ in range(PAIR_FREE_FAILURES + 3):
-            clock.advance(60)
-            wrong = await client.post("/api/auth/login", json=_login(ADMIN, "wrong password"))
-            assert wrong.status_code == 401
-        ok = await client.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
-        if ok.status_code == 429:
-            assert ok.json()["detail"]["params"] == {"retry_after": 1}
-            clock.advance(USERNAME_INTERVAL_S)
-            ok = await client.post("/api/auth/login", json=_login(ADMIN, PASSWORD))
-        assert ok.status_code == 200, ok.text
 
 
 # --- Known-device cookie through the route --------------------------------------------

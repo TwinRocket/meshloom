@@ -61,10 +61,6 @@ backup_exclude:
 options:
   log_level: INFO
   proxy_port: 5051
-  # DEPRECATED, remove in the next release: Home Assistant signs ingress users in;
-  # copied once into a Meshloom account while the database has none.
-  basic_auth_username: ""
-  basic_auth_password: ""
   # DEPRECATED, remove in the next release: copied once into Settings → Notifications.
   vapid_subject: ""
   disable_plugins: false
@@ -75,7 +71,5 @@ schema:
   # once here and pushed into Meshloom at startup; the field is read-only in the app
   # for that reason.
   proxy_port: port
-  basic_auth_username: str?
-  basic_auth_password: password?
   vapid_subject: str?
   disable_plugins: bool?

@@ -65,9 +65,9 @@ async def test_settings_row_has_the_defaults_and_rerun_is_harmless():
         await run_migrations(conn)
         cursor = await conn.execute(
             "SELECT COUNT(*), host_guard_mode, ingress_default_role, session_lifetime_days,"
-            " audit_retention_days, basic_imported, setup_code_hash FROM auth_settings"
+            " audit_retention_days, setup_code_hash FROM auth_settings"
         )
-        assert tuple(await cursor.fetchone()) == (1, "observe", "member", 30, 30, 0, None)
+        assert tuple(await cursor.fetchone()) == (1, "observe", "member", 30, 30, None)
     finally:
         await conn.close()
 

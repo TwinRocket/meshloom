@@ -311,6 +311,7 @@ class TestSettingsRoute:
             "session_lifetime_days": 30,
             "ingress_default_role": "member",
             "trusted_networks": [],
+            "lan_login_free": False,
             "public_urls": [],
             "host_guard_mode": "observe",
             "security_notices": [],

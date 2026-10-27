@@ -26,7 +26,7 @@ from app.origin_policy import normalize_origins as normalize_origins
 
 # Every method a router uses. OPTIONS is answered by the middleware itself.
 ALLOWED_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
-# Content-Type for JSON bodies, Authorization for the optional Basic auth.
+# Content-Type for JSON bodies, Authorization for API and device tokens (Bearer).
 ALLOWED_HEADERS = ("Authorization", "Content-Type")
 
 

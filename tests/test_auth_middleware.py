@@ -4,7 +4,7 @@ import pytest
 
 from app import origin_policy
 from app.auth import sessions
-from app.repository.auth import AuthSessionRepository, AuthSettingsRepository
+from app.repository.auth import AuthSessionRepository
 from tests.auth_helpers import (
     ADMIN,
     PASSWORD,
@@ -70,7 +70,6 @@ async def test_public_routes_answer_anonymously_and_minimally():
             "setup_required": False,
             "setup_code_required": False,
             "methods": {"password": True, "ingress": False, "passkey": False},
-            "auth_compat": {"basic": False},
             "secure": False,
         }
         assert "instance" not in body and "version" not in session.text
@@ -262,45 +261,36 @@ async def test_login_itself_follows_the_origin_rule():
     assert _code(response) == "auth_origin_rejected"
 
 
-async def test_basic_credentials_are_checked_against_accounts_and_cached(monkeypatch):
-    from app.auth.providers import password as provider
+async def test_basic_is_ignored_401_without_argon2_or_challenge(monkeypatch):
+    """MSHL-100: ``Authorization: Basic`` is no credential. Valid or not, it gets
+    the plain 401, no ``WWW-Authenticate`` and no argon2id work."""
+    from app.auth import passwords
 
     await create_user()
     calls = 0
-    real_verify = provider.verify_password
+    real_verify = passwords.argon2id.verify
 
     def counting_verify(*args):
         nonlocal calls
         calls += 1
         return real_verify(*args)
 
-    monkeypatch.setattr(provider, "verify_password", counting_verify)
+    monkeypatch.setattr(passwords.argon2id, "verify", counting_verify)
     async with make_client() as client:
-        for _ in range(100):
-            response = await client.get("/api/auth/me", headers=basic(ADMIN, PASSWORD))
-            assert response.status_code == 200
-        assert calls == 1
-
-        wrong = await client.get("/api/auth/me", headers=basic(ADMIN, "wrong password!"))
-        assert wrong.status_code == 401
-        assert _code(wrong) == "auth_invalid_credentials"
-
-        # Basic is ambient (a browser replays it): same Origin rule as the cookie.
-        response = await client.patch(
-            "/api/auth/me", json={}, headers={**basic(ADMIN, PASSWORD), "Origin": FOREIGN}
-        )
-        assert response.status_code == 403
-
-
-async def test_basic_challenge_only_for_instances_that_came_from_basic():
-    await create_user()
-    async with make_client() as client:
-        assert "www-authenticate" not in (await client.get("/api/contacts")).headers
-        await AuthSettingsRepository.update(basic_imported=True)
-        response = await client.get("/api/contacts")
-        assert response.headers["www-authenticate"] == 'Basic realm="Meshloom", charset="UTF-8"'
+        for credentials in (basic(ADMIN, PASSWORD), basic(ADMIN, "wrong password!")):
+            response = await client.get("/api/auth/me", headers=credentials)
+            assert response.status_code == 401
+            assert _code(response) == "auth_required"
+            assert "www-authenticate" not in response.headers
+        assert calls == 0
+        # A browser that still replays a cached Basic header keeps its session.
+        await login(client)
+        calls = 0
+        response = await client.get("/api/auth/me", headers=basic(ADMIN, "wrong password!"))
+        assert response.status_code == 200
+        assert calls == 0
         session = await client.get("/api/auth/session")
-        assert session.json()["auth_compat"] == {"basic": True}
+        assert "auth_compat" not in session.json()
 
 
 async def test_disabled_account_loses_its_session():

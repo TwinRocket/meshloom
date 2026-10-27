@@ -140,6 +140,13 @@ def _local(address: IPAddress) -> bool:
     return address.version == 6 and any(address in network for network in _host_networks())
 
 
+def is_local(address: IPAddress) -> bool:
+    """A local address (``fail_log.LOCAL_NETWORKS`` or an on-link global IPv6
+    prefix of the host): never banned, and the only peers "login-free on the
+    local network" may apply to (``app/auth/providers/trusted_network.py``)."""
+    return _local(address)
+
+
 def bannable(raw: str | None) -> IPAddress | None:
     """The address a failure from ``raw`` counts against, or None."""
     address = canonical_address(raw)

@@ -70,9 +70,8 @@ and per-IP rules apply to the client, the per-username slow-down does not
 (one client must not slow every device down; a 128-bit code needs no global
 rule). On a shared address no rule applies to it.
 
-Not covered: ``Authorization: Basic`` keeps its own per-IP cooldown
-(``app/security.py``), and installation codes are answered one at a time
-(``app/routers/auth.py``). Concurrent attempts on one pair can each pass
+Not covered: installation codes are answered one at a time
+(``app/routers/auth.py``); ``Authorization: Basic`` is never checked (MSHL-100). Concurrent attempts on one pair can each pass
 ``check()`` before the first failure is recorded; the argon2id queue (10)
 bounds that burst.
 """

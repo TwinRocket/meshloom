@@ -1,4 +1,4 @@
-"""First-run setup (app/auth/setup_code.py, POST /api/auth/setup) and the Basic import."""
+"""First-run setup (app/auth/setup_code.py, POST /api/auth/setup); no Basic import (MSHL-100)."""
 
 import logging
 import re
@@ -27,9 +27,7 @@ def _setup_body(**extra):
 
 
 async def test_fresh_database_asks_for_no_code_and_setup_works_once():
-    await setup_code.prepare_first_run(
-        existing_database=False, basic_username="", basic_password=""
-    )
+    await setup_code.prepare_first_run(existing_database=False)
     async with make_client() as client:
         session = (await client.get("/api/auth/session")).json()
         assert session["setup_required"] is True
@@ -49,9 +47,7 @@ async def test_fresh_database_asks_for_no_code_and_setup_works_once():
 
 async def test_existing_database_requires_the_logged_installation_code(caplog):
     with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):
-        await setup_code.prepare_first_run(
-            existing_database=True, basic_username="", basic_password=""
-        )
+        await setup_code.prepare_first_run(existing_database=True)
     [line] = [r.getMessage() for r in caplog.records if "installation code" in r.getMessage()]
     code = re.search(r"\b(\d{8})\b", line).group(1)
     assert (await AuthSettingsRepository.get()).setup_code_set
@@ -78,17 +74,15 @@ async def test_existing_database_requires_the_logged_installation_code(caplog):
 async def test_each_start_replaces_the_code_and_an_account_clears_it():
     await setup_code.issue_setup_code()
     first_hash = await AuthSettingsRepository.get_setup_code_hash()
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     assert await AuthSettingsRepository.get_setup_code_hash() not in (None, first_hash)
     await UserRepository.create(ADMIN, "admin")
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     assert not (await AuthSettingsRepository.get()).setup_code_set
 
 
 async def test_setup_applies_the_password_policy():
-    await setup_code.prepare_first_run(
-        existing_database=False, basic_username="", basic_password=""
-    )
+    await setup_code.prepare_first_run(existing_database=False)
     async with make_client() as client:
         short = await client.post("/api/auth/setup", json=_setup_body(password="short pass"))
         assert short.status_code == 400
@@ -103,46 +97,24 @@ async def test_setup_applies_the_password_policy():
     assert await UserRepository.list_all() == []
 
 
-async def test_basic_credentials_are_imported_once_without_code_or_policy(caplog, monkeypatch):
+async def test_retired_basic_variables_import_nothing_and_only_warn(caplog, monkeypatch):
+    """MSHL-100: no account comes from MESHCORE_BASIC_AUTH_*; the installation code
+    path applies and the header signs nobody in."""
     from app.services.legacy_env_settings import warn_about_retired_env
 
     monkeypatch.setenv("MESHCORE_BASIC_AUTH_USERNAME", "mesh")
     monkeypatch.setenv("MESHCORE_BASIC_AUTH_PASSWORD", "secret")
     with caplog.at_level(logging.WARNING):
-        await setup_code.prepare_first_run(
-            existing_database=True, basic_username="mesh", basic_password="secret"
-        )
+        await setup_code.prepare_first_run(existing_database=True)
         warn_about_retired_env()
-    [user] = await UserRepository.list_all()
-    assert (user.username, user.role, user.has_password) == ("mesh", "admin", True)
-    settings = await AuthSettingsRepository.get()
-    assert settings.basic_imported and not settings.setup_code_set
+    assert await UserRepository.list_all() == []
+    assert (await AuthSettingsRepository.get()).setup_code_set
     assert "secret" not in caplog.text
     assert any("no longer read" in r.getMessage() for r in caplog.records)
-
-    # The next start does not import again, even with other values; it only warns.
-    caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        await setup_code.prepare_first_run(
-            existing_database=True, basic_username="other", basic_password="changed"
-        )
-        warn_about_retired_env()
-    assert [u.username for u in await UserRepository.list_all()] == ["mesh"]
-    assert any("no longer read" in r.getMessage() for r in caplog.records)
-
-    # Existing scripts keep working with the header, browsers with the challenge.
     async with make_client() as client:
-        assert (
-            await client.get("/api/contacts", headers=basic("mesh", "secret"))
-        ).status_code == 200
-        anonymous = await client.get("/api/contacts")
-        assert anonymous.status_code == 401
-        assert anonymous.headers["www-authenticate"].startswith("Basic ")
-        # And the imported account can sign in to a session too.
-        login = await client.post(
-            "/api/auth/login", json={"username": "mesh", "password": "secret"}
-        )
-        assert login.status_code == 200
+        response = await client.get("/api/contacts", headers=basic("mesh", "secret"))
+        assert response.status_code == 401
+        assert "www-authenticate" not in response.headers
 
 
 async def test_login_refuses_accounts_without_a_password_and_unknown_names():
@@ -171,9 +143,7 @@ async def test_setup_is_refused_until_first_run_preparation_succeeded(monkeypatc
 
     monkeypatch.setattr(setup_code, "_prepare", flaky)
     with pytest.raises(RuntimeError):
-        await setup_code.prepare_first_run(
-            existing_database=False, basic_username="", basic_password=""
-        )
+        await setup_code.prepare_first_run(existing_database=False)
     async with make_client() as client:
         # The setup route retries once; while it keeps failing, 503 and nothing created.
         monkeypatch.setattr(setup_code, "_prepare", _always_fail)
@@ -200,7 +170,7 @@ async def test_setup_is_refused_when_never_prepared():
 
 
 async def test_existing_database_without_a_stored_code_never_opens_setup():
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     await setup_code.clear_setup_code()  # lost by hand or by a failed write
     async with make_client() as client:
         session = (await client.get("/api/auth/session")).json()
@@ -215,9 +185,7 @@ async def test_existing_database_without_a_stored_code_never_opens_setup():
 async def test_setup_through_ingress_is_refused(monkeypatch):
     """Home Assistant creates the administrator there (tests/test_auth_ingress.py)."""
     monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "addon")
-    await setup_code.prepare_first_run(
-        existing_database=False, basic_username="", basic_password=""
-    )
+    await setup_code.prepare_first_run(existing_database=False)
     async with make_client(client=("172.30.32.2", 40000)) as client:
         response = await client.post("/api/auth/setup", json=_setup_body())
         assert response.status_code == 403
@@ -233,9 +201,7 @@ async def test_the_setup_retry_keeps_a_code_issued_by_the_cli(monkeypatch):
     real_prepare = setup_code._prepare
     monkeypatch.setattr(setup_code, "_prepare", _always_fail)
     with pytest.raises(RuntimeError):
-        await setup_code.prepare_first_run(
-            existing_database=True, basic_username="", basic_password=""
-        )
+        await setup_code.prepare_first_run(existing_database=True)
     monkeypatch.setattr(setup_code, "_prepare", real_prepare)
     cli_code = await setup_code.issue_setup_code()
     async with make_client() as client:
@@ -247,9 +213,7 @@ async def test_the_setup_retry_issues_a_code_when_none_is_stored(monkeypatch):
     real_prepare = setup_code._prepare
     monkeypatch.setattr(setup_code, "_prepare", _always_fail)
     with pytest.raises(RuntimeError):
-        await setup_code.prepare_first_run(
-            existing_database=True, basic_username="", basic_password=""
-        )
+        await setup_code.prepare_first_run(existing_database=True)
     monkeypatch.setattr(setup_code, "_prepare", real_prepare)
     issued: list[str] = []
     real_issue = setup_code.issue_setup_code
@@ -280,9 +244,7 @@ def _app_imported():
 
 
 async def _fresh() -> None:
-    await setup_code.prepare_first_run(
-        existing_database=False, basic_username="", basic_password=""
-    )
+    await setup_code.prepare_first_run(existing_database=False)
 
 
 def _logged_code(caplog) -> str:
@@ -398,7 +360,7 @@ async def test_a_cli_code_is_required_from_the_lan_even_after_an_exposure_code()
 
 
 async def test_an_existing_database_without_a_code_stays_closed_to_public_peers(caplog):
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     await setup_code.clear_setup_code()
     caplog.clear()
     with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):

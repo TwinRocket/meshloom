@@ -151,11 +151,13 @@ class AuthSettings(BaseModel):
     audit_retention_days: int = Field(
         default=366, ge=MIN_AUDIT_RETENTION_DAYS, le=MAX_AUDIT_RETENTION_DAYS
     )
-    basic_imported: bool = False
     setup_code_set: bool = False
     # Admins with a password and no second factor reach only the enrolment
     # routes until they enrol (``app/auth/totp.py``). Off by default (Q16).
     require_2fa_for_admins: bool = False
+    # Login-free on the local network (MSHL-100): the master switch of the
+    # trusted network rules (``app/auth/providers/trusted_network.py``). Off by default.
+    lan_login_free: bool = False
     # The TCP peer is the client on a Docker install without a trusted proxy: the
     # per-address login rules apply there too (``app/auth/ratelimit.py``). Off by default.
     addresses_identify_clients: bool = False

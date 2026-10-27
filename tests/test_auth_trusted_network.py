@@ -25,11 +25,18 @@ def package(monkeypatch):
     monkeypatch.setenv("MESHLOOM_INSTALL_KIND", "package")
 
 
-async def _rule(cidr: str = "192.168.1.0/24", role: str = "member", username: str = "tablet"):
+async def _rule(
+    cidr: str = "192.168.1.0/24",
+    role: str = "member",
+    username: str = "tablet",
+    *,
+    enabled: bool = True,
+):
     await create_user()
     user = await create_user(username, password=None, role=role)
     await AuthSettingsRepository.update(
-        trusted_networks=[TrustedNetworkRule(cidr=cidr, user_id=user.id)]
+        trusted_networks=[TrustedNetworkRule(cidr=cidr, user_id=user.id)],
+        lan_login_free=enabled,
     )
     return user
 
@@ -188,7 +195,8 @@ async def test_the_most_specific_rule_wins():
         trusted_networks=[
             TrustedNetworkRule(cidr="192.168.0.0/16", user_id=wide.id),
             TrustedNetworkRule(cidr="192.168.1.20/32", user_id=narrow.id),
-        ]
+        ],
+        lan_login_free=True,
     )
     async with make_client(LAN_URL, LAN_PEER) as client:
         assert (await _session(client))["user"]["id"] == narrow.id
@@ -256,17 +264,24 @@ async def test_settings_round_trip_and_audit():
         tablet = await create_user("tablet", password=None, role="viewer")
         response = await client.patch(
             "/api/auth/settings",
-            json={"trusted_networks": [{"cidr": "192.168.1.7", "user_id": tablet.id}]},
+            json={
+                "trusted_networks": [{"cidr": "192.168.1.7", "user_id": tablet.id}],
+                "lan_login_free": True,
+            },
         )
         assert response.status_code == 200, response.text
         body = response.json()
+        assert body["lan_login_free"] is True
         assert body["trusted_networks"] == [{"cidr": "192.168.1.7/32", "user_id": tablet.id}]
         assert body["security_notices"] == []
         assert (await client.get("/api/auth/settings")).json()["trusted_networks"] == body[
             "trusted_networks"
         ]
     rows = [r for r in await AuthAuditRepository.list_recent() if r.action == "settings.changed"]
-    assert rows[0].target == "auth_settings.trusted_networks"
+    assert {r.target for r in rows} == {
+        "auth_settings.trusted_networks",
+        "auth_settings.lan_login_free",
+    }
     # Applied to the next request without a restart.
     async with make_client(LAN_URL, ("192.168.1.7", 1)) as client:
         assert (await _session(client))["via"] == "trusted"
@@ -385,6 +400,79 @@ async def test_only_an_admin_reads_or_changes_the_rules():
         assert (
             await client.patch("/api/auth/settings", json={"trusted_networks": []})
         ).status_code == 403
+        assert (
+            await client.patch("/api/auth/settings", json={"lan_login_free": True})
+        ).status_code == 403
+    assert (await AuthSettingsRepository.get()).lan_login_free is False
+
+
+# ---------------------------------------------------------------- MSHL-100 guards
+
+
+async def test_the_switch_off_disables_every_rule():
+    await _rule(enabled=False)
+    assert (await AuthSettingsRepository.get()).lan_login_free is False
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await _session(client))["authenticated"] is False
+        assert (await client.get("/api/contacts")).status_code == 401
+    # Turning it on applies at once; off again closes it at once.
+    await AuthSettingsRepository.update(lan_login_free=True)
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await client.get("/api/contacts")).status_code == 200
+    await AuthSettingsRepository.update(lan_login_free=False)
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+
+
+async def test_the_switch_is_off_by_default():
+    assert (await AuthSettingsRepository.get()).lan_login_free is False
+
+
+@pytest.mark.parametrize("trusted_proxy", [False, True])
+async def test_a_public_peer_with_a_spoofed_forwarded_for_is_never_signed_in(trusted_proxy):
+    # A rule naming the peer's own public network, saved directly: the API
+    # refuses public or wide networks only as a notice.
+    await _rule("203.0.113.0/24")
+    if trusted_proxy:
+        await AuthSettingsRepository.update(trusted_proxies=["203.0.113.7"])
+    peer = ("203.0.113.7", 40000)
+    spoofed = {"X-Forwarded-For": "192.168.1.20"}
+    async with make_client(LAN_URL, peer) as client:
+        assert (await client.get("/api/contacts", headers=spoofed)).status_code == 401
+        assert (await client.get("/api/contacts")).status_code == 401
+    # The same public network reached directly by the LAN rule's own peer: a
+    # forwarded address is never the address a rule matches.
+    await AuthSettingsRepository.update(
+        trusted_networks=[
+            TrustedNetworkRule(
+                cidr="192.168.1.0/24", user_id=(await UserRepository.get_by_username("tablet")).id
+            )
+        ]
+    )
+    async with make_client(LAN_URL, peer) as client:
+        assert (await client.get("/api/contacts", headers=spoofed)).status_code == 401
+
+
+async def test_a_basic_header_on_the_lan_is_a_clean_401_without_argon2(monkeypatch):
+    from app.auth import passwords
+
+    await _rule()
+    calls = 0
+    original = passwords.argon2id.verify
+
+    def counting(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(passwords.argon2id, "verify", counting)
+    basic = {"Authorization": "Basic b3duZXI6c2VjcmV0LXBhc3N3b3Jk"}
+    async with make_client(LAN_URL, LAN_PEER) as client:
+        response = await client.get("/api/contacts", headers=basic)
+        assert response.status_code == 401
+        assert _code(response) == "auth_required"
+        assert "www-authenticate" not in response.headers
+    assert calls == 0
 
 
 # ---------------------------------------------------------------- units
@@ -409,6 +497,8 @@ def test_rule_blocker_table():
     mapped = {"type": "http", "client": ("::ffff:127.0.0.1", 1)}
     assert trusted_network.rule_blocker(mapped, headers, "lan", **kwargs) == "loopback"
     assert trusted_network.rule_blocker(scope, {}, "lan", **kwargs) == "host"
+    public = {"type": "http", "client": ("203.0.113.7", 1)}
+    assert trusted_network.rule_blocker(public, headers, "lan", **kwargs) == "not_local"
 
 
 def test_matching_maps_ipv4_mapped_peers():

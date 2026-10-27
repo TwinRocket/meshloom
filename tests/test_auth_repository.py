@@ -253,16 +253,17 @@ async def test_auth_settings_defaults_update_and_setup_code(test_db):
     assert settings.host_guard_mode == "observe"
     assert settings.ingress_default_role == "member"
     assert settings.trusted_networks == [] and not settings.setup_code_set
+    assert not settings.lan_login_free
 
     updated = await AuthSettingsRepository.update(
         trusted_networks=[TrustedNetworkRule(cidr="192.168.1.7/24", user_id=3)],
         trusted_proxies=["127.0.0.1"],
         host_guard_mode="enforce",
-        basic_imported=True,
+        lan_login_free=True,
     )
     assert updated.trusted_networks[0].cidr == "192.168.1.0/24"
     assert updated.trusted_proxies == ["127.0.0.1/32"]
-    assert updated.host_guard_mode == "enforce" and updated.basic_imported
+    assert updated.host_guard_mode == "enforce" and updated.lan_login_free
     assert updated.audit_retention_days == 366
     assert await AuthSettingsRepository.get() == updated
 
@@ -430,7 +431,7 @@ async def test_settings_writes_fail_loudly_without_the_row(test_db):
     with pytest.raises(AuthSettingsMissingError):
         await AuthSettingsRepository.set_setup_code_hash(hash_token("c"))
     with pytest.raises(AuthSettingsMissingError):
-        await AuthSettingsRepository.update(basic_imported=True)
+        await AuthSettingsRepository.update(lan_login_free=True)
     with pytest.raises(AuthSettingsMissingError):
         await AuthSettingsRepository.get()
     with pytest.raises(AuthSettingsMissingError):

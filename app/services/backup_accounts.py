@@ -357,7 +357,8 @@ async def _keep_trusted_networks(
             "UPDATE auth_settings SET trusted_networks = ? WHERE id = 1", (json.dumps(kept),)
         )
     # Fail closed until the hook reloads them: no rule names an account that changed,
-    # and no public URL passes the rules' Host check (AuthSettings default).
+    # no public URL passes the rules' Host check, and login-free on the local
+    # network stays off (AuthSettings defaults).
     rules = []
     for entry in kept:
         try:

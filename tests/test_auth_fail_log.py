@@ -121,7 +121,7 @@ async def test_a_good_login_writes_nothing(lines):
 
 async def test_setup_with_a_wrong_installation_code(lines, monkeypatch):
     monkeypatch.setattr(auth_router, "SETUP_FAILURE_DELAY_S", 0)
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     async with make_client() as client:
         response = await client.post(
             "/api/auth/setup",
@@ -437,7 +437,8 @@ async def test_a_trusted_network_request_is_logged_as_lan(lines, monkeypatch):
     await create_user()
     tablet = await create_user("tablet", password=None, role="member")
     await AuthSettingsRepository.update(
-        trusted_networks=[TrustedNetworkRule(cidr="192.168.1.0/24", user_id=tablet.id)]
+        trusted_networks=[TrustedNetworkRule(cidr="192.168.1.0/24", user_id=tablet.id)],
+        lan_login_free=True,
     )
     async with make_client("http://192.168.1.10:8000", ("192.168.1.20", 40000)) as client:
         assert (await client.get("/api/auth/session")).json()["via"] == "trusted"

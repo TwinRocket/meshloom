@@ -228,7 +228,8 @@ async def test_trusted_networks_keep_only_rules_naming_the_same_account(backup_d
         trusted_networks=[
             TrustedNetworkRule(cidr="192.168.1.0/24", user_id=alice.id),
             TrustedNetworkRule(cidr="192.168.2.0/24", user_id=bob.id),
-        ]
+        ],
+        lan_login_free=True,
     )
     trusted_network.apply(await AuthSettingsRepository.get())
     job = await run(BackupExportV2.model_validate(exported), steps=_meshloom_only())

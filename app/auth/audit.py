@@ -117,8 +117,7 @@ AuditOutcome = Literal["success", "failure", "refused", "delayed", "error", "pen
 AUDIT_OUTCOMES: tuple[str, ...] = get_args(AuditOutcome)
 
 # The request ``via`` values (``app/auth/principal.py``) plus ``cli``
-# (``meshloom-admin``) and ``system`` (the server on its own: auto-update,
-# the 4.x Basic import).
+# (``meshloom-admin``) and ``system`` (the server on its own: auto-update).
 AuditVia = Literal["lan", "ingress", "trusted", "relay", "cli", "system"]
 
 

@@ -29,15 +29,12 @@ PASS_THROUGH = {
 # rewrites options.json from the schema at every start and drops undeclared keys, so
 # an option removed from the schema would never reach this file. The value is handed
 # on so Meshloom copies it into its database once (app/services/legacy_env_settings.py)
-# and never reads it again. ``vapid_subject`` now lives in Settings → Notifications;
-# ``basic_auth_*`` become the administrator account once, when the database has
-# no account yet (app/auth/setup_code.py), since Home Assistant's own sign-in
-# identifies ingress users (app/auth/providers/ingress.py).
-# Remove them here and from config.yaml in the next release.
+# and never reads it again. ``vapid_subject`` now lives in Settings → Notifications.
+# Remove it here and from config.yaml in the next release. The ``basic_auth_*``
+# options are gone (MSHL-100): Home Assistant's own sign-in identifies ingress
+# users (app/auth/providers/ingress.py), and the Supervisor drops the old values.
 RETIRED_PASS_THROUGH = {
     "vapid_subject": "MESHCORE_VAPID_SUBJECT",
-    "basic_auth_username": "MESHCORE_BASIC_AUTH_USERNAME",
-    "basic_auth_password": "MESHCORE_BASIC_AUTH_PASSWORD",
 }
 
 

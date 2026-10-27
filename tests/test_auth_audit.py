@@ -37,7 +37,7 @@ def _no_setup_delay(monkeypatch):
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
 async def test_account_flow_writes_one_row_per_event_with_actor_via_and_outcome():
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     code = await setup_code.issue_setup_code()
     wrong_code = "00000000" if code != "00000000" else "11111111"
     async with make_client() as client:
@@ -409,7 +409,7 @@ async def test_the_housekeeping_loop_runs_the_purge(monkeypatch):
 @pytest.mark.real_auth
 @pytest.mark.usefixtures("test_db", "fast_argon2")
 async def test_no_audit_row_holds_a_known_secret():
-    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.prepare_first_run(existing_database=True)
     code = await setup_code.issue_setup_code()
     async with make_client() as client:
         await client.post(
