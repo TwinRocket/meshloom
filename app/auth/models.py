@@ -148,6 +148,9 @@ class AuthSettings(BaseModel):
     # Admins with a password and no second factor reach only the enrolment
     # routes until they enrol (``app/auth/totp.py``). Off by default (Q16).
     require_2fa_for_admins: bool = False
+    # The TCP peer is the client on a Docker install without a trusted proxy: the
+    # per-address login rules apply there too (``app/auth/ratelimit.py``). Off by default.
+    addresses_identify_clients: bool = False
 
     @field_validator("trusted_proxies")
     @classmethod

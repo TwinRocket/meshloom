@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "access": {
+      "clientAddresses": {
+        "title": "Client addresses",
+        "toggle": "Client addresses identify clients",
+        "help": "Meshloom runs in Docker, where every visitor may reach it through one shared address. It then limits failed sign-ins per account only. Turn this on when the address shown below is really the visitor's own (host network, or a port published without Docker's proxy): failed sign-ins are then also limited per address. Behind a reverse proxy, declare the proxy under Local configuration instead.",
+        "seen": "Address Meshloom sees for you: {{kind}}.",
+        "seenPublic": "a public address",
+        "seenLocal": "a local network address",
+        "suggest": "Your connection arrives from a public address and no proxy is declared: turning this on lets Meshloom slow down an attacker per address.",
+        "on": "Client addresses now identify clients.",
+        "off": "Client addresses no longer identify clients."
+      }
+    }
+  }
+}

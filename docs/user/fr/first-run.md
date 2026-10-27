@@ -17,7 +17,7 @@ Depuis un autre appareil du même réseau, utilisez l’adresse IP de la machine
 
 À la première ouverture de Meshloom, avant toute chose, une page demande de créer le compte administrateur. Choisissez un nom d’utilisateur et un mot de passe d’au moins 12 caractères (quelques mots à la suite en font un bon ; il doit différer du nom d’utilisateur et ne pas être un mot de passe courant), et si vous le souhaitez un nom affiché. Les boutons de langue sous le formulaire changent la langue de l’interface.
 
-Si ce Meshloom contenait déjà des données avant d’exiger des comptes (une mise à jour), la page demande aussi le **code d’installation** : 8 chiffres que Meshloom écrit dans son journal à chaque démarrage tant qu’aucun compte n’existe. Les espaces et les tirets du code sont sans importance. Pour le trouver :
+Si ce Meshloom contenait déjà des données avant d’exiger des comptes (une mise à jour), la page demande aussi le **code d’installation** : 8 chiffres que Meshloom écrit dans son journal à chaque démarrage tant qu’aucun compte n’existe. Un nouveau Meshloom ouvert pour la première fois depuis l’extérieur du réseau local (depuis une adresse publique, par un proxy que vous n’avez pas listé, ou avec une adresse publique déclarée) en demande un aussi : il l’écrit alors dans son journal. Depuis le réseau local, un nouveau Meshloom ne demande aucun code. Les espaces et les tirets du code sont sans importance. Pour le trouver :
 
 - **Docker :** `docker logs <conteneur>` et cherchez « installation code ».
 - **Installation par paquet :** `journalctl -u meshloom`.

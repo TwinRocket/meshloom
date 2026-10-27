@@ -1545,6 +1545,7 @@ async def _fetch_settings(conn: aiosqlite.Connection) -> AuthSettings:
         basic_imported=bool(row["basic_imported"]),
         setup_code_set=row["setup_code_hash"] is not None,
         require_2fa_for_admins=bool(row["require_2fa_for_admins"]),
+        addresses_identify_clients=bool(row["addresses_identify_clients"]),
     )
 
 
@@ -1576,6 +1577,7 @@ class AuthSettingsRepository:
         audit_retention_days: int | None = None,
         basic_imported: bool | None = None,
         require_2fa_for_admins: bool | None = None,
+        addresses_identify_clients: bool | None = None,
     ) -> AuthSettings:
         """Validate the merged result as ``AuthSettings``, then write the given fields."""
         async with db.tx() as conn:
@@ -1592,6 +1594,7 @@ class AuthSettingsRepository:
                     "audit_retention_days": audit_retention_days,
                     "basic_imported": basic_imported,
                     "require_2fa_for_admins": require_2fa_for_admins,
+                    "addresses_identify_clients": addresses_identify_clients,
                 }.items()
                 if value is not None
             }

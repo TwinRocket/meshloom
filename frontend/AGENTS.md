@@ -421,7 +421,11 @@ purpose.
   `SettingsModal`) is in `ACCOUNT_SETTINGS_SECTIONS` because its profile and sessions
   panels use `own_account` routes; its users, session lifetime (`AccessSessionLifetimePanel`, `session_lifetime_days`, 1 to 365,
   strings `settings.access.sessionLifetime.*` in slice `az`) and Home Assistant default role
-  panels render for `isAdmin` only, as does the audit log (`AccessAuditPanel`: cursor pages of
+  panels render for `isAdmin` only, as does the client addresses panel
+  (`AccessClientAddressesPanel`, `addresses_identify_clients`, MSHL-424: shown on a
+  `shared_address_install` or when already on; suggests it when `client_public` and no
+  trusted proxy; strings `settings.access.clientAddresses.*` in slice `clientaddresses`;
+  test `src/test/accessClientAddressesPanel.test.tsx`), as does the audit log (`AccessAuditPanel`: cursor pages of
   `GET /auth/audit`, filters applied client-side to the loaded rows, labels from
   `auditShared.ts`; rows virtualised with `@tanstack/react-virtual` in a fixed-height
   scroller; `details` is never shown). Errors go through `auth/accessErrors.ts` (`formatAccessError`: coded

@@ -86,7 +86,18 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   `Authorization` header with an account's name and password is still accepted
   until 5.2 (short pauses after a failure; never for an account with a second
   factor). Wrong
-  passwords slow sign-in down; they never lock an account.
+  passwords slow sign-in down; they never lock an account. On a Docker install
+  with no trusted proxy, sign-in delays apply per account only until an
+  administrator turns on **Client addresses identify clients** (Users & Access).
+- **The first account goes to whoever reaches a new instance from the local
+  network.** While no account exists, a new Meshloom creates its administrator
+  without a code for a local-network visitor. From a public address, through an
+  unlisted proxy, or once a public address is declared, it asks for the
+  installation code it logs (so does a Meshloom that already held data). Behind
+  Docker's userland proxy every client looks local, and so does a visitor
+  arriving through a local tunnel that adds no forwarding header (`ssh -R`,
+  `socat`, HAProxy in TCP mode, seen as 127.0.0.1): declare a public address
+  before publishing such an install.
 - **Other web pages are kept out, with documented gaps.** CORS is same-origin
   plus the origins listed in **Settings > Local Configuration > Allowed
   origins** (empty by default; a listed site can do what the signed-in user
@@ -138,7 +149,8 @@ They are described in [A trusted network](docs/user/en/trust.md),
 [Security](docs/user/en/deep/security.md) and
 [Accounts and access](docs/user/en/deep/access.md). A way around one of the
 protections that does exist (for example, reaching a route above the role it
-declares, signing in without a valid credential, getting a trusted-network rule
+declares, signing in without a valid credential, creating the first account from outside
+the local network without the installation code, getting a trusted-network rule
 to apply through a proxy, starting an extension while `MESHCORE_DISABLE_PLUGINS=true`, or
 getting the updater to install something that is not a signed Meshloom release)
 is a vulnerability: please report it.

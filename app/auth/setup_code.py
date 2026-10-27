@@ -13,10 +13,32 @@ At startup, while no account exists (``prepare_first_run``, called by the lifesp
   ``meshloom-admin setup-code`` prints a fresh one too. A retry from the setup
   route (below) keeps a code that is already stored: it may be the one the
   CLI printed while the startup preparation was failing;
-- a database created by this start asks for no code: whoever installed it is
-  in front of it, the same trust as before accounts existed. On a kiosk host
-  (``app/services/kiosk.py``) a code is issued all the same, and the kiosk
-  screen shows it.
+- a database created by this start asks for no code from the local network:
+  whoever installed it is in front of it, the same trust as before accounts
+  existed. On a kiosk host (``app/services/kiosk.py``) a code is issued all
+  the same, and the kiosk screen shows it.
+
+**Exposed first run** (MSHL-424). A fresh instance published on the Internet
+must not go to its first visitor. A first-run request is *exposed*
+(``request_exposed()``) when it did not come straight from the local network:
+it came through the relay, its client address (after a trusted proxy's
+rewrite, ``app/middleware/proxy_headers.py``) is not private or loopback (not
+``is_global``: RFC 1918, loopback, link-local, ULA and CGNAT count as local),
+it carries forwarding headers (any of ``PROXY_HEADERS``,
+``app/auth/providers/trusted_network.py``) from a peer that is not a trusted
+proxy (the client is unknown), or a public address is declared (``auth_settings.public_urls``).
+An exposed request always needs the code: on a fresh database with none
+stored, the first exposed ``GET /api/auth/session`` or ``POST /api/auth/setup``
+issues one and logs it (``ensure_exposure_code()``), and setup answers 403
+``auth_setup_code_invalid`` without it. A request from the local network
+still needs no code on a fresh database, even after such a code was issued:
+only a code issued for that reason (its hash is remembered in memory) is
+waived. A code from the CLI or a restart is asked of everyone. Two cases this cannot
+see, both closed by declaring the public address: Docker's userland proxy
+(every client seen as the gateway), and a local tunnel that forwards without
+headers (``ssh -R``, ``socat``, HAProxy in TCP mode: Internet visitors arrive
+from 127.0.0.1). Under Home Assistant ingress no code is issued: setup is
+refused there anyway (403 ``auth_ingress_only``).
 
 **Fail closed.** Setup is refused (503 ``auth_setup_unavailable``) until
 ``prepare_first_run`` has succeeded in this process: when it fails at startup
@@ -33,8 +55,11 @@ most one guess a second against 10**8 codes, so the login delays
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
+from collections.abc import MutableMapping
+from typing import Any
 
 from app.auth.tokens import hash_token, token_matches
 from app.repository.auth import AuthSettingsRepository, UserRepository
@@ -68,16 +93,62 @@ class SetupUnavailable(RuntimeError):
 _existing_database: bool | None = None
 # The arguments of the last attempt, for a retry from the setup route.
 _last_args: dict | None = None
+# The hash of a code issued because an exposed request reached a fresh database.
+_exposure_code_hash: str | None = None
+_exposure_lock = asyncio.Lock()
 
 
 def reset_first_run_state() -> None:
     """Back to "never prepared" (tests, and a fresh process)."""
-    global _existing_database, _last_args
+    global _existing_database, _last_args, _exposure_code_hash
     from app.services.kiosk import remember_displayed_code
 
     _existing_database = None
     _last_args = None
+    _exposure_code_hash = None
     remember_displayed_code(None)
+
+
+async def request_exposed(scope: MutableMapping[str, Any]) -> bool:
+    """Whether a first-run request may come from outside the local network
+    (module docstring, "Exposed first run")."""
+    from starlette.datastructures import Headers
+
+    from app.auth.providers import trusted_network
+    from app.auth.ratelimit import _is_trusted_proxy, client_is_public
+    from app.middleware import proxy_headers
+
+    if scope.get("auth_via", "lan") != "lan":
+        return True
+    if trusted_network.carries_proxy_headers(Headers(scope=scope)) and not _is_trusted_proxy(
+        proxy_headers.peer_address(scope), proxy_headers.current()
+    ):
+        return True
+    if client_is_public(scope):
+        return True
+    return bool((await AuthSettingsRepository.get()).public_urls)
+
+
+async def ensure_exposure_code() -> None:
+    """Issue and log a code when an exposed request reaches a fresh database
+    that holds none. Never on an existing database: that one stays closed."""
+    global _exposure_code_hash
+    if _existing_database is not False:
+        return
+    async with _exposure_lock:
+        if await AuthSettingsRepository.get_setup_code_hash() is not None:
+            return
+        code = new_setup_code()
+        stored = hash_token(code)
+        await AuthSettingsRepository.set_setup_code_hash(stored)
+        _exposure_code_hash = stored
+    logger.warning(
+        "Meshloom was opened from outside the local network while no account exists. "
+        "To create the administrator from there, enter the installation code %s "
+        "(valid until the next restart; `meshloom-admin setup-code` prints a new one). "
+        "From the local network no code is needed.",
+        code,
+    )
 
 
 async def ensure_first_run_ready() -> None:
@@ -93,13 +164,21 @@ async def ensure_first_run_ready() -> None:
         raise SetupUnavailable("first run preparation failed") from exc
 
 
-async def setup_code_required() -> bool:
+def _waived(stored: str, exposed: bool) -> bool:
+    """A code issued only for exposed requests is not asked of the local network."""
+    return not exposed and _existing_database is False and stored == _exposure_code_hash
+
+
+async def setup_code_required(exposed: bool = False) -> bool:
     if _existing_database:
         return True
-    return await AuthSettingsRepository.get_setup_code_hash() is not None
+    stored = await AuthSettingsRepository.get_setup_code_hash()
+    if stored is None:
+        return exposed
+    return not _waived(stored, exposed)
 
 
-async def check_setup_code(raw: str | None) -> bool:
+async def check_setup_code(raw: str | None, exposed: bool = False) -> bool:
     """Whether ``raw`` opens setup. Raises ``SetupUnavailable`` when it must stay closed."""
     await ensure_first_run_ready()
     stored = await AuthSettingsRepository.get_setup_code_hash()
@@ -107,6 +186,11 @@ async def check_setup_code(raw: str | None) -> bool:
         if _existing_database:
             # An existing database without a code: never open, whatever was sent.
             raise SetupUnavailable("no installation code stored for an existing database")
+        if not exposed:
+            return True
+        await ensure_exposure_code()
+        return False
+    if _waived(stored, exposed):
         return True
     code = normalize_setup_code(raw or "")
     return len(code) == SETUP_CODE_DIGITS and token_matches(code, stored)
@@ -156,7 +240,7 @@ async def _prepare(
 
     basic_configured = bool(basic_username and basic_password)
     if await UserRepository.any_exist():
-        if await setup_code_required():
+        if await AuthSettingsRepository.get_setup_code_hash() is not None:
             await clear_setup_code()
         return
     if basic_configured and await import_basic_credentials(basic_username, basic_password):

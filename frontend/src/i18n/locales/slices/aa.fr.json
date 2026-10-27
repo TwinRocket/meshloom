@@ -47,7 +47,7 @@
         "strong": "Solide"
       },
       "code": "Code d'installation",
-      "codeHint": "Ce Meshloom contient déjà des données : il demande le code à 8 chiffres affiché à son démarrage. Où le trouver :",
+      "codeHint": "Ce Meshloom demande le code à 8 chiffres écrit dans son journal : il contient déjà des données, ou il a été ouvert depuis l'extérieur du réseau local (depuis le réseau local, un nouveau Meshloom n'en demande pas). Où le trouver :",
       "codeWhereDocker": "Docker : docker logs <conteneur>, cherchez « installation code ».",
       "codeWhereSystemd": "Installation par paquet : journalctl -u meshloom.",
       "codeWhereAddon": "Module Home Assistant : l'onglet Journal du module.",
