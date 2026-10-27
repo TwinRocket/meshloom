@@ -21,13 +21,16 @@ The format is a contract (``docs/dev/auth-fail-log.md``): change it only in a
   provider that signed the request in (a trusted-network rule is still
   ``lan``). Ingress requests never emit: their peer is the Home Assistant
   Supervisor, which must never be banned.
-- ``proxied``: ``1`` when a local peer (``app/net/local_address.py``: loopback,
-  RFC 1918, CGNAT, link-local, ULA) that is not a declared trusted proxy sends
-  forwarding headers (``X-Forwarded-For``,
-  ``X-Real-IP``, ``Forwarded``): most likely a local reverse proxy nobody
-  declared, so ``ip`` is shared by every client behind it and consumers must
-  ignore the line. A public peer sending those headers is the client itself:
-  ``proxied=0``, ``ip`` is that peer (adding a header must not escape a ban).
+- ``proxied``: ``1`` when a ban-exempt peer (``local_address.is_ban_exempt``:
+  loopback, RFC 1918, link-local, ULA) that is not a declared trusted proxy
+  sends forwarding headers (``X-Forwarded-For``, ``X-Real-IP``,
+  ``Forwarded``): most likely a local reverse proxy nobody declared, so ``ip``
+  is shared by every client behind it and consumers must ignore the line. Any
+  other peer sending those headers is the client itself: ``proxied=0``, ``ip``
+  is that peer (adding a header must not escape a ban). That includes a CGNAT
+  or tailnet peer (``100.64.0.0/10``, MSHL-434): ``tailscale serve`` forwards
+  from loopback, so a ``100.x`` peer is a tailnet device, never Meshloom's own
+  proxy.
   Always ``0`` through the relay: the local peer is the tunnel and the headers
   come from the remote client, so adding one must not escape a ban either.
 - ``user``: ``h:`` and 6 hex characters of an HMAC-SHA256 of the typed name
@@ -116,13 +119,13 @@ def ip_field(raw: str | None) -> str:
 
 
 def _undeclared_local_proxy(scope: Mapping[str, Any]) -> bool:
-    """Forwarding headers from a local peer that is not a declared trusted proxy."""
+    """Forwarding headers from a ban-exempt peer that is not a declared trusted proxy."""
     from app.auth.ratelimit import forwarded_by_untrusted_peer
     from app.middleware import proxy_headers
 
     if not forwarded_by_untrusted_peer(scope):
         return False
-    return local_address.is_local(proxy_headers.peer_address(scope))
+    return local_address.is_ban_exempt(proxy_headers.peer_address(scope))
 
 
 def _fields(scope: Mapping[str, Any], via: str) -> tuple[str | None, bool]:

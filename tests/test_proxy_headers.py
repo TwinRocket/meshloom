@@ -323,6 +323,7 @@ class TestSettingsRoute:
             "ip_ban_max_failures": 10,
             "ip_ban_window_minutes": 10,
             "ip_ban_duration_minutes": 60,
+            "ip_ban_max_duration_minutes": 1440,
         }
         response = await client.patch(
             "/api/auth/settings", json={"trusted_proxies": [" 10.0.0.1 ", "fd00:1::/64", ""]}
