@@ -122,4 +122,5 @@ async def remove_from_whitelist(request: Request, network: str = Query(max_lengt
         raise _error(400, "auth_ban_whitelist_invalid")
     if not await IpBanRepository.remove_from_whitelist(parsed):
         raise _error(404, "auth_ban_whitelist_not_found")
+    ip_ban.whitelist_changed()
     await audit.record_request(request, "ip.unwhitelisted", "success", target=f"ip:{parsed}")

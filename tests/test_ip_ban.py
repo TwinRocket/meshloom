@@ -274,6 +274,8 @@ class TestEnforcement:
         await IpBanRepository.add_to_whitelist(f"{PUBLIC}/32", "", 1)
         assert await ip_ban.check(PUBLIC) is None
         await IpBanRepository.remove_from_whitelist(f"{PUBLIC}/32")
+        assert await ip_ban.check(PUBLIC) is None  # the hit is cached for a while
+        clock.now += ip_ban.WHITELIST_CACHE_S
         assert await ip_ban.check(PUBLIC) is not None  # the row stayed
 
     async def test_a_ban_survives_a_restart(self, clock, tmp_path):
@@ -327,6 +329,97 @@ class TestEnforcement:
         async with make_client(client=(PUBLIC, 50000)) as client:
             assert (await client.get("/api/auth/me")).status_code == 429
             assert (await client.get("/")).status_code != 429
+
+    @pytest.mark.parametrize("path", ["/", "/assets/x.js", "/some/page"])
+    async def test_a_banned_client_reaches_no_credential_check_anywhere(self, monkeypatch, path):
+        """Basic on a public path would run argon2id: a banned client is anonymous there."""
+        from app.auth import middleware
+
+        await create_user()
+        await _strict()
+        calls: list[str] = []
+        real = middleware.authenticate_basic
+
+        async def counting(*args, **kwargs):
+            calls.append(path)
+            return await real(*args, **kwargs)
+
+        monkeypatch.setattr(middleware, "authenticate_basic", counting)
+        basic = {"Authorization": "Basic YWRtaW46d3Jvbmc="}  # admin:wrong
+        async with make_client(client=(OTHER, 50000)) as client:
+            await client.get(path, headers=basic)
+        assert calls == [path]  # not banned: the header is checked
+        calls.clear()
+        await _fail(PUBLIC, 3)
+        async with make_client(client=(PUBLIC, 50000)) as client:
+            response = await client.get(path, headers=basic)
+        assert calls == []
+        assert response.status_code != 429
+
+    @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+    async def test_the_api_docs_are_refused_to_a_banned_client(self, monkeypatch, path):
+        from app.auth import middleware
+
+        assert path in middleware.AUTHENTICATED_NON_API_PATHS
+        await create_user()
+        await _strict()
+        await _fail(PUBLIC, 3)
+
+        def no_resolution(*_args, **_kwargs):
+            raise AssertionError("a banned client reached the credential checks")
+
+        monkeypatch.setattr(middleware, "resolve", no_resolution)
+        async with make_client(client=(PUBLIC, 50000)) as client:
+            response = await client.get(path)
+        assert response.status_code == 429
+        assert response.json()["detail"]["code"] == "auth_ip_banned"
+
+    async def test_a_whitelisted_ban_is_not_read_on_every_request(self, monkeypatch, clock):
+        await create_user()
+        await _strict()
+        await _fail(PUBLIC, 3)
+        await IpBanRepository.add_to_whitelist(parse_network(PUBLIC), "", clock.now)
+        reads: list[str] = []
+        real = IpBanRepository.whitelisted
+
+        async def counting(address):
+            reads.append(str(address))
+            return await real(address)
+
+        monkeypatch.setattr(IpBanRepository, "whitelisted", staticmethod(counting))
+        monkeypatch.setattr(IpBanRepository, "get", None)  # never read for a whitelisted key
+        for _ in range(5):
+            assert await ip_ban.check(PUBLIC) is None
+        assert reads == [PUBLIC]
+        clock.now += ip_ban.WHITELIST_CACHE_S
+        assert await ip_ban.check(PUBLIC) is None
+        assert reads == [PUBLIC, PUBLIC]
+
+    async def test_a_whitelist_removal_by_the_route_applies_at_once(self):
+        await create_user()
+        await _strict()
+        await _fail(PUBLIC, 3)
+        await IpBanRepository.add_to_whitelist(parse_network(PUBLIC), "", ip_ban.clock())
+        assert await ip_ban.check(PUBLIC) is None
+        async with make_client() as client:
+            from tests.auth_helpers import login
+
+            await login(client)
+            gone = await client.delete("/api/auth/ban-whitelist", params={"network": PUBLIC})
+            assert gone.status_code == 204
+        assert await ip_ban.check(PUBLIC) is not None
+
+    async def test_the_bans_in_memory_are_bounded(self, monkeypatch, clock):
+        monkeypatch.setattr(ip_ban, "MAX_BANS", 2)
+        await _strict()
+        ip_ban._bans["192.0.2.99"] = clock.now - 1  # ended
+        for n in range(3):
+            for _ in range(3):
+                _note(f"198.51.100.{n + 1}")
+            await ip_ban.settle()
+            clock.now += 1
+        assert "192.0.2.99" not in ip_ban._bans
+        assert set(ip_ban._bans) == {"198.51.100.2", "198.51.100.3"}
 
     async def test_a_websocket_from_a_banned_client_is_refused(self, monkeypatch):
         from app.auth import middleware
@@ -475,8 +568,104 @@ class TestSettingsAndRoutes:
             assert (
                 await client.post("/api/auth/ban-whitelist", json={"network": PUBLIC})
             ).status_code == 403
+            assert (
+                await client.delete("/api/auth/ban-whitelist", params={"network": PUBLIC})
+            ).status_code == 403
+            assert (await client.get("/api/auth/settings")).status_code == 403
+            assert (
+                await client.patch("/api/auth/settings", json={"ip_ban_enabled": False})
+            ).status_code == 403
+        assert (await AuthSettingsRepository.get()).ip_ban_enabled is True
+
+    async def test_the_whitelist_is_capped(self, monkeypatch):
+        from app.repository import ip_ban as repository
+
+        monkeypatch.setattr(repository, "MAX_WHITELIST", 2)
+        async with make_client() as client:
+            await self._admin(client)
+            for network in ("203.0.113.0/24", "198.51.100.0/24"):
+                added = await client.post("/api/auth/ban-whitelist", json={"network": network})
+                assert added.status_code == 201
+            full = await client.post("/api/auth/ban-whitelist", json={"network": "192.0.2.0/24"})
+        assert full.status_code == 409
+        assert full.json()["detail"]["code"] == "auth_ban_whitelist_full"
+        assert len(await IpBanRepository.whitelist()) == 2
 
 
 def test_the_audit_actions_exist():
     actions = set(audit.AUDIT_ACTIONS)
     assert {"ip.banned", "ip.unbanned", "ip.whitelisted", "ip.unwhitelisted"} <= actions
+
+
+# --- The host's own IPv6 prefixes ---------------------------------------------------------
+
+HOST_LAN = "2a01:e0a:12:3450::/64"
+LAN_CLIENT = "2a01:e0a:12:3450:1c2d:3e4f:5a6b:7c8d"
+
+
+def _if_inet6(tmp_path, *lines: str) -> str:
+    path = tmp_path / "if_inet6"
+    path.write_text("".join(f"{line}\n" for line in lines))
+    return str(path)
+
+
+IF_INET6 = (
+    "2a010e0a001234500211223344556677 02 40 00 00 eth0",  # global /64: the LAN
+    "fe800000000000000211223344556677 02 40 20 80 eth0",  # link-local
+    "00000000000000000000000000000001 01 80 10 80 lo",  # loopback
+    "2a010e0a00ff00000000000000000001 03 20 00 00 wan0",  # /32: too wide for a LAN
+    "20010db8000000000000000000000001 04 40 00 00 doc0",  # documentation: not global
+)
+
+
+def test_the_host_prefixes_are_its_global_on_link_ones(tmp_path):
+    assert [str(n) for n in ip_ban.read_host_prefixes(_if_inet6(tmp_path, *IF_INET6))] == [HOST_LAN]
+
+
+@pytest.mark.parametrize("content", [None, "", "garbage\nzz 1 2\nxyz 02 40 00 00 eth0\n"])
+def test_an_unreadable_prefix_file_adds_nothing(tmp_path, content):
+    path = tmp_path / "if_inet6"
+    if content is not None:
+        path.write_text(content)
+    assert ip_ban.read_host_prefixes(str(path)) == ()
+
+
+@pytest.mark.usefixtures("test_db")
+class TestHostPrefixes:
+    async def test_a_lan_client_on_global_ipv6_is_never_banned(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ip_ban, "IF_INET6_PATH", _if_inet6(tmp_path, *IF_INET6))
+        for _ in range(20):
+            _note(LAN_CLIENT)
+        await ip_ban.settle()
+        assert await IpBanRepository.active(ip_ban.clock()) == []
+        for _ in range(10):
+            _note("2a01:e0a:12:9999::1")  # another /64 of the same /48: public
+        await ip_ban.settle()
+        assert await IpBanRepository.get("2a01:e0a:12:9999::/64") is not None
+
+    async def test_without_the_file_it_counts_as_public(self):
+        for _ in range(10):
+            _note(LAN_CLIENT)
+        await ip_ban.settle()
+        assert await IpBanRepository.get(HOST_LAN) is not None
+
+    async def test_a_ban_on_a_host_prefix_does_not_apply(self, monkeypatch, tmp_path):
+        """A ban written before the prefix was seen (renumbering, a restart)."""
+        for _ in range(10):
+            _note(LAN_CLIENT)
+        await ip_ban.settle()
+        assert await ip_ban.check(LAN_CLIENT) is not None
+        monkeypatch.setattr(ip_ban, "IF_INET6_PATH", _if_inet6(tmp_path, *IF_INET6))
+        ip_ban._host_prefixes = None
+        assert await ip_ban.check(LAN_CLIENT) is None
+
+    async def test_the_prefixes_are_read_again_after_their_ttl(self, monkeypatch, tmp_path):
+        path = _if_inet6(tmp_path)
+        monkeypatch.setattr(ip_ban, "IF_INET6_PATH", path)
+        now = [1000.0]
+        monkeypatch.setattr(ip_ban.time, "monotonic", lambda: now[0])
+        assert ip_ban.bannable(LAN_CLIENT) is not None
+        _if_inet6(tmp_path, *IF_INET6)
+        assert ip_ban.bannable(LAN_CLIENT) is not None  # cached
+        now[0] += ip_ban.HOST_PREFIXES_TTL_S
+        assert ip_ban.bannable(LAN_CLIENT) is None

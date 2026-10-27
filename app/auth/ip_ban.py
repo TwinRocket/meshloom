@@ -9,6 +9,12 @@ and fail2ban judge the same failures with the same address:
 - Never an address in ``fail_log.LOCAL_NETWORKS`` (loopback, RFC 1918, CGNAT,
   link-local, ULA): the LAN, the Docker gateway and a local proxy stay
   reachable whatever happens. Never under ingress (no line either).
+- Nor, on Linux, a global IPv6 address inside a prefix that is on-link on one
+  of the host's interfaces (``/proc/net/if_inet6``): a LAN client reaching
+  Meshloom over the household's global /64. For the ban only: the
+  ``AUTH_FAIL`` line keeps its own ``proxied`` rule. Unreadable (macOS,
+  Windows) or empty (a Docker bridge network sees only the container's
+  interfaces), it adds nothing and such a client counts as public.
 - Through the relay (``via=relay``), the address is ``client_ip()``, the
   client the dispatcher read from the frame, never the tunnel: a dispatcher
   that sets no client, or a local one, bans nothing.
@@ -39,9 +45,11 @@ import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from ipaddress import IPv6Address, IPv6Network
 
 from app.auth.models import AuthSettings
 from app.repository.ip_ban import (
+    MAX_BANS,
     IPAddress,
     IpBan,
     IpBanRepository,
@@ -55,6 +63,16 @@ BANNED_CODE = "auth_ip_banned"
 
 # Keys whose failures are counted at once: past it, the oldest is forgotten.
 MAX_TRACKED_KEYS = 4096
+
+# On-link IPv6 prefixes of the host: re-read at most this often.
+IF_INET6_PATH = "/proc/net/if_inet6"
+HOST_PREFIXES_TTL_S = 60.0
+# The shortest on-link prefix taken as the LAN (a wider one is not a LAN).
+HOST_PREFIX_MIN_LENGTH = 48
+# A whitelisted address is not re-read for this long (the whitelist wins
+# without two database reads per request); a removal through the API applies
+# at once (``whitelist_changed()``), one by ``meshloom-admin`` after it.
+WHITELIST_CACHE_S = 10.0
 
 
 @dataclass(frozen=True)
@@ -72,15 +90,54 @@ _bans: dict[str, float] = {}
 # Keys whose ban is being written (``_ban``).
 _pending: dict[str, asyncio.Task[None]] = {}
 
+# address -> until (``clock()``): whitelisted addresses found by ``check()``.
+_whitelisted: dict[str, float] = {}
+# (read at, networks): the host's on-link global IPv6 prefixes.
+_host_prefixes: tuple[float, tuple[IPv6Network, ...]] | None = None
+
 clock: Callable[[], float] = time.time
+
+
+def read_host_prefixes(path: str = IF_INET6_PATH) -> tuple[IPv6Network, ...]:
+    """The global IPv6 prefixes on-link on the host's interfaces (Linux).
+
+    Each line of ``if_inet6`` is ``address ifindex prefix_len scope flags name``
+    (hex); scope ``00`` is global. Unreadable or malformed: nothing."""
+    networks: set[IPv6Network] = set()
+    try:
+        with open(path, encoding="ascii") as handle:
+            lines = handle.read(65536).splitlines()
+    except (OSError, ValueError):
+        return ()
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 4 or fields[3] != "00":
+            continue
+        try:
+            length = int(fields[2], 16)
+            address = IPv6Address(int(fields[0], 16))
+        except ValueError:
+            continue
+        if not HOST_PREFIX_MIN_LENGTH <= length <= 128 or not address.is_global:
+            continue
+        networks.add(IPv6Network((address, length), strict=False))
+    return tuple(sorted(networks))
+
+
+def _host_networks() -> tuple[IPv6Network, ...]:
+    global _host_prefixes
+    now = time.monotonic()
+    if _host_prefixes is None or now - _host_prefixes[0] >= HOST_PREFIXES_TTL_S:
+        _host_prefixes = (now, read_host_prefixes(IF_INET6_PATH))
+    return _host_prefixes[1]
 
 
 def _local(address: IPAddress) -> bool:
     from app.auth.fail_log import LOCAL_NETWORKS
 
-    return any(
-        address.version == network.version and address in network for network in LOCAL_NETWORKS
-    )
+    if any(address.version == network.version and address in network for network in LOCAL_NETWORKS):
+        return True
+    return address.version == 6 and any(address in network for network in _host_networks())
 
 
 def bannable(raw: str | None) -> IPAddress | None:
@@ -116,10 +173,12 @@ async def load() -> None:
 
 def reset() -> None:
     """Back to the defaults with nothing counted or banned (tests)."""
-    global _config, clock
+    global _config, clock, _host_prefixes
     _config = _Config()
     _failures.clear()
     _bans.clear()
+    _whitelisted.clear()
+    _host_prefixes = None
     for task in _pending.values():
         task.cancel()
     _pending.clear()
@@ -184,6 +243,7 @@ async def _ban(
         )
         await IpBanRepository.ban(ban)
         _bans[key] = ban.expires_at
+        _prune(now)
         logger.warning(
             "Banned %s for %d minutes after %d authentication failures",
             key,
@@ -203,6 +263,15 @@ async def _ban(
         _pending.pop(key, None)
 
 
+def _prune(now: float) -> None:
+    """Keep ``_bans`` like ``ip_bans``: no ended ban, at most ``MAX_BANS``."""
+    for key in [key for key, expires_at in _bans.items() if expires_at <= now]:
+        del _bans[key]
+    if len(_bans) > MAX_BANS:
+        for key in sorted(_bans, key=_bans.__getitem__)[: len(_bans) - MAX_BANS]:
+            del _bans[key]
+
+
 async def check(ip: str | None) -> int | None:
     """Seconds left on the ban of ``ip``, or None when it may proceed."""
     if not _bans or not _config.enabled:
@@ -218,15 +287,25 @@ async def check(ip: str | None) -> int | None:
     if expires_at <= now:
         _bans.pop(key, None)
         return None
+    if _local(address):
+        return None  # a ban written before the host's prefix was known
+    cached = str(address)
+    if _whitelisted.get(cached, 0) > now:
+        return None
     try:
-        ban = await IpBanRepository.get(key)
         whitelisted = await IpBanRepository.whitelisted(address)
+        ban = None if whitelisted else await IpBanRepository.get(key)
     except Exception:
         # Fail closed: the ban this process wrote still applies.
         logger.warning("Could not re-read the ban of %s", key, exc_info=True)
         return max(1, int(expires_at - now))
     if whitelisted:
-        return None  # the row stays; it applies again if the entry goes
+        # The row stays; it applies again once the entry goes.
+        _whitelisted.pop(cached, None)
+        while len(_whitelisted) >= MAX_TRACKED_KEYS:
+            _whitelisted.pop(next(iter(_whitelisted)))
+        _whitelisted[cached] = now + WHITELIST_CACHE_S
+        return None
     if ban is None or ban.expires_at <= now:
         _bans.pop(key, None)
         return None
@@ -240,3 +319,9 @@ def forget(key: str | None = None) -> None:
         _bans.clear()
     else:
         _bans.pop(key, None)
+
+
+def whitelist_changed() -> None:
+    """Forget the whitelist hits: a removal in this process applies at once
+    (from ``meshloom-admin``, within ``WHITELIST_CACHE_S``)."""
+    _whitelisted.clear()

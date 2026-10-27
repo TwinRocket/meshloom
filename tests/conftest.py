@@ -253,10 +253,13 @@ def _reset_trusted_proxies():
 
 
 @pytest.fixture(autouse=True)
-def _reset_ip_bans():
-    """Failures counted and bans known by one test must not leak into the next one."""
+def _reset_ip_bans(monkeypatch):
+    """Failures counted and bans known by one test must not leak into the next one.
+    The host's own IPv6 prefixes are not read: a test that wants them sets
+    ``IF_INET6_PATH`` to a file of its own."""
     from app.auth import ip_ban
 
+    monkeypatch.setattr(ip_ban, "IF_INET6_PATH", "/nonexistent/if_inet6")
     ip_ban.reset()
     yield
     ip_ban.reset()

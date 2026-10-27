@@ -118,7 +118,8 @@ and the OpenAPI page (`/docs`), not a table here.
   checked first in `AuthMiddleware`; thresholds are `auth_settings` columns
   (`apply()` on load and on `PATCH /auth/settings`), never env vars. `meshloom-admin`
   writes the tables directly; the server re-reads a cached ban on each request
-  (`docs/dev/auth.md`, "IP ban").
+  (a whitelisted address is cached 10 s) and treats the host's on-link global
+  IPv6 prefixes (`/proc/net/if_inet6`) as local for the ban only (`docs/dev/auth.md`, "IP ban").
   **Launchers rule:** every uvicorn command line (the four launchers, the
   snake-oil compose, every documented command) carries `--no-proxy-headers`, so
   uvicorn never rewrites the scope itself (`tests/test_auth_ingress.py` parses the

@@ -7,6 +7,8 @@ scope it:
    ``/api`` routes, the API docs and their WebSocket upgrades, before reading
    any credential (no argon2id work): 429 ``auth_ip_banned`` with
    ``Retry-After`` and ``params.retry_after`` (seconds), or a refused upgrade;
+   on any other path it reads no credential either and the request is
+   anonymous;
 1. resolves the principal (``Principal``, ``app/auth/principal.py``) from, in
    order, the Home Assistant identity on an ingress request
    (``app/auth/providers/ingress.py``), ``Authorization: Bearer`` (API and
@@ -360,26 +362,30 @@ class AuthMiddleware:
         scope["auth_secure"] = secure
         scope["auth_via"] = via
 
-        # A banned address (app/auth/ip_ban.py) is refused before any credential
-        # is read: no argon2id work for it. Never under ingress (never banned).
-        if via != "ingress" and (
+        # A banned address (app/auth/ip_ban.py) never reaches a credential check
+        # (no argon2id work for it): refused on the API, the API docs and their
+        # upgrades; anonymous elsewhere, so the page loads and can say why. Never
+        # under ingress (never banned).
+        banned_for = None if via == "ingress" else await ip_ban.check(client_ip(scope))
+        if banned_for is not None and (
             is_api_path(path) or (path.rstrip("/") or "/") in AUTHENTICATED_NON_API_PATHS
         ):
-            banned_for = await ip_ban.check(client_ip(scope))
-            if banned_for is not None:
-                if scope["type"] == "websocket":
-                    await self._refuse_websocket(receive, send)
-                else:
-                    await self._respond(send, 429, ip_ban.BANNED_CODE, path, retry_after=banned_for)
-                return
+            if scope["type"] == "websocket":
+                await self._refuse_websocket(receive, send)
+            else:
+                await self._respond(send, 429, ip_ban.BANNED_CODE, path, retry_after=banned_for)
+            return
 
-        try:
-            result = await resolve(scope, headers, via, secure)
-        except Exception:
-            # Fail closed: a database error never lets a request through.
-            logger.exception("Could not resolve the principal of a request")
+        if banned_for is not None:
             result = _Resolution()
-            result.credential_failed = True
+        else:
+            try:
+                result = await resolve(scope, headers, via, secure)
+            except Exception:
+                # Fail closed: a database error never lets a request through.
+                logger.exception("Could not resolve the principal of a request")
+                result = _Resolution()
+                result.credential_failed = True
         set_principal(scope, result.principal)
         if result.principal is not None and result.principal.via != via:
             # A trusted network rule signed the request in: audit rows say so.
