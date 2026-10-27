@@ -105,7 +105,9 @@ class TestCounting:
         assert ban is not None and ban.failures == 3 and ban.route == "login"
         assert ban.expires_at == int(clock.now) + 3600
         assert await ip_ban.check(PUBLIC) == 3600
-        [row] = [r for r in await AuthAuditRepository.list_recent(limit=5) if r.action == "ip.banned"]
+        [row] = [
+            r for r in await AuthAuditRepository.list_recent(limit=5) if r.action == "ip.banned"
+        ]
         assert row.target == f"ip:{PUBLIC}" and row.outcome == "success"
         assert row.actor_user_id is None
 
@@ -231,7 +233,9 @@ class TestEnforcement:
     async def test_the_row_end_wins_over_the_memory(self, clock):
         """A row that ends sooner than the memory of it (rewritten elsewhere) is over."""
         await IpBanRepository.ban(
-            IpBan(address=PUBLIC, banned_at=1, expires_at=int(clock.now) + 60, failures=3, route="x")
+            IpBan(
+                address=PUBLIC, banned_at=1, expires_at=int(clock.now) + 60, failures=3, route="x"
+            )
         )
         ip_ban._bans[PUBLIC] = clock.now + 3600
         clock.now += 60
@@ -434,7 +438,9 @@ class TestSettingsAndRoutes:
             missing = await client.delete("/api/auth/bans", params={"address": OTHER})
             assert missing.status_code == 404
             assert missing.json()["detail"]["code"] == "auth_ban_not_found"
-            assert (await client.delete("/api/auth/bans", params={"address": PUBLIC})).status_code == 204
+            assert (
+                await client.delete("/api/auth/bans", params={"address": PUBLIC})
+            ).status_code == 204
             assert await ip_ban.check(PUBLIC) is None
 
             added = await client.post(
@@ -463,7 +469,9 @@ class TestSettingsAndRoutes:
         async with make_client() as client:
             await login(client, "member1")
             assert (await client.get("/api/auth/bans")).status_code == 403
-            assert (await client.delete("/api/auth/bans", params={"address": PUBLIC})).status_code == 403
+            assert (
+                await client.delete("/api/auth/bans", params={"address": PUBLIC})
+            ).status_code == 403
             assert (
                 await client.post("/api/auth/ban-whitelist", json={"network": PUBLIC})
             ).status_code == 403

@@ -1,0 +1,43 @@
+{
+  "settings": {
+    "access": {
+      "ipBan": {
+        "title": "Bannissement d'adresses",
+        "help": "Une adresse qui échoue trop souvent à se connecter est bannie pour un temps : l'API ne lui répond plus jusqu'à la fin du bannissement. Les adresses du réseau local, Home Assistant et les requêtes qui passent par un proxy local non déclaré ne sont jamais bannis. Un réseau en liste blanche n'est jamais banni.",
+        "toggle": "Bannir les adresses après des échecs de connexion répétés",
+        "maxFailures": "Échecs de connexion",
+        "windowMinutes": "En (minutes)",
+        "durationMinutes": "Durée du bannissement (minutes)",
+        "save": "Enregistrer",
+        "saved": "Réglages du bannissement enregistrés.",
+        "on": "Bannissement des adresses activé.",
+        "off": "Bannissement des adresses désactivé. Les bannissements en cours ne s'appliquent plus.",
+        "invalid": "Échecs de connexion : {{minFailures}} à {{maxFailures}}. Fenêtre : {{min}} à {{maxWindow}} minutes. Durée : {{min}} à {{maxDuration}} minutes.",
+        "bans": "Adresses bannies",
+        "noBans": "Aucune adresse n'est bannie.",
+        "banRow": "jusqu'au {{when}}, après {{count}} échecs de connexion",
+        "unban": "Débannir",
+        "unbanned": "{{address}} peut de nouveau se connecter.",
+        "whitelist": "Jamais bannis",
+        "noWhitelist": "Aucun réseau en liste blanche.",
+        "network": "Adresse ou réseau",
+        "networkPlaceholder": "203.0.113.0/24",
+        "note": "Note (facultative)",
+        "add": "Ajouter",
+        "added": "{{network}} ne sera jamais banni.",
+        "remove": "Retirer",
+        "removed": "{{network}} retiré de la liste blanche.",
+        "cli": "Depuis l'hôte, même pendant que Meshloom tourne : meshloom-admin list-bans, meshloom-admin unban ADRESSE, meshloom-admin whitelist add RÉSEAU."
+      }
+    }
+  },
+  "errors": {
+    "auth_ip_banned": "Trop d'échecs de connexion depuis votre adresse : elle est bloquée pour un temps. Réessayez plus tard, ou demandez à un administrateur de lever le bannissement.",
+    "auth_ban_address_invalid": "Ce n'est pas une adresse IP.",
+    "auth_ban_not_found": "Cette adresse n'est pas bannie.",
+    "auth_ban_whitelist_invalid": "Ce n'est pas une adresse IP ni un réseau.",
+    "auth_ban_whitelist_exists": "Ce réseau est déjà dans la liste blanche.",
+    "auth_ban_whitelist_full": "La liste blanche est pleine ({{max}} entrées).",
+    "auth_ban_whitelist_not_found": "Ce réseau n'est pas dans la liste blanche."
+  }
+}

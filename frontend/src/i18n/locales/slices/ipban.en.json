@@ -1,0 +1,43 @@
+{
+  "settings": {
+    "access": {
+      "ipBan": {
+        "title": "Address bans",
+        "help": "An address that fails to sign in too often is banned for a while: it gets no answer from the API until the ban ends. Local network addresses, Home Assistant and requests through an undeclared local proxy are never banned. A whitelisted network is never banned.",
+        "toggle": "Ban addresses after repeated failed sign-ins",
+        "maxFailures": "Failed sign-ins",
+        "windowMinutes": "Within (minutes)",
+        "durationMinutes": "Ban length (minutes)",
+        "save": "Save",
+        "saved": "Ban settings saved.",
+        "on": "Address bans turned on.",
+        "off": "Address bans turned off. Running bans no longer apply.",
+        "invalid": "Failed sign-ins: {{minFailures}} to {{maxFailures}}. Window: {{min}} to {{maxWindow}} minutes. Length: {{min}} to {{maxDuration}} minutes.",
+        "bans": "Banned addresses",
+        "noBans": "No address is banned.",
+        "banRow": "until {{when}}, after {{count}} failed sign-ins",
+        "unban": "Unban",
+        "unbanned": "{{address}} may sign in again.",
+        "whitelist": "Never banned",
+        "noWhitelist": "No network is whitelisted.",
+        "network": "Address or network",
+        "networkPlaceholder": "203.0.113.0/24",
+        "note": "Note (optional)",
+        "add": "Add",
+        "added": "{{network}} will never be banned.",
+        "remove": "Remove",
+        "removed": "{{network}} removed from the whitelist.",
+        "cli": "From the host, even while Meshloom runs: meshloom-admin list-bans, meshloom-admin unban ADDRESS, meshloom-admin whitelist add NETWORK."
+      }
+    }
+  },
+  "errors": {
+    "auth_ip_banned": "Too many failed sign-ins from your address: it is blocked for a while. Try again later, or ask an administrator to lift the ban.",
+    "auth_ban_address_invalid": "Not an IP address.",
+    "auth_ban_not_found": "This address is not banned.",
+    "auth_ban_whitelist_invalid": "Not an IP address or network.",
+    "auth_ban_whitelist_exists": "This network is already in the whitelist.",
+    "auth_ban_whitelist_full": "The whitelist is full ({{max}} entries).",
+    "auth_ban_whitelist_not_found": "This network is not in the whitelist."
+  }
+}

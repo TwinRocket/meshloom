@@ -113,6 +113,12 @@ and the OpenAPI page (`/docs`), not a table here.
   the scope. `peer_address(scope)` keeps the TCP peer (the ingress check uses it).
   It also holds `auth_settings.addresses_identify_clients` in memory
   (`addresses_identify_clients()`, read live by the login limiter, MSHL-424).
+  The built-in IP ban (`app/auth/ip_ban.py`, MSHL-422) is fed only by `fail_log`
+  (same events and address as `AUTH_FAIL`, `proxied=0` and non-local only) and
+  checked first in `AuthMiddleware`; thresholds are `auth_settings` columns
+  (`apply()` on load and on `PATCH /auth/settings`), never env vars. `meshloom-admin`
+  writes the tables directly; the server re-reads a cached ban on each request
+  (`docs/dev/auth.md`, "IP ban").
   **Launchers rule:** every uvicorn command line (the four launchers, the
   snake-oil compose, every documented command) carries `--no-proxy-headers`, so
   uvicorn never rewrites the scope itself (`tests/test_auth_ingress.py` parses the
@@ -672,6 +678,9 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 135 (MSHL-422) adds the four `auth_settings.ip_ban_*` columns and the
+  `ip_bans` and `ip_ban_whitelist` tables (`IF NOT EXISTS`, safe on any database);
+  no `SCHEMA_TABLES` change. `patched_database()` patches `app.repository.ip_ban`.
 - Migration 134 (MSHL-424) adds `auth_settings.addresses_identify_clients` (off); no
   `SCHEMA_TABLES` change, like the other columns added after 101.
 - Migration 133 (MSHL-163) adds `raw_packets.payload_type` and its index but does not backfill:

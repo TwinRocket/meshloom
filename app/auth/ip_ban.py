@@ -240,4 +240,3 @@ def forget(key: str | None = None) -> None:
         _bans.clear()
     else:
         _bans.pop(key, None)
-

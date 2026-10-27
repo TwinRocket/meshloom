@@ -97,6 +97,18 @@ Les délais sont gardés en mémoire et repartent de zéro au redémarrage de Me
 
 Chaque mot de passe, code, passkey, jeton ou code d’installation refusé écrit aussi une ligne commençant par `AUTH_FAIL` dans le journal de Meshloom, avec l’adresse d’où il vient (jamais le nom du compte, seulement un code court qui change à chaque redémarrage). Un outil comme fail2ban peut surveiller ces lignes et bloquer une adresse qui échoue sans cesse. Une ligne marquée `proxied=1` désigne un reverse-proxy de votre réseau absent des **Proxies de confiance**, partagé par tous ses visiteurs : un tel outil doit l’ignorer. Un visiteur venu d’internet qui envoie lui-même ces en-têtes est quand même noté avec sa propre adresse. Les connexions par Home Assistant n’écrivent aucune ligne.
 
+**Blocage intégré.** Meshloom bloque aussi de lui-même une adresse qui échoue sans cesse : par défaut, 10 connexions refusées en 10 minutes depuis une même adresse la bloquent pendant 60 minutes. Une adresse bloquée reçoit un message signalant trop d’échecs de connexion depuis son adresse sur chaque requête à l’API, même avec le bon mot de passe, jusqu’à la fin du blocage. Il compte les mêmes échecs que les lignes `AUTH_FAIL`, jamais une ligne `proxied=1`, et ne bloque jamais une adresse de votre réseau local (192.168.x.x, 10.x.x.x et semblables, la passerelle Docker, cette machine), une connexion par Home Assistant ni, via Meshloom Remote, le relais lui-même. Un visiteur IPv6 est bloqué par tout son bloc `/64`. Les blocages survivent à un redémarrage. Un administrateur le règle dans **Réglages → Utilisateurs et accès → Bannissement d’adresses** : le couper, changer le nombre d’échecs, la fenêtre et la durée, voir les adresses bloquées et lever un blocage, et tenir une **liste blanche** d’adresses ou de réseaux (`203.0.113.7`, `198.51.100.0/24`) jamais bloqués, quoi qu’il arrive. Depuis un terminal sur la machine, pendant que Meshloom tourne (effet à la requête suivante) :
+
+```bash
+meshloom-admin list-bans
+meshloom-admin unban 203.0.113.7       # ou --all
+meshloom-admin whitelist add 198.51.100.0/24 --note "bureau"
+meshloom-admin whitelist list
+meshloom-admin whitelist remove 198.51.100.0/24
+```
+
+Chaque blocage, levée de blocage et changement de la liste blanche est écrit dans le journal d’audit.
+
 ## Derrière un reverse-proxy
 
 Les délais de connexion, le journal d’audit et la liste des sessions notent l’adresse d’où vient une requête. Derrière un reverse-proxy, c’est celle du proxy, pour tous les visiteurs, tant que vous ne listez pas le proxy dans **Réglages → Configuration locale → Proxies de confiance** ; Meshloom utilise alors l’adresse du visiteur que le proxy transmet. N’indiquez que l’adresse du proxy lui-même, jamais un réseau Docker ni sa passerelle. Voir [HTTPS, proxies de confiance](/docs/deep/https/#proxies-de-confiance). Meshloom regarde aussi le nom saisi dans le navigateur : en 5.0.0, un nom inconnu (le nom DNS de votre proxy, par exemple) est seulement noté ; à partir de la 5.1 il sera refusé s’il n’est pas déclaré (**Réglages → Utilisateurs et accès → Adresses publiques**). Voir [Les noms auxquels Meshloom répond](/docs/deep/https/#les-noms-auxquels-meshloom-répond). Une mise en place pas à pas pour un tunnel, un VPN ou un proxy : [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/).

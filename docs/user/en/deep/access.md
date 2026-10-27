@@ -97,6 +97,18 @@ The delays live in memory and start again empty when Meshloom restarts. A delay 
 
 Each refused password, code, passkey, token or installation code also writes one line starting with `AUTH_FAIL` to Meshloom's log, with the address it came from (and never the account name, only a short code that changes at each restart). A tool such as fail2ban can watch these lines and block an address that keeps failing. A line marked `proxied=1` names a reverse proxy on your network that is not in **Trusted proxies**, shared by all its visitors: such a tool must ignore it. A visitor from the internet that sends forwarding headers itself is still logged with its own address. Sign-ins through Home Assistant write no line.
 
+**Built-in ban.** Meshloom also bans, by itself, an address that keeps failing: by default 10 refused sign-ins within 10 minutes from one address block it for 60 minutes. A blocked address is told there were too many failed sign-ins from its address on every API request, even with the right password, until the ban ends. It counts the same failures as the `AUTH_FAIL` lines, never a `proxied=1` one, and never bans an address on your local network (192.168.x.x, 10.x.x.x and the like, the Docker gateway, this machine), a sign-in through Home Assistant or, through Meshloom Remote, the relay itself. An IPv6 visitor is blocked by its whole `/64` block. Bans survive a restart. An administrator sets it in **Settings → Users & Access → Address bans**: turn it off, change the number of failures, the window and the duration, see the banned addresses and lift a ban, and keep a **whitelist** of addresses or networks (`203.0.113.7`, `198.51.100.0/24`) that are never banned, whatever happens. From a shell on the machine, while Meshloom runs (it applies on the next request):
+
+```bash
+meshloom-admin list-bans
+meshloom-admin unban 203.0.113.7       # or --all
+meshloom-admin whitelist add 198.51.100.0/24 --note "office"
+meshloom-admin whitelist list
+meshloom-admin whitelist remove 198.51.100.0/24
+```
+
+Every ban, unban and whitelist change is written to the audit log.
+
 ## Behind a reverse proxy
 
 Sign-in delays, the audit log and the session list record the address a request comes from. Behind a reverse proxy that is the proxy's, for every visitor, until you list the proxy in **Settings → Local Configuration → Trusted proxies**; Meshloom then uses the visitor's address the proxy forwards. List the proxy's own address only, never a Docker network or its gateway. See [HTTPS, trusted proxies](/en/docs/deep/https/#trusted-proxies). Meshloom also looks at the name in the browser's address: in 5.0.0 an unknown name (your proxy's DNS name, say) is only noted; from 5.1 it will be refused unless declared (**Settings → Users & Access → Public addresses**). See [Host names Meshloom answers to](/en/docs/deep/https/#host-names-meshloom-answers-to). A step-by-step setup for a tunnel, a VPN or a proxy: [Remote access on your own](/en/docs/deep/remote-self-hosted/).

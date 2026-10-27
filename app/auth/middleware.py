@@ -370,9 +370,7 @@ class AuthMiddleware:
                 if scope["type"] == "websocket":
                     await self._refuse_websocket(receive, send)
                 else:
-                    await self._respond(
-                        send, 429, ip_ban.BANNED_CODE, path, retry_after=banned_for
-                    )
+                    await self._respond(send, 429, ip_ban.BANNED_CODE, path, retry_after=banned_for)
                 return
 
         try:

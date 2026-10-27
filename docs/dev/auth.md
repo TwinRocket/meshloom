@@ -226,6 +226,8 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `notify.rules_changed` | `PATCH /notifications/rules`, `PUT /notifications/rules/conversations/{key}`: target `notification_rules`, `details = {fields, events?, paused_until?}` (the global pause is `paused_until`); a refused change writes nothing |
   | `share.enabled`, `share.disabled` | `PATCH /settings` when `share_enabled` changes (an unchanged value or another field writes nothing); `details.terms_version` on enable; no target (MSHL-248) |
   | `share.object_deleted`, `share.report_sent` | `DELETE /share/{id}`, `POST /share/{id}/report` (`app/routers/share.py`): target `share:<id>`; `details.reason` for a report (never its free-text details); outcome `refused` when a check refuses (403, e.g. `share_not_owner`, `share_disabled`), `error` for a 5xx from the service, `failure` for other statuses. A caller without `send` is refused by the gate and writes no row |
+  | `ip.banned` | The built-in ban ("IP ban"), actor `system`, target `ip:<key>`, `details = {failures, route, minutes}` |
+  | `ip.unbanned`, `ip.whitelisted`, `ip.unwhitelisted` | `DELETE /auth/bans`, `POST`/`DELETE /auth/ban-whitelist`, `meshloom-admin unban` / `whitelist add` / `whitelist remove`; target `ip:<key or network>` (none for `unban --all`, `details = {scope: all, count}`) |
   | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
 
   **Every refusal of the users API is written**, under the route's action
@@ -286,6 +288,11 @@ they only work on an instance that answers on the same RP id.
 `app/main.py` (inside CORS, so preflights never reach it). For every `http`
 and `websocket` scope:
 
+0. **IP ban.** On the `/api` routes, the API docs and their WebSocket
+   upgrades, outside ingress, a banned address ("IP ban") is refused before
+   any credential is read (no argon2id work): 429 `auth_ip_banned` with
+   `Retry-After` and `params.retry_after`, or a refused upgrade. Pages and
+   assets are still served, so the login page can say why.
 1. **Principal.** It resolves a `Principal` (user, role, `via`, credential,
    session or token id, scopes) and stores it in `scope["state"]["principal"]`;
    routes read it with `get_principal(request)`. Credentials are tried in
@@ -970,6 +977,49 @@ and none by IP alone behind Docker:
   client), and the typed name only as a keyed hash. Attempts refused by a delay write none. Format and routes:
   `docs/dev/auth-fail-log.md`, a contract.
 
+## IP ban
+
+`app/auth/ip_ban.py` (MSHL-422, remote propositions v2 §5.3 and decision 6),
+storage `app/repository/ip_ban.py`, migration 135. A persistent ban per
+address, on top of the login delays, fed by the `AUTH_FAIL` events
+(`docs/dev/auth-fail-log.md`): `fail_log` calls `ip_ban.note_failure()` with the
+fields of the line it just wrote, so the ban and an external log watcher judge
+the same failures with the same address.
+
+- **What counts.** Only a failure whose line reads `proxied=0`; never an
+  address in `fail_log.LOCAL_NETWORKS` (loopback, RFC 1918, CGNAT, link-local,
+  ULA) nor a missing one; never under ingress. Through the relay the address is
+  `client_ip()` (the client in the frame), never the tunnel's peer.
+- **Key.** IPv4 by address, IPv6 by its `/64` (an IPv4-mapped address is its
+  IPv4), like the login delays.
+- **Threshold.** `auth_settings.ip_ban_max_failures` (10, 3 to 1000) failures
+  within `ip_ban_window_minutes` (10, 1 to 1440) ban the key for
+  `ip_ban_duration_minutes` (60, 1 to 43200): a row in `ip_bans` and an
+  `ip.banned` audit row. `ip_ban_enabled` (on) turns it off: nothing is counted
+  and no ban applies; the rows stay. `GET/PATCH /auth/settings`, Settings →
+  Users & Access → Address bans; never an environment variable.
+- **Whitelist.** `ip_ban_whitelist` (addresses or CIDR networks, host bits
+  cleared, at most 256, each with a note): an address it covers is never
+  banned, and a ban on it stops applying. It always wins.
+- **Enforcement.** Step 0 of the gate (`check()`). A key with no ban in memory
+  costs one dict lookup; a key with one re-reads its row and the whitelist on
+  every request, so `meshloom-admin unban` or `whitelist add`, run against the
+  database while the service runs, apply on the next request. A database
+  error while re-reading keeps the ban until its in-memory end (fail closed).
+  `load()` at startup reloads the running bans, so a ban survives a restart.
+- **Memory.** Failure counts live in memory (at most 4096 keys, the oldest
+  goes) and start again empty after a restart; the bans do not. `ip_bans`
+  holds at most 10000 rows (past it, the ones that end first go); ended rows are deleted when a new ban is written.
+- **Managing.** `GET /auth/bans`, `DELETE /auth/bans?address=`,
+  `POST /auth/ban-whitelist`, `DELETE /auth/ban-whitelist?network=` (admin,
+  routes table), the panel, and `meshloom-admin list-bans [--json]`,
+  `unban ADDRESS|--all`, `whitelist list|add NETWORK [--note]|remove NETWORK`.
+- **Not covered.** No escalation for repeat offenders, no lower thresholds for
+  a directly exposed instance yet (the "direct exposure" mode of the Accès
+  scoping). fail2ban files ship separately (MSHL-423).
+- Tests: `tests/test_ip_ban.py`, `tests/test_cli_ip_ban.py`,
+  `tests/test_migrations/test_migration_135.py`.
+
 ## Second factor (TOTP)
 
 Access T50, owner decision Q-A16 (optional for users) and lead decision Q16
@@ -1246,8 +1296,12 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/pair` | public, login delays per client (no username slow-down) | `{code, device_name (1-64), extensions?}` → 201 `{token, token_id, scopes, user {id, username, display_name}, urls}`: the device token (origin `pairing`, no expiry) of the code's creator with exactly its scopes. 410 `auth_pairing_expired` for every bad code (one answer), 403 `auth_pairing_ingress`, 429 `auth_rate_limited`, 409 `auth_token_limit` ([Device pairing](device-pairing.md)) |
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
-| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, session_lifetime_days, ingress_default_role, security_notices, require_2fa_for_admins, addresses_identify_clients, shared_address_install, client_public}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; days, 30 by default; `member` by default; the Access security notice codes, read only; `shared_address_install`: a `compose` or `container` install; `client_public`: this request's client address is public; both read only) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `session_lifetime_days` 1 to 365 (422 otherwise; audited with the key `lifetime_days`, because the audit filter refuses keys containing `session`); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). `addresses_identify_clients` (bool, off by default; "Login delays"). One `settings.changed` row per field |
+| `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, session_lifetime_days, ingress_default_role, security_notices, require_2fa_for_admins, addresses_identify_clients, ip_ban_enabled, ip_ban_max_failures, ip_ban_window_minutes, ip_ban_duration_minutes, shared_address_install, client_public}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; days, 30 by default; `member` by default; the Access security notice codes, read only; `shared_address_install`: a `compose` or `container` install; `client_public`: this request's client address is public; both read only) |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `session_lifetime_days` 1 to 365 (422 otherwise; audited with the key `lifetime_days`, because the audit filter refuses keys containing `session`); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). `addresses_identify_clients` (bool, off by default; "Login delays"). `ip_ban_enabled` (strict bool), `ip_ban_max_failures` 3 to 1000, `ip_ban_window_minutes` 1 to 1440, `ip_ban_duration_minutes` 1 to 43200 (strict integers, 422 otherwise; "IP ban"). One `settings.changed` row per field |
+| `GET /auth/bans` | `admin` | `{bans: [{address, banned_at, expires_at, failures, route}], whitelist: [{network, note, created_at}]}`: the running bans (the one that ends last first) and the whitelist ("IP ban") |
+| `DELETE /auth/bans?address=` | `admin` | 204: lifts one ban at once (an address is reduced to its key). 400 `auth_ban_address_invalid`, 404 `auth_ban_not_found` |
+| `POST /auth/ban-whitelist` | `admin` | 201 `{network, note?}`: never ban it; a ban on it stops applying. 400 `auth_ban_whitelist_invalid`, 409 `auth_ban_whitelist_exists`, `auth_ban_whitelist_full` (`params.max`) |
+| `DELETE /auth/ban-whitelist?network=` | `admin` | 204. 400 `auth_ban_whitelist_invalid`, 404 `auth_ban_whitelist_not_found` |
 | `GET /auth/audit?cursor=&limit=` | `admin` | The audit log, newest first: `{entries, next_cursor}`. `limit` 1 to 500 (100 by default); `next_cursor` is opaque, sent back as `cursor` for the older page, null on the last; a malformed cursor is 400 `auth_audit_cursor_invalid`. Reading writes no row |
 
 Every route above that changes something writes one audit row ("Audit log").
