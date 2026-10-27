@@ -300,7 +300,14 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
 async def _resolve_trusted_network(
     scope: Scope, headers: Headers, via: Via, result: _Resolution
 ) -> _Resolution:
-    """The last resort of ``resolve()``: a trusted network rule, if one applies."""
+    """The last resort of ``resolve()``: a trusted network rule, if one applies.
+
+    Only for a direct LAN request: a relayed request (``via=relay``, from the
+    scope's ``state["via"]``) never reaches ``resolve_trusted_user``, whatever
+    its peer (the relay's local end is loopback or a LAN address, MSHL-431).
+    ``rule_blocker`` refuses it too (``via``): two independent checks."""
+    if via != "lan":
+        return result
     match = await trusted_network.resolve_trusted_user(scope, headers, via)
     if match is not None:
         result.principal = Principal(user=match[0], via="trusted", credential="trusted_network")

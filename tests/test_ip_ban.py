@@ -84,6 +84,16 @@ def test_a_bad_ban_key_is_refused(raw):
     assert parse_ban_key(raw) is None
 
 
+@pytest.mark.parametrize("raw", ["8.8.8.8 ", " 8.8.8.8", "8.8.8.8\n", "2001:db8::1%x"])
+def test_a_failure_whose_line_reads_no_ip_counts_nothing(raw):
+    """The AUTH_FAIL line shows ``ip=-`` for these: the ban agrees (MSHL-431)."""
+    from app.auth import fail_log
+
+    assert fail_log.ip_field(raw) == "-"
+    assert ip_ban.bannable(raw) is None
+    assert ip_ban.bannable(raw.strip().split("%")[0]) is not None
+
+
 def test_networks_are_canonical():
     assert str(parse_network("198.51.100.0/24")) == "198.51.100.0/24"
     assert str(parse_network("198.51.100.7")) == "198.51.100.7/32"

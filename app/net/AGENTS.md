@@ -1,7 +1,9 @@
-# Egress guard (`app/net/`)
+# Egress guard and local addresses (`app/net/`)
 
 One guard for every outbound request to a destination a user or a browser
-chose (SSRF). Like every agent doc here, check it against the code.
+chose (SSRF), and one definition of a local *client* address for the inbound
+auth checks (`local_address.py`, at the end). Like every agent doc here, check
+it against the code.
 
 ## Semantics (`egress_guard.py`)
 
@@ -276,3 +278,30 @@ each with its own instance; the caller decides what counts as a failure.
 Tests: `tests/test_egress_guard.py`, `tests/test_egress_guard_checked_fetch.py`
 (allowlist, redirect chains, caps, headers), `tests/test_apprise_urls.py`,
 `tests/test_push_send_egress.py` (Web Push: TLS SNI to the pinned IP, lazy deletion).
+
+## Local client addresses (`local_address.py`, MSHL-431)
+
+Inbound only: whether a request's client is local (this host or the household
+network) or public. Not an egress question: destinations go through the guard
+above, and `pairing.is_lan_host`, `backup.endpoint_looks_private` and
+`channels.email_is_cloud` keep their own heuristics.
+
+- `LOCAL_NETWORKS`: `127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`,
+  `192.168.0.0/16`, `169.254.0.0/16`, `100.64.0.0/10` (CGNAT stays local,
+  MSHL-434), `::1/128`, `fc00::/7`, `fe80::/10`. Everything else is public,
+  documentation, benchmarking, reserved, unspecified, multicast, NAT64, 6to4,
+  Teredo, `fec0::/10` and IPv4-compatible included: a LAN never hands those
+  out, so every caller takes its safe side.
+- `parse_address()` is strict (`ipaddress.ip_address(raw)`, no strip, no
+  split): whitespace, a `%` on IPv4 or IPv4-mapped, an empty zone are not
+  addresses; a plain IPv6 zone id is dropped after parsing; IPv4-mapped is
+  unmapped. A trusted proxy's `X-Forwarded-For` reaches `scope["client"]`
+  verbatim, so trimming would turn `127.0.0.1%x` local. `is_local()` /
+  `is_public()` take text or an address object, and anything that is not an
+  address is public (fail closed); `network_is_local()` for a rule's CIDR.
+- Callers: `ratelimit.client_is_public` (login panel hint, `setup_code`
+  exposure), `fail_log` (`proxied`), `ip_ban.is_local`/`bannable` (adds the
+  host's on-link global IPv6 prefixes), `trusted_network.rule_blocker` (via
+  `ip_ban.is_local`) and `public_or_wide`. Listed range by range, never
+  `is_private`/`is_global` (they differ between Python versions). Tests:
+  `tests/test_local_address.py`.

@@ -27,6 +27,7 @@ to this contract is a `CONTRACTS:` commit.
 |---|---|
 | 1 | First version (MSHL-421): `via` is the transport; `proxied=1` only for a local peer that is not a declared proxy. |
 | 1 | Route `basic` removed with HTTP Basic auth (MSHL-100): a `Basic` header is no credential and writes no line. |
+| 1 | `via=relay` lines pinned (MSHL-431, before the relay ships): always `proxied=0`, and `ip=-` unless the relayed client is public. Same format and fields. |
 
 ## The record
 
@@ -41,11 +42,11 @@ space or any other control character (see "Escaping").
 
 | Field | Value |
 |---|---|
-| `ip` | The client address as the auth gate sees it, `client_ip()`: the TCP peer, or the client a declared trusted proxy forwarded (`docs/dev/auth.md`, "Proxy headers"). Canonical form (`2001:db8::1`, lower case); an IPv4-mapped IPv6 address is shown as IPv4. `-` when there is none, it is not an IP address, or it carries an IPv6 zone id (`fe80::1%eth0`: Python keeps any text after the `%`), so no request data reaches the line as free text |
+| `ip` | The client address as the auth gate sees it, `client_ip()`: the TCP peer, or the client a declared trusted proxy forwarded (`docs/dev/auth.md`, "Proxy headers"). Canonical form (`2001:db8::1`, lower case); an IPv4-mapped IPv6 address is shown as IPv4. `-` when there is none, it is not an IP address, or it carries an IPv6 zone id (`fe80::1%eth0`: Python keeps any text after the `%`), so no request data reaches the line as free text. Through the relay (`via=relay`), `ip` is the client the dispatcher set only when it is a public address (not in the local ranges below); a local or missing one is `-`, since the TCP peer is then the tunnel's local end, never a client |
 | `route` | Where the credential was presented, see "Routes" |
 | `reason` | Why it was refused, from the closed list of its route |
 | `via` | The transport: `lan` or `relay` (`request_via()`), never the provider that signed the request in (a request a trusted-network rule signs in is `lan`). Home Assistant ingress never writes the line: its peer is the Supervisor, which must never be banned |
-| `proxied` | `1` when the TCP peer is a local address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`; `LOCAL_NETWORKS`), is not a declared trusted proxy, and sends `X-Forwarded-For`, `X-Real-IP` or `Forwarded`: most likely a local reverse proxy nobody declared, so `ip` is that proxy, shared by every client behind it: **a consumer must ignore `proxied=1` lines**. `0` otherwise, including a public peer that sends those headers: it is the client itself, `ip` is that peer, and adding a header never escapes a ban |
+| `proxied` | `1` when the TCP peer is a local address (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16`, `::1`, `fc00::/7`, `fe80::/10`; `app/net/local_address.py`, an IPv4-mapped address judged as its IPv4), is not a declared trusted proxy, and sends `X-Forwarded-For`, `X-Real-IP` or `Forwarded`: most likely a local reverse proxy nobody declared, so `ip` is that proxy, shared by every client behind it: **a consumer must ignore `proxied=1` lines**. `0` otherwise, including a public peer that sends those headers: it is the client itself, `ip` is that peer, and adding a header never escapes a ban. Always `0` with `via=relay`: the local peer is the tunnel and any forwarding header comes from the remote client |
 | `user` | `h:` and 6 lower-case hex characters: an HMAC-SHA256 of the typed name, folded like a username (`username_key()`), under a random key drawn at each start. `-` when the route takes no name. Never the name itself (someone typing a password into the name field must not leave it in the logs). The hash groups attempts on one name within one run and cannot be checked against a guess offline; it changes at each restart |
 
 ## Routes

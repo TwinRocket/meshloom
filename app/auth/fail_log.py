@@ -11,18 +11,25 @@ The format is a contract (``docs/dev/auth-fail-log.md``): change it only in a
   forwarded, ``app/middleware/proxy_headers.py``) in canonical form, ``-`` when
   there is none, it is not an IP address, or it carries an IPv6 zone id
   (``fe80::1%eth0``: ``ipaddress`` keeps any text after the ``%``, a newline
-  included). Never free text: no log injection (MSHL-432).
+  included). Never free text: no log injection (MSHL-432). Through the relay
+  (``via=relay``), ``ip`` is the client the dispatcher set only when it is a
+  public address (``app/net/local_address.py``); a local or missing one gives
+  ``-``: the TCP peer is then the tunnel's local end, never a client, so a
+  relayed attempt can neither name nor get banned a LAN address.
 - ``route`` and ``reason``: the closed vocabulary of ``ROUTE_REASONS``.
 - ``via``: the transport, ``lan`` or ``relay`` (``request_via()``), never the
   provider that signed the request in (a trusted-network rule is still
   ``lan``). Ingress requests never emit: their peer is the Home Assistant
   Supervisor, which must never be banned.
-- ``proxied``: ``1`` when a peer in ``LOCAL_NETWORKS`` that is not a
-  declared trusted proxy sends forwarding headers (``X-Forwarded-For``,
+- ``proxied``: ``1`` when a local peer (``app/net/local_address.py``: loopback,
+  RFC 1918, CGNAT, link-local, ULA) that is not a declared trusted proxy sends
+  forwarding headers (``X-Forwarded-For``,
   ``X-Real-IP``, ``Forwarded``): most likely a local reverse proxy nobody
   declared, so ``ip`` is shared by every client behind it and consumers must
   ignore the line. A public peer sending those headers is the client itself:
   ``proxied=0``, ``ip`` is that peer (adding a header must not escape a ban).
+  Always ``0`` through the relay: the local peer is the tunnel and the headers
+  come from the remote client, so adding one must not escape a ban either.
 - ``user``: ``h:`` and 6 hex characters of an HMAC-SHA256 of the typed name
   (``username_key()``) under a random per-process key, ``-`` when the route
   takes no name. Never the name itself: a password typed into the username
@@ -52,6 +59,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from app.auth import ip_ban
+from app.net import local_address
 from app.repository.auth import InvalidUsernameError, username_key
 
 logger = logging.getLogger("meshloom.auth")
@@ -76,24 +84,6 @@ USER_HASH_HEX = 6
 _WORD_RE = re.compile(r"[a-z0-9_]+")
 # What any whole line may contain: no space, no control character, nothing but this.
 _LINE_RE = re.compile(r"AUTH_FAIL(?: [a-z_]+=[A-Za-z0-9_.:\-]+)+")
-
-# Where an undeclared local reverse proxy can sit (RFC 1918, CGNAT, loopback,
-# link-local, ULA). Spelled out: ``is_private`` also covers documentation and
-# other reserved ranges.
-LOCAL_NETWORKS = tuple(
-    ipaddress.ip_network(cidr)
-    for cidr in (
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "100.64.0.0/10",
-        "127.0.0.0/8",
-        "169.254.0.0/16",
-        "::1/128",
-        "fc00::/7",
-        "fe80::/10",
-    )
-)
 
 # Per process: the hash correlates attempts on one name in one run and nothing more.
 _USER_KEY = secrets.token_bytes(32)
@@ -132,14 +122,19 @@ def _undeclared_local_proxy(scope: Mapping[str, Any]) -> bool:
 
     if not forwarded_by_untrusted_peer(scope):
         return False
-    peer = proxy_headers.peer_address(scope)
-    try:
-        address = ipaddress.ip_address(peer or "")
-    except ValueError:
-        return False
-    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
-        address = address.ipv4_mapped
-    return any(address in network for network in LOCAL_NETWORKS)
+    return local_address.is_local(proxy_headers.peer_address(scope))
+
+
+def _fields(scope: Mapping[str, Any], via: str) -> tuple[str | None, bool]:
+    """``(ip, proxied)`` for this request (module docstring)."""
+    from app.auth.middleware import client_ip
+
+    ip = client_ip(scope)  # type: ignore[arg-type]
+    if via == "relay":
+        # The peer is the tunnel's local end: only a public client the
+        # dispatcher read from the frame is an address worth naming or banning.
+        return (ip if ip and local_address.is_public(ip) else None), False
+    return ip, _undeclared_local_proxy(scope)
 
 
 def format_line(
@@ -166,7 +161,7 @@ def log_auth_failure(
 ) -> None:
     """Emit the ``AUTH_FAIL`` line for this request. Never raises."""
     # Imported here: the middleware imports the providers and the routers import it.
-    from app.auth.middleware import client_ip, request_via
+    from app.auth.middleware import request_via
 
     try:
         if reason not in ROUTE_REASONS[route]:
@@ -174,8 +169,7 @@ def log_auth_failure(
         via = request_via(scope)  # type: ignore[arg-type]
         if via == "ingress":
             return
-        ip = client_ip(scope)  # type: ignore[arg-type]
-        proxied = _undeclared_local_proxy(scope)
+        ip, proxied = _fields(scope, via)
     except Exception:
         logger.error("Could not read an AUTH_FAIL line's fields for route %s", route, exc_info=True)
         return

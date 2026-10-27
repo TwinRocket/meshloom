@@ -9,6 +9,7 @@ import pytest
 
 from app.auth.models import TrustedNetworkRule
 from app.auth.providers import trusted_network
+from app.net import local_address
 from app.repository.auth import AuthAuditRepository, AuthSettingsRepository, UserRepository
 from tests.auth_helpers import create_user, login, make_client
 
@@ -515,7 +516,7 @@ def test_rule_blocker_table():
 
 def test_matching_maps_ipv4_mapped_peers():
     rules = [TrustedNetworkRule(cidr="192.168.1.0/24", user_id=1)]
-    address = trusted_network._parse_address("::ffff:192.168.1.20")
+    address = local_address.parse_address("::ffff:192.168.1.20")
     assert address is not None
     assert trusted_network.matching_rule(address, rules) == rules[0]
 
@@ -578,7 +579,12 @@ async def test_a_rule_for_an_account_that_must_change_its_password_is_refused():
         ("10.0.0.0/8", True),
         ("8.8.8.0/24", True),
         ("8.0.0.0/8", True),
-        ("2001:db8::/32", False),
+        # Documentation and reserved ranges are public (app/net/local_address.py).
+        ("2001:db8::/32", True),
+        ("192.0.2.0/24", True),
+        ("198.18.0.0/24", True),
+        ("fe80::/64", False),
+        ("169.254.0.0/24", False),
         ("2a01:e0a::/32", True),
         ("fd00::/16", True),
     ],
@@ -673,3 +679,44 @@ def test_login_free_is_off_by_default():
     from app.auth.models import AuthSettings
 
     assert AuthSettings().lan_login_free is False
+
+
+def _relayed_client(base_url: str, peer: tuple[str, int]) -> httpx.AsyncClient:
+    """A client whose requests the relay dispatched (``scope["state"]["via"]``)."""
+    from app.main import app
+
+    async def relayed(scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            scope.setdefault("state", {})["via"] = "relay"
+        await app(scope, receive, send)
+
+    transport = httpx.ASGITransport(app=relayed, client=peer)
+    return httpx.AsyncClient(transport=transport, base_url=base_url)
+
+
+@pytest.mark.parametrize(
+    ("kind", "cidr", "base_url", "peer"),
+    [
+        # Each would sign in without the relay (see the tests above).
+        ("addon", "127.0.0.0/8", "http://localhost:8000", ("127.0.0.1", 40000)),
+        ("package", "192.168.1.0/24", LAN_URL, LAN_PEER),
+    ],
+)
+async def test_a_relayed_request_never_reaches_the_rule(monkeypatch, kind, cidr, base_url, peer):
+    """MSHL-431: the relay's local end is loopback or a LAN address, never a LAN client."""
+    monkeypatch.setenv("MESHLOOM_INSTALL_KIND", kind)
+    await _rule(cidr)
+    async with make_client(base_url, peer) as client:
+        assert (await client.get("/api/contacts")).status_code == 200
+    calls: list[object] = []
+    real = trusted_network.resolve_trusted_user
+
+    async def spy(*args, **kwargs):
+        calls.append(args)
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(trusted_network, "resolve_trusted_user", spy)
+    async with _relayed_client(base_url, peer) as client:
+        assert (await client.get("/api/contacts")).status_code == 401
+        assert (await _session(client)).get("user") is None
+    assert calls == []

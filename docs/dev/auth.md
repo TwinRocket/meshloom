@@ -505,7 +505,10 @@ does: `resolve_trusted_user` checks it itself, since the kiosk reuses
 
 A rule never applies (`rule_blocker`, fail closed) when:
 
-- `via` is not `lan` (relay, ingress) or anything tagged `scope["state"]["via"]`;
+- `via` is not `lan` (relay, ingress) or anything tagged `scope["state"]["via"]`
+  (the gate does not even call `resolve_trusted_user` for a relayed request,
+  `middleware._resolve_trusted_network`: the relay's local end is loopback or
+  a LAN address, MSHL-431);
 - the TCP peer (`peer_address`, before the trusted-proxy rewrite) is a trusted
   proxy, so a proxied request is never auto-signed in, whatever it forwards;
 - the request carries a header a proxy or tunnel adds (`PROXY_HEADERS`:
@@ -517,10 +520,11 @@ A rule never applies (`rule_blocker`, fail closed) when:
   add-on (`LOOPBACK_ALLOWED_KINDS`): on a package, a source checkout or a container
   that may share the host's network, a local proxy or `ssh -L` (no header at all)
   brings every visitor from `127.0.0.1`;
-- the peer is not a local address (`ip_ban.is_local`: `fail_log.LOCAL_NETWORKS`,
+- the peer is not a local address (`ip_ban.is_local`: `app/net/local_address.py`,
   i.e. RFC 1918, CGNAT `100.64.0.0/10`, loopback, link-local, ULA, plus the
-  host's on-link global IPv6 prefixes), the same rule as the ban and `AUTH_FAIL`
-  use. A rule covering a public range never signs in a public peer (`not_local`).
+  host's on-link global IPv6 prefixes), the same definition as the ban,
+  `AUTH_FAIL` and the login delays use (a documentation or reserved address is
+  public). A rule covering a public range never signs in a public peer (`not_local`).
   A box that port-forwards with SNAT still presents internet visitors with a
   local address: the settings warn about it;
 - `Host` fails the strict guard (`host_allowed`): accepted are an IP literal,
@@ -566,7 +570,8 @@ back on resume; an unreadable state counts as reduced) and
 `trusted_loopback_or_gateway_public` (a rule covers loopback or the gateway
 while `public_urls` is set) and `trusted_network_public_or_wide`
 (`public_or_wide`: a rule is as wide as allowed, `/8` IPv4 or `/16` IPv6, or not
-`is_private`, or inside the shared address space `100.64.0.0/10` (Tailscale,
+inside one local range (`local_address.network_is_local`: a documentation or
+reserved range is flagged too), or inside the shared address space `100.64.0.0/10` (Tailscale,
 CGNAT) and wider than `/32`; accepted, since Home Assistant allows it too, but
 almost always a mistake; the UI asks for the same confirmation as for a wide
 rule, `frontend/src/lib/cidr.ts` mirrors it). The
@@ -922,8 +927,9 @@ and none by IP alone behind Docker:
   addresses", MSHL-424) when the peer address is really the client's own (host
   network, or a port published without Docker's userland proxy); the panel
   suggests it when `GET /auth/settings` reports `shared_address_install` and
-  `client_public` (`ratelimit.client_is_public`: the address is global, or
-  unparseable) with no trusted proxy. Request headers never
+  `client_public` (`ratelimit.client_is_public`: the address is not local,
+  `app/net/local_address.py`, documentation and reserved ranges included, or
+  it is unparseable) with no trusted proxy. Request headers never
   decide it: `X-Forwarded-For`, `X-Real-IP` or `Forwarded` from a peer that is
   not a trusted proxy is ignored (the peer is the client, as everywhere) and
   logs a warning once per peer pointing to Trusted proxies, next to the login
@@ -1002,9 +1008,9 @@ address, on top of the login delays, fed by the `AUTH_FAIL` events
 fields of the line it just wrote, so the ban and an external log watcher judge
 the same failures with the same address.
 
-- **What counts.** Only a failure whose line reads `proxied=0`; never an
-  address in `fail_log.LOCAL_NETWORKS` (loopback, RFC 1918, CGNAT, link-local,
-  ULA) nor a missing one; never under ingress. Nor, for the ban only (the
+- **What counts.** Only a failure whose line reads `proxied=0`; never a
+  local address (`app/net/local_address.py`: loopback, RFC 1918, CGNAT,
+  link-local, ULA) nor a missing one; never under ingress. Nor, for the ban only (the
   `AUTH_FAIL` line and its `proxied` rule are unchanged), a global IPv6 address
   inside a prefix on-link on the host: `/proc/net/if_inet6`, scope global,
   prefix length 48 to 128, re-read at most every 60 s (`HOST_PREFIXES_TTL_S`).
@@ -1012,7 +1018,9 @@ the same failures with the same address.
   the Home Assistant add-on it sees only the container's interfaces, so a LAN
   client on the household's global /64 counts as public: the user doc tells to
   whitelist that /64. A ban already written for such a prefix stops applying. Through the relay the address is
-  `client_ip()` (the client in the frame), never the tunnel's peer.
+  `client_ip()` (the client in the frame), never the tunnel's peer, and only
+  when it is public: a local or missing one writes `ip=-` and bans nothing,
+  and a relayed line is always `proxied=0` (MSHL-431).
 - **Key.** IPv4 by address, IPv6 by its `/64` (an IPv4-mapped address is its
   IPv4), like the login delays.
 - **Threshold.** `auth_settings.ip_ban_max_failures` (10, 3 to 1000) failures
@@ -1239,8 +1247,10 @@ no account exists:
 path (`auth_via` other than `lan`), carries any forwarding header (`PROXY_HEADERS`
 in `app/auth/providers/trusted_network.py`: `X-Forwarded-*`, `Forwarded`,
 `X-Real-IP`, `CF-Connecting-IP` and the rest) from a peer that is not a trusted proxy, comes from a client
-address that is not private, loopback, link-local, ULA or CGNAT
-(`ratelimit.client_is_public`, on the address a trusted proxy forwarded), or
+address that is not local (`ratelimit.client_is_public`: not RFC 1918,
+loopback, link-local, ULA or CGNAT per `app/net/local_address.py`, so a
+documentation or reserved address is exposed too; on the address a trusted
+proxy forwarded), or
 when `auth_settings.public_urls` is not empty. The first exposed `GET
 /api/auth/session` or `POST /api/auth/setup` issues a code
 (`ensure_exposure_code()`, under a lock, only when none is stored), logs it at
