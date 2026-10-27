@@ -82,7 +82,8 @@ is deliberate. These are documented and are not treated as vulnerabilities:
   powers: an `admin` can read all history, send as the node, write extensions and
   change every setting, and a `member` can send as the node. A trusted-network
   rule, which an administrator can add, signs a device in without a login with
-  the account it names (choose a viewer or kiosk account). Rules apply only
+  the account it names (choose a viewer or kiosk account; an administrator is
+  refused, and never signed in by a rule). Rules apply only
   once an administrator turns on **Login-free on the local network** (off by
   default and after an upgrade, audited), only to a direct peer on a local
   address, and never behind any proxy, tunnel, ingress or relay. A router that

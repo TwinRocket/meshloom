@@ -405,8 +405,8 @@ stay `app/origin_policy.py`'s. The provider uses no CIDR rule.
 - The HA user maps to `users.provider = 'ingress'`, `external_id = <HA id>`
   (unique per provider), created on first sight with no password. The first
   ingress identity of the instance is `admin`, whatever local accounts exist
-  (cadrage R3: a 4.18.x add-on may have a local admin, imported from the
-  former `basic_auth_*` options or made with `meshloom-admin`, and the sidebar, the add-on's only way in
+  (cadrage R3: a local admin may already exist, made with `meshloom-admin` or
+  by the first-run setup on a published port, and the sidebar, the add-on's only way in
   by default, must still reach an administrator); the next ones get
   `auth_settings.ingress_default_role` (`member` by default). "First" is
   decided once: creating that admin sets `auth_settings.ingress_admin_granted`
@@ -485,11 +485,12 @@ even with rules: migration 136 adds it off and logs a warning when rules exist.
 Only an admin changes it (`PATCH /api/auth/settings`), which writes a
 `settings.changed` audit row with target `auth_settings.lan_login_free`. The
 settings show a FR and EN warning: a box that forwards a port with SNAT makes
-internet visitors look local, and a relayed request never counts as local. A
+internet visitors look local, the CGNAT range `100.64.0.0/10` includes
+Tailscale and some VPNs, and a relayed request never counts as local. A
 "direct exposure" mode is deferred (ROADMAP §4). **Role choice:** no anonymous
 or new role. Each rule names an account the admin picks, and the
 recommendation is the least privilege that works (a `viewer` or `kiosk`
-account). The settings warn when a rule names an admin. The rules are kept in
+account), and **never an admin** (enforced, see below). The rules are kept in
 memory with
 the `public_urls` the `Host` check needs (read on first use, replaced by
 `AuthSettingsRepository.update()`). Every check before the account lookup is
@@ -530,9 +531,11 @@ A rule never applies (`rule_blocker`, fail closed) when:
   page that holds no cookie at all. The rule is `host_allowed` in
   `app/middleware/host_guard.py`, shared with the general guard below.
 
-The account must exist, be enabled and have no pending password change (a
+The account must exist, be enabled, have no pending password change (a
 rule naming such an account is refused at save time, so it never sits there
-doing nothing). The
+doing nothing) and not be an admin: `resolve_trusted_user` returns None for an
+admin, which also covers an account promoted after its rule was saved and a
+rule restored from a backup. The
 longest matching prefix wins, then the first listed. Every auto-login writes one
 `login` row (`via = trusted`, `details = {method: "trusted_network", cidr}`) at
 most once per client address, user and UTC day (in memory, `MAX_AUDITED`
@@ -543,10 +546,19 @@ entries).
 enabled account) and refuses, with coded 400s, a rule that overlaps a trusted
 proxy (checked both ways: a new proxy overlapping a saved rule is refused too),
 one whose account is missing or disabled (`auth_trusted_network_user_invalid`) or
-must change its password (`auth_trusted_network_user_must_change`),
+must change its password (`auth_trusted_network_user_must_change`) or is an
+admin (`auth_trusted_network_user_admin`, `params.cidr`),
 one covering loopback where loopback is refused, and one covering the Docker
 default gateway (`docker_gateways()`, from `/proc/net/route` on a container
-install) while `public_urls` is set. `GET` adds `security_notices`, the Access
+install), always: behind docker-proxy every client of the published port, the
+internet included, arrives from the gateway. Turning `lan_login_free` on while
+a saved rule (older, or restored) names an admin is refused with 409
+`auth_lan_login_free_admin_rules` (`params.cidrs`, comma-separated); the UI
+never offers an admin in the account picker and lists such rules. A
+`PATCH` that carries neither `trusted_networks` nor `lan_login_free: true` is
+not blocked by such a rule (the runtime check above keeps it inert). The
+accounts restore applies the remapped rules with `lan_login_free=False` until
+`_reload_access_state()` reloads the stored settings. `GET` adds `security_notices`, the Access
 security notice the UI shows at the top of Users & Access:
 `trusted_admin_reduced_plugin_isolation` (a rule maps to an enabled admin while
 plugins run with isolation `none`, the global pause included since the risk is
@@ -554,8 +566,10 @@ back on resume; an unreadable state counts as reduced) and
 `trusted_loopback_or_gateway_public` (a rule covers loopback or the gateway
 while `public_urls` is set) and `trusted_network_public_or_wide`
 (`public_or_wide`: a rule is as wide as allowed, `/8` IPv4 or `/16` IPv6, or not
-`is_private`, the shared address space `100.64.0.0/10` counting as private;
-accepted, since Home Assistant allows it too, but almost always a mistake). The
+`is_private`, or inside the shared address space `100.64.0.0/10` (Tailscale,
+CGNAT) and wider than `/32`; accepted, since Home Assistant allows it too, but
+almost always a mistake; the UI asks for the same confirmation as for a wide
+rule, `frontend/src/lib/cidr.ts` mirrors it). The
 Remote conditions come with Remote.
 
 ### Proxy headers
@@ -1314,7 +1328,7 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 | `POST /auth/kiosk-bootstrap` | `read`, bearer token of the system `kiosk` account, kiosk host, direct loopback | `{path, expires_in}`: a one-time `/api/auth/kiosk-session?code=…` (60 s). 403 `auth_kiosk_bootstrap_refused` otherwise ("Kiosk device token") |
 | `GET /auth/kiosk-session?code=` | public, kiosk host, direct loopback | 303 to `/`; with a pending code, a session cookie of the `kiosk` account. A used, unknown or expired code sets nothing |
 | `GET /auth/settings` | `admin` | Access settings: `{trusted_proxies, trusted_networks, audit_retention_days, session_lifetime_days, ingress_default_role, security_notices, require_2fa_for_admins, addresses_identify_clients, ip_ban_enabled, ip_ban_max_failures, ip_ban_window_minutes, ip_ban_duration_minutes, shared_address_install, client_public}` (canonical CIDRs; `[{cidr, user_id}]`; days, 366 by default; days, 30 by default; `member` by default; the Access security notice codes, read only; `shared_address_install`: a `compose` or `container` install; `client_public`: this request's client address is public; both read only) |
-| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `session_lifetime_days` 1 to 365 (422 otherwise; audited with the key `lifetime_days`, because the audit filter refuses keys containing `session`); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway` ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). `addresses_identify_clients` (bool, off by default; "Login delays"). `ip_ban_enabled` (strict bool), `ip_ban_max_failures` 3 to 1000, `ip_ban_window_minutes` 1 to 1440, `ip_ban_duration_minutes` 1 to 43200 (strict integers, 422 otherwise; "IP ban"). One `settings.changed` row per field, except the `ip_ban_*` fields: one row for all of them, target `auth_settings.ip_ban`, `details` holding the changed fields and their new values |
+| `PATCH /auth/settings` | `admin` | Change them; applies to the next request. 400 `auth_trusted_proxies_invalid` for a non-IP entry, a network wider than `/8` (IPv4) or `/16` (IPv6), an IPv4-mapped entry or more than 32. Recommend the proxy's own address only: a Docker network or its gateway would trust clients reaching a published port through it. `audit_retention_days` 1 to 36500 (422 otherwise); `session_lifetime_days` 1 to 365 (422 otherwise; audited with the key `lifetime_days`, because the audit filter refuses keys containing `session`); `ingress_default_role` one of the four roles (422 otherwise). `trusted_networks` (whole list): 400 `auth_trusted_networks_invalid`, `auth_trusted_network_user_invalid`, `auth_trusted_network_user_must_change`, `auth_trusted_network_overlaps_proxy` (`params.cidr`, `params.proxy`), `auth_trusted_network_loopback`, `auth_trusted_network_overlaps_gateway`, `auth_trusted_network_user_admin` (`params.cidr`); 409 `auth_lan_login_free_admin_rules` (`params.cidrs`) when `lan_login_free: true` while a rule names an admin ("Trusted networks"). `require_2fa_for_admins` (bool, off by default; "Second factor (TOTP)"). `addresses_identify_clients` (bool, off by default; "Login delays"). `ip_ban_enabled` (strict bool), `ip_ban_max_failures` 3 to 1000, `ip_ban_window_minutes` 1 to 1440, `ip_ban_duration_minutes` 1 to 43200 (strict integers, 422 otherwise; "IP ban"). One `settings.changed` row per field, except the `ip_ban_*` fields: one row for all of them, target `auth_settings.ip_ban`, `details` holding the changed fields and their new values |
 | `GET /auth/bans` | `admin` | `{bans: [{address, banned_at, expires_at, failures, route}], whitelist: [{network, note, created_at}]}`: the running bans (the one that ends last first) and the whitelist ("IP ban") |
 | `DELETE /auth/bans?address=` | `admin` | 204: lifts one ban at once (an address is reduced to its key). 400 `auth_ban_address_invalid`, 404 `auth_ban_not_found` |
 | `POST /auth/ban-whitelist` | `admin` | 201 `{network, note?}`: never ban it; a ban on it stops applying. 400 `auth_ban_whitelist_invalid`, 409 `auth_ban_whitelist_exists`, `auth_ban_whitelist_full` (`params.max`) |

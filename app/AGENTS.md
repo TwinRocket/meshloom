@@ -29,7 +29,7 @@ and the OpenAPI page (`/docs`), not a table here.
   the add-on; then the session cookie (any other `Authorization` scheme, Basic
   included, is no credential),
   never under ingress; last a trusted network rule, `auth/providers/trusted_network.py`,
-  never through any proxy, the relay, ingress or (outside the add-on) loopback,
+  only while `lan_login_free` is on, never for an admin account, never through any proxy, the relay, ingress or (outside the add-on) loopback,
   with a strict `Host` guard; `Authorization: Bearer` API and device tokens,
   `auth/providers/token.py`, header only, refused under ingress), applies the CSRF
   rule to unsafe methods (`origin_policy.unsafe_request_allowed`) and refuses
