@@ -553,8 +553,11 @@ async def backfill_payload_types(batch_size: int = BACKFILL_BATCH_SIZE) -> int:
     unclassified rows (keyset on ``id``) and writes them in its own short transaction, then yields
     the connection, so live traffic is never held behind one long write. A crash or a restart
     simply carries on from the rows still NULL. Writers classify new rows on insert, so a row
-    never goes back to NULL.
+    never goes back to NULL. Nothing left to classify (every start after the first one) costs one
+    index seek, not a read of the table.
     """
+    if await RawPacketRepository.payload_type_populated():
+        return 0
     last_id = -1
     done = 0
     while True:

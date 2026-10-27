@@ -149,6 +149,23 @@ async def test_lifespan_starts_the_payload_type_backfill():
 
 
 @pytest.mark.asyncio
+async def test_a_failing_payload_type_backfill_is_logged_and_does_not_stop_startup(caplog):
+    backfill = AsyncMock(side_effect=RuntimeError("disk gone"))
+    with ExitStack() as stack:
+        _patch_lifespan(stack, shutdown=AsyncMock(), db_disconnect=AsyncMock())
+        stack.enter_context(patch("app.repository.raw_packets.backfill_payload_types", backfill))
+        with caplog.at_level(logging.ERROR, logger="app.main"):
+            cm = main.lifespan(main.app)
+            await asyncio.wait_for(cm.__aenter__(), timeout=2)  # the app starts
+            for _ in range(20):
+                await asyncio.sleep(0)
+            await asyncio.wait_for(cm.__aexit__(None, None, None), timeout=2)
+
+    backfill.assert_awaited_once()
+    assert any("payload_type failed" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_cancel_task_swallows_only_its_own_cancellation():
     async def forever():
         await asyncio.sleep(3600)

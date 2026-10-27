@@ -172,7 +172,7 @@ history, `#raw`): migration 133 adds the column and the index `(payload_type, ti
 backfills nothing (one transaction over a large table is not safe on a Raspberry Pi). The lifespan
 starts `backfill_payload_types` (`repository/raw_packets.py`) in the background: it reads the first
 byte of the next 2 000 unclassified rows by `id`, writes them in its own short transaction, and
-yields the connection; a restart resumes on the rows still NULL, and `create()` classifies new rows
+yields the connection; a restart resumes on the rows still NULL (one index seek when none is left), and `create()` classifies new rows
 on insert. While any row is NULL, `list_history` keeps the old path (parse each header, scan capped
 by `max_scan`, `truncated`); once none is left it runs one bounded query per requested type on the
 index and merges them newest first (`scanned` = rows returned, `truncated` always false).

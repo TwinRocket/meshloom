@@ -192,3 +192,28 @@ async def test_a_page_supplied_by_one_type_is_full(test_db):
         limit=40, max_scan=100, payload_types=CONTROL, after_id=first[-1][0]
     )
     assert len(second) == 35  # the 30 REQUEST left, then the 5 RESPONSE
+
+
+@pytest.mark.asyncio
+async def test_backfill_does_not_read_the_table_when_every_row_is_classified(test_db, monkeypatch):
+    await RawPacketRepository.create(_packet(PayloadType.ADVERT, 1), BASE)
+    # Reaching the batch read would fail on this statement: only the NULL seek may run.
+    monkeypatch.setattr("app.repository.raw_packets.BACKFILL_SELECT_SQL", "SELECT boom FROM nope")
+    assert await backfill_payload_types() == 0
+
+
+@pytest.mark.asyncio
+async def test_each_per_type_query_is_bounded_by_the_limit(test_db):
+    await _insert_null(test_db, [(BASE + i, _packet(PayloadType.REQUEST, i)) for i in range(50)])
+    await backfill_payload_types()
+    seen: list[str] = []
+    async with test_db.readonly() as conn:
+        await conn.set_trace_callback(seen.append)
+    try:
+        await RawPacketRepository.list_history(limit=7, max_scan=100, payload_types=CONTROL)
+    finally:
+        async with test_db.readonly() as conn:
+            await conn.set_trace_callback(None)
+    per_type = [sql for sql in seen if "payload_type = " in sql]
+    assert len(per_type) == len(CONTROL)
+    assert all(sql.rstrip().endswith("LIMIT 7") for sql in per_type), per_type
