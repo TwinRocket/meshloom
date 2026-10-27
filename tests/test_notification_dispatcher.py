@@ -973,3 +973,176 @@ async def test_a_mention_on_a_private_key_channel_never_reaches_a_kiosk(test_db,
     assert frames("kiosk") == []
     for ws in sockets.values():
         await manager.disconnect(ws)
+
+
+# -- the mention's frame and one frame per event (MSHL-402) -----------------------
+
+
+def _channel_message(key: str = "8B3387E9C5CDEA6AC9E5EDBAA115CD72") -> dict:
+    return {
+        "event": "message",
+        "type": "CHAN",
+        "conversation_key": key,
+        "text": "hello @[Base]",
+        "sender_name": "Alice",
+        "channel_name": "Public",
+        "id": 42,
+        "sender_timestamp": 1700000000,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_mention_only_web_push_gets_is_framed_as_a_mention(test_db, monkeypatch):
+    """The producers emit a mention that only Web Push takes as ``message.channel`` with a
+    ``push_mention`` version: the frame is the mention, with the mention's dedup key."""
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    plain = _channel_message()
+    mention_payload = plain | {"mention": True}
+    mention = event_from_payload(mention_payload)
+    await dispatcher.emit(
+        event_from_payload(plain),
+        payload=plain,
+        targets=["ntfy-1"],
+        is_open=True,
+        push_mention=(mention, mention_payload),
+    )
+    await _settle(dispatcher)
+    [(_, frame)] = frames
+    assert frame["event"] == "message.mention"
+    assert frame["dedup_key"] == mention.dedup_key
+    assert frame["data"]["mention"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_mention_split_across_channels_sends_one_frame(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _add_channel("ntfy-2", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    plain = _channel_message()
+    mention_payload = plain | {"mention": True}
+    mention = event_from_payload(mention_payload)
+    # What ``producers._emit_message`` does: the mention to its channels, the plain message
+    # to the others, each carrying the mention version for Web Push.
+    await dispatcher.emit(mention, payload=mention_payload, targets=["ntfy-1"], is_open=True)
+    await dispatcher.emit(
+        event_from_payload(plain),
+        payload=plain,
+        targets=["ntfy-2"],
+        is_open=True,
+        push_mention=(mention, mention_payload),
+    )
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["message.mention"]
+
+
+@pytest.mark.asyncio
+async def test_an_entity_event_routed_again_is_framed_again(test_db, monkeypatch):
+    """Frame dedup is only for one message split across channels: a ``dedup_key`` that names
+    an entity (contact, telemetry rule and node) must not swallow a new occurrence."""
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    payload = {"event": "first_seen", "public_key": "cd" * 32, "contact_type": 1}
+    await dispatcher.emit(event_from_payload(payload))
+    await dispatcher.emit(event_from_payload(payload))
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["contact.first_seen"] * 2
+    assert dispatcher._frames_sent == {}
+
+
+@pytest.mark.asyncio
+async def test_a_telemetry_alert_that_fires_again_is_framed_again(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    alert = {
+        "event": "telemetry_alert",
+        "rule_id": "r1",
+        "public_key": "ef" * 32,
+        "name": "Hilltop",
+        "value": 3.1,
+        "threshold": 3.3,
+    }
+    first = event_from_payload(alert)
+    again = event_from_payload(alert | {"value": 3.0})
+    assert first is not None and again is not None
+    assert first.dedup_key == again.dedup_key
+    await dispatcher.emit(first, payload=alert, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    await dispatcher.emit(again, payload=alert | {"value": 3.0}, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["telemetry.alert"] * 2
+    assert [f[1]["data"]["value"] for f in frames] == [3.1, 3.0]
+
+
+@pytest.mark.asyncio
+async def test_two_messages_with_the_same_event_id_send_two_frames(test_db, monkeypatch):
+    """The message dedup is per ``(event, dedup_key)``, not per event id."""
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    for n in (1, 2):
+        payload = _chan(n)
+        await dispatcher.emit(event_from_payload(payload), payload=payload, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    assert [(f[1]["event"], f[1]["data"]["text"]) for f in frames] == [
+        ("message.channel", "hello 1"),
+        ("message.channel", "hello 2"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_message_emitted_again_sends_one_frame_within_the_window(test_db, monkeypatch):
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    payload = _chan(7)
+    await dispatcher.emit(event_from_payload(payload), payload=payload, targets=["ntfy-1"])
+    await dispatcher.emit(event_from_payload(payload), payload=payload, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["message.channel"]
+    # Bounded: the oldest keys are forgotten.
+    for n in range(dispatcher_module.FRAME_DEDUP_MAX + 1):
+        dispatcher._frames_sent[("x", str(n))] = None
+        while len(dispatcher._frames_sent) > dispatcher_module.FRAME_DEDUP_MAX:
+            dispatcher._frames_sent.popitem(last=False)
+    await dispatcher.emit(event_from_payload(payload), payload=payload, targets=["ntfy-1"])
+    await _settle(dispatcher)
+    assert [f[1]["event"] for f in frames] == ["message.channel"] * 2
+
+
+@pytest.mark.asyncio
+async def test_a_web_push_mention_on_a_private_key_channel_never_reaches_a_kiosk(
+    test_db, monkeypatch
+):
+    """Before MSHL-402 a mention only Web Push took left as a ``message.channel`` frame, which
+    the per-socket filter lets a kiosk read; as a mention it stays with ``read_private``."""
+    from app.auth.ws_events import WsEvent
+    from app.websocket import _reveals_direct_message
+
+    await _add_channel("ntfy-1", "ntfy")
+    await _set_rules(RULES)
+    frames = _capture_frames(monkeypatch)
+    dispatcher = _dispatcher(StubTransport(), FakeClock())
+    plain = _channel_message("5A" * 16) | {"channel_name": "Club"}
+    mention_payload = plain | {"mention": True}
+    await dispatcher.emit(
+        event_from_payload(plain),
+        payload=plain,
+        targets=["ntfy-1"],
+        is_open=False,
+        push_mention=(event_from_payload(mention_payload), mention_payload),
+    )
+    await _settle(dispatcher)
+    [(_, frame)] = frames
+    assert (frame["event"], frame["conversation_open"]) == ("message.mention", False)
+    assert _reveals_direct_message(WsEvent.NOTIFICATION_EVENT, frame) is True

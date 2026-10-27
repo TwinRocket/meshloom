@@ -27,6 +27,7 @@ import {
   forgetContact,
   noteChannelFrame,
   noteContactFrame,
+  noteNotificationEvent,
   noteRadioHealth,
 } from '../utils/feedEvents';
 import { applyLiveStatus, recordCommunityPacket } from '../stores/livePacketStore';
@@ -395,6 +396,8 @@ export function useRealtimeAppState({
           });
         }
       },
+      // The Feed's event rows from the server's catalogue events (no React state).
+      onNotificationEvent: noteNotificationEvent,
       onContactDeleted: (publicKey: string) => {
         forgetContact(publicKey);
         noteDelta('contacts', publicKey);

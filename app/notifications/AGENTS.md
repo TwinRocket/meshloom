@@ -393,8 +393,16 @@ A preset is an Apprise service described as data, no code per service: a `Preset
   rendered text. `rules.emit_ws_events: false` turns it off. No frame for an unmatched or
   suppressed event, a summary, `notify.heartbeat` or a test send (they skip the rules).
   `app/websocket.py` filters it per socket: a kiosk never gets DM data, `notify.*` is admin.
-  A mention that reaches only Web Push arrives as `message.channel` (the producers' split);
-  a re-emitted event may give two frames, consumers dedup on `dedup_key`.
+  A channel message that names the radio is framed as `message.mention` even when only Web
+  Push gets the mention (`push_mention`, MSHL-402), so a kiosk never reads a private-key
+  channel's mention as `message.channel`. Only `message.*` frames are deduplicated, on
+  `(event, dedup_key)` among the last `FRAME_DEDUP_MAX` (256) sent: a mention split across
+  channels frames once. Every other event is framed each time it is routed, since its
+  `dedup_key` may name an entity (a `telemetry.alert` rule and node, a contact, a channel)
+  and a re-fire is a new occurrence. The Feed reads `radio.offline`, `radio.online`,
+  `contact.first_seen` and `channel.found` from it (`frontend/src/utils/feedEvents.ts`) and
+  falls back on its own reducers without it. The UI toggle is Settings > Notifications >
+  Rules, "Feed events".
 - **Rules** (`rules.py`). A stored conversation exception wins either way; else a DM follows
   `message.dm`, a Public or `#` channel `message.channel`, a channel with its own key no
   one; `contact.first_seen` follows `contact_types` (1 companion, 2 repeater, 4 sensor; a

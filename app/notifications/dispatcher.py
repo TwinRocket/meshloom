@@ -57,7 +57,11 @@ delays itself.
   cannot open); a change of a channel's status or error broadcasts ``health``.
 - **WebSocket frame** (MSHL-138, ``ws_frame.py``): an event that matched at least one
   enabled channel is broadcast as ``notification_event`` (typed data, no rendered text),
-  before the pauses and quiet hours, unless ``rules.emit_ws_events`` is false.
+  before the pauses and quiet hours, unless ``rules.emit_ws_events`` is false. A channel
+  message that names the radio is framed as ``message.mention`` whichever channels got the
+  mention; a ``message.*`` frame already sent for the same message (among the last
+  ``FRAME_DEDUP_MAX``) is not sent again, so a mention split across channels gives one frame.
+  Every other event is framed each time it is routed, re-fires included (MSHL-402).
 - **Heartbeat** (MSHL-131, ``heartbeat.py``): ``self.heartbeats`` runs one loop per channel
   with ``heartbeat_interval_s``, sending ``notify.heartbeat`` (or pinging ``heartbeat_url``)
   outside the rules, the pauses, quiet hours and the buckets; ``start`` and every quiet tick
@@ -80,6 +84,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -133,6 +138,9 @@ LONG_RETRY_EVENTS = frozenset({"radio.offline", "telemetry.alert", quiet.DIGEST_
 QUIET_DIGEST_RETRIES = 10
 COUNTER_FLUSH_S = 60.0
 QUIET_TICK_S = 60.0
+# The ``message.*`` frames remembered so one message split across channels is framed once
+# (MSHL-402). Other events are never deduplicated here.
+FRAME_DEDUP_MAX = 256
 
 GROUPED_EVENT = "notifications_grouped"
 FIRST_SEEN_GROUPED_EVENT = "first_seen_grouped"
@@ -383,6 +391,8 @@ class Dispatcher:
         self._digest_retries: dict[tuple[str, str], int] = {}
         # Channels whose digest-mode window is known to be open (``digest_due:`` row exists).
         self._digest_open: set[str] = set()
+        # ``(event, dedup_key)`` of the last frames sent: one frame per event (MSHL-402).
+        self._frames_sent: OrderedDict[tuple[str, str], None] = OrderedDict()
         from app.notifications.heartbeat import HeartbeatManager
 
         self.heartbeats = HeartbeatManager(self)
@@ -522,8 +532,11 @@ class Dispatcher:
         channel_ids = [c for c in channel_ids if c not in exclude]
         channels = await self._channels(channel_ids, allow_legacy=targets is not None)
         if event is not None and any(c.enabled for c in channels):
-            # Matched at least one rule: the Feed's frame, before pauses and quiet hours.
-            ws_frame.publish(event, payload, is_open=bool(is_open), rules=rules)
+            # Matched at least one rule: the Feed's frame, before pauses and quiet hours. A
+            # channel message that names the radio is a mention whichever channels got which
+            # version (MSHL-402): the frame carries the ``message.mention`` one.
+            frame_event, frame_payload = push_mention or (event, payload)
+            self._publish_frame(frame_event, frame_payload, is_open=bool(is_open), rules=rules)
         decided = rules_mod.apply_pauses(
             rules,
             [c.id for c in channels if c.enabled],
@@ -573,6 +586,32 @@ class Dispatcher:
             if await self._admit(by_id[target.channel_id], job, rules):
                 queued += 1
         return queued
+
+    def _publish_frame(
+        self,
+        event: NotificationEvent,
+        payload: Mapping[str, Any],
+        *,
+        is_open: bool,
+        rules: Mapping[str, Any],
+    ) -> None:
+        """The ``notification_event`` frame for one routed event.
+
+        Only ``message.*`` frames are deduplicated, on ``(event, dedup_key)`` among the last
+        ``FRAME_DEDUP_MAX`` sent: their key names one message, and a mention split across
+        channels (a ``targets`` emit and the main one) must give one frame. Every other event
+        is framed each time it is routed: its ``dedup_key`` may name an entity (a telemetry
+        rule and node, a contact, a channel), and a re-fire is a new occurrence."""
+        if not event.event.startswith("message."):
+            ws_frame.publish(event, payload, is_open=is_open, rules=rules)
+            return
+        key = (event.event, event.dedup_key)
+        if key in self._frames_sent:
+            return
+        if ws_frame.publish(event, payload, is_open=is_open, rules=rules):
+            self._frames_sent[key] = None
+            while len(self._frames_sent) > FRAME_DEDUP_MAX:
+                self._frames_sent.popitem(last=False)
 
     async def _push_per_account(
         self,

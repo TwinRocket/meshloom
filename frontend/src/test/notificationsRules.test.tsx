@@ -248,6 +248,27 @@ describe('RulesMatrix', () => {
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ mention_whole_word: true }));
   });
 
+  it('turns the Feed frame off and on (emit_ws_events)', async () => {
+    mockApi({ ...RULES, emit_ws_events: true });
+    const patch = vi
+      .spyOn(api, 'patchNotificationRules')
+      .mockResolvedValue({ ...RULES, emit_ws_events: false });
+    render(<Harness />);
+    const box = await screen.findByLabelText(t('settings.notifications.feedFrame.label'));
+    expect(box).toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ emit_ws_events: false }));
+    await waitFor(() => expect(box).not.toBeChecked());
+    fireEvent.click(box);
+    await waitFor(() => expect(patch).toHaveBeenCalledWith({ emit_ws_events: true }));
+  });
+
+  it('shows the Feed frame on when the rules omit it (the server default)', async () => {
+    mockApi();
+    render(<Harness />);
+    expect(await screen.findByLabelText(t('settings.notifications.feedFrame.label'))).toBeChecked();
+  });
+
   it('reports a failed save', async () => {
     mockApi();
     vi.spyOn(api, 'patchNotificationRules').mockRejectedValue(new Error('boom'));

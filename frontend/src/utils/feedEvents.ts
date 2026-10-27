@@ -1,14 +1,23 @@
 import type { Channel, Contact, HealthStatus } from '../types';
+import type { NotificationEventFrame } from '../wsEvents';
 import { getServerClockOffsetSec } from '../stores/rawPacketStore';
 import { isFeedStoreActive, recordFeedEvent } from '../stores/feedStore';
 
 /**
- * Event rows of the feed, derived from WebSocket frames the client already receives
- * (`health`, `contact`, `channel`): no new contract, no table, session-only.
+ * Event rows of the feed, session-only, from two sources that share one set of keys:
+ *
+ * - the `notification_event` frame (`app/notifications/ws_frame.py`, `noteNotificationEvent`),
+ *   for the four catalogue ids of `NOTIFICATION_EVENT_IDS` and nothing else;
+ * - the client reducers over the frames it already receives (`health`, `contact`, `channel`),
+ *   for what the dispatcher does not emit: `contact.renamed` (feed-only), and every catalogue
+ *   event no enabled channel routes, or all of them when `rules.emit_ws_events` is off. The
+ *   dispatcher frames only events that matched an enabled channel.
+ *
+ * Whichever source reports first records the row; the other one adds nothing (shared outage
+ * state, contact memory and keys). The rows and their sentences are the same either way.
  *
  * This module is the only place of the feed that knows the event ids. They are the
- * Notifications catalogue's (`app/notifications/events.py`, `EVENT_IDS`), so a later switch of
- * the source to the `notification_event` frame changes this file and nothing else.
+ * Notifications catalogue's (`app/notifications/events.py`, `EVENT_IDS`);
  * `tests/test_feed_event_ids.py` fails when one of `NOTIFICATION_EVENT_IDS` leaves the
  * catalogue. `radio.offline` is only reported after the Notifications grace
  * (`rules.radio_offline_grace_s`) of an unreachable radio: `setRadioOfflineGraceS` carries the
@@ -211,11 +220,12 @@ export function noteContactFrame(
   if (!known) {
     // Same exclusions as the catalogue's `contact.first_seen`: unknown and room contacts.
     if (SILENT_FIRST_SEEN_TYPES.includes(contact.type)) return;
+    // `first_seen` is the server's own stamp of the first RF sighting.
+    const at = contact.first_seen ?? serverSeconds(nowMs);
     recordFeedEvent({
-      key: `contact.first_seen:${key}:${contact.first_seen ?? ''}`,
+      key: `contact.first_seen:${key}:${at}`,
       id: 'contact.first_seen',
-      // `first_seen` is the server's own stamp of the first RF sighting.
-      at: contact.first_seen ?? serverSeconds(nowMs),
+      at,
       atMs: nowMs,
       publicKey: key,
       name: contact.name,
@@ -265,6 +275,97 @@ export function noteChannelFrame(
     channelKey: channel.key,
     name: channel.name,
   });
+}
+
+// ---- notification_event frames ---------------------------------------------------------------
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Feed one `notification_event` frame. Only the four ids of `NOTIFICATION_EVENT_IDS` make a
+ * row; every other id (`message.*`, `notify.*`, telemetry...) is ignored, so this source can
+ * never show a conversation, whatever the session's role. A frame and the matching reducer
+ * share their memory, so an event both report is one row.
+ */
+export function noteNotificationEvent(
+  frame: NotificationEventFrame,
+  nowMs: number = Date.now()
+): void {
+  // Never a conversation's event (the server already keeps those from a kiosk session).
+  if (frame.conversation_type === 'PRIV') return;
+  const data = frame.data ?? {};
+  const occurredAt = finiteNumber(frame.occurred_at);
+  switch (frame.event) {
+    case 'radio.offline': {
+      // Only an outage this page saw start (the `health` frames), like the reducer: the frame
+      // ends its grace with the server's configured delay instead of the session's default.
+      const startedMs = outageStartedMs;
+      if (startedMs === null || notifiedOutageMs !== null) return;
+      clearOfflineTimer();
+      fireOffline(startedMs);
+      return;
+    }
+    case 'radio.online': {
+      // Like the reducer: no `online` row without the `offline` one of this session.
+      const reported = notifiedOutageMs;
+      if (reported === null) return;
+      clearOfflineTimer();
+      outageStartedMs = null;
+      notifiedOutageMs = null;
+      const downtimeS = finiteNumber(data.downtime_s);
+      recordFeedEvent({
+        key: `radio.online:${reported}`,
+        id: 'radio.online',
+        at: occurredAt ?? serverSeconds(nowMs),
+        atMs: nowMs,
+        downtimeS: Math.max(
+          0,
+          Math.round(downtimeS !== null ? downtimeS : (nowMs - reported) / 1000)
+        ),
+      });
+      return;
+    }
+    case 'contact.first_seen': {
+      const publicKey = text(data.public_key);
+      const contactType = finiteNumber(data.contact_type) ?? 0;
+      if (!publicKey || SILENT_FIRST_SEEN_TYPES.includes(contactType)) return;
+      if (seenContacts.has(publicKey)) return;
+      const name = text(data.name) || null;
+      seenContacts.set(publicKey, name);
+      const at = occurredAt ?? serverSeconds(nowMs);
+      recordFeedEvent({
+        key: `contact.first_seen:${publicKey}:${at}`,
+        id: 'contact.first_seen',
+        at,
+        atMs: nowMs,
+        publicKey,
+        name,
+        contactType,
+      });
+      return;
+    }
+    case 'channel.found': {
+      const channelKey = text(data.channel_key);
+      if (!channelKey) return;
+      recordFeedEvent({
+        key: `channel.found:${channelKey}`,
+        id: 'channel.found',
+        at: occurredAt ?? serverSeconds(nowMs),
+        atMs: nowMs,
+        channelKey,
+        name: text(data.name),
+      });
+      return;
+    }
+    default:
+      return;
+  }
 }
 
 /** Forget every timer and memory (tests, and a store reset). */

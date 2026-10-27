@@ -42,8 +42,11 @@ export interface ChannelDeletedPayload {
  * (`app/notifications/ws_frame.py`, MSHL-138): typed `data` (the webhook v2 `data`, message
  * text kept), never rendered text. The server filters it per socket: `notify.*` events reach
  * admins only, and a direct conversation (`message.dm`, a `PRIV` conversation, a mention on a
- * private-key channel) never reaches a session without `read_private` (kiosk). A re-emitted
- * event (same `dedup_key`) may arrive twice. No consumer yet (Feed).
+ * private-key channel) never reaches a session without `read_private` (kiosk). A message
+ * split across channels (a mention) is framed once; every other event is framed each time it
+ * is routed, re-fires included (`dispatcher._publish_frame`), so consumers dedup by their own keys.
+ * The Feed consumes four ids (`utils/feedEvents.ts`, `noteNotificationEvent`) and ignores
+ * every other one.
  */
 export interface NotificationEventFrame {
   version: number;

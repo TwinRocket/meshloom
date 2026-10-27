@@ -438,6 +438,39 @@ class TestWebSocketDelivery:
         for ws in (kiosk, viewer, admin):
             await manager.disconnect(ws)
 
+    async def test_the_feed_frames_reach_a_kiosk_without_any_dm(self):
+        """MSHL-166: the documented frames of the Feed's four ids reach every role, a
+        PRIV-derived frame never reaches a kiosk."""
+        from pathlib import Path
+
+        fixtures = json.loads(
+            (Path(__file__).parent / "fixtures" / "websocket_events.json").read_text()
+        )
+        feed = [
+            fixtures[f"notification_event_{name}"]["expected_ws_event"]["data"]
+            for name in ("radio_offline", "radio_online", "contact_first_seen", "channel_found")
+        ]
+        dm = {
+            **feed[2],
+            "event": "message.dm",
+            "conversation_key": CONTACT_KEY,
+            "conversation_type": "PRIV",
+        }
+        manager = WebSocketManager()
+        kiosk, viewer = await self._connect(manager, "kiosk", "viewer")
+        for frame in [*feed, dm]:
+            manager.broadcast_nowait(WsEvent.NOTIFICATION_EVENT, frame)
+        await self._drain(manager)
+
+        def events(ws) -> list[str]:
+            return [f["data"]["event"] for f in _sent(ws) if f["type"] == "notification_event"]
+
+        feed_ids = ["radio.offline", "radio.online", "contact.first_seen", "channel.found"]
+        assert events(kiosk) == feed_ids
+        assert events(viewer) == [*feed_ids, "message.dm"]
+        for ws in (kiosk, viewer):
+            await manager.disconnect(ws)
+
     async def test_a_dm_raw_packet_reaches_a_kiosk_without_its_decryption(self):
         manager = WebSocketManager()
         kiosk, viewer = await self._connect(manager, "kiosk", "viewer")
