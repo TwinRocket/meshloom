@@ -4,7 +4,10 @@ the disabled row, duplicate detection, and URLs that never leave the secret stor
 
 import ipaddress
 import logging
+import re
 import socket
+import types
+import uuid
 
 import pytest
 
@@ -58,6 +61,16 @@ async def _row(urls=JSON_URL, scope=None, enabled=True, **config):
         {"urls": urls, **config},
         scope or {"messages": "all", "raw_packets": "none"},
         enabled=enabled,
+    )
+
+
+async def _row_with_id(config_id, urls=JSON_URL):
+    return await FanoutConfigRepository.create(
+        "apprise",
+        "Alerts",
+        {"urls": urls},
+        {"messages": "all", "raw_packets": "none"},
+        config_id=config_id,
     )
 
 
@@ -290,14 +303,24 @@ async def test_backup_round_trips_the_converted_row(test_db, client):
 
 
 @pytest.mark.parametrize("urls", [JSON_URL, TELEGRAM, f"{JSON_URL}\n{TELEGRAM}"])
-async def test_convert_response_has_no_config_and_no_url(test_db, client, urls):
-    row = await _row(urls=urls)
+async def test_convert_response_has_no_config_and_no_url(test_db, client, monkeypatch, urls):
+    # Generated ids are random hex, which can contain a short secret part such as the chat
+    # id ``1001`` (MSHL-433): fix them to digit-free values so the no-leak scan is exact and
+    # needs no exemption.
+    monkeypatch.setattr(
+        "app.notifications.fanout_convert.uuid",
+        types.SimpleNamespace(uuid4=lambda: uuid.UUID("abcdefab-cdef-4abc-8def-abcdefabcdef")),
+    )
+    row = await _row_with_id("fanout-row-x", urls=urls)
     for _ in range(2):  # the first conversion, then the already-converted answer
         response = await client.post(CONVERT.format(row["id"]))
         assert response.status_code == 200, response.text
         body = response.json()
         assert set(body["channel"]) == {"id", "name", "type", "preset", "enabled"}
         assert set(body["fanout"]) == {"id", "name", "type", "enabled", "converted_to"}
+        assert body["fanout"]["id"] == "fanout-row-x"
+        assert re.fullmatch(r"[a-z]+-abcdefab", body["channel"]["id"]), body["channel"]["id"]
+        assert body["fanout"]["converted_to"] == body["channel"]["id"]
         _assert_no_url_or_secret(body, urls.split("\n"))
 
 
