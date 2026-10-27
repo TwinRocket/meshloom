@@ -19,6 +19,11 @@ Three layers, all always on:
   same rules on the fully formatted output, traceback included, and writes the
   redacted traceback back to ``record.exc_text`` so a handler that is not wrapped
   reuses the redacted text.
+- ``RedactingFormatter`` also keeps untrusted text from forging a log line
+  (MSHL-432): CR, LF and every other control character in the message, its
+  arguments and the exception text come out as visible escapes (``\\n``), so a
+  record is always one line plus the structural lines of its traceback. See
+  ``escape_control()`` and ``format_exception_safe()``.
 - ``secret_scope()`` registers literal secrets for the duration of a call; every
   registered form (text, hex, repr escapes) is replaced wherever it appears.
 
@@ -38,9 +43,11 @@ were written against: review this module whenever that test fails.
 from __future__ import annotations
 
 import ast
+import copy
 import logging
 import re
 import threading
+import traceback
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -66,6 +73,72 @@ SECRET_IN: frozenset[int] = frozenset(
 )
 
 _SECRET_EVENT_TYPES = ("EventType.CLI_REPLY", "EventType.PRIVATE_KEY")
+
+# --------------------------------------------------------------------------
+# Log-line forging (MSHL-432)
+# --------------------------------------------------------------------------
+
+# Every C0 and C1 control character (CR, LF, tab, ESC, NEL...), DEL, and the
+# Unicode line and paragraph separators: anything a log consumer, a terminal or
+# ``str.splitlines()`` may treat as a line break or an escape sequence.
+_CONTROL_RE = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+_NAMED_ESCAPES = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+_EXC_SAFE_ATTR = "_meshloom_exc_safe"
+
+
+def _escape_one(match: re.Match[str]) -> str:
+    char = match.group(0)
+    named = _NAMED_ESCAPES.get(char)
+    if named:
+        return named
+    code = ord(char)
+    return f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:04x}"
+
+
+def escape_control(text: str) -> str:
+    """``text`` with every control character written as a visible escape.
+
+    ``\\n``, ``\\r`` and ``\\t`` by name, ``\\xNN`` or ``\\uNNNN`` for the others. A
+    backslash is left alone: the point is that no input can end a line, not
+    that the escape is reversible.
+    """
+    return _CONTROL_RE.sub(_escape_one, text)
+
+
+class _SafeTracebackException(traceback.TracebackException):
+    """A traceback whose exception messages (the only attacker-reachable lines) are one line each."""
+
+    def format_exception_only(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        text = "".join(super().format_exception_only(*args, **kwargs))
+        yield escape_control(text.rstrip("\n")) + "\n"
+
+
+def _harden_chain(root: traceback.TracebackException) -> None:
+    seen: set[int] = set()
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        current.__class__ = _SafeTracebackException
+        for child in (current.__cause__, current.__context__, *(current.exceptions or ())):
+            if child is not None:
+                stack.append(child)
+
+
+def format_exception_safe(exc_info: tuple) -> str:  # type: ignore[type-arg]
+    """The traceback text with the structural lines of a traceback and nothing forged.
+
+    The frames (file names, our own source lines) keep their newlines; the
+    message of every exception in the chain, notes and groups included, is
+    escaped by ``escape_control()``, so it stays on one line.
+    """
+    exc_type, exc, tb = exc_info
+    root = traceback.TracebackException(exc_type, exc, tb)
+    _harden_chain(root)
+    return "".join(root.format()).rstrip("\n")
+
 
 # --------------------------------------------------------------------------
 # Literal secrets (secret_scope)
@@ -409,8 +482,9 @@ class MeshcoreSecretFilter(logging.Filter):
             record.stack_info = None
             return
         if record.exc_info:
-            formatted = logging.Formatter().formatException(record.exc_info)
+            formatted = format_exception_safe(record.exc_info)
             record.exc_text = redact_text(formatted, unanchored=True)
+            setattr(record, _EXC_SAFE_ATTR, record.exc_text)
             record.exc_info = None
         elif record.exc_text:
             record.exc_text = redact_text(record.exc_text, unanchored=True)
@@ -428,22 +502,49 @@ class RedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         had_traceback = bool(record.exc_info or record.exc_text)
         try:
-            exc_text = record.exc_text
-            if record.exc_info and not exc_text:
-                exc_text = self.inner.formatException(record.exc_info)
+            exc_text = self._safe_exc_text(record)
             if exc_text:
                 # Written back, only once redacted, so a handler that is not
                 # wrapped reuses it.
-                record.exc_text = redact_text(exc_text, unanchored=True)
+                exc_text = redact_text(exc_text, unanchored=True)
+                record.exc_text = exc_text
+                setattr(record, _EXC_SAFE_ATTR, exc_text)
             if record.stack_info:
                 record.stack_info = redact_text(record.stack_info, unanchored=True)
-            return redact_text(self.inner.format(record), unanchored=True)
+            # The inner formatter sees the record without its traceback, so its
+            # whole output (prefix, message, arguments, however they were
+            # formatted) is one escaped line; the traceback is added after.
+            bare = copy.copy(record)
+            bare.exc_info = None
+            bare.exc_text = None
+            bare.stack_info = None
+            parts = [escape_control(self.inner.format(bare))]
+            if exc_text:
+                parts.append(exc_text)
+            if record.stack_info:
+                parts.append(record.stack_info)
+            return redact_text("\n".join(parts), unanchored=True)
         except Exception:
             # Never leave a traceback behind that later handlers would reuse.
             record.exc_info = None
             record.exc_text = REDACTION_FAILED if had_traceback else None
             record.stack_info = None
             return self._placeholder(record)
+
+    def _safe_exc_text(self, record: logging.LogRecord) -> str | None:
+        """The traceback with one line per exception message.
+
+        An ``exc_text`` cached on the record is trusted only when this module
+        wrote it: a plain ``Formatter`` upstream leaves the raw text there.
+        """
+        if record.exc_text and record.exc_text == getattr(record, _EXC_SAFE_ATTR, None):
+            return record.exc_text
+        if record.exc_info:
+            return format_exception_safe(record.exc_info)
+        if record.exc_text:
+            # Pre-rendered by someone else: no way to tell its structure.
+            return escape_control(record.exc_text)
+        return None
 
     def _placeholder(self, record: logging.LogRecord) -> str:
         try:

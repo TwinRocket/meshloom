@@ -1092,7 +1092,10 @@ run as root).
   `app/log_redaction.py` enforces it for what meshcore logs: a filter at index 0
   of the `meshcore` logger (structural rules on the frame codes 0x42/0x18 out,
   0x1D/0x0E in, plus `secret_scope()` literals), a redacting formatter on the
-  app's handlers (tracebacks included), `bleak`/`dbus_fast` clamped to INFO
+  app's handlers (tracebacks included; it also escapes CR, LF and every other control
+  character in the message, its arguments and exception texts, so untrusted text can
+  never forge a log line such as `AUTH_FAIL`, MSHL-432: new handlers go through
+  `install_redacting_formatter()`), `bleak`/`dbus_fast` clamped to INFO
   (their DEBUG output dumps every BLE frame: `bluezdbus/client.py` write on
   Linux and Raspberry Pi, `corebluetooth/client.py`, `bluezdbus/manager.py`),
   `aiosqlite` clamped to INFO too (its DEBUG output prints every statement with

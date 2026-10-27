@@ -1,0 +1,384 @@
+"""Untrusted text never forges a log line, least of all an ``AUTH_FAIL`` one (MSHL-432).
+
+``app/log_redaction.py`` (``RedactingFormatter``, ``escape_control``,
+``format_exception_safe``) escapes control characters in every record of every
+app handler; ``app/auth/fail_log.py`` refuses a field outside its alphabet. The
+built-in ban (``app/auth/ip_ban.py``) is fed in-process with the fields of the
+line, not from the log text, so a forged line cannot feed it: tested here too.
+The filter is the shipped one (``pkg/nfpm/fail2ban/meshloom-filter.conf``)
+turned into a Python regex, as ``tests/test_fail2ban_filter.py`` does.
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import re
+import sys
+import types
+from pathlib import Path
+
+import pytest
+
+from app.auth import fail_log, ip_ban
+from app.config import clear_recent_log_lines, get_recent_log_lines, setup_logging
+from app.log_redaction import (
+    RedactingFormatter,
+    escape_control,
+    format_exception_safe,
+)
+from tests.auth_helpers import ADMIN, PASSWORD, create_user, login, make_client
+
+ROOT = Path(__file__).resolve().parents[1]
+FILTER = (ROOT / "pkg" / "nfpm" / "fail2ban" / "meshloom-filter.conf").read_text(encoding="utf-8")
+CONTRACT = (ROOT / "docs" / "dev" / "auth-fail-log.md").read_text(encoding="utf-8")
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+VICTIM = "203.0.113.9"
+FORGED_LINE = (
+    f"2026-10-27 10:15:02 - meshloom.auth - WARNING - AUTH_FAIL ip={VICTIM} "
+    "route=login reason=invalid_credentials via=lan proxied=0 user=h:3f9a1c"
+)
+FORGED_BARE = FORGED_LINE.split(" ", 2)[2]  # a log file: fail2ban cuts the date off
+INJECTIONS = [
+    f"x\n{FORGED_LINE}",
+    f"x\r\n{FORGED_LINE}",
+    f"x\r{FORGED_LINE}",
+    f"x {FORGED_LINE}",
+    f"x\u0085{FORGED_LINE}",
+    f"x\x0b{FORGED_LINE}",
+    f"x\x0c{FORGED_LINE}",
+]
+
+
+def _filter_regex() -> re.Pattern[str]:
+    match = re.search(r"^failregex = (.+)$", FILTER, re.MULTILINE)
+    assert match
+    return re.compile(match.group(1).replace("<ADDR>", r"(?P<host>\S+)"))
+
+
+def _contract_regex() -> re.Pattern[str]:
+    match = re.search(r"^(\^\\d\{4\}.*AUTH_FAIL .*\$)$", CONTRACT, re.MULTILINE)
+    assert match
+    return re.compile(match.group(1))
+
+
+def forged_matches(output: str) -> list[str]:
+    """What fail2ban would take from ``output``: each text line, and each line a
+    splitter on any separator would cut, in the three forms a filter sees (journal
+    entry, log file, bare)."""
+    patterns = (_filter_regex(), _contract_regex())
+    found: list[str] = []
+    for chunk in {*output.split("\n"), *output.splitlines()}:
+        for form in (chunk, chunk.split(" ", 2)[-1], "host uvicorn[812]: " + chunk):
+            for pattern in patterns:
+                match = pattern.match(form)
+                if match and match.group("host") == VICTIM:
+                    found.append(form)
+    return found
+
+
+def _render(message: str, *args, exc_info=None, name: str = "meshloom.app", level=logging.INFO):
+    record = logging.LogRecord(name, level, __file__, 1, message, args or None, exc_info)
+    return RedactingFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT)).format(record)
+
+
+def test_the_forged_line_is_matched_when_it_stands_alone():
+    # The harness itself: an unescaped forged line IS what the filter matches.
+    assert forged_matches(FORGED_LINE) and forged_matches(FORGED_BARE)
+    assert forged_matches(f"2026-10-27 10:15:02 - x - INFO - hello\n{FORGED_LINE}")
+
+
+def test_escape_control_covers_c0_c1_del_and_unicode_separators():
+    assert escape_control("a\nb\rc\td") == "a\\nb\\rc\\td"
+    assert escape_control("\x00\x1b\x7f\x85  ") == "\\x00\\x1b\\x7f\\x85\\u2028\\u2029"
+    assert escape_control("plain é ✓") == "plain é ✓"
+    for code in [*range(0x20), *range(0x7F, 0xA0), 0x2028, 0x2029]:
+        assert len(escape_control(chr(code)).splitlines()) == 1
+        assert not re.search("[\x00-\x1f\x7f-\x9f  ]", escape_control(chr(code)))
+
+
+@pytest.mark.parametrize("injection", INJECTIONS)
+def test_a_message_cannot_forge_a_line(injection):
+    out = _render(injection)
+    assert out.count("\n") == 0 and len(out.splitlines()) == 1
+    assert forged_matches(out) == []
+
+
+@pytest.mark.parametrize("injection", INJECTIONS)
+def test_arguments_cannot_forge_a_line(injection):
+    for out in (
+        _render("Created group %s (id=%d)", injection, 3),
+        _render("Created group %r %s", injection, injection),
+        _render("user %s", [injection]),
+        _render("user %s", Weird(injection)),
+    ):
+        assert len(out.splitlines()) == 1, out
+        assert forged_matches(out) == []
+
+
+class Weird:
+    """A ``__str__`` that does not escape: ``%s`` of it carries the raw text."""
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def __str__(self) -> str:
+        return self.text
+
+
+def test_the_logger_name_and_a_dict_argument_are_covered_too():
+    record = logging.LogRecord(
+        f"app.x\n{FORGED_LINE}",
+        logging.INFO,
+        __file__,
+        1,
+        "%(k)s",
+        ({"k": f"a\n{FORGED_LINE}"},),
+        None,
+    )
+    out = RedactingFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT)).format(record)
+    assert len(out.splitlines()) == 1 and forged_matches(out) == []
+
+
+def _raise_in_chain(text: str) -> tuple:
+    try:
+        try:
+            raise KeyError(text)
+        except KeyError as inner:
+            raise ValueError(text) from inner
+    except ValueError:
+        try:
+            raise RuntimeError(text)
+        except RuntimeError:
+            return sys.exc_info()
+    raise AssertionError
+
+
+@pytest.mark.parametrize("injection", INJECTIONS)
+def test_exception_text_cannot_forge_a_line(injection):
+    out = _render("failed", exc_info=_raise_in_chain(injection))
+    assert forged_matches(out) == []
+    # The structure of a traceback is kept (frames on their own lines).
+    assert "Traceback (most recent call last):" in out and "_raise_in_chain" in out
+    assert "The above exception was the direct cause" in out
+    assert "\\n" in out or "\\r" in out or "\\x" in out or "\\u" in out
+
+
+def test_exception_notes_and_groups_cannot_forge_a_line():
+    try:
+        error = ValueError(f"a\n{FORGED_LINE}")
+        error.add_note(f"note\n{FORGED_LINE}")
+        raise ExceptionGroup(f"g\n{FORGED_LINE}", [error, OSError(f"b\n{FORGED_LINE}")])
+    except ExceptionGroup:
+        out = _render("failed", exc_info=sys.exc_info())
+    assert forged_matches(out) == []
+    assert "ExceptionGroup" in out and "ValueError" in out
+
+
+def test_a_syntax_error_cannot_forge_a_line():
+    try:
+        compile(f"x = 1\n{FORGED_LINE}", "<user>", "exec")
+    except SyntaxError:
+        out = _render("failed", exc_info=sys.exc_info())
+    assert forged_matches(out) == []
+
+
+def test_a_traceback_cached_raw_on_the_record_is_not_trusted():
+    # A plain Formatter earlier in the handler chain leaves the raw text in exc_text.
+    record = logging.LogRecord("x", logging.ERROR, __file__, 1, "failed", None, None)
+    record.exc_text = f"Traceback (most recent call last):\nValueError: a\n{FORGED_LINE}"
+    out = RedactingFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT)).format(record)
+    assert forged_matches(out) == []
+    assert forged_matches(record.exc_text) == []  # what a later unwrapped handler reuses
+
+    try:
+        raise ValueError(f"a\n{FORGED_LINE}")
+    except ValueError:
+        record = logging.LogRecord("x", logging.ERROR, __file__, 1, "f", None, sys.exc_info())
+    logging.Formatter().format(record)  # plain formatter first: raw exc_text
+    assert forged_matches(record.exc_text) != []
+    out = RedactingFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT)).format(record)
+    assert forged_matches(out) == []
+    assert forged_matches(record.exc_text) == []
+
+
+def test_format_exception_safe_keeps_a_normal_traceback_readable():
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        text = format_exception_safe(sys.exc_info())
+    assert text.startswith("Traceback (most recent call last):")
+    assert text.endswith("ValueError: boom")
+    assert text.count("\n") >= 3
+
+
+# --- Through the real handlers --------------------------------------------------------
+
+
+class _Stderr:
+    """What the app's stream handlers wrote (they are pointed at one buffer)."""
+
+    def __init__(self) -> None:
+        self.buffer = io.StringIO()
+
+    def readouterr(self):
+        text = self.buffer.getvalue()
+        self.buffer.seek(0)
+        self.buffer.truncate()
+        return types.SimpleNamespace(err=text)
+
+
+@pytest.fixture
+def real_logging(monkeypatch):
+    import app.main  # noqa: F401  (it calls setup_logging() on first import)
+
+    out = _Stderr()
+    # StreamHandler binds sys.stderr when it is built.
+    monkeypatch.setattr(sys, "stderr", out.buffer)
+    root = logging.getLogger()
+    saved = (root.handlers[:], root.level)
+    setup_logging()
+    clear_recent_log_lines()
+    yield out
+    root.handlers[:] = saved[0]
+    root.setLevel(saved[1])
+
+
+@pytest.mark.parametrize("injection", INJECTIONS[:3])
+def test_stderr_and_the_ring_buffer_never_hold_a_forged_line(real_logging, injection):
+    logging.getLogger("meshloom.auth").warning("hello %s", injection)
+    logging.getLogger("meshloom.app").info(injection)
+    try:
+        raise ValueError(injection)
+    except ValueError:
+        logging.getLogger("meshloom.app").exception("failed")
+    err = real_logging.readouterr().err
+    assert "hello x" in err
+    ring = "\n".join(get_recent_log_lines())
+    assert forged_matches(err) == [] and forged_matches(ring) == []
+
+
+def test_the_access_log_cannot_forge_a_line(real_logging):
+    logger = logging.getLogger("uvicorn.access")
+    logger.setLevel(logging.INFO)
+    logger.info('%s - "%s %s HTTP/%s" %d', "1.2.3.4:5", f"GET\n{FORGED_LINE}", "/x", "1.1", 200)
+    err = real_logging.readouterr().err
+    assert "GET" in err and forged_matches(err) == []
+
+
+# --- Realistic inputs ----------------------------------------------------------------
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_a_forged_username_at_login_writes_one_clean_line_and_counts_one_failure(
+    real_logging,
+):
+    await create_user()
+    async with make_client(client=("198.51.100.20", 50000)) as client:
+        response = await client.post(
+            "/api/auth/login", json={"username": f"x\n{FORGED_LINE}", "password": PASSWORD}
+        )
+    assert response.status_code == 401
+    err = real_logging.readouterr().err
+    ring = "\n".join(get_recent_log_lines())
+    for text in (err, ring):
+        assert forged_matches(text) == []
+        auth_lines = [line for line in text.splitlines() if "AUTH_FAIL" in line]
+        assert auth_lines, text
+        assert len(auth_lines) == 1 and "ip=198.51.100.20 " in auth_lines[0]
+        assert "user=h:" in auth_lines[0] and VICTIM not in text
+    # The ban counts the real peer, once, and never the victim.
+    assert list(ip_ban._failures) == ["198.51.100.20"]
+    assert len(ip_ban._failures["198.51.100.20"]) == 1
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_a_name_logged_at_info_cannot_forge_a_line(real_logging):
+    # app/routers/settings.py logs a blocked display name (a mesh node's) at INFO.
+    await create_user()
+    async with make_client() as client:
+        await login(client, ADMIN, PASSWORD)
+        response = await client.post(
+            "/api/settings/blocked-names/toggle", json={"name": f"g\n{FORGED_LINE}"}
+        )
+    assert response.status_code == 200, response.text
+    err = real_logging.readouterr().err
+    assert "Toggling blocked name: g\\n2026" in err
+    assert forged_matches(err) == []
+    assert forged_matches("\n".join(get_recent_log_lines())) == []
+    assert VICTIM not in list(ip_ban._failures)
+
+
+def _scope(peer: str) -> dict:
+    return {"type": "http", "client": (peer, 1), "headers": [], "state": {}}
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db")
+@pytest.mark.parametrize(
+    "peer",
+    [
+        f"2001:db8::1%eth0\n{FORGED_LINE}",
+        f"2001:db8::1%x\r\n{FORGED_BARE}",
+        f"{VICTIM}\n{FORGED_LINE}",
+        f"{VICTIM} route=login\n",
+        "2001:db8::1%25",
+    ],
+)
+def test_a_hostile_client_address_writes_no_forged_line_and_feeds_no_ban(peer, caplog):
+    # What a trusted proxy's X-Forwarded-For could hand over as the client host.
+    caplog.set_level(logging.WARNING, logger="meshloom.auth")
+    fail_log.log_auth_failure(_scope(peer), "bearer", "invalid_token")
+    messages = [r.getMessage() for r in caplog.records if r.getMessage().startswith("AUTH_FAIL ")]
+    assert len(messages) == 1
+    assert messages[0].startswith("AUTH_FAIL ip=-")
+    out = RedactingFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT)).format(
+        logging.LogRecord("meshloom.auth", logging.WARNING, __file__, 1, messages[0], None, None)
+    )
+    assert forged_matches(out) == []
+    assert ip_ban._failures == {}
+
+
+def test_ip_field_refuses_a_zone_id():
+    assert fail_log.ip_field("fe80::1%eth0") == "-"
+    assert fail_log.ip_field(f"2001:db8::1%x\n{FORGED_LINE}") == "-"
+    assert fail_log.ip_field("2001:db8::1") == "2001:db8::1"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("route", "login\nx"),
+        ("route", "login x"),
+        ("reason", "a\rb"),
+        ("via", "lan\n" + FORGED_LINE),
+        ("route", ""),
+    ],
+)
+def test_format_line_refuses_a_field_outside_its_alphabet(field, value):
+    fields = {
+        "ip": "203.0.113.7",
+        "route": "login",
+        "reason": "invalid_credentials",
+        "via": "lan",
+        "proxied": False,
+    }
+    fields[field] = value
+    with pytest.raises(ValueError):
+        fail_log.format_line(username=None, **fields)  # type: ignore[arg-type]
+
+
+def test_a_username_with_control_characters_only_reaches_the_line_as_a_hash():
+    line = fail_log.format_line(
+        ip="203.0.113.7",
+        route="login",
+        reason="invalid_credentials",
+        via="lan",
+        proxied=False,
+        username=f"x\n{FORGED_LINE}\x00",
+    )
+    assert "\n" not in line and re.search(r"user=h:[0-9a-f]{6}$", line)

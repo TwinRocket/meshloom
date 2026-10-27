@@ -44,6 +44,27 @@ for log in file journal; do
         || { echo "$log form: expected $want matched and $proxied missed" >&2; echo "$out" >&2; exit 1; }
 done
 
+# A forged line must never match (MSHL-432): the app escapes control characters in
+# every record, so untrusted text ends up inside ONE line. This is what the journal
+# and the log file hold for a username "x<newline>AUTH_FAIL ..." (escaped), for the
+# same text logged unescaped (what the escaping prevents: it must match, which proves
+# the sample is a real forgery), and for an escaped one that sits inside another message.
+forged='2026-10-27 10:15:02 - meshloom.auth - WARNING - AUTH_FAIL ip=203.0.113.9 route=login reason=invalid_credentials via=lan proxied=0 user=h:3f9a1c'
+printf '%s\n' \
+    "2026-10-27 10:15:01 - meshloom.app - INFO - Toggling blocked name: x\\n$forged" \
+    "2026-10-27 10:15:01 - meshloom.app - ERROR - failed\\r$forged" \
+    >"$tmp/escaped.log"
+sed 's/^/host uvicorn[812]: /' "$tmp/escaped.log" >"$tmp/escaped-journal.log"
+printf '%s\n' "$forged" >"$tmp/unescaped.log"
+for log in escaped escaped-journal; do
+    out="$(fail2ban-regex "$tmp/$log.log" "$filter" 2>&1)"
+    echo "$out" | grep -qE '^Lines: 2 lines, 0 ignored, 0 matched, 2 missed' \
+        || { echo "$log: an escaped forged line must not match" >&2; echo "$out" >&2; exit 1; }
+done
+out="$(fail2ban-regex "$tmp/unescaped.log" "$filter" 2>&1)"
+echo "$out" | grep -qE '^Lines: 1 lines, 0 ignored, 1 matched' \
+    || { echo "the forged sample line does not match: the check proves nothing" >&2; exit 1; }
+
 # The jail: disabled, and the whole configuration parses with the filter in place.
 grep -qE '^enabled *= *false$' "$jail" || { echo "jail is not shipped disabled" >&2; exit 1; }
 cfg="$tmp/fail2ban"
