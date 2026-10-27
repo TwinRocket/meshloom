@@ -237,6 +237,14 @@ def _check_thread_refused(response: dict[str, Any], _marker: os.stat_result) -> 
     assert "can't start new thread" in error.get("message", ""), response
 
 
+def _check_namespace_refused(response: dict[str, Any], _marker: os.stat_result) -> None:
+    """`os.unshare` and `os.setns` raise no audit event: the seccomp filter answers
+    EPERM (MSHL-212). Unfiltered, `setns(0, 0)` is EINVAL and `unshare` succeeds."""
+    error = _error(response)
+    assert error.get("data", {}).get("type") == "PermissionError", response
+    assert "[Errno 1]" in error.get("message", ""), response
+
+
 def _check_hook_frame(response: dict[str, Any], _marker: os.stat_result) -> None:
     result = response["result"]
     assert isinstance(result, dict), response
@@ -256,6 +264,7 @@ def _check_inherited_fds(response: dict[str, Any], marker: os.stat_result) -> No
 
 
 _CHECKS = {
+    "namespace_refused": _check_namespace_refused,
     "hook_frame": _check_hook_frame,
     "environ": _check_environ,
     "inherited_fds": _check_inherited_fds,

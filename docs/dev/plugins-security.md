@@ -37,10 +37,11 @@ end in `none` with the reason logged.
 
 | | `bwrap` | `setuid` | `none` |
 |---|---|---|---|
-| Database and data directory | not mounted | `0600` files in a `0711` directory, owned by root | readable |
+| Database and data directory | not mounted | `0600` files in a `0711` directory, owned by the server's uid (root, or 10001 under `MESHLOOM_RUN_AS_USER`) | readable |
 | Server code (`app/`) | not mounted | readable (world-readable code, no secret) | readable |
 | `/proc/<server>/environ`, `mem` | not there (own pid namespace and `/proc`) | refused (root's process, or another uid's undumpable one) | refused by `PR_SET_DUMPABLE` (non-root servers), readable when the server is root |
-| Write outside the work dir | refused (read-only binds, `--remount-ro /`) | refused (root-owned tree) | only the hooks |
+| Write outside the work dir | refused (read-only binds, `--remount-ro /`) | refused (a tree owned by root or the server's uid) | only the hooks |
+| Signal the server or another plugin | not there (own pid namespace) | refused (another uid, no `CAP_KILL`) | only the hooks (same uid) |
 | Network | none (own network namespace, loopback down) | open (the hooks refuse sockets in-process) | the hooks only |
 | A process it execs (`fork_exec` rebuilt) | none: the seccomp filter and `RLIMIT_NPROC` 0 fail the fork | same | same; as root only the filter holds, and a root child without one does not start |
 | SIGKILL of the group | kills everything (the sandbox's pid 1 goes, the kernel kills the namespace) | kills the group; a grandchild that called `setsid()` survives until the service or container stops | same as `setuid` |
@@ -247,6 +248,23 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
   child runs without it, still held by `RLIMIT_NPROC` 0 (no thread, no process)
   and with every capability dropped, while a root child, which `RLIMIT_NPROC`
   does not bind, refuses to start.
+- A second seccomp filter passed to bwrap (`--seccomp FD`, a BPF program built
+  once by a small script; assessed in MSHL-212, not done). The runner's own
+  filter already refuses `clone`, `fork` and `exec` at every level, so a bwrap
+  filter would add two things: coverage of the interpreter's start-up, before
+  the runner installs its filter (no plugin code runs then), and a deny list
+  of kernel attack surface the runner's filter leaves open (`io_uring_*`,
+  `userfaultfd`, `bpf`, `perf_event_open`, `keyctl`/`add_key`, `ptrace`,
+  `mount`). Plugin code reaches a raw syscall only through the standard
+  library (no `ctypes`, no native module), so the gain is defence in depth
+  against a runner bypass plus a kernel bug. Cost: a per-architecture table
+  (the runner's assembler can be reused), the descriptor passed through
+  `launch.py`, and the bwrap self-test extended. The one gap the standard
+  library opened is closed in the runner's filter instead: `os.unshare` and
+  `os.setns` (3.12+) raise no audit event, and a plugin could create a user
+  namespace at every level (measured on Python 3.14); `unshare` and `setns`
+  now answer `EPERM` (corpus case `namespaces`). bwrap 0.8 and later also offer
+  `--disable-userns`, not on Ubuntu 22.04's 0.6.
 
 ## What the runner does
 
@@ -258,7 +276,7 @@ before its child starts. `/data/options.json` (the add-on's options) becomes
 | Hard rlimits: address space (Linux), open files, file size, core 0, CPU; `RLIMIT_NPROC` 0 (Linux, every level); small thread stacks | memory bombs fail with `MemoryError`, no core dump, a runaway loop is killed at the CPU cap; no thread and no process can be created, whatever path the hook does not see (the kernel counts the uid's tasks against the limit; root, `CAP_SYS_RESOURCE` and `CAP_SYS_ADMIN` ignore it) |
 | `PR_SET_NO_NEW_PRIVS` (Linux) | no privilege gain through a setuid binary, even if a process were spawned |
 | Inherited capabilities dropped (Linux, non-root child): ambient cleared, effective, permitted and inheritable emptied, checked in `/proc/self/status` | `CAP_SETUID`/`CAP_SETGID` kept by a `MESHLOOM_RUN_AS_USER` server do not reach plugin code |
-| seccomp filter (Linux, `meshloom_plugin/seccomp.py`): `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat` and any syscall of a foreign ABI answer `EPERM` | no thread, no process, no exec, **root included** (MSHL-323); required for a root child, best effort otherwise |
+| seccomp filter (Linux, `meshloom_plugin/seccomp.py`): `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, `unshare`, `setns` and any syscall of a foreign ABI answer `EPERM` | no thread, no process, no exec, **root included** (MSHL-323); no new or joined namespace (MSHL-212: `os.unshare` and `os.setns`, Python 3.12+, raise no audit event, and a plugin could create a user namespace at every level); required for a root child, best effort otherwise |
 | `PR_SET_DUMPABLE` 0 (Linux, before any plugin code) | `execve` (and the uid drop) made the child dumpable again; now no other process of the same uid can open its `/proc/<pid>/mem` or `ptrace` it |
 | Audit hook (PEP 578) | refuses the events below |
 | Purge of `sys.modules`, references replaced by stubs, import guard | network, process and native modules are not reachable by name |
@@ -535,7 +553,8 @@ What runs, and where:
 - `tests/test_plugin_seccomp.py` (standard library and pytest only): the ABI
   table, the BPF program run through a small interpreter for every ABI, and a
   probe process that installs the filter and checks `fork`, `execv`,
-  `posix_spawn`, `subprocess` and a thread start are refused, and that a
+  `posix_spawn`, `subprocess`, a thread start, `unshare` and `setns` (3.12+)
+  are refused, and that a
   non-root process ends with no capability. `tests/test_plugin_runner.py` also
   checks `Seccomp: 2` in a live child's `/proc/<pid>/status`.
 
@@ -579,6 +598,7 @@ docker-entrypoint.sh calls it), where `none` and `setuid` are.
 | `hook_frame` | runner | walk the traceback into the hook's frame (bypass 3) | empty globals and builtins, immutable locals |
 | `rlimit_raise` | runner | `resource.setrlimit`, module rebuilt from its spec | `PermissionError` |
 | `putenv` | runner | change the environment | `PermissionError` |
+| `namespaces` | runner (Linux) | `os.unshare(CLONE_NEWUSER)`, `os.setns` (no audit event) | `EPERM` from the seccomp filter (3.12+; 3.11 has neither function) |
 | `environ` | runner | read `os.environ` (parent passed a secret) | only `LANG`, `PYTHONHASHSEED` |
 | `inherited_fds` | runner | look for a descriptor the parent passed | none past 0, 1, 2 |
 | `memory_bomb` | runner (Linux) | allocate 1 GiB | `MemoryError` (`RLIMIT_AS`) |
@@ -674,3 +694,45 @@ root, and once more as the service user for `bwrap` alone; also note the start
 times, and `MemAvailable` with the server running. The deb/rpm packages ship
 python-build-standalone (and the armhf images a 32-bit build), whose figures may
 differ from this Debian interpreter's.
+
+### Load test (MSHL-212)
+
+`scripts/dev/plugin_load.py` drives the real supervisor (`PluginManager`,
+default `Budgets`) on a throwaway database with the isolation level forced:
+ten instances of a plugin that reads every direct message and writes a counter
+with `storage.set` every tenth one, fed 20 messages per second through
+`dispatch("message", ...)` (2 s settle included), so 200 events per second in
+all, for ten minutes; then one instance whose handler sleeps 1 s, at the same
+rate, for one minute. How to run it: `CONTRIBUTING.md`, "Load testing the
+plugin runtime".
+
+Run on 2026-10-27 on an x86_64 host (4 cores, 7.3 GB, kernel 7.0, about 40
+other containers running) in a disposable `python:3.14-slim` container
+(Python 3.14.10, bubblewrap 0.12.0), started with `--security-opt
+seccomp=unconfined --security-opt apparmor=unconfined --security-opt
+systempaths=unconfined --cap-add SYS_PTRACE`. `bwrap` ran as uid 10001 (as the
+deb/rpm service does), `setuid` as root with the `meshloom-plugin` account.
+Memory is the PSS of the ten children's process trees (bwrap's included) and the
+server's RSS; latency runs from enqueue to answer; the first minute is left out
+of the slopes.
+
+| Level | Events answered / dropped / failed | Restarts | Inbox peak | PSS of 10 children, 1 min / 10 min | Server RSS, 1 min / 10 min | Latency p50 / worst p99 per 10 s / max |
+|---|---|---|---|---|---|---|
+| `bwrap` | 120000 / 0 / 0 | 0 | 1 | 135.2 / 135.2 MiB (+3.9 KiB/min) | 95.7 / 96.1 MiB | 6.2 / 37.4 / 89 ms |
+| `setuid` | 120000 / 0 / 0 | 0 | 1 | 132.4 / 132.4 MiB (+1.0 KiB/min) | 98.1 / 98.0 MiB | 6.3 / 38.7 / 87 ms |
+
+No growth: a child takes about 13.5 MiB of PSS under either level and keeps it,
+and the server's RSS moved by less than 0.5 MiB over the nine minutes, growing
+less each minute (allocator settling). The inbox never held more than one event.
+
+Overload, same at both levels: the slow instance finishes at most
+`MAX_CONCURRENT_HANDLERS` (8) events per second against 20 offered. Its inbox
+filled to `inbox_size` (100) within 20 s and stayed there, 8 events in flight;
+of 1200 events 496 were answered, 620 dropped (oldest first, each drop counted
+in `dropped_events`, the log summing them up every few seconds), 84 still queued or in flight at
+the end, no failure and no restart. Latency then sits at the inbox's depth,
+about 6 s. Every accepted event was accounted for (answered, failed, dropped,
+queued or in flight) in both phases.
+
+Not measured here: a Raspberry Pi (the real-Pi run of MSHL-191 stays open) and
+plugins doing `http.fetch`, and CPU use.

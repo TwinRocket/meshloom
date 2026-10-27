@@ -8,6 +8,7 @@ Stdlib and pytest only (`--noconftest` works).
 """
 
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -56,6 +57,9 @@ PROBE = textwrap.dedent(
     attempt("thread", thread)
     import subprocess
     attempt("subprocess", lambda: subprocess.run([sys.executable, "-c", "pass"]))
+    if hasattr(os, "unshare"):
+        attempt("unshare", lambda: os.unshare(os.CLONE_NEWUSER))
+        attempt("setns", lambda: os.setns(0, 0))
     out["caps"] = seccomp.capability_sets()
     out["getpid"] = os.getpid() > 0
     print(json.dumps(out))
@@ -146,7 +150,7 @@ def test_filter_denies_exactly_the_listed_syscalls(abi: str) -> None:
     assert run(arch ^ 0x1, 0) == deny
     if abi == "x86_64":
         assert run(arch, 0x40000000 | 1) == deny  # x32 write
-    assert {"clone", "clone3", "execve", "execveat"} <= set(numbers)
+    assert {"clone", "clone3", "execve", "execveat", "unshare", "setns"} <= set(numbers)
 
 
 @pytest.mark.skipif(not LINUX, reason="seccomp is Linux only")
@@ -166,6 +170,11 @@ def test_child_cannot_fork_exec_or_thread_once_filtered() -> None:
     for name in ("fork", "execv", "posix_spawn", "subprocess"):
         assert out[name] == "EPERM", (name, out)
     assert out["thread"].startswith("RuntimeError"), out
+    if hasattr(os, "unshare"):
+        # No new namespace and no joining one (MSHL-212); unfiltered, setns(0, 0)
+        # answers EINVAL and unshare(CLONE_NEWUSER) usually succeeds.
+        assert out["unshare"] == "EPERM", out
+        assert out["setns"] == "EPERM", out
     assert out["getpid"] is True
     if out["euid"] != 0:
         # A non-root child keeps no capability (ambient ones included).
