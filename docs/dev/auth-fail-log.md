@@ -17,14 +17,16 @@ to this contract is a `CONTRACTS:` commit.
 
 **Contract version 1** (MSHL-421).
 
-- Adding a route or a reason keeps the version: a consumer keys on `ip` and
-  `proxied` and must accept any `route` and `reason`. It is listed below.
+- Adding or removing a route or a reason keeps the version: a consumer keys
+  on `ip` and `proxied` and must accept any `route` and `reason`. It is listed
+  below.
 - Removing or renaming a field, changing its order, the marker, the logger
   name or the level raises the version.
 
 | Version | Change |
 |---|---|
 | 1 | First version (MSHL-421): `via` is the transport; `proxied=1` only for a local peer that is not a declared proxy. |
+| 1 | Route `basic` removed with HTTP Basic auth (MSHL-100): a `Basic` header is no credential and writes no line. |
 
 ## The record
 
@@ -55,7 +57,6 @@ space.
 | `login_2fa` | `POST /api/auth/login/2fa`: refused passkey as the second factor | `bad_passkey` |
 | `login_2fa` | `POST /api/auth/login/2fa` or `POST /api/auth/webauthn/login/options` with a pending token that is unknown, expired, stale or presented from another client | `pending_invalid` |
 | `passkey` | `POST /api/auth/webauthn/login/verify`: unknown or used challenge, or an assertion that does not check | `bad_passkey` |
-| `basic` | `Authorization: Basic` (4.x compatibility, until it is removed): wrong credential, or an account with a second factor | `invalid_credentials` |
 | `bearer` | `Authorization: Bearer`: unknown, revoked or expired API or device token | `invalid_token` |
 | `pair` | `POST /api/auth/pair`: unknown, malformed (within the body's length limit), used or expired pairing code (410) | `invalid_code` |
 | `setup` | `POST /api/auth/setup`: wrong installation code | `invalid_setup_code` |

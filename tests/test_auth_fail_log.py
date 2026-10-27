@@ -22,7 +22,7 @@ from app.log_redaction import RedactingFormatter
 from app.middleware import proxy_headers
 from app.repository.auth import AuthSettingsRepository
 from app.routers import auth as auth_router
-from tests.auth_helpers import ADMIN, PASSWORD, basic, create_user, login, make_client
+from tests.auth_helpers import ADMIN, PASSWORD, create_user, login, make_client
 from tests.test_auth_totp import _enrol, _password_step
 from tests.webauthn_authenticator import SoftAuthenticator
 
@@ -249,14 +249,6 @@ async def test_an_unknown_bearer_token(lines):
         response = await client.get("/api/auth/me", headers={"Authorization": "Bearer mlt_bogus"})
     assert response.status_code == 401
     assert _one(lines(), "bearer", "invalid_token")["user"] == "-"
-
-
-async def test_a_wrong_basic_credential(lines):
-    await create_user()
-    async with make_client() as client:
-        response = await client.get("/api/auth/me", headers=basic(ADMIN, "wrong password!"))
-    assert response.status_code == 401
-    assert _one(lines(), "basic", "invalid_credentials")["user"] == fail_log.user_field(ADMIN)
 
 
 @pytest.mark.parametrize("code", ["not-a-code", "mlp_" + "x" * 120])
