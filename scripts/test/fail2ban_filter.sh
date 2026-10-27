@@ -32,7 +32,10 @@ sed 's/^/host uvicorn[812]: /' "$tmp/file.log" >"$tmp/journal.log"
 proxied="$(grep -c 'proxied=1' "$tmp/file.log")"
 total="$(wc -l <"$tmp/file.log")"
 want=$((total - proxied))
-[ "$proxied" -ge 1 ] && [ "$want" -ge 1 ] || { echo "contract examples lack a proxied=1 or a proxied=0 line" >&2; exit 1; }
+if [ "$proxied" -lt 1 ] || [ "$want" -lt 1 ]; then
+    echo "contract examples lack a proxied=1 or a proxied=0 line" >&2
+    exit 1
+fi
 
 for log in file journal; do
     out="$(fail2ban-regex "$tmp/$log.log" "$filter" 2>&1)"
