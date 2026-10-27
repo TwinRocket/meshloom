@@ -9,6 +9,15 @@ Meshloom ralentit déjà quelqu’un qui devine un mot de passe ([Les délais de
 
 Chaque mot de passe, code, passkey, jeton ou code d’installation refusé écrit une ligne commençant par `AUTH_FAIL` dans le journal de Meshloom, avec l’adresse d’où il vient. fail2ban surveille ces lignes. Rien dedans n’identifie le compte : seulement un code court qui change à chaque redémarrage.
 
+## Le blocage intégré et fail2ban
+
+Meshloom a aussi un [blocage intégré](/docs/deep/access/#les-délais-de-connexion), activé par défaut : 10 connexions refusées en 10 minutes depuis une même adresse la bloquent pendant 60 minutes. Il compte les mêmes lignes `AUTH_FAIL`, fonctionne partout où Meshloom tourne, Docker compris (les connexions par Home Assistant ne sont jamais comptées) et ne demande rien à installer. Un administrateur le règle, lève les blocages et tient une liste blanche dans **Réglages → Utilisateurs et accès → Bannissement d’adresses**, ou avec `meshloom-admin unban`.
+
+La différence tient à l’endroit du blocage. Le blocage intégré répond à une adresse bloquée par une erreur avant de vérifier le moindre mot de passe : elle joint encore Meshloom, ce qui coûte peu. fail2ban la bloque au pare-feu : elle ne joint plus du tout le port, et il peut la bloquer plus longtemps à chaque retour.
+
+- **Le blocage intégré seul** suffit à la plupart des installations, et c’est le seul choix sous Docker sans journald, ou sous macOS ou Windows.
+- **Les deux** sur une machine Linux ouverte sur internet : le blocage intégré agit tout de suite, fail2ban tient une adresse obstinée loin de la machine. Ils ne se gênent pas.
+
 ## Ce que les paquets Linux installent
 
 Les paquets `.deb` et `.rpm` apportent deux fichiers, tous deux conservés à la mise à jour (une modification de votre part n’est jamais écrasée) :
@@ -108,6 +117,6 @@ bantime = 1h
 
 ## À lire aussi
 
-- [Les délais de connexion et la ligne `AUTH_FAIL`](/docs/deep/access/#les-délais-de-connexion)
+- [Les délais de connexion, le blocage intégré et la ligne `AUTH_FAIL`](/docs/deep/access/#les-délais-de-connexion)
 - [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/)
 - [Sécurité](/docs/deep/security/)
