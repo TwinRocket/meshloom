@@ -199,9 +199,20 @@ class TestCrossSiteGuard:
         assert response.json()["detail"]["code"] == "share_cross_site"
         assert on.requests == []
 
-    @pytest.mark.parametrize("value", [None, "same-origin", "same-site", "none"])
-    async def test_other_values_and_no_header_pass(self, on, client, value):
-        headers = {"Sec-Fetch-Site": value} if value else {}
+    @pytest.mark.parametrize("value", ["same-site", "SAME-SITE ", "cross-origin", "bogus"])
+    async def test_same_site_and_unknown_values_are_refused(self, on, client, value):
+        """Same-origin only: without the Public Suffix List every
+        <slug>.meshloom.link instance (or a self-hoster's other apps) is same-site."""
+        response = await client.post(
+            "/api/share/links", json={"url": URL}, headers={"Sec-Fetch-Site": value}
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "share_cross_site"
+        assert on.requests == []
+
+    @pytest.mark.parametrize("value", [None, "", "same-origin", " Same-Origin", "none"])
+    async def test_same_origin_none_and_no_header_pass(self, on, client, value):
+        headers = {"Sec-Fetch-Site": value} if value is not None else {}
         response = await client.post("/api/share/links", json={"url": URL}, headers=headers)
         assert response.status_code == 201
         assert len(on.requests) == 1

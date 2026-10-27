@@ -715,8 +715,15 @@ The frontend mirrors the role table in `frontend/src/auth/capabilities.ts` and h
   Only the name for the request's scheme is read, so a cookie planted over
   http is ignored on https.
 - A disabled account, a revoked or expired session: anonymous at once.
-- Logout revokes the session and answers `Set-Cookie` with `Max-Age=0` and
-  `Clear-Site-Data: "cookies"`.
+- Logout revokes the session and expires exactly Meshloom's cookies by name,
+  host-only (`Max-Age=0`, `Path=/`, no `Domain`): the session cookie and the
+  known-device cookie under the names for the request's scheme and, over https,
+  the plain names too (a visit over http may have left them; a browser refuses
+  any `Secure` cookie from http, so over http only the plain names are sent).
+  Never `Clear-Site-Data: "cookies"`: browsers apply it to the whole registrable
+  domain, so it would sign the browser out of every other
+  `<slug>.meshloom.link` instance (not on the Public Suffix List) and wipe the
+  cookies of other apps on a self-hoster's domain. Under ingress, no cookie at all.
 - **Throttled last-seen.** The middleware calls `touch()` only when the
   session it read was last seen a minute ago or more, and `touch()` itself
   writes only under the same condition, so a burst of requests costs one write
@@ -892,9 +899,13 @@ and none by IP alone behind Docker:
   page's untrusted-proxy hint (#210). A LAN client adding the header gains
   nothing (review r2 of #217, tested).
 - **Known devices** (`app/auth/device_cookie.py`, OWASP "device cookie"). A
-  successful password login sets `meshloom_device` (`__Secure-meshloom_device`
-  over https): `v1.<user id>.<issued at>.<device id>.<generation>.<HMAC-SHA256>`,
-  `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, 180 days. `generation` is
+  successful password login sets `meshloom_device` (`__Host-meshloom_device`
+  with `Secure` over https): `v1.<user id>.<issued at>.<device id>.<generation>.<HMAC-SHA256>`,
+  `HttpOnly`, `SameSite=Strict`, `Path=/`, no `Domain`, 180 days. The
+  `__Host-` prefix forbids a `Domain`, so a sibling host on the same
+  registrable domain cannot toss a cookie of that name that Starlette's
+  parser (last duplicate wins) would read instead; only the name for the
+  request's scheme is read. Logout expires it with the session cookie. `generation` is
   the account's `users.updated_at`, moved by every write to the account
   (password change from the route or the CLI, rehash, role change, disable, enable, rename),
   so each invalidates the user's cookies; nothing derived from the password

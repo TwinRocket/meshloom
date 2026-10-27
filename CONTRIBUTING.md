@@ -87,6 +87,32 @@ the guard it pins and check the case fails. Linux with bubblewrap covers `bwrap`
 the `setuid` level needs root and the `meshloom-plugin` account (CI's
 `plugin-isolation-root` job runs it).
 
+## Load testing the plugin runtime
+
+`scripts/dev/plugin_load.py` (MSHL-212) drives the real plugin supervisor on a
+throwaway database: ten instances at 20 messages per second for ten minutes by
+default, then a short overload of one slow instance. It is not a test and not in
+the gate; run it by hand on Linux, from the repository root, after `uv sync`:
+
+```bash
+uv run python scripts/dev/plugin_load.py --levels bwrap               # as a non-root user
+sudo -E uv run python scripts/dev/plugin_load.py --levels setuid      # as root
+uv run python scripts/dev/plugin_load.py --instances 3 --duration 30 --overload-seconds 10  # quick check
+```
+
+`bwrap` needs bubblewrap and user namespaces, and should run as a non-root user,
+like the deb/rpm service. `setuid` needs root and the `meshloom-plugin` account
+(uid and gid 10002, `useradd --system --no-create-home --shell /usr/sbin/nologin`).
+In a Docker container, start it with `--security-opt seccomp=unconfined
+--security-opt apparmor=unconfined --security-opt systempaths=unconfined` for
+bubblewrap (Docker masks parts of `/proc`, so bwrap cannot mount its own without
+the last one), and `--cap-add SYS_PTRACE` for the PSS of other uids' children
+under `setuid`. Progress goes to stderr, one JSON report to stdout (`--keep-samples`
+adds every sample); the exit status is 1 when a level is unavailable or a check
+fails (unbalanced accounting, an inbox past its bound, a restart, no drop under
+overload). The figures and how to read them: `docs/dev/plugins-security.md`,
+"Load test".
+
 ## Quality + Publishing Scripts
 
 <details>

@@ -174,7 +174,7 @@ purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
   refused `uid_leased`, or `uid_lease_io_error` when the lease cannot be written (MSHL-360);
   see docs/dev/plugins-security.md). bwrap binds only `<app_root>/meshloom_plugin`, never the app root (the
   source and Docker data dirs live under it). The child's own kernel guards
-  (dropped capabilities, a seccomp filter refusing clone/fork/exec, required for
+  (dropped capabilities, a seccomp filter refusing clone/fork/exec and unshare/setns, required for
   a root child) are `meshloom_plugin/seccomp.py`. Stdlib only, so
   `tests/test_plugin_isolation.py`, `test_plugin_runner.py` and
   `test_plugin_seccomp.py` run with `--noconftest` in the root container
@@ -510,7 +510,9 @@ Community guard.
   and a non-channel message needs `read_private` (a kiosk gets 403 `share_role_forbidden`,
   checked in the router before any cache read or egress; MSHL-248). Every write route depends on
   `refuse_cross_site`: 403 `share_cross_site` when `Sec-Fetch-Site` is
-  `cross-site` (defence in depth: the auth gate already refuses unsafe
+  anything but `same-origin` or `none` (`same-site` included: without the
+  Public Suffix List every `<slug>.meshloom.link` instance is the same site; a
+  missing header passes. Defence in depth: the auth gate already refuses unsafe
   cross-origin requests that are not bearer-token ones). Tests:
   `tests/test_share_routes.py`.
 - **Roles and audit (MSHL-248).** Member+ routes (`send`: `POST /links`, `POST /files`,

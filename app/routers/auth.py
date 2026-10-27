@@ -652,9 +652,30 @@ async def _second_factor_challenge(
     return payload
 
 
+def _expire_cookies(response: Response, *, secure: bool) -> None:
+    """Expire exactly Meshloom's cookies on this host: the session cookie and the
+    known-device cookie, under the name for this scheme and, over https, also
+    the plain names a visit over http may have left (a browser refuses a
+    ``Secure`` cookie, even an expiring one, from plain http). Host-only
+    (no ``Domain``): nothing of another host or app is touched."""
+    schemes = (True, False) if secure else (False,)
+    for scheme_secure in schemes:
+        response.headers.append("set-cookie", sessions.clear_cookie_header(secure=scheme_secure))
+        response.headers.append(
+            "set-cookie", device_cookie.clear_cookie_header(secure=scheme_secure)
+        )
+
+
 @router.post("/logout", response_model=OkResponse, dependencies=[Depends(public())])
 async def logout(request: Request, response: Response) -> OkResponse:
-    """End the current session and clear the cookie. Public (idempotent)."""
+    """End the current session and expire Meshloom's cookies. Public (idempotent).
+
+    No ``Clear-Site-Data: "cookies"``: browsers apply it to the whole
+    registrable domain, so it would also sign the browser out of every other
+    ``<slug>.meshloom.link`` instance (no Public Suffix List entry) or wipe the
+    cookies of other apps on a self-hoster's domain. Each of Meshloom's own
+    cookies is expired by name instead (``_expire_cookies``).
+    """
     principal = get_principal(request)
     if principal is not None and principal.session_id is not None:
         await sessions.revoke_session(principal.session_id)
@@ -662,8 +683,7 @@ async def logout(request: Request, response: Response) -> OkResponse:
             request, "logout", "success", target=f"session:{principal.session_id}"
         )
     if _via(request) != "ingress":
-        response.headers.append("set-cookie", sessions.clear_cookie_header(secure=_secure(request)))
-        response.headers["Clear-Site-Data"] = '"cookies"'
+        _expire_cookies(response, secure=_secure(request))
     return OkResponse()
 
 

@@ -141,6 +141,8 @@ async def test_no_cookie_is_ever_set_or_read_under_ingress():
             response = await client.request(method, path, headers=ha_headers())
             assert response.status_code == 200, path
             assert set_cookie_headers(response) == [], path
+            # Header lookup is case-insensitive: no Clear-Site-Data either.
+            assert "clear-site-data" not in response.headers, path
         # A cookie sent through ingress is never read.
         client.cookies.set("meshloom_session", "anything")
         assert (await client.get("/api/auth/me")).status_code == 401

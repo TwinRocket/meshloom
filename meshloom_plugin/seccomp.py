@@ -6,7 +6,10 @@ filter cannot be removed, dropped capabilities do not come back under
 `no_new_privs`).
 
 **The filter** answers `EPERM` to every syscall that creates a task or runs a
-program: `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`. It is the
+program: `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, plus
+`unshare` and `setns` (no new namespace, a user namespace included, and no
+joining one: Python 3.12+ exposes `os.unshare` and `os.setns`, which raise no
+audit event; MSHL-212). It is the
 guard that holds where `RLIMIT_NPROC` does not: the kernel exempts root from
 that limit, so a child running as root (levels `none` and `bwrap` started by a
 root server) could otherwise rebuild `_posixsubprocess` from its spec, or start
@@ -57,18 +60,51 @@ _LINUX_CAPABILITY_VERSION_3 = 0x20080522
 TABLES: dict[str, tuple[int, dict[str, int]]] = {
     "x86_64": (
         0xC000003E,
-        {"clone": 56, "fork": 57, "vfork": 58, "execve": 59, "execveat": 322, "clone3": 435},
+        {
+            "clone": 56,
+            "fork": 57,
+            "vfork": 58,
+            "execve": 59,
+            "unshare": 272,
+            "setns": 308,
+            "execveat": 322,
+            "clone3": 435,
+        },
     ),
     "i386": (
         0x40000003,
-        {"fork": 2, "execve": 11, "clone": 120, "vfork": 190, "execveat": 358, "clone3": 435},
+        {
+            "fork": 2,
+            "execve": 11,
+            "clone": 120,
+            "vfork": 190,
+            "unshare": 310,
+            "setns": 346,
+            "execveat": 358,
+            "clone3": 435,
+        },
     ),
-    "aarch64": (0xC00000B7, {"clone": 220, "execve": 221, "execveat": 281, "clone3": 435}),
+    "aarch64": (
+        0xC00000B7,
+        {"unshare": 97, "clone": 220, "execve": 221, "setns": 268, "execveat": 281, "clone3": 435},
+    ),
     "arm": (
         0x40000028,
-        {"fork": 2, "execve": 11, "clone": 120, "vfork": 190, "execveat": 387, "clone3": 435},
+        {
+            "fork": 2,
+            "execve": 11,
+            "clone": 120,
+            "vfork": 190,
+            "unshare": 337,
+            "setns": 375,
+            "execveat": 387,
+            "clone3": 435,
+        },
     ),
-    "riscv64": (0xC00000F3, {"clone": 220, "execve": 221, "execveat": 281, "clone3": 435}),
+    "riscv64": (
+        0xC00000F3,
+        {"unshare": 97, "clone": 220, "execve": 221, "setns": 268, "execveat": 281, "clone3": 435},
+    ),
 }
 
 
