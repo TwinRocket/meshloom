@@ -9,8 +9,9 @@ and fail2ban judge the same failures with the same address:
 - Never a ban-exempt address (``app/net/local_address.is_ban_exempt``:
   loopback, RFC 1918, link-local, ULA): the LAN, the Docker gateway and a
   local proxy stay reachable whatever happens. Never under ingress (no line
-  either). The shared address space ``100.64.0.0/10`` (CGNAT, Tailscale) is
-  not exempt: a tailnet device is counted and banned like a public client,
+  either). The tailnet ranges (``local_address.TAILNET_NETWORKS``: the shared
+  address space ``100.64.0.0/10``, CGNAT and Tailscale, and Tailscale's IPv6
+  ``fd7a:115c:a1e0::/48``) are not exempt: a tailnet device is counted and banned like a public client,
   whether it is the TCP peer or the client a trusted proxy (``tailscale
   serve`` on loopback) forwarded. An untrusted peer's forwarding headers are
   never read, so a forged ``X-Forwarded-For`` bans the peer, never the
@@ -21,7 +22,8 @@ and fail2ban judge the same failures with the same address:
   adding nothing when unreadable or malformed (macOS, Windows, a Docker bridge
   network that sees only the container's interfaces), and each only for a
   global prefix of /64 to /128 (a /48 or /56 is a whole site or a hosting
-  provider's block, never a LAN):
+  provider's block, never a LAN). "Global" here means public in
+  ``local_address`` terms (``is_public``), never ``ipaddress.is_global``:
 
   - ``/proc/net/if_inet6``: the prefix of each of the host's global addresses;
   - ``/proc/net/ipv6_route``: an on-link route (up, no gateway, no next hop,
@@ -185,23 +187,25 @@ def read_host_addresses(path: str = IF_INET6_PATH) -> tuple[HostAddress, ...]:
             continue
         address = _hex_address(fields[0])
         length = _hex_int(fields[2], 2)
-        if address is None or length is None or length > 128 or not address.is_global:
+        if address is None or length is None or length > 128:
+            continue
+        if not local_address.is_public(address):
             continue
         found.append(HostAddress(address, length, fields[5]))
     return tuple(found)
 
 
+def _prefixes_of(addresses: tuple[HostAddress, ...]) -> set[IPv6Network]:
+    return {
+        IPv6Network((host.address, host.length), strict=False)
+        for host in addresses
+        if host.length >= HOST_PREFIX_MIN_LENGTH
+    }
+
+
 def read_host_prefixes(path: str = IF_INET6_PATH) -> tuple[IPv6Network, ...]:
     """The prefixes of the host's global IPv6 addresses (``if_inet6``), /64 to /128."""
-    return tuple(
-        sorted(
-            {
-                IPv6Network((host.address, host.length), strict=False)
-                for host in read_host_addresses(path)
-                if host.length >= HOST_PREFIX_MIN_LENGTH
-            }
-        )
-    )
+    return tuple(sorted(_prefixes_of(read_host_addresses(path))))
 
 
 def read_onlink_routes(
@@ -224,7 +228,7 @@ def read_onlink_routes(
         interface = fields[9]
         if destination is None or length is None or next_hop is None or flags is None:
             continue
-        if not HOST_PREFIX_MIN_LENGTH <= length <= 128 or not destination.is_global:
+        if not HOST_PREFIX_MIN_LENGTH <= length <= 128 or local_address.is_local(destination):
             continue
         if int(next_hop) != 0 or not flags & RTF_UP or flags & _RTF_NOT_ON_LINK:
             continue
@@ -240,7 +244,7 @@ def _read_host_networks() -> tuple[IPv6Network, ...]:
     addresses = read_host_addresses(IF_INET6_PATH)
     if not addresses:
         return ()
-    networks = set(read_host_prefixes(IF_INET6_PATH))
+    networks = _prefixes_of(addresses)  # if_inet6 is read once per refresh
     networks.update(read_onlink_routes(IPV6_ROUTE_PATH, addresses))
     return tuple(sorted(networks))
 

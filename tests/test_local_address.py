@@ -24,6 +24,7 @@ LOCAL = [
     ("::1", "loopback"),
     ("fd00::5", "ULA fd00::/8"),
     ("fc00::1", "ULA fc00::/8"),
+    ("fd7a:115c:a1e0::1", "Tailscale IPv6 (MSHL-434)"),
     ("fe80::1", "link-local"),
     ("febf::1", "link-local, top of fe80::/10"),
     # Spellings

@@ -393,6 +393,7 @@ async def test_a_declared_proxy_logs_the_client_it_forwarded(lines):
         "100.100.1.2",
         "100.127.255.254",
         "::ffff:100.100.1.2",
+        "fd7a:115c:a1e0::1",  # Tailscale IPv6
     ],
 )
 async def test_a_public_peer_with_forwarding_headers_is_the_client(lines, peer):
@@ -545,7 +546,17 @@ def banned(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "client", ["127.0.0.1", "::1", "192.168.1.30", "10.0.0.2", "100.100.1.2", "fe80::1", None]
+    "client",
+    [
+        "127.0.0.1",
+        "::1",
+        "192.168.1.30",
+        "10.0.0.2",
+        "100.100.1.2",
+        "fd7a:115c:a1e0::1",
+        "fe80::1",
+        None,
+    ],
 )
 def test_a_relayed_line_never_names_a_local_client(lines, banned, client):
     """The tunnel's local end is not a client: ``ip=-``, nothing banned, never proxied."""

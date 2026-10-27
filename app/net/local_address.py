@@ -26,10 +26,11 @@ heuristics (``app/services/backup.endpoint_looks_private``,
 - link-local: ``169.254.0.0/16``, ``fe80::/10``;
 - shared address space ``100.64.0.0/10`` (carrier-grade NAT, Tailscale).
 
-**Ban-exempt** (``is_ban_exempt``, MSHL-434) is local minus the shared address
-space: a tailnet device or a CGNAT neighbour is a distinct remote client, so
-its failed sign-ins are counted and it can be banned, while the LAN, loopback,
-link-local and ULA never are. Its other callers still read CGNAT as local
+**Ban-exempt** (``is_ban_exempt``, MSHL-434) is local minus ``TAILNET_NETWORKS``:
+the shared address space and Tailscale's IPv6 ULA ``fd7a:115c:a1e0::/48``
+(MagicDNS hands out both). A tailnet device or a CGNAT neighbour is a distinct
+remote client, so its failed sign-ins are counted and it can be banned, while
+the LAN, loopback, link-local and the rest of ULA never are. Its other callers still read CGNAT as local
 (the limiter hint, the exposed first run, the login-free gate).
 
 Everything else is **public**, deliberately including ranges that are not
@@ -86,6 +87,9 @@ LOCAL_NETWORKS: tuple[IPNetwork, ...] = tuple(
 
 # Carrier-grade NAT and Tailscale: local, but not exempt from the ban (MSHL-434).
 SHARED_ADDRESS_SPACE = ipaddress.IPv4Network("100.64.0.0/10")
+# Tailscale's IPv6 range, inside fc00::/7: local, but not exempt from the ban.
+TAILSCALE_IPV6 = ipaddress.IPv6Network("fd7a:115c:a1e0::/48")
+TAILNET_NETWORKS: tuple[IPNetwork, ...] = (SHARED_ADDRESS_SPACE, TAILSCALE_IPV6)
 
 
 def parse_address(raw: str | None) -> IPAddress | None:
@@ -126,12 +130,13 @@ def is_local(value: IPAddress | str | None) -> bool:
 
 
 def is_ban_exempt(value: IPAddress | str | None) -> bool:
-    """Whether the built-in ban must never count ``value``: local, CGNAT excepted
-    (module docstring). Not an address: False."""
+    """Whether the built-in ban must never count ``value``: local, the tailnet
+    ranges excepted (module docstring). Not an address: False."""
     address = _address(value)
     if address is None or not is_local(address):
         return False
-    return not (address.version == 4 and address in SHARED_ADDRESS_SPACE)
+    # ``in`` is False across IP versions, so no version check is needed.
+    return not any(address in network for network in TAILNET_NETWORKS)
 
 
 def is_public(value: IPAddress | str | None) -> bool:

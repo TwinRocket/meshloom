@@ -507,6 +507,10 @@ RANGES = [
     ("100.127.255.254", True),  # top
     ("198.51.100.20", True),  # public
     ("2001:db8:1:2::5", True),
+    ("fd7a:115c:a1e0::1", True),  # Tailscale IPv6
+    ("fd7a:115c:a1e0:ffff:ffff:ffff:ffff:ffff", True),
+    ("fd7a:115c:a1df::1", False),  # just outside: ULA
+    ("fd7a:115c:a1e1::1", False),
 ]
 
 
@@ -554,18 +558,26 @@ class TestPolicy:
         await _fail("127.0.0.1", 4, {**BOGUS, "X-Forwarded-For": f"{OTHER}, 100.100.1.2"})
         assert _banned_keys(await IpBanRepository.active(ip_ban.clock())) == ["100.100.1.2"]
 
-    @pytest.mark.parametrize("address", ["100.100.1.2", "100.64.0.0/10"])
-    async def test_a_whitelisted_tailnet_device_is_never_banned(self, address):
+    @pytest.mark.parametrize(
+        ("peer", "entry"),
+        [
+            ("100.100.1.2", "100.100.1.2"),
+            ("100.100.1.2", "100.64.0.0/10"),
+            ("fd7a:115c:a1e0::1", "fd7a:115c:a1e0::1"),
+            ("fd7a:115c:a1e0::1", "fd7a:115c:a1e0::/48"),
+        ],
+    )
+    async def test_a_whitelisted_tailnet_device_is_never_banned(self, peer, entry):
         """The remedy for a tailnet device locked out (docs: fail2ban.md)."""
         await create_user()
         await _strict()
-        assert await IpBanRepository.add_to_whitelist(parse_network(address), "tailnet", 1)
-        statuses = await _fail("100.100.1.2", 6)
+        assert await IpBanRepository.add_to_whitelist(parse_network(entry), "tailnet", 1)
+        statuses = await _fail(peer, 6)
         assert 429 not in statuses
         assert await IpBanRepository.active(ip_ban.clock()) == []
 
 
-def test_ban_exempt_is_local_minus_cgnat():
+def test_ban_exempt_is_local_minus_the_tailnet():
     from app.net import local_address
 
     for address, banned in RANGES:
@@ -575,8 +587,24 @@ def test_ban_exempt_is_local_minus_cgnat():
     assert local_address.is_ban_exempt("100.128.0.0") is False  # public
     assert local_address.is_ban_exempt(None) is False
     assert local_address.is_ban_exempt("garbage") is False
-    # The login-free gate still reads CGNAT as local.
+    # The login-free gate still reads the tailnet as local.
     assert ip_ban.is_local(canonical_address("100.100.1.2"))
+    assert ip_ban.is_local(canonical_address("fd7a:115c:a1e0::1"))
+    assert local_address.is_local("fd7a:115c:a1e0::1")
+
+
+def test_the_settings_bounds_hold_without_the_router():
+    """The model itself refuses an out-of-range duration (MSHL-434)."""
+    from pydantic import ValidationError
+
+    from app.auth.models import AuthSettings
+
+    for field in ("ip_ban_duration_minutes", "ip_ban_max_duration_minutes"):
+        assert getattr(AuthSettings(**{field: 43200}), field) == 43200
+        with pytest.raises(ValidationError):
+            AuthSettings(**{field: 43201})
+        with pytest.raises(ValidationError):
+            AuthSettings(**{field: 0})
 
 
 @pytest.mark.usefixtures("test_db")
@@ -663,6 +691,14 @@ class TestEscalation:
         await self._ban_once(clock)
         clock.now += STRIKE_MEMORY_S - 2
         assert (await self._ban_once(clock)).strikes == 2
+
+    async def test_at_the_memory_boundary_it_has_faded(self, clock):
+        from app.repository.ip_ban import STRIKE_MEMORY_S
+
+        await _strict()
+        await self._ban_once(clock)  # now == expires_at + 1
+        clock.now += STRIKE_MEMORY_S - 1  # now == expires_at + STRIKE_MEMORY_S
+        assert (await self._ban_once(clock)).strikes == 1
 
     async def test_an_unban_forgets_the_strikes(self, clock):
         await _strict()
@@ -854,7 +890,9 @@ IF_INET6 = (
     "fe800000000000000211223344556677 02 40 20 80 eth0",  # link-local
     "00000000000000000000000000000001 01 80 10 80 lo",  # loopback
     "2a010e0a00ff00000000000000000001 03 20 00 00 wan0",  # /32: too wide for a LAN
-    "20010db8000000000000000000000001 04 40 00 00 doc0",  # documentation: not global
+    "fd000000000000000000000000000001 04 40 00 00 ula0",  # ULA: local
+    "fd7a115ca1e000000000000000000001 04 40 00 00 ts0",  # Tailscale: local
+    "2a010e0a001290000000000000000001 08 ff 00 00 bad0",  # length past /128: skipped
 )
 
 
@@ -961,7 +999,7 @@ IPV6_ROUTE = (
     _route("2a010e0a00cf00000000000000000000", "40", "00000201", "eth0"),  # reject
     _route("2a010e0a00123460000000000000beef", "80", "80200001", "lo"),  # the host's own: lo
     _route("2a010e0a001234600000000000000000", "40", "00040000", "eth0"),  # not up
-    _route("20010db8000000000000000000000000", "40", "00000001", "eth0"),  # not global
+    _route("fd000000000000000000000000000000", "40", "00000001", "eth0"),  # ULA: local
     _route(_Z, "00", "00000003", "eth0", hop="fe800000000000000000000000000001"),  # default
 )
 
@@ -1082,10 +1120,15 @@ DHCP_HOST = ip_ban.HostAddress(canonical_address("2a01:e0a:12:3460::beef"), 128,
         (_route(LAN_ROUTE, "30", "00040001", "eth0"), DHCP_HOST, False),  # a /48
         (_route(LAN_ROUTE, "81", "00040001", "eth0"), DHCP_HOST, False),  # past /128
         (
-            _route("20010db8000000000000000000000000", "40", "00040001", "eth0"),
-            DHCP_HOST._replace(address=canonical_address("2001:db8::beef")),
+            _route("fd000000000000000000000000000000", "40", "00040001", "eth0"),
+            DHCP_HOST._replace(address=canonical_address("fd00::beef")),
             False,
-        ),  # not global
+        ),  # ULA: local
+        (
+            _route("fd7a115ca1e000000000000000000000", "40", "00040001", "eth0"),
+            DHCP_HOST._replace(address=canonical_address("fd7a:115c:a1e0::beef")),
+            False,
+        ),  # Tailscale: local
         (_route(LAN_ROUTE, "040", "00040001", "eth0"), DHCP_HOST, False),  # a 3-digit length
         (_route(LAN_ROUTE[1:], "40", "00040001", "eth0"), DHCP_HOST, False),  # 31 digits
         (_route("0" + LAN_ROUTE, "40", "00040001", "eth0"), DHCP_HOST, False),  # 33 digits
