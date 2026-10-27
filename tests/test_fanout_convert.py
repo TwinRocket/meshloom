@@ -4,7 +4,10 @@ the disabled row, duplicate detection, and URLs that never leave the secret stor
 
 import ipaddress
 import logging
+import re
 import socket
+import types
+import uuid
 
 import pytest
 
@@ -61,6 +64,16 @@ async def _row(urls=JSON_URL, scope=None, enabled=True, **config):
     )
 
 
+async def _row_with_id(config_id, urls=JSON_URL):
+    return await FanoutConfigRepository.create(
+        "apprise",
+        "Alerts",
+        {"urls": urls},
+        {"messages": "all", "raw_packets": "none"},
+        config_id=config_id,
+    )
+
+
 def _no_secret(text: str) -> None:
     for secret in SECRETS:
         assert secret not in text
@@ -72,29 +85,20 @@ async def _channel(client, channel_id):
     return response.json()
 
 
-# Keys whose values are ids the server generates (``apprise-<8 random hex>``).
-_GENERATED_ID_KEYS = {"id", "converted_to"}
-
-
-def _walk_strings(value, key=None):
-    """Yield ``(text, is_generated_id)`` for every key and value of a JSON payload."""
+def _walk_strings(value):
     if isinstance(value, dict):
-        for k, item in value.items():
-            yield str(k), False
-            yield from _walk_strings(item, k)
+        for key, item in value.items():
+            yield str(key)
+            yield from _walk_strings(item)
     elif isinstance(value, list):
         for item in value:
-            yield from _walk_strings(item, key)
+            yield from _walk_strings(item)
     elif value is not None:
-        yield str(value), key in _GENERATED_ID_KEYS
+        yield str(value)
 
 
 def _assert_no_url_or_secret(payload, urls) -> None:
-    """No secret part, no URL (whole or with its scheme) and no ``config`` anywhere.
-
-    A generated id is random hex, so a short secret part (``1001``, a chat id) can occur in
-    it by chance: ids are only checked against the needles too long to match by chance
-    (a leaked URL or token would still hit those, and ``://``)."""
+    """No secret part, no URL (whole or with its scheme) and no ``config`` anywhere."""
     from app.net.apprise_urls import url_secret_parts
 
     needles = set(SECRETS)
@@ -102,11 +106,9 @@ def _assert_no_url_or_secret(payload, urls) -> None:
         needles.add(url)
         needles.add(url.split("://", 1)[1])
         needles.update(p for p in url_secret_parts(url) if len(p) >= 4)
-    for text, generated_id in _walk_strings(payload):
+    for text in _walk_strings(payload):
         assert "://" not in text, text
         for needle in needles:
-            if generated_id and len(needle) < 8:
-                continue
             assert needle not in text, needle
     assert "config" not in list(_walk_keys(payload))
 
@@ -301,14 +303,24 @@ async def test_backup_round_trips_the_converted_row(test_db, client):
 
 
 @pytest.mark.parametrize("urls", [JSON_URL, TELEGRAM, f"{JSON_URL}\n{TELEGRAM}"])
-async def test_convert_response_has_no_config_and_no_url(test_db, client, urls):
-    row = await _row(urls=urls)
+async def test_convert_response_has_no_config_and_no_url(test_db, client, monkeypatch, urls):
+    # Generated ids are random hex, which can contain a short secret part such as the chat
+    # id ``1001`` (MSHL-433): fix them to digit-free values so the no-leak scan is exact and
+    # needs no exemption.
+    monkeypatch.setattr(
+        "app.notifications.fanout_convert.uuid",
+        types.SimpleNamespace(uuid4=lambda: uuid.UUID("abcdefab-cdef-4abc-8def-abcdefabcdef")),
+    )
+    row = await _row_with_id("fanout-row-x", urls=urls)
     for _ in range(2):  # the first conversion, then the already-converted answer
         response = await client.post(CONVERT.format(row["id"]))
         assert response.status_code == 200, response.text
         body = response.json()
         assert set(body["channel"]) == {"id", "name", "type", "preset", "enabled"}
         assert set(body["fanout"]) == {"id", "name", "type", "enabled", "converted_to"}
+        assert body["fanout"]["id"] == "fanout-row-x"
+        assert re.fullmatch(r"[a-z]+-abcdefab", body["channel"]["id"]), body["channel"]["id"]
+        assert body["fanout"]["converted_to"] == body["channel"]["id"]
         _assert_no_url_or_secret(body, urls.split("\n"))
 
 
