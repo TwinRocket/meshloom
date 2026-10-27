@@ -265,3 +265,146 @@ async def test_the_setup_retry_issues_a_code_when_none_is_stored(monkeypatch):
         assert len(issued) == 1
         response = await client.post("/api/auth/setup", json=_setup_body(setup_code=issued[0]))
         assert response.status_code == 200, response.text
+
+
+# --- Exposed first run (MSHL-424) --------------------------------------------------
+
+PUBLIC = ("8.8.8.8", 40000)
+
+
+@pytest.fixture(autouse=True)
+def _app_imported():
+    """Importing app.main configures logging, which replaces the root handlers:
+    do it before a test captures the code logged during a request."""
+    import app.main  # noqa: F401
+
+
+async def _fresh() -> None:
+    await setup_code.prepare_first_run(
+        existing_database=False, basic_username="", basic_password=""
+    )
+
+
+def _logged_code(caplog) -> str:
+    [line] = [r.getMessage() for r in caplog.records if "installation code" in r.getMessage()]
+    return re.search(r"\b(\d{8})\b", line).group(1)
+
+
+async def test_a_public_peer_on_a_fresh_database_needs_the_logged_code(caplog):
+    await _fresh()
+    with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):
+        async with make_client(client=PUBLIC) as client:
+            session = (await client.get("/api/auth/session")).json()
+            assert session["setup_code_required"] is True
+            code = _logged_code(caplog)
+
+            for body in (
+                _setup_body(),
+                _setup_body(setup_code="00000000" if code != "00000000" else "1"),
+            ):
+                refused = await client.post("/api/auth/setup", json=body)
+                assert refused.status_code == 403
+                assert _code(refused) == "auth_setup_code_invalid"
+            assert await UserRepository.list_all() == []
+
+            ok = await client.post("/api/auth/setup", json=_setup_body(setup_code=code))
+            assert ok.status_code == 200, ok.text
+    assert not (await AuthSettingsRepository.get()).setup_code_set
+
+
+async def test_a_public_setup_without_a_session_call_is_refused_and_issues_a_code(caplog):
+    await _fresh()
+    with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):
+        async with make_client(client=PUBLIC) as client:
+            refused = await client.post("/api/auth/setup", json=_setup_body())
+    assert refused.status_code == 403
+    assert _code(refused) == "auth_setup_code_invalid"
+    assert _logged_code(caplog)
+    assert (await AuthSettingsRepository.get()).setup_code_set
+
+
+async def test_the_lan_owner_is_not_blocked_after_an_internet_visitor():
+    await _fresh()
+    async with make_client(client=PUBLIC) as client:
+        assert (await client.get("/api/auth/session")).json()["setup_code_required"] is True
+    async with make_client(client=("192.168.1.10", 40000)) as client:
+        assert (await client.get("/api/auth/session")).json()["setup_code_required"] is False
+        response = await client.post("/api/auth/setup", json=_setup_body())
+        assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["127.0.0.1", "192.168.1.10", "10.1.2.3", "172.17.0.1", "100.64.0.7", "fd00::1", "::1"],
+)
+async def test_local_peers_set_up_without_a_code(address, caplog):
+    await _fresh()
+    with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):
+        async with make_client(client=(address, 40000)) as client:
+            session = (await client.get("/api/auth/session")).json()
+            assert session["setup_code_required"] is False
+            response = await client.post("/api/auth/setup", json=_setup_body())
+            assert response.status_code == 200, response.text
+    assert not any("installation code" in r.getMessage() for r in caplog.records)
+
+
+async def test_forwarded_headers_from_an_undeclared_proxy_need_the_code():
+    await _fresh()
+    headers = {"X-Forwarded-For": "192.168.1.20"}
+    async with make_client(client=("192.168.1.2", 40000)) as client:
+        session = (await client.get("/api/auth/session", headers=headers)).json()
+        assert session["setup_code_required"] is True
+        refused = await client.post("/api/auth/setup", json=_setup_body(), headers=headers)
+        assert refused.status_code == 403
+        assert _code(refused) == "auth_setup_code_invalid"
+
+
+@pytest.mark.parametrize(("forwarded", "required"), [("192.168.1.20", False), ("8.8.4.4", True)])
+async def test_a_declared_proxy_is_judged_by_the_client_it_forwards(forwarded, required):
+    await AuthSettingsRepository.update(trusted_proxies=["192.168.1.2/32"])
+    await _fresh()
+    headers = {"X-Forwarded-For": forwarded}
+    async with make_client(client=("192.168.1.2", 40000)) as client:
+        session = (await client.get("/api/auth/session", headers=headers)).json()
+        assert session["setup_code_required"] is required
+        response = await client.post("/api/auth/setup", json=_setup_body(), headers=headers)
+        if required:
+            assert response.status_code == 403
+            assert _code(response) == "auth_setup_code_invalid"
+        else:
+            assert response.status_code == 200, response.text
+
+
+async def test_a_declared_public_url_requires_the_code_from_the_lan_too():
+    await AuthSettingsRepository.update(public_urls=["https://mesh.example.com"])
+    await _fresh()
+    async with make_client(client=("192.168.1.10", 40000)) as client:
+        assert (await client.get("/api/auth/session")).json()["setup_code_required"] is True
+        refused = await client.post("/api/auth/setup", json=_setup_body())
+        assert refused.status_code == 403
+
+
+async def test_a_cli_code_is_required_from_the_lan_even_after_an_exposure_code():
+    await _fresh()
+    async with make_client(client=PUBLIC) as client:
+        await client.get("/api/auth/session")
+    cli_code = await setup_code.issue_setup_code()
+    async with make_client(client=("192.168.1.10", 40000)) as client:
+        assert (await client.get("/api/auth/session")).json()["setup_code_required"] is True
+        refused = await client.post("/api/auth/setup", json=_setup_body())
+        assert refused.status_code == 403
+        ok = await client.post("/api/auth/setup", json=_setup_body(setup_code=cli_code))
+        assert ok.status_code == 200, ok.text
+
+
+async def test_an_existing_database_without_a_code_stays_closed_to_public_peers(caplog):
+    await setup_code.prepare_first_run(existing_database=True, basic_username="", basic_password="")
+    await setup_code.clear_setup_code()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="app.auth.setup_code"):
+        async with make_client(client=PUBLIC) as client:
+            assert (await client.get("/api/auth/session")).json()["setup_code_required"] is True
+            response = await client.post("/api/auth/setup", json=_setup_body())
+    assert response.status_code == 503
+    assert not any("installation code" in r.getMessage() for r in caplog.records)
+    assert not (await AuthSettingsRepository.get()).setup_code_set

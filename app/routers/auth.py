@@ -64,6 +64,8 @@ from app.auth.setup_code import (
     SetupUnavailable,
     check_setup_code,
     clear_setup_code,
+    ensure_exposure_code,
+    request_exposed,
     setup_code_required,
 )
 from app.middleware import host_guard
@@ -334,10 +336,15 @@ async def _session_payload(
     Assistant's: no password form (no cookie could keep its session)."""
     setup_required = not await UserRepository.any_exist()
     under_ingress = via == "ingress"
+    exposed = False
+    if setup_required:
+        exposed = await request_exposed(request.scope)
+        if exposed:
+            await ensure_exposure_code()
     payload = AuthSessionResponse(
         authenticated=principal is not None,
         setup_required=setup_required,
-        setup_code_required=setup_required and await setup_code_required(),
+        setup_code_required=setup_required and await setup_code_required(exposed),
         methods=AuthMethods(
             password=not under_ingress,
             ingress=under_ingress,
@@ -516,7 +523,7 @@ async def setup(body: SetupRequest, request: Request, response: Response) -> Aut
             raise _error(409, "auth_setup_done")
         code = body.setup_code.get_secret_value() if body.setup_code else None
         try:
-            code_ok = await check_setup_code(code)
+            code_ok = await check_setup_code(code, await request_exposed(request.scope))
         except SetupUnavailable:
             await audit.record_request(
                 request, "setup", "error", details={"reason": "setup_unavailable"}
@@ -907,6 +914,24 @@ class AuthSettingsView(BaseModel):
             "enrolment routes until they enrol. Off by default; never applies under ingress."
         )
     )
+    addresses_identify_clients: bool = Field(
+        description=(
+            "The TCP peer is the client even on a Docker install without a trusted proxy, "
+            "so the per-address login delays apply there. Off by default."
+        )
+    )
+    shared_address_install: bool = Field(
+        description=(
+            "Read-only. A Docker install (compose or container): without a trusted proxy or "
+            "addresses_identify_clients, every client may count as the Docker gateway."
+        )
+    )
+    client_public: bool = Field(
+        description=(
+            "Read-only. The address this request came from is a public one: the clients "
+            "reach Meshloom with their own address, so addresses_identify_clients is proposed."
+        )
+    )
 
 
 class TrustedNetworkRuleIn(BaseModel):
@@ -929,6 +954,7 @@ class AuthSettingsPatch(BaseModel):
     public_urls: list[str] | None = Field(default=None, max_length=host_guard.MAX_PUBLIC_URLS * 4)
     host_guard_mode: HostGuardMode | None = None
     require_2fa_for_admins: bool | None = None
+    addresses_identify_clients: bool | None = None
 
 
 def _plugins_isolation_reduced() -> bool:
@@ -970,7 +996,7 @@ async def _security_notices(settings: AuthSettings) -> list[SecurityNotice]:
     return notices
 
 
-async def _settings_view(settings: AuthSettings) -> AuthSettingsView:
+async def _settings_view(settings: AuthSettings, request: Request) -> AuthSettingsView:
     return AuthSettingsView(
         trusted_proxies=settings.trusted_proxies,
         trusted_networks=[
@@ -985,6 +1011,9 @@ async def _settings_view(settings: AuthSettings) -> AuthSettingsView:
         rejected_hosts=host_guard.rejected_hosts(),
         security_notices=await _security_notices(settings),
         require_2fa_for_admins=settings.require_2fa_for_admins,
+        addresses_identify_clients=settings.addresses_identify_clients,
+        shared_address_install=ratelimit.shared_address_install(),
+        client_public=ratelimit.client_is_public(request.scope),
     )
 
 
@@ -1032,9 +1061,9 @@ async def _check_rules(
 
 
 @router.get("/settings", response_model=AuthSettingsView, dependencies=[Depends(require("admin"))])
-async def get_auth_settings() -> AuthSettingsView:
+async def get_auth_settings(request: Request) -> AuthSettingsView:
     """The access settings."""
-    return await _settings_view(await AuthSettingsRepository.get())
+    return await _settings_view(await AuthSettingsRepository.get(), request)
 
 
 @router.patch(
@@ -1086,6 +1115,7 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
         public_urls=public_urls,
         host_guard_mode=body.host_guard_mode,
         require_2fa_for_admins=body.require_2fa_for_admins,
+        addresses_identify_clients=body.addresses_identify_clients,
     )
     if trusted_proxies is not None:
         logger.info("Trusted proxies updated: %d entries", len(trusted_proxies))
@@ -1157,7 +1187,15 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
             target="auth_settings.require_2fa_for_admins",
             details={"require_2fa_for_admins": settings.require_2fa_for_admins},
         )
-    return await _settings_view(settings)
+    if body.addresses_identify_clients is not None:
+        await audit.record_request(
+            request,
+            "settings.changed",
+            "success",
+            target="auth_settings.addresses_identify_clients",
+            details={"addresses_identify_clients": settings.addresses_identify_clients},
+        )
+    return await _settings_view(settings, request)
 
 
 # --- Users (admin) ----------------------------------------------------------------
