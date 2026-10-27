@@ -35,7 +35,11 @@ Supervisor's own address, whatever the proxy list says.
 
 The list is kept in memory like the allowed origins: ``load()`` fills it at
 startup and ``AuthSettingsRepository.update()`` calls ``apply()`` after every
-write. Nothing here imports the app at load time.
+write. Nothing here imports the app at load time. The same load keeps
+``auth_settings.addresses_identify_clients`` (``addresses_identify_clients()``):
+the admin's statement that the TCP peer is the client even on a Docker install
+without a trusted proxy, read by the login delays (``app/auth/ratelimit.py``,
+"Shared addresses").
 """
 
 from __future__ import annotations
@@ -59,6 +63,7 @@ MAX_TRUSTED_PROXIES = 32
 PEER_STATE_KEY = "peer"
 
 _current: tuple[str, ...] = ()
+_addresses_identify_clients = False
 
 
 # The widest network accepted: anything wider trusts whole swaths of clients
@@ -142,10 +147,16 @@ def current() -> tuple[str, ...]:
     return _current
 
 
+def addresses_identify_clients() -> bool:
+    """``auth_settings.addresses_identify_clients`` as last read from the database."""
+    return _addresses_identify_clients
+
+
 def apply(auth_settings: AuthSettings) -> tuple[str, ...]:
     """Replace the in-memory list with the valid ``trusted_proxies``."""
-    global _current
+    global _current, _addresses_identify_clients
     _current = valid_stored_proxies(auth_settings.trusted_proxies)
+    _addresses_identify_clients = auth_settings.addresses_identify_clients
     return _current
 
 
@@ -158,8 +169,9 @@ async def load() -> tuple[str, ...]:
 
 def reset() -> None:
     """Back to no trusted proxy (tests, and a fresh process)."""
-    global _current
+    global _current, _addresses_identify_clients
     _current = ()
+    _addresses_identify_clients = False
 
 
 def peer_address(scope: Mapping[str, Any]) -> str | None:

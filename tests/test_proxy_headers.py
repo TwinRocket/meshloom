@@ -315,6 +315,9 @@ class TestSettingsRoute:
             "host_guard_mode": "observe",
             "security_notices": [],
             "require_2fa_for_admins": False,
+            "addresses_identify_clients": False,
+            "shared_address_install": body["shared_address_install"],
+            "client_public": False,
         }
         response = await client.patch(
             "/api/auth/settings", json={"trusted_proxies": [" 10.0.0.1 ", "fd00:1::/64", ""]}
@@ -325,6 +328,31 @@ class TestSettingsRoute:
         rows = await AuthAuditRepository.list_recent(limit=1)
         assert rows[0].action == "settings.changed"
         assert rows[0].target == "auth_settings.trusted_proxies"
+
+    async def test_addresses_identify_clients_is_saved_applied_and_audited(self, client):
+        response = await client.patch(
+            "/api/auth/settings", json={"addresses_identify_clients": True}
+        )
+        assert response.status_code == 200
+        assert response.json()["addresses_identify_clients"] is True
+        assert proxy_headers.addresses_identify_clients() is True
+        assert (await AuthSettingsRepository.get()).addresses_identify_clients is True
+        rows = await AuthAuditRepository.list_recent(limit=1)
+        assert rows[0].action == "settings.changed"
+        assert rows[0].target == "auth_settings.addresses_identify_clients"
+
+    @pytest.mark.parametrize(("kind", "shared"), [("compose", True), ("package", False)])
+    async def test_the_view_reports_a_public_client_and_the_install_kind(
+        self, monkeypatch, kind, shared
+    ):
+        from app.auth import ratelimit
+        from tests.auth_helpers import make_client
+
+        monkeypatch.setattr(ratelimit, "_detect_install_kind", lambda: kind)
+        async with make_client(client=("8.8.8.8", 40000)) as public:
+            body = (await public.get("/api/auth/settings")).json()
+        assert body["client_public"] is True
+        assert body["shared_address_install"] is shared
 
     @pytest.mark.parametrize("value", [["0.0.0.0/0"], ["proxy.lan"], ["10.0.0.0/33"]])
     async def test_invalid_entries_are_refused(self, client, value):

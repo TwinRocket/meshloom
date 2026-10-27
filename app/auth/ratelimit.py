@@ -32,10 +32,14 @@ whole /64 and could rotate inside it). Usernames are compared by
 **Shared addresses.** The pair and per-IP rules apply only when the address
 identifies a client. ``address_key()`` returns None, and only the username
 rule applies, when the configuration says clients share one address: the
-install kind is ``compose`` or ``container`` and no trusted proxy is set
-(``auth_settings.trusted_proxies``, read live), since behind Docker's userland
-proxy every client may arrive from the gateway address. Request headers never
-decide it: ``X-Forwarded-For`` (or ``X-Real-IP``, ``Forwarded``) from a peer
+install kind is ``compose`` or ``container``, no trusted proxy is set
+(``auth_settings.trusted_proxies``, read live) and the admin has not stated
+that addresses identify clients (``auth_settings.addresses_identify_clients``,
+Settings → Users & Access, read live), since behind Docker's userland proxy
+every client may arrive from the gateway address. Docker's default port
+publishing keeps the client's address, so the Access panel proposes that
+setting when the admin's own request comes from a public address
+(``client_is_public()``). Request headers never decide it: ``X-Forwarded-For`` (or ``X-Real-IP``, ``Forwarded``) from a peer
 that is not a trusted proxy is ignored, the peer is the client, and the admin
 gets a log line (once per peer) pointing to the Trusted proxies setting.
 
@@ -223,6 +227,25 @@ def _trusted_proxies_set() -> bool:
     return bool(proxy_headers.current())
 
 
+def _addresses_identify_clients() -> bool:
+    from app.middleware import proxy_headers
+
+    return proxy_headers.addresses_identify_clients()
+
+
+def shared_address_install() -> bool:
+    """Whether this install kind may see every client as the Docker gateway."""
+    return _detect_install_kind() in _SHARED_ADDRESS_KINDS
+
+
+def client_is_public(scope: Mapping[str, Any]) -> bool:
+    """Whether the request's client address (after a trusted proxy's rewrite) is a
+    global one. An address that does not parse counts as public (fail closed)."""
+    client = scope.get("client")
+    address = _parse_address(client[0] if client else None)
+    return address is None or address.is_global
+
+
 class LoginLimiter:
     """The three rules of the module docstring. One instance per process: ``login_limiter``."""
 
@@ -231,11 +254,13 @@ class LoginLimiter:
         clock: Callable[[], float] = time.monotonic,
         install_kind: Callable[[], str] = _detect_install_kind,
         trusted_proxies_set: Callable[[], bool] = _trusted_proxies_set,
+        addresses_identify_clients: Callable[[], bool] = _addresses_identify_clients,
     ) -> None:
         self._clock = clock
         self._install_kind_fn = install_kind
         self._install_kind: str | None = None
         self._trusted_proxies_set = trusted_proxies_set
+        self._addresses_identify_clients = addresses_identify_clients
         self._pairs: dict[tuple[str, str], _Counter] = {}
         self._names: dict[str, _Counter] = {}
         self._ips: dict[str, _FailureWindow] = {}
@@ -244,10 +269,15 @@ class LoginLimiter:
         self._last_sweep = clock()
 
     def address_rules_active(self) -> bool:
-        """False behind Docker without a trusted proxy: every client may share the gateway address."""
+        """False behind Docker without a trusted proxy, unless the admin stated that
+        addresses identify clients: every client may share the gateway address."""
         if self._install_kind is None:
             self._install_kind = self._install_kind_fn()
-        return self._install_kind not in _SHARED_ADDRESS_KINDS or self._trusted_proxies_set()
+        return (
+            self._install_kind not in _SHARED_ADDRESS_KINDS
+            or self._trusted_proxies_set()
+            or self._addresses_identify_clients()
+        )
 
     def address_key(self, scope: Mapping[str, Any]) -> str | None:
         """The client's address key for the pair and per-IP rules, or None when the

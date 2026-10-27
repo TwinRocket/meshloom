@@ -195,6 +195,58 @@ async def test_docker_with_a_trusted_proxy_keys_the_forwarded_client(kind):
         limiter.check(address, "someone-new")
 
 
+@pytest.mark.parametrize("kind", ["compose", "container"])
+async def test_docker_with_addresses_identifying_clients_applies_the_ip_rule(kind):
+    """MSHL-424: the owner states that the peer address is the client's own."""
+    clock = FakeClock()
+    limiter = LoginLimiter(
+        clock=clock,
+        install_kind=lambda: kind,
+        trusted_proxies_set=lambda: False,
+        addresses_identify_clients=lambda: True,
+    )
+    address = limiter.address_key(scope("203.0.113.9"))
+    assert address == "203.0.113.9"
+    await _hundred_failures(limiter, address)
+    with pytest.raises(LoginDelayed):
+        limiter.check(address, "someone-new")
+
+
+def test_the_addresses_identify_clients_setting_is_read_live():
+    proxy_headers.reset()
+    limiter = LoginLimiter(install_kind=lambda: "compose")
+    assert not limiter.address_rules_active()
+    proxy_headers.apply(AuthSettings(addresses_identify_clients=True))
+    try:
+        assert limiter.address_rules_active()
+    finally:
+        proxy_headers.reset()
+    assert not limiter.address_rules_active()
+
+
+@pytest.mark.parametrize(
+    ("address", "public"),
+    [
+        ("8.8.8.8", True),
+        ("2001:4860:4860::8888", True),
+        ("192.168.1.10", False),
+        ("10.0.0.1", False),
+        ("172.17.0.1", False),
+        ("100.64.0.1", False),
+        ("127.0.0.1", False),
+        ("fd00::1", False),
+        ("fe80::1", False),
+        ("not-an-address", True),
+    ],
+)
+def test_client_is_public(address, public):
+    assert ratelimit.client_is_public(scope(address)) is public
+
+
+def test_a_scope_without_a_client_counts_as_public():
+    assert ratelimit.client_is_public({"type": "http", "headers": []}) is True
+
+
 async def test_a_slow_guesser_on_the_docker_gateway_never_locks_the_owner_out():
     """Review r1 scenario: compose, no trusted proxy, one wrong guess a minute from
     the gateway for an hour. The owner, on the same address and without a known
@@ -713,3 +765,30 @@ async def test_route_known_device_with_a_wrong_password_is_refused_and_counted(c
                 await owner.post("/api/auth/login", json=_login(ADMIN, "wrong password"))
             ).status_code == 401
         assert not ratelimit.login_limiter.known_device_trusted(cookie.device_id)
+
+
+@pytest.mark.real_auth
+@pytest.mark.usefixtures("test_db", "fast_argon2")
+async def test_route_applies_the_ip_rule_under_docker_once_addresses_identify_clients(
+    monkeypatch, hash_calls
+):
+    clock = FakeClock()
+    limiter = LoginLimiter(
+        clock=clock, install_kind=lambda: "compose", trusted_proxies_set=lambda: False
+    )
+    monkeypatch.setattr(ratelimit, "login_limiter", limiter)
+    for n in range(IP_MAX_FAILURES):
+        await limiter.record_failure("127.0.0.1", f"user{n}")
+    async with make_client() as client:
+        # Off (the default): the shared Docker address carries no per-IP rule.
+        first = await client.post("/api/auth/login", json=_login("someone", "x"))
+        assert first.status_code == 401
+        proxy_headers.apply(AuthSettings(addresses_identify_clients=True))
+        try:
+            for n in range(IP_MAX_FAILURES):
+                await limiter.record_failure("127.0.0.1", f"user{n}")
+            refused = await client.post("/api/auth/login", json=_login("someone", "x"))
+        finally:
+            proxy_headers.reset()
+    assert refused.status_code == 429
+    assert refused.json()["detail"]["params"]["retry_after"] > 0
