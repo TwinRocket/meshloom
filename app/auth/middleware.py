@@ -37,6 +37,9 @@ scope it:
 ``Authorization: Basic`` never signs in an account whose second factor is on:
 the header carries no code (``auth_invalid_credentials``).
 
+A bearer token or a Basic credential that does not check writes one
+``AUTH_FAIL`` line (``app/auth/fail_log.py``, ``docs/dev/auth-fail-log.md``).
+
 Which role may call which route is the permission registry's decision
 (``app/auth/permissions.py``), once a principal is known. The other paths
 outside ``/api`` (the frontend) stay public: the login page must load.
@@ -61,6 +64,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app import origin_policy
 from app.auth import sessions
+from app.auth.fail_log import log_auth_failure
 from app.auth.principal import Principal, Via, set_principal
 from app.auth.providers import ingress, trusted_network
 from app.auth.providers import token as token_provider
@@ -276,6 +280,7 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
             )
             if principal is None:
                 result.credential_failed = True
+                log_auth_failure(scope, "bearer", "invalid_token")
             result.principal = principal
             return result
         if scheme == "basic":
@@ -291,6 +296,12 @@ async def resolve(scope: Scope, headers: Headers, via: Via, secure: bool) -> _Re
                 # Basic carries no second factor: an account with one never
                 # signs in this way.
                 result.credential_failed = True
+                log_auth_failure(
+                    scope,
+                    "basic",
+                    "invalid_credentials",
+                    username=credentials.username if credentials else None,
+                )
                 return result
             result.principal = Principal(user=user, via=via, credential="basic")
             return result

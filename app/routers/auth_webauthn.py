@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from app.auth import audit, ratelimit, totp, webauthn
+from app.auth.fail_log import log_auth_failure
 from app.auth.middleware import client_ip
 from app.auth.models import User
 from app.auth.passwords import MAX_PASSWORD_LENGTH
@@ -320,6 +321,12 @@ async def _pending_user(request: Request, token: str) -> User:
         or user.updated_at != entry.generation
         or not hmac.compare_digest(_client(request), entry.client)
     ):
+        log_auth_failure(
+            request.scope,
+            "login_2fa",
+            "pending_invalid",
+            username=user.username if user is not None else None,
+        )
         raise _error(401, "auth_2fa_pending_invalid")
     return user
 
@@ -469,12 +476,14 @@ async def login_verify(
         await audit.record_request(
             request, "login", "failure", details={"reason": f"passkey_{exc.reason}"}
         )
+        log_auth_failure(request.scope, "passkey", "bad_passkey")
         raise _error(401, "auth_passkey_invalid") from None
     try:
         user, passkey = await check_assertion(
             request, rp, body.credential, ceremony, require_user_verification=True
         )
     except webauthn.PasskeyInvalid:
+        log_auth_failure(request.scope, "passkey", "bad_passkey")
         raise _error(401, "auth_passkey_invalid") from None
     except ratelimit.LoginDelayed as delayed:
         raise _rate_limited(delayed.retry_after_s) from None

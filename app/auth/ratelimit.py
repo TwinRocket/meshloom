@@ -201,6 +201,16 @@ def _is_trusted_proxy(peer: str | None, proxies: tuple[str, ...]) -> bool:
     return address is not None and any(address in ipaddress.ip_network(proxy) for proxy in proxies)
 
 
+def forwarded_by_untrusted_peer(scope: Mapping[str, Any]) -> bool:
+    """Forwarding headers from a peer that is not a trusted proxy: the headers are
+    ignored, and the client address is that proxy, shared by everyone behind it."""
+    from app.middleware import proxy_headers
+
+    return _carries_forwarding_headers(scope) and not _is_trusted_proxy(
+        proxy_headers.peer_address(scope), proxy_headers.current()
+    )
+
+
 def client_address_key(raw: str) -> str:
     """IPv4 by address, IPv6 by its /64: one host gets a whole /64 to rotate in."""
     address = _parse_address(raw)
@@ -259,12 +269,9 @@ class LoginLimiter:
         client = scope.get("client")
         if not client or not client[0]:
             return None
-        peer = proxy_headers.peer_address(scope)
-        if _carries_forwarding_headers(scope) and not _is_trusted_proxy(
-            peer, proxy_headers.current()
-        ):
+        if forwarded_by_untrusted_peer(scope):
             # The headers are ignored (the peer is the client): only the admin is told.
-            self._hint_untrusted_proxy(peer)
+            self._hint_untrusted_proxy(proxy_headers.peer_address(scope))
         return client_address_key(client[0])
 
     def _hint_untrusted_proxy(self, peer: str | None) -> None:

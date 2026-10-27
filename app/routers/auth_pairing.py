@@ -31,6 +31,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from app.auth import audit, pairing, ratelimit
+from app.auth.fail_log import log_auth_failure
 from app.auth.models import PairingCode
 from app.auth.permissions import FORBIDDEN_CODE, Permission, own_account, public
 from app.auth.principal import Principal, get_principal
@@ -314,6 +315,7 @@ async def pair(body: PairRequest, request: Request) -> JSONResponse:
             error = _error(409, "auth_token_limit", {"max": MAX_TOKENS_PER_USER})
         else:
             await limiter.record_failure(address, pairing.LIMIT_KEY, name_rule=False)
+            log_auth_failure(request.scope, "pair", "invalid_code")
             error = _error(410, EXPIRED_CODE)
         await audit.record_request(
             request,
