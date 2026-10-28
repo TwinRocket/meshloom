@@ -494,8 +494,70 @@ def test_the_cap_counts_utf8_bytes_and_cuts_on_a_character():
     out = _render("name %s", "\U0001f600" * 3000 + "é" * 10)  # 12 000+ bytes, 3 000 characters
     raw = out.encode("utf-8")
     assert len(raw) <= log_redaction.MAX_LINE_BYTES < DOCKER_LINE_MAX
-    assert "�" not in raw.decode("utf-8")
+    assert "\ufffd" not in raw.decode("utf-8")
     assert out.endswith(" more bytes]")
+
+
+MARKER = log_redaction.TRUNCATED_MARKER
+BUDGET = log_redaction.MAX_LINE_BYTES - log_redaction._MARKER_RESERVE
+
+
+@pytest.mark.parametrize(
+    ("char", "utf8", "cost", "count"),
+    [("é", 2, 4, 2049), ("€", 3, 6, 2048), ("\U0001f600", 4, 10, 2048)],
+    ids=["latin1", "bmp", "astral"],
+)
+def test_the_cap_holds_on_any_stream_encoding_and_counts_what_it_drops(char, utf8, cost, count):
+    # At most MAX_LINE_BYTES // 4 characters: within a fast path that counts 4
+    # bytes a character, over the cap once each is counted at its escaped form.
+    line = char * count
+    kept = BUDGET // cost
+    assert log_redaction.cap_line(line) == char * kept + MARKER.format(utf8 * (len(line) - kept))
+    out = log_redaction.cap_line(line)
+    assert log_redaction.cap_lines(line) == out
+    assert len(out.encode("utf-8")) <= log_redaction.MAX_LINE_BYTES
+    assert len(out.encode("ascii", "backslashreplace")) <= log_redaction.MAX_LINE_BYTES
+
+
+def test_the_cap_is_exact_at_its_limit():
+    fits = "\U0001f600" * (log_redaction.MAX_LINE_BYTES // 10)
+    assert log_redaction.cap_line(fits) == fits
+    assert log_redaction.cap_line(fits + "\U0001f600").endswith(" more bytes]")
+
+
+def test_lone_surrogates_are_kept_and_counted():
+    line = "\ud800" * 5000
+    kept = BUDGET // 6
+    assert log_redaction.cap_line(line) == "\ud800" * kept + MARKER.format(3 * (5000 - kept))
+    out = _render("name %s", line)
+    assert "[truncated: " in out and len(out.split(" [truncated: ")[0]) > len("name ") + 1000
+    assert len(out.encode("utf-8", "surrogatepass")) <= log_redaction.MAX_LINE_BYTES
+
+
+def test_a_secret_across_the_cut_is_redacted_before_the_line_is_cut():
+    secret = "Wifi-Pass-0123456789-abcdef"
+    prefix = len(_render("%s", "").encode())
+    message = "x" * (BUDGET - prefix - 12) + secret + "y" * 9000
+    cut_raw = log_redaction.cap_lines(_render("%s", message))  # no secret registered yet
+    with log_redaction.secret_scope(secret):
+        out = _render("%s", message)
+        # Positive control: cut first, the head keeps the start of the secret.
+        cut_first = log_redaction.redact_text(cut_raw, unanchored=True)
+    assert "[truncated: " in out and log_redaction.REDACTED in out
+    assert secret[:8] not in out
+    assert secret[:8] in cut_first and "[truncated: " in cut_first
+
+
+def test_the_frames_of_a_traceback_survive_a_long_first_line():
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        out = _render("%s", "z" * 20000, exc_info=sys.exc_info())
+    lines = out.split("\n")
+    assert lines[0].endswith(" more bytes]")
+    assert any(line.startswith("Traceback (most recent call last):") for line in lines)
+    assert any(line.lstrip().startswith('File "') for line in lines)
+    assert lines[-1] == "ValueError: boom"
 
 
 def test_every_line_of_a_traceback_is_capped():
@@ -591,6 +653,18 @@ def test_an_uncaught_exception_in_a_thread_cannot_forge_a_line(
     err = real_logging.readouterr().err
     assert "Uncaught exception in thread worker" in err
     assert "ValueError: x\\" in err and forged_matches(err) == []
+
+
+def test_a_thread_that_exits_logs_nothing(default_hooks, real_logging):
+    log_redaction.install_uncaught_handlers()
+
+    def leave():
+        raise SystemExit(3)
+
+    worker = threading.Thread(target=leave, name="worker")
+    worker.start()
+    worker.join()
+    assert "Uncaught exception" not in real_logging.readouterr().err
 
 
 def test_an_unraisable_exception_cannot_forge_a_line(default_hooks, real_logging):

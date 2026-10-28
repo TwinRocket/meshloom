@@ -24,7 +24,8 @@ Three layers, all always on:
   arguments and the exception text come out as visible escapes (``\\n``), so a
   record is always one line plus the structural lines of its traceback. See
   ``escape_control()`` and ``format_exception_safe()``. Each of those lines is
-  then capped at ``MAX_LINE_BYTES`` (MSHL-435, ``cap_lines()``): journald cuts a
+  then capped at ``MAX_LINE_BYTES`` (MSHL-435, ``cap_lines()``), counting each
+  character at its longest form on any stream encoding: journald cuts a
   line longer than its ``LineMax`` (48 KiB) into several entries, Docker at
   16 KiB, and the start of such a continuation entry is text the client chose.
 - ``install_uncaught_handlers()`` sends what Python would otherwise print raw to
@@ -148,32 +149,59 @@ def format_exception_safe(exc_info: tuple) -> str:  # type: ignore[type-arg]
     return "".join(root.format()).rstrip("\n")
 
 
-# Longest line, in UTF-8 bytes, any handler writes (MSHL-435). Well under the
-# 16 KiB at which Docker's log drivers split a line and journald's 48 KiB
-# ``LineMax``: a line split there would start a new journal entry with text the
-# client chose, such as a whole forged ``AUTH_FAIL`` line. The marker starts
-# with a space, so a cut line never ends in a ``user=<token>`` a filter could take.
+# Longest line, in bytes, any handler writes (MSHL-435). Well under the 16 KiB
+# at which Docker's log drivers split a line and journald's 48 KiB ``LineMax``:
+# a line split there would start a new journal entry with text the client
+# chose, such as a whole forged ``AUTH_FAIL`` line. The marker starts with a
+# space, so a cut line never ends in a ``user=<token>`` a filter could take.
 MAX_LINE_BYTES = 8192
 TRUNCATED_MARKER = " [truncated: {} more bytes]"
 _MARKER_RESERVE = 48  # bytes kept for the marker
+# Most bytes one character can take on the stream, whatever its encoding: UTF-8
+# takes at most 4, and a stream that cannot encode a character writes its
+# backslash escape (``\xNN``, ``\uNNNN``, ``\UNNNNNNNN``) instead.
+_MAX_CHAR_COST = 10
+
+
+def _char_cost(char: str) -> int:
+    """Worst-case bytes of ``char`` on the stream: UTF-8 or its backslash escape."""
+    code = ord(char)
+    if code < 0x80:
+        return 1
+    if code < 0x100:
+        return 4  # \xNN (UTF-8: 2)
+    if code < 0x10000:
+        return 6  # \uNNNN (UTF-8: 3, a lone surrogate included)
+    return 10  # \UNNNNNNNN (UTF-8: 4)
 
 
 def cap_line(line: str) -> str:
-    """``line``, or its head and ``TRUNCATED_MARKER`` when longer than ``MAX_LINE_BYTES``."""
-    if len(line) * 4 <= MAX_LINE_BYTES:  # UTF-8 never takes more than 4 bytes a character
+    """``line``, or its head and ``TRUNCATED_MARKER`` when it could exceed ``MAX_LINE_BYTES``.
+
+    Counted per character at its worst-case cost (``_char_cost``), so the cap
+    holds on a stream that is not UTF-8. The head is cut on a character, lone
+    surrogates included, and the marker gives the UTF-8 bytes left out.
+    """
+    if len(line) * _MAX_CHAR_COST <= MAX_LINE_BYTES:
         return line
-    raw = line.encode("utf-8", "surrogatepass")
-    if len(raw) <= MAX_LINE_BYTES:
+    budget = MAX_LINE_BYTES - _MARKER_RESERVE
+    total = 0
+    cut = None
+    for index, char in enumerate(line):
+        total += _char_cost(char)
+        if cut is None and total > budget:
+            cut = index
+        if total > MAX_LINE_BYTES:
+            break
+    if total <= MAX_LINE_BYTES or cut is None:
         return line
-    # Cut on a character boundary: an incomplete sequence at the end is dropped.
-    head = raw[: MAX_LINE_BYTES - _MARKER_RESERVE].decode("utf-8", "ignore")
-    kept = len(head.encode("utf-8", "surrogatepass"))
-    return head + TRUNCATED_MARKER.format(len(raw) - kept)
+    rest = line[cut:].encode("utf-8", "surrogatepass")
+    return line[:cut] + TRUNCATED_MARKER.format(len(rest))
 
 
 def cap_lines(text: str) -> str:
     """Every line of ``text`` through ``cap_line()``."""
-    if len(text) * 4 <= MAX_LINE_BYTES:
+    if len(text) * _MAX_CHAR_COST <= MAX_LINE_BYTES:
         return text
     return "\n".join(cap_line(line) for line in text.split("\n"))
 
