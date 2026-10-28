@@ -31,6 +31,7 @@ to this contract is a `CONTRACTS:` commit.
 | 1 | Route `basic` removed with HTTP Basic auth (MSHL-100): a `Basic` header is no credential and writes no line. |
 | 1 | `via=relay` lines pinned (MSHL-431, before the relay ships): always `proxied=0`, and `ip=-` unless the relayed client is public. Same format and fields. |
 | 1 | A tailnet peer (`100.64.0.0/10`, or Tailscale's IPv6 `fd7a:115c:a1e0::/48` inside `fc00::/7`) is no longer a local proxy (MSHL-434): with forwarding headers it writes `proxied=0` and `ip` is that peer, like a public one. A tailnet hop (Tailscale, Headscale) forwards from loopback, so a tailnet peer is a client; a reverse proxy on another tailnet device must be declared, or its lines name it and it gets banned. Same format and fields. |
+| 1 | Every log line is capped at 8 KiB (MSHL-435), so the journal or Docker never splits one into a forged entry; the shipped filter takes a journal entry only with its date. Same format and fields. |
 
 ## The record
 
@@ -91,8 +92,23 @@ shipped filter:
   escape: `\n`, `\r`, `\t` by name, `\xNN` for the other C0 and C1 characters
   and DEL, `\uNNNN` for U+2028 and U+2029. The only line breaks left in a
   record are those between the message line and the structural lines of a
-  traceback (its frames); an exception message stays on one line. A
-  handler added later must go through `install_redacting_formatter()`.
+  traceback (its frames); an exception message stays on one line. Each line
+  is then capped at `MAX_LINE_BYTES`, 8 KiB, cut on a character (a lone
+  surrogate included) and ended by ` [truncated: <n> more bytes]`, `<n>` the
+  UTF-8 bytes left out (MSHL-435). Each character counts at its longest form on
+  the stream, UTF-8 or the backslash escape a non-UTF-8 stream writes (`é` 4,
+  `€` 6, an emoji 10), so the cap holds whatever the stream's encoding; a
+  non-ASCII line is cut earlier than 8 KiB of UTF-8. journald splits a line
+  longer than its `LineMax` (48 KiB) and Docker's log drivers one longer than
+  16 KiB, and the continuation would start with text the client chose. A cut
+  `AUTH_FAIL` line never matches: the marker follows `user=`. A real one is
+  about 150 bytes. A handler added later must go through
+  `install_redacting_formatter()`. `setup_logging()` also calls
+  `install_uncaught_handlers()`: Python warnings
+  (`logging.captureWarnings(True)`), uncaught exceptions in the main thread
+  and in threads, and unraisable exceptions go through logging, and so this
+  formatter, instead of reaching standard error raw. It replaces only the
+  interpreter's default hooks; asyncio's default handler already logs.
 - **Every `AUTH_FAIL` field.** `format_line()` raises, and writes nothing, for a
   `route`, `reason` or `via` outside `[a-z0-9_]+`, or when the finished line has a
   character outside `[A-Za-z0-9_.:-]` apart from its spaces. `ip` can only be a
@@ -104,6 +120,11 @@ A consumer may therefore treat each line of the log as one record. The built-in
 ban is not fed from the log text: `fail_log` hands it the same fields in
 process, and `canonical_address()` refuses anything that is not a plain address,
 so text that reaches the log cannot add a failure to any address.
+The reverse also holds: a failure whose line cannot be written (`format_line()`
+raises on an unexpected value) still counts, since `log_auth_failure()` calls
+`note_failure()` with the fields it read whether or not the line was written.
+Only a failure whose fields cannot be read (a reason outside its route's list,
+or an error reading the request) adds nothing, and writes an error instead.
 
 ## The full line
 
@@ -127,9 +148,16 @@ packages) is this regex with two changes, which
 hold to this page and its Example below:
 
 - `ip=<ADDR>` for `(?P<host>\S+)`;
-- an optional leading `<host> <ident>[<pid>]: ` and an optional date: with the
-  systemd backend fail2ban hands the filter the journal line with the message
-  unchanged, date included; with a log file it cuts the date off before matching.
+- the start is either `<host> <ident>[<pid>]: ` followed by the date and a
+  space, or nothing or one space: with the systemd backend fail2ban hands the
+  filter the journal line with the message unchanged, date included; with a log
+  file it cuts the date off before matching. A journal entry without the date
+  never matches, which keeps out the continuation of a line the journal split
+  (the 8 KiB cap above is the main defence):
+
+  ```
+  ^(?:\S+ \S+?(?:\[\d+\])?: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} | ?)- meshloom\.auth - WARNING - AUTH_FAIL ip=<ADDR> route=\S+ reason=\S+ via=\S+ proxied=0 user=\S+$
+  ```
 
 It also needs a `datepattern` of `%%Y-%%m-%%d %%H:%%M:%%S`, local time, not the
 ISO UTC form of the scoping example. The jail reads the journal of

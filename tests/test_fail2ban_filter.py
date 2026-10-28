@@ -45,15 +45,35 @@ def _compiled() -> re.Pattern[str]:
     return re.compile(_failregex().replace("<ADDR>", r"(?P<host>\S+)"))
 
 
-def test_failregex_is_the_contract_regex_with_an_optional_date_and_prefix() -> None:
+def test_failregex_is_the_contract_regex_behind_a_journal_prefix_or_a_cut_date() -> None:
     contract = _contract_regex()
     date = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
     assert contract.startswith("^" + date + " - meshloom")
     tail = contract[len("^" + date + " ") :].replace(r"(?P<host>\S+)", "<ADDR>")
     # The whole regex, anchors included: the contract's fields, order and proxied=0
-    # ending, behind an optional journal prefix and an optional date, nothing else.
-    prefix = r"(?:\S+ \S+?(?:\[\d+\])?: )?"
-    assert _failregex() == "^" + prefix + "(?:" + date + r")?\s*" + tail
+    # ending, behind the journal prefix and the date, or (a log file, date cut off)
+    # at most the one space before the dash; nothing else (MSHL-435).
+    prefix = r"\S+ \S+?(?:\[\d+\])?: "
+    assert _failregex() == "^(?:" + prefix + date + " | ?)" + tail
+
+
+def test_failregex_takes_no_journal_entry_without_the_date() -> None:
+    """A journal entry that starts at " - meshloom.auth" is the tail of a split line."""
+    rx = _compiled()
+    line = _sample_lines()[0]
+    assert "proxied=0" in line
+    bare = line.split(" ", 2)[2]  # "- meshloom.auth - WARNING - AUTH_FAIL ..."
+    assert rx.match(SYSTEMD_PREFIX + line)
+    assert rx.match(bare) and rx.match(" " + bare)
+    for form in (
+        SYSTEMD_PREFIX + bare,
+        SYSTEMD_PREFIX + " " + bare,
+        SYSTEMD_PREFIX + "   " + bare,
+        "  " + bare,
+        "\t" + bare,
+        "x " + bare,
+    ):
+        assert rx.match(form) is None, form
 
 
 def test_failregex_matches_the_contract_samples_and_never_proxied_lines() -> None:
@@ -77,7 +97,10 @@ def test_failregex_matches_the_contract_samples_and_never_proxied_lines() -> Non
 
 def test_failregex_ignores_lines_without_an_address_or_from_another_logger() -> None:
     rx = _compiled()
-    base = "2026-10-27 10:15:02 - meshloom.auth - WARNING - AUTH_FAIL ip=%s route=login reason=x via=lan proxied=0 user=-"
+    base = (
+        SYSTEMD_PREFIX
+        + "2026-10-27 10:15:02 - meshloom.auth - WARNING - AUTH_FAIL ip=%s route=login reason=x via=lan proxied=0 user=-"
+    )
     assert rx.match(base % "203.0.113.7")
     assert rx.match(base % "2001:db8::1")
     assert rx.match((base % "203.0.113.7").replace("meshloom.auth", "meshloom.other")) is None

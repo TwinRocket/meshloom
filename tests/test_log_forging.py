@@ -11,15 +11,19 @@ turned into a Python regex, as ``tests/test_fail2ban_filter.py`` does.
 
 from __future__ import annotations
 
+import gc
 import io
 import logging
 import re
 import sys
+import threading
 import types
+import warnings
 from pathlib import Path
 
 import pytest
 
+from app import log_redaction
 from app.auth import fail_log, ip_ban
 from app.config import clear_recent_log_lines, get_recent_log_lines, setup_logging
 from app.log_redaction import (
@@ -449,3 +453,243 @@ def test_the_ban_is_fed_even_when_the_line_cannot_be_formatted(monkeypatch, capl
     assert [ip for ip, _ in seen] == ["198.51.100.20"]
     assert seen[0][1]["route"] == "bearer" and seen[0][1]["proxied"] is False
     assert not [r for r in caplog.records if r.getMessage().startswith("AUTH_FAIL ")]
+
+
+# --- Long lines: journald and Docker split them (MSHL-435) ----------------------------
+
+DOCKER_LINE_MAX = 16 * 1024  # the smallest split: Docker's log drivers; journald is 48 KiB
+
+
+def _split_like_journald(output: str, line_max: int) -> list[str]:
+    """The journal entries of ``output``: each line, cut every ``line_max`` bytes."""
+    entries: list[str] = []
+    for line in output.split("\n"):
+        raw = line.encode("utf-8", "surrogatepass")
+        for start in range(0, max(len(raw), 1), line_max):
+            entries.append(raw[start : start + line_max].decode("utf-8", "replace"))
+    return entries
+
+
+def _aligned_injection(line_max: int) -> str:
+    """A name that puts ``FORGED_LINE`` exactly at the start of the second entry."""
+    head = _render("Toggling blocked name: %s", "")
+    return "A" * (line_max - len(head.encode("utf-8"))) + FORGED_LINE
+
+
+@pytest.mark.parametrize("line_max", [48 * 1024, 16 * 1024], ids=["journald", "docker"])
+def test_a_line_long_enough_to_be_split_forges_no_entry(monkeypatch, line_max):
+    name = _aligned_injection(line_max)
+    out = _render("Toggling blocked name: %s", name)
+    assert out.endswith(" more bytes]") and "[truncated: " in out
+    assert all(len(line.encode()) < DOCKER_LINE_MAX for line in out.split("\n"))
+    entries = _split_like_journald(out, line_max)
+    assert len(entries) == 1 and forged_matches("\n".join(entries)) == []
+    # Positive control: without the cap the second entry is the forged line.
+    monkeypatch.setattr(log_redaction, "MAX_LINE_BYTES", 10**9)
+    uncapped = _split_like_journald(_render("Toggling blocked name: %s", name), line_max)
+    assert uncapped[1] == FORGED_LINE and forged_matches(uncapped[1])
+
+
+def test_the_cap_counts_utf8_bytes_and_cuts_on_a_character():
+    out = _render("name %s", "\U0001f600" * 3000 + "é" * 10)  # 12 000+ bytes, 3 000 characters
+    raw = out.encode("utf-8")
+    assert len(raw) <= log_redaction.MAX_LINE_BYTES < DOCKER_LINE_MAX
+    assert "\ufffd" not in raw.decode("utf-8")
+    assert out.endswith(" more bytes]")
+
+
+MARKER = log_redaction.TRUNCATED_MARKER
+BUDGET = log_redaction.MAX_LINE_BYTES - log_redaction._MARKER_RESERVE
+
+
+@pytest.mark.parametrize(
+    ("char", "utf8", "cost", "count"),
+    [("é", 2, 4, 2049), ("€", 3, 6, 2048), ("\U0001f600", 4, 10, 2048)],
+    ids=["latin1", "bmp", "astral"],
+)
+def test_the_cap_holds_on_any_stream_encoding_and_counts_what_it_drops(char, utf8, cost, count):
+    # At most MAX_LINE_BYTES // 4 characters: within a fast path that counts 4
+    # bytes a character, over the cap once each is counted at its escaped form.
+    line = char * count
+    kept = BUDGET // cost
+    assert log_redaction.cap_line(line) == char * kept + MARKER.format(utf8 * (len(line) - kept))
+    out = log_redaction.cap_line(line)
+    assert log_redaction.cap_lines(line) == out
+    assert len(out.encode("utf-8")) <= log_redaction.MAX_LINE_BYTES
+    assert len(out.encode("ascii", "backslashreplace")) <= log_redaction.MAX_LINE_BYTES
+
+
+def test_the_cap_is_exact_at_its_limit():
+    fits = "\U0001f600" * (log_redaction.MAX_LINE_BYTES // 10)
+    assert log_redaction.cap_line(fits) == fits
+    assert log_redaction.cap_line(fits + "\U0001f600").endswith(" more bytes]")
+
+
+def test_lone_surrogates_are_kept_and_counted():
+    line = "\ud800" * 5000
+    kept = BUDGET // 6
+    assert log_redaction.cap_line(line) == "\ud800" * kept + MARKER.format(3 * (5000 - kept))
+    out = _render("name %s", line)
+    assert "[truncated: " in out and len(out.split(" [truncated: ")[0]) > len("name ") + 1000
+    assert len(out.encode("utf-8", "surrogatepass")) <= log_redaction.MAX_LINE_BYTES
+
+
+def test_a_secret_across_the_cut_is_redacted_before_the_line_is_cut():
+    secret = "Wifi-Pass-0123456789-abcdef"
+    prefix = len(_render("%s", "").encode())
+    message = "x" * (BUDGET - prefix - 12) + secret + "y" * 9000
+    cut_raw = log_redaction.cap_lines(_render("%s", message))  # no secret registered yet
+    with log_redaction.secret_scope(secret):
+        out = _render("%s", message)
+        # Positive control: cut first, the head keeps the start of the secret.
+        cut_first = log_redaction.redact_text(cut_raw, unanchored=True)
+    assert "[truncated: " in out and log_redaction.REDACTED in out
+    assert secret[:8] not in out
+    assert secret[:8] in cut_first and "[truncated: " in cut_first
+
+
+def test_the_frames_of_a_traceback_survive_a_long_first_line():
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        out = _render("%s", "z" * 20000, exc_info=sys.exc_info())
+    lines = out.split("\n")
+    assert lines[0].endswith(" more bytes]")
+    assert any(line.startswith("Traceback (most recent call last):") for line in lines)
+    assert any(line.lstrip().startswith('File "') for line in lines)
+    assert lines[-1] == "ValueError: boom"
+
+
+def test_every_line_of_a_traceback_is_capped():
+    try:
+        raise ValueError("x" * 20000 + FORGED_LINE)
+    except ValueError:
+        out = _render("failed", exc_info=sys.exc_info())
+    lines = out.split("\n")
+    assert len(lines) > 2 and lines[-1].startswith("ValueError: xxx")
+    assert all(len(line.encode()) < DOCKER_LINE_MAX for line in lines)
+    assert forged_matches(out) == []
+
+
+def test_a_short_line_is_left_alone():
+    line = "y" * log_redaction.MAX_LINE_BYTES
+    assert log_redaction.cap_line(line) == line
+    assert log_redaction.cap_line(line + "y").endswith(" [truncated: 49 more bytes]")
+
+
+def test_a_truncated_auth_fail_line_never_matches(monkeypatch):
+    message = (
+        f"AUTH_FAIL ip={VICTIM} route=login reason=invalid_credentials via=lan proxied=0 user=h:"
+        + "a" * 9000
+    )
+    out = _render(message, name="meshloom.auth", level=logging.WARNING)
+    assert "[truncated: " in out and forged_matches(out) == []
+    # Positive control: the same record uncut is a match.
+    monkeypatch.setattr(log_redaction, "MAX_LINE_BYTES", 10**9)
+    assert forged_matches(_render(message, name="meshloom.auth", level=logging.WARNING))
+
+
+def test_a_real_auth_fail_line_is_far_below_the_cap():
+    line = fail_log.format_line(
+        ip="2001:db8:ffff:ffff:ffff:ffff:ffff:ffff",
+        route="login_2fa",
+        reason="pending_invalid",
+        via="relay",
+        proxied=False,
+        username="x" * 1000,
+    )
+    out = _render(line, name="meshloom.auth", level=logging.WARNING)
+    assert len(out) < 512 and "truncated" not in out
+    assert forged_matches(out.replace("2001:db8:ffff:ffff:ffff:ffff:ffff:ffff", VICTIM))
+
+
+# --- What Python prints to stderr by itself (MSHL-435) --------------------------------
+
+
+@pytest.fixture
+def default_hooks(monkeypatch):
+    """The interpreter's own hooks, as a server process has them (pytest installs its own)."""
+    monkeypatch.setattr(sys, "excepthook", sys.__excepthook__)
+    monkeypatch.setattr(sys, "unraisablehook", sys.__unraisablehook__)
+    monkeypatch.setattr(threading, "excepthook", threading.__excepthook__)
+
+
+def test_install_replaces_only_the_default_hooks(default_hooks, monkeypatch):
+    log_redaction.install_uncaught_handlers()
+    assert sys.excepthook is log_redaction._excepthook
+    assert sys.unraisablehook is log_redaction._unraisablehook
+    assert threading.excepthook is log_redaction._thread_excepthook
+
+    def mine(*_args):
+        return None
+
+    for module, name in ((sys, "excepthook"), (sys, "unraisablehook"), (threading, "excepthook")):
+        monkeypatch.setattr(module, name, mine)
+    log_redaction.install_uncaught_handlers()
+    assert sys.excepthook is mine and sys.unraisablehook is mine and threading.excepthook is mine
+
+
+@pytest.mark.parametrize("injection", INJECTIONS[:3])
+def test_an_uncaught_exception_cannot_forge_a_line(default_hooks, real_logging, injection):
+    try:
+        raise ValueError(injection)
+    except ValueError:
+        sys.excepthook(*sys.exc_info())
+    err = real_logging.readouterr().err
+    assert "meshloom.uncaught - CRITICAL - Uncaught exception" in err
+    assert "ValueError: x\\" in err and forged_matches(err) == []
+
+
+@pytest.mark.parametrize("injection", INJECTIONS[:3])
+def test_an_uncaught_exception_in_a_thread_cannot_forge_a_line(
+    default_hooks, real_logging, injection
+):
+    def boom():
+        raise ValueError(injection)
+
+    worker = threading.Thread(target=boom, name="worker")
+    worker.start()
+    worker.join()
+    err = real_logging.readouterr().err
+    assert "Uncaught exception in thread worker" in err
+    assert "ValueError: x\\" in err and forged_matches(err) == []
+
+
+def test_a_thread_that_exits_logs_nothing(default_hooks, real_logging):
+    log_redaction.install_uncaught_handlers()
+
+    def leave():
+        raise SystemExit(3)
+
+    worker = threading.Thread(target=leave, name="worker")
+    worker.start()
+    worker.join()
+    assert "Uncaught exception" not in real_logging.readouterr().err
+
+
+def test_an_unraisable_exception_cannot_forge_a_line(default_hooks, real_logging):
+    class Leaky:
+        def __del__(self):
+            raise ValueError(f"x\n{FORGED_LINE}")
+
+    Leaky()
+    gc.collect()
+    err = real_logging.readouterr().err
+    assert "Exception ignored" in err and "ValueError: x\\n" in err
+    assert forged_matches(err) == []
+
+
+def test_a_warning_cannot_forge_a_line(real_logging):
+    # logging remembers it already captured warnings; pytest restores showwarning
+    # after each test, so start from a clean state.
+    logging.captureWarnings(False)
+    log_redaction.install_uncaught_handlers()
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("always")
+            warnings.warn(f"x\n{FORGED_LINE}", UserWarning, stacklevel=1)
+    finally:
+        logging.captureWarnings(False)
+    err = real_logging.readouterr().err
+    assert "py.warnings - WARNING - " in err and "UserWarning: x\\n" in err
+    assert forged_matches(err) == []

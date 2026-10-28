@@ -23,7 +23,15 @@ Three layers, all always on:
   (MSHL-432): CR, LF and every other control character in the message, its
   arguments and the exception text come out as visible escapes (``\\n``), so a
   record is always one line plus the structural lines of its traceback. See
-  ``escape_control()`` and ``format_exception_safe()``.
+  ``escape_control()`` and ``format_exception_safe()``. Each of those lines is
+  then capped at ``MAX_LINE_BYTES`` (MSHL-435, ``cap_lines()``), counting each
+  character at its longest form on any stream encoding: journald cuts a
+  line longer than its ``LineMax`` (48 KiB) into several entries, Docker at
+  16 KiB, and the start of such a continuation entry is text the client chose.
+- ``install_uncaught_handlers()`` sends what Python would otherwise print raw to
+  standard error (warnings, an uncaught exception in the main thread or another
+  thread, an unraisable one) through logging, so through that formatter too.
+  asyncio's default exception handler already logs (logger ``asyncio``).
 - ``secret_scope()`` registers literal secrets for the duration of a call; every
   registered form (text, hex, repr escapes) is replaced wherever it appears.
 
@@ -46,6 +54,7 @@ import ast
 import copy
 import logging
 import re
+import sys
 import threading
 import traceback
 from collections.abc import Iterator
@@ -138,6 +147,63 @@ def format_exception_safe(exc_info: tuple) -> str:  # type: ignore[type-arg]
     root = traceback.TracebackException(exc_type, exc, tb)
     _harden_chain(root)
     return "".join(root.format()).rstrip("\n")
+
+
+# Longest line, in bytes, any handler writes (MSHL-435). Well under the 16 KiB
+# at which Docker's log drivers split a line and journald's 48 KiB ``LineMax``:
+# a line split there would start a new journal entry with text the client
+# chose, such as a whole forged ``AUTH_FAIL`` line. The marker starts with a
+# space, so a cut line never ends in a ``user=<token>`` a filter could take.
+MAX_LINE_BYTES = 8192
+TRUNCATED_MARKER = " [truncated: {} more bytes]"
+_MARKER_RESERVE = 48  # bytes kept for the marker
+# Most bytes one character can take on the stream, whatever its encoding: UTF-8
+# takes at most 4, and a stream that cannot encode a character writes its
+# backslash escape (``\xNN``, ``\uNNNN``, ``\UNNNNNNNN``) instead.
+_MAX_CHAR_COST = 10
+
+
+def _char_cost(char: str) -> int:
+    """Worst-case bytes of ``char`` on the stream: UTF-8 or its backslash escape."""
+    code = ord(char)
+    if code < 0x80:
+        return 1
+    if code < 0x100:
+        return 4  # \xNN (UTF-8: 2)
+    if code < 0x10000:
+        return 6  # \uNNNN (UTF-8: 3, a lone surrogate included)
+    return 10  # \UNNNNNNNN (UTF-8: 4)
+
+
+def cap_line(line: str) -> str:
+    """``line``, or its head and ``TRUNCATED_MARKER`` when it could exceed ``MAX_LINE_BYTES``.
+
+    Counted per character at its worst-case cost (``_char_cost``), so the cap
+    holds on a stream that is not UTF-8. The head is cut on a character, lone
+    surrogates included, and the marker gives the UTF-8 bytes left out.
+    """
+    if len(line) * _MAX_CHAR_COST <= MAX_LINE_BYTES:
+        return line
+    budget = MAX_LINE_BYTES - _MARKER_RESERVE
+    total = 0
+    cut = None
+    for index, char in enumerate(line):
+        total += _char_cost(char)
+        if cut is None and total > budget:
+            cut = index
+        if total > MAX_LINE_BYTES:
+            break
+    if total <= MAX_LINE_BYTES or cut is None:
+        return line
+    rest = line[cut:].encode("utf-8", "surrogatepass")
+    return line[:cut] + TRUNCATED_MARKER.format(len(rest))
+
+
+def cap_lines(text: str) -> str:
+    """Every line of ``text`` through ``cap_line()``."""
+    if len(text) * _MAX_CHAR_COST <= MAX_LINE_BYTES:
+        return text
+    return "\n".join(cap_line(line) for line in text.split("\n"))
 
 
 # --------------------------------------------------------------------------
@@ -523,7 +589,9 @@ class RedactingFormatter(logging.Formatter):
                 parts.append(exc_text)
             if record.stack_info:
                 parts.append(record.stack_info)
-            return redact_text("\n".join(parts), unanchored=True)
+            # Capped last: redaction first sees the whole text, and nothing it
+            # writes can make a line longer again.
+            return cap_lines(redact_text("\n".join(parts), unanchored=True))
         except Exception:
             # Never leave a traceback behind that later handlers would reuse.
             record.exc_info = None
@@ -618,3 +686,61 @@ def install_redacting_formatter(handler: logging.Handler) -> None:
     if isinstance(current, RedactingFormatter):
         return
     handler.setFormatter(RedactingFormatter(current or logging.Formatter()))
+
+
+# --------------------------------------------------------------------------
+# What Python prints to standard error by itself (MSHL-435)
+# --------------------------------------------------------------------------
+
+UNCAUGHT_LOGGER = "meshloom.uncaught"
+
+
+def _excepthook(exc_type, exc, tb):  # type: ignore[no-untyped-def]
+    if issubclass(exc_type, KeyboardInterrupt):
+        # Ctrl-C at a shell: Python's own short message, nothing untrusted in it.
+        sys.__excepthook__(exc_type, exc, tb)
+        return
+    logging.getLogger(UNCAUGHT_LOGGER).critical("Uncaught exception", exc_info=(exc_type, exc, tb))
+
+
+def _thread_excepthook(args: threading.ExceptHookArgs) -> None:
+    if args.exc_type is SystemExit:  # Python ignores it too
+        return
+    name = args.thread.name if args.thread is not None else "<unknown>"
+    exc = args.exc_value
+    logging.getLogger(UNCAUGHT_LOGGER).error(
+        "Uncaught exception in thread %s: %s",
+        name,
+        args.exc_type.__name__,
+        exc_info=(args.exc_type, exc, args.exc_traceback) if exc is not None else None,
+    )
+
+
+def _unraisablehook(unraisable) -> None:  # type: ignore[no-untyped-def]
+    try:
+        where = repr(unraisable.object) if unraisable.object is not None else ""
+    except Exception:
+        where = "<object repr() failed>"
+    exc = unraisable.exc_value
+    logging.getLogger(UNCAUGHT_LOGGER).error(
+        "%s: %s",
+        unraisable.err_msg or "Exception ignored in",
+        where,
+        exc_info=(unraisable.exc_type, exc, unraisable.exc_traceback) if exc is not None else None,
+    )
+
+
+def install_uncaught_handlers() -> None:
+    """Route warnings and uncaught exceptions through logging. Idempotent.
+
+    Python's default hooks print the exception message raw to standard error,
+    where a message with a line break would forge a journal line. A hook someone
+    else installed (a test runner, a debugger) is left in place.
+    """
+    logging.captureWarnings(True)
+    if sys.excepthook is sys.__excepthook__:
+        sys.excepthook = _excepthook
+    if threading.excepthook is threading.__excepthook__:
+        threading.excepthook = _thread_excepthook
+    if sys.unraisablehook is sys.__unraisablehook__:
+        sys.unraisablehook = _unraisablehook
