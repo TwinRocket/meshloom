@@ -93,8 +93,12 @@ shipped filter:
   and DEL, `\uNNNN` for U+2028 and U+2029. The only line breaks left in a
   record are those between the message line and the structural lines of a
   traceback (its frames); an exception message stays on one line. Each line
-  is then capped at `MAX_LINE_BYTES`, 8 KiB of UTF-8, cut on a character and
-  ended by ` [truncated: <n> more bytes]` (MSHL-435): journald splits a line
+  is then capped at `MAX_LINE_BYTES`, 8 KiB, cut on a character (a lone
+  surrogate included) and ended by ` [truncated: <n> more bytes]`, `<n>` the
+  UTF-8 bytes left out (MSHL-435). Each character counts at its longest form on
+  the stream, UTF-8 or the backslash escape a non-UTF-8 stream writes (`é` 4,
+  `€` 6, an emoji 10), so the cap holds whatever the stream's encoding; a
+  non-ASCII line is cut earlier than 8 KiB of UTF-8. journald splits a line
   longer than its `LineMax` (48 KiB) and Docker's log drivers one longer than
   16 KiB, and the continuation would start with text the client chose. A cut
   `AUTH_FAIL` line never matches: the marker follows `user=`. A real one is
