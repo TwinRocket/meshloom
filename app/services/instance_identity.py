@@ -1,6 +1,6 @@
 """Instance identities: one Ed25519 key per service, owned by this Meshloom.
 
-Each service (``share`` for links and files; Access adds ``remote``) has its
+Each service (``share`` for links and files, ``remote`` for Meshloom Remote) has its
 own random 32-byte seed in ``app_settings.<service>_instance_seed``, created by
 ``secrets.token_bytes`` on first use and never derived from the radio key. The
 public key is a pseudonym unrelated to the radio's identity in the Community
@@ -12,7 +12,9 @@ Every restore regenerates it through the ``on_restore`` hook registered below.
 
 Tokens use the Community wire format (``_generate_jwt_token`` in
 ``app/fanout/community_mqtt.py``, signed here with PyNaCl instead of the
-expanded radio key). Never log a token either.
+expanded radio key). The Remote key also signs the device passes of the edge lock
+(``sign_with_instance_key``; the pass format and its rules are in
+``app/services/remote_passes.py``). Never log a token or a pass either.
 """
 
 import asyncio
@@ -38,6 +40,11 @@ SHARE_SERVICE = "share"
 SHARE_AUDIENCE = "meshloom-share"
 # The links-files contract allows exp - iat <= 120 s; keep a margin under it.
 SHARE_TOKEN_LIFETIME = 110
+
+REMOTE_SERVICE = "remote"
+REMOTE_AUDIENCE = "relay.meshloom.link"
+# remote-registration.md allows exp - iat <= 3600 s and recommends 300 s.
+REMOTE_TOKEN_LIFETIME = 300
 
 _locks: dict[str, asyncio.Lock] = {}
 
@@ -173,3 +180,16 @@ async def mint_share_jwt(binding: str) -> str:
         lifetime=SHARE_TOKEN_LIFETIME,
         extra_claims={"bh": binding_hash(binding)},
     )
+
+
+async def mint_remote_jwt() -> str:
+    """A Remote instance JWT (``aud`` ``relay.meshloom.link``, 300 s, ``jti``), for one
+    registry request or one relay connect attempt. Never cache the result."""
+    return await mint_instance_jwt(REMOTE_SERVICE, REMOTE_AUDIENCE, lifetime=REMOTE_TOKEN_LIFETIME)
+
+
+async def sign_with_instance_key(service: str, message: bytes) -> bytes:
+    """The 64-byte Ed25519 signature of ``message`` by the service's key (created on
+    first use). Only the Remote device passes use it (``app/services/remote_passes.py``)."""
+    key = await ensure_instance_key(service)
+    return key.sign(message).signature

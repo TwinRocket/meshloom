@@ -1,0 +1,832 @@
+"""Meshloom Remote on the instance: opt-in, registration, devices, enrolment, access
+requests (docs/dev/remote.md; contracts in meshloom-community ``docs/contracts/``
+``remote-registration.md`` and ``remote-relay.md``).
+
+Remote is a blind relay: no TwinRocket account, no portal, no pairing. The instance
+registers its Remote key (``instance_identity``, service ``remote``) and gets a slug;
+who may reach it through ``<slug>.meshloom.link`` is decided here alone, by the device
+passes this instance signs (``app/services/remote_passes.py``).
+
+- **Opt-in and egress.** ``remote_state.enabled`` (off by default). Every registry
+  request checks it first and answers 409 ``remote_disabled`` without any connection.
+  Requests go through the egress guard to exactly ``RELAY_HOST`` (HTTPS, no redirect,
+  answer capped), each with a fresh instance JWT (``mint_remote_jwt``).
+- **Registration.** ``POST /v1/instances`` (idempotent) stores ``slug``, ``hostname``
+  and ``relay_url`` and declares the hostname to the host guard
+  (``set_remote_hostname``); disabling Remote withdraws it. ``DELETE /v1/instances/self``
+  unregisters and keeps the key (the registry holds the slug 30 days for it).
+- **Rotation and restore.** ``rotate()`` replaces the key: the old registration is
+  deleted while the old key still signs, then every device, enrolment token and access
+  request is forgotten and the instance registers again (a new slug). Any restore
+  (JSON or SQLite) runs the ``remote`` on_restore hook: registration, devices and
+  tokens are forgotten and Remote is off (the ``instance_identity`` hook replaced the key).
+- **Devices and the gate.** A device holds a ``browser`` pass (QR enrolment or an
+  approved access request, 90 days) or a ``client`` pass (365 days). Revoking one adds
+  its id to the revoked list of the current generation; revoking every device bumps
+  ``gate_gen``. ``gate_state()`` is ``{gen, revoked}`` (the HELLO's ``gate`` and the
+  CONTROL ``gate`` op), pushed at once to the relay link when there is one.
+- **Relay link.** The relay client (MSHL-87) installs a sender with
+  ``set_relay_link`` and forwards relay CONTROL ops to ``handle_control``; it reads
+  ``instance_info`` and ``gate_state`` for its HELLO and calls ``verify_device_pass`` on
+  ``x-meshloom-pass``. Change listeners (``add_change_listener``) tell it to connect or
+  disconnect.
+
+Never log a token, a pass, an enrolment URL or an access code.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import logging
+import re
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+from fastapi import HTTPException
+
+from app.auth.audit import AuditActor, record
+from app.auth.models import User
+from app.net.egress_guard import (
+    CheckedResponse,
+    EgressBlocked,
+    HostAllowlist,
+    error_code,
+    follow_checked_redirects,
+)
+from app.repository.auth import UserRepository
+from app.repository.remote import RemoteDevice, RemoteEnrollToken, RemoteRepository, RemoteState
+from app.services import remote_passes
+from app.services.backup_sections import RestoreSource, register_on_restore
+from app.services.instance_identity import (
+    REMOTE_SERVICE,
+    fingerprint,
+    instance_public_key,
+    mint_remote_jwt,
+    regenerate,
+    sign_with_instance_key,
+)
+from app.services.remote_passes import (
+    ID_RE,
+    PassKind,
+    PassSlot,
+    PassState,
+    new_id,
+    normalize_access_code,
+    pass_claims,
+)
+from app.version_info import get_app_build_info
+
+logger = logging.getLogger(__name__)
+
+# Module constants read at call time (tests monkeypatch them), never an environment variable.
+RELAY_HOST = "relay.meshloom.link"
+REMOTE_DOMAIN = "meshloom.link"
+
+REGISTRY_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=15.0, pool=5.0)
+REGISTRY_TOTAL_TIMEOUT_S = 30.0
+REGISTRY_MAX_RESPONSE_BYTES = 16384
+
+ENROLL_TOKEN_LIFETIME_S = 15 * 60
+BROWSER_PASS_LIFETIME_S = remote_passes.MAX_LIFETIME_S["browser"]
+CLIENT_PASS_LIFETIME_S = remote_passes.MAX_LIFETIME_S["client"]
+# remote-relay.md: the instance answers ``enroll`` within 10 s; keep a margin.
+ENROLL_ANSWER_TIMEOUT_S = 8.0
+ACCESS_REQUEST_TTL_S = 600
+ACCESS_REQUESTS_PENDING_MAX = 5
+REVOKED_MAX = 1024
+USER_AGENT_MAX = 256
+LABEL_MAX = 64
+
+SLUG_RE = re.compile(r"[a-z2-7]{10}")
+_REGISTRY_CODES = frozenset(
+    {
+        "invalid_request",
+        "token_malformed",
+        "token_audience",
+        "token_signature",
+        "token_expired",
+        "clock_skew",
+        "token_replayed",
+        "instance_banned",
+        "instance_unknown",
+        "payload_too_large",
+        "rate_limited",
+        "registration_paused",
+    }
+)
+
+REMOTE_ERRORS: dict[str, tuple[int, str]] = {
+    "remote_disabled": (409, "Meshloom Remote is off"),
+    "remote_not_registered": (409, "This instance is not registered with Meshloom Remote yet"),
+    "remote_unavailable": (502, "Meshloom Remote did not answer"),
+    "remote_registry_error": (502, "Meshloom Remote refused the request"),
+    "remote_rate_limited": (429, "Too many requests to Meshloom Remote: try again later"),
+    "remote_lan_only": (403, "Enrolment codes are issued on the local network only"),
+    "remote_device_not_found": (404, "No such Remote device"),
+    "remote_access_request_not_found": (404, "No pending access request matches"),
+    "remote_offline": (503, "The relay link is not connected"),
+}
+
+
+class RemoteError(HTTPException):
+    """A coded Remote error: ``detail = {code, message, params}``."""
+
+    def __init__(self, code: str, **params: Any) -> None:
+        status, message = REMOTE_ERRORS[code]
+        super().__init__(
+            status_code=status, detail={"code": code, "message": message, "params": params}
+        )
+        self.code = code
+        self.params = params
+
+
+# ---------------------------------------------------------------- in-memory state
+
+ControlSender = Callable[[dict[str, Any]], Awaitable[bool]]
+
+
+@dataclass
+class AccessRequest:
+    request_id: str
+    code: str  # as the relay sent it (XXXXX-XXXXX)
+    normalized: str
+    user_agent: str
+    created_at: int
+    expires_at: int
+
+
+@dataclass
+class _Runtime:
+    sender: ControlSender | None = None
+    link_status: str | None = None
+    access: dict[str, AccessRequest] | None = None
+    listeners: list[Callable[[], Any]] | None = None
+    lock: asyncio.Lock | None = None
+    clock: Callable[[], float] = time.time
+
+
+_rt = _Runtime(access={}, listeners=[])
+
+
+def _now() -> int:
+    return int(_rt.clock())
+
+
+def _lock() -> asyncio.Lock:
+    if _rt.lock is None:
+        _rt.lock = asyncio.Lock()
+    return _rt.lock
+
+
+def reset_remote_for_tests(clock: Callable[[], float] | None = None) -> None:
+    global _rt
+    _rt = _Runtime(access={}, listeners=[], clock=clock or time.time)
+
+
+def set_relay_link(sender: ControlSender | None, status: str | None = None) -> None:
+    """The relay client's CONTROL sender (None when disconnected) and its status text."""
+    _rt.sender = sender
+    _rt.link_status = status if sender is not None or status else None
+
+
+def set_link_status(status: str | None) -> None:
+    """A UI state from the relay client (``connected``, ``replaced``, ``banned``...)."""
+    _rt.link_status = status
+
+
+def add_change_listener(callback: Callable[[], Any]) -> None:
+    """Called (sync or async) after Remote is enabled, disabled, registered, rotated,
+    unregistered or reset by a restore."""
+    assert _rt.listeners is not None
+    _rt.listeners.append(callback)
+
+
+async def _notify() -> None:
+    for callback in list(_rt.listeners or ()):
+        try:
+            result = callback()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            logger.exception("Remote change listener failed")
+
+
+def _apply_hostname(state: RemoteState) -> None:
+    from app.middleware import host_guard
+
+    host_guard.set_remote_hostname(state.hostname if state.enabled and state.hostname else None)
+
+
+async def load() -> None:
+    """At startup: declare the Remote hostname to the host guard when Remote is on."""
+    _apply_hostname(await RemoteRepository.get_state())
+
+
+async def send_control(frame: dict[str, Any]) -> bool:
+    """Send one CONTROL op over the relay link; False when there is none or it failed."""
+    sender = _rt.sender
+    if sender is None:
+        return False
+    try:
+        return bool(await sender(frame))
+    except Exception:
+        logger.warning("Remote CONTROL %s could not be sent", frame.get("op"))
+        return False
+
+
+# ---------------------------------------------------------------- instance facts
+
+
+def plugins_info() -> dict[str, Any]:
+    """``{enabled, isolation}`` for the registration and the HELLO (isolation None
+    when unknown)."""
+    try:
+        from app.plugins.host import isolation_level, plugin_manager
+
+        enabled = plugin_manager.disabled_source() is None
+    except Exception:
+        return {"enabled": False, "isolation": None}
+    isolation: str | None = None
+    if enabled:
+        try:
+            level = isolation_level()
+            isolation = level if level in ("none", "setuid", "bwrap") else None
+        except Exception:
+            isolation = None
+    return {"enabled": enabled, "isolation": isolation}
+
+
+def instance_info() -> dict[str, Any]:
+    """``{version, install_kind}`` as the registry and the HELLO expect them."""
+    from app.services.install_kind import detect_install_kind
+
+    try:
+        kind, _ = detect_install_kind()
+    except Exception:
+        kind = "source"
+    return {"version": get_app_build_info().version, "install_kind": kind}
+
+
+# ---------------------------------------------------------------- registry client
+
+
+def _json(response: CheckedResponse) -> dict[str, Any] | None:
+    try:
+        value = json.loads(response.content)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _registry_error(response: CheckedResponse) -> RemoteError:
+    payload = _json(response) or {}
+    code = payload.get("code")
+    if response.status_code == 429:
+        retry = response.headers.get("retry-after", "")
+        return RemoteError(
+            "remote_rate_limited", retry_after=int(retry) if retry.isdigit() else None
+        )
+    if isinstance(code, str) and code in _REGISTRY_CODES:
+        return RemoteError("remote_registry_error", registry_code=code, status=response.status_code)
+    return RemoteError("remote_unavailable", status=response.status_code)
+
+
+async def _registry(
+    method: str, path: str, *, json_body: dict[str, Any] | None = None
+) -> CheckedResponse:
+    """One request to the registry, only while Remote is on."""
+    state = await RemoteRepository.get_state()
+    if not state.enabled:
+        raise RemoteError("remote_disabled")
+    host = RELAY_HOST
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {await mint_remote_jwt()}",
+        "User-Agent": f"Meshloom/{get_app_build_info().version}",
+    }
+    content: bytes | None = None
+    if json_body is not None:
+        content = json.dumps(json_body, separators=(",", ":")).encode()
+        headers["Content-Type"] = "application/json"
+    try:
+        return await follow_checked_redirects(
+            method,
+            f"https://{host}{path}",
+            timeout=REGISTRY_TIMEOUT,
+            total_timeout=REGISTRY_TOTAL_TIMEOUT_S,
+            allowed_hosts=HostAllowlist.of(host),
+            schemes=frozenset({"https"}),
+            max_response_bytes=REGISTRY_MAX_RESPONSE_BYTES,
+            content=content,
+            headers=headers,
+        )
+    except (EgressBlocked, httpx.HTTPError, TimeoutError, OSError) as exc:
+        logger.warning("Remote registry %s %s failed: %s", method, path, error_code(exc))
+        raise RemoteError("remote_unavailable") from None
+
+
+async def _register_locked(actor: AuditActor) -> RemoteState:
+    body = {**instance_info(), "plugins": plugins_info()}
+    try:
+        response = await _registry("POST", "/v1/instances", json_body=body)
+        if response.status_code not in (200, 201):
+            raise _registry_error(response)
+        payload = _json(response) or {}
+        slug, hostname, relay_url = (
+            payload.get("slug"),
+            payload.get("hostname"),
+            payload.get("relay_url"),
+        )
+        if (
+            not isinstance(slug, str)
+            or not SLUG_RE.fullmatch(slug)
+            or hostname != f"{slug}.{REMOTE_DOMAIN}"
+            or not isinstance(relay_url, str)
+            or not relay_url.startswith(f"wss://{RELAY_HOST}/")
+        ):
+            raise RemoteError("remote_unavailable", status=response.status_code)
+    except RemoteError as exc:
+        await RemoteRepository.update_state(last_error=exc.params.get("registry_code") or exc.code)
+        await record("remote.linked", "failure", actor=actor, details={"code": exc.code})
+        raise
+    await RemoteRepository.update_state(
+        slug=slug, hostname=hostname, relay_url=relay_url, registered_at=_now(), last_error=None
+    )
+    await record("remote.linked", "success", actor=actor, target=f"remote:{slug}")
+    state = await RemoteRepository.get_state()
+    _apply_hostname(state)
+    return state
+
+
+async def register(actor: AuditActor) -> RemoteState:
+    """Register (or re-register: idempotent) the Remote key; the relay client calls it
+    again after a close ``4003``."""
+    async with _lock():
+        state = await _register_locked(actor)
+    await _notify()
+    return state
+
+
+async def enable(actor: AuditActor) -> RemoteState:
+    """Turn Remote on and register when not registered yet. A registry failure is kept
+    in ``last_error`` (Remote stays on; enabling again retries)."""
+    async with _lock():
+        before = await RemoteRepository.get_state()
+        if not before.enabled:
+            await RemoteRepository.update_state(enabled=True)
+            await record("remote.enabled", "success", actor=actor)
+        state = await RemoteRepository.get_state()
+        if not state.slug:
+            try:
+                state = await _register_locked(actor)
+            except RemoteError:
+                state = await RemoteRepository.get_state()
+        _apply_hostname(state)
+    await _notify()
+    return state
+
+
+async def disable(actor: AuditActor) -> RemoteState:
+    """Turn Remote off: nothing leaves towards the relay; the registration is kept."""
+    async with _lock():
+        before = await RemoteRepository.get_state()
+        if before.enabled:
+            await RemoteRepository.update_state(enabled=False)
+            await record("remote.disabled", "success", actor=actor)
+        state = await RemoteRepository.get_state()
+        _apply_hostname(state)
+        _rt.access = {}
+    await _notify()
+    return state
+
+
+async def unregister(actor: AuditActor) -> RemoteState:
+    """Delete the registration (``DELETE /v1/instances/self``), keep the key, turn
+    Remote off. Needs Remote on (nothing leaves otherwise)."""
+    async with _lock():
+        state = await RemoteRepository.get_state()
+        if not state.enabled:
+            raise RemoteError("remote_disabled")
+        try:
+            response = await _registry("DELETE", "/v1/instances/self")
+            payload = _json(response) or {}
+            if response.status_code != 204 and payload.get("code") != "instance_unknown":
+                raise _registry_error(response)
+        except RemoteError as exc:
+            await record("remote.unlinked", "failure", actor=actor, details={"code": exc.code})
+            raise
+        await RemoteRepository.update_state(
+            enabled=False, slug="", hostname="", relay_url="", registered_at=None, last_error=None
+        )
+        await record("remote.unlinked", "success", actor=actor, target=f"remote:{state.slug}")
+        state = await RemoteRepository.get_state()
+        _apply_hostname(state)
+        _rt.access = {}
+    await _notify()
+    return state
+
+
+async def rotate(actor: AuditActor) -> RemoteState:
+    """A new Remote key: every device enrols again, and a new slug when Remote is on."""
+    async with _lock():
+        state = await RemoteRepository.get_state()
+        if state.enabled and state.slug:
+            # While the old key still signs; a failure only leaves an orphan the
+            # registry forgets on its own.
+            try:
+                await _registry("DELETE", "/v1/instances/self")
+            except RemoteError:
+                logger.warning("Remote: the old registration could not be deleted")
+        await regenerate(REMOTE_SERVICE)
+        await RemoteRepository.reset_all(keep_enabled=True)
+        _rt.access = {}
+        await record("remote.rotated", "success", actor=actor)
+        state = await RemoteRepository.get_state()
+        _apply_hostname(state)
+        if state.enabled:
+            try:
+                state = await _register_locked(actor)
+            except RemoteError:
+                state = await RemoteRepository.get_state()
+    await _notify()
+    return state
+
+
+async def _reset_after_restore(source: RestoreSource) -> None:
+    """A restored instance is unregistered, with no device and Remote off: its key
+    is new (the ``instance_identity`` hook) and every device enrols again."""
+    await RemoteRepository.reset_all(keep_enabled=False)
+    _rt.access = {}
+    _apply_hostname(RemoteState())
+    logger.info("Remote state reset after a %s restore", source)
+    await _notify()
+
+
+register_on_restore("remote", _reset_after_restore)
+
+
+# ---------------------------------------------------------------- gate and passes
+
+
+async def gate_state() -> dict[str, Any]:
+    """``{gen, revoked}``: the pass state the relay enforces (HELLO and CONTROL ``gate``)."""
+    state = await RemoteRepository.get_state()
+    revoked = await RemoteRepository.revoked_ids(
+        state.gate_gen, _now(), grace=remote_passes.CLOCK_SKEW_S
+    )
+    return {"gen": state.gate_gen, "revoked": revoked}
+
+
+async def push_gate() -> bool:
+    """Send the whole pass state to the relay (it replaces the previous one). Without a
+    link, nothing to do: the next HELLO carries it."""
+    return await send_control({"op": "gate", **await gate_state()})
+
+
+async def pass_state(*, seen_jti: frozenset[str] = frozenset()) -> PassState | None:
+    """The instance's own view of the gate, None while unregistered."""
+    state = await RemoteRepository.get_state()
+    public_key = await instance_public_key(REMOTE_SERVICE)
+    if not state.slug or public_key is None:
+        return None
+    revoked = {
+        device.id
+        for device in await RemoteRepository.list_devices()
+        if device.revoked_at is not None and device.gen == state.gate_gen
+    }
+    return PassState(
+        slug=state.slug,
+        public_key=public_key,
+        gen=state.gate_gen,
+        revoked=frozenset(revoked),
+        seen_jti=seen_jti,
+    )
+
+
+async def _sign(
+    kind: PassKind,
+    *,
+    slug: str,
+    sub: str,
+    uid: str,
+    gen: int,
+    lifetime: int,
+    jti: str | None = None,
+) -> tuple[str, int]:
+    now = _now()
+    claims = pass_claims(
+        kind, iss=slug, sub=sub, uid=uid, gen=gen, iat=now, lifetime=lifetime, jti=jti
+    )
+    payload_b64, message = remote_passes.signing_input(claims)
+    signature = await sign_with_instance_key(REMOTE_SERVICE, message)
+    return remote_passes.assemble_pass(payload_b64, signature), claims["exp"]
+
+
+def _uid(user_id: int) -> str:
+    return str(user_id)
+
+
+async def verify_device_pass(token: str, slot: PassSlot) -> tuple[str, dict[str, Any] | None]:
+    """The third check of the edge lock (``x-meshloom-pass``): the contract's verdict,
+    then the device must be one of ours, not revoked, owned by the pass's ``uid``."""
+    state = await pass_state()
+    if state is None:
+        return "pass_issuer", None
+    verdict, claims = remote_passes.verify_pass(token, slot, state, _now())
+    if verdict != "accept" or claims is None or claims["kind"] == "enroll":
+        return verdict, claims
+    device = await RemoteRepository.get_device(claims["sub"])
+    if device is None or device.revoked_at is not None or _uid(device.user_id) != claims["uid"]:
+        return "pass_revoked", None
+    return verdict, claims
+
+
+async def _require_registered() -> RemoteState:
+    state = await RemoteRepository.get_state()
+    if not state.enabled:
+        raise RemoteError("remote_disabled")
+    if not state.slug:
+        raise RemoteError("remote_not_registered")
+    return state
+
+
+async def _new_device(
+    user_id: int, kind: PassKind, origin: str, label: str | None, state: RemoteState
+) -> tuple[RemoteDevice, str]:
+    device_id = new_id()
+    lifetime = CLIENT_PASS_LIFETIME_S if kind == "client" else BROWSER_PASS_LIFETIME_S
+    token, exp = await _sign(
+        kind,
+        slug=state.slug,
+        sub=device_id,
+        uid=_uid(user_id),
+        gen=state.gate_gen,
+        lifetime=lifetime,
+    )
+    device = RemoteDevice(
+        id=device_id,
+        user_id=user_id,
+        kind=kind,
+        label=(label or "").strip()[:LABEL_MAX] or None,
+        origin=origin,
+        gen=state.gate_gen,
+        created_at=_now(),
+        pass_expires_at=exp,
+    )
+    await RemoteRepository.add_device(device)
+    return device, token
+
+
+@dataclass(frozen=True)
+class EnrollTicket:
+    url: str
+    expires_at: int
+
+
+async def issue_enroll_token(user: User, actor: AuditActor) -> EnrollTicket:
+    """A 15 min single-use enrolment token for ``user``, as the URL a QR code shows:
+    ``https://<hostname>/_meshloom/enroll#token=<token>`` (the fragment never reaches
+    a server log)."""
+    state = await _require_registered()
+    jti = new_id()
+    token, exp = await _sign(
+        "enroll",
+        slug=state.slug,
+        sub=new_id(),
+        uid=_uid(user.id),
+        gen=state.gate_gen,
+        lifetime=ENROLL_TOKEN_LIFETIME_S,
+        jti=jti,
+    )
+    await RemoteRepository.add_enroll_token(
+        RemoteEnrollToken(
+            jti=jti, user_id=user.id, gen=state.gate_gen, created_at=_now(), expires_at=exp
+        ),
+        _now(),
+    )
+    await record("remote.enroll_issued", "success", actor=actor, target=f"user:{user.id}")
+    return EnrollTicket(
+        url=f"https://{state.hostname}/_meshloom/enroll#token={token}", expires_at=exp
+    )
+
+
+async def issue_client_pass(
+    user: User, label: str | None, actor: AuditActor
+) -> tuple[RemoteDevice, str]:
+    """A device with a 365-day ``client`` pass (``X-Meshloom-Pass``), shown once."""
+    state = await _require_registered()
+    device, token = await _new_device(user.id, "client", "client", label, state)
+    await record(
+        "remote.device_enrolled",
+        "success",
+        actor=actor,
+        target=f"device:{device.id}",
+        details={"origin": "client"},
+    )
+    return device, token
+
+
+async def _answer_enroll(request_id: str, token: str) -> dict[str, Any]:
+    reply: dict[str, Any] = {"op": "pass", "request_id": request_id}
+    claims = remote_passes.decode_pass(token)
+    if claims is None or claims["kind"] != "enroll":
+        return {**reply, "error": "enroll_refused"}
+    if not await RemoteRepository.enroll_token_known(claims["jti"]):
+        return {**reply, "error": "enroll_unknown"}
+    state = await pass_state()
+    if state is None or not (await RemoteRepository.get_state()).enabled:
+        return {**reply, "error": "enroll_refused"}
+    verdict, checked = remote_passes.verify_pass(token, "enroll", state, _now())
+    if verdict != "accept" or checked is None:
+        return {**reply, "error": "enroll_refused"}
+    row = await RemoteRepository.consume_enroll_token(checked["jti"], _now())
+    if row is None or row.gen != state.gen or _uid(row.user_id) != checked["uid"]:
+        return {**reply, "error": "enroll_refused"}
+    user = await UserRepository.get(row.user_id)
+    if user is None or user.disabled:
+        return {**reply, "error": "enroll_refused"}
+    device, browser_pass = await _new_device(
+        row.user_id, "browser", "qr", None, await RemoteRepository.get_state()
+    )
+    await record(
+        "remote.device_enrolled",
+        "success",
+        actor=AuditActor(via="relay", user_id=row.user_id),
+        target=f"device:{device.id}",
+        details={"origin": "qr"},
+    )
+    return {**reply, "pass": browser_pass}
+
+
+async def answer_enroll(request_id: str, token: str) -> dict[str, Any]:
+    """The answer to the relay's CONTROL ``enroll``: ``pass`` with a browser pass, or
+    ``error`` (``enroll_unknown``: not a token of ours; ``enroll_refused``: anything
+    else, a timeout included)."""
+    try:
+        return await asyncio.wait_for(_answer_enroll(request_id, token), ENROLL_ANSWER_TIMEOUT_S)
+    except TimeoutError:
+        return {"op": "pass", "request_id": request_id, "error": "enroll_refused"}
+
+
+# ---------------------------------------------------------------- access requests
+
+
+def _prune(now: int) -> dict[str, AccessRequest]:
+    assert _rt.access is not None
+    for request_id in [r for r, req in _rt.access.items() if req.expires_at < now]:
+        del _rt.access[request_id]
+    return _rt.access
+
+
+def receive_access_request(frame: dict[str, Any]) -> AccessRequest | None:
+    """Keep a relay ``access_request`` until an enrolled user grants or denies it
+    (10 min, at most 5 pending: the oldest goes first). None when malformed."""
+    request_id, code = frame.get("request_id"), frame.get("code")
+    created_at, user_agent = frame.get("created_at"), frame.get("user_agent")
+    normalized = normalize_access_code(code) if isinstance(code, str) else None
+    if (
+        not isinstance(request_id, str)
+        or not ID_RE.fullmatch(request_id)
+        or normalized is None
+        or not isinstance(created_at, int)
+        or isinstance(created_at, bool)
+        or not isinstance(user_agent, str)
+    ):
+        return None
+    now = _now()
+    pending = _prune(now)
+    while len(pending) >= ACCESS_REQUESTS_PENDING_MAX and request_id not in pending:
+        oldest = min(pending.values(), key=lambda req: req.created_at)
+        del pending[oldest.request_id]
+    request = AccessRequest(
+        request_id=request_id,
+        code=f"{normalized[:5]}-{normalized[5:]}",
+        normalized=normalized,
+        user_agent=user_agent[:USER_AGENT_MAX],
+        created_at=created_at,
+        expires_at=now + ACCESS_REQUEST_TTL_S,
+    )
+    pending[request_id] = request
+    return request
+
+
+def pending_access_requests() -> list[AccessRequest]:
+    return sorted(_prune(_now()).values(), key=lambda req: req.created_at)
+
+
+async def approve_access(
+    code: str, user: User, label: str | None, actor: AuditActor
+) -> RemoteDevice:
+    """Grant the pending request whose code the approver typed: a new browser device
+    for the approver, its pass sent with ``access_grant``."""
+    normalized = normalize_access_code(code)
+    match = next(
+        (req for req in _prune(_now()).values() if normalized and req.normalized == normalized),
+        None,
+    )
+    if match is None:
+        raise RemoteError("remote_access_request_not_found")
+    state = await _require_registered()
+    if _rt.sender is None:
+        raise RemoteError("remote_offline")
+    device, token = await _new_device(user.id, "browser", "approval", label, state)
+    if not await send_control(
+        {"op": "access_grant", "request_id": match.request_id, "pass": token}
+    ):
+        await RemoteRepository.delete_device(device.id)
+        raise RemoteError("remote_offline")
+    assert _rt.access is not None
+    _rt.access.pop(match.request_id, None)
+    await record("remote.access_granted", "success", actor=actor, target=f"device:{device.id}")
+    return device
+
+
+async def deny_access(request_id: str, actor: AuditActor) -> None:
+    pending = _prune(_now())
+    if request_id not in pending:
+        raise RemoteError("remote_access_request_not_found")
+    if not await send_control({"op": "access_deny", "request_id": request_id}):
+        raise RemoteError("remote_offline")
+    pending.pop(request_id, None)
+    await record("remote.access_denied", "success", actor=actor)
+
+
+# ---------------------------------------------------------------- devices
+
+
+async def revoke_device(device_id: str, actor: AuditActor, *, owner_id: int | None) -> bool:
+    """Revoke one device (``owner_id`` set: only one of that user's). Returns whether
+    the new gate state reached the relay."""
+    device = await RemoteRepository.get_device(device_id)
+    if device is None or (owner_id is not None and device.user_id != owner_id):
+        raise RemoteError("remote_device_not_found")
+    async with _lock():
+        await RemoteRepository.revoke_device(device_id, _now())
+        state = await RemoteRepository.get_state()
+        revoked = await RemoteRepository.revoked_ids(
+            state.gate_gen, _now(), grace=remote_passes.CLOCK_SKEW_S
+        )
+        if len(revoked) > REVOKED_MAX:
+            # The relay keeps at most 1024 ids: past that, every device enrols again.
+            logger.warning("Remote: more than %d revoked devices, new pass generation", REVOKED_MAX)
+            await RemoteRepository.bump_generation(_now())
+    await record("remote.device_revoked", "success", actor=actor, target=f"device:{device_id}")
+    return await push_gate()
+
+
+async def revoke_all_devices(actor: AuditActor) -> bool:
+    """Revoke every device (a new generation). Returns whether the relay got it."""
+    async with _lock():
+        gen = await RemoteRepository.bump_generation(_now())
+    await record("remote.devices_revoked", "success", actor=actor, details={"gen": gen})
+    return await push_gate()
+
+
+# ---------------------------------------------------------------- relay CONTROL ops
+
+
+async def handle_control(frame: dict[str, Any]) -> dict[str, Any] | None:
+    """Handle a relay → instance CONTROL op; returns the reply op to send, if any.
+    Unknown ops are ignored (the contract)."""
+    op = frame.get("op")
+    if op == "enroll":
+        request_id, token = frame.get("request_id"), frame.get("token")
+        if not isinstance(request_id, str) or not ID_RE.fullmatch(request_id):
+            return None
+        if not isinstance(token, str):
+            return {"op": "pass", "request_id": request_id, "error": "enroll_refused"}
+        return await answer_enroll(request_id, token)
+    if op == "access_request":
+        receive_access_request(frame)
+        return None
+    if op == "status":
+        slug, hostname = frame.get("slug"), frame.get("hostname")
+        if (
+            isinstance(slug, str)
+            and SLUG_RE.fullmatch(slug)
+            and hostname == f"{slug}.{REMOTE_DOMAIN}"
+        ):
+            await RemoteRepository.update_state(slug=slug, hostname=hostname)
+            _apply_hostname(await RemoteRepository.get_state())
+        return None
+    return None
+
+
+# ---------------------------------------------------------------- read side
+
+
+async def key_fingerprint() -> str | None:
+    return await fingerprint(REMOTE_SERVICE)
+
+
+def link_status() -> str | None:
+    return _rt.link_status
+
+
+def relay_connected() -> bool:
+    return _rt.sender is not None

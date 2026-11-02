@@ -90,7 +90,8 @@ shape in `app/notifications/AGENTS.md`);
 terms accepted in the consent dialog (0 = never; the current one is `SHARE_TERMS_VERSION` in
 `services/share.py`) and the Unix time of the acceptance, written by the server only, `excluded`
 from backups and reset to 0 in a database copy; `share_instance_seed`: the sharing identity seed (`services/instance_identity.py`), outside `AppSettings`,
-never exported by a backup; `store_online`: the Store egress consent, off by default,
+never exported by a backup; `remote_instance_seed` (migration 138): the Meshloom Remote identity
+seed, same rules (the rest of the Remote state is in `remote_state`); `store_online`: the Store egress consent, off by default,
 migration 103, in `AppSettings` since MSHL-194 (`app/plugins/store_egress.py`), excluded from backups and reset to 0 in a
 database copy; `plugins_paused`, `plugins_paused_at`, `plugins_paused_by`: the global plugin
 pause, its Unix time and the user name of who set it (migration 120, `app/plugins/pause.py`,
@@ -403,6 +404,32 @@ CIDR), `note` (at most 200 characters), `created_at`. At most 256 rows. Managed
 from Settings > Access, `/api/auth/ban-whitelist` and `meshloom-admin whitelist`.
 `IpBanRepository` (`ip_ban.py`). Excluded from backups.
 
+### `remote_state`
+
+Meshloom Remote of this instance (migration 138, `app/services/remote.py`,
+`docs/dev/remote.md`), one row (`id = 1`): `enabled` (the opt-in, 0 by default),
+`slug`, `hostname`, `relay_url` and `registered_at` (the registration, empty while
+unregistered), `gate_gen` (the device pass generation, bumped by "revoke every
+device"), `last_error` (the last registry error code). `RemoteRepository`
+(`remote.py`). Excluded from backups, emptied in a database copy and by every restore.
+
+### `remote_devices`
+
+Devices holding a Remote pass (migration 138): PK `id` (the pass `sub`, 22 base64url
+characters), `user_id` (the account the device belongs to, the pass `uid`), `kind`
+(`browser` or `client`), `label`, `origin` (`qr`, `approval`, `client`), `gen` (the
+generation its pass was signed in), `created_at`, `pass_expires_at`, `last_seen_at`,
+`revoked_at`. A revoked row of the current generation is in the relay's revoked list
+while its pass may still be presented. `RemoteRepository` (`remote.py`). Excluded from
+backups, emptied in a database copy and by every restore.
+
+### `remote_enroll_tokens`
+
+Enrolment tokens issued for a QR code (migration 138): PK `jti`, `user_id`, `gen`,
+`created_at`, `expires_at` (15 min), `used_at` (single use). Expired rows are dropped
+when the next one is issued. `RemoteRepository` (`remote.py`). Excluded from backups,
+emptied in a database copy and by every restore.
+
 ### `plugins`
 
 Plugin instances (migration 103; model and rules in `docs/dev/plugins.md`, "Data
@@ -527,6 +554,7 @@ databases). The current set:
 | `idx_recovery_codes_user` | `recovery_codes(user_id)` |
 | `idx_webauthn_credentials_user` | `webauthn_credentials(user_id)` |
 | `idx_ip_bans_expires` | `ip_bans(expires_at)` |
+| `idx_remote_devices_user` | `remote_devices(user_id)` |
 | `idx_contacts_type_last_seen` | `contacts(type, last_seen)` |
 | `idx_messages_chan_unattributed_sender` | `messages(sender_name)` where `CHAN` and `sender_key IS NULL` |
 | `idx_messages_dedup_null_safe` | unique, `messages(type, conversation_key, text, COALESCE(sender_timestamp, 0))` where `CHAN` |
@@ -589,7 +617,8 @@ order in `app/AGENTS.md`, "## Backups"):
   is not in the database, so not in the snapshot. In the copy (never the live
   database) every `app_settings.*_seed` column, the BLE PIN, the
   previous-transport snapshot, the password and TOTP secrets of `users` and
-  `auth_settings.setup_code_hash` and `auth_settings.device_cookie_key` are set to NULL, `sessions` and `plugin_secrets` are
+  `auth_settings.setup_code_hash` and `auth_settings.device_cookie_key` are set to NULL, `sessions`,
+  `recovery_codes`, `pairing_codes`, `plugin_secrets` and the three `remote_*` tables are
   emptied, the consents `share_enabled` and `store_online` and the share terms acceptance (`share_terms_version`, `share_terms_accepted_at`) are set to 0, and a one-row
   `meshloom_backup_snapshot` marker table is added: a database
   that starts with it is a restored snapshot, so startup runs the restore hooks

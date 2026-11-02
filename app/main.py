@@ -94,6 +94,7 @@ from app.routers import (
     radio,
     radio_wifi,
     read_state,
+    remote,
     repeaters,
     rooms,
     settings,
@@ -272,6 +273,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         # The defaults apply and the stored bans wait for the next start.
         logger.exception("Failed to load the address bans")
+    # Meshloom Remote: the host guard accepts the Remote hostname while Remote is on.
+    from app.services import remote as remote_service
+
+    try:
+        await remote_service.load()
+    except Exception:
+        logger.exception("Failed to load the Meshloom Remote state")
 
     # Accounts: issue the installation code on an existing database with no
     # account yet (app/auth/setup_code.py).
@@ -601,6 +609,7 @@ app.include_router(notifications.router, prefix="/api")
 app.include_router(packets.router, prefix="/api")
 app.include_router(plugins.router, prefix="/api")
 app.include_router(read_state.router, prefix="/api")
+app.include_router(remote.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(share.router, prefix="/api")
 app.include_router(statistics.router, prefix="/api")

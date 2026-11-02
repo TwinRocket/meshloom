@@ -239,8 +239,8 @@ purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
 ## Instance identities (`services/instance_identity.py`)
 
 - One Ed25519 key per service, owned by the instance, never the radio key and never
-  derived from it (owner decision Q-T5): `share` (links and files) today, `remote`
-  (Access) later. Each has its own column `app_settings.<service>_instance_seed`
+  derived from it (owner decision Q-T5): `share` (links and files, migration 102) and
+  `remote` (Meshloom Remote, migration 138). Each has its own column `app_settings.<service>_instance_seed`
   (32 random bytes from `secrets.token_bytes`, hex), so two services' public keys
   cannot be linked. A new service adds its name to `INSTANCE_SEED_SERVICES`
   (`repository/settings.py`) and its column in a migration; the repository's
@@ -258,6 +258,10 @@ purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
   and no `owner`. `mint_share_jwt(binding)` is the share wrapper: `aud`
   `meshloom-share`, 110 s (the links-files contract allows 120), `jti`, `bh` =
   sha256 hex of the binding string. One token per request, never cached.
+  `mint_remote_jwt()` is the Remote wrapper: `aud` `relay.meshloom.link`, 300 s (the
+  contract allows 3600), `jti`, one per registry request or relay connect attempt.
+  `sign_with_instance_key(service, message)` signs the Remote device passes
+  (`services/remote_passes.py`); there is no second identity module.
 - `_generate_jwt_token`'s keywords `sign`, `lifetime`, `extra_claims`, `owner`,
   `client` and `jti` exist for these helpers only: the Community call sites pass
   none, and `tests/test_community_jwt_golden.py` pins their tokens byte for byte.
@@ -267,6 +271,34 @@ purge go to health `plugins_purge_blocked`, admins only; host-wide leases in
   `AppSettings`; the backup rules are in `docs/dev/backup.md` (rule 4). Tests:
   `tests/test_share_identity.py` (a local re-implementation of the Worker's checks,
   proved on the links-files vectors copied in `tests/fixtures/links_files_vectors.json`).
+
+## Meshloom Remote (`services/remote.py`, `services/remote_passes.py`, `routers/remote.py`)
+
+Contracts: `meshloom-community/docs/contracts/remote-registration.md` and
+`remote-relay.md` (vectors copied in `tests/fixtures/remote_frames_vectors.json`).
+Design and flows: `docs/dev/remote.md`.
+
+- **Opt-in and egress.** `remote_state.enabled` (off). Nothing leaves towards
+  `relay.meshloom.link` unless it is on: every registry call goes through
+  `remote._registry` (409 `remote_disabled` first, then the egress guard with
+  `RELAY_HOST` as the only host). `tests/test_remote_off_no_egress.py` classifies every
+  coroutine of the module and sweeps every `/api/remote` route but `POST /enable`;
+  `tests/test_community_off_no_egress.py` forbids `*.meshloom.link` while off.
+- **Identity.** The `remote` instance key (above) signs the instance JWT and the device
+  passes. Rotation, unregistration and the `remote` on_restore hook are in
+  `docs/dev/remote.md`; any restore leaves Remote off, unregistered and without devices.
+- **Passes.** `remote_passes.verify_pass` is the contract's verifier (checked on every
+  vector case); `remote.verify_device_pass` adds the instance's own device table
+  (the third check of the edge lock). Never log a pass, a token, an enrolment URL or
+  an access code.
+- **Relay link.** The relay client (MSHL-87) plugs in with `set_relay_link`,
+  `handle_control`, `instance_info`, `plugins_info`, `gate_state` and
+  `add_change_listener`; this module never opens a socket itself.
+- **Routes** (`/api/remote`, `Cache-Control: no-store`): `admin` for enable, disable,
+  unregister (`DELETE`), rotate and revoke-all; `own_account()` for the rest (state,
+  own devices, enrolment QR, client pass, access requests). `POST /enroll` is refused
+  through the relay (`remote_lan_only`). Writes are audited (`remote.*`,
+  `docs/dev/auth.md`).
 
 ## Share service client (`services/share.py`)
 
@@ -694,6 +726,10 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 138 (MSHL-79) adds `app_settings.remote_instance_seed` and the
+  `remote_state` (one row), `remote_devices` and `remote_enroll_tokens` tables (`IF NOT
+  EXISTS`, plus `idx_remote_devices_user`); no `SCHEMA_TABLES` change.
+  `patched_database()` patches `app.repository.remote`.
 - Migration 137 (MSHL-434) adds `auth_settings.ip_ban_max_duration_minutes` (1440)
   and `ip_bans.strikes` (1), each only when its table exists; no `SCHEMA_TABLES` change.
 - Migration 135 (MSHL-422) adds the four `auth_settings.ip_ban_*` columns and the

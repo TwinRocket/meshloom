@@ -25,6 +25,7 @@ Developer reference, `docs/dev/`:
 - `feed.md`: the Feed's performance budget and the guards (query plans, store load test, row memoisation).
 - `auth-fail-log.md`: the `AUTH_FAIL` log line (one per refused credential), the contract log watchers and the ban follow.
 - `device-pairing.md`: device pairing codes and the QR payload, the contract meshenger follows.
+- `remote.md`: Meshloom Remote on the instance (identity, registration, device passes, enrolment, access requests, revocation, the relay link interface).
 - `radio-bench.md`: the opt-in live-radio suite.
 - `plugins.md`, `plugins-security.md`, `plugins/`: the plugin system and its isolation.
 
@@ -116,6 +117,11 @@ tests/radio_bench/    opt-in live-radio suite (marker `radio`), docs/dev/radio-b
   `share_request()` in `app/services/share.py` (`share_egress_state()`, then the
   egress guard with `SHARE_HOST` as the only allowed host), never a separate path;
   `tests/test_share_off_no_egress.py` sweeps it (`app/AGENTS.md`).
+- **Remote egress.** Meshloom Remote off (`remote_state.enabled`, the default) means
+  no connection at all to `relay.meshloom.link`. Every registry request goes through
+  `_registry()` in `app/services/remote.py` (the opt-in, then the egress guard with
+  `RELAY_HOST` as the only allowed host); `tests/test_remote_off_no_egress.py` sweeps
+  it (`docs/dev/remote.md`).
 - **User-chosen destinations.** The notification webhook, Web Push, their
   test routes and the fanout outputs (webhook, Apprise, SQS, map upload) go
   through the egress guard (`app/net/egress_guard.py`, see `app/net/AGENTS.md`):

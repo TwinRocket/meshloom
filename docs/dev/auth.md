@@ -226,6 +226,8 @@ logged at ERROR and the row is not written (a bug at the call site).
   | `share.object_deleted`, `share.report_sent` | `DELETE /share/{id}`, `POST /share/{id}/report` (`app/routers/share.py`): target `share:<id>`; `details.reason` for a report (never its free-text details); outcome `refused` when a check refuses (403, e.g. `share_not_owner`, `share_disabled`), `error` for a 5xx from the service, `failure` for other statuses. A caller without `send` is refused by the gate and writes no row |
   | `ip.banned` | The built-in ban ("IP ban"), actor `system`, target `ip:<key>`, `details = {failures, route, minutes}` |
   | `ip.unbanned`, `ip.whitelisted`, `ip.unwhitelisted` | `DELETE /auth/bans`, `POST`/`DELETE /auth/ban-whitelist`, `meshloom-admin unban` / `whitelist add` / `whitelist remove`; target `ip:<key or network>` (none for `unban --all`, `details = {scope: all, count}`) |
+  | `remote.enabled`, `remote.disabled`, `remote.linked`, `remote.unlinked`, `remote.rotated` | `/api/remote` (`app/services/remote.py`, `docs/dev/remote.md`): `enable`/`disable` when the state changes; `remote.linked` for a registration (target `remote:<slug>`; `failure` with `details.code` when the registry refused or did not answer), `remote.unlinked` for `DELETE /remote`, `remote.rotated` for `POST /remote/rotate`, no target |
+  | `remote.enroll_issued`, `remote.device_enrolled`, `remote.device_revoked`, `remote.devices_revoked`, `remote.access_granted`, `remote.access_denied` | `POST /remote/enroll` (target `user:<id>`), a QR enrolment answered to the relay (actor `relay` with the token's user) or `POST /remote/devices/client` (`details.origin`), `DELETE /remote/devices/{id}`, `POST /remote/devices/revoke-all` (`details.gen`), `POST /remote/access-requests/approve`, `.../{id}/deny`; device targets `device:<id>`. Never a pass, a token, an enrolment URL or an access code |
   | `update.triggered` | `POST /updates/apply` (`trigger: manual`), the auto-update window (`trigger: auto`, `system`; `error` when the helper could not be started) |
 
   **Every refusal of the users API is written**, under the route's action
@@ -242,8 +244,7 @@ logged at ERROR and the row is not written (a bug at the call site).
   `pairing.created`, `pairing.revoked` and `pairing.used` are the device
   pairing rows (`docs/dev/device-pairing.md`, "Security rules").
   Reserved for the tickets that add their feature:
-  `passkey.added`, `passkey.removed`, `remote.linked`,
-  `remote.enabled`, `remote.disabled` (Remote). A new sensitive action adds its
+  `passkey.added`, `passkey.removed`. A new sensitive action adds its
   name there and writes its row through this module.
 - **Reads** of the log (`GET /auth/audit`) are not audited (cadrage §4.5 asks only for an
   admin-only, cursor-paged API).
@@ -631,6 +632,12 @@ and reporting are `send` (member, admin); `/share/cache/clear` and the share set
 are `admin`; status and object reads are `read`. An object read tied to a non-channel
 message (`message_id`) needs `read_private`: a `kiosk` gets 403 `share_role_forbidden`
 before any cache read or request to the service.
+
+**Meshloom Remote (`/api/remote`, MSHL-79).** Enable, disable, unregister, rotate and
+revoke every device are `admin`; the state, one's own devices (an administrator sees and
+revokes every one), the enrolment QR code (refused through the relay), client passes and
+access requests are `own_account()` (every role but `kiosk`, never a scoped token).
+`docs/dev/remote.md`.
 
 `GET /settings/view` (`read`, so every role including `kiosk`) is the one readable
 settings route: `AppSettingsView` in `app/models.py` is an allowlist of display
@@ -1566,8 +1573,9 @@ strictness:
 Accepted names: an IP literal, `localhost`, `*.local`, `*.home.arpa`, `*.lan`,
 `*.internal`, the machine's short name and `socket.getfqdn()`, the hosts of
 `auth_settings.public_urls`, and the Remote hostname
-(`host_guard.set_remote_hostname()`; the Remote client, T63, calls it when it
-learns the hostname). Exempt, whatever the mode: Home Assistant ingress
+(`host_guard.set_remote_hostname()`: `app/services/remote.py` declares it at
+startup, after a registration or a relay `status` op while Remote is on, and
+withdraws it when Remote is turned off, unregistered, rotated or reset by a restore). Exempt, whatever the mode: Home Assistant ingress
 (`ingress.is_ingress_request`: add-on and Supervisor peer) and requests tagged
 `scope["state"]["via"] == "relay"`. The middleware sits inside the
 trusted-proxy middleware (it needs the recorded TCP peer) and outside the auth

@@ -204,6 +204,9 @@ For a caller that talks to a known set of hosts (the Store client, the plugin
 - Share service client (`app/services/share.py`, `app/AGENTS.md`, "Share
   service client"): `follow_checked_redirects` with `HostAllowlist.of(SHARE_HOST)`,
   HTTPS only, no redirect, capped answers, only while `share_enabled`.
+- Meshloom Remote registry (`app/services/remote.py`, `docs/dev/remote.md`):
+  `follow_checked_redirects` with `HostAllowlist.of(RELAY_HOST)`, HTTPS only, no
+  redirect, answers capped at 16 KiB, only while `remote_state.enabled`.
 - Store egress (`app/plugins/store_egress.py`, `app/AGENTS.md`, "Store egress"):
   `store_fetch()` sends through `follow_checked_redirects` with `STORE_ALLOWLIST`
   (`github.com`, the exact release-asset redirect hosts `objects.githubusercontent.com`
