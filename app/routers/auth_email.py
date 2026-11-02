@@ -126,6 +126,14 @@ async def _mail_base(request: Request, base: str | None) -> str | None:
     return declared[0] if declared else None
 
 
+async def magic_link_origin_trusted(request: Request) -> bool:
+    """Whether a sign-in link may be mailed from this request (``_mail_base`` has an
+    address for it). ``GET /auth/session`` offers ``methods.magic_link`` only then, so
+    the login page hides the button instead of meeting 400
+    ``auth_magic_link_origin_untrusted``."""
+    return await _mail_base(request, None) is not None
+
+
 def _unavailable() -> Exception:
     return _error(503, EmailUnavailable.code)
 

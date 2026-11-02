@@ -374,10 +374,19 @@ async def _oidc_provider() -> OidcProvider | None:
         return None
 
 
-async def _magic_link_offered() -> bool:
-    """The login page's "E-mail me a sign-in link"; False when anything is unreadable."""
+async def _magic_link_offered(request: Request) -> bool:
+    """The login page's "E-mail me a sign-in link": an account takes links, the SMTP
+    profile is usable and this request's origin may carry a mailed link (the rule of
+    ``POST /auth/magic-link``, which otherwise answers 400
+    ``auth_magic_link_origin_untrusted``). False when anything is unreadable."""
+    from app.routers.auth_email import magic_link_origin_trusted
+
     try:
-        return await EmailFactorRepository.any_magic_link() and await email_factor.available()
+        return (
+            await EmailFactorRepository.any_magic_link()
+            and await email_factor.available()
+            and await magic_link_origin_trusted(request)
+        )
     except Exception:
         logger.warning("E-mail sign-in settings unreadable: sign-in link hidden")
         return False
@@ -416,7 +425,9 @@ async def _session_payload(
             passkey=await webauthn.available(request.scope),
             oidc=oidc_on,
             oidc_label=(oidc_provider.label or None) if oidc_on and oidc_provider else None,
-            magic_link=not under_ingress and not setup_required and await _magic_link_offered(),
+            magic_link=not under_ingress
+            and not setup_required
+            and await _magic_link_offered(request),
         ),
         secure=_secure(request),
     )
