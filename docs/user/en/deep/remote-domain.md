@@ -14,7 +14,7 @@ You cannot point your domain at the relay with a `CNAME` record: the relay sits 
 ## What it looks like
 
 - Someone types `chat.example.org`. Their browser is sent to your Meshloom Remote address and **the address bar then shows `<name>.meshloom.link`**, not your domain. That is the limit of this method.
-- Every device still has to be enrolled, or approved, exactly as with the direct address ([Accounts and access](/en/docs/deep/access/)): the redirect gives no access by itself.
+- Every device still has to be allowed (by QR code or access request), exactly as with the direct address ([Accounts and access](/en/docs/deep/access/)): the redirect gives no access by itself.
 - If you replace the Remote key in Settings → Remote access, the instance gets a new address. Update the redirect, and use a temporary redirect (HTTP 302 or 307) rather than a permanent one: browsers remember a permanent one and keep sending people to the old address.
 - If you want your own domain to stay in the address bar, Meshloom Remote cannot do it. Use one of the paths in [Remote access on your own](/en/docs/deep/remote-self-hosted/) (a Cloudflare Tunnel or a reverse proxy that you run).
 

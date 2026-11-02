@@ -14,7 +14,7 @@ Vous ne pouvez pas faire pointer votre domaine vers le relais par un enregistrem
 ## Ce que ça donne
 
 - Quelqu’un saisit `chat.example.org`. Son navigateur est envoyé vers votre adresse Meshloom Remote et **la barre d’adresse affiche alors `<nom>.meshloom.link`**, pas votre domaine. C’est la limite de cette méthode.
-- Chaque appareil doit toujours être enrôlé, ou approuvé, exactement comme avec l’adresse directe ([Comptes et accès](/docs/deep/access/)) : la redirection ne donne aucun accès par elle-même.
+- Chaque appareil doit toujours être autorisé (par QR code ou demande d’accès), exactement comme avec l’adresse directe ([Comptes et accès](/docs/deep/access/)) : la redirection ne donne aucun accès par elle-même.
 - Si vous remplacez la clé Remote dans Réglages → Accès à distance, l’instance reçoit une nouvelle adresse. Mettez la redirection à jour, et préférez une redirection temporaire (HTTP 302 ou 307) à une permanente : les navigateurs retiennent une redirection permanente et continuent d’envoyer vers l’ancienne adresse.
 - Si vous voulez que votre domaine reste dans la barre d’adresse, Meshloom Remote ne sait pas le faire. Utilisez l’une des voies de [Accès à distance par vos propres moyens](/docs/deep/remote-self-hosted/) (un Cloudflare Tunnel ou un reverse-proxy que vous exploitez).
 
