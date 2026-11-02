@@ -41,6 +41,7 @@ The JSON Schema of the v2 body is published next to this page: [notifications-we
 ```
 
 - `data` never holds more than the v1 body of the same event, and less in two places. A message's `text` is `null` when the channel's **Message text** setting holds it back (**Public channels only** for a direct message or a private channel, or **Never**); `rendered.body` then holds no text either. And no message carries its conversation key: for a private channel, that key is the channel's secret. A v1 body sends the text whatever the setting.
+- `plugin.notification` is what an extension sent with its **Send notifications** permission: `title` and `body` are its own text, and `label` (the extension's name) comes first in `rendered.title`. Under **Message text: Never**, `data.body` is `null` and `rendered.body` repeats the title.
 - `radio_public_key` is your radio's own public key, the one every node in range already hears in its adverts. It lets one receiver tell several Meshloom instances apart.
 - `rendered` is in the channel's **Language of the notifications**.
 - New fields may be added to `data` within version 2. A receiver should ignore the fields it does not know. A change that removes or renames a field means a version 3.
@@ -593,6 +594,35 @@ These bodies are produced by Meshloom's own code (radio named `Base`, channel in
   "rendered": {
     "title": "Base Paris is running",
     "body": "Up for 26 h 03, version 5.0.0."
+  }
+}
+```
+
+### `plugin.notification`
+
+```json
+{
+  "version": 2,
+  "event": "plugin.notification",
+  "event_id": "0f1e2d3c-4b5a-4968-8776-655443322110",
+  "occurred_at": 1767225600,
+  "dedup_key": "2f8bf42a6ba8f6bd",
+  "urgent": false,
+  "instance": {
+    "name": "Base",
+    "radio_public_key": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+  },
+  "data": {
+    "instance_id": "3f2a9c1e-7b4d-4e8a-9c10-2b5d6e7f8a90",
+    "plugin_id": "acme.weather",
+    "label": "Weather",
+    "title": "Storm warning",
+    "body": "Gusts up to 90 km/h expected tonight.",
+    "level": "warning"
+  },
+  "rendered": {
+    "title": "Warning · Weather: Storm warning",
+    "body": "Gusts up to 90 km/h expected tonight."
   }
 }
 ```

@@ -55,6 +55,7 @@
           "notify_channel_failed": "Channel failing",
           "notify_heartbeat": "Heartbeat",
           "notify_test": "Test notification",
+          "plugin_notification": "Extension notification",
           "notifications_grouped": "Summary of grouped notifications",
           "first_seen_grouped": "Summary of new nodes",
           "quiet_digest": "Quiet hours summary"

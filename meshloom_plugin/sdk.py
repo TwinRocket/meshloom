@@ -510,3 +510,15 @@ class Plugin:
     async def set_status(self, summary: str) -> None:
         """One line shown next to the instance in the UI."""
         await meshloom_plugin.host().call("status.set", {"summary": summary})
+
+    async def notify(self, title: str, body: str = "", *, level: str = "info") -> int:
+        """Notify the user (permission `notifications.send`): Meshloom delivers it to the
+        notification channels the user ticked for extension notifications, never to a
+        destination the plugin names. `level` is `info`, `warning` or `critical`. Returns
+        how many channels it was queued for (0 when none is ticked)."""
+        params: dict[str, Any] = {"title": title, "level": level}
+        if body:
+            params["body"] = body
+        result = await meshloom_plugin.host().call("notifications.send", params)
+        queued = result.get("queued") if isinstance(result, dict) else None
+        return queued if type(queued) is int else 0

@@ -26,6 +26,7 @@ Une extension liste les permissions dont elle a besoin. Vous les voyez avant de 
 | Stocker des données | Conserver jusqu’à 5 Mo de données à elle dans Meshloom. |
 | S’exécuter à intervalles | Se réveiller plus tard, au plus tôt 10 secondes après l’avoir demandé. |
 | Se connecter à internet | Demander à Meshloom de contacter les serveurs qu’elle liste, et eux seuls (voir plus bas). |
+| Envoyer des notifications | Vous notifier par les canaux de notification de Meshloom (voir [Envoyer des notifications](#envoyer-des-notifications)). Elle ne choisit jamais où elles vont. |
 
 Vous pouvez restreindre encore ce qu’une extension lit en choisissant les canaux et contacts qu’elle voit, comme pour une intégration dans **MQTT et automatisation**.
 
@@ -48,6 +49,10 @@ Une extension peut aussi demander à **parler à un appareil de votre réseau** 
 
 Associée à la lecture des canaux privés ou des messages privés, cette permission permet à une extension de les envoyer aux serveurs qu’elle liste : n’accordez les deux qu’à une extension de confiance.
 
+### Envoyer des notifications
+
+Une extension qui a **Envoyer des notifications** demande à Meshloom de vous notifier (une alerte météo, un nœud devenu silencieux). Elle donne un titre, un texte et un niveau (information, avertissement ou critique) ; jamais une adresse, un téléphone ou un canal. Vous choisissez où vont ses notifications dans **Réglages → Notifications → Notifications par défaut**, sur la ligne **Notifications des extensions**, comme pour tout autre événement : rien n’est envoyé tant que vous n’y cochez pas de canal, et la même ligne vaut pour toutes les extensions. Les heures calmes, **Ne pas déranger**, les limites du canal et son journal d’envoi s’appliquent comme d’habitude. Le nom de l’extension vient toujours en premier dans le titre, pour qu’une extension ne puisse pas se faire passer pour Meshloom, et un niveau **Critique** n’est qu’un mot dans le titre, jamais une alerte urgente. Web Push ne va qu’aux appareils des administrateurs, car une extension peut citer ce qu’elle lit. Sur un canal dont le **Texte des messages** est **Jamais**, seul le titre est envoyé.
+
 ## Limites
 
 - **Messages envoyés.** Par défaut 30 par heure et 200 par jour pour chaque copie d’une extension. Une extension peut demander plus, jusqu’à 60 par heure et 500 par jour, et vous pouvez toujours baisser ces valeurs. Les compteurs survivent à un redémarrage de Meshloom.
@@ -58,6 +63,7 @@ Associée à la lecture des canaux privés ou des messages privés, cette permis
 - **Régions.** Une extension ne peut limiter un message de canal qu’à une région que Meshloom connaît déjà.
 - **Stockage.** 5 Mo par copie d’une extension.
 - **Internet.** 60 requêtes par heure par copie d’une extension, 10 secondes chacune, réponses coupées à 1 Mo. Ce compteur repart de zéro au redémarrage de Meshloom.
+- **Notifications.** Par défaut 10 par heure et 50 par jour pour chaque copie d’une extension ; une extension peut en demander jusqu’à 30 par heure et 100 par jour, et l’écran de consentement affiche les chiffres. Un titre fait au plus 100 caractères et un texte 1000. Ces compteurs repartent de zéro au redémarrage de Meshloom ; chaque canal de notification garde en plus ses propres limites.
 
 Une demande refusée apparaît dans le journal de l’extension avec sa raison, par exemple « non autorisé », « limite atteinte », « message trop long » ou « serveur non autorisé ». Pour les limites ci-dessus, la raison dit laquelle s’est déclenchée : la limite de la copie, toutes les extensions ensemble, le canal ou le contact, le délai par expéditeur ou le délai de calme.
 

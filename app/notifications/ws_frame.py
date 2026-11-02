@@ -16,7 +16,7 @@ rules. ``rules.emit_ws_events`` (default true) turns the frame off::
 typed fields, never rendered text. ``conversation_type`` is ``PRIV`` or ``CHAN`` for a
 message (``CHAN`` for ``channel.found``), null otherwise; ``conversation_open`` says whether
 a ``CHAN`` message is in a Public or ``#`` channel. Who gets the frame is decided per socket
-by ``app/websocket.py``: ``notify.*`` events reach admins only, and a direct conversation
+by ``app/websocket.py``: ``notify.*`` and ``plugin.*`` events reach admins only, and a direct conversation
 (``message.dm``, a ``PRIV`` conversation, a mention on a private-key channel) reaches only
 the sockets with ``read_private`` (never a kiosk). A channel message that names the radio is framed as
 ``message.mention`` even when only Web Push gets the mention (MSHL-402), and the dispatcher

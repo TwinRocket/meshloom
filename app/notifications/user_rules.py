@@ -75,12 +75,18 @@ ADMIN_ONLY_EVENTS = frozenset(
 # who configured them; an account's own pause and conversation exception still apply to its
 # devices. Fail closed like ``ADMIN_ONLY_EVENTS``: no administrator device, or owners unreadable,
 # means no Web Push at all.
-INSTANCE_RULE_EVENTS = frozenset({"message.keyword", "contact.node_seen", "contact.node_back"})
+# ``plugin.notification`` (MSHL-213) belongs here too: a plugin is installed and granted by an
+# administrator, and its text may quote what it reads (a direct message included).
+INSTANCE_RULE_EVENTS = frozenset(
+    {"message.keyword", "contact.node_seen", "contact.node_back", "plugin.notification"}
+)
 # Every event whose Web Push reaches administrators' devices only.
 ADMIN_PUSH_EVENTS = ADMIN_ONLY_EVENTS | INSTANCE_RULE_EVENTS
 # The legacy payload names (``event`` of the dicts ``PushManager.dispatch_event`` gets) of
 # the watched-node events; a keyword alert is a ``message`` payload carrying ``keyword``.
 _WATCHED_LEGACY = frozenset({"node_seen", "node_back"})
+# A plugin notification's legacy payload carries its catalogue id (``render.PLUGIN_NOTIFICATION_EVENT``).
+_PLUGIN_LEGACY = "plugin.notification"
 OVERRIDABLE_EVENTS: tuple[str, ...] = tuple(e for e in EVENT_IDS if e not in LOCKED_EVENTS)
 FIRST_SEEN_EVENT = "contact.first_seen"
 # ``channel-<key>`` / ``contact-<pubkey>``: the state key of ``rules.py`` (hex keys).
@@ -286,6 +292,7 @@ def admin_push_payload(data: Mapping[str, Any]) -> bool:
     return (
         event in ADMIN_ONLY_EVENTS
         or event in _WATCHED_LEGACY
+        or event == _PLUGIN_LEGACY
         or (is_message_payload(data) and bool(data.get("keyword")))
     )
 

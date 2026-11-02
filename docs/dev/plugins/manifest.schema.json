@@ -148,6 +148,42 @@
       "title": "NoParams",
       "type": "object"
     },
+    "NotificationsSendParams": {
+      "additionalProperties": false,
+      "description": "`notifications.send` (MSHL-213): the instance's own quota request. The\ndestinations are not a parameter: the notification channels ticked for the\n`plugin.notification` event in Settings > Notifications > Default notifications decide.",
+      "properties": {
+        "per_hour": {
+          "anyOf": [
+            {
+              "maximum": 30,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Hour"
+        },
+        "per_day": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Day"
+        }
+      },
+      "title": "NotificationsSendParams",
+      "type": "object"
+    },
     "Permissions": {
       "additionalProperties": false,
       "description": "The declared permissions: each key is a registry name, each value its parameters.",
@@ -244,6 +280,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/NoParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "notifications.send": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotificationsSendParams"
             },
             {
               "type": "null"

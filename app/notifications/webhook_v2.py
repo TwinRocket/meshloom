@@ -155,6 +155,19 @@ class HeartbeatData(_Model):
     version: str = ""
 
 
+class PluginNotificationData(_Model):
+    """A plugin's ``notifications.send`` (MSHL-213): its own text, never Meshloom's."""
+
+    instance_id: str = Field(description="The plugin instance that sent it.")
+    plugin_id: str = ""
+    label: str = Field(default="", description="The instance's label, shown before the title.")
+    title: str = ""
+    body: str | None = Field(
+        default="", description="null when the channel's text policy is never."
+    )
+    level: Literal["info", "warning", "critical"] = "info"
+
+
 class TestData(_Model):
     pass
 
@@ -234,6 +247,11 @@ _EVENTS: tuple[tuple[str, type[_Model], str], ...] = (
         "notify.heartbeat",
         HeartbeatData,
         "The periodic heartbeat of a channel: Meshloom is still running.",
+    ),
+    (
+        "plugin.notification",
+        PluginNotificationData,
+        "A plugin sent a notification (notifications.send permission).",
     ),
     ("summary.grouped", GroupedData, "Notifications the rate limiter held back."),
     ("summary.first_seen", FirstSeenGroupedData, "First-seen nodes over the hourly cap."),
@@ -368,6 +386,15 @@ def event_data(event: ev.NotificationEvent, payload: Mapping[str, Any], policy: 
         return ChannelFailedData(channel_id=d.channel_id, name=d.name, error=d.error)
     if isinstance(event, ev.HeartbeatEvent):
         return HeartbeatData(instance=d.instance, uptime_s=d.uptime_s, version=d.version)
+    if isinstance(event, ev.PluginNotificationEvent):
+        return PluginNotificationData(
+            instance_id=d.instance_id,
+            plugin_id=d.plugin_id,
+            label=d.label,
+            title=d.title,
+            body=None if policy == "never" else d.body,
+            level=d.level if d.level in ev.PLUGIN_NOTIFICATION_LEVELS else "info",  # type: ignore[arg-type]
+        )
     return TestData()
 
 

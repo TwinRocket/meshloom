@@ -1267,6 +1267,117 @@
       "title": "NotifyTestBody",
       "type": "object"
     },
+    "PluginNotificationBody": {
+      "additionalProperties": false,
+      "description": "A plugin sent a notification (notifications.send permission).",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/PluginNotificationData"
+        },
+        "dedup_key": {
+          "description": "Same on every retry; also the X-Webhook-Id header.",
+          "title": "Dedup Key",
+          "type": "string"
+        },
+        "event": {
+          "const": "plugin.notification",
+          "title": "Event",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "instance": {
+          "$ref": "#/$defs/Instance"
+        },
+        "occurred_at": {
+          "description": "Epoch seconds.",
+          "title": "Occurred At",
+          "type": "integer"
+        },
+        "rendered": {
+          "$ref": "#/$defs/RenderedText"
+        },
+        "urgent": {
+          "default": false,
+          "title": "Urgent",
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "default": 2,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "event",
+        "event_id",
+        "occurred_at",
+        "dedup_key",
+        "instance",
+        "data",
+        "rendered"
+      ],
+      "title": "PluginNotificationBody",
+      "type": "object"
+    },
+    "PluginNotificationData": {
+      "additionalProperties": false,
+      "description": "A plugin's ``notifications.send`` (MSHL-213): its own text, never Meshloom's.",
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "",
+          "description": "null when the channel's text policy is never.",
+          "title": "Body"
+        },
+        "instance_id": {
+          "description": "The plugin instance that sent it.",
+          "title": "Instance Id",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "description": "The instance's label, shown before the title.",
+          "title": "Label",
+          "type": "string"
+        },
+        "level": {
+          "default": "info",
+          "enum": [
+            "info",
+            "warning",
+            "critical"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "plugin_id": {
+          "default": "",
+          "title": "Plugin Id",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "instance_id"
+      ],
+      "title": "PluginNotificationData",
+      "type": "object"
+    },
     "RadioOfflineBody": {
       "additionalProperties": false,
       "description": "The radio stopped answering.",
@@ -1779,6 +1890,7 @@
       "notify.destination_changed": "#/$defs/NotifyDestinationChangedBody",
       "notify.heartbeat": "#/$defs/NotifyHeartbeatBody",
       "notify.test": "#/$defs/NotifyTestBody",
+      "plugin.notification": "#/$defs/PluginNotificationBody",
       "radio.offline": "#/$defs/RadioOfflineBody",
       "radio.online": "#/$defs/RadioOnlineBody",
       "summary.digest": "#/$defs/SummaryDigestBody",
@@ -1842,6 +1954,9 @@
     },
     {
       "$ref": "#/$defs/NotifyHeartbeatBody"
+    },
+    {
+      "$ref": "#/$defs/PluginNotificationBody"
     },
     {
       "$ref": "#/$defs/SummaryGroupedBody"

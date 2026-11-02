@@ -108,10 +108,15 @@ def _notification_reveals_direct_message(data: Any) -> bool:
 
 def _notification_event_audience(data: Any) -> Permission:
     """The permission a ``notification_event`` needs on top of ``read``: ``admin``
-    for the ``notify.*`` events (channel names, ids and errors) and for any id
-    outside the catalogue (fail closed)."""
+    for the ``notify.*`` events (channel names, ids and errors), the ``plugin.*`` ones (a
+    plugin's text may quote what it reads, MSHL-213) and for any id outside the catalogue
+    (fail closed)."""
     event = data.get("event") if isinstance(data, dict) else None
-    if not isinstance(event, str) or event not in EVENT_IDS or event.startswith("notify."):
+    if (
+        not isinstance(event, str)
+        or event not in EVENT_IDS
+        or event.startswith(("notify.", "plugin."))
+    ):
         return "admin"
     return "read"
 

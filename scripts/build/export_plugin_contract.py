@@ -202,6 +202,24 @@ FAILING: list[tuple[str, str, Mutation, list[tuple[str, str]]]] = [
         [("less_than_equal", "permissions.messages.send.per_day")],
     ),
     (
+        "notify-per-hour-over-cap",
+        "third_party",
+        _perm("notifications.send", {"per_hour": 31}),
+        [("less_than_equal", "permissions.notifications.send.per_hour")],
+    ),
+    (
+        "notify-per-day-over-cap",
+        "third_party",
+        _perm("notifications.send", {"per_day": 101}),
+        [("less_than_equal", "permissions.notifications.send.per_day")],
+    ),
+    (
+        "notify-unknown-parameter",
+        "third_party",
+        _perm("notifications.send", {"channels": ["ntfy-1"]}),
+        [("extra_forbidden", "permissions.notifications.send.channels")],
+    ),
+    (
         "send-bad-target",
         "third_party",
         _perm("messages.send", {"targets": "everyone"}),
@@ -537,6 +555,12 @@ def _with_only_lan_hosts() -> dict[str, Any]:
     return m
 
 
+def _with_notifications() -> dict[str, Any]:
+    m = copy.deepcopy(SAMPLE)
+    m["permissions"]["notifications.send"] = {"per_hour": 5, "per_day": 20}
+    return m
+
+
 def _with_text(text: str) -> dict[str, Any]:
     m = copy.deepcopy(SAMPLE)
     m["name"] = {"en": "Weather", "fa": text}
@@ -576,6 +600,7 @@ def build_vectors() -> dict[str, Any]:
         _vector("local-namespace", "local", local, None),
         _vector("http-lan-hosts", "third_party", _with_lan_hosts(), None),
         _vector("http-lan-hosts-only", "third_party", _with_only_lan_hosts(), None),
+        _vector("notifications-send", "third_party", _with_notifications(), None),
         _vector(
             "text-persian-zwnj",
             "third_party",
