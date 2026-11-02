@@ -5,7 +5,7 @@ The browser never talks to the registry or the relay: these routes do, through
 no request.
 
 Roles (``docs/dev/auth.md``, "Permissions"): turning Remote on or off, unregistering,
-replacing the key and revoking every device are ``admin``. Every account role but
+replacing the key, revoking every device and testing a custom domain are ``admin``. Every account role but
 ``kiosk`` (``own_account``) reads the state, lists and revokes its own devices, issues
 an enrolment QR code for itself (never through the relay: ``remote_lan_only``), issues
 a client pass, and approves (the new device is the approver's) or denies an access
@@ -102,6 +102,21 @@ class RemoteAccessApproveRequest(BaseModel):
     label: str | None = Field(default=None, max_length=remote.LABEL_MAX)
 
 
+class RemoteDomainTestRequest(BaseModel):
+    domain: str = Field(min_length=1, max_length=300, description="The personal domain to test")
+
+
+class RemoteDomainTestResponse(BaseModel):
+    result: Literal["ok", "no_redirect", "wrong_target", "invalid_domain", "unreachable"]
+    status_code: int | None = Field(default=None, description="The domain's own HTTP status")
+    target_host: str | None = Field(
+        default=None, description="Host the domain redirects to (untrusted text)"
+    )
+    detail: str | None = Field(
+        default=None, description="With unreachable: an egress/transport error code"
+    )
+
+
 class RemoteGateResponse(BaseModel):
     gate_pushed: bool = Field(description="The relay link got the new pass state now")
 
@@ -190,6 +205,25 @@ async def rotate_remote(request: Request, actor: RequestActor = SYSTEM_ACTOR) ->
     (a new slug) when Remote is on."""
     await remote.rotate(actor)
     return await _status(get_principal(request))
+
+
+@router.post(
+    "/domain/test",
+    response_model=RemoteDomainTestResponse,
+    dependencies=[Depends(require("admin"))],
+)
+async def test_custom_domain(body: RemoteDomainTestRequest) -> RemoteDomainTestResponse:
+    """Check that a personal domain redirects to this instance's ``<slug>.meshloom.link``
+    (MSHL-428). One GET to the domain through the egress guard, no redirect followed.
+    409 ``remote_disabled`` / ``remote_not_registered``; every other outcome is a 200
+    with a ``result``."""
+    check = await remote.check_custom_domain(body.domain)
+    return RemoteDomainTestResponse(
+        result=check.result,  # type: ignore[arg-type]
+        status_code=check.status_code,
+        target_host=check.target_host,
+        detail=check.detail,
+    )
 
 
 @router.post("/enroll", response_model=RemoteEnrollResponse, dependencies=[Depends(own_account())])

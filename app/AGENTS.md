@@ -322,8 +322,13 @@ Design and flows: `docs/dev/remote.md`.
   reaches the app. `via = relay` is set nowhere else; the auth gate, trusted networks,
   ingress, host guard and HSTS read it. Close codes, credits and batching:
   `docs/dev/remote.md`, "Relay client".
+- **Custom domain test.** `remote.check_custom_domain` (`POST /api/remote/domain/test`,
+  MSHL-428) sends one GET per scheme to the user's own domain, as a user-chosen destination
+  through the egress guard (private addresses refused), no redirect followed, and compares the
+  `Location` host with the registered hostname. It needs Remote on and registered, and never
+  reaches the relay (`docs/dev/remote.md`, "Custom domain test").
 - **Routes** (`/api/remote`, `Cache-Control: no-store`): `admin` for enable, disable,
-  unregister (`DELETE`), rotate and revoke-all; `own_account()` for the rest (state,
+  unregister (`DELETE`), rotate, revoke-all and `POST /domain/test`; `own_account()` for the rest (state,
   own devices, enrolment QR, client pass, access requests). `POST /enroll` is refused
   through the relay (`remote_lan_only`). Writes are audited (`remote.*`,
   `docs/dev/auth.md`).

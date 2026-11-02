@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, api } from '../api';
@@ -18,6 +18,7 @@ import {
   REMOTE_LINK_STATES,
   type RemoteAccessRequest,
   type RemoteDevice,
+  type RemoteDomainTest,
   type RemoteStatus,
 } from '../components/settings/remote/remoteTypes';
 import i18n from '../i18n';
@@ -512,5 +513,62 @@ describe('SettingsRemoteSection', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       t('errors.remote_access_request_not_found')
     );
+  });
+
+  describe('custom domain test', () => {
+    const run = async (result: Partial<RemoteDomainTest>) => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      const test = vi.spyOn(api, 'testRemoteDomain').mockResolvedValue({
+        result: 'ok',
+        status_code: 301,
+        target_host: 'abc.meshloom.link',
+        detail: null,
+        ...result,
+      });
+      await renderAs('admin');
+      fireEvent.change(await screen.findByLabelText(t('settings.remote.domain.label')), {
+        target: { value: ' chat.example.org ' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.remote.domain.test') }));
+      const box = await screen.findByTestId('remote-domain-result');
+      expect(test).toHaveBeenCalledWith('chat.example.org');
+      return box;
+    };
+
+    it('reports ok, no redirect, wrong target and unreachable with translated messages', async () => {
+      const ok = await run({});
+      expect(ok).toHaveAttribute('data-result', 'ok');
+      expect(ok).toHaveTextContent(t('settings.remote.domain.result.ok.title'));
+      cleanup();
+      expect(await run({ result: 'no_redirect', status_code: 200 })).toHaveTextContent(
+        t('settings.remote.domain.result.no_redirect.title')
+      );
+      cleanup();
+      const wrong = await run({ result: 'wrong_target', target_host: 'example.com' });
+      expect(wrong).toHaveTextContent('example.com');
+      cleanup();
+      const down = await run({ result: 'unreachable', detail: 'egress_unresolvable' });
+      expect(down).toHaveTextContent(t('settings.remote.domain.reason.egress_unresolvable'));
+    });
+
+    it('is for administrators of a registered instance only', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      await renderAs('member');
+      await screen.findByTestId('remote-badge');
+      expect(screen.queryByLabelText(t('settings.remote.domain.label'))).toBeNull();
+    });
+
+    it('shows the translated error of a refused test', async () => {
+      vi.spyOn(api, 'getRemote').mockResolvedValue(statusOf());
+      vi.spyOn(api, 'testRemoteDomain').mockRejectedValue(
+        new ApiError('x', 409, { code: 'remote_disabled', message: 'x' })
+      );
+      await renderAs('admin');
+      fireEvent.change(await screen.findByLabelText(t('settings.remote.domain.label')), {
+        target: { value: 'chat.example.org' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: t('settings.remote.domain.test') }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(t('errors.remote_disabled'));
+    });
   });
 });

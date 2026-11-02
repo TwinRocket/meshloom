@@ -31,6 +31,11 @@ passes this instance signs (``app/services/remote_passes.py``).
   ``x-meshloom-pass``. Change listeners (``add_change_listener``) tell it to connect or
   disconnect.
 
+- **Custom domain.** ``check_custom_domain()`` (MSHL-428) is the "Test" button of a
+  personal domain that redirects (URL redirect, no CNAME) to ``<slug>.meshloom.link``:
+  one GET, no redirect followed, to the user's domain through the egress guard (a
+  user-chosen destination, so private addresses are refused), HTTPS then HTTP.
+
 Never log a token, a pass, an enrolment URL or an access code.
 """
 
@@ -57,6 +62,8 @@ from app.net.egress_guard import (
     HostAllowlist,
     error_code,
     follow_checked_redirects,
+    pinned_async_client,
+    validate_destination,
 )
 from app.repository.auth import UserRepository
 from app.repository.remote import RemoteDevice, RemoteEnrollToken, RemoteRepository, RemoteState
@@ -831,3 +838,109 @@ def link_status() -> str | None:
 
 def relay_connected() -> bool:
     return _rt.sender is not None
+
+
+# ---------------------------------------------------------------- custom domain test
+
+DOMAIN_TEST_TIMEOUT = httpx.Timeout(connect=5.0, read=8.0, write=5.0, pool=5.0)
+DOMAIN_TEST_TOTAL_TIMEOUT_S = 20.0
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+_DOMAIN_LABEL_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+
+
+@dataclass(frozen=True)
+class DomainCheck:
+    """``result`` is ``ok``, ``no_redirect``, ``wrong_target`` or ``invalid_domain``, or
+    an ``unreachable`` reason in ``detail`` (an ``error_code``: ``egress_unresolvable``,
+    ``egress_private_address``, ``timeout``, ``tls_error``, ``connect_error``...).
+    ``target_host`` is the host the domain redirects to (untrusted text, host only)."""
+
+    result: str
+    status_code: int | None = None
+    target_host: str | None = None
+    detail: str | None = None
+
+
+def normalize_domain(raw: str) -> str | None:
+    """A bare host name from what the user typed (``https://`` and a trailing ``/``
+    tolerated), or None when it is not a domain name (IP literal, port, path, one label)."""
+    text = raw.strip().lower()
+    for prefix in ("https://", "http://"):
+        if text.startswith(prefix):
+            text = text[len(prefix) :]
+    text = text.rstrip("/").rstrip(".")
+    try:
+        text = text.encode("idna").decode("ascii")
+    except UnicodeError:
+        return None
+    labels = text.split(".")
+    if len(text) > 253 or len(labels) < 2 or not all(_DOMAIN_LABEL_RE.fullmatch(x) for x in labels):
+        return None
+    if labels[-1].isdigit():  # 1.2.3.4
+        return None
+    return text
+
+
+def _location_host(location: str) -> str | None:
+    try:
+        host = httpx.URL(location).host
+    except httpx.InvalidURL:
+        return None
+    return host.rstrip(".").lower() or None
+
+
+async def _probe_domain(scheme: str, domain: str) -> httpx.Response | None:
+    """One GET without following anything; the headers are all that is read."""
+    dest = await validate_destination(f"{scheme}://{domain}/", schemes=frozenset({scheme}))
+    async with pinned_async_client(dest, timeout=DOMAIN_TEST_TIMEOUT) as client:
+        async with client.stream(
+            "GET",
+            headers={
+                "Accept": "*/*",
+                "User-Agent": f"Meshloom/{get_app_build_info().version}",
+            },
+        ) as response:
+            return httpx.Response(response.status_code, headers=response.headers)
+
+
+async def check_custom_domain(raw_domain: str) -> DomainCheck:
+    """Does ``raw_domain`` redirect to this instance's ``<slug>.meshloom.link``?
+
+    409 ``remote_disabled`` while Remote is off and ``remote_not_registered`` without a
+    hostname (nothing to compare with). Nothing is sent to the relay: the only
+    destination is the user's domain, through the egress guard (private, loopback and
+    metadata addresses refused), with no redirect followed and no cookie or credential.
+    """
+    state = await RemoteRepository.get_state()
+    if not state.enabled:
+        raise RemoteError("remote_disabled")
+    if not state.hostname:
+        raise RemoteError("remote_not_registered")
+    domain = normalize_domain(raw_domain)
+    if domain is None:
+        return DomainCheck("invalid_domain")
+    response: httpx.Response | None = None
+    failure = "connect_error"
+    try:
+        async with asyncio.timeout(DOMAIN_TEST_TOTAL_TIMEOUT_S):
+            for scheme in ("https", "http"):
+                try:
+                    response = await _probe_domain(scheme, domain)
+                    break
+                except (EgressBlocked, httpx.HTTPError, OSError) as exc:
+                    failure = error_code(exc)
+                    # A refusal or an unknown name will not change with the scheme.
+                    if isinstance(exc, EgressBlocked) or failure == "timeout":
+                        break
+    except TimeoutError:
+        failure = "timeout"
+    if response is None:
+        logger.info("Remote custom domain test failed: %s", failure)
+        return DomainCheck("unreachable", detail=failure)
+    location = response.headers.get("location")
+    if response.status_code not in _REDIRECT_STATUSES or not location:
+        return DomainCheck("no_redirect", status_code=response.status_code)
+    target = _location_host(location)
+    if target != state.hostname.lower():
+        return DomainCheck("wrong_target", status_code=response.status_code, target_host=target)
+    return DomainCheck("ok", status_code=response.status_code, target_host=target)

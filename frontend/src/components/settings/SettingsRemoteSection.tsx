@@ -21,6 +21,7 @@ import { AccessConfirmDialog } from './AccessConfirmDialog';
 import { formatEpoch } from './accessShared';
 import { SettingsGroup, SettingsGroupHeader } from './settingsPrimitives';
 import type { SettingsSection } from './settingsConstants';
+import { RemoteDomainPanel } from './remote/RemoteDomainPanel';
 import { RemoteAccessRequestsPanel } from './remote/RemoteAccessRequestsPanel';
 import { RemoteDevicesPanel } from './remote/RemoteDevicesPanel';
 import { RemoteEnrollDialog } from './remote/RemoteEnrollDialog';
@@ -352,6 +353,10 @@ export function SettingsRemoteSection({
             onEnrolled={reload}
           />
         </SettingsGroup>
+      )}
+
+      {isAdmin && status && registered && status.hostname && (
+        <RemoteDomainPanel hostname={status.hostname} />
       )}
 
       {status && registered && (
