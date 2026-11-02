@@ -1291,7 +1291,7 @@ describe('SettingsModal', () => {
     expect(screen.getByText(i18n.t('settings.proxy.warning'))).toBeInTheDocument();
   });
 
-  it('lists Users & Access, Remote access, then notifications, after local in the accordion nav', () => {
+  it('lists Users & Access, Connection, Remote access, then notifications, after local in the accordion nav', () => {
     renderModal({ mobile: true });
     const sectionToggles = screen
       .getAllByRole('button')
@@ -1304,8 +1304,9 @@ describe('SettingsModal', () => {
 
     expect(localIdx).toBeGreaterThanOrEqual(0);
     expect(labels[localIdx + 1]).toContain(i18n.t('settingsNav.access'));
-    expect(labels[localIdx + 2]).toContain(i18n.t('settingsNav.remote'));
-    expect(notificationsIdx).toBe(localIdx + 3);
+    expect(labels[localIdx + 2]).toContain(i18n.t('settingsNav.connection'));
+    expect(labels[localIdx + 3]).toContain(i18n.t('settingsNav.remote'));
+    expect(notificationsIdx).toBe(localIdx + 4);
 
     fireEvent.click(sectionToggles[notificationsIdx]);
     expect(screen.getByText(i18n.t('settings.notifications.channels.title'))).toBeInTheDocument();

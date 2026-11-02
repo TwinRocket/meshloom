@@ -35,6 +35,8 @@ export const AUDIT_FAMILIES = {
     'totp.disabled',
     'passkey.added',
     'passkey.removed',
+    'oidc.linked',
+    'oidc.unlinked',
   ],
   code: [
     'bot.created',

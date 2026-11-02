@@ -30,7 +30,15 @@ export interface AuthSessionInfo {
   authenticated: boolean;
   setup_required: boolean;
   setup_code_required: boolean;
-  methods: { password: boolean; ingress: boolean; passkey?: boolean };
+  methods: {
+    password: boolean;
+    ingress: boolean;
+    passkey?: boolean;
+    /** Sign-in with the OpenID Connect provider of Settings → Connection is on. */
+    oidc?: boolean;
+    /** The provider's button label (absent: a generic one). */
+    oidc_label?: string;
+  };
   /** Whether the server saw the request as https (a trusted proxy's `X-Forwarded-Proto`). */
   secure?: boolean;
   /** The installation code, only for the kiosk screen (a direct loopback request, setup open). */
@@ -330,4 +338,73 @@ export interface PasskeyRow {
   /** A synced (multi-device) credential. */
   backup_eligible: boolean;
   backed_up: boolean;
+}
+
+export type OidcPreset = 'generic' | 'google' | 'discord' | 'keycloak';
+export type OidcTokenAuthMethod = 'client_secret_basic' | 'client_secret_post';
+
+/** `GET/PATCH /auth/oidc/settings` (admin). The client secret is write-only. */
+export interface OidcSettings {
+  enabled: boolean;
+  preset: OidcPreset;
+  label: string;
+  issuer: string;
+  client_id: string;
+  client_secret_set: boolean;
+  scopes: string;
+  token_auth_method: OidcTokenAuthMethod;
+  /** An identity without a link gets a new `viewer` account. Off by default. */
+  auto_create: boolean;
+  /** A provider on the local network: private addresses, and plain http there. */
+  allow_private_network: boolean;
+  updated_at: number;
+  /** The redirect URIs to register at the provider: this page's origin first. */
+  redirect_uris: string[];
+  secret_store_available: boolean;
+}
+
+export type OidcSettingsPatch = Partial<
+  Omit<
+    OidcSettings,
+    'client_secret_set' | 'updated_at' | 'redirect_uris' | 'secret_store_available'
+  >
+> & {
+  /** Omitted keeps the stored secret. */
+  client_secret?: string;
+  clear_client_secret?: boolean;
+};
+
+/** `POST /auth/oidc/test`: the saved provider answered. */
+export interface OidcTestResult {
+  ok: boolean;
+  issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  userinfo_endpoint?: string | null;
+  keys: number;
+}
+
+/** One external identity allowed to sign in an existing local account. */
+export interface OidcLink {
+  id: number;
+  user_id: number;
+  username: string;
+  issuer: string;
+  /** The provider's `sub`; null for an e-mail link until its first sign-in. */
+  subject: string | null;
+  email: string | null;
+  created_at: number;
+  last_login_at: number | null;
+}
+
+export interface OidcLinksView {
+  /** The configured issuer: a link of another issuer matches nothing. */
+  issuer: string;
+  links: OidcLink[];
+}
+
+export interface OidcLinkCreate {
+  user_id: number;
+  subject?: string;
+  email?: string;
 }

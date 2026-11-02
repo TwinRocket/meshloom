@@ -1,6 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KeyRound, TriangleAlert } from 'lucide-react';
+import { KeyRound, LogIn, TriangleAlert } from 'lucide-react';
 
 import { api, formatApiError } from '../api';
 import { Button } from '../components/ui/button';
@@ -8,6 +8,7 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { AuthLayout } from './AuthLayout';
+import { startOidcSignIn, takeOidcReturn } from './oidc';
 import {
   formatPasskeyError,
   passkeyLoginAvailable,
@@ -27,12 +28,21 @@ export function LoginForm({
   initialUsername = '',
   autoFocusPassword = false,
   passkey = false,
+  oidc,
+  initialChallenge = null,
+  initialError = null,
   onDone,
 }: {
   initialUsername?: string;
   autoFocusPassword?: boolean;
   /** Offer "Sign in with a passkey" (the server and the browser both support it). */
   passkey?: boolean;
+  /** Offer "Sign in with <label>" (the server's `methods.oidc`); the label may be empty. */
+  oidc?: { label?: string };
+  /** Back from the OpenID Connect provider: the account owes its second factor. */
+  initialChallenge?: SecondFactorChallenge | null;
+  /** Back from the OpenID Connect provider with a refusal, already translated. */
+  initialError?: string | null;
   onDone: (session: AuthSessionInfo) => void;
 }) {
   const { t } = useTranslation();
@@ -40,9 +50,9 @@ export function LoginForm({
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   // The password checked and the account owes a code: the second step replaces the form.
-  const [challenge, setChallenge] = useState<SecondFactorChallenge | null>(null);
+  const [challenge, setChallenge] = useState<SecondFactorChallenge | null>(initialChallenge);
 
   const restart = useCallback((reason?: string) => {
     setChallenge(null);
@@ -154,13 +164,15 @@ export function LoginForm({
       <Button type="submit" className="w-full" disabled={busy || !username.trim() || !password}>
         {t('auth.login.submit')}
       </Button>
+      {(passkey || oidc) && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground" aria-hidden="true">
+          <span className="h-px flex-1 bg-border" />
+          {t('auth.passkey.or')}
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      )}
       {passkey && (
         <>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground" aria-hidden="true">
-            <span className="h-px flex-1 bg-border" />
-            {t('auth.passkey.or')}
-            <span className="h-px flex-1 bg-border" />
-          </div>
           <Button
             type="button"
             variant="outline"
@@ -172,6 +184,21 @@ export function LoginForm({
             {t('auth.passkey.signIn')}
           </Button>
         </>
+      )}
+      {oidc && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            startOidcSignIn(remember);
+          }}
+        >
+          <LogIn className="mr-2 h-4 w-4" aria-hidden="true" />
+          {t('auth.oidc.signIn', { name: oidc.label || t('auth.oidc.defaultLabel') })}
+        </Button>
       )}
     </form>
   );
@@ -187,6 +214,8 @@ export function LoginPage({
   session?: AuthSessionInfo;
 }) {
   const { t } = useTranslation();
+  // Back from the OpenID Connect provider (read once, the address bar cleaned).
+  const [oidcReturn] = useState(takeOidcReturn);
   return (
     <AuthLayout title={t('auth.login.title')} description={t('auth.login.description')}>
       {behindUntrustedHttpsProxy(session) && (
@@ -209,7 +238,13 @@ export function LoginPage({
           </p>
         </div>
       )}
-      <LoginForm onDone={onDone} passkey={passkeyLoginAvailable(session)} />
+      <LoginForm
+        onDone={onDone}
+        passkey={passkeyLoginAvailable(session)}
+        oidc={session?.methods.oidc ? { label: session.methods.oidc_label } : undefined}
+        initialChallenge={oidcReturn?.challenge ?? null}
+        initialError={oidcReturn?.error ? t(`errors.${oidcReturn.error}`) : null}
+      />
       {passkeyUnavailableHere(session) && (
         <p role="note" className="text-xs text-muted-foreground">
           {t('auth.passkey.unavailableHint')}

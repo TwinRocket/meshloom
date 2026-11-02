@@ -14,6 +14,7 @@ import type {
   AuthUserRow,
 } from '../auth/types';
 import { SettingsAccessSection } from '../components/settings/SettingsAccessSection';
+import { SettingsConnectionSection } from '../components/settings/SettingsConnectionSection';
 import { deviceLabel } from '../components/settings/accessShared';
 import i18n from '../i18n';
 
@@ -88,6 +89,17 @@ async function renderAs(role: AuthRole) {
     </SessionProvider>
   );
   await screen.findByText(t('settings.access.profile.title'));
+}
+
+/** Settings → Connection, where the session lifetime moved (MSHL-427): its first tab. */
+async function renderConnectionAs(role: AuthRole) {
+  vi.spyOn(api, 'getAuthSession').mockResolvedValue(sessionOf(role));
+  render(
+    <SessionProvider>
+      <SettingsConnectionSection />
+    </SessionProvider>
+  );
+  await screen.findByTestId('connection-tab-local');
 }
 
 describe('SettingsAccessSection', () => {
@@ -393,7 +405,7 @@ describe('session lifetime', () => {
     const patch = vi
       .spyOn(api, 'patchAuthSettings')
       .mockResolvedValue({ ...settings, session_lifetime_days: 90 });
-    await renderAs('admin');
+    await renderConnectionAs('admin');
     const ui = userEvent.setup();
     const input = await screen.findByLabelText(t('settings.access.sessionLifetime.days'));
     expect(input).toHaveValue(30);
@@ -410,7 +422,7 @@ describe('session lifetime', () => {
 
   it.each(['0', '366', '1.5', ''])('refuses %j without calling the server', async (typed) => {
     const patch = vi.spyOn(api, 'patchAuthSettings');
-    await renderAs('admin');
+    await renderConnectionAs('admin');
     const ui = userEvent.setup();
     const input = await screen.findByLabelText(t('settings.access.sessionLifetime.days'));
     await ui.clear(input);
@@ -432,8 +444,8 @@ describe('session lifetime', () => {
     vi.restoreAllMocks();
     settings = { trusted_proxies: [], audit_retention_days: 366, ingress_default_role: 'member' };
     mockApi();
-    await renderAs('admin');
-    await screen.findByText(t('settings.access.ingress.title'));
+    await renderConnectionAs('admin');
+    await waitFor(() => expect(api.getAuthSettings).toHaveBeenCalled());
     expect(screen.queryByText(t('settings.access.sessionLifetime.title'))).toBeNull();
   });
 });

@@ -55,6 +55,8 @@
           "totp.disabled": "Two-factor code disabled",
           "passkey.added": "Passkey added",
           "passkey.removed": "Passkey removed",
+          "oidc.linked": "OpenID Connect identity linked",
+          "oidc.unlinked": "OpenID Connect identity unlinked",
           "bot.created": "Bot created",
           "bot.changed": "Bot changed",
           "bot.deleted": "Bot deleted",
