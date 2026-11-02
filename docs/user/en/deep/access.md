@@ -260,6 +260,30 @@ Every sign-in, refusal, link and unlink is written to the [audit log](#audit-log
 
 Administrators can also use the API: `GET` and `PATCH /api/auth/oidc/settings` (the secret is write-only), `POST /api/auth/oidc/test`, `GET` and `POST /api/auth/oidc/links`, `DELETE /api/auth/oidc/links/{id}`.
 
+## E-mail code and sign-in links
+
+Two optional extras, each account chooses for itself: a **code sent by e-mail** after the password (a second factor), and **sign-in links** sent by e-mail instead of the password. Both use the SMTP settings of one of your notification e-mail channels; Meshloom has no mail service of its own and sends nothing anywhere else. They apply to accounts with a password (not the kiosk, not Home Assistant users).
+
+### Setting it up
+
+1. An administrator adds an e-mail channel in **Settings → Notifications** if there is none yet, then picks it in **Settings → Connection → E-mail sign-in** (**Send through**). The page says whether sign-in mails can be sent. Without a channel, or with a disabled one, every e-mail sign-in request is refused with a message saying so.
+2. Each person goes to **Settings → Users & Access → E-mail sign-in**, enters an address and their password (plus a code from the authenticator app when [two-factor authentication](#two-factor-authentication) is on), and chooses **Send a code**. The code that arrives confirms the address.
+3. They then tick **Ask for an e-mail code after my password**, **Allow sign-in links**, or both, and save with their password. Turning the e-mail code on signs them out of their other browsers.
+
+**Change the address** sends a new code to the new address; **Remove** forgets the address and both options.
+
+### Signing in
+
+- **E-mail code.** After the password, Meshloom sends a 6-digit code to the address (shown masked, `a***@example.org`) and asks for it. It works once, for 10 minutes; **Send another code** is possible once a minute, three times per sign-in. Five wrong codes, of any kind, mean starting again with the password. With two-factor authentication on as well, the authenticator code stays the default and **Get a code by e-mail instead** switches to the e-mail code.
+- **Sign-in link.** On the sign-in page, **E-mail me a sign-in link** asks for the username and sends a link to that account's address, if it allows links. The page says the same thing whether or not an account matched. The link works once, for 15 minutes, in any browser; it replaces the password. With two-factor authentication on, the authenticator code is still asked after the link (never the e-mail code: the link already proved the mailbox). The link points to this instance's declared public address (see the access settings), or to the address you used when that is this machine's own (its IP address, its name or `<name>.local`); otherwise the page says a public address must be declared first, so a forged address can never end up in the mail.
+- **OpenID Connect** sign-ins never ask for the e-mail code: the provider may bring its own second factor.
+
+Limits: one mail a minute and five an hour per account, and twenty link requests an hour from one address. A wrong e-mail code counts like a wrong password, with the same [delays](#sign-in-delays). Codes and links live in memory only: a restart forgets them. Whoever reads the mailbox can use a link, so keep links for an address only you read.
+
+The same through the API: `GET`, `PATCH` and `DELETE /api/auth/email`, `POST /api/auth/email/address`, `POST /api/auth/email/verify`; `POST /api/auth/login/2fa/email` sends the code of a sign-in, and `POST /api/auth/login/2fa` takes it with `{"pending_token", "code", "method": "email"}`; `POST /api/auth/magic-link` and `POST /api/auth/magic-link/verify` for links. Administrators: `GET` and `PATCH /api/auth/email/settings`.
+
+**Lost mailbox.** An administrator runs `meshloom-admin disable-2fa <user>` (below), which also turns the e-mail code off.
+
 ## Home Assistant
 
 On the Home Assistant add-on, Home Assistant signs you in. Opened from the sidebar, Meshloom accepts the Home Assistant user who opens it, with no password and no Meshloom cookie. Meshloom trusts the identity only when the request comes from the Home Assistant Supervisor itself; the same headers sent to a published port 8000 are ignored, and that address asks for a Meshloom account like any other install.
@@ -286,7 +310,7 @@ Up to 4.18, `MESHCORE_BASIC_AUTH_USERNAME` and `MESHCORE_BASIC_AUTH_PASSWORD` (t
 
 ## Audit log
 
-Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, two-factor authentication turned on or off, new recovery codes and sign-ins waiting for their code, passkeys added or removed, OpenID Connect identities linked or unlinked, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, extensions installed, enabled, disabled, changed or uninstalled, extensions paused or resumed (the bot entries of 4.18 and earlier stay in the log), backup restores, private key imports, radio factory resets, sharing turned on or off, shared objects deleted or reported, and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
+Meshloom keeps a log of sensitive actions: sign-ins (successful or failed), sign-outs and sessions signed out, accounts created, renamed, given another role, disabled, enabled again or deleted (refusals included, such as an attempt to demote the last administrator), password changes, two-factor authentication turned on or off, new recovery codes and sign-ins waiting for their code, passkeys added or removed, OpenID Connect identities linked or unlinked, sign-in addresses verified, changed or removed and sign-in links sent, the first administrator setup, changes to the access settings, tokens created and revoked and uses of a revoked or expired token, extensions installed, enabled, disabled, changed or uninstalled, extensions paused or resumed (the bot entries of 4.18 and earlier stay in the log), backup restores, private key imports, radio factory resets, sharing turned on or off, shared objects deleted or reported, and updates started. Each `meshloom-admin` command below writes an entry too, refused ones included.
 
 Each entry holds the time, the account that acted (none for a failed sign-in or the command line), the address it came from, the way in (local network, Home Assistant, command line, or Meshloom itself for an automatic update), what was acted on and how it ended. It never holds a password, an installation code, a session, a key or an extension's code. A failed sign-in names the account only when the typed name matches one; any other typed name is recorded as unknown, so a password typed into the name field is not kept.
 
@@ -294,7 +318,7 @@ Administrators read it in **Settings → Users & Access → Audit log** (hidden 
 
 ## Backup and restore
 
-The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes, two-factor secrets and passkeys, and the API tokens (only their fingerprints, so devices keep working after a restore), never the sessions or the audit log. The [OpenID Connect](#openid-connect) provider and its linked identities are not in it: after restoring the accounts, link the identities again. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
+The full backup (**Settings → Database**) carries the accounts when **Include accounts** is checked, which it is by default: their roles, password hashes, two-factor secrets and passkeys, and the API tokens (only their fingerprints, so devices keep working after a restore), never the sessions or the audit log. The [OpenID Connect](#openid-connect) provider and its linked identities are not in it: after restoring the accounts, link the identities again. Neither are the [e-mail sign-in](#e-mail-code-and-sign-in-links) channel choice and the verified addresses: each account verifies its address again. Restoring it on a new machine brings the same accounts and passwords back. A restore replaces the accounts and signs everyone out; it never leaves Meshloom without an enabled administrator who can sign in here (a password account, or a Home Assistant user on the add-on): a file without one, or without accounts at all, keeps the current accounts. Details on the [backup page](/en/docs/backup/#what-the-backup-contains). The database download keeps the accounts but not their passwords: after putting it back, reset a password with `meshloom-admin` (below).
 
 ## Commands
 
@@ -306,7 +330,7 @@ The full backup (**Settings → Database**) carries the accounts when **Include 
 | `meshloom-admin list-users` | Lists the accounts: id, role, provider, active or disabled, whether a password is set. `--json` for scripts. |
 | `meshloom-admin disable-user <user>` | Blocks a user and signs it out. Refuses the last active administrator unless you add `--force`. |
 | `meshloom-admin enable-user <user>` | Lets a disabled user sign in again. |
-| `meshloom-admin disable-2fa <user>` | Removes a user's two-factor authentication and recovery codes (lost phone). The user then signs in with the password alone. |
+| `meshloom-admin disable-2fa <user>` | Removes a user's two-factor authentication and recovery codes (lost phone) and turns their e-mail code off (lost mailbox). The user then signs in with the password alone. |
 | `meshloom-admin remove-passkeys <user>` | Removes all of a user's passkeys (lost or stolen device). The password keeps working. |
 | `meshloom-admin revoke-sessions <user>` or `--all` | Signs one user, or everyone, out. |
 | `meshloom-admin host-guard-observe` | Switches the [Host check](/en/docs/deep/https/#host-names-meshloom-answers-to) back to observation mode, for when strict mode refuses the only name you can reach Meshloom by. |

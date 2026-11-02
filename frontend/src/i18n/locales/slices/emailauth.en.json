@@ -1,0 +1,76 @@
+{
+  "settings": {
+    "connection": {
+      "tabs": {
+        "email": "E-mail sign-in"
+      }
+    },
+    "access": {
+      "emailSignIn": {
+        "title": "E-mail sign-in",
+        "help": "Sign-in mails (a code after the password, sign-in links) go through one of your notification e-mail channels, with its SMTP settings. Each account then opts in itself in Users & Access. Without a channel, both are refused.",
+        "channel": "Send through",
+        "none": "No channel (e-mail sign-in off)",
+        "channelOff": "{{name}} (off or incomplete)",
+        "noChannel": "No e-mail channel yet: add one in Notifications first.",
+        "save": "Save",
+        "saved": "E-mail sign-in channel saved",
+        "ready": "Sign-in mails can be sent.",
+        "notReady": "Sign-in mails cannot be sent: pick an enabled e-mail channel."
+      },
+      "emailFactor": {
+        "title": "E-mail sign-in",
+        "help": "Optional. Verify an address, then ask for a code sent to it after your password, or sign in with a link sent to it. OpenID Connect sign-ins never ask for this code.",
+        "unavailable": "An administrator must pick an e-mail channel first (Settings → Connection → E-mail sign-in).",
+        "address": "Address:",
+        "newAddress": "E-mail address",
+        "sendCode": "Send a code",
+        "codeSent": "A code was sent to {{address}}. It works once, for 10 minutes.",
+        "code": "Code from the mail",
+        "confirm": "Confirm the address",
+        "verified": "Address verified",
+        "otp": "Ask for an e-mail code after my password",
+        "otpHelp": "Signs you out everywhere else when you turn it on.",
+        "link": "Allow sign-in links",
+        "linkHelp": "The login page can send a link to this address; it works once, for 15 minutes.",
+        "totpCode": "Authenticator or recovery code (needed to turn an option on)",
+        "save": "Save",
+        "saved": "E-mail sign-in options saved",
+        "change": "Change the address",
+        "remove": "Remove",
+        "removed": "Address removed"
+      }
+    }
+  },
+  "auth": {
+    "emailCode": {
+      "help": "We can send a code to {{address}}.",
+      "yourAddress": "your e-mail address",
+      "sentTo": "A code was sent to {{address}}. It works once, for 10 minutes.",
+      "codeLabel": "Code from the mail",
+      "send": "Send me a code",
+      "resend": "Send another code",
+      "resendIn": "Another code in {{seconds}} s",
+      "useEmail": "Get a code by e-mail instead"
+    },
+    "magicLink": {
+      "button": "E-mail me a sign-in link",
+      "help": "Enter your username: if your account allows sign-in links, we send one to its address.",
+      "send": "Send the link",
+      "sendAgain": "Send it again",
+      "sent": "If this account allows sign-in links, one is on its way. It works once, for 15 minutes.",
+      "back": "Back to the password"
+    }
+  },
+  "errors": {
+    "auth_email_unavailable": "E-mail sign-in is not set up: an administrator picks an e-mail channel in Settings → Connection → E-mail sign-in.",
+    "auth_email_send_failed": "The e-mail could not be sent. Retry, or ask an administrator to check the e-mail channel.",
+    "auth_email_send_limit": "Too many codes for this sign-in: enter your password again.",
+    "auth_email_address_invalid": "Enter a single e-mail address.",
+    "auth_email_not_verified": "Verify an e-mail address first.",
+    "auth_email_not_pending": "Ask for a new code to verify this address.",
+    "auth_email_channel_invalid": "Pick an e-mail notification channel.",
+    "auth_magic_link_invalid": "This sign-in link expired or was already used: ask for a new one.",
+    "auth_magic_link_origin_untrusted": "Sign-in links cannot be sent from this address: an administrator declares Meshloom's public address under Public addresses in the access settings, or open Meshloom by this machine's own address."
+  }
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, Mail } from 'lucide-react';
 
 import { api, ApiError, formatApiError, getApiErrorCode } from '../api';
 import { Button } from '../components/ui/button';
@@ -9,10 +9,14 @@ import { Label } from '../components/ui/label';
 import { formatPasskeyError, passkeySecondFactor, passkeysSupported } from './passkeys';
 import type { AuthSessionInfo, SecondFactorChallenge } from './types';
 
+type Mode = 'totp' | 'recovery' | 'email';
+
 /**
- * The second step of a sign-in: the password checked, a TOTP code (or a recovery code)
- * opens the session. The pending login lives `expires_in` seconds on the server; when it
- * runs out, or the server says it is gone, the reader goes back to the password.
+ * The second step of a sign-in: the password checked, a TOTP code (or a recovery code,
+ * or a code sent by e-mail, MSHL-426) opens the session. The pending login lives
+ * `expires_in` seconds on the server (sending an e-mail code extends it to the code's
+ * 10 minutes); when it runs out, or the server says it is gone, the reader goes back to
+ * the password. An account whose only factor is the e-mail code gets its mail at once.
  */
 export function SecondFactorStep({
   challenge,
@@ -24,11 +28,20 @@ export function SecondFactorStep({
   /** Back to the password step; `reason` is shown there. */
   onRestart: (reason?: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const canTotp = challenge.methods.includes('totp');
+  const canEmail = challenge.methods.includes('email');
   const [code, setCode] = useState('');
-  const [recovery, setRecovery] = useState(false);
+  const [mode, setMode] = useState<Mode>(canTotp || !canEmail ? 'totp' : 'email');
+  const recovery = mode === 'recovery';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expiresIn, setExpiresIn] = useState(challenge.expires_in);
+  // The e-mail code: sent to `emailHint`, another one possible after `resendAt`.
+  const [emailHint, setEmailHint] = useState<string | null>(null);
+  const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const autoSent = useRef(false);
   // The timer must not restart when the language (so `t`) changes.
   const expiredText = useRef(t('auth.secondFactor.expired'));
   useEffect(() => {
@@ -42,10 +55,41 @@ export function SecondFactorStep({
   useEffect(() => {
     const timer = window.setTimeout(
       () => onRestart(expiredText.current),
-      Math.max(1, challenge.expires_in) * 1000
+      Math.max(1, expiresIn) * 1000
     );
     return () => window.clearTimeout(timer);
-  }, [challenge, onRestart]);
+  }, [challenge, expiresIn, onRestart]);
+
+  // The resend countdown.
+  useEffect(() => {
+    if (resendAt <= now) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendAt, now]);
+
+  async function sendEmailCode() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const sent = await api.sendLoginEmailCode(challenge.pending_token, i18n.language);
+      setEmailHint(sent.email_hint);
+      setExpiresIn(sent.expires_in);
+      setResendAt(Date.now() + sent.resend_in * 1000);
+      setNow(Date.now());
+      setBusy(false);
+    } catch (err) {
+      failed(err);
+    }
+  }
+
+  // The e-mail code is the only factor: send it without a click.
+  useEffect(() => {
+    if (mode !== 'email' || canTotp || autoSent.current) return;
+    autoSent.current = true;
+    void sendEmailCode();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, canTotp]);
 
   // A failure of the pending login itself sends the reader back to the password.
   function failed(err: unknown) {
@@ -86,6 +130,7 @@ export function SecondFactorStep({
       const session = await api.authLogin2fa({
         pending_token: challenge.pending_token,
         code: code.trim(),
+        ...(mode === 'email' ? { method: 'email' as const } : {}),
       });
       if (!session.authenticated) {
         setError(t('errors.auth_no_session'));
@@ -110,16 +155,28 @@ export function SecondFactorStep({
   return (
     <form onSubmit={submit} className="space-y-4" noValidate>
       <p className="text-sm text-muted-foreground">
-        {t(recovery ? 'auth.secondFactor.recoveryHelp' : 'auth.secondFactor.help')}
+        {mode === 'email'
+          ? emailHint
+            ? t('auth.emailCode.sentTo', { address: emailHint })
+            : t('auth.emailCode.help', {
+                address: challenge.email_hint ?? t('auth.emailCode.yourAddress'),
+              })
+          : t(recovery ? 'auth.secondFactor.recoveryHelp' : 'auth.secondFactor.help')}
       </p>
       <div className="space-y-1.5">
         <Label htmlFor="auth-second-factor-code">
-          {t(recovery ? 'auth.secondFactor.recoveryLabel' : 'auth.secondFactor.codeLabel')}
+          {t(
+            mode === 'email'
+              ? 'auth.emailCode.codeLabel'
+              : recovery
+                ? 'auth.secondFactor.recoveryLabel'
+                : 'auth.secondFactor.codeLabel'
+          )}
         </Label>
         <Input
           id="auth-second-factor-code"
           name="code"
-          key={recovery ? 'recovery' : 'totp'}
+          key={mode}
           autoComplete="one-time-code"
           autoCapitalize="none"
           autoCorrect="off"
@@ -139,6 +196,20 @@ export function SecondFactorStep({
       <Button type="submit" className="w-full" disabled={busy || !code.trim()}>
         {t('auth.secondFactor.submit')}
       </Button>
+      {mode === 'email' && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          disabled={busy || resendAt > now}
+          onClick={() => void sendEmailCode()}
+        >
+          <Mail className="mr-2 h-4 w-4" aria-hidden="true" />
+          {resendAt > now
+            ? t('auth.emailCode.resendIn', { seconds: Math.ceil((resendAt - now) / 1000) })
+            : t(emailHint ? 'auth.emailCode.resend' : 'auth.emailCode.send')}
+        </Button>
+      )}
       {canPasskey && (
         <Button
           type="button"
@@ -152,17 +223,30 @@ export function SecondFactorStep({
         </Button>
       )}
       <div className="flex flex-wrap justify-between gap-2 text-sm">
-        {canRecover && (
+        {canRecover && mode !== 'email' && (
           <button
             type="button"
             className="text-foreground underline underline-offset-2 hover:text-primary"
             onClick={() => {
-              setRecovery((value) => !value);
+              setMode(recovery ? 'totp' : 'recovery');
               setCode('');
               setError(null);
             }}
           >
             {t(recovery ? 'auth.secondFactor.useApp' : 'auth.secondFactor.useRecovery')}
+          </button>
+        )}
+        {canEmail && canTotp && (
+          <button
+            type="button"
+            className="text-foreground underline underline-offset-2 hover:text-primary"
+            onClick={() => {
+              setMode(mode === 'email' ? 'totp' : 'email');
+              setCode('');
+              setError(null);
+            }}
+          >
+            {t(mode === 'email' ? 'auth.secondFactor.useApp' : 'auth.emailCode.useEmail')}
           </button>
         )}
         <button

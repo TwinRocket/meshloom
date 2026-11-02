@@ -319,6 +319,16 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "OpenID Connect links name account ids: deleted by an accounts restore, linked again",
     ),
+    "email_sign_in": (
+        "excluded",
+        "which notification e-mail channel sends the sign-in mails (app/auth/email_factor.py):"
+        " a setting of this host",
+    ),
+    "user_email_factor": (
+        "excluded",
+        "verified sign-in addresses name account ids: deleted by an accounts restore, each"
+        " account verifies its address again",
+    ),
     # Notification channels (MSHL-108, MSHL-117): the ``notifications`` backup section
     # (services/backup_notifications.py) holds the channels without their secrets and the
     # rules. The SQLite download carries the secrets, encrypted with ``secrets.key`` (not in

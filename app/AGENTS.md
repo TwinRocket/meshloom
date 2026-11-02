@@ -100,6 +100,16 @@ and the OpenAPI page (`/docs`), not a table here.
   at first use); `auto_create` (off) creates a `viewer` only. TOTP still applies. Routes
   `routers/auth_oidc.py` (start and callback public, the rest admin), storage
   `repository/oidc.py`. Details: `docs/dev/auth.md`, "OpenID Connect".
+- `auth/email_factor.py` is the e-mail code (a second factor after the password: 6 digits,
+  10 minutes, single use, five tries) and sign-in links (in place of the password: 15
+  minutes, single use, `#magic_link=` fragment), both opt-in per account (MSHL-426). No SMTP
+  of its own: the admin picks one native e-mail notification channel (`email_sign_in`) and
+  `deliver()` sends through `notifications/transports/email.send_message(to=...)`; without
+  a usable channel both answer 503 `auth_email_unavailable`. Codes, links and send counters
+  live in memory. The e-mail code rides the TOTP pending login (`PendingLogin.email`,
+  `email_code`); OpenID Connect never asks for it. Routes `routers/auth_email.py` (included
+  by `main.py`), storage `repository/email_factor.py`. Details: `docs/dev/auth.md`, "E-mail
+  code and sign-in links".
 - `auth/pairing.py` is device pairing (MSHL-71; contract `docs/dev/device-pairing.md`):
   an `admin` session creates a single-use `mlp_` code (SHA-256 at rest, at most
   10 minutes) whose QR payload carries the public, Remote and LAN addresses (the creator's
@@ -725,8 +735,8 @@ default, `PATCH /api/settings`). Community on or off changes nothing here.
   repositories of `app/repository/auth.py`. Changes are WAL commits, seen by a running
   server on its next read. Every command writes one `auth_audit` row through `app/auth/audit.py` (`via = "cli"`,
   the action shared with the API, such as `password.changed`; outcome `refused` for a refusal).
-- `disable-2fa <user>` removes a lost TOTP factor and its recovery codes (`totp.disabled`
-  row); it refuses a database the server has not migrated to 109 yet.
+- `disable-2fa <user>` removes a lost TOTP factor and its recovery codes and turns the
+  e-mail code off (`totp.disabled` row, `details.email_factor = off`); it refuses a database the server has not migrated to 109 yet.
 - `remove-passkeys <user>` removes every passkey of the account (`passkey.removed` row);
   it refuses a database the server has not migrated to 110 yet.
 - `rotate-device-key` replaces `auth_settings.device_cookie_key` (every known-device
@@ -769,6 +779,11 @@ run as root).
   `auth_settings`); their DDL is in `SCHEMA_TABLES` too, kept textually identical
   (`tests/test_migrations/test_migration_101.py` compares the two schemas).
   Model, repository and rules: `docs/dev/auth.md`.
+- Migration 141 (MSHL-426) adds `email_sign_in` (one row, `id = 1`: the SMTP profile's
+  channel id) and `user_email_factor` (an account's verified address and its two opt-in
+  flags, `ON DELETE CASCADE`); `IF NOT EXISTS`, no `SCHEMA_TABLES` change.
+  `patched_database()` patches `app.repository.email_factor`. Both tables are excluded from
+  the JSON backup; an accounts restore deletes `user_email_factor`.
 - Migration 140 (MSHL-427) adds `oidc_provider` (one row, `id = 1`; `client_secret` sealed
   by `secret_store`) and `oidc_links` (an identity of the provider's issuer, by subject or
   e-mail, to a `users` row, `ON DELETE CASCADE`, plus `idx_oidc_links_user`); `IF NOT EXISTS`,

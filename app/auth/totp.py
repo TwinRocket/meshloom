@@ -28,7 +28,10 @@ Rules (``docs/dev/auth.md``, "Second factor"):
   taken out of the table while a code is checked (two concurrent requests
   cannot both use it) and put back only after a wrong code. Any change to the
   account (``updated_at``) voids the token. A restart forgets them all (sign in
-  again).
+  again). A password step for an account with the e-mail code on (MSHL-426,
+  ``app/auth/email_factor.py``) may also be answered by a code sent by mail
+  (``PendingLogin.email_code``); sending one extends the token to the code's 10
+  minutes.
 - **Never log** a secret, a code, a recovery code or a pending token.
 """
 
@@ -49,6 +52,7 @@ import nacl.exceptions
 import nacl.pwhash.argon2id as argon2id
 import pyotp
 
+from app.auth.email_factor import CodeChallenge
 from app.auth.tokens import hash_token, new_token
 from app.repository.auth import TotpRepository
 
@@ -195,6 +199,13 @@ class PendingLogin:
     attempts: int = 0
     # "Remember me" of the password step, applied to the session the code opens.
     remember: bool = False
+    # The e-mail code may answer it (a password step of an account with the e-mail code
+    # on; never an OpenID Connect or sign-in link step), and the code last sent.
+    email: bool = False
+    email_code: CodeChallenge | None = None
+    email_sends: int = 0
+    # The session it opens gets a known-device cookie (a password was checked).
+    device_cookie: bool = True
 
 
 def client_binding(ip: str | None, user_agent: str | None) -> str:
@@ -212,7 +223,16 @@ class PendingLogins:
         self._clock = clock
         self._entries: dict[str, PendingLogin] = {}
 
-    def issue(self, user_id: int, generation: int, client: str, remember: bool = False) -> str:
+    def issue(
+        self,
+        user_id: int,
+        generation: int,
+        client: str,
+        remember: bool = False,
+        *,
+        email: bool = False,
+        device_cookie: bool = True,
+    ) -> str:
         now = self._clock()
         self._sweep(now)
         while len(self._entries) >= PENDING_MAX_ENTRIES:
@@ -223,9 +243,18 @@ class PendingLogins:
             generation=generation,
             client=client,
             remember=remember,
+            email=email,
+            device_cookie=device_cookie,
             expires_at=now + PENDING_TTL_S,
         )
         return token
+
+    def extend(self, entry: PendingLogin, seconds: float) -> int:
+        """Keep ``entry`` at least ``seconds`` longer (an e-mail code was sent);
+        returns the seconds it has left."""
+        now = self._clock()
+        entry.expires_at = max(entry.expires_at, now + seconds)
+        return int(entry.expires_at - now)
 
     def get(self, token: str) -> PendingLogin | None:
         key = hash_token(token)

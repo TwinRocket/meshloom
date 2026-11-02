@@ -4,6 +4,7 @@ import { api } from '../../api';
 import { useCapabilities } from '../../auth/SessionProvider';
 import type { AccessSecurityNotice } from '../../auth/types';
 import { AccessAuditPanel } from './AccessAuditPanel';
+import { AccessEmailFactorPanel } from './AccessEmailFactorPanel';
 import { AccessIngressPanel } from './AccessIngressPanel';
 import { AccessPairingPanel } from './AccessPairingPanel';
 import { AccessPasskeysPanel } from './AccessPasskeysPanel';
@@ -20,8 +21,10 @@ import { AccessUsersPanel } from './AccessUsersPanel';
  * user list, the public addresses and the Host guard, the Home Assistant default role,
  * the audit log and the Access security notice are for an administrator (the server
  * refuses them to anyone else, `app/auth/permissions.py`). How people sign in (session
- * lifetime, client addresses, login-free on the local network, IP ban, OpenID Connect)
- * is in Settings → Connection (`SettingsConnectionSection`).
+ * lifetime, client addresses, login-free on the local network, IP ban, OpenID Connect,
+ * the e-mail channel of the sign-in mails) is in Settings → Connection
+ * (`SettingsConnectionSection`); each account's own e-mail sign-in opt-in is here
+ * (`AccessEmailFactorPanel`).
  */
 export function SettingsAccessSection({ className }: { className?: string }) {
   const { isAdmin, hasProfile } = useCapabilities();
@@ -47,6 +50,7 @@ export function SettingsAccessSection({ className }: { className?: string }) {
       {hasProfile && <AccessProfilePanel />}
       {hasProfile && <AccessSecurityPanel />}
       {hasProfile && <AccessPasskeysPanel />}
+      {hasProfile && <AccessEmailFactorPanel />}
       {hasProfile && <AccessSessionsPanel />}
       {hasProfile && <AccessTokensPanel />}
       {isAdmin && <AccessPairingPanel />}

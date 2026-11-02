@@ -64,6 +64,7 @@ async def test_supervisor_headers_sign_the_user_in_and_lan_copies_are_ignored():
             "ingress": True,
             "passkey": False,
             "oidc": False,
+            "magic_link": False,
         }
         assert (await client.get("/api/contacts", headers=ha_headers())).status_code == 200
     for peer in (LAN_PEER, PUBLISHED_PORT_PEER):
@@ -78,6 +79,7 @@ async def test_supervisor_headers_sign_the_user_in_and_lan_copies_are_ignored():
                 "ingress": False,
                 "passkey": False,
                 "oidc": False,
+                "magic_link": False,
             }
     # Only the Supervisor request created an identity.
     assert [u.provider for u in await UserRepository.list_all()] == ["local", "ingress"]
@@ -110,6 +112,7 @@ async def test_first_ingress_visit_on_an_empty_database_creates_the_admin():
             "ingress": True,
             "passkey": False,
             "oidc": False,
+            "magic_link": False,
         }
 
         first = (await client.get("/api/auth/session", headers=ha_headers())).json()

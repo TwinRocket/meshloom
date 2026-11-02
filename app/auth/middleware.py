@@ -94,6 +94,10 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         # OpenID Connect sign-in: browser navigations (``app/routers/auth_oidc.py``).
         ("GET", "/api/auth/oidc/start"),
         ("GET", "/api/auth/oidc/callback"),
+        # The e-mail code of a pending login and sign-in links (``app/routers/auth_email.py``).
+        ("POST", "/api/auth/login/2fa/email"),
+        ("POST", "/api/auth/magic-link"),
+        ("POST", "/api/auth/magic-link/verify"),
     }
 )
 

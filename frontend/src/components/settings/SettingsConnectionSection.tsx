@@ -5,6 +5,7 @@ import { api } from '../../api';
 import type { AccessSecurityNotice } from '../../auth/types';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { AccessClientAddressesPanel } from './AccessClientAddressesPanel';
+import { AccessEmailSignInPanel } from './AccessEmailSignInPanel';
 import { AccessIpBanPanel } from './AccessIpBanPanel';
 import { AccessOidcPanel } from './AccessOidcPanel';
 import { AccessSessionLifetimePanel } from './AccessSessionLifetimePanel';
@@ -15,17 +16,18 @@ import {
 
 /**
  * The tabs of Settings → Connection, in order. A new way to sign in or a new sign-in
- * policy adds its tab here: MSHL-426 (e-mail code and magic link) adds `second-factor`
- * after `oidc`.
+ * policy adds its tab here; `email` (MSHL-426) is the SMTP profile of the e-mail code
+ * and the sign-in links.
  */
-export const CONNECTION_TABS = ['local', 'lan', 'bans', 'oidc'] as const;
+export const CONNECTION_TABS = ['local', 'lan', 'bans', 'oidc', 'email'] as const;
 export type ConnectionTab = (typeof CONNECTION_TABS)[number];
 
 /**
  * Settings → Connection (administrator only): how people sign in. It groups the panels
  * that were in Users & Access, unchanged (the session lifetime and the client addresses
- * of the local sign-in, login-free on the local network, the IP ban) and the OpenID
- * Connect provider (MSHL-427). The Access security notice is shown above the tabs.
+ * of the local sign-in, login-free on the local network, the IP ban), the OpenID
+ * Connect provider (MSHL-427) and the e-mail channel of the e-mail code and sign-in
+ * links (MSHL-426). The Access security notice is shown above the tabs.
  */
 export function SettingsConnectionSection({ className }: { className?: string }) {
   const { t } = useTranslation();
@@ -70,6 +72,9 @@ export function SettingsConnectionSection({ className }: { className?: string })
         </TabsContent>
         <TabsContent value="oidc" className="space-y-4">
           <AccessOidcPanel />
+        </TabsContent>
+        <TabsContent value="email" className="space-y-4">
+          <AccessEmailSignInPanel />
         </TabsContent>
       </Tabs>
     </div>

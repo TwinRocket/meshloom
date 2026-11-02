@@ -51,6 +51,7 @@ works on the same tables.
 | Routes | `app/routers/auth.py`, `GET /api/health` in `app/routers/health.py` |
 | TOTP second factor (codes, replay rule, recovery codes, pending logins) | `app/auth/totp.py`, routes in `app/routers/auth_totp.py`, `tests/test_auth_totp.py` |
 | Passkeys (WebAuthn: RP id rules, ceremonies, counter) | `app/auth/webauthn.py` (py_webauthn), routes in `app/routers/auth_webauthn.py`, `app/migrations/_110_webauthn_credentials.py`, `tests/test_auth_webauthn.py` (py_webauthn's vectors in `tests/fixtures/webauthn_vectors.json`, a software authenticator in `tests/webauthn_authenticator.py`) |
+| E-mail code and sign-in links | `app/auth/email_factor.py`, routes in `app/routers/auth_email.py`, `app/repository/email_factor.py`, `app/migrations/_141_email_sign_in.py`, `tests/test_auth_email_factor.py` |
 | OpenID Connect (provider, account links, ID token checks) | `app/auth/oidc.py` (joserfc), routes in `app/routers/auth_oidc.py`, `app/repository/oidc.py`, `app/migrations/_140_oidc.py`, `tests/test_auth_oidc.py` with `tests/oidc_fake_provider.py` |
 | Recovery CLI (`meshloom-admin`) | `app/cli.py`, `pkg/nfpm/meshloom-admin`, `tests/test_cli.py`, `scripts/test/meshloom_admin_tty.sh` |
 | Tests | `tests/test_migrations/test_migration_101.py`, `tests/test_auth_passwords.py`, `tests/test_auth_repository.py`, `tests/test_auth_middleware.py`, `tests/test_auth_setup.py`, `tests/test_auth_sessions.py`, `tests/test_auth_session_hygiene.py`, `tests/test_auth_websocket.py`, `tests/test_auth_password_policy.py`, `tests/test_auth_route_coverage.py`, `tests/test_auth_permissions.py`, `tests/test_auth_ingress.py`, `tests/test_auth_audit.py`, `tests/test_auth_ratelimit.py`, `tests/test_auth_users.py`, `tests/test_auth_totp.py`, `tests/test_migrations/test_migration_109.py`, `tests/test_auth_webauthn.py`, `tests/test_migrations/test_migration_110.py`, `tests/test_migrations/test_migration_136.py`, `tests/test_cli.py` |
@@ -69,10 +70,11 @@ present decides. Details are in the sections named in the last column.
 | Session cookie | the session's account | HTTP and WebSocket, never under ingress | `__Host-meshloom_session` (https) or `meshloom_session`; sliding 30 days, or a browser-session cookie | "Sessions and the cookie" |
 | Ingress headers | the Home Assistant user (`provider = ingress`) | add-on only, peer `172.30.32.2` | no password, no cookie, no 2FA | "Ingress" |
 | Trusted network rule | the rule's account | direct peer with a local address only, while `lan_login_free` is on; tried last | closed behind any proxy; strict `Host` | "Trusted networks" |
-| OpenID Connect sign-in | the linked local account (or a new `viewer` with `auto_create`) | `GET /api/auth/oidc/start` and `/callback`, never under ingress | opens an ordinary session; TOTP still asked | "OpenID Connect" |
+| OpenID Connect sign-in | the linked local account (or a new `viewer` with `auto_create`) | `GET /api/auth/oidc/start` and `/callback`, never under ingress | opens an ordinary session; TOTP still asked, never the e-mail code | "OpenID Connect" |
+| Sign-in link (e-mail) | the account the link was mailed to | `POST /api/auth/magic-link/verify`, opt-in per account, needs the SMTP profile | 15 minutes, single use; TOTP still asked | "E-mail code and sign-in links" |
 | Kiosk device token | the system `kiosk` account | `POST /api/auth/kiosk-bootstrap` from loopback only | opens a one-time session code | "Kiosk device token" |
 
-Second factors (TOTP, passkeys) add a step to the password login (and to an
+Second factors (TOTP, passkeys, the e-mail code) add a step to the password login (and to an
 OpenID Connect sign-in) and are described in their own sections. Roles and what each may call are in
 "Permissions"; the cookie, the CSRF rule and the Host guard are in "The gate",
 "Sessions and the cookie" and "Host guard". The user-facing version of all of
@@ -1179,7 +1181,8 @@ Access T50, owner decision Q-A16 (optional for users) and lead decision Q16
   `user.second_factor_enrolment_required`.
 - **Recovery on the host.** `meshloom-admin disable-2fa <username>` removes the
   factor (or a pending enrolment) and the recovery codes, and writes a
-  `totp.disabled` row (`via = cli`). Sessions stay.
+  `totp.disabled` row (`via = cli`). It also turns the e-mail code off
+  (`details.email_factor = off`). Sessions stay.
 - **Secret at rest.** Base32 in `users.totp_secret` until the instance secrets
   key (Notifications T32, `data/secrets.key`) exists; encrypting it then is a
   follow-up. It is never returned after enrolment, never logged, null in the
@@ -1344,7 +1347,7 @@ guard. The frontend side: `frontend/src/auth/oidc.ts`, the button of
 - **Second factor.** An account with TOTP on gets the pending login of a password
   sign-in (`_second_factor_challenge`), finished by `POST /auth/login/2fa` with a
   code, a recovery code or a passkey. The provider never stands in for the local
-  factor. MSHL-426 adds its own factor next to it.
+  factor. The e-mail code is never asked here ("E-mail code and sign-in links").
 - **Egress.** Every call to the provider goes through
   `app/net/egress_guard.follow_checked_redirects`: pinned, checked addresses, 10 s,
   256 KiB at most; `GET` follows at most 2 redirects, the token `POST` none. https
@@ -1395,6 +1398,107 @@ CI runs no service containers, so the real-provider check is manual:
    `auth_oidc_no_account`.
 6. Repeat once behind a reverse proxy under a subpath (declared public address
    with its prefix): the redirect URI and the way back keep the prefix.
+
+## E-mail code and sign-in links
+
+MSHL-426. Two optional extras per account, sent by e-mail: a code after the password
+(a second factor) and sign-in links (in place of the password). Rules in
+`app/auth/email_factor.py`, routes in `app/routers/auth_email.py` (included by
+`app/main.py`) and the `method: "email"` step of `POST /auth/login/2fa`
+(`app/routers/auth_totp.py`), storage in `email_sign_in` and `user_email_factor`
+(migration 141) through `app/repository/email_factor.py`. Tests:
+`tests/test_auth_email_factor.py`, `tests/test_migrations/test_migration_141.py`, the
+OpenID Connect case in `tests/test_auth_oidc.py`. Frontend: `frontend/src/auth/magicLink.ts`,
+`LoginPage.tsx`, `SecondFactorStep.tsx`, `AccessEmailFactorPanel.tsx` (Users & Access),
+`AccessEmailSignInPanel.tsx` (Connection → E-mail sign-in).
+
+- **SMTP profile.** No SMTP of its own and no TwinRocket service: the mails go through one
+  notification e-mail channel (type `email`, not a 4.18.x `legacy:email`, secret
+  readable, enabled, with a host) an admin picks (`email_sign_in.channel_id`, `GET/PATCH
+  /auth/email/settings`), sent by `send_message()` of
+  `app/notifications/transports/email.py` with the account's address as the only
+  recipient: the same egress guard, TLS and plaintext rules as a notification. Without a
+  usable channel every route but the settings answers 503 `auth_email_unavailable`
+  (`email_factor.available()`), translated in the UI.
+- **Who.** `_applicable` of TOTP: a `local` account with a password, outside `kiosk`.
+- **Opt-in.** `POST /auth/email/address` checks the current password (and a TOTP or
+  recovery code when TOTP is on: an e-mail code or link is another way in, the passkey
+  rule) and mails a 6-digit code to the new address (`AddressChallenges`, in memory, one
+  per account, 10 minutes, five tries); `POST /auth/email/verify` stores the address.
+  `PATCH /auth/email` turns `otp_enabled` and `magic_link_enabled` on or off (the
+  password; turning one on also needs a usable SMTP profile and, with TOTP on, a code);
+  turning the e-mail code on signs the other sessions out. `DELETE /auth/email` (the
+  password) forgets the address. Every write moves `users.updated_at`, so pending logins,
+  sign-in links and known-device cookies issued before stop working. Addresses are one
+  recipient only: commas, semicolons and line breaks are refused
+  (`normalize_address`), since the transport splits on them.
+- **E-mail code.** 6 digits from `secrets`, 10 minutes (`CODE_TTL_S`), single use, only
+  its SHA-256 kept, compared in constant time, attached to one pending login
+  (`PendingLogin.email_code`). A password step for an account with `otp_enabled` gets a
+  pending login with `email = True` and `"email"` in `second_factor.methods`, plus
+  `email_hint` (the masked address). `POST /auth/login/2fa/email` (public) checks the
+  token like the second step (client binding, generation, `email` flag) and mails a
+  code: at most `PENDING_MAX_SENDS` (3) per pending login (429
+  `auth_email_send_limit`), one a minute and five an hour per account
+  (`account_sends`, 429 `auth_rate_limited` with `Retry-After`); a send extends the
+  pending login to the code's 10 minutes. `POST /auth/login/2fa` with `method: "email"`
+  checks it under the login delays like a TOTP code (a wrong one is `record_failure`),
+  and five wrong codes of any kind void the pending login (`PENDING_MAX_ATTEMPTS`). A
+  proof of a kind the pending login does not take (a TOTP code for an e-mail-only
+  account) is a wrong code; the token is kept.
+- **Sign-in links.** `POST /auth/magic-link {username, remember, base, lang}` (public)
+  answers `{sent: true, expires_in}` whatever the name. The request path never reads the
+  account: the user and factor lookups, the per-account limit, the token, the audit row
+  (`login`/`pending`) and the mail all run in one background task (`_send_link`, via
+  `background_tasks.spawn`), so the answer does the same work whether an account matched
+  or not; a refusal per account is silent too. Only 503 `auth_email_unavailable` (a fact
+  of the instance) and 429 past `ADDRESS_MAX_PER_HOUR` (20) requests an hour from one
+  client address (`ratelimit.LoginLimiter.address_key`, else the client address) differ.
+  The link is `_mail_base(request, base)` plus `#magic_link=<token>`: a fragment, so a
+  mail scanner fetching the link never sends the token. `_mail_base` is stricter than
+  the OpenID Connect rule (`app_base`), which is safe only because the provider checks
+  its registered redirect URIs; nothing checks a mailed link, and a forged `Host` (with
+  a matching `base`) would otherwise mail the victim a genuine link to the attacker's
+  page, which reads the fragment and redeems the token. So the link hangs from
+  `app_base(request, base)` only when that falls under a declared public address
+  (`auth_settings.public_urls`, path prefix kept) or when the request's `Host` names
+  this machine (`_host_is_this_machine`: a loopback address, the address the
+  connection reached, `scope["server"]`, `localhost`, the machine's own name or
+  `<name>.local`, or the Remote hostname; not any IP literal or local-looking name, as
+  `host_allowed` accepts, since a client on the LAN can name its own box). Otherwise
+  it is the first declared public address, and without one the request is refused with
+  400 `auth_magic_link_origin_untrusted` before any account lookup (a fact of the
+  request, not of an account): behind a proxy or Docker bridge, declare the public
+  address. Tests: `test_a_forged_host_or_base_never_ends_up_in_the_mailed_link` and the
+  tests around it. The token is 256 bits
+  (`MagicLinks`, in memory, 15 minutes, single use, 1024 at most, only its SHA-256 kept),
+  bound to the account's `updated_at`, not to a browser (it is opened from a mail app).
+  `POST /auth/magic-link/verify {token}` runs the per-address login rules under
+  `LINK_LIMIT_KEY` (`name_rule=False`, a bad token is `record_failure`), then opens the
+  session (`login` row, `details.method = magic_link`), or, with TOTP on, answers the
+  pending login of the TOTP step with `email = False` and no known-device cookie
+  (`device_cookie = False`): the link proved the mailbox, not the password. A refusal for
+  a known account writes a `login` failure (`reason: link_invalid`); no `AUTH_FAIL` line
+  (a 256-bit token cannot be guessed).
+- **OpenID Connect.** `_second_factor_challenge(..., email=False)` by default: an OIDC
+  sign-in never asks for the e-mail code (the provider may bring its own MFA); an
+  e-mail-only account signs straight in, a TOTP account still owes TOTP.
+- **`require_2fa_for_admins`** still counts TOTP only (as for passkeys).
+- **Recovery on the host.** `meshloom-admin disable-2fa <username>` also sets
+  `otp_enabled = 0` (`details.email_factor = off` on its `totp.disabled` row); the
+  address and sign-in links stay.
+- **Memory and restarts.** Codes, links and send counters are in memory: a restart
+  forgets them (ask again).
+- **Audit.** `email_factor.verified`, `email_factor.changed` (`details.second_factor`,
+  `details.sign_in_link`, `sessions_revoked`), `email_factor.removed`; `login` rows
+  `pending` (`factor: email`, or `method: magic_link`), `success`, `failure`;
+  `settings.changed` target `email_sign_in` (`details.channel_id`). Never a code, a
+  token, a link or an address.
+- **Backups.** Neither table is in the JSON backup (`BACKUP_COVERAGE`: excluded); an
+  accounts restore deletes `user_email_factor` (ids change); deleting an account deletes
+  its row. The SQLite download keeps both (an address is not a secret).
+- **Not done.** No test mail button (the address verification is one); no admin
+  policy forcing the e-mail code.
 
 ## First run and the installation code
 
@@ -1473,10 +1577,15 @@ translates `errors.<code>` (slice `x`). Bodies with a password use
 
 | Route | Access | Behaviour |
 |---|---|---|
-| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey, oidc, oidc_label?}, secure}` (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
+| `GET /auth/session` | public | Anonymous: `{authenticated: false, setup_required, setup_code_required, methods: {password, ingress, passkey, oidc, oidc_label?, magic_link}, secure}` (`magic_link`: at least one account takes sign-in links and the SMTP profile is usable) (`passkey`: a WebAuthn ceremony can run on this request, "Passkeys"; `oidc`: the OpenID Connect button is offered, `oidc_label` its name, "OpenID Connect") (`secure`: the server saw https, the frontend warns when the browser is on https and it is false; `methods` is `{password: false, ingress: true}` under ingress, else the reverse), **no instance name or version**. Signed in: plus `user {id, username, display_name, role, must_change_password, totp_enabled, second_factor_enrolment_required}`, `via` (`relay` through the relay, tested through the dispatch), `instance {name, version}` (name: the radio's name, or absent) |
 | `POST /auth/setup` | public while no account exists | `{username, password, display_name?, setup_code?}`. 409 `auth_setup_done` once an account exists; 403 `auth_setup_code_invalid` when a code is required (existing database, or an exposed request, "Exposed first run") and wrong or missing; 400 `auth_password_policy`, `auth_username_invalid`; 503 `auth_setup_unavailable` (fail closed, above). Creates the `admin`, clears the code, opens a session (cookie), answers like `GET /auth/session`. 403 `auth_ingress_only` under ingress (the first HA user becomes the admin there) |
-| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
-| `POST /auth/login/2fa` | public | `{pending_token, code}` or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
+| `POST /auth/login` | public | `{username, password}`. One generic 401 `auth_invalid_credentials` for an unknown name, a wrong password, a disabled account or one without a password (ingress, kiosk); each runs one argon2id check, against a fixed hash when there is none, so the time does not tell them apart. At most two checks run at once, eight wait, then 503 `auth_busy`. 429 `auth_rate_limited` (`params.retry_after`, `Retry-After`) while a login delay runs, before any password check ("Login delays"). Rehashes on success when `PARAMS` changed. Answers like `GET /auth/session`. For an account with a second factor it opens no session: `authenticated: false` plus `second_factor {pending_token, methods: ["totp", "recovery"] (+ "passkey" when the account has one and the request can run a ceremony; "email" alone or added when the e-mail code is on, with `email_hint`), expires_in}` ("Second factor (TOTP)"). 403 `auth_ingress_only` under ingress, before any password check |
+| `POST /auth/login/2fa` | public | `{pending_token, code, method?}` (`method: "email"` for an e-mail code) or `{pending_token, passkey}` (an assertion for second-factor options, "Passkeys"; exactly one, 422 otherwise): the second step ("Second factor (TOTP)"). 400 `auth_passkey_unsupported` when the request cannot run a ceremony (not counted). Opens the session and answers like `GET /auth/session`. 401 `auth_2fa_pending_invalid` (unknown, expired or used-up token, or the account changed), 401 `auth_2fa_invalid` (wrong or replayed code), 429 `auth_rate_limited`, 403 `auth_ingress_only` under ingress |
+| `POST /auth/login/2fa/email` | public | `{pending_token, lang?}`: mails an e-mail code for the pending login ("E-mail code and sign-in links"). `{sent, expires_in, resend_in}`; 401 `auth_2fa_pending_invalid`, 429 `auth_email_send_limit` or `auth_rate_limited`, 503 `auth_email_unavailable`, 502 `auth_email_send_failed` |
+| `POST /auth/magic-link` | public | `{username, remember?, base?, lang?}`: `{sent: true, expires_in}` whatever the name; 429 per client address, 503 `auth_email_unavailable`, 400 `auth_magic_link_origin_untrusted` (no declared public address and the `Host` is not this machine) |
+| `POST /auth/magic-link/verify` | public | `{token}`: opens the session (answers like `GET /auth/session`) or a TOTP pending login; 401 `auth_magic_link_invalid`, 429 `auth_rate_limited` |
+| `GET/PATCH /auth/email/settings` | admin | The SMTP profile: `{channel_id, available, channels[]}` |
+| `GET/PATCH/DELETE /auth/email`, `POST /auth/email/address`, `POST /auth/email/verify` | own account | The account's address and flags; writes need the password (and a TOTP code when TOTP is on) |
 | `POST /auth/logout` | public, idempotent | Revokes the current session, clears the cookie |
 | `GET /auth/sessions` | own account (not `kiosk`) | The user's active sessions, newest first, `current` marks this one |
 | `DELETE /auth/sessions` | own account (not `kiosk`) | Revokes all the user's sessions except this one: `{revoked}` |
@@ -1704,6 +1813,10 @@ strictness:
 
 - The trusted-network provider calls it directly and **always** refuses a
   rejected host, in both modes (see "Trusted networks").
+- Mailed sign-in links do not use it: `host_allowed` accepts any IP literal and
+  `.local` name, which a client can point at its own box. They take the stricter
+  `_host_is_this_machine` of `app/routers/auth_email.py` ("E-mail code and sign-in
+  links").
 - `HostGuardMiddleware` follows `auth_settings.host_guard_mode`. `observe` (the
   default, so a reverse proxy name nobody declared yet keeps working
   after an upgrade) passes the request, logs each new name once (warning) and

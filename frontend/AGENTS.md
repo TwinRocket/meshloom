@@ -417,6 +417,18 @@ purpose.
   StrictMode double render and removes it from the address bar with `replaceState`.
   `getOidcSettings`/`patchOidcSettings` send `base` too, so the listed redirect URIs keep the
   subpath. Contract: `docs/dev/auth.md`, "OpenID Connect".
+- **E-mail code and sign-in links.** MSHL-426. `SecondFactorStep` takes `email` in the
+  challenge's methods: "Send me a code" (`api.sendLoginEmailCode`, the masked `email_hint` above it), sent at once when
+  e-mail is the only factor, a resend countdown from `resend_in`, then `authLogin2fa` with
+  `method: 'email'`. `LoginForm` shows "E-mail me a sign-in link" when `methods.magic_link` is
+  true (`api.requestMagicLink`, `base` = `appBase()`; the answer is the same whatever the name).
+  The mailed link opens the app with `#magic_link=<token>`; `auth/magicLink.ts`
+  (`takeMagicLink()`) reads it once, caches it for a StrictMode double render and removes it with
+  `replaceState`; `LoginPage` verifies it (`api.verifyMagicLink`) and goes on to the TOTP step
+  when the answer is a `second_factor`. Mail language: `mailLanguage()` (`fr` or `en`). Users &
+  Access → `AccessEmailFactorPanel` (own account: address with a mailed code, the two switches,
+  remove; password, plus a TOTP code when TOTP is on). Strings: slice `emailauth`; test
+  `src/test/emailSignIn.test.tsx`. Contract: `docs/dev/auth.md`, "E-mail code and sign-in links".
 - **429.** `ApiError.retryAfter` comes from `Retry-After` or `params.retry_after`;
   `formatApiError` passes it as `{{retry_after}}` to `errors.auth_rate_limited`.
 - **Ingress.** Home Assistant signs ingress users in on every request (`via: ingress`,
@@ -446,7 +458,7 @@ purpose.
   `connection` section (Connection: `components/settings/SettingsConnectionSection.tsx`,
   lazy-loaded from `SettingsModal`, not in `ACCOUNT_SETTINGS_SECTIONS`, so admin only, MSHL-427)
   groups the sign-in rules in Radix tabs (`CONNECTION_TABS`, testids `connection-tab-<id>`;
-  MSHL-426 adds its second-factor tab after `oidc`) under the Access security notice banner:
+  then `email`) under the Access security notice banner:
   `local` holds the session lifetime (`AccessSessionLifetimePanel`, `session_lifetime_days`, 1 to 365,
   strings `settings.access.sessionLifetime.*` in slice `az`) and the client addresses panel
   (`AccessClientAddressesPanel`, `addresses_identify_clients`, MSHL-424: shown on a
@@ -463,7 +475,11 @@ purpose.
   the redirect URIs the server lists, "Test the saved provider"; `OidcLinksSection` lists, adds and
   removes links, offering only enabled local accounts that are not kiosks; strings
   `settings.access.oidc.*`, `settings.connection.*`, `settingsNav.connection`, `auth.oidc.*` and
-  `errors.auth_oidc_*` in slice `oidc`; test `src/test/oidc.test.tsx`). Back in Users & Access,
+  `errors.auth_oidc_*` in slice `oidc`; test `src/test/oidc.test.tsx`); `email` the SMTP profile of
+  the e-mail code and sign-in links (`AccessEmailSignInPanel`: one native e-mail notification
+  channel, unusable ones listed disabled; `GET/PATCH /auth/email/settings`; strings
+  `settings.access.emailSignIn.*`, `settings.connection.tabs.email` in slice `emailauth`; test
+  `src/test/emailSignIn.test.tsx`). Back in Users & Access,
   admin only too is the audit log (`AccessAuditPanel`: cursor pages of
   `GET /auth/audit`, filters applied client-side to the loaded rows, labels from
   `auditShared.ts`; rows virtualised with `@tanstack/react-virtual` in a fixed-height
@@ -481,7 +497,7 @@ purpose.
   mirror of the server's `public_or_wide`, and a notice
   on a rule whose account is disabled or must change its password); the notice banner at the top of both
   sections shows the server's `security_notices` and nothing else. `AccessPairingPanel` (admin only; `api.createAuthPairing`/`listAuthPairings`/`revokeAuthPairing`, slice `bv`, `settings.access.pairing.*`) opens a dialog that creates a pairing code and draws its `qr_payload` with `PairingQr.tsx` (the only `qrcode.react` importer on that path, `lazy()`), with a countdown built from `expires_at - created_at` on the local clock (never the server's) that hides the QR at zero; the code exists only in that dialog, the list holds none; closing revokes a pending code (and one whose creation answers after the close), expiry or use (the dialog polls the pending list every 5 s, or a 404 on cancel) drops the code and QR text from state. Test: `src/test/accessPairingPanel.test.tsx`. `AccessTokensPanel` (`api.createAuthToken`/`listAuthTokens`/`revokeAuthToken`) is for `member` and `admin` only (`TOKEN_ROLES`), offers the role's own scopes (`tokenScopesForRole`), shows the secret once in a dialog that Escape and outside clicks cannot close, and under ingress adds a notice that tokens are refused there. Tests: `src/test/accessTokensPanel.test.tsx`, `src/test/settingsAccessSection.test.tsx`,
-  `src/test/accessAuditPanel.test.tsx`, `src/test/accessTrustedNetworksPanel.test.tsx`, `src/test/oidc.test.tsx`. Add a settings section
+  `src/test/accessAuditPanel.test.tsx`, `src/test/accessTrustedNetworksPanel.test.tsx`, `src/test/oidc.test.tsx`, `src/test/emailSignIn.test.tsx`. Add a settings section
   to `ACCOUNT_SETTINGS_SECTIONS` only if every call it makes is open to that role; a tool
   that calls a refused route goes in `TOOL_CAPABILITY` (`navDestinations.ts`). A hook that
   loads at startup must not call an admin-only route for another role (members, viewers and
