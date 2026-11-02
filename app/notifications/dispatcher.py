@@ -48,7 +48,8 @@ delays itself.
   the requester's devices only (the probe of a paused channel: the administrators').
   ``notify.channel_failed`` is urgent: quiet hours and the global pause never hold it.
 - **Keyword alerts and watched nodes on Web Push** (MSHL-400): ``message.keyword``,
-  ``contact.node_seen`` and ``contact.node_back`` come from instance rules the admin manages,
+  ``contact.node_seen``, ``contact.node_back`` and ``plugin.notification`` (MSHL-213) come
+  from instance rules or plugins the admin manages,
   so ``builtin:push`` reaches administrators' devices only (``user_rules.INSTANCE_RULE_EVENTS``),
   minus an account paused, with that conversation off, or already getting the message; no
   administrator device, or owners unreadable: Web Push is left out.

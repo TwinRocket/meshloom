@@ -42,9 +42,13 @@ EVENT_IDS: tuple[str, ...] = (
     "notify.test",
     "notify.channel_failed",
     "notify.heartbeat",
+    "plugin.notification",
 )
 
 _DEDUP_LENGTH = 16
+
+# ``plugin.notification`` levels (``PluginNotificationData.level``).
+PLUGIN_NOTIFICATION_LEVELS: tuple[str, ...] = ("info", "warning", "critical")
 
 
 def dedup_hash(*parts: object) -> str:
@@ -153,6 +157,21 @@ class HeartbeatData:
     instance: str = ""
     uptime_s: int = 0
     version: str = ""
+
+
+@dataclass(frozen=True)
+class PluginNotificationData:
+    """``plugin.notification`` (MSHL-213): what a plugin instance sent with the
+    ``notifications.send`` capability. ``label`` is the instance's label (its plugin id
+    when unnamed), shown before the title so a plugin cannot pass for Meshloom itself;
+    ``title`` and ``body`` are the plugin's own text, already cleaned by the capability."""
+
+    instance_id: str = ""
+    plugin_id: str = ""
+    label: str = ""
+    title: str = ""
+    body: str = ""
+    level: str = "info"  # info | warning | critical: informative, never urgent
 
 
 @dataclass(frozen=True)
@@ -422,6 +441,31 @@ class HeartbeatEvent(NotificationEvent):
 
 
 @dataclass(frozen=True, kw_only=True)
+class PluginNotificationEvent(NotificationEvent):
+    """``plugin.notification``: a plugin's ``notifications.send`` (MSHL-213,
+    ``app/plugins/capabilities/notifications.py``). Routed by the rules matrix like any
+    event; never urgent, whatever its ``level``: a plugin cannot pass the global pause or
+    quiet hours (the user may tick "always deliver"). On Web Push it reaches administrators'
+    devices only (``user_rules.INSTANCE_RULE_EVENTS``)."""
+
+    data: PluginNotificationData
+
+    def to_payload(self) -> dict[str, Any]:
+        from app.notifications.render import PLUGIN_NOTIFICATION_EVENT
+
+        d = self.data
+        return {
+            "event": PLUGIN_NOTIFICATION_EVENT,
+            "instance_id": d.instance_id,
+            "plugin_id": d.plugin_id,
+            "label": d.label,
+            "title": d.title,
+            "body": d.body,
+            "level": d.level,
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
 class TestEvent(NotificationEvent):
     """``notify.test``: the "send a test" button of a destination."""
 
@@ -605,7 +649,26 @@ def event_from_payload(
         CHANNEL_FAILED_EVENT,
         DESTINATION_CHANGED_EVENT,
         HEARTBEAT_EVENT,
+        PLUGIN_NOTIFICATION_EVENT,
     )
+
+    if kind == PLUGIN_NOTIFICATION_EVENT:
+        instance_id = _s(payload.get("instance_id"))
+        level = _s(payload.get("level"))
+        return PluginNotificationEvent(
+            event="plugin.notification",
+            # One per call: a plugin repeating itself is a new occurrence (its quota bounds it).
+            dedup_key=dedup_hash("plugin.notification", instance_id, uuid.uuid4().hex),
+            data=PluginNotificationData(
+                instance_id=instance_id,
+                plugin_id=_s(payload.get("plugin_id")),
+                label=_s(payload.get("label")),
+                title=_s(payload.get("title")),
+                body=_s(payload.get("body")),
+                level=level if level in PLUGIN_NOTIFICATION_LEVELS else "info",
+            ),
+            **common,
+        )
 
     if kind == HEARTBEAT_EVENT:
         try:

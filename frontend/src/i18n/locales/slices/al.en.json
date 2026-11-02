@@ -49,6 +49,11 @@
       "timer": {
         "title": "Run on a schedule",
         "description": "Wakes itself up later, no sooner than 10 seconds after asking."
+      },
+      "notifications_send": {
+        "title": "Send notifications",
+        "description": "Sends you notifications through Meshloom, to the notification channels you tick for “Extension notifications” in Settings → Notifications → Default notifications (none until you tick one). It never chooses a destination itself.",
+        "quota": "At most {{per_hour, number}} notifications per hour and {{per_day, number}} per day."
       }
     },
     "capabilityErrors": {

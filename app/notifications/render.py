@@ -40,6 +40,8 @@ CHANNEL_CHANGED_EVENT = "notify.channel_changed"
 CHANNEL_FAILED_EVENT = "notify.channel_failed"
 # The periodic "still running" message of a channel with a heartbeat (``heartbeat.py``).
 HEARTBEAT_EVENT = "notify.heartbeat"
+# A plugin's ``notifications.send`` (MSHL-213, ``app/plugins/capabilities/notifications.py``).
+PLUGIN_NOTIFICATION_EVENT = "plugin.notification"
 
 
 def format_silence(seconds: object, lang: str) -> str:
@@ -378,6 +380,36 @@ def quiet_digest_text(data: Mapping[str, Any], lang: str) -> tuple[str, str]:
     return title, lead + ", ".join(parts)
 
 
+_PLUGIN_LEVEL_PREFIX: dict[str, dict[str, str]] = {
+    "fr": {"warning": "Avertissement", "critical": "Critique"},
+    "en": {"warning": "Warning", "critical": "Critical"},
+}
+
+
+def plugin_notification_title(data: Mapping[str, Any], lang: str) -> str:
+    """``<label>: <title>``, after ``Warning`` / ``Critical`` for those levels: the plugin's
+    label always comes first, so its text never reads as a notice of Meshloom itself."""
+    label = str(data.get("label") or data.get("plugin_id") or "").strip()
+    if not label:
+        label = "Extension"
+    title = str(data.get("title") or "").strip()
+    prefix = _PLUGIN_LEVEL_PREFIX["en" if lang == "en" else "fr"].get(str(data.get("level")))
+    head = f"{label}: {title}" if title else label
+    return f"{prefix} · {head}" if prefix else head
+
+
+def _plugin_notification_push(data: Mapping[str, Any], lang: str) -> dict[str, str]:
+    title = plugin_notification_title(data, lang)
+    body = str(data.get("body") or "").strip() or title
+    instance_id = str(data.get("instance_id") or "")
+    return {
+        "title": title,
+        "body": body,
+        "tag": f"meshcore-plugin-{instance_id}" if instance_id else "meshcore-plugin",
+        "url_hash": "#settings/extensions",
+    }
+
+
 def build_push_payload(data: dict, language: str = "fr") -> str:
     """Build the push notification JSON payload from a message or first-seen event."""
     lang = language if language in ("fr", "en") else "fr"
@@ -497,6 +529,9 @@ def build_push_payload(data: dict, language: str = "fr") -> str:
                 "url_hash": "#settings/notifications",
             }
         )
+
+    if data.get("event") == PLUGIN_NOTIFICATION_EVENT:
+        return json.dumps(_plugin_notification_push(data, lang))
 
     if data.get("event") == HEARTBEAT_EVENT:
         instance = str(data.get("instance") or "Meshloom")
@@ -821,6 +856,10 @@ def event_notification_text(
         text_stripped = True
     else:
         text_stripped = False
+    if data.get("event") == PLUGIN_NOTIFICATION_EVENT and include_message_text == "never":
+        # A plugin's body may quote what it read (a direct message included): ``never`` keeps
+        # the title only. ``public_only`` cannot tell, so it keeps the body.
+        body = title
     raw_title = title
     title, body = neutralise_mentions(title), neutralise_mentions(body)
     if markdown:

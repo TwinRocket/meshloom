@@ -265,6 +265,39 @@ async def on_message(event):
     assert any("hi ['seen'] {'timer_id': 1}" in x for x in lines)
 
 
+def test_notifications_are_listed_never_delivered_and_held_to_the_quota(plugin):
+    _declare(plugin, **{"notifications.send": {"per_hour": 2}})
+    (plugin / "plugin.py").write_text(
+        """
+from meshloom_plugin import host
+
+
+async def on_message(event):
+    h = host()
+    for title in ("one", "two", "three"):
+        try:
+            await h.call("notifications.send", {"title": title, "level": "warning"})
+        except Exception:
+            pass
+    try:
+        await h.call("notifications.send", {"title": ""})
+    except Exception:
+        pass
+""",
+        "utf-8",
+    )
+    report, lines = replay(
+        plugin,
+        granted_permissions={**READ, "notifications.send": {"per_hour": 2}},
+        events=[message(message_text="hi")],
+    )
+    assert report.ok, report.errors
+    assert refusal_codes(report) == ["quota_exceeded", "invalid_params"]
+    assert [n["title"] for n in report.notifications] == ["one", "two"]
+    assert report.to_json()["notifications"][0] == {"title": "one", "body": "", "level": "warning"}
+    assert any('<- {"queued": 0}' in x for x in lines)
+
+
 def test_http_never_uses_the_network(plugin):
     _declare(plugin, http={"hosts": ["example.com"]})
     (plugin / "plugin.py").write_text(

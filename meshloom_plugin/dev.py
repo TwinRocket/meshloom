@@ -57,6 +57,7 @@ from app.plugins.capabilities import (
     contacts,
     invalid_params,
     messages,
+    notifications,
     storage,
     timer,
 )
@@ -471,6 +472,8 @@ def _error_text(error: Any) -> str:
 # - `messages.send`: the server's parameter model, target rules and size rule
 #   (`capabilities.messages`), the per-plugin quotas (`quotas.effective_send_limits`)
 #   and the send guards (`quotas.SendGuard`) over in-memory counters;
+# - `notifications.send`: the server's parameter model and per-instance quota
+#   (`capabilities.notifications`); accepted notifications are listed, never delivered;
 # - read gates: `grants.message_visible` / `hook_allowed`.
 #
 # Not simulated: the global 2 s spacing between sends (nothing is transmitted, so
@@ -594,6 +597,8 @@ class FakeHost:
         self.timers = 0
         self.status = ""
         self.sends: list[dict[str, Any]] = []
+        self.notify_quota = notifications.NotifyQuota(clock)
+        self.notifications: list[dict[str, Any]] = []
         self.refusals: list[dict[str, Any]] = []
         self.loop = asyncio.new_event_loop()
 
@@ -756,6 +761,17 @@ class FakeHost:
         self.timers += 1
         return {"timer_id": self.timers}  # never fires by itself: put a timer event in the fixture
 
+    async def do_notifications_send(self, raw: dict[str, Any]) -> dict[str, Any]:
+        params = notifications.parse(raw)
+        full = self.notify_quota.take(
+            self.instance.instance_id,
+            notifications.effective_limits(self.permissions["notifications.send"]),
+        )
+        if full is not None:
+            raise notifications.quota_refusal(*full)
+        self.notifications.append(params.model_dump(exclude={"event_id"}))
+        return {"queued": 0}  # no notification channel in a replay
+
     async def do_status_set(self, params: dict[str, Any]) -> None:
         self.status = str(params.get("summary") or "")[:140]
 
@@ -838,6 +854,7 @@ class ReplayReport:
     calls: list[dict[str, Any]] = field(default_factory=list)
     refusals: list[dict[str, Any]] = field(default_factory=list)
     sends: list[dict[str, Any]] = field(default_factory=list)
+    notifications: list[dict[str, Any]] = field(default_factory=list)
     stderr: str = ""
 
     @property
@@ -853,6 +870,7 @@ class ReplayReport:
             "calls": self.calls,
             "refusals": self.refusals,
             "sends": self.sends,
+            "notifications": self.notifications,
             "isolation": "none (development only)",
         }
 
@@ -960,6 +978,7 @@ def replay_directory(
         report.calls = sink.calls
         report.refusals = host.refusals
         report.sends = host.sends
+        report.notifications = host.notifications
         if child is not None:
             report.stderr = child.stderr_tail()
             child.kill()
@@ -1075,7 +1094,8 @@ def _print_replay(report: ReplayReport) -> None:
     delivered = sum(1 for e in report.events if e["delivered"])
     print(
         f"  {len(report.events)} event(s), {delivered} delivered; {len(report.sends)} send(s) "
-        f"accepted (not transmitted), {len(report.refusals)} refusal(s)"
+        f"accepted (not transmitted), {len(report.notifications)} notification(s) accepted "
+        f"(not delivered), {len(report.refusals)} refusal(s)"
     )
     if report.stderr and not report.ok:
         print("  plugin log (tail):")

@@ -72,6 +72,15 @@ PAYLOADS = {
         "uptime_s": 3600,
         "version": "5.0.0",
     },
+    "plugin.notification": {
+        "event": "plugin.notification",
+        "instance_id": "i1",
+        "plugin_id": "acme.weather",
+        "label": "Weather",
+        "title": "Storm",
+        "body": "Gusts",
+        "level": "warning",
+    },
 }
 
 
