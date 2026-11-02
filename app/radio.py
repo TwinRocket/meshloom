@@ -422,6 +422,29 @@ class RadioManager:
         except (TypeError, ValueError):
             return 1
 
+    def keep_channels_on_radio(self) -> bool:
+        """Whether the channel slots are kept on the radio (MSHL-41, off by default)."""
+        return radio_workarounds.current().keep_channels_on_radio
+
+    def get_scratch_channel_slot(self) -> int:
+        """The slot reserved for on-demand sends when channels are kept on the radio.
+
+        The highest slot of the firmware's limit; the slots below it keep their
+        channels and are never written by a send.
+        """
+        return self.get_channel_send_cache_capacity() - 1
+
+    def get_kept_channel_slot_count(self) -> int:
+        """How many slots keep their channel when the keep mode is on (limit - 1)."""
+        return max(0, self.get_channel_send_cache_capacity() - 1)
+
+    def temp_channel_slot(self, default_slot: int) -> int:
+        """The slot a one-off send may borrow: the scratch slot when channels are
+        kept on the radio (so a kept channel is never overwritten), else ``default_slot``."""
+        if self.keep_channels_on_radio():
+            return self.get_scratch_channel_slot()
+        return default_slot
+
     def get_cached_channel_slot(self, channel_key: str) -> int | None:
         """Return the cached radio slot for a channel key, if present."""
         return self._channel_slot_by_key.get(channel_key.upper())
@@ -435,14 +458,27 @@ class RadioManager:
         """Choose a radio slot for a channel send.
 
         Returns `(slot, needs_configure, evicted_channel_key)`.
+
+        When channels are kept on the radio (``keep_channels_on_radio``), a send
+        reuses the slot of a channel already on the radio, and any other channel
+        goes through the scratch slot (the highest): the kept slots are never
+        evicted. Without slot reuse (TCP, forced reconfigure) every send rewrites
+        the scratch slot, never ``preferred_slot``.
         """
+        keep = self.keep_channels_on_radio()
         if not self.channel_slot_reuse_enabled():
+            if keep:
+                return self.get_scratch_channel_slot(), True, None
             return preferred_slot, True, None
 
         normalized_key = channel_key.upper()
         cached_slot = self._channel_slot_by_key.get(normalized_key)
         if cached_slot is not None:
             return cached_slot, False, None
+
+        if keep:
+            scratch = self.get_scratch_channel_slot()
+            return scratch, True, self._channel_key_by_slot.get(scratch)
 
         capacity = self.get_channel_send_cache_capacity()
         if len(self._channel_slot_by_key) < capacity:

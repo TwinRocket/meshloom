@@ -860,6 +860,13 @@ function RestoreSummary({
             >
               {t('settings.fullRestore.steps.channels')}
             </Check>
+            {steps.meshloom && steps.channels && (
+              <p className="text-xs text-muted-foreground">
+                {inspect.channels_kept_on_radio
+                  ? t('settings.fullRestore.channelsKept')
+                  : t('settings.fullRestore.channelsOffloaded')}
+              </p>
+            )}
             <Check
               checked={steps.contacts}
               disabled={!steps.meshloom}

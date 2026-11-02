@@ -7,6 +7,10 @@ are now stored in the database; ``services/legacy_env_settings.py`` imports a
 leftover value once. The fourth, ``auto_clock_wraparound`` (on by default), replaces
 the developer-only ``__CLOWNTOWN_DO_CLOCK_WRAPAROUND``, which is only warned about.
 
+``keep_channels_on_radio`` (Settings → Radio → Channels on the radio, off by
+default) is not a workaround but sits here for the same reason: the send path asks
+it which slot it may write (``RadioManager.plan_channel_send_slot``).
+
 They are read on hot, synchronous paths (every channel send asks whether a slot
 may be reused), so the values live here. ``load()`` fills them at startup and
 ``AppSettingsRepository.update()`` refreshes them after every write, so this copy
@@ -29,6 +33,7 @@ class RadioWorkarounds:
     force_channel_slot_reconfigure: bool = False
     load_with_autoevict: bool = False
     auto_clock_wraparound: bool = True
+    keep_channels_on_radio: bool = False
 
 
 _current = RadioWorkarounds()
@@ -47,6 +52,7 @@ def apply(app_settings: AppSettings) -> RadioWorkarounds:
         force_channel_slot_reconfigure=app_settings.force_channel_slot_reconfigure,
         load_with_autoevict=app_settings.load_with_autoevict,
         auto_clock_wraparound=app_settings.auto_clock_wraparound,
+        keep_channels_on_radio=app_settings.keep_channels_on_radio,
     )
     return _current
 

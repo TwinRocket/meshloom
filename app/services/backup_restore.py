@@ -302,6 +302,16 @@ async def _live_wifi_ssid() -> tuple[bool, str | None]:
         return False, None
 
 
+async def _channels_kept_after_restore(opened) -> bool:
+    """The keep mode the channels step will run under (it needs the Meshloom step)."""
+    from app.repository import AppSettingsRepository
+
+    settings = getattr(opened, "settings", None)
+    if settings is not None and "keep_channels_on_radio" in settings.model_fields_set:
+        return bool(settings.keep_channels_on_radio)
+    return bool((await AppSettingsRepository.get()).keep_channels_on_radio)
+
+
 async def inspect_backup(
     doc: BackupV1Document | BackupExportV2 | BackupEnvelope, passphrase: str | None
 ) -> BackupInspectResult:
@@ -328,6 +338,7 @@ async def inspect_backup(
         live_radio_name=inputs.live_name,
     )
     result.secret_store_unavailable = await secret_store_blocks_restore(opened)
+    result.channels_kept_on_radio = await _channels_kept_after_restore(opened)
     if not isinstance(opened, BackupExportV2):
         return result
 

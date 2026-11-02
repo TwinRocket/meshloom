@@ -1746,6 +1746,16 @@ class AppSettings(BaseModel):
             "ahead, during connection setup, at most once per radio per process"
         ),
     )
+    keep_channels_on_radio: bool = Field(
+        default=False,
+        description=(
+            "Keep the channels in the radio's slots: the connect sync copies them into "
+            "Meshloom without clearing them, and Meshloom sends on channels that are "
+            "not on the radio from one reserved scratch slot (the highest), so the "
+            "other slots keep their channels. Off: the slots are emptied at every "
+            "connect and loaded on demand"
+        ),
+    )
     push_allow_private_endpoints: bool = Field(
         default=False,
         description=(
@@ -2724,6 +2734,15 @@ class BackupInspectResult(BaseModel):
             "The restore (Meshloom step on) would have to encrypt integration or notification"
             " secrets and secrets.key cannot be read or created: it would be refused with 503"
             " backup_secret_store_unavailable, before any write"
+        ),
+    )
+    channels_kept_on_radio: bool = Field(
+        default=False,
+        description=(
+            "Whether the channels step's slots stay on the radio (MSHL-41): the file's "
+            "keep_channels_on_radio when it carries one (the channels step needs the "
+            "Meshloom step, which restores it), else this Meshloom's. False: the next "
+            "connect empties the pushed slots"
         ),
     )
     live_radio_public_key: str | None = None

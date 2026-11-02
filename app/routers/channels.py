@@ -526,8 +526,10 @@ async def refuse_channel(key: str) -> dict:
 async def delete_channel(key: str) -> dict:
     """Delete a channel from the database by key.
 
-    Note: This does not clear the channel from the radio. The radio's channel
-    slots are managed separately (channels are loaded temporarily when sending).
+    Channels are offloaded from the radio at every connect and loaded into a
+    slot on demand, so the radio is not touched here; when they are kept on the
+    radio (``keep_channels_on_radio``, MSHL-41), the slots holding this channel
+    are emptied too, or the next connect sync would adopt it again.
     """
     if is_public_channel_key(key):
         raise HTTPException(
@@ -536,6 +538,9 @@ async def delete_channel(key: str) -> dict:
 
     logger.info("Deleting channel %s from database", key)
     await ChannelRepository.delete(key)
+    from app.radio_sync import clear_channel_from_radio_slots
+
+    await clear_channel_from_radio_slots(key)
 
     broadcast_event(WsEvent.CHANNEL_DELETED, {"key": key})
 

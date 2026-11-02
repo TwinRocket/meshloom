@@ -32,7 +32,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tools", tags=["tools"])
 
 # Radio slot borrowed for the test send. It is rewritten empty in a finally so
-# the test channel's name and secret never stay resident on the radio.
+# the test channel's name and secret never stay resident on the radio. When the
+# channels are kept on the radio (MSHL-41) the scratch slot is borrowed instead
+# (``radio_manager.temp_channel_slot``), so a kept channel is never wiped.
 MESH_TEST_RADIO_SLOT = 0
 MESH_TEST_BODY_PREFIX = "meshloom-test"
 
@@ -71,13 +73,13 @@ async def _resolve_known_region(requested: str) -> str:
     raise HTTPException(status_code=400, detail=f"Unknown region: {requested!r}")
 
 
-async def _clear_test_slot(mc) -> None:
+async def _clear_test_slot(mc, slot: int = MESH_TEST_RADIO_SLOT) -> None:
     """Blank the borrowed slot. Retried so a single radio glitch does not leave it resident."""
     last_error: Exception | None = None
     for attempt in range(3):
         try:
             await mc.commands.set_channel(
-                channel_idx=MESH_TEST_RADIO_SLOT,
+                channel_idx=slot,
                 channel_name="",
                 channel_secret=bytes(16),
             )
@@ -87,12 +89,12 @@ async def _clear_test_slot(mc) -> None:
             logger.warning(
                 "Attempt %d/3: failed to clear radio slot %d after the mesh test",
                 attempt + 1,
-                MESH_TEST_RADIO_SLOT,
+                slot,
                 exc_info=True,
             )
     logger.error(
         "Radio slot %d still holds the mesh test channel after 3 clear attempts: %s",
-        MESH_TEST_RADIO_SLOT,
+        slot,
         last_error,
     )
 
@@ -115,11 +117,12 @@ async def send_mesh_test(request: MeshTestRequest) -> MeshTestResponse:
 
     region = await _resolve_known_region(request.flood_scope)
     radio_manager.require_connected()
+    test_slot = radio_manager.temp_channel_slot(MESH_TEST_RADIO_SLOT)
 
     # Free the borrowed slot in the send cache before the radio sees it, so a
     # channel that used to live there is reloaded on its next send.
     for cached_key, cached_slot in radio_manager.get_channel_send_cache_snapshot():
-        if cached_slot == MESH_TEST_RADIO_SLOT:
+        if cached_slot == test_slot:
             radio_manager.invalidate_cached_channel_slot(cached_key)
 
     sent_at = int(time.time())
@@ -152,13 +155,13 @@ async def send_mesh_test(request: MeshTestRequest) -> MeshTestResponse:
                     timestamp_bytes=sender_timestamp.to_bytes(4, "little"),
                     action_label="mesh test",
                     radio_manager=radio_manager,
-                    temp_radio_slot=MESH_TEST_RADIO_SLOT,
+                    temp_radio_slot=test_slot,
                     error_broadcast_fn=broadcast_error,
                     flood_scope_override=region,
                     register_slot=False,
                 )
             finally:
-                await _clear_test_slot(mc)
+                await _clear_test_slot(mc, test_slot)
 
             if result is None:
                 logger.warning("No response from radio after the mesh test; outcome is unknown")

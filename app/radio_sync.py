@@ -367,10 +367,15 @@ async def should_run_full_periodic_sync(mc: MeshCore) -> bool:
 async def sync_and_offload_channels(mc: MeshCore, max_channels: int | None = None) -> dict:
     """
     Sync channels from radio to database, then clear them from radio.
-    Returns counts of synced and cleared channels.
+
+    With ``keep_channels_on_radio`` on (MSHL-41), the slots are synced but never
+    cleared: each one is recorded in the send-slot cache so a send on that channel
+    reuses it, and the highest slot is the scratch slot on-demand sends write.
+    Returns counts of synced and cleared channels (``kept`` in keep mode).
     """
     synced = 0
     cleared = 0
+    keep = radio_manager.keep_channels_on_radio()
 
     try:
         radio_manager.reset_channel_send_cache()
@@ -385,7 +390,7 @@ async def sync_and_offload_channels(mc: MeshCore, max_channels: int | None = Non
 
             key_hex = await upsert_channel_from_radio_slot(
                 result.payload,
-                on_radio=False,  # We're about to clear it
+                on_radio=keep,  # offload mode is about to clear it
             )
             if key_hex is None:
                 continue
@@ -393,6 +398,10 @@ async def sync_and_offload_channels(mc: MeshCore, max_channels: int | None = Non
             radio_manager.remember_pending_message_channel_slot(key_hex, idx)
             synced += 1
             logger.debug("Synced channel %s: %s", key_hex[:8], result.payload.get("channel_name"))
+
+            if keep:
+                radio_manager.note_channel_slot_loaded(key_hex, idx)
+                continue
 
             # Clear from radio (set empty name and zero key)
             try:
@@ -408,13 +417,56 @@ async def sync_and_offload_channels(mc: MeshCore, max_channels: int | None = Non
             except Exception as e:
                 logger.warning("Error clearing channel %d: %s", idx, e)
 
-        logger.debug("Synced %d channels, cleared %d from radio", synced, cleared)
+        if keep:
+            logger.debug("Synced %d channels, kept on the radio", synced)
+        else:
+            logger.debug("Synced %d channels, cleared %d from radio", synced, cleared)
 
     except Exception as e:
         logger.error("Error during channel sync: %s", e)
-        return {"synced": synced, "cleared": cleared, "error": str(e)}
+        out = {"synced": synced, "cleared": cleared, "error": str(e)}
+        if keep:
+            out["kept"] = True
+        return out
 
+    if keep:
+        return {"synced": synced, "cleared": 0, "kept": True}
     return {"synced": synced, "cleared": cleared}
+
+
+async def clear_channel_from_radio_slots(channel_key: str) -> int:
+    """Empty every radio slot holding ``channel_key`` when channels are kept on the radio.
+
+    Deleting a channel in Meshloom must also take it off the radio in keep mode, or
+    the next connect sync would adopt it again. The slots are read rather than taken
+    from the send cache, which is empty without slot reuse (TCP). Best effort: a
+    disconnected or busy radio is logged and skipped. Returns the slots cleared.
+    """
+    if not radio_manager.keep_channels_on_radio() or not radio_manager.is_connected:
+        return 0
+    target = channel_key.upper()
+    cleared = 0
+    try:
+        async with radio_manager.radio_operation(
+            "clear_deleted_channel_slots", pause_polling=True
+        ) as mc:
+            for idx in range(get_radio_channel_limit()):
+                result = await mc.commands.get_channel(idx)
+                if result.type != EventType.CHANNEL_INFO:
+                    continue
+                if _normalize_channel_secret(result.payload).hex().upper() != target:
+                    continue
+                clear_result = await mc.commands.set_channel(
+                    channel_idx=idx, channel_name="", channel_secret=bytes(16)
+                )
+                if clear_result.type == EventType.OK:
+                    radio_manager.forget_channel_slot(idx)
+                    cleared += 1
+                else:
+                    logger.warning("Failed to clear channel slot %d: %s", idx, clear_result.payload)
+    except Exception as e:
+        logger.warning("Could not clear deleted channel %s from the radio: %s", target[:8], e)
+    return cleared
 
 
 def _split_channel_sender_and_text(text: str) -> tuple[str | None, str]:
