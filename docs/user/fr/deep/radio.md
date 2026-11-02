@@ -39,7 +39,7 @@ Au démarrage, il vide les emplacements de salon de la radio. Ensuite, un envoi 
 Deux exceptions à cette réutilisation :
 
 - Avec une **radio réseau (TCP)**, chaque envoi vers un salon réécrit le salon dans la radio, car un autre programme peut utiliser la même radio.
-- **Réécrire le salon avant chaque envoi**, dans **Réglages → Radio → Avancé**, fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
+- **Réécrire le canal avant chaque envoi**, dans **Réglages → Radio → Avancé**, fait de même sur tous les types de connexion. À utiliser si les emplacements semblent instables ou si une autre application les modifie. Chaque envoi vers un salon prend alors un peu plus de temps.
 
 ### Garder les salons sur la radio
 
@@ -48,7 +48,7 @@ Deux exceptions à cette réutilisation :
 - Meshloom copie toujours chaque salon de la radio à la connexion, mais ne vide plus les emplacements.
 - Un envoi vers un salon déjà présent sur la radio utilise son emplacement tel quel.
 - Meshloom garde un emplacement pour lui, le dernier, pour envoyer vers les salons absents de la radio. Il n’écrase jamais les autres. Une radio à 8 emplacements garde 7 salons ; la page des réglages affiche le nombre pour votre radio.
-- Avec une radio réseau (TCP), ou avec **Réécrire le salon avant chaque envoi**, chaque envoi vers un salon passe par ce dernier emplacement.
+- Avec une radio réseau (TCP), ou avec **Réécrire le canal avant chaque envoi**, chaque envoi vers un salon passe par ce dernier emplacement.
 - Supprimer un salon dans Meshloom vide aussi son emplacement sur la radio, sinon la connexion suivante le ferait revenir.
 - Le **Test radio** (dans la barre latérale) emprunte lui aussi le dernier emplacement.
 
@@ -169,7 +169,7 @@ Meshloom n’enregistre jamais le mot de passe Wi-Fi, ni dans sa base de donnée
 
 ## Remise à zéro usine
 
-Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio. Le bouton demande que la radio soit connectée. Une fenêtre liste ce qui va se passer, et vous devez saisir exactement le nom de la radio pour activer le bouton de confirmation.
+Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio. Le bouton demande que la radio soit connectée. Une fenêtre résume ce qui est effacé et ce qui est gardé (le détail est ci-dessous), et vous devez saisir exactement le nom de la radio pour activer le bouton de confirmation.
 
 **Effacé de la radio :**
 
@@ -185,11 +185,27 @@ Tout en bas de l’onglet **Avancé**, **Remise à zéro usine** efface la radio
 
 La radio redémarre et Meshloom se reconnecte tout seul. Il vous demande ensuite s’il faut adopter la nouvelle identité, avec l’invite d’identité habituelle. Cette action est irréversible.
 
+## Autres réglages de la radio
+
+- **Transmission ACK directe supplémentaire** fait envoyer à la radio un accusé de réception de plus, avant l’accusé normal, pour chaque message direct reçu. C’est un comportement du firmware, pas une relance de Meshloom.
+- **Partage de télémétrie** décide de ce que répond la radio quand un autre nœud demande sa télémétrie : **Refuser** rejette toutes les demandes, **Par contact** suit l’autorisation réglée pour chaque contact sur la radio, **Autoriser tous** répond à tout le monde.
+- L’export enregistre la configuration actuelle du serveur dans un fichier JSON ; l’import applique un tel fichier et redémarre la radio. Un fichier qui contient une clé privée donne cette identité à la radio : les autres nœuds voient alors un autre appareil, et seule la clé d’origine permet de revenir à l’ancienne.
+
+## Suivi de télémétrie et blocage
+
+**Réglages → Gestion radio-application** collecte la télémétrie des nœuds que vous choisissez, selon un planning :
+
+- **Télémétrie des répéteurs suivis** : jusqu’à 8 répéteurs. Pour limiter le trafic sur le mesh, tous les nœuds suivis se partagent au plus 24 interrogations par jour : plus vous en suivez, plus l’intervalle s’allonge. Quand vous en suivez trop pour l’intervalle choisi, Meshloom en prend un plus long et l’indique ; votre choix revient dès que vous en suivez moins.
+- **Télémétrie des contacts suivis** : jusqu’à 8 autres contacts (compagnons, salons, capteurs), pour leur télémétrie LPP (batterie, capteurs, GPS). Ils se partagent le même plafond quotidien.
+- **Interroger les répéteurs à chemin direct/routé toutes les heures** interroge toutes les heures les répéteurs suivis qui ont un chemin direct ou routé ; ceux joignables seulement en flood gardent le planning.
+
+**Bloquer** un contact le masque seulement, lui et ses messages, dans l’interface. Ses messages restent stockés et reviennent quand vous le débloquez, et le relais MQTT et les extensions les reçoivent toujours. **Bloquer la découverte de nouveaux types de nœuds** empêche Meshloom d’ajouter de nouveaux contacts des types cochés quand il entend leurs annonces ; les contacts existants de ces types restent mis à jour, et ceux ajoutés à la main ou par un message direct ne sont pas concernés.
+
 ## Proxy radio
 
 **Réglages → Proxy** peut faire passer Meshloom pour une radio MeshCore sur votre réseau, afin qu’une application mobile ou un autre Meshloom se connecte à travers lui. Il est désactivé par défaut. Une fois activé, il écoute sur le port 5001, sur toutes les adresses réseau, pour 8 clients au plus à la fois. Vous pouvez changer l’adresse, le port et le nombre de clients.
 
-Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Un second Meshloom doit utiliser une nouvelle base de données.
+Le protocole MeshCore n’a pas de mot de passe : n’activez le proxy que sur un réseau de confiance. Un second Meshloom doit utiliser une nouvelle base de données (ou adopter explicitement cette identité), et Meshloom refuse de brancher sa propre connexion radio sur son propre proxy. Quand c’est l’hôte qui fixe le port publié (l’add-on Home Assistant, par exemple), changez-le dans les réglages réseau de l’hôte.
 
 ## La clé privée
 

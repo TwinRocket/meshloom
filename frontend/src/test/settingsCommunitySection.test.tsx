@@ -113,12 +113,15 @@ describe('SettingsCommunitySection', () => {
     expect(
       await screen.findByRole('button', { name: i18n.t('settings.community.joinCta') })
     ).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.community.privacyAccount'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.community.privacyPrivateKey'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.community.privacyPackets'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.community.privacyRadio'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.community.privacyHashtags'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('settings.community.privacyDirectory'))).toBeInTheDocument();
+    // One privacy line and a docs link instead of an inventory of what is sent.
+    expect(
+      screen.getByText(i18n.t('settings.community.privacySummary'), { exact: false })
+    ).toBeInTheDocument();
+    for (const link of screen.getAllByRole('link', { name: i18n.t('settings.common.learnMore') })) {
+      expect(link.getAttribute('href')).toMatch(
+        /^https:\/\/meshloom\.app\/(en|fr)\/docs\/deep\/community\/$/
+      );
+    }
     // No enable checkbox: joining is the only way on, and it binds the IATA first.
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: i18n.t('settings.community.leave') })).toBeNull();

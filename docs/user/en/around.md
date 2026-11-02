@@ -60,7 +60,8 @@ Packets that could not be decrypted are not necessarily lost. They are what make
 
 - **Trace** sends a test packet through repeaters you choose and back to your radio, and measures the route instead of guessing it. You must be able to hear the last repeater of the chain for the trace to succeed. The list offers the repeaters known by their full key; **Custom path** adds a raw prefix of 1, 2 or 4 bytes, and all the custom hops of one trace use the same width.
 - **Message Search** searches the whole stored history, direct messages and channels together. Clicking a result opens the conversation at that exact point, with the messages around it. You can narrow the search with `user:` or `channel:` followed by a name or a key. Put names that contain spaces in quotes. The sender of a channel message is matched from the adverts heard around the time it was sent: it is a guess, and two users with the same name are not told apart.
-- **Statistics**, in Settings, summarize what the node has seen: contacts, repeaters, channels and messages, packets per hour over 72 hours, the busiest channels over 24 hours, the noise level, and how much traffic uses regional scopes.
+- **Settings > Local Configuration** holds the display options of this browser. **Status Dot Glitters** flashes the connection dot as packets arrive: blue for a channel message, purple for a direct message, cyan for an advert, green for anything else. The battery percentage and voltage of the status badge refresh every 60 seconds, so they can take up to a minute to appear after connecting.
+- **Statistics**, in Settings, summarize what the node has seen: contacts, repeaters, channels and messages, packets per hour over 72 hours, the busiest channels over 24 hours, the noise level, and how much traffic uses regional scopes. The noise level is sampled every minute and kept in memory only, so it starts over when the server restarts. In the regional scope figures, the traffic counts every channel message heard, including channels you have no key for, while the senders count only channels you can decrypt: the two do not use the same total and will not match. Corrupt packet captures can look scoped, so Meshloom estimates how many of them are false positives; when the scoped count is at or below that estimate, it is no evidence that your region uses scopes. The sender count needs a successful decryption and is not affected.
 
 ## The live feed
 
@@ -133,6 +134,8 @@ Keeping raw packets has a cost. They accumulate and the database grows. The **Da
 
 - **Delete Undecrypted Packets** removes the unreadable packets older than a number of days you choose. Deleting them closes the door on decrypting that period later: messages already decrypted remain, but the other packets are gone for good.
 - **Purge Archival Packets** removes the raw packets behind messages that are already decrypted. It saves space and does not touch your messages or future decryption, but you can no longer inspect those packets.
+
+**Auto-decrypt historical DMs when new contact advertises** makes the server try, when a new contact sends an advert, to decrypt the stored direct-message packets it could not read before. On a large backlog this can cause short delays.
 
 On a machine without tight disk limits, leaving everything for a few weeks is usually fine.
 

@@ -824,12 +824,44 @@ budget is refused, never truncated. Strings: slice `sf` (`chat.fileTab.*`). Test
   `fr` must have exactly the same keys; `src/test/i18nParity.test.ts` enforces it.
 - Strings live in `locales/{en,fr}.json` plus `locales/slices/*.{en,fr}.json`,
   deep-merged over the base. Never rename or delete a slice file (root `AGENTS.md`).
+  The base still holds stale copies of many slice keys: a slice value wins, but a key
+  deleted from a slice falls back to the base copy, so delete it from
+  `locales/{en,fr}.json` too.
   After adding a slice, delete `node_modules/.vitest-cache` if `i18nParity`
   misses its keys: the cached transform keeps the old `import.meta.glob` list.
 - Tests default to `fr` (`src/test/setup.ts`): query copy with `i18n.t('key')`,
   never a literal string.
 - Format numbers with `utils/formatNumber.ts` or `{{count, number}}`. Never call
   bare `toLocaleString()` on a number.
+
+### UI copy
+
+Owner rule (MSHL-447 to MSHL-450): the interface says what a beginner needs and
+nothing more. Facts for the curious go to the user docs (`docs/user/{en,fr}/`,
+technical and operational) or to the terms and privacy policy (legal). Apply it to
+every new or edited string:
+
+- **A modal** gives its purpose in one sentence and what to do next: at most two
+  short sentences, then the buttons. Anything else is a "Learn more" link.
+- **No inventories** in the UI: no list of the data sent, of what an operator could
+  technically see, of versions, isolation levels or retention periods.
+- **A consent dialog** is one line plus a checkbox ("I accept the terms and the privacy
+  policy", with the links).
+- **A security warning** stays only when the user can act on it, in one line that says
+  what to do ("Protect access: turn on a passkey or two-factor authentication.").
+- **Settings help**: one short line under the control, or nothing when the label is
+  enough.
+- **Errors** say what happened and what to do, in one sentence.
+- Plain words, no jargon. FR and EN are each written natively, not translated. In FR
+  a channel is a "canal", a room server a "salon".
+- **Before deleting a fact**, check that the docs or the terms hold it; if not, add it
+  to both `docs/user/en` and `docs/user/fr` in the same PR. Delete keys that become
+  unused (slice and base, see i18n) together with the block that rendered them, and
+  keep FR/EN parity. Copy changes never change behaviour.
+- **Docs links**: `components/settings/LearnMoreLink.tsx` (`<LearnMoreLink
+  page="deep/community" />`, label `settings.common.learnMore`) builds the URL with
+  `utils/userDocs.ts` (`https://meshloom.app/{lang}/docs/<page>/`). No anchor:
+  headings, hence anchors, differ between languages.
 
 ### WebSocket (`useWebSocket.ts`, `wsEvents.ts`)
 

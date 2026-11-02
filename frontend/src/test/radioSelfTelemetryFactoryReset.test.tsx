@@ -134,7 +134,7 @@ describe('RadioFactoryReset', () => {
       ).toBeVisible();
       await waitFor(() => expect(api.getRadioTransport).toHaveBeenCalled());
       expect(screen.queryByText(i18n.t('settings.radio.factoryReset.wifiTcpWarning'))).toBeNull();
-      expect(screen.getByText(i18n.t('settings.radio.factoryReset.keptWifi'))).toBeVisible();
+      expect(screen.getByText(i18n.t('settings.radio.factoryReset.dialogIntro'))).toBeVisible();
     });
 
     it('adds the stronger warning when Meshloom reaches the radio over TCP', async () => {

@@ -62,12 +62,10 @@ describe('Community exit dialog and unconfirmed opt-out', () => {
     void i18n.changeLanguage(DEFAULT_LOCALE);
   });
 
-  it('says what Community keeps and deletes, and where to ask for a full deletion', async () => {
+  it('says what leaving does, and where to ask for a full deletion', async () => {
     render(<SettingsCommunitySection />);
     const dialog = await openExitDialog();
-    expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.kept'));
-    expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.position'));
-    expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.advert'));
+    expect(dialog).toHaveTextContent(i18n.t('settings.community.optOut.intro'));
     const mail = within(dialog).getByRole('link', { name: 'privacy@meshloom.app' });
     expect(mail).toHaveAttribute('href', 'mailto:privacy@meshloom.app');
     expect(dialog.textContent ?? '').not.toMatch(/sealed|scell/i);

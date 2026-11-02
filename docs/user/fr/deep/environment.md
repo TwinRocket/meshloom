@@ -97,7 +97,7 @@ Ces variables ne changent plus rien. Leurs réglages sont dans l’interface :
 |----------|----------------|
 | `MESHCORE_VAPID_SUBJECT` | **Réglages → Notifications**, champ **Sujet VAPID** |
 | `MESHCORE_ENABLE_MESSAGE_POLL_FALLBACK` | **Réglages → Radio → Avancé**, « Vérifier les messages toutes les 10 secondes » |
-| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | **Réglages → Radio → Avancé**, « Réécrire le salon avant chaque envoi » |
+| `MESHCORE_FORCE_CHANNEL_SLOT_RECONFIGURE` | **Réglages → Radio → Avancé**, « Réécrire le canal avant chaque envoi » |
 | `MESHCORE_LOAD_WITH_AUTOEVICT` | **Réglages → Radio → Avancé**, « Laisser la radio supprimer ses plus anciens contacts » |
 
 Si l’une d’elles est encore définie au moment de la mise à jour, Meshloom la recopie une seule fois dans sa base, au premier démarrage : le sujet VAPID seulement si le champ des Réglages est vide, un contournement seulement si la variable vaut `true`. Votre installation continue donc de fonctionner comme avant. Ensuite Meshloom ne les lit plus jamais et écrit un avertissement dans son journal à chaque démarrage tant que l’une d’elles reste définie : retirez-la de votre environnement, et changez désormais le réglage dans l’interface.

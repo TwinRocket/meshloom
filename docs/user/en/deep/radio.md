@@ -169,7 +169,7 @@ Meshloom never stores the Wi-Fi password, in its database or in its logs. To kno
 
 ## Factory reset
 
-At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. The button needs the radio connected. A window lists what happens, and you must type the radio's name exactly before the confirm button works.
+At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. The button needs the radio connected. A window sums up what is erased and what is kept (details below), and you must type the radio's name exactly before the confirm button works.
 
 **Erased from the radio:**
 
@@ -185,11 +185,27 @@ At the very bottom of the **Advanced** tab, **Factory reset** erases the radio. 
 
 The radio restarts and Meshloom reconnects by itself. It then asks whether to adopt the new identity, with the usual identity prompt. This cannot be undone.
 
+## Other radio settings
+
+- **Extra Direct ACK Transmission** makes the radio send one extra receipt before the normal one for each direct message it receives. It is a firmware behaviour, not a Meshloom retry.
+- **Telemetry Sharing** decides what the radio answers when another node asks for its telemetry: **Deny** refuses every request, **Per-Contact** follows the permission set for each contact on the radio, **Allow All** answers anyone.
+- **Export** saves the current server config to a JSON file; **Import** applies such a file and reboots the radio. A file that holds a private key gives the radio that identity: other nodes then see a different device, and only the original key can bring the old one back.
+
+## Telemetry tracking and blocking
+
+**Settings → Radio-App Management** collects telemetry from the nodes you choose, on a schedule:
+
+- **Tracked Repeater Telemetry**: up to 8 repeaters. To limit mesh traffic, all tracked nodes share at most 24 checks a day, so the more you track, the longer the interval. When you track too many for the interval you chose, Meshloom uses a longer one and says so; your choice comes back once you track fewer.
+- **Tracked Contact Telemetry**: up to 8 other contacts (companions, rooms, sensors), for their LPP telemetry (battery, sensors, GPS). They share the same daily ceiling.
+- **Poll direct/routed-path repeaters hourly** checks every hour the tracked repeaters that have a direct or routed path; flood-only repeaters keep the schedule.
+
+**Blocking** a contact only hides it and its messages in the interface. Its messages are still stored and come back when you unblock it, and MQTT forwarding and extensions still receive them. **Block Discovery of New Node Types** stops Meshloom adding new contacts of the ticked types when it hears their adverts; existing contacts of those types are still updated, and contacts added by hand or through a direct message are not affected.
+
 ## Radio proxy
 
 **Settings → Proxy** can make Meshloom look like a MeshCore radio on your network, so that a phone app or another Meshloom connects through it. It is off by default. When enabled it listens on port 5001, on every network address, for up to 8 clients at a time. You can change the address, the port and the number of clients.
 
-The MeshCore protocol has no password: only enable the proxy on a network you trust. A second Meshloom must use a new database.
+The MeshCore protocol has no password: only enable the proxy on a network you trust. A second Meshloom must use a new database (or explicitly adopt this identity), and Meshloom refuses to point its own radio connection at its own proxy. When the host sets the published port (the Home Assistant add-on, for example), change it in the host's network settings.
 
 ## The private key
 
