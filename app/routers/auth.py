@@ -74,7 +74,7 @@ from app.auth.setup_code import (
     request_exposed,
     setup_code_required,
 )
-from app.middleware import host_guard
+from app.middleware import host_guard, https_required
 from app.middleware.host_guard import RejectedHost
 from app.middleware.proxy_headers import MAX_TRUSTED_PROXIES, normalize_proxies
 from app.repository.auth import (
@@ -142,6 +142,10 @@ _MESSAGES = {
     "auth_host_guard_would_lock_out": (
         "Enforcing the Host guard would reject the address you are using now: "
         "declare it as a public address first"
+    ),
+    "auth_https_would_lock_out": (
+        "Declaring a public address would refuse this plain-http connection from the "
+        "internet: open Meshloom over https or from the local network first"
     ),
     "auth_trusted_network_overlaps_proxy": "A trusted network overlaps a trusted proxy",
     "auth_trusted_network_loopback": (
@@ -1175,6 +1179,10 @@ async def patch_auth_settings(body: AuthSettingsPatch, request: Request) -> Auth
                 "auth_host_guard_would_lock_out",
                 {"host": host_guard.request_host(request.headers.get("host", "")) or "unknown"},
             )
+        # Never save a public address that would make the HTTPS rule refuse the
+        # request being answered (a remote administrator on plain http, MSHL-437).
+        if public_urls and https_required.would_refuse(request.scope, public_urls):
+            raise _error(400, "auth_https_would_lock_out")
         # Declaring the first public address switches the guard to enforce
         # (MSHL-437), unless this request names the mode itself or enforcing would
         # reject the address in use (then observation stays; the screen shows it).

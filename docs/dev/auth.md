@@ -1655,11 +1655,20 @@ HTTP gets 403 `auth_https_required` (JSON under `/api`, a short EN+FR text
 elsewhere) with the Host guard's static security headers and `no-store`; a WebSocket
 upgrade is closed with 1008. Each refusal logs a warning on `meshloom.auth` (client
 address, path, scheme), at most `WARNING_BURST` per minute then one summary line; no
-audit row (anonymous internet clients would only fill the table). The local network
-always passes, so the administrator can always reach the settings to fix a
-misconfigured proxy (one that does not send `X-Forwarded-Proto: https`, or is not in
-the trusted proxies). No setting of its own and no environment variable. Tests:
-`tests/test_https_required.py`.
+audit row (anonymous internet clients would only fill the table). **Lock-out rule**:
+`PATCH /api/auth/settings` answers 400 `auth_https_would_lock_out` (nothing saved)
+when the new `public_urls` is non-empty and `would_refuse(scope, urls)` says the
+request being answered would be refused (plain http from a public client: direct
+exposure, or a trusted proxy that does not send `X-Forwarded-Proto: https`); the
+panel shows `errors.auth_https_would_lock_out` (slice `aa`). The local network
+always passes, so an administrator on the local network can always reach the
+settings to fix a misconfigured proxy. An administrator who is remote only is not
+covered once the list is saved: if their https path breaks later (a proxy
+reconfigured, removed from the trusted proxies), they are refused until they reach
+Meshloom over https or from the local network (`meshloom-admin host-guard-observe`
+does not clear `public_urls`). No setting of its own and no environment variable.
+Tests: `tests/test_https_required.py` (rule, registration order in `app.main`) and
+`tests/test_auth_public_addresses.py` (end to end through `app.main`, lock-out rule).
 
 ## Manual checklist before the 5.0.0 tag
 

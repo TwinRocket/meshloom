@@ -249,3 +249,29 @@ async def test_a_saved_change_applies_to_the_next_request():
         assert (await client.get("/api/x")).status_code == 403
         _declare(public_urls=())
         assert (await client.get("/api/x")).status_code == 200
+
+
+def test_registered_between_the_proxy_headers_and_the_host_guard():
+    """The shipped app: proxy headers first (rewritten scheme/client), then this rule."""
+    from app.main import app
+
+    classes = [m.cls for m in app.user_middleware]  # outermost first
+    assert HttpsRequiredMiddleware in classes
+    assert (
+        classes.index(TrustedProxyHeadersMiddleware)
+        < classes.index(HttpsRequiredMiddleware)
+        < classes.index(HostGuardMiddleware)
+    )
+
+
+def test_would_refuse_reads_the_list_it_is_given():
+    from app.middleware.https_required import would_refuse
+
+    public = {"type": "http", "scheme": "http", "client": ("203.0.113.7", 1), "headers": []}
+    lan = {**public, "client": ("192.168.1.20", 1)}
+    secure = {**public, "scheme": "https"}
+    assert would_refuse(public, [PUBLIC_URL])
+    assert not would_refuse(public, [])
+    assert not would_refuse(lan, [PUBLIC_URL])
+    assert not would_refuse(secure, [PUBLIC_URL])
+    assert not must_refuse(public)  # nothing declared in memory

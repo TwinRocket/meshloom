@@ -69,11 +69,15 @@ Dès qu’au moins une adresse publique est déclarée, Meshloom est fait pour �
 
 Ce qui fonctionne toujours en `http://` simple :
 
-- tout ce qui vient de votre réseau local et de la machine elle-même : adresses privées (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`), adresses IPv6 locales et de lien, le préfixe IPv6 de votre propre réseau, adresses Tailscale et de NAT d’opérateur (`100.64.0.0/10`), `localhost`. Vous pouvez donc toujours ouvrir les réglages depuis chez vous pour corriger une configuration ;
+- tout ce qui vient de votre réseau local et de la machine elle-même : adresses privées (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`), adresses IPv6 locales et de lien, le préfixe IPv6 de votre propre réseau, adresses Tailscale et de NAT d’opérateur (`100.64.0.0/10`), `localhost`. Depuis chez vous, vous pouvez donc toujours ouvrir les réglages pour corriger une configuration ;
 - Meshloom Remote et la barre latérale de Home Assistant, chiffrés par eux-mêmes ;
 - tout, comme avant, tant qu’aucune adresse publique n’est déclarée.
 
-Derrière un reverse-proxy, Meshloom ne sait que le visiteur a utilisé HTTPS que si le proxy l’indique dans `X-Forwarded-Proto: https` **et** figure dans les proxies de confiance ci-dessous. Si des visiteurs venant d’Internet reçoivent « HTTPS est obligatoire » alors qu’ils tapent `https://`, vérifiez ces deux points. Chaque refus écrit un avertissement dans le journal de Meshloom (l’adresse du visiteur et le chemin, quelques lignes par minute au plus).
+Derrière un reverse-proxy, Meshloom ne sait que le visiteur a utilisé HTTPS que si le proxy l’indique dans `X-Forwarded-Proto: https` **et** figure dans les proxies de confiance ci-dessous. Si des visiteurs venant d’Internet reçoivent « HTTPS est obligatoire » alors qu’ils tapent `https://`, vérifiez ces deux points.
+
+Meshloom ne vous laisse pas vous enfermer dehors en déclarant l’adresse : si vous êtes connecté depuis Internet en `http://` simple (un port ouvert sur votre box, ou un proxy qui n’envoie pas `X-Forwarded-Proto`), l’enregistrement d’une adresse publique est refusé avec un message, et rien ne change. Passez d’abord en `https://` ou revenez sur votre réseau local. Si vous êtes loin de chez vous et que votre accès `https://` cesse de fonctionner après l’enregistrement de l’adresse (un proxy modifié, par exemple), Meshloom vous refuse en `http://` simple jusqu’à ce que vous reveniez sur votre réseau local ou que vous l’atteigniez de nouveau en `https://`.
+
+Chaque refus écrit un avertissement dans le journal de Meshloom (l’adresse du visiteur et le chemin, quelques lignes par minute au plus).
 
 ## Proxies de confiance
 

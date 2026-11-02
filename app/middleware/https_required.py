@@ -20,7 +20,7 @@ Everything else goes through unchanged:
 - a local client (``ip_ban.is_local`` on ``scope["client"]``, the forwarded address
   for a listed proxy: loopback, RFC 1918, ULA, link-local, CGNAT/Tailscale, an
   on-link IPv6 prefix of the host). The local network can always reach the
-  settings, so a mistake here can never lock the administrator out;
+  settings to fix a misconfigured proxy;
 - the relay (``state["via"] == "relay"``, always ``https`` anyway) and Home
   Assistant ingress: the same exemption as the Host guard (``host_guard.exempt``).
 
@@ -29,6 +29,15 @@ one warning on ``meshloom.auth`` with the client address, path and scheme, rate
 limited (``WARNING_BURST`` a window, then one summary line) so a scanner cannot
 flood the log. No audit row: refusals come from anonymous internet clients and
 would only fill the audit table.
+
+Saving the first public address cannot lock out the administrator doing it:
+``PATCH /api/auth/settings`` refuses (400 ``auth_https_would_lock_out``) a list that
+``would_refuse`` the request being answered, so an administrator on plain http from
+a public address (direct exposure, or a trusted proxy that does not send
+``X-Forwarded-Proto``) must switch to https or come back on the local network first.
+An administrator who is already remote over https keeps access; one who later loses
+https (a proxy reconfigured) is refused until they reach Meshloom from the local
+network or over https.
 
 It runs inside ``TrustedProxyHeadersMiddleware`` (it reads the rewritten client
 and scheme) and outside the Host guard. The declared addresses are the Host
@@ -83,13 +92,23 @@ def _client_is_local(scope: Scope) -> bool:
     return address is not None and is_local(address)
 
 
-def must_refuse(scope: Scope) -> bool:
-    """Whether ``scope`` is a plain-http request from a public client to an exposed instance."""
-    if not host_guard.public_urls() or host_guard.exempt(scope):
+def would_refuse(scope: Scope, public_urls: list[str]) -> bool:
+    """Whether ``scope`` would be refused once ``public_urls`` are the declared addresses.
+
+    ``PATCH /api/auth/settings`` calls it with the list about to be saved, so an
+    administrator reaching Meshloom over plain http from a public address cannot
+    declare a public address and lock themselves out (``auth_https_would_lock_out``).
+    """
+    if not public_urls or host_guard.exempt(scope):
         return False
     if scope.get("scheme", "http") not in _INSECURE_SCHEMES:
         return False
     return not _client_is_local(scope)
+
+
+def must_refuse(scope: Scope) -> bool:
+    """Whether ``scope`` is a plain-http request from a public client to an exposed instance."""
+    return would_refuse(scope, host_guard.public_urls())
 
 
 def _log_refusal(scope: Scope) -> None:

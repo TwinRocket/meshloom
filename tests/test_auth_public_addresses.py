@@ -214,3 +214,95 @@ async def test_only_an_admin_changes_the_public_addresses():
         )
         assert response.status_code == 403
     assert (await AuthSettingsRepository.get()).public_urls == []
+
+
+# --- HTTPS from the internet (MSHL-437) -------------------------------------------
+
+PUBLIC_PEER = ("203.0.113.9", 40000)
+
+
+@pytest.fixture
+def _https_state():
+    from app.middleware import https_required, proxy_headers
+
+    proxy_headers.reset()
+    https_required.reset()
+    yield
+    proxy_headers.reset()
+    https_required.reset()
+
+
+@pytest.mark.usefixtures("_https_state")
+async def test_a_public_plain_http_admin_cannot_declare_a_public_address():
+    """Direct exposure over plain http: saving would refuse every later request."""
+    await create_user()
+    async with make_client("http://mesh.example.com", PUBLIC_PEER) as remote:
+        await login(remote)
+        response = await remote.patch(
+            "/api/auth/settings", json={"public_urls": ["https://mesh.example.com"]}
+        )
+        assert response.status_code == 400
+        assert _code(response) == "auth_https_would_lock_out"
+        stored = await AuthSettingsRepository.get()
+        assert stored.public_urls == []
+        assert stored.host_guard_mode == "observe"
+        # Still reachable: nothing was saved.
+        assert (await remote.get("/api/auth/settings")).status_code == 200
+        assert (await remote.get("/")).status_code != 403
+
+
+@pytest.mark.usefixtures("_https_state")
+async def test_a_public_admin_over_https_and_a_lan_admin_can_declare_one():
+    await create_user()
+    async with make_client("https://mesh.example.com", PUBLIC_PEER) as remote:
+        await login(remote)
+        response = await remote.patch(
+            "/api/auth/settings", json={"public_urls": ["https://mesh.example.com"]}
+        )
+        assert response.status_code == 200, response.text
+        assert (await remote.get("/api/auth/settings")).status_code == 200
+        # Removing every address is never refused by this rule.
+        cleared = await remote.patch(
+            "/api/auth/settings", json={"public_urls": [], "host_guard_mode": "observe"}
+        )
+        assert cleared.status_code == 200, cleared.text
+    async with _admin("http://mesh.example.com") as lan:
+        response = await lan.patch(
+            "/api/auth/settings", json={"public_urls": ["https://mesh.example.com"]}
+        )
+        assert response.status_code == 200, response.text
+        assert (await lan.get("/api/auth/settings")).status_code == 200
+
+
+@pytest.mark.usefixtures("_https_state")
+async def test_the_shipped_app_refuses_plain_http_from_a_public_peer():
+    """End to end through ``app.main``: the middleware is registered and applied."""
+    async with _admin("http://mesh.example.com") as lan:
+        response = await lan.patch(
+            "/api/auth/settings",
+            json={"public_urls": ["https://mesh.example.com"], "trusted_proxies": ["10.0.0.5"]},
+        )
+        assert response.status_code == 200, response.text
+    async with make_client("http://mesh.example.com", PUBLIC_PEER) as outside:
+        refused = await outside.get("/api/auth/session")
+        assert refused.status_code == 403
+        assert _code(refused) == "auth_https_required"
+        page = await outside.get("/")
+        assert page.status_code == 403
+    async with make_client("https://mesh.example.com", PUBLIC_PEER) as secure:
+        assert (await secure.get("/api/auth/session")).status_code == 200
+    async with make_client("http://mesh.example.com", PEER) as lan_peer:
+        assert (await lan_peer.get("/api/auth/session")).status_code == 200
+    # A listed proxy's X-Forwarded-Proto is read before the HTTPS rule (ordering).
+    proxy_peer = ("10.0.0.5", 40000)
+    forwarded = {"X-Forwarded-For": "203.0.113.9"}
+    async with make_client("http://mesh.example.com", proxy_peer) as proxy:
+        over_https = await proxy.get(
+            "/api/auth/session", headers={**forwarded, "X-Forwarded-Proto": "https"}
+        )
+        assert over_https.status_code == 200
+        over_http = await proxy.get(
+            "/api/auth/session", headers={**forwarded, "X-Forwarded-Proto": "http"}
+        )
+        assert over_http.status_code == 403
+        assert _code(over_http) == "auth_https_required"

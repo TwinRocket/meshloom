@@ -118,7 +118,9 @@ and the OpenAPI page (`/docs`), not a table here.
   plain `http`/`ws` request from a non-local client (`ip_ban.is_local` on the rewritten
   client) answers 403 `auth_https_required` (WebSocket: 1008), with a rate-limited
   warning. Relay, ingress and local clients pass; nothing is checked without a public
-  address (docs/dev/auth.md, "HTTPS from the internet").
+  address. `PATCH /api/auth/settings` refuses (400 `auth_https_would_lock_out`) a
+  non-empty list that `would_refuse` the current request (docs/dev/auth.md, "HTTPS
+  from the internet").
 - `middleware/security_headers.py` (`SecurityHeadersMiddleware`, inside the proxy-headers
   middleware): HSTS only over direct https (never ingress or relay), `no-store` on
   `/api/auth`, `/api/remote` and the secret-carrying routes, `Permissions-Policy` (`docs/dev/auth.md`).

@@ -69,11 +69,15 @@ Once at least one public address is declared, Meshloom is meant to be reached fr
 
 What keeps working over plain `http://`:
 
-- everything from your local network and the machine itself: private addresses (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`), IPv6 local and link-local addresses, your own network's IPv6 prefix, Tailscale and carrier-grade NAT addresses (`100.64.0.0/10`), `localhost`. You can therefore always open the settings from home to fix a setup;
+- everything from your local network and the machine itself: private addresses (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`), IPv6 local and link-local addresses, your own network's IPv6 prefix, Tailscale and carrier-grade NAT addresses (`100.64.0.0/10`), `localhost`. From home you can therefore always open the settings to fix a setup;
 - Meshloom Remote and the Home Assistant sidebar, which are encrypted on their own;
 - everything, as before, while no public address is declared.
 
-Behind a reverse proxy, Meshloom only knows the visitor used HTTPS when the proxy says so in `X-Forwarded-Proto: https` **and** is listed in the trusted proxies below. If visitors from the internet get "HTTPS is required" although they type `https://`, check those two points. Each refusal writes a warning in Meshloom's log (the visitor's address and the path, a few lines a minute at most).
+Behind a reverse proxy, Meshloom only knows the visitor used HTTPS when the proxy says so in `X-Forwarded-Proto: https` **and** is listed in the trusted proxies below. If visitors from the internet get "HTTPS is required" although they type `https://`, check those two points.
+
+Meshloom will not let you lock yourself out when declaring the address: if you are connected from the internet over plain `http://` (a port opened on your router, or a proxy that does not send `X-Forwarded-Proto`), saving a public address is refused with a message, and nothing changes. Switch to `https://` or come back on your local network first. If you are away from home and your `https://` access breaks after the address is saved (a proxy changed, for example), Meshloom refuses you over plain `http://` until you are back on your local network or reach it over `https://` again.
+
+Each refusal writes a warning in Meshloom's log (the visitor's address and the path, a few lines a minute at most).
 
 ## Trusted proxies
 
