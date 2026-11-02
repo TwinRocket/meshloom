@@ -81,7 +81,15 @@
           "share.report_sent": "Shared object reported",
           "remote.linked": "Remote access linked",
           "remote.enabled": "Remote access enabled",
-          "remote.disabled": "Remote access disabled"
+          "remote.disabled": "Remote access disabled",
+          "remote.unlinked": "Remote access unregistered",
+          "remote.rotated": "Remote key replaced",
+          "remote.enroll_issued": "Remote enrolment code issued",
+          "remote.device_enrolled": "Remote device added",
+          "remote.device_revoked": "Remote device revoked",
+          "remote.devices_revoked": "All Remote devices revoked",
+          "remote.access_granted": "Remote access request granted",
+          "remote.access_denied": "Remote access request denied"
         },
         "outcomes": {
           "success": "Done",

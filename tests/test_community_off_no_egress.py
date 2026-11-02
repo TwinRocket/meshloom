@@ -3,10 +3,12 @@
 Recorders replace ``httpx.AsyncClient``, ``websockets.connect`` and
 ``aiomqtt.Client`` for the whole test. With Community off, every route under
 ``/api/community``, ``/api/directory``, ``/api/tools``, ``/api/channels``,
-``/api/settings``, ``/api/updates``, ``/api/store``, ``/api/plugins`` and
-``/api/share`` (``POST /api/share/files`` and ``/{id}/report`` included) is called (found dynamically from
+``/api/settings``, ``/api/updates``, ``/api/store``, ``/api/plugins``,
+``/api/share`` (``POST /api/share/files`` and ``/{id}/report`` included) and
+``/api/remote`` (but ``POST /api/remote/enable``, Remote's own opt-in:
+``tests/test_remote_off_no_egress.py``) is called (found dynamically from
 ``app.routes``), plus the hashtag catalogue and the update check with GitHub
-answering 503. Any request to ``*.meshloom.app``,
+answering 503. Any request to ``*.meshloom.app``, ``*.meshloom.link`` (Meshloom Remote),
 ``api.fx-port.com`` (the retired airport search) or the effective Community API
 base fails the test. Placing an IATA code reads the bundled airport list.
 
@@ -114,6 +116,8 @@ def _forbidden(host: str | None, *, store_online: bool = False) -> bool:
     return (
         host == "meshloom.app"
         or host.endswith(".meshloom.app")
+        or host == "meshloom.link"
+        or host.endswith(".meshloom.link")
         or host == FX_PORT_HOST
         or host == urlsplit(EGRESS_API_BASE).hostname
     )
@@ -341,6 +345,8 @@ _PATH_PARAMS = {
     "owner": "example",
     "name": "weather",
     "share_id": "AbCdEfG",
+    "device_id": "A" * 22,
+    "request_id": "B" * 22,
 }
 _QUERY = {
     "/api/community/airports": {"q": "LYS"},
@@ -393,6 +399,8 @@ _BODIES: dict[tuple[str, str], Any] = {
     ("PATCH", "/api/updates/settings"): {},
     ("POST", "/api/share/links"): {"url": "https://example.com/a"},
     ("POST", "/api/share/{share_id}/report"): {"reason": "spam", "details": "sweep"},
+    ("POST", "/api/remote/devices/client"): {"label": "sweep"},
+    ("POST", "/api/remote/access-requests/approve"): {"code": "7K3QM-X9TZ2"},
 }
 _SWEPT_PREFIXES = (
     "/api/community",
@@ -404,6 +412,7 @@ _SWEPT_PREFIXES = (
     "/api/store",
     "/api/plugins",
     "/api/share",
+    "/api/remote",
 )
 
 
@@ -413,6 +422,8 @@ _SWEPT_PREFIXES = (
 _NOT_SWEPT = {
     ("GET", "/api/settings/backup/database"),
     ("GET", "/api/community/iata/suggest"),
+    # Remote's own opt-in (tests/test_remote_off_no_egress.py covers it).
+    ("POST", "/api/remote/enable"),
 }
 
 
@@ -455,6 +466,8 @@ class TestCommunityOffNoEgress:
         assert ("POST", "/api/share/{share_id}/report") in routes
         assert ("GET", "/api/share/mine") in routes
         assert ("DELETE", "/api/share/{share_id}") in routes
+        assert ("POST", "/api/remote/rotate") in routes
+        assert ("POST", "/api/remote/enable") not in routes
         assert len(routes) >= 50
         # Left out on purpose: the IATA suggestion (TestIataSuggestion).
         assert ("GET", "/api/community/iata/suggest") not in routes

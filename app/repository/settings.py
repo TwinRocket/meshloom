@@ -186,8 +186,8 @@ NotificationLanguage = Literal["auto", "fr", "en"]
 NOTIFICATION_LANGUAGES: tuple[NotificationLanguage, ...] = ("auto", "fr", "en")
 
 # Services with an instance identity, each its own ``app_settings.<service>_instance_seed``
-# column (app/services/instance_identity.py). Access adds "remote" with its migration.
-INSTANCE_SEED_SERVICES: tuple[str, ...] = ("share",)
+# column (app/services/instance_identity.py): "share" (migration 102), "remote" (138).
+INSTANCE_SEED_SERVICES: tuple[str, ...] = ("share", "remote")
 
 
 def _share_choice(

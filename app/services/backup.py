@@ -61,6 +61,7 @@ from app.services import (
     backup_notifications,  # noqa: F401  registers the notifications section
     backup_plugins,  # noqa: F401  registers the plugins section
     instance_identity,  # noqa: F401, E402
+    remote,  # noqa: F401  registers the Remote on_restore hook
 )
 from app.services.backup_accounts import ACCOUNT_SECTIONS  # registers the users section
 from app.services.backup_sections import (
@@ -206,6 +207,16 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "instance identity seed: never exported, created on first use, rotated by every restore",
     ),
+    "app_settings.remote_instance_seed": (
+        "excluded",
+        "instance identity seed: never exported, created on first use, rotated by every restore",
+    ),
+    "remote_state": (
+        "excluded",
+        "Remote opt-in and registration: a restore leaves Remote off and unregistered",
+    ),
+    "remote_devices": ("excluded", "Remote devices: their passes die with the restored key"),
+    "remote_enroll_tokens": ("excluded", "Remote enrolment tokens: short-lived, single use"),
     "app_settings.store_online": (
         "excluded",
         "Store consent: a copy restored elsewhere would enable an egress nobody clicked",

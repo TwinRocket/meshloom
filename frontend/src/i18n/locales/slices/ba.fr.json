@@ -81,7 +81,15 @@
           "share.report_sent": "Objet partagé signalé",
           "remote.linked": "Accès à distance lié",
           "remote.enabled": "Accès à distance activé",
-          "remote.disabled": "Accès à distance désactivé"
+          "remote.disabled": "Accès à distance désactivé",
+          "remote.unlinked": "Accès à distance désinscrit",
+          "remote.rotated": "Clé de l'accès à distance remplacée",
+          "remote.enroll_issued": "Code d'enrôlement à distance émis",
+          "remote.device_enrolled": "Appareil ajouté à l'accès à distance",
+          "remote.device_revoked": "Appareil de l'accès à distance révoqué",
+          "remote.devices_revoked": "Tous les appareils de l'accès à distance révoqués",
+          "remote.access_granted": "Demande d'accès à distance acceptée",
+          "remote.access_denied": "Demande d'accès à distance refusée"
         },
         "outcomes": {
           "success": "Réussi",

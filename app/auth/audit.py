@@ -32,8 +32,7 @@ logger = logging.getLogger(__name__)
 SECONDS_PER_DAY = 86400
 
 # The vocabulary. Names marked "later" are reserved for the tickets that add
-# their feature (tokens, pairing, 2FA, passkeys, the Store, Remote), so the
-# viewer and its translations know them from the start.
+# their feature, so the viewer and its translations know them from the start.
 AuditAction = Literal[
     # Sign-in and sessions
     "setup",
@@ -99,10 +98,19 @@ AuditAction = Literal[
     "ip.unbanned",
     "ip.whitelisted",
     "ip.unwhitelisted",
-    # Remote access (later)
+    # Meshloom Remote (`app/services/remote.py`, MSHL-79). `remote.linked` is the
+    # registration, `remote.unlinked` its deletion; device targets are `device:<id>`.
     "remote.linked",
     "remote.enabled",
     "remote.disabled",
+    "remote.unlinked",
+    "remote.rotated",
+    "remote.enroll_issued",
+    "remote.device_enrolled",
+    "remote.device_revoked",
+    "remote.devices_revoked",
+    "remote.access_granted",
+    "remote.access_denied",
 ]
 AUDIT_ACTIONS: tuple[str, ...] = get_args(AuditAction)
 

@@ -45,6 +45,7 @@ async def patched_database(path: str = ":memory:"):
         radio_proxy,
         radio_transport,
         raw_packets,
+        remote,
         repeater_pane_cache,
         repeater_telemetry,
         settings,
@@ -71,6 +72,7 @@ async def patched_database(path: str = ":memory:"):
         radio_proxy,
         radio_transport,
         raw_packets,
+        remote,
         settings,
         fanout_repo,
         repeater_telemetry,
@@ -404,6 +406,16 @@ def _reset_auth_state():
     reset_login_limiter()
     reset_pending_logins()
     webauthn.reset_state()
+
+
+@pytest.fixture(autouse=True)
+def _reset_remote_state():
+    """No relay link, access request or listener left over from another test."""
+    from app.services.remote import reset_remote_for_tests
+
+    reset_remote_for_tests()
+    yield
+    reset_remote_for_tests()
 
 
 @pytest.fixture(autouse=True)

@@ -211,8 +211,9 @@ These hold for every section; a restore function must keep them:
      `users.totp_secret`, `auth_settings.setup_code_hash`,
      `auth_settings.device_cookie_key`, so a restored copy makes a new
      known-device key and forgets every browser; the `sessions`
-     and `recovery_codes` tables and the plugin config secrets in
-     `plugin_secrets` are emptied,
+     and `recovery_codes` tables, the plugin config secrets in
+     `plugin_secrets` and the Meshloom Remote state (`remote_state`,
+     `remote_devices`, `remote_enroll_tokens`) are emptied,
      `SNAPSHOT_EMPTIED_TABLES`), under `PRAGMA secure_delete`
      so the old values do not stay in the file's free space. The live database
      keeps them. `api_tokens` stays in the copy: it holds SHA-256 hashes of
@@ -447,10 +448,10 @@ by `services/backup.py`.
 from app.services.backup_sections import register_on_restore
 
 
-async def regenerate_remote_identity(source: str) -> None: ...  # "json" or "sqlite"
+async def _reset_after_restore(source: str) -> None: ...  # "json" or "sqlite"
 
 
-register_on_restore("remote_identity", regenerate_remote_identity)
+register_on_restore("remote", _reset_after_restore)  # app/services/remote.py
 ```
 
 Each hook runs **once per restore**, in registration order. A hook that raises
@@ -474,9 +475,10 @@ Consumers: `app/services/instance_identity.py` registers `instance_identity`
 (Links & Files T45): it regenerates every per-service seed that exists, so a
 restored instance never signs with the identity it had before; an empty seed (a
 snapshot's, or a service never used) stays empty until its first use creates
-one. Access (T38) adds its Remote seed to that module (`INSTANCE_SEED_SERVICES`)
-rather than a hook of its own, so any restore regenerates the Remote identity
-too; `services/backup_accounts.py` registers `accounts` (reloads the trusted
+one. The Remote seed is one of its services (`INSTANCE_SEED_SERVICES`), so any
+restore regenerates the Remote identity too; `app/services/remote.py` registers
+`remote` (MSHL-79): it forgets the registration, every device and enrolment token
+and turns Remote off, so every device enrols again with the new key; `services/backup_accounts.py` registers `accounts` (reloads the trusted
 network rules); `services/backup_plugins.py` registers `plugins` (see "Plugins").
 
 ## Tests

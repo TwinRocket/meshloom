@@ -389,6 +389,10 @@ SNAPSHOT_EMPTIED_TABLES: tuple[str, ...] = (
     "recovery_codes",
     "pairing_codes",
     "plugin_secrets",
+    # Meshloom Remote: opt-in, registration, devices and enrolment tokens.
+    "remote_state",
+    "remote_devices",
+    "remote_enroll_tokens",
 )
 
 

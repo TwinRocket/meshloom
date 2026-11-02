@@ -66,7 +66,19 @@ export const AUDIT_FAMILIES = {
     'share.object_deleted',
     'share.report_sent',
   ],
-  remote: ['remote.linked', 'remote.enabled', 'remote.disabled'],
+  remote: [
+    'remote.linked',
+    'remote.enabled',
+    'remote.disabled',
+    'remote.unlinked',
+    'remote.rotated',
+    'remote.enroll_issued',
+    'remote.device_enrolled',
+    'remote.device_revoked',
+    'remote.devices_revoked',
+    'remote.access_granted',
+    'remote.access_denied',
+  ],
 } as const;
 
 export type AuditFamily = keyof typeof AUDIT_FAMILIES;

@@ -409,10 +409,11 @@ def test_registration_refuses_bad_names_duplicates_and_cycles():
 
 @pytest.fixture
 async def seeded(backup_db):
-    """The per-service instance identity seeds as their tickets add them."""
+    """The per-service instance identity seeds: ``remote_instance_seed`` (migration
+    138) and a ``*_seed`` column a later ticket could add."""
     async with backup_db.tx() as conn:
+        await conn.execute("ALTER TABLE app_settings ADD COLUMN share_seed TEXT")
         for column, value in (("remote_instance_seed", SEED_REMOTE), ("share_seed", SEED_SHARE)):
-            await conn.execute(f"ALTER TABLE app_settings ADD COLUMN {column} TEXT")
             await conn.execute(f"UPDATE app_settings SET {column} = ? WHERE id = 1", (value,))
     return backup_db
 
