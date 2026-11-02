@@ -5,11 +5,11 @@ before any plugin code, and both survive everything the plugin can do (a seccomp
 filter cannot be removed, dropped capabilities do not come back under
 `no_new_privs`).
 
-**The filter** answers `EPERM` to every syscall that creates a task or runs a
-program: `clone`, `clone3`, `fork`, `vfork`, `execve`, `execveat`, plus
-`unshare` and `setns` (no new namespace, a user namespace included, and no
-joining one: Python 3.12+ exposes `os.unshare` and `os.setns`, which raise no
-audit event; MSHL-212). It is the
+**The filter** (`RUNNER_DENIED`) answers `EPERM` to every syscall that creates a
+task or runs a program: `clone`, `clone3`, `fork`, `vfork`, `execve`,
+`execveat`, plus `unshare` and `setns` (no new namespace, a user namespace
+included, and no joining one: Python 3.12+ exposes `os.unshare` and `os.setns`,
+which raise no audit event; MSHL-212). It is the
 guard that holds where `RLIMIT_NPROC` does not: the kernel exempts root from
 that limit, so a child running as root (levels `none` and `bwrap` started by a
 root server) could otherwise rebuild `_posixsubprocess` from its spec, or start
@@ -17,10 +17,34 @@ a thread on 3.11, past the audit hook (MSHL-323). Threads are refused too: the
 runner never starts one (its event loop is single-threaded, its self-pipe an
 `os.pipe`) and `RLIMIT_NPROC` 0 already refuses them at every non-root level.
 Allowing `clone(CLONE_THREAD)` only would also be fragile: `clone3` carries its
-flags behind a user pointer seccomp cannot read. A syscall of another ABI than
-the interpreter's (x32 on x86_64, `int 0x80` i386 calls) is refused whatever its
-number. Unknown architectures get no filter: the caller decides whether that is
-fatal (it is when the child runs as root, where nothing else holds).
+flags behind a user pointer seccomp cannot read. It also refuses every socket
+(`socket`, `socketpair`, and `socketcall` on i386, MSHL-415): the child talks to
+the server over pipes and reaches the network only through the server's `http`
+capability, so no IP socket (loopback and the radio proxy included, at the
+`setuid` level where no network namespace exists) nor Unix socket (abstract
+ones have no permission check) is ever needed; `_socket.socketpair` raises no
+audit event. And the paths to another process that raise no audit event either
+(MSHL-417): `pidfd_open`, `pidfd_send_signal`, `pidfd_getfd` (`os.kill` is
+audited, `signal.pidfd_send_signal` is not), `ptrace`, `process_vm_readv` and
+`process_vm_writev` (what `sys.remote_exec`, 3.14, rests on).
+
+A syscall of another ABI than the interpreter's (x32 on x86_64, `int 0x80`
+i386 calls) is refused whatever its number. Unknown architectures get no
+filter: the caller decides whether that is fatal (it is when the child runs as
+root, where nothing else holds, and at the `setuid` level, where the socket
+refusal is the only loopback guard).
+
+**The bwrap filter** (`BWRAP_DENIED`, MSHL-413) is a second, independent
+program the `bwrap` level hands to bubblewrap (`--seccomp FD`,
+`app/plugins/isolation/bwrap.py`): bwrap installs it right before it executes
+the interpreter, so it binds the interpreter's start-up too, and it stays when
+the runner's filter is stacked on top. It denies the runner's list but `execve`
+(bwrap's own exec of the interpreter needs it), plus kernel attack surface no
+plugin needs: `io_uring_*`, `userfaultfd`, `bpf`, `perf_event_open`, the key
+syscalls (`keyctl`, `add_key`, `request_key`) and the mount API (`mount`,
+`umount2`, `pivot_root`, `open_tree`, `move_mount`, `fsopen`, `fsconfig`,
+`fsmount`, `fspick`, `mount_setattr`). A bypass of one filter still meets the
+other.
 
 **Capabilities.** A server that is not root but keeps `CAP_SETUID` and
 `CAP_SETGID` as ambient capabilities (the Docker image with
@@ -55,56 +79,179 @@ _BPF_RET_K = 0x06
 _X32_SYSCALL_BIT = 0x40000000
 _LINUX_CAPABILITY_VERSION_3 = 0x20080522
 
-# AUDIT_ARCH_* value and the denied syscall numbers, per ABI (asm/unistd*.h).
-# The generic table (aarch64, riscv64) has no fork and no vfork.
+# What the runner's filter refuses, and what the bwrap filter refuses (see above).
+RUNNER_DENIED = frozenset(
+    {
+        "clone",
+        "clone3",
+        "fork",
+        "vfork",
+        "execve",
+        "execveat",
+        "unshare",
+        "setns",
+        "socket",
+        "socketpair",
+        "socketcall",
+        "pidfd_open",
+        "pidfd_send_signal",
+        "pidfd_getfd",
+        "ptrace",
+        "process_vm_readv",
+        "process_vm_writev",
+    }
+)
+KERNEL_SURFACE = frozenset(
+    {
+        "io_uring_setup",
+        "io_uring_enter",
+        "io_uring_register",
+        "userfaultfd",
+        "bpf",
+        "perf_event_open",
+        "keyctl",
+        "add_key",
+        "request_key",
+        "mount",
+        "umount2",
+        "pivot_root",
+        "open_tree",
+        "move_mount",
+        "fsopen",
+        "fsconfig",
+        "fsmount",
+        "fspick",
+        "mount_setattr",
+    }
+)
+BWRAP_DENIED = (RUNNER_DENIED - {"execve"}) | KERNEL_SURFACE
+
+# Syscalls numbered the same on every ABI below (allocated after the tables were
+# unified, Linux 5.1+).
+_UNIFIED = {
+    "pidfd_send_signal": 424,
+    "io_uring_setup": 425,
+    "io_uring_enter": 426,
+    "io_uring_register": 427,
+    "open_tree": 428,
+    "move_mount": 429,
+    "fsopen": 430,
+    "fsconfig": 431,
+    "fsmount": 432,
+    "fspick": 433,
+    "pidfd_open": 434,
+    "clone3": 435,
+    "pidfd_getfd": 438,
+    "mount_setattr": 442,
+}
+# The generic table (asm-generic, scripts/syscall.tbl): aarch64 and riscv64. It has
+# no fork, no vfork and no socketcall.
+_GENERIC = {
+    **_UNIFIED,
+    "umount2": 39,
+    "mount": 40,
+    "pivot_root": 41,
+    "unshare": 97,
+    "ptrace": 117,
+    "socket": 198,
+    "socketpair": 199,
+    "add_key": 217,
+    "request_key": 218,
+    "keyctl": 219,
+    "clone": 220,
+    "execve": 221,
+    "perf_event_open": 241,
+    "setns": 268,
+    "process_vm_readv": 270,
+    "process_vm_writev": 271,
+    "bpf": 280,
+    "execveat": 281,
+    "userfaultfd": 282,
+}
+# i386 and arm (EABI) share the low numbers they both inherited.
+_I386_ARM_LOW = {"fork": 2, "execve": 11, "mount": 21, "ptrace": 26, "umount2": 52}
+
+# AUDIT_ARCH_* value and the syscall numbers this module may deny, per ABI (checked
+# against the kernel's syscall tables, v6.12: arch/x86/entry/syscalls/syscall_64.tbl
+# and syscall_32.tbl, arch/arm/tools/syscall.tbl, scripts/syscall.tbl). A name an
+# ABI lacks (fork on aarch64, socketcall outside i386) is simply not there.
 TABLES: dict[str, tuple[int, dict[str, int]]] = {
     "x86_64": (
         0xC000003E,
         {
+            **_UNIFIED,
+            "socket": 41,
+            "socketpair": 53,
             "clone": 56,
             "fork": 57,
             "vfork": 58,
             "execve": 59,
+            "ptrace": 101,
+            "pivot_root": 155,
+            "mount": 165,
+            "umount2": 166,
+            "add_key": 248,
+            "request_key": 249,
+            "keyctl": 250,
             "unshare": 272,
+            "perf_event_open": 298,
             "setns": 308,
+            "process_vm_readv": 310,
+            "process_vm_writev": 311,
+            "bpf": 321,
             "execveat": 322,
-            "clone3": 435,
+            "userfaultfd": 323,
         },
     ),
     "i386": (
         0x40000003,
         {
-            "fork": 2,
-            "execve": 11,
+            **_UNIFIED,
+            **_I386_ARM_LOW,
+            "socketcall": 102,
             "clone": 120,
             "vfork": 190,
+            "pivot_root": 217,
+            "add_key": 286,
+            "request_key": 287,
+            "keyctl": 288,
             "unshare": 310,
+            "perf_event_open": 336,
             "setns": 346,
+            "process_vm_readv": 347,
+            "process_vm_writev": 348,
+            "bpf": 357,
             "execveat": 358,
-            "clone3": 435,
+            "socket": 359,
+            "socketpair": 360,
+            "userfaultfd": 374,
         },
     ),
-    "aarch64": (
-        0xC00000B7,
-        {"unshare": 97, "clone": 220, "execve": 221, "setns": 268, "execveat": 281, "clone3": 435},
-    ),
+    "aarch64": (0xC00000B7, dict(_GENERIC)),
     "arm": (
         0x40000028,
         {
-            "fork": 2,
-            "execve": 11,
+            **_UNIFIED,
+            **_I386_ARM_LOW,
             "clone": 120,
             "vfork": 190,
+            "pivot_root": 218,
+            "socket": 281,
+            "socketpair": 288,
+            "add_key": 309,
+            "request_key": 310,
+            "keyctl": 311,
             "unshare": 337,
+            "perf_event_open": 364,
             "setns": 375,
+            "process_vm_readv": 376,
+            "process_vm_writev": 377,
+            "bpf": 386,
             "execveat": 387,
-            "clone3": 435,
+            "userfaultfd": 388,
         },
     ),
-    "riscv64": (
-        0xC00000F3,
-        {"unshare": 97, "clone": 220, "execve": 221, "setns": 268, "execveat": 281, "clone3": 435},
-    ),
+    "riscv64": (0xC00000F3, dict(_GENERIC)),
 }
 
 
@@ -130,11 +277,19 @@ def native_abi(machine: str | None = None, pointer_size: int | None = None) -> s
     return None
 
 
-def build_filter(abi: str) -> list[tuple[int, int, int, int]]:
-    """The BPF program for `abi`: another arch, or a denied syscall, gets EPERM."""
-    arch, numbers = TABLES[abi]
+def denied_numbers(abi: str, names: frozenset[str] = RUNNER_DENIED) -> list[int]:
+    """The numbers of `names` on `abi`, sorted (a name the ABI lacks is skipped)."""
+    _arch, numbers = TABLES[abi]
+    return sorted({numbers[name] for name in names if name in numbers})
+
+
+def build_filter(
+    abi: str, names: frozenset[str] = RUNNER_DENIED
+) -> list[tuple[int, int, int, int]]:
+    """The BPF program for `abi`: another arch, or a syscall in `names`, gets EPERM."""
+    arch, _numbers = TABLES[abi]
     deny = SECCOMP_RET_ERRNO | EPERM
-    denied = sorted(set(numbers.values()))
+    denied = denied_numbers(abi, names)
     prog = [
         (_BPF_LD_W_ABS, 0, 0, _OFFSET_ARCH),
         # Same arch: skip the refusal that follows.
@@ -151,6 +306,12 @@ def build_filter(abi: str) -> list[tuple[int, int, int, int]]:
     prog.append((_BPF_RET_K, 0, 0, SECCOMP_RET_ALLOW))
     prog.append((_BPF_RET_K, 0, 0, deny))
     return prog
+
+
+def program_bytes(prog: list[tuple[int, int, int, int]]) -> bytes:
+    """`prog` as the kernel's `struct sock_filter` array, in native byte order: what
+    bubblewrap reads from its `--seccomp` descriptor."""
+    return b"".join(struct.pack("=HBBI", *insn) for insn in prog)
 
 
 class _SockFilter(ctypes.Structure):

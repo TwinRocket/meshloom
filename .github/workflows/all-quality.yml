@@ -108,6 +108,12 @@ jobs:
   # then run as a non-root server holding only CAP_SETUID and CAP_SETGID ambient,
   # as docker-entrypoint.sh starts it under MESHLOOM_RUN_AS_USER. The container
   # is unprivileged, so the bwrap cases skip here; the backend job runs them.
+  # Docker's default seccomp profile already answers EPERM to unshare/setns in
+  # this container, so the corpus case `namespaces` passes here even without the
+  # runner's filter: only the backend job proves that guard (and the bwrap level,
+  # which needs user namespaces). Sockets and pidfds are allowed by Docker's
+  # profile, so `pidfd_signal` and the socket probe of test_plugin_seccomp.py do
+  # prove the runner's filter here, at the setuid level included.
   plugin-isolation-root:
     name: Plugin isolation as root (Python ${{ matrix.image }})
     runs-on: ubuntu-latest

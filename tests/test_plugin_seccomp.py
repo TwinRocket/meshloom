@@ -1,7 +1,9 @@
 """The plugin child's seccomp filter and capability drop (`meshloom_plugin.seccomp`).
 
 The filter is the guard that refuses task creation and exec to a child running as
-root, which `RLIMIT_NPROC` does not bind (MSHL-323). The probes below install it
+root, which `RLIMIT_NPROC` does not bind (MSHL-323), every socket (loopback and
+the radio proxy included, MSHL-415) and the pidfd/ptrace paths to other
+processes (MSHL-417); the bwrap level's own filter is checked here as a program. The probes below install it
 exactly as the runner does (`_libc_prctl`, `PR_SET_NO_NEW_PRIVS`, then `apply`) in
 a fresh interpreter and try every way out; the root CI job runs them as root.
 Stdlib and pytest only (`--noconftest` works).
@@ -60,6 +62,18 @@ PROBE = textwrap.dedent(
     if hasattr(os, "unshare"):
         attempt("unshare", lambda: os.unshare(os.CLONE_NEWUSER))
         attempt("setns", lambda: os.setns(0, 0))
+    # No socket at all (MSHL-415): no hook here, so this is what a plugin past its
+    # hooks gets. Nothing listens on the port: unfiltered, connect is ECONNREFUSED.
+    import socket
+    def loopback():
+        with socket.create_connection(("127.0.0.1", 5051), timeout=2):
+            pass
+    attempt("loopback", loopback)
+    attempt("socket_inet6", lambda: socket.socket(socket.AF_INET6).close())
+    attempt("socket_unix", lambda: socket.socket(socket.AF_UNIX).close())
+    attempt("socketpair", lambda: [end.close() for end in socket.socketpair()])
+    # No other process through a pidfd (MSHL-417): no audit event there either.
+    attempt("pidfd_open", lambda: os.close(os.pidfd_open(os.getppid())))
     out["caps"] = seccomp.capability_sets()
     out["getpid"] = os.getpid() > 0
     print(json.dumps(out))
@@ -117,11 +131,55 @@ def test_the_shipped_architecture_list_covers_the_add_on() -> None:
     assert set(arches) <= set(SHIPPED_ARCHES), arches
 
 
+# Names an ABI does not have (the generic table has no fork, no vfork; only i386
+# multiplexes sockets through socketcall).
+ABSENT = {
+    "x86_64": {"socketcall"},
+    "i386": set(),
+    "aarch64": {"fork", "vfork", "socketcall"},
+    "arm": {"socketcall"},
+    "riscv64": {"fork", "vfork", "socketcall"},
+}
+
+
 @pytest.mark.parametrize("abi", sorted(seccomp.TABLES))
-def test_filter_denies_exactly_the_listed_syscalls(abi: str) -> None:
+def test_every_abi_numbers_every_denied_name(abi: str) -> None:
+    _arch, numbers = seccomp.TABLES[abi]
+    wanted = seccomp.RUNNER_DENIED | seccomp.BWRAP_DENIED
+    assert wanted - set(numbers) == ABSENT[abi], abi
+    assert set(numbers) <= wanted
+    # One number per name: a typo duplicating a number would deny the wrong syscall.
+    assert len(set(numbers.values())) == len(numbers), abi
+
+
+def test_bwrap_filter_is_the_runner_list_but_execve_plus_kernel_surface() -> None:
+    # bwrap installs its filter right before it executes the interpreter: execve
+    # must pass; everything else the runner refuses stays refused (MSHL-413).
+    assert "execve" not in seccomp.BWRAP_DENIED
+    assert seccomp.RUNNER_DENIED - {"execve"} <= seccomp.BWRAP_DENIED
+    assert {"io_uring_setup", "bpf", "userfaultfd", "keyctl", "mount", "ptrace"} <= (
+        seccomp.BWRAP_DENIED
+    )
+    assert {"socket", "socketpair", "pidfd_open", "unshare", "setns"} <= seccomp.RUNNER_DENIED
+
+
+@pytest.mark.parametrize("abi", sorted(seccomp.TABLES))
+def test_program_bytes_is_the_sock_filter_array(abi: str) -> None:
+    prog = seccomp.build_filter(abi, seccomp.BWRAP_DENIED)
+    raw = seccomp.program_bytes(prog)
+    assert len(raw) == 8 * len(prog)
+    assert [tuple(insn) for insn in __import__("struct").iter_unpack("=HBBI", raw)] == prog
+
+
+@pytest.mark.parametrize("names", ["runner", "bwrap"])
+@pytest.mark.parametrize("abi", sorted(seccomp.TABLES))
+def test_filter_denies_exactly_the_listed_syscalls(abi: str, names: str) -> None:
     """Interpret the BPF program: denied numbers and foreign arches get EPERM."""
-    arch, numbers = seccomp.TABLES[abi]
-    prog = seccomp.build_filter(abi)
+    arch, table = seccomp.TABLES[abi]
+    denied = seccomp.RUNNER_DENIED if names == "runner" else seccomp.BWRAP_DENIED
+    numbers = {name: table[name] for name in denied if name in table}
+    prog = seccomp.build_filter(abi, denied)
+    # Jump offsets are one byte: far below that.
     assert len(prog) < 64
 
     def run(arch_value: int, nr: int) -> int:
@@ -150,7 +208,8 @@ def test_filter_denies_exactly_the_listed_syscalls(abi: str) -> None:
     assert run(arch ^ 0x1, 0) == deny
     if abi == "x86_64":
         assert run(arch, 0x40000000 | 1) == deny  # x32 write
-    assert {"clone", "clone3", "execve", "execveat", "unshare", "setns"} <= set(numbers)
+    assert {"clone", "clone3", "execveat", "unshare", "setns", "pidfd_open"} <= set(numbers)
+    assert ("execve" in numbers) == (names == "runner")
 
 
 @pytest.mark.skipif(not LINUX, reason="seccomp is Linux only")
@@ -175,6 +234,8 @@ def test_child_cannot_fork_exec_or_thread_once_filtered() -> None:
         # answers EINVAL and unshare(CLONE_NEWUSER) usually succeeds.
         assert out["unshare"] == "EPERM", out
         assert out["setns"] == "EPERM", out
+    for name in ("loopback", "socket_inet6", "socket_unix", "socketpair", "pidfd_open"):
+        assert out[name] == "EPERM", (name, out)
     assert out["getpid"] is True
     if out["euid"] != 0:
         # A non-root child keeps no capability (ambient ones included).

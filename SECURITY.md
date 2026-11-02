@@ -39,8 +39,10 @@ vulnerabilities; report them as above:
 - **An escape from that boundary**: a plugin that reads the database, the data
   directory, the server's environment or memory, or another plugin's work
   directory or memory; that writes Meshloom's files; that signals the server or
-  another plugin; that starts a process or thread; that reaches the network
-  or outlives its kill under bubblewrap.
+  another plugin; that starts a process or thread; that opens a socket
+  on Linux (loopback and the radio proxy included: the child's seccomp filter
+  refuses every socket at every level); that reaches the network or outlives
+  its kill under bubblewrap.
 - **A bypass of the lock**: starting or running an extension while
   `MESHCORE_DISABLE_PLUGINS=true` is set or the global pause holds.
 - **A bypass of the permissions**, at any level: a plugin that receives events,
@@ -50,9 +52,10 @@ vulnerabilities; report them as above:
 **The "hooks only" level (`none`) is weaker by design.** It applies where
 neither bubblewrap nor a dedicated account is available (macOS, a Linux host
 without bubblewrap or user namespaces). The child then runs under the server's
-uid, guarded only by in-process hooks: a plugin that gets past them can read the
-database and Meshloom's code, use the network, and, when the server runs as
-root, read its environment. It is logged at every start and reported in
+uid, guarded only by in-process hooks and the child's seccomp filter (no
+process, no thread, no socket, no namespace on Linux): a plugin that gets past
+the hooks can read the database and Meshloom's code and, when the server runs
+as root, read its environment. It is logged at every start and reported in
 `/api/health`. Do not install a plugin you would not run as the server's user at
 that level.
 
@@ -61,9 +64,6 @@ Out of scope, documented as known limits:
 - a bypass of the in-process guards alone (the audit hook, the module purge, the
   import allowlist): they are defence in depth, not the boundary;
 - what a plugin past its hooks reaches at the "hooks only" level;
-- under the dedicated uid, a plugin past its hooks reaching the network,
-  loopback and the unauthenticated radio proxy included (no network namespace
-  in default Docker);
 - under the dedicated uid or "hooks only", a process that left its session
   surviving the group kill until the service or container stops;
 - what a plugin does with the permissions an administrator granted it, and two

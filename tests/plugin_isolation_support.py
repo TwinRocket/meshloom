@@ -17,7 +17,7 @@ from typing import Any
 from app.plugins import launch
 from app.plugins.isolation import selection
 from app.plugins.isolation.base import IsolationBackend
-from app.plugins.isolation.bwrap import BwrapBackend, self_test
+from app.plugins.isolation.bwrap import probe
 from app.plugins.isolation.none import NoneBackend
 from app.plugins.isolation.setuid import SetuidBackend
 
@@ -34,8 +34,11 @@ def available_backends() -> dict[str, IsolationBackend]:
     import shutil
 
     path = shutil.which("bwrap")
-    if path is not None and self_test(path) is None:
-        backends["bwrap"] = BwrapBackend(path)
+    if path is not None:
+        # With every hardening this bubblewrap supports, as the server would run it.
+        bwrap, _warnings = probe(path)
+        if bwrap is not None:
+            backends["bwrap"] = bwrap
     if os.geteuid() == 0 or selection.can_switch_uid(selection.effective_capabilities()):
         import pwd
 

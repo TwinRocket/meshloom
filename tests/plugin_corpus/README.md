@@ -36,7 +36,9 @@ the database and the app tree must be untouched and the child must answer
   `inherited_fds`; `spawn_refused` and `thread_refused`: refused by the runner,
   or the fork or clone failed: `EPERM` from the seccomp filter, `EAGAIN` from
   `RLIMIT_NPROC` 0; `namespace_refused`: `EPERM` from the seccomp filter, since
-  `os.unshare` and `os.setns` raise no audit event).
+  `os.unshare` and `os.setns` raise no audit event; `socket_refused`: refused by
+  the runner, or `EPERM` from the seccomp filter's `socket`/`socketpair`;
+  `pidfd_refused`: `EPERM` from the filter's `pidfd_open`).
 
 An event may add `"open_path": {"note": "...", "python_below": "3.12",
 "nproc_bypass": true, "closed_by": ["bwrap"], "os_check": "<name>"}` for a

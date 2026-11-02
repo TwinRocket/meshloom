@@ -486,7 +486,9 @@ uid under the `setuid` level) and spawns with the backend's `launch()`, which wr
 and `umask`):
 `cwd=work_dir` (the only writable place), `env=runner_env()` (`LANG=C.UTF-8`,
 `PYTHONHASHSEED=random`), stdin and stdout as pipes (the RPC stream),
-`close_fds=True` with no `pass_fds`, `start_new_session=True` (a process group
+`close_fds=True` with no `pass_fds` (the bwrap level passes one: the read end
+of a pipe holding its seccomp program, closed by the supervisor once the child
+started, `launch.close_passed_fds`), `start_new_session=True` (a process group
 to kill). stderr is the plugin's log.
 
 The first stdin line is one JSON object: `plugin_dir` (absolute), `work_dir`
@@ -514,9 +516,11 @@ line on stdin is the RPC stream.
    `PR_SET_NO_NEW_PRIVS` and `PR_SET_DUMPABLE` 0 on Linux (through `ctypes`,
    purged afterwards; dumpable 0 keeps a same-uid sibling out of
    `/proc/<pid>/mem`); then, on Linux, inherited capabilities are dropped and a
-   seccomp filter refuses `clone`, `fork` and `exec` (`meshloom_plugin/seccomp.py`,
-   the guard that holds for a root child; a root child that cannot install it
-   does not start, see `plugins-security.md`). Then
+   seccomp filter refuses `clone`, `fork`, `exec`, `unshare`, `setns`, every
+   socket and the pidfd/ptrace paths to other processes
+   (`meshloom_plugin/seccomp.py`, the guard that holds for a root child; a root
+   child, or any child at the `setuid` level, that cannot install it does not
+   start, see `plugins-security.md`). Then
    `asyncio` is imported: it loads `socket`, `ssl` and `subprocess` at module
    level, so it cannot come after the hook, and step 5 removes them again.
 4. Install the audit hook, then replace `sys.addaudithook` with a stub that

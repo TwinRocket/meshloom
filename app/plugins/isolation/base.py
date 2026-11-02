@@ -93,7 +93,9 @@ class IsolationBackend:
         return launch.popen_kwargs(work_dir)
 
     def launch(self, plugin_dir: Path, work_dir: Path) -> tuple[list[str], dict[str, Any]]:
-        """argv and every `Popen` argument but stderr, for one child."""
+        """argv and every `Popen` argument but stderr, for one child. Descriptors in
+        `pass_fds` (the bwrap seccomp program) are the caller's to close once the
+        child started (`launch.close_passed_fds`)."""
         argv = self.command(launch.runner_command(), Path(plugin_dir), Path(work_dir))
         return argv, self.popen_kwargs(Path(work_dir))
 
