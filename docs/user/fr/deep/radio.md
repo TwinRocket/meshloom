@@ -52,7 +52,7 @@ Deux exceptions à cette réutilisation :
 - Supprimer un salon dans Meshloom vide aussi son emplacement sur la radio, sinon la connexion suivante le ferait revenir.
 - Le **Test radio** (dans la barre latérale) emprunte lui aussi le dernier emplacement.
 
-Le choix des salons gardés vous revient : ajoutez-les ou retirez-les sur la radio avec une autre application MeshCore, ou restaurez une sauvegarde (voir [Sauvegarder votre radio](/fr/docs/backup/)).
+Le choix des salons gardés vous revient : ajoutez-les ou retirez-les sur la radio avec une autre application MeshCore, ou restaurez une sauvegarde (voir [Sauvegarder votre radio](/docs/backup/)).
 
 ## L’audit horaire
 
