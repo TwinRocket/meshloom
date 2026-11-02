@@ -80,7 +80,7 @@ async def get_messages_around(
 
 
 class ConversationCount(BaseModel):
-    type: Literal["PRIV", "CHAN"]
+    type: str  # "PRIV" or "CHAN"
     conversation_key: str
     count: int
 
