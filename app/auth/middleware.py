@@ -91,6 +91,9 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/auth/kiosk-session"),
         # A device trades its pairing code for a token (``app/routers/auth_pairing.py``).
         ("POST", "/api/auth/pair"),
+        # OpenID Connect sign-in: browser navigations (``app/routers/auth_oidc.py``).
+        ("GET", "/api/auth/oidc/start"),
+        ("GET", "/api/auth/oidc/callback"),
     }
 )
 

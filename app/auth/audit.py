@@ -98,6 +98,9 @@ AuditAction = Literal[
     "ip.unbanned",
     "ip.whitelisted",
     "ip.unwhitelisted",
+    # OpenID Connect sign-in (`app/routers/auth_oidc.py`, MSHL-427), target `user:<id>`.
+    "oidc.linked",
+    "oidc.unlinked",
     # Meshloom Remote (`app/services/remote.py`, MSHL-79). `remote.linked` is the
     # registration, `remote.unlinked` its deletion; device targets are `device:<id>`.
     "remote.linked",

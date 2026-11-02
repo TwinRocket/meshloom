@@ -310,6 +310,15 @@ BACKUP_COVERAGE: dict[str, tuple[CoverageDecision, str]] = {
         "excluded",
         "addresses never banned: like the trusted networks, a setting of this host's network",
     ),
+    "oidc_provider": (
+        "excluded",
+        "OpenID Connect provider of this host (redirect URIs name its addresses); the client"
+        " secret is cleared in the SQLite download",
+    ),
+    "oidc_links": (
+        "excluded",
+        "OpenID Connect links name account ids: deleted by an accounts restore, linked again",
+    ),
     # Notification channels (MSHL-108, MSHL-117): the ``notifications`` backup section
     # (services/backup_notifications.py) holds the channels without their secrets and the
     # rules. The SQLite download carries the secrets, encrypted with ``secrets.key`` (not in
