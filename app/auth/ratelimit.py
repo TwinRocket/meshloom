@@ -36,7 +36,8 @@ install kind is ``compose`` or ``container``, no trusted proxy is set
 (``auth_settings.trusted_proxies``, read live) and the admin has not stated
 that addresses identify clients (``auth_settings.addresses_identify_clients``,
 Settings → Users & Access, read live), since behind Docker's userland proxy
-every client may arrive from the gateway address. Docker's default port
+every client may arrive from the gateway address. A relayed request is never a shared
+address: its address is the visitor's, from the relay frame. Docker's default port
 publishing keeps the client's address, so the Access panel proposes that
 setting when the admin's own request comes from a public address
 (``client_is_public()``, ``app/net/local_address.py``). Request headers never decide it: ``X-Forwarded-For`` (or ``X-Real-IP``, ``Forwarded``) from a peer
@@ -283,12 +284,20 @@ class LoginLimiter:
 
     def address_key(self, scope: Mapping[str, Any]) -> str | None:
         """The client's address key for the pair and per-IP rules, or None when the
-        address does not identify a client (module docstring, "Shared addresses")."""
+        address does not identify a client (module docstring, "Shared addresses").
+
+        A relayed request always has a key: its address is the visitor's, read
+        from the relay frame (``app/services/remote_relay.py``), never the Docker
+        gateway, so the shared-address rule does not apply to it."""
+        from app.auth.middleware import request_via
+
+        client = scope.get("client")
+        if request_via(scope) == "relay":  # type: ignore[arg-type]
+            return client_address_key(client[0]) if client and client[0] else None
         if not self.address_rules_active():
             return None
         from app.middleware import proxy_headers
 
-        client = scope.get("client")
         if not client or not client[0]:
             return None
         if forwarded_by_untrusted_peer(scope):
