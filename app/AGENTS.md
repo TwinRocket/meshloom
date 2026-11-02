@@ -12,8 +12,9 @@ and the OpenAPI page (`/docs`), not a table here.
   `radio_sync.py` reach the global `RadioManager`. Radio access goes through
   `radio_operation()` (the radio lock).
 - `radio_workarounds.py` holds an in-memory copy of the workaround settings
-  (Settings → Radio → Advanced): loaded at startup, refreshed by
-  `AppSettingsRepository.update()`. Write through the repository, never around it.
+  (Settings → Radio → Advanced) and of `keep_channels_on_radio` (Settings → Radio →
+  Messaging): loaded at startup, refreshed by `AppSettingsRepository.update()`.
+  Write through the repository, never around it.
 - `origin_policy.py` is the one origin policy for CORS and the WebSocket
   upgrade: it keeps the allowlist (`app_settings.auth_allowed_origins`, Settings
   → Local Configuration → Allowed origins) the same way, and parses stored
@@ -1077,6 +1078,20 @@ run as root).
   when they drift or are not found.
 - Channel slots are reused through a session LRU cache, except on TCP or with
   `force_channel_slot_reconfigure`, where every send calls `set_channel(...)`.
+- `keep_channels_on_radio` (MSHL-41, `app_settings`, off by default, migration 139).
+  Off: `sync_and_offload_channels()` copies every slot into the DB and empties it
+  at each connect. On: it copies them without clearing (`on_radio=True`) and seeds
+  the send cache with each slot; `RadioManager.plan_channel_send_slot()` reuses a
+  cached slot and sends any other channel from the scratch slot
+  (`get_scratch_channel_slot()`, the highest index within the firmware limit), so
+  the `max_channels - 1` kept slots are never evicted; without slot reuse (TCP,
+  forced reconfigure) every send rewrites the scratch slot. One-off sends that
+  borrow a slot (the mesh test, `routers/tools.py`) ask
+  `temp_channel_slot()`, which answers the scratch slot in keep mode. Deleting a
+  channel (`DELETE /api/channels/{key}`) empties the slots holding it in keep mode
+  (`radio_sync.clear_channel_from_radio_slots()`), or the next connect would adopt
+  it again. The setting is in the v1 backup settings. Tests:
+  `tests/test_keep_channels_on_radio.py`.
 - Path hash modes `0`/`1`/`2` mean 1-, 2- and 3-byte hop IDs. `path_len` in the
   API is always a hop count.
 - DM route precedence: override, then learned direct route, then flood.
@@ -1304,7 +1319,10 @@ writes that rule out on its own and takes the same `now`.
   is read as int8, and a negative power is written back with a raw `0x0C` frame
   since `set_tx_power` refuses it), channels into slots `0..n-1` with raw `0x20` frames (the secret is
   never re-derived from a `#name`; the slots above are emptied and dropped from
-  the slot cache), contacts (reconcile stopped and always restarted, an
+  the slot cache; with `keep_channels_on_radio` the highest slot stays the empty
+  scratch slot, else the step warns `channels_offloaded_next_connect`; inspect's
+  `channels_kept_on_radio` gives the mode the step will run under, the file's
+  setting first), contacts (reconcile stopped and always restarted, an
   unreadable table fails the step `radio_contacts_unreadable`,
   non-selected radio contacts removed first, favourites first, 0x10 always
   stripped, favourite bit from Meshloom's `favorite`, cleared under auto-evict),

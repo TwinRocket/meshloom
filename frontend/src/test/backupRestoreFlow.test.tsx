@@ -152,6 +152,24 @@ describe('BackupRestoreFlow', () => {
     expect(restore).toBeEnabled();
   });
 
+  it('says whether the restored channels stay on the radio (MSHL-41)', async () => {
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.channelsOffloaded'))
+    ).toBeInTheDocument();
+    fireEvent.click(checkbox('settings.fullRestore.steps.channels'));
+    expect(screen.queryByText(i18n.t('settings.fullRestore.channelsOffloaded'))).toBeNull();
+    cleanup();
+
+    mocks.inspectBackup.mockResolvedValue(inspectResult({ channels_kept_on_radio: true }));
+    render(<BackupRestoreFlow />);
+    pickFile(V2);
+    expect(
+      await screen.findByText(i18n.t('settings.fullRestore.channelsKept'))
+    ).toBeInTheDocument();
+  });
+
   it('treats a file without format as a v1 backup', async () => {
     mocks.inspectBackup.mockResolvedValue(
       inspectResult({ format: 'meshloom-backup-v1', has_private_key: false, has_wifi: false })
@@ -768,6 +786,7 @@ describe('BackupRestoreFlow', () => {
       'channels_over_radio_limit',
       'radio_contacts_unreadable',
       'contact_load_failed',
+      'channels_offloaded_next_connect',
       'section_failed:plugins',
       'section_skipped:api_tokens',
       'section_too_new:plugins',

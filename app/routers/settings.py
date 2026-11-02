@@ -142,6 +142,13 @@ class AppSettingsUpdate(BaseModel):
             "does not clear the radio's own preference"
         ),
     )
+    keep_channels_on_radio: bool | None = Field(
+        default=None,
+        description=(
+            "Keep the channels in the radio's slots (no offload on connect); on-demand "
+            "sends use one reserved scratch slot"
+        ),
+    )
     auto_clock_wraparound: bool | None = Field(
         default=None,
         description=(
@@ -490,14 +497,16 @@ async def update_settings(
     if update.auto_resend_channel is not None:
         kwargs["auto_resend_channel"] = update.auto_resend_channel
 
-    # Radio workarounds (Settings → Radio → Advanced). The repository refreshes the
-    # in-memory copy the radio code reads (app/radio_workarounds.py).
+    # Radio workarounds (Settings → Radio → Advanced) and keep_channels_on_radio
+    # (Settings → Radio → Messaging). The repository refreshes the in-memory copy
+    # the radio code reads (app/radio_workarounds.py).
     poll_fallback_changed = False
     for field in (
         "enable_message_poll_fallback",
         "force_channel_slot_reconfigure",
         "load_with_autoevict",
         "auto_clock_wraparound",
+        "keep_channels_on_radio",
     ):
         value = getattr(update, field)
         if value is not None:

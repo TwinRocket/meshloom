@@ -127,6 +127,7 @@ V1_SETTING_COLUMNS: tuple[str, ...] = (
     "force_channel_slot_reconfigure",
     "load_with_autoevict",
     "auto_clock_wraparound",
+    "keep_channels_on_radio",
     "push_allow_private_endpoints",
     "push_private_endpoints_grandfathered",
     "radio_offline_grace_s",

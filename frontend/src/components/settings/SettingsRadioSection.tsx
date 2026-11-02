@@ -666,6 +666,76 @@ function RadioWorkaroundsPanel({
   );
 }
 
+// MSHL-41: keep the channels in the radio's slots instead of emptying them at
+// every connect. The last slot stays Meshloom's scratch slot (app/radio.py).
+export function KeepChannelsPanel({
+  appSettings,
+  maxChannels,
+  onSaveAppSettings,
+}: {
+  appSettings: AppSettings;
+  maxChannels: number | null | undefined;
+  onSaveAppSettings: (update: AppSettingsUpdate) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [saving, setSaving] = useState(false);
+  const enabled = appSettings.keep_channels_on_radio ?? false;
+  const kept = typeof maxChannels === 'number' && maxChannels > 0 ? maxChannels - 1 : null;
+
+  const toggle = async (value: boolean) => {
+    setSaving(true);
+    try {
+      await onSaveAppSettings({ keep_channels_on_radio: value });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('settings.radio.saveFailed'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingsGroup id="radio-keep-channels">
+      <SettingsGroupHeader
+        id="radio-keep-channels"
+        title={t('settings.radio.keepChannels.title')}
+        storedOn="server"
+      />
+      <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">
+        <Checkbox
+          id="keep-channels-on-radio"
+          aria-describedby="keep-channels-on-radio-help"
+          checked={enabled}
+          disabled={saving}
+          onCheckedChange={(checked) => void toggle(checked === true)}
+          className="mt-0.5"
+        />
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <Label htmlFor="keep-channels-on-radio">{t('settings.radio.keepChannels.label')}</Label>
+            <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground">
+              {t('settings.radio.advancedAppliesNextConnection')}
+            </span>
+          </div>
+          <p
+            id="keep-channels-on-radio-help"
+            className="max-w-prose text-[0.8125rem] text-muted-foreground"
+          >
+            {t('settings.radio.keepChannels.help')}
+          </p>
+          {enabled && (
+            <p className="max-w-prose text-[0.8125rem] text-muted-foreground">
+              {kept !== null
+                ? t('settings.radio.keepChannels.slots', { count: kept })
+                : t('settings.radio.keepChannels.slotsUnknown')}{' '}
+              {t('settings.radio.keepChannels.deleteNote')}
+            </p>
+          )}
+        </div>
+      </div>
+    </SettingsGroup>
+  );
+}
+
 export function SettingsRadioSection({
   config,
   health,
@@ -2363,6 +2433,12 @@ export function SettingsRadioSection({
                   </span>
                 </div>
               </SettingsGroup>
+
+              <KeepChannelsPanel
+                appSettings={appSettings}
+                maxChannels={health?.radio_device_info?.max_channels}
+                onSaveAppSettings={onSaveAppSettings}
+              />
             </TabsContent>
 
             <TabsContent value="advert" className="m-0 space-y-4">
