@@ -18,6 +18,7 @@ import { toast } from '../ui/sonner';
 import { cn } from '@/lib/utils';
 import { api, formatApiError } from '../../api';
 import { SECRET_REDACTED } from '../../types';
+import { userDocsUrl } from '../../utils/userDocsUrl';
 import type { Channel, Contact, FanoutConfig, HealthStatus } from '../../types';
 
 const transInline = { code: <code />, strong: <strong /> };
@@ -917,7 +918,6 @@ function MqttHaConfigEditor({
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [trackedRepeaters, setTrackedRepeaters] = useState<string[]>([]);
   const [contactSearch, setContactSearch] = useState('');
-  const [radioConfig, setRadioConfig] = useState<{ public_key: string; name: string } | null>(null);
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -933,11 +933,6 @@ function MqttHaConfigEditor({
       }
       setContacts(all);
     })().catch(console.error);
-
-    api
-      .getRadioConfig()
-      .then((radio) => setRadioConfig({ public_key: radio.public_key, name: radio.name }))
-      .catch(console.error);
 
     api
       .getSettings()
@@ -979,82 +974,6 @@ function MqttHaConfigEditor({
   const selectedContactDetails = contactOptions.filter((c) =>
     selectedContacts.includes(c.public_key)
   );
-  const selectedRepeaterDetails = repeaterOptions.filter((c) =>
-    selectedRepeaters.includes(c.public_key)
-  );
-  const prefix = ((config.topic_prefix as string) || 'meshcore').trim() || 'meshcore';
-
-  const nodeIdForKey = useCallback((publicKey: string) => publicKey.slice(0, 12).toLowerCase(), []);
-
-  const topicSummary = useMemo(() => {
-    const items: Array<{
-      kind: 'radio' | 'event' | 'repeater' | 'contact';
-      label: string;
-      publicKey: string;
-      nodeId: string;
-      topics: string[];
-    }> = [];
-
-    if (radioConfig?.public_key) {
-      const nodeId = nodeIdForKey(radioConfig.public_key);
-      items.push({
-        kind: 'radio',
-        label: radioConfig.name || radioConfig.public_key.slice(0, 12),
-        publicKey: radioConfig.public_key,
-        nodeId,
-        topics: [`${prefix}/${nodeId}/health`],
-      });
-      items.push({
-        kind: 'event',
-        label: radioConfig.name || radioConfig.public_key.slice(0, 12),
-        publicKey: radioConfig.public_key,
-        nodeId,
-        topics: [`${prefix}/${nodeId}/events/message`],
-      });
-    }
-
-    for (const repeater of selectedRepeaterDetails) {
-      const nodeId = nodeIdForKey(repeater.public_key);
-      items.push({
-        kind: 'repeater',
-        label: repeater.name || repeater.public_key.slice(0, 12),
-        publicKey: repeater.public_key,
-        nodeId,
-        topics: [`${prefix}/${nodeId}/telemetry`],
-      });
-    }
-
-    for (const contact of selectedContactDetails) {
-      const nodeId = nodeIdForKey(contact.public_key);
-      items.push({
-        kind: 'contact',
-        label: contact.name || contact.public_key.slice(0, 12),
-        publicKey: contact.public_key,
-        nodeId,
-        topics: [`${prefix}/${nodeId}/gps`],
-      });
-    }
-
-    return items;
-  }, [nodeIdForKey, prefix, radioConfig, selectedContactDetails, selectedRepeaterDetails]);
-
-  const kindLabel: Record<(typeof topicSummary)[number]['kind'], string> = {
-    radio: t('settings.fanout.ha.kindRadio'),
-    event: t('settings.fanout.ha.kindEvent'),
-    repeater: t('settings.fanout.ha.kindRepeater'),
-    contact: t('settings.fanout.ha.kindContact'),
-  };
-  const localRadioNodeId = radioConfig?.public_key
-    ? nodeIdForKey(radioConfig.public_key)
-    : '<radio_node_id>';
-  const exampleRepeaterNodeId =
-    selectedRepeaterDetails.length > 0
-      ? nodeIdForKey(selectedRepeaterDetails[0].public_key)
-      : '<repeater_node_id>';
-  const exampleContactNodeId =
-    selectedContactDetails.length > 0
-      ? nodeIdForKey(selectedContactDetails[0].public_key)
-      : '<contact_node_id>';
 
   const toggleTrackedContact = (key: string) => {
     const current = [...selectedContacts];
@@ -1079,261 +998,19 @@ function MqttHaConfigEditor({
           <h3 className="text-base font-semibold tracking-tight">
             {t('settings.fanout.ha.title')}
           </h3>
-          <p className="text-sm text-muted-foreground">{t('settings.fanout.ha.help')}</p>
+          <p className="text-sm text-muted-foreground">
+            {t('settings.fanout.ha.help')}{' '}
+            <a
+              href={userDocsUrl(i18n.language, 'deep/home-assistant')}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-foreground"
+            >
+              {t('settings.fanout.learnMore')}
+            </a>
+          </p>
         </div>
-
-        <div className="grid gap-2 md:grid-cols-3">
-          <div className="rounded-md border border-border/70 bg-background/80 p-3">
-            <div className="text-sm font-medium text-foreground">
-              {t('settings.fanout.ha.step1Title')}
-            </div>
-            <p className="mt-1 text-[0.8125rem] text-muted-foreground">
-              {t('settings.fanout.ha.step1Help')}
-            </p>
-          </div>
-          <div className="rounded-md border border-border/70 bg-background/80 p-3">
-            <div className="text-sm font-medium text-foreground">
-              {t('settings.fanout.ha.step2Title')}
-            </div>
-            <p className="mt-1 text-[0.8125rem] text-muted-foreground">
-              {t('settings.fanout.ha.step2Help')}
-            </p>
-          </div>
-          <div className="rounded-md border border-border/70 bg-background/80 p-3">
-            <div className="text-sm font-medium text-foreground">
-              {t('settings.fanout.ha.step3Title')}
-            </div>
-            <p className="mt-1 text-[0.8125rem] text-muted-foreground">
-              {t('settings.fanout.ha.step3Help')}
-            </p>
-          </div>
-        </div>
-
-        <p className="text-[0.8125rem] text-muted-foreground">
-          <Trans
-            i18nKey="settings.fanout.ha.usesDiscovery"
-            components={{
-              ...transInline,
-              discovery: (
-                <span
-                  role="link"
-                  tabIndex={0}
-                  className="underline cursor-pointer hover:text-primary transition-colors"
-                  onClick={() =>
-                    window.open(
-                      'https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery',
-                      '_blank'
-                    )
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter')
-                      window.open(
-                        'https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery',
-                        '_blank'
-                      );
-                  }}
-                />
-              ),
-              readme: (
-                <span
-                  role="link"
-                  tabIndex={0}
-                  className="underline cursor-pointer hover:text-primary transition-colors"
-                  onClick={() =>
-                    window.open(
-                      'https://github.com/TwinRocket/meshloom/blob/main/README_HA.md',
-                      '_blank'
-                    )
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter')
-                      window.open(
-                        'https://github.com/TwinRocket/meshloom/blob/main/README_HA.md',
-                        '_blank'
-                      );
-                  }}
-                />
-              ),
-            }}
-          />
-        </p>
       </div>
-
-      <details className="group">
-        <summary className="text-sm font-medium text-foreground cursor-pointer select-none flex items-center gap-1">
-          <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-0 -rotate-90" />
-          {t('settings.fanout.ha.whatGetsCreated')}
-        </summary>
-        <div className="mt-2 space-y-2 text-sm text-muted-foreground rounded-md border border-border bg-muted/20 p-3">
-          <div>
-            <span className="font-medium text-foreground">
-              {t('settings.fanout.ha.localRadio')}
-            </span>{' '}
-            {t('settings.fanout.ha.localRadioAlways')}
-            <span className="ml-1">{t('settings.fanout.ha.updatesEvery60s')}</span>
-            <ul className="mt-0.5 ml-4 list-disc space-y-0.5">
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`binary_sensor.meshcore_${localRadioNodeId}_connected`}
-                </code>{' '}
-                {t('settings.fanout.ha.radioOnline')}
-              </li>
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${localRadioNodeId}_noise_floor`}
-                </code>{' '}
-                {t('settings.fanout.ha.radioNoiseFloor')}
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <span className="font-medium text-foreground">
-              {t('settings.fanout.ha.perRepeater')}
-            </span>{' '}
-            {t('settings.fanout.ha.perRepeaterHelp')}
-            <ul className="mt-0.5 ml-4 list-disc space-y-0.5">
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_battery_voltage`}
-                </code>{' '}
-                (V)
-              </li>
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_noise_floor`}
-                </code>
-                ,{' '}
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_last_rssi`}
-                </code>
-                ,{' '}
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_last_snr`}
-                </code>{' '}
-                (dBm/dB)
-              </li>
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_packets_received`}
-                </code>
-                ,{' '}
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_packets_sent`}
-                </code>
-              </li>
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_uptime`}
-                </code>{' '}
-                (seconds)
-              </li>
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_lpp_temperature_ch1`}
-                </code>
-                ,{' '}
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleRepeaterNodeId}_lpp_humidity_ch1`}
-                </code>
-                {t('settings.fanout.ha.lppAuto')}
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <span className="font-medium text-foreground">
-              {t('settings.fanout.ha.perContact')}
-            </span>{' '}
-            {t('settings.fanout.ha.perContactHelp')}
-            <ul className="mt-0.5 ml-4 list-disc space-y-0.5">
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`device_tracker.meshcore_${exampleContactNodeId}`}
-                </code>{' '}
-                {t('settings.fanout.ha.trackerHelp')}
-              </li>
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`sensor.meshcore_${exampleContactNodeId}_lpp_temperature_ch1`}
-                </code>
-                {t('settings.fanout.ha.contactLpp')}
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <span className="font-medium text-foreground">
-              {t('settings.fanout.ha.messageEventsTitle')}
-            </span>{' '}
-            {t('settings.fanout.ha.messageEventsFires')}
-            <ul className="mt-0.5 ml-4 list-disc space-y-0.5">
-              <li>
-                <code className="text-[0.6875rem]">
-                  {`event.meshcore_${localRadioNodeId}_messages`}
-                </code>{' '}
-                {t('settings.fanout.ha.messageEventsTrigger')}
-              </li>
-            </ul>
-          </div>
-
-          <p className="text-[0.6875rem] mt-1.5">
-            <Trans
-              i18nKey="settings.fanout.ha.entityIdsHelp"
-              values={{ prefix }}
-              components={transInline}
-            />
-          </p>
-        </div>
-      </details>
-
-      <details className="group">
-        <summary className="text-sm font-medium text-foreground cursor-pointer select-none flex items-center gap-1">
-          <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-0 -rotate-90" />
-          {t('settings.fanout.ha.publishedTopicSummary')}
-        </summary>
-        <div className="mt-2 space-y-2 rounded-md border border-border bg-muted/20 p-3">
-          <p className="text-xs text-muted-foreground">
-            {t('settings.fanout.ha.topicSummaryHelp')}
-          </p>
-          {topicSummary.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">
-              {t('settings.fanout.ha.noTopicPreviews')}
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {topicSummary.map((item) => (
-                <div
-                  key={`${item.kind}-${item.publicKey}`}
-                  className="rounded border border-border/70 bg-background/70 p-2"
-                >
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                    <span className="font-medium text-foreground">{kindLabel[item.kind]}</span>
-                    <span className="text-foreground">{item.label}</span>
-                    <span className="font-mono text-[0.6875rem] text-muted-foreground">
-                      {t('settings.fanout.ha.nodeId', { id: item.nodeId })}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-[0.6875rem] text-muted-foreground font-mono break-all">
-                    {t('settings.fanout.ha.key', { key: item.publicKey })}
-                  </div>
-                  {item.topics.map((topic) => (
-                    <div
-                      key={topic}
-                      className="mt-1 rounded bg-muted px-2 py-1 text-[0.6875rem] font-mono text-foreground break-all"
-                    >
-                      {topic}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-[0.6875rem] text-muted-foreground">
-            <Trans i18nKey="settings.fanout.ha.discoveryTopics" components={transInline} />
-          </p>
-        </div>
-      </details>
 
       <Separator />
 
@@ -1421,13 +1098,6 @@ function MqttHaConfigEditor({
           value={(config.topic_prefix as string | undefined) ?? ''}
           onChange={(e) => onChange({ ...config, topic_prefix: e.target.value })}
         />
-        <p className="text-[0.6875rem] text-muted-foreground">
-          <Trans
-            i18nKey="settings.fanout.ha.topicPrefixHelp"
-            values={{ prefix }}
-            components={transInline}
-          />
-        </p>
       </div>
 
       <Separator />
@@ -1549,11 +1219,7 @@ function MqttHaConfigEditor({
           {t('settings.fanout.ha.messageEventsHeading')}
         </h3>
         <p className="text-[0.8125rem] text-muted-foreground">
-          <Trans
-            i18nKey="settings.fanout.ha.messageEventsHelp"
-            values={{ entity: `event.meshcore_${localRadioNodeId}_messages` }}
-            components={transInline}
-          />
+          {t('settings.fanout.ha.messageEventsHelp')}
         </p>
       </div>
       <ScopeSelector scope={scope} onChange={onScopeChange} />
@@ -1788,20 +1454,6 @@ function MeshRankConfigEditor({
     <div className="space-y-3">
       <p className="text-[0.8125rem] text-muted-foreground">{t('settings.fanout.meshrank.help')}</p>
 
-      <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        <Trans
-          i18nKey="settings.fanout.meshrank.brokerSummary"
-          values={{
-            host: DEFAULT_MESHRANK_BROKER_HOST,
-            port: DEFAULT_MESHRANK_BROKER_PORT,
-            transport: DEFAULT_MESHRANK_TRANSPORT,
-            auth: DEFAULT_MESHRANK_AUTH_MODE,
-            iata: DEFAULT_MESHRANK_IATA,
-          }}
-          components={transInline}
-        />
-      </div>
-
       <div className="space-y-2">
         <Label htmlFor="fanout-meshrank-topic-template">
           {t('settings.fanout.community.packetTopicTemplate')}
@@ -1840,19 +1492,6 @@ function LetsMeshConfigEditor({
   return (
     <div className="space-y-3">
       <p className="text-[0.8125rem] text-muted-foreground">{t('settings.fanout.letsmesh.help')}</p>
-
-      <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        <Trans
-          i18nKey="settings.fanout.letsmesh.brokerSummary"
-          values={{
-            host: brokerHost,
-            port: DEFAULT_COMMUNITY_BROKER_PORT,
-            transport: DEFAULT_COMMUNITY_TRANSPORT,
-            auth: DEFAULT_COMMUNITY_AUTH_MODE,
-          }}
-          components={transInline}
-        />
-      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -1954,12 +1593,7 @@ function MapUploadConfigEditor({
           onChange={(e) => onChange({ ...config, dry_run: e.target.checked })}
           className="h-4 w-4 rounded border-border"
         />
-        <div>
-          <span className="text-sm font-medium">{t('settings.fanout.map.dryRunLabel')}</span>
-          <p className="text-[0.8125rem] text-muted-foreground">
-            {t('settings.fanout.map.dryRunHelp')}
-          </p>
-        </div>
+        <span className="text-sm font-medium">{t('settings.fanout.map.dryRunLabel')}</span>
       </label>
 
       <Separator />
@@ -2029,9 +1663,6 @@ function MapUploadConfigEditor({
                 })
               }
             />
-            <p className="text-[0.8125rem] text-muted-foreground">
-              {t('settings.fanout.map.radiusHelp')}
-            </p>
           </div>
         </div>
       )}
@@ -3569,7 +3200,15 @@ export function SettingsFanoutSection({
   return (
     <div className={cn('mx-auto w-full max-w-[800px] space-y-4', className)}>
       <div className="rounded-md border border-warning/50 bg-warning/10 px-4 py-3 text-sm text-warning">
-        {t('settings.fanout.list.experimentalBanner')}
+        {t('settings.fanout.list.experimentalBanner')}{' '}
+        <a
+          href={userDocsUrl(i18n.language, 'deep/fanout')}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-foreground"
+        >
+          {t('settings.fanout.learnMore')}
+        </a>
       </div>
 
       {grandfatheredConfigs.length > 0 && (

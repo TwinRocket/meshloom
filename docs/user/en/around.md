@@ -52,13 +52,14 @@ It is an observation tool, not a reliable source of information. Think of it as 
 - Click a packet to open its details.
 - **Show Stats** opens a panel that summarizes what was heard in a time window (1, 5, 10 or 30 minutes, or the whole session): packets per minute, packet types, signal strength, the most-heard neighbors.
 - **Analyze Packet** lets you paste the hexadecimal text of a packet and inspect it.
+- **History** replays the packets stored over a period you choose, in a separate layer, while live traffic keeps recording. Replayed packets have no signal strength, and the source filter is applied in the browser after loading. Deleting undecrypted packets (see [It takes space](#it-takes-space)) can also delete old group data packets.
 
 Packets that could not be decrypted are not necessarily lost. They are what makes decrypting old messages possible later, when you obtain the key of a channel.
 
 ## The rest
 
-- **Trace** sends a test packet through repeaters you choose and back to your radio, and measures the route instead of guessing it. You must be able to hear the last repeater of the chain for the trace to succeed.
-- **Message Search** searches the whole stored history, direct messages and channels together. Clicking a result opens the conversation at that exact point, with the messages around it. You can narrow the search with `user:` or `channel:` followed by a name or a key. Put names that contain spaces in quotes.
+- **Trace** sends a test packet through repeaters you choose and back to your radio, and measures the route instead of guessing it. You must be able to hear the last repeater of the chain for the trace to succeed. The list offers the repeaters known by their full key; **Custom path** adds a raw prefix of 1, 2 or 4 bytes, and all the custom hops of one trace use the same width.
+- **Message Search** searches the whole stored history, direct messages and channels together. Clicking a result opens the conversation at that exact point, with the messages around it. You can narrow the search with `user:` or `channel:` followed by a name or a key. Put names that contain spaces in quotes. The sender of a channel message is matched from the adverts heard around the time it was sent: it is a guess, and two users with the same name are not told apart.
 - **Statistics**, in Settings, summarize what the node has seen: contacts, repeaters, channels and messages, packets per hour over 72 hours, the busiest channels over 24 hours, the noise level, and how much traffic uses regional scopes.
 
 ## The live feed
@@ -112,6 +113,15 @@ Meshloom tries to recognize hashtag channels it hears but has no key for. It fir
 A channel found this way does not enter your conversations by itself. It appears in **Discovered channels**, where you choose **Adopt** to add it to your chats or **Refuse** to dismiss it. Refused channels are kept in a list, so you can reverse your decision.
 
 From the same page, **Show Channel Finder** opens the channel finder. It tries names on the unreadable packets: a dictionary of known names, then word pairs, then every combination up to a length you set. The last step uses your computer's graphics card (WebGPU), so it needs Chrome or Edge 113 or later, and a page served over HTTPS or from `localhost` (see [HTTPS](/en/docs/deep/https/)). The channel finder works with Community off.
+
+Its options:
+
+- **Retry failed at n+1** goes back to the packets it found no name for and tries again, one character longer.
+- **Try word pairs** also tries every pair of dictionary words (`hello` + `world` = `#helloworld`) after the single words. It takes much longer and can give false positives.
+- **Include historical samples and decrypt if found** also uses stored packets, and checks each name found against them so old messages come back.
+- **Turbo mode** pushes the graphics card to its maximum. It can be faster, and it can make the system unstable.
+
+Without HTTPS, the page shows how to fix it: install a TLS certificate, or tell the browser to treat this address as secure (the "insecure origins treated as secure" flag).
 
 ## Radio test
 

@@ -1174,7 +1174,7 @@ describe('SettingsFanoutSection', () => {
     );
   });
 
-  it('shows Home Assistant topic summary with device-key-derived node ids', async () => {
+  it('saves the Home Assistant contacts and repeaters picked in the form', async () => {
     mockedApi.getContacts.mockResolvedValue([
       {
         public_key: 'bb'.repeat(32),
@@ -1245,23 +1245,23 @@ describe('SettingsFanoutSection', () => {
     selectCreateIntegration(tf('create.mqtt_ha.label'));
     confirmCreateIntegration();
 
-    expect(await screen.findByText(tf('ha.publishedTopicSummary'))).toBeInTheDocument();
+    expect(await screen.findByText(tf('ha.title'))).toBeInTheDocument();
 
     fireEvent.click(await screen.findByLabelText(/Alice/));
     fireEvent.click(await screen.findByLabelText(/Repeater One/));
+    fireEvent.click(screen.getByRole('button', { name: tf('list.saveEnabled') }));
 
-    await waitFor(() => {
-      expect(
-        screen.getAllByText(tf('ha.nodeId', { id: 'aaaaaaaaaaaa' })).length
-      ).toBeGreaterThanOrEqual(2);
-      expect(screen.getByText(tf('ha.nodeId', { id: 'bbbbbbbbbbbb' }))).toBeInTheDocument();
-      expect(screen.getByText(tf('ha.nodeId', { id: 'cccccccccccc' }))).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('meshcore/aaaaaaaaaaaa/health')).toBeInTheDocument();
-    expect(screen.getByText('meshcore/aaaaaaaaaaaa/events/message')).toBeInTheDocument();
-    expect(screen.getByText('meshcore/bbbbbbbbbbbb/gps')).toBeInTheDocument();
-    expect(screen.getByText('meshcore/cccccccccccc/telemetry')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockedApi.createFanoutConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'mqtt_ha',
+          config: expect.objectContaining({
+            tracked_contacts: ['bb'.repeat(32)],
+            tracked_repeaters: ['cc'.repeat(32)],
+          }),
+        })
+      )
+    );
   });
 
   it('LetsMesh (US) preset pre-fills the expected broker defaults', async () => {

@@ -866,14 +866,7 @@ function HistoryReplayModal({ open, onOpenChange, displayCap, onLoaded }: Histor
               aria-label={t('rawPacket.historySourceAria')}
               className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
             />
-            <span className="block text-[0.6875rem] text-muted-foreground">
-              {t('rawPacket.historySourceHint')}
-            </span>
           </label>
-
-          <p className="text-[0.6875rem] text-muted-foreground">
-            {t('rawPacket.historyPruneNote')}
-          </p>
 
           <div className="rounded-md border border-border/70 bg-card/70 p-3 text-xs">
             {previewLoading ? (

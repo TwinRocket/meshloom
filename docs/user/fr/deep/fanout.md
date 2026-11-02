@@ -43,6 +43,13 @@ Les messages partent **déchiffrés**, en clair, y compris ceux que vous envoyez
 
 Il envoie les paquets bruts à un collecteur tenu par une communauté, comme LetsMesh ou MeshRank, pour que votre radio serve aussi d’observateur. Seuls les paquets bruts partent, jamais les messages déchiffrés. Le serveur par défaut est celui de LetsMesh US, en WebSockets. Un code de région (IATA) est obligatoire ; une adresse e-mail est facultative (elle permet au collecteur de relier le nœud à vous). Avec LetsMesh, votre radio signe le laissez-passer de connexion avec sa clé ; MeshRank n’en demande pas. En plus des paquets, le collecteur reçoit toutes les cinq minutes un message d’état : nom de la radio, modèle, version de firmware et paramètres radio.
 
+Les préréglages remplissent tout pour vous, et chacun est enregistré comme une intégration MQTT communautaire classique : tous les champs restent modifiables ensuite.
+
+- **MeshRank** : `meshrank.net`, port 8883 en TCP, TLS avec vérification du certificat, sans authentification, code de région `XYZ`. Vous collez seulement le topic de paquets que MeshRank vous donne, du type `meshrank/uplink/<votre id>/{PUBLIC_KEY}/packets`.
+- **LetsMesh (US)** et **LetsMesh (EU)** : `mqtt-us-v1.letsmesh.net` ou `mqtt-eu-v1.letsmesh.net`, port 443 en WebSockets, TLS avec vérification du certificat, authentification par token avec l’hôte du broker comme audience. Vous donnez votre e-mail et votre code de région. Utiliser les deux assure une redondance.
+
+Dans l’éditeur avancé, le topic de paquets accepte `{IATA}` et `{PUBLIC_KEY}`, et le chemin WebSocket vaut `/` par défaut (certains brokers demandent `/mqtt`).
+
 C’est autre chose que le [Meshloom Community](/docs/deep/community/) officiel. Les deux peuvent fonctionner en même temps.
 
 ### Envoi vers la carte
@@ -50,6 +57,11 @@ C’est autre chose que le [Meshloom Community](/docs/deep/community/) officiel.
 Il envoie vers map.meshcore.io les annonces des répéteurs et des serveurs de salon qui diffusent leur position. Il a besoin de la clé privée de la radio pour les signer : le firmware de la radio doit donc autoriser l’export de la clé. Un même nœud est envoyé au plus une fois par heure.
 
 **Il démarre en mode simulation (dry-run).** En mode simulation, Meshloom écrit seulement dans son journal ce qu’il enverrait. Rien n’arrive sur la carte tant que vous n’avez pas décoché **Mode simulation (journal uniquement, pas d’envoi)** dans le formulaire. Un périmètre géographique facultatif limite les envois aux nœuds situés dans un rayon autour de votre radio.
+
+- L’option du firmware qui autorise l’export de la clé est `ENABLE_PRIVATE_KEY_EXPORT=1`.
+- En simulation, la charge est écrite dans le journal au niveau INFO. Vérifiez-la avant de couper la simulation.
+- Le périmètre est centré sur la latitude et la longitude réglées dans **Réglages → Radio**. Tant que la radio n’en a pas, la vérification est sautée et les envois continuent. Il aide à écarter les nœuds qui annoncent une position fausse ou usurpée.
+- Laissez l’adresse d’API vide pour utiliser map.meshcore.io.
 
 ## Choisir ce qui part : la portée
 
@@ -137,6 +149,8 @@ Les intégrations configurées avant cette vérification continuent de fonctionn
 **Les notifications ont déménagé.** Pour être prévenu d’événements (messages directs, mentions, radio hors ligne, nouveaux contacts, alertes) sur Telegram, Discord, ntfy, Home Assistant, Gotify ou tout service Apprise, ajoutez un **canal** dans les [Notifications](/docs/deep/notifications/) : il a ses propres règles, une pause, un bouton de test, des nouvelles tentatives, un journal des envois et une politique de texte qui garde les messages privés hors des services tiers. La sortie Apprise décrite ici reste, et continue de faire ce qu’elle faisait : transmettre chaque message des salons et contacts que vous choisissez, mis en forme avec vos propres modèles. Elle n’a ni règles, ni pause, ni choix par événement. La sortie Apprise est dépréciée et sera retirée en 5.2.0 : elle ne s’ajoute plus depuis l’interface, et [la convertir](#convertir-en-canal-de-notification) en canal de notification prend un clic. Si la même adresse figure aux deux endroits, vous serez prévenu deux fois.
 
 Indiquez une adresse par ligne. Chaque message est envoyé à toutes. Vous pouvez écrire vos propres modèles de texte pour les messages directs et les messages de salon, avec des variables comme l’expéditeur, le texte, le salon, le nombre de sauts et la force du signal. Les mêmes variables servent dans les [modèles de message](/docs/deep/notifications/#modèles-de-message) d’un canal de notification. Les messages que vous avez envoyés vous-même ne sont pas transmis, sauf si vous cochez l’option. Pour Discord, vous pouvez conserver le nom et l’image propres au webhook.
+
+Les messages envoyés par Meshloom n’ont ni route ni données de signal : dans vos modèles, les variables de chemin affichent `direct` et RSSI/SNR restent vides. Pour un salon Matrix de version 12 (identifiants sans nom de serveur), ajoutez `?hsreq=no` à l’adresse. Si un service comme Telegram refuse des messages à cause de caractères spéciaux dans les noms d’expéditeur, désactivez **Mise en forme Markdown**.
 
 Apprise ignore les messages d’un contact ou d’un nom bloqué et ceux d’un salon en sourdine (jusqu’à la fin de la sourdine), comme la liste des conversations. Les sorties machine (MQTT privé, Webhook, Amazon SQS) les reçoivent toujours : un script ou un broker décide lui-même. Pour être averti des événements système (radio hors ligne, nouveaux contacts, alertes) par Apprise, utilisez plutôt un canal Apprise des [Notifications](/docs/deep/notifications/#destination-apprise).
 
