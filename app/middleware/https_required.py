@@ -50,6 +50,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Sequence
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -92,7 +93,7 @@ def _client_is_local(scope: Scope) -> bool:
     return address is not None and is_local(address)
 
 
-def would_refuse(scope: Scope, public_urls: list[str]) -> bool:
+def would_refuse(scope: Scope, public_urls: Sequence[str]) -> bool:
     """Whether ``scope`` would be refused once ``public_urls`` are the declared addresses.
 
     ``PATCH /api/auth/settings`` calls it with the list about to be saved, so an
