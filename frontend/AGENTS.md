@@ -517,9 +517,9 @@ Settings → Remote access (section id `remote`, icon `MonitorSmartphone`, `lazy
 `SettingsModal`), Meshloom Remote over `/api/remote` (`docs/dev/remote.md`; `api.getRemote`,
 `enableRemote`, `disableRemote`, `unregisterRemote`, `rotateRemote`, `issueRemoteEnroll`,
 `revokeRemoteDevice`, `revokeAllRemoteDevices`, `listRemoteAccessRequests`,
-`approveRemoteAccessRequest`, `denyRemoteAccessRequest`; types in `remote/remoteTypes.ts`, not
+`approveRemoteAccessRequest`, `denyRemoteAccessRequest`, `testRemoteDomain`; types in `remote/remoteTypes.ts`, not
 `types.ts`). In `ACCOUNT_SETTINGS_SECTIONS`: every route but enable, disable, unregister, rotate and
-revoke-all is `own_account`, and those five are shown to `isAdmin` only (an admin also reads
+revoke-all is `own_account`, and those five (and the custom domain test) are shown to `isAdmin` only (an admin also reads
 `/auth/users` to name device owners).
 
 - **Never local.** The explanation and privacy note (what the relay sees, passkeys or 2FA
@@ -532,6 +532,10 @@ revoke-all is `own_account`, and those five are shown to `isAdmin` only (an admi
   `app/services/remote_relay.py`; `tests/test_remote_ui_strings.py` pins the copy and checks
   every state and every `errors.remote_*` code (`REMOTE_ERRORS`, the relay refusals) in en and fr.
   The section polls `GET /api/remote` every 15 s.
+- **Custom domain** (`RemoteDomainPanel`, admin, registered): the domain input and the "Test"
+  button (`POST /api/remote/domain/test`). The result and its reasons are
+  `settings.remote.domain.result.<result>` / `.reason.<code>`; the host a domain redirects to is
+  untrusted text (`untrustedText`). Nothing is stored.
 - **Enable.** A dialog that repeats what the relay sees; while plugins run with reduced isolation
   (`pluginsIsolationReduced(health)`, the server's `_plugins_isolation_reduced` rule, an unknown
   health counting as reduced) it blocks until a checkbox is ticked. The same condition with Remote

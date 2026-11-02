@@ -160,6 +160,43 @@
         "revokeAllHelp": "Every enrolled device of every account loses access through the relay at once, and each one has to enrol again.",
         "revokedAll": "Every device was revoked.",
         "notPushed": "The relay is offline: it applies this as soon as it reconnects."
+      },
+      "domain": {
+        "title": "Your own domain",
+        "help": "A personal domain cannot point to the relay with a CNAME. Instead, at your registrar or DNS host (or in Cloudflare), create a URL redirect from your domain to https://{{hostname}}. The address bar then shows {{hostname}} once the page has loaded. Test the redirect from this instance below.",
+        "label": "Your domain",
+        "test": "Test",
+        "testing": "Testing…",
+        "result": {
+          "ok": {
+            "title": "The redirect works",
+            "help": "Your domain redirects to {{hostname}} (HTTP {{status}})."
+          },
+          "no_redirect": {
+            "title": "No redirect",
+            "help": "Your domain answered with HTTP {{status}} and no redirect. Create a URL redirect (HTTP 301 or 302) to https://{{hostname}} at your registrar or DNS host."
+          },
+          "wrong_target": {
+            "title": "Wrong target",
+            "help": "Your domain redirects to “{{target}}” instead of {{hostname}}. Fix the destination of the redirect."
+          },
+          "invalid_domain": {
+            "title": "Not a domain name",
+            "help": "Type a domain name such as chat.example.org, without a port, a path or an IP address."
+          },
+          "unreachable": {
+            "title": "Your domain could not be reached",
+            "help": "This instance could not get an answer from your domain."
+          }
+        },
+        "reason": {
+          "egress_unresolvable": "The name does not resolve: check the DNS record of the domain.",
+          "egress_private_address": "The name points to a private or local address, which is never contacted.",
+          "egress_scheme": "The address is not a valid web address.",
+          "timeout": "The domain did not answer in time.",
+          "tls_error": "The secure connection failed: the certificate does not match the domain.",
+          "connect_error": "The connection was refused or lost."
+        }
       }
     },
     "access": {

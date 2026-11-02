@@ -170,6 +170,15 @@ def _reset_notification_test_limiters():
 
 
 @pytest.fixture(autouse=True)
+def _reset_remote_domain_test_limiter():
+    """The Remote custom domain test allows one test every few seconds, instance-wide."""
+    from app.services.remote import reset_domain_test_limiter
+
+    reset_domain_test_limiter()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _reset_host_guard():
     """The Host guard keeps its mode and the names it observed in memory."""
     from app.middleware import host_guard

@@ -160,6 +160,43 @@
         "revokeAllHelp": "Tous les appareils enrôlés de tous les comptes perdent immédiatement l’accès par le relais, et chacun doit être enrôlé à nouveau.",
         "revokedAll": "Tous les appareils ont été révoqués.",
         "notPushed": "Le relais est hors ligne : il appliquera ce changement dès sa reconnexion."
+      },
+      "domain": {
+        "title": "Votre propre domaine",
+        "help": "Un domaine personnel ne peut pas pointer vers le relais par un CNAME. À la place, chez votre registrar ou votre hébergeur DNS (ou dans Cloudflare), créez une redirection d’URL de votre domaine vers https://{{hostname}}. La barre d’adresse affiche alors {{hostname}} une fois la page chargée. Testez la redirection depuis cette instance ci-dessous.",
+        "label": "Votre domaine",
+        "test": "Tester",
+        "testing": "Test en cours…",
+        "result": {
+          "ok": {
+            "title": "La redirection fonctionne",
+            "help": "Votre domaine redirige vers {{hostname}} (HTTP {{status}})."
+          },
+          "no_redirect": {
+            "title": "Aucune redirection",
+            "help": "Votre domaine a répondu HTTP {{status}} sans redirection. Créez une redirection d’URL (HTTP 301 ou 302) vers https://{{hostname}} chez votre registrar ou votre hébergeur DNS."
+          },
+          "wrong_target": {
+            "title": "Mauvaise destination",
+            "help": "Votre domaine redirige vers « {{target}} » au lieu de {{hostname}}. Corrigez la destination de la redirection."
+          },
+          "invalid_domain": {
+            "title": "Ce n’est pas un nom de domaine",
+            "help": "Saisissez un nom de domaine tel que chat.example.org, sans port, sans chemin et sans adresse IP."
+          },
+          "unreachable": {
+            "title": "Votre domaine est injoignable",
+            "help": "Cette instance n’a obtenu aucune réponse de votre domaine."
+          }
+        },
+        "reason": {
+          "egress_unresolvable": "Le nom ne se résout pas : vérifiez l’enregistrement DNS du domaine.",
+          "egress_private_address": "Le nom pointe vers une adresse privée ou locale, qui n’est jamais contactée.",
+          "egress_scheme": "L’adresse n’est pas une adresse web valide.",
+          "timeout": "Le domaine n’a pas répondu à temps.",
+          "tls_error": "La connexion sécurisée a échoué : le certificat ne correspond pas au domaine.",
+          "connect_error": "La connexion a été refusée ou interrompue."
+        }
       }
     },
     "access": {
